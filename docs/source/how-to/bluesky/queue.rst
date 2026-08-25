@@ -195,7 +195,7 @@ quirks worth knowing:
      from the live view until the next run starts — the run itself keeps
      going and its data still lands in Tiled.
 
-.. dropdown:: For deployers — what is running, and the config block
+.. dropdown:: For deployers — what is running
    :color: info
    :icon: server
 
@@ -207,26 +207,9 @@ quirks worth knowing:
    8091). The launch token is minted automatically at deploy time and stored
    in the project's ``.env``.
 
-   The build profile's ``bluesky:`` block accepts exactly five keys — a
-   misspelled or unknown key **fails the build** and prints the valid set:
-
-   .. list-table::
-      :header-rows: 1
-      :widths: 30 70
-
-      * - Key
-        - What it does
-      * - ``port``
-        - The bridge's port (default 8090).
-      * - ``tiled_enabled``
-        - Deploy the Tiled data store alongside the stack.
-      * - ``tiled_port``
-        - Tiled's port (default 8091).
-      * - ``plan_dir``
-        - A directory of your facility's own plans — see
-          :doc:`write-plans`.
-      * - ``excluded_plans``
-        - Plans to remove from the catalog entirely, e.g. ``[orm]``.
+   The build profile's ``bluesky:`` block sets the ports, the Tiled store, and
+   which plans the catalog carries — see
+   :doc:`/reference/configuration/profile`.
 
    Whether a deployment can execute plans at all is decided by its control
    system: ``virtual_accelerator`` and ``epics`` can, ``mock`` is

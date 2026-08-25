@@ -239,35 +239,13 @@ starts.
 
 If you write your own service template, leave ``profiles:`` out of it.
 
-.. _compose-interpolation-precedence:
-
 Where ``${VAR}`` values come from
 ---------------------------------
 
-Compose fills in ``${VAR}`` placeholders in the rendered compose files from two
-sources: the env file(s) the command passes, and the environment of the shell
-you typed the command in. **The two supported providers disagree about which of
-those wins**, and the disagreement is a straight inversion:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 28 72
-
-   * - Provider
-     - What gets substituted when both sources set a variable
-   * - Docker Compose v2
-     - The **exported shell value**. ``--env-file`` is its lower-precedence
-       source, so a variable exported in your shell overrides the env chain.
-   * - podman-compose
-     - The **env-file value**. It resolves from the env file before the calling
-       shell, so the export reaches nothing.
-
-You do not have to remember this. ``osprey up`` compares the two sources on
-every start, and when an exported variable disagrees with the value the env
-chain resolves to it warns by name — never by value — and states which value
-the provider it just probed will actually use, plus what to do about it. The
-reliable habit is to put the value in the env chain and leave your shell out of
-it: that is the one gesture that means the same thing on both providers.
+Compose fills in ``${VAR}`` placeholders from the env file(s) the command
+passes and from the shell you typed it in, and the two supported providers
+disagree about which wins. The precedence table, and what ``osprey up`` does
+about the disagreement, are in :ref:`compose-interpolation-precedence`.
 
 .. _podman-network-backend:
 
@@ -482,7 +460,7 @@ change — rerun ``osprey up --build --dev`` to re-render and rebuild it.
    :ref:`profile-services`
        Authoritative ``services:`` schema for build profiles.
 
-   :doc:`/how-to/deploy-project/project-image`
+   :doc:`project-image`
        The *project image* (assistant + web terminal in one container) built
        from the generated ``Dockerfile`` — distinct from the service
        containers this page covers.

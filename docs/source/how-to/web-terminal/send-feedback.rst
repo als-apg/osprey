@@ -208,34 +208,13 @@ with ``context_pruned``, and one missing its context for any other reason with
 ``context_missing`` — the submission itself is exported either way, so the
 history of what people reported stays complete.
 
-.. _feedback-configuration:
-
 Point the channels at your facility
 -----------------------------------
 
 Three string keys under ``web`` aim the two rail controls, and a fourth bounds
-the store they fill:
-
-.. code-block:: yaml
-
-   web:
-     docs_url: https://als-apg.github.io/osprey   # the Documentation control
-     feedback:
-       github_repo: als-apg/osprey                # owner/repo for the GitHub channel
-       email: thellert@lbl.gov                    # recipient of the mail draft
-       max_store_bytes: 268435456                 # 256 MB store ceiling
-
-Leaving a key out gives you the shipped default above. Setting one of the three
-**string** keys to an **explicitly blank** value (``docs_url: ""``) means "this
-deployment has no such target" and removes the control. An air-gapped control
-room blanks ``web.docs_url`` rather than shipping a link that opens a dead tab;
-blanking ``web.feedback.github_repo`` retires the GitHub channel instead of
-aiming reports at the upstream maintainers' tracker. ``max_store_bytes`` wants
-a positive byte count; anything else (blank included) is logged and replaced by
-the default. The Local channel is always available and needs no configuration.
-
-:doc:`operate` carries the full table, including what a key written
-with no value at all does.
+the store they fill. The table, the shipped defaults, and what a blank value
+means are in :ref:`config-web`. The Local channel is always available and needs
+no configuration at all.
 
 .. note::
 
@@ -248,8 +227,10 @@ with no value at all does.
 .. seealso::
 
    :doc:`operate`
-      Running the terminal the feedback dialog lives in, and the full ``web``
-      settings table.
+      Running the terminal the feedback dialog lives in.
+
+   :ref:`config-web`
+      The full ``web`` settings table.
 
    :doc:`multi-user/index`
       Per-user web terminals and the roster that decides how feedback is stored

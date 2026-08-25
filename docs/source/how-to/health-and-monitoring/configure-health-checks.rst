@@ -13,7 +13,9 @@ endpoints, MCP servers, deployed containers, control-system channels, model
 providers) and tune the suite's timing — ``osprey build`` renders it into
 ``config.yml``.
 
-This guide covers the ``health:`` configuration surface. For the shape of the
+This guide shows how to put that surface to work. Every ``health:`` field —
+the suite scalars, the declarative categories, the six probe types and their
+parameters — is catalogued in :ref:`config-health`. For the shape of the
 ``--json`` report and the exit codes that go with it, see
 :doc:`/reference/contracts/health-json`; for the full flag list, see
 ``osprey health --help``.
@@ -49,101 +51,6 @@ execute:
 
 A ``skip`` row does not fail the suite (it counts toward exit code 0), so a
 default run stays green even though its on_demand categories were never executed.
-
-The ``health:`` block
----------------------
-
-All configuration lives under a top-level ``health:`` key. Every field is
-optional; an absent ``health:`` block runs the built-in checks with their
-default timing.
-
-.. code-block:: yaml
-
-   health:
-     suite_timeout_s: 30          # poll-class wall-clock budget (default 30)
-     on_demand_timeout_s: 120     # on_demand wall-clock budget (default: sum of budgets)
-     interval_s: 300              # minimum server-side re-run interval
-
-     plugins:
-       - my_facility.health       # dotted module paths (see "Health plugins")
-
-     categories:
-       beamline_services:         # a facility-defined category of probe checks
-         checks:
-           - name: archiver
-             type: http
-             url: http://archiver.example.com/healthz
-           - name: bluesky_server
-             type: mcp
-             url: http://localhost:8931/mcp
-
-       providers:                 # metadata-only override of a built-in category
-         timeout_s: 15
-
-Probe checks
-------------
-
-A **declarative category** is a named entry under ``health.categories`` with a
-``checks:`` list. Each check names a probe ``type`` and its parameters; the
-suite runs the checks and grades each result ``ok`` / ``warning`` / ``error`` /
-``skip``. Six probe types ship:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 18 82
-
-   * - ``type``
-     - Purpose and parameters
-   * - ``http``
-     - GET a URL and grade the response. ``url`` (required); ``expect_status``
-       (default ``200``); ``warn_latency_ms`` / ``error_latency_ms`` (optional
-       latency ceilings — over the warn ceiling is a ``warning``, over the error
-       ceiling an ``error``).
-   * - ``mcp``
-     - Handshake an MCP server over streamable HTTP and list its tools. ``url``
-       (required); ``expect_tools`` (optional list of tool names that must be
-       present). With no ``expect_tools``, a server exposing zero tools is an
-       ``error``.
-   * - ``container``
-     - Check a deployed container's state and healthcheck. ``container``
-       (required; alias ``service``) — the container/service name, matched
-       fuzzily against the running containers. Not-deployed or non-running is a
-       ``warning``; **no container runtime installed is a** ``skip``.
-   * - ``channel_read``
-     - Read one control-system channel through the suite's connector and grade
-       the value. ``address`` (required); ``expect`` (required exact value), or
-       inclusive numeric bands ``ok_range: [lo, hi]`` and ``warn_range:
-       [lo, hi]`` (outside the warn band is an ``error``, outside the ok band a
-       ``warning``). With neither, a successful read is a liveness ``ok``.
-   * - ``provider_canary``
-     - Make a minimal connectivity call to a model provider. ``provider`` — the
-       provider name to test (e.g. ``cborg``); ``api_key`` / ``base_url``
-       (optional, ``${VAR}`` allowed; fall back to
-       ``api.providers.<provider>``); ``model_id`` (optional). A canary never
-       emits ``error`` — an unreachable provider is a ``warning``.
-   * - ``archiver_freshness``
-     - Verify the deployment's archiver is reachable **and actually
-       accumulating data**: query the newest archived sample of a canary
-       channel through the ``archiver:`` connector. ``channel`` (required);
-       ``max_age_s`` (default 600) — a newest sample older than this is a
-       ``warning``, as is an empty query window. An unreachable archiver, or an
-       ``archiver_freshness`` check declared with no ``archiver:`` configured,
-       is an ``error``. A reachable archiver UI does not prove data is flowing
-       — this probe checks the data. A project that deploys its own archive can
-       have this check **derived** rather than declared (below).
-
-.. note::
-
-   For ``provider_canary``, ``name:`` and ``provider:`` are distinct: ``name``
-   is the check's **result identity** (the row label in the report), while
-   ``provider`` selects **which provider to test**. When ``provider`` is
-   omitted, the probe falls back to ``name`` — so a check named after the
-   provider works, but to test one provider under a different row label you must
-   set both.
-
-Every check also accepts the reserved keys ``name`` (required, unique within its
-category), ``timeout_s``, ``timeout_status``, and ``requires:`` (below). Any
-other key becomes a probe parameter.
 
 Recipe: a control-system smoke test
 ------------------------------------
@@ -222,214 +129,6 @@ profile that sets ``freshness_channel`` and also declares
 because the two would be one fact in two homes, merged in whichever order the
 keys happened to be read.
 
-Built-in service categories
----------------------------
-
-Beyond the always-on framework checks, three built-in categories are
-**presence-gated on their config blocks**: they contribute rows only when the
-corresponding service is configured, so a minimal build shows no empty tiles.
-
-- ``ariel`` — appears when a top-level ``ariel:`` block is configured. Probes
-  the ARIEL interface's status endpoint and reports: reachability, logbook
-  entry count, last ingestion time, and the registered search and enhancement
-  modules. The interface sidecar runs with ``osprey web``, so a CLI-only run
-  on a stopped stack reports the interface as unreachable (a ``warning``).
-- ``channel_finder`` — appears when a top-level ``channel_finder:`` block is
-  configured. Reports the active pipeline mode, verifies the pipeline's
-  channel-database file exists (a configured-but-missing database is an
-  ``error``), shows the database's age, and — for the ``middle_layer``
-  pipeline — the channel count from the materialized DuckDB.
-
-  The ``graph`` pipeline reads different rows, because it answers from the
-  graph store rather than from a file on disk. The pipeline row reports it as
-  store-backed, and in place of the database rows the category reports the
-  store's **reachability** and its **resource count** — the same two readings
-  the ``graphdb`` category takes, so a stopped store warns rather than
-  failing the suite. A graph-mode build configures no ``database.path`` and is
-  never warned about one missing: there is no channel-database file in that
-  paradigm to look for (see :doc:`../use-channel-finder`). The ``graphdb`` tile is
-  always alongside — graph mode needs that block — so these rows restate the
-  same store readings in the channel finder's own terms: whether *channel
-  search* has anything to answer from.
-- ``graphdb`` — appears when a ``services.graphdb`` block is configured (see
-  :doc:`../deploy-project/index`). Two rows: **connection**, which dials the store over
-  bolt and reports the round-trip latency, and **resources**, the number of
-  ``(:Resource)`` nodes in the graph — the nodes the TTL corpus imports.
-  Bootstrapping a store creates neosemantics bookkeeping nodes whether or not a
-  corpus was ever loaded, so counting ``(:Resource)`` specifically is what keeps
-  an empty graph from reading as a populated one; a count of zero warns and
-  names ``osprey knowledge seed-graph`` as the remedy. The agent's own graph
-  tools report the same degraded states from the inside — see
-  :doc:`../facility-knowledge/use-facility-graph`.
-
-.. note::
-
-   The ``graphdb`` category dials **bolt** — ``services.graphdb.port_host``, or
-   an explicit ``services.graphdb.uri`` — never the ``http_port_host`` the Neo4j
-   Browser and the container healthcheck use. That is the address its remedies
-   name, so a probe that fails is pointing at the port the seeder also uses.
-
-   Every row it produces is ``ok`` or ``warning``, never ``error``. A store that
-   is stopped, unreachable, rejecting its credential, or simply unseeded is a
-   service that is not running rather than a broken build, and the category says
-   so in one line instead of failing the suite.
-
-All three are ordinary categories: valid under ``--category``, tunable via a
-metadata-only override, and rendered as dashboard tiles with no extra
-configuration.
-
-Auto-derived MCP server checks (``health.auto``)
-------------------------------------------------
-
-Every MCP server your build wires up is already described in ``config.yml``
-under ``claude_code.servers``. Rather than make you re-declare each one as an
-``mcp`` probe, the framework reads those blocks and builds an ``mcp_servers``
-category for you — one reachability check per server. It is on by default, so
-you normally configure nothing.
-
-.. code-block:: yaml
-
-   health:
-     auto:
-       mcp:
-         enabled: true        # default true — set false to drop the category
-         url_key: host_url    # which URL to probe (see below)
-
-A server is included when its ``claude_code.servers`` block carries a ``url`` and
-a ``network`` block with a URL to reach it. Servers without those are skipped.
-
-**Which URL is probed.** Each server block records two URLs: ``host_url`` (the
-server seen from the machine, ``http://localhost:<port>/mcp``) and ``docker_url``
-(the server seen from inside a container, ``http://<name>:<port>/mcp``). The
-category picks one automatically:
-
-- If you set ``url_key`` explicitly, that choice is always used.
-- Otherwise the framework detects whether the health check is itself running
-  inside a container — the runtime's own marker file, ``/.dockerenv`` under
-  Docker or ``/run/.containerenv`` under Podman, or an ``OSPREY_IN_CONTAINER``
-  environment variable you set yourself — and uses ``docker_url`` when
-  containerized, ``host_url`` on a plain host. Nothing in the shipped
-  deployment sets that variable; set ``url_key`` explicitly when the automatic
-  answer is wrong for your network layout (a host-networked container is in a
-  container but cannot resolve compose service names).
-
-**Expected tools.** If a server block declares ``permissions`` (its ``allow``
-and ``ask`` tool lists), the derived check also confirms the server actually
-exposes those tools, not just that it answers — a reachable server missing an
-expected tool is graded an ``error``. A server with no declared permissions gets
-a plain reachability check.
-
-.. warning::
-
-   ``docker_url`` assumes the container's hostname matches the server's key in
-   ``config.yml`` — a server named ``matlab`` is probed at ``http://matlab:…``.
-   If your compose service is named differently, the probe points at a host that
-   does not exist. Either rename the service to match the key, or set
-   ``url_key: host_url`` to probe the localhost URL instead.
-
-Timeouts
---------
-
-``timeout_s`` bounds a single check. Omit it and the probe's per-type default
-applies:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 40 25
-
-   * - Check
-     - Default ``timeout_s``
-   * - ``http``
-     - 5
-   * - ``mcp``
-     - 10
-   * - ``container``
-     - 10
-   * - ``channel_read``
-     - 5
-   * - ``provider_canary``
-     - 5
-   * - ``archiver_freshness``
-     - 10
-   * - callable category (poll)
-     - ``suite_timeout_s``
-   * - callable category (on_demand)
-     - 60
-
-``timeout_status`` sets the status emitted when a check's own timeout fires —
-``error`` (the default) or ``warning``. Use ``warning`` for a dependency whose
-unresponsiveness should be treated as non-fatal:
-
-.. code-block:: yaml
-
-   health:
-     categories:
-       beamline_services:
-         checks:
-           - name: archiver
-             type: http
-             url: http://archiver.example.com/healthz
-             timeout_status: warning   # a slow archiver warns, never errors
-
-.. warning::
-
-   ``timeout_status: warning`` composes literally with ``requires:`` (below).
-   A ``requires:`` dependency *passes* when its status is ``ok`` **or**
-   ``warning`` — so a dependency that times out under ``timeout_status:
-   warning`` still counts as passed, and its dependents still run. Setting
-   ``timeout_status: warning`` on a check that *gates* others is therefore an
-   explicit opt-in to "an unresponsive dependency is non-fatal"; leave it at the
-   default ``error`` if a timed-out gate should skip everything downstream.
-
-Dependencies (``requires:``)
-----------------------------
-
-A check may declare ``requires:`` — a list of *earlier* checks in the **same
-category** that must pass before it runs. A dependency passes when its status is
-``ok`` or ``warning``; if any dependency does not pass, the dependent is emitted
-as ``skip`` without running, and that ``skip`` in turn fails *its* dependents
-(the cascade). Independent checks in a category still run concurrently — only a
-genuine dependency chain serializes.
-
-.. code-block:: yaml
-
-   health:
-     categories:
-       beamline_services:
-         checks:
-           - name: gateway
-             type: http
-             url: http://gateway.example.com/healthz
-           - name: archiver
-             type: http
-             url: http://archiver.example.com/healthz
-             requires: [gateway]   # skipped if the gateway check did not pass
-
-A dependency must reference a check declared earlier in the list; a forward
-reference, a self-reference, an unknown name, or a duplicate check name is a
-configuration error at load time.
-
-Category metadata overrides
----------------------------
-
-A ``health.categories.<name>`` entry with **no** ``checks:`` list is a
-metadata-only override. It may set ``cost`` (``poll`` / ``on_demand``) and/or
-``timeout_s`` for a category defined elsewhere — a built-in (core) category or a
-plugin category — without redefining it:
-
-.. code-block:: yaml
-
-   health:
-     categories:
-       providers:
-         timeout_s: 15        # give the built-in providers category a longer budget
-       model_chat:
-         cost: poll           # run model_chat on every health check (use with care)
-
-The reverse is rejected: a ``checks:`` list under a built-in category name is a
-load-time error ("cannot redefine built-in category") — use metadata-only keys
-to adjust a built-in, and a new category name for your own probe checks.
-
 Health plugins
 --------------
 
@@ -446,34 +145,14 @@ module path. The module must expose:
 Each callable takes no arguments and returns a list of
 ``osprey.health.models.CheckResult``; it may be sync or async. Plugin categories
 run alongside the built-in and declarative categories through the same path, and
-default to ``cost: poll`` (adjust with a metadata override, as above).
+default to ``cost: poll`` (adjust with a metadata override — see
+:ref:`config-health`).
 
 Plugin loading is fail-safe: a plugin that fails to import, is missing
 ``get_health_categories()``, returns the wrong type, or whose category name
 collides with a built-in, a declarative, or an earlier plugin category, produces
 a single ``error`` row in a diagnostic ``plugins`` category — it never crashes
 the suite.
-
-Suite timing
-------------
-
-Three scalar settings tune the suite as a whole:
-
-- ``suite_timeout_s`` (default 30) — the wall-clock budget bounding all
-  poll-class categories collectively. It is also the default budget for a
-  poll-class callable category.
-- ``on_demand_timeout_s`` — the wall-clock budget bounding all on_demand
-  categories collectively (only relevant under ``--full``). When omitted it
-  defaults to the sum of the selected on_demand categories' budgets.
-- ``interval_s`` — the minimum interval between server-side re-runs. When
-  omitted it derives as ``max(60, 2 × suite_timeout_s)``; an explicit value must
-  be greater than ``suite_timeout_s`` or the config is rejected. This value is
-  validated but not yet enforced by ``osprey health`` itself.
-
-At a cost-class deadline, unfinished checks are not dropped — every configured
-check still produces a row (an eligible pending check becomes an ``error``
-"suite deadline exceeded"; a pending check whose dependency failed becomes a
-``skip``), so the report always accounts for every declared check.
 
 The web dashboard (``SYSTEM`` panel)
 ------------------------------------
@@ -588,7 +267,7 @@ window return right away from the cache.
 
 A full check runs everything fresh and takes about as long as the ``on_demand``
 checks it covers add up to — bounded by ``on_demand_timeout_s`` (see
-`Suite timing`_) plus the poll tier's own budget. Expect it to be the slower of
+:ref:`config-health`) plus the poll tier's own budget. Expect it to be the slower of
 the two, which is the other reason it is approval-gated.
 
 One server per session

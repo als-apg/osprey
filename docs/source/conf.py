@@ -66,7 +66,50 @@ extensions = [
 # Old page path -> new location. Keys are docnames (no suffix) of pages that no
 # longer exist; values are PAGE-RELATIVE targets with the `.html` suffix, e.g.
 # "cli-reference/index": "../reference/cli.html". Populated as pages move.
-redirects: dict[str, str] = {}
+redirects: dict[str, str] = {
+    # CLI reference -> the new top-level Reference section
+    "cli-reference/index": "../reference/cli.html",
+    # Build & deploy
+    "how-to/containerize-project": "deploy-project/project-image.html",
+    "how-to/deploy-project": "deploy-project/index.html",
+    "how-to/configure-providers": "llm-providers/configure-providers.html",
+    "how-to/run-open-models": "llm-providers/run-open-models.html",
+    # Operate: web terminal
+    "how-to/use-web-terminal": "web-terminal/index.html",
+    "how-to/send-feedback": "web-terminal/send-feedback.html",
+    "how-to/multi-user": "web-terminal/multi-user/index.html",
+    "how-to/multi-user/index": "../web-terminal/multi-user/index.html",
+    "how-to/multi-user/login": "../web-terminal/multi-user/login.html",
+    "how-to/multi-user/tiers": "../web-terminal/multi-user/tiers.html",
+    # Operate: agent interfaces
+    "how-to/use-cli-chat": "agent-interfaces/cli-agent.html",
+    "how-to/non_interactive_query": "agent-interfaces/cli-agent.html",
+    "how-to/cli-agent": "agent-interfaces/cli-agent.html",
+    "how-to/event-dispatch": "agent-interfaces/event-dispatch.html",
+    "how-to/add-mcp-server": "agent-interfaces/add-mcp-server.html",
+    "how-to/chat-bridges/index": "../agent-interfaces/chat-bridges/index.html",
+    "how-to/chat-bridges/nextcloud-talk": "../agent-interfaces/chat-bridges/nextcloud-talk.html",
+    "how-to/chat-bridges/google-chat": "../agent-interfaces/chat-bridges/google-chat.html",
+    "how-to/chat-bridges/add-a-channel": "../agent-interfaces/chat-bridges/add-a-channel.html",
+    # Operate: health and monitoring
+    "how-to/configure-health-checks": "health-and-monitoring/configure-health-checks.html",
+    "how-to/monitor-agent": "health-and-monitoring/monitor-agent.html",
+    "how-to/health-json-contract": "../reference/contracts/health-json.html",
+    # Operate: control systems
+    "how-to/add-connector": "control-systems/use-connectors.html",
+    "how-to/use-virtual-accelerator": "control-systems/use-virtual-accelerator.html",
+    "how-to/switch-control-target": "control-systems/switch-control-target.html",
+    "how-to/protected-set": "control-systems/protected-set.html",
+    # Facility services
+    "how-to/use-facility-knowledge": "facility-knowledge/index.html",
+    "how-to/use-facility-graph": "facility-knowledge/use-facility-graph.html",
+    "how-to/okf-bundle": "facility-knowledge/okf-bundle.html",
+    "how-to/facility-rules": "facility-knowledge/facility-rules.html",
+    "how-to/search-sidecar": "facility-knowledge/search-sidecar.html",
+    "how-to/ariel/osprey-integration": "../../reference/contracts/ariel.html",
+    # Developer material
+    "how-to/use-python-executor": "../architecture/python-executor.html",
+}
 
 templates_path = ["_templates"]
 exclude_patterns = []

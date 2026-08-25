@@ -1,0 +1,11 @@
+Extending the integration
+=========================
+
+ARIEL is the interface to logbook data. A facility adapter ingests entries,
+data enhancement enriches them, and pluggable search modules expose them.
+Multi-step reasoning, answer synthesis, and any custom workflow over ARIEL's
+results live in the agent layer, not in ARIEL itself.
+
+The recommended way to build such a workflow is to write a skill. Skills run
+inside the Osprey agent, can call ARIEL's MCP tools directly, and ship inside
+your build profile under ``skills/`` --- see :doc:`/how-to/build-profiles`.

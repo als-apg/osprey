@@ -6,18 +6,6 @@ The ``osprey health --json`` Contract
 The exact shape of the document ``osprey health --json`` writes, the exit codes
 that accompany it, and how to consume both from a CI job.
 
-.. dropdown:: What You'll Learn
-   :color: primary
-   :icon: book
-
-   - The nine-key report envelope and what each field means
-   - The per-check row shape, including which three keys are optional
-   - The four check statuses and the five exit codes
-   - The machine-clean stdout guarantee that makes piping to ``jq`` safe
-   - How the agent's MCP health tools extend the same envelope
-
-   **Prerequisites:** A deployment repository with a ``config.yml``.
-
 Overview
 --------
 
@@ -328,25 +316,9 @@ serve the **same nine-key envelope** plus three keys of their own:
      - A stale snapshot was served because a wedged worker thread blocked the
        refresh.
 
-``health_check`` runs the poll tier and may serve a cached snapshot, so all
-three keys vary. ``health_check_full`` runs the full suite fresh on every
-call — the poll tier plus ``on_demand``; it is approval-gated — and therefore
-always reports ``cached: false``, ``age_s: 0``, ``refresh_suppressed: false``.
-
-.. note::
-
-   The nine envelope keys and the check-row shape are the contract, shared by
-   the CLI, the web dashboard, and both MCP tools. ``cached``, ``age_s``, and
-   ``refresh_suppressed`` are specific to the MCP surface: ``osprey health
-   --json`` never emits them. Write consumers against the nine; branch on the
-   three only in code that talks to the MCP tools.
-
-One behavioural difference is worth knowing when a category filter is in play.
-Under ``health_check``, a filtered call recomputes the counts from the selected
-rows but leaves ``elapsed_ms`` and ``deadline_hit`` describing the underlying
-unfiltered suite run. ``health_check_full`` passes the filter into the run
-itself and so behaves like the CLI, where ``--category`` scopes the run — all
-nine keys describe the same scoped run.
+For what those three fields mean when you are reading an agent's answer, see
+the "Reading the freshness fields" section of
+:doc:`/how-to/health-and-monitoring/configure-health-checks`.
 
 .. seealso::
 

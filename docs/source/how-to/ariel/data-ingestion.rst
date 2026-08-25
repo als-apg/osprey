@@ -2,7 +2,7 @@
 Data Ingestion
 ==============
 
-ARIEL's ingestion system converts facility-specific logbook data into a common schema and optionally enriches it through a pipeline of enhancement modules. Before ARIEL can search anything, logbook data must be ingested into its PostgreSQL database. Logbook systems differ in their APIs, file formats, field names, and conventions; ARIEL's ingestion layer abstracts over these differences through pluggable `facility adapters`_ that normalize entries into a common schema and store them in the `database`_. After ingestion, optional `enhancement modules <Enhancement Pipeline_>`_ can enrich the stored entries with additional computed fields --- vector embeddings for semantic search, LLM-extracted keywords and summaries, or any other derived metadata. Enhancement is a separate step from ingestion: you can ingest first and enhance later, re-enhance with different models, or skip enhancement entirely if you only need keyword search.
+ARIEL's ingestion system converts facility-specific logbook data into a common schema and optionally enriches it through a pipeline of enhancement modules. Before ARIEL can search anything, logbook data must be ingested into its PostgreSQL database. Logbook systems differ in their APIs, file formats, field names, and conventions; ARIEL's ingestion layer abstracts over these differences through pluggable `facility adapters`_ that normalize entries into a common schema and store them in the :doc:`database </reference/contracts/ariel>`. After ingestion, optional `enhancement modules <Enhancement Pipeline_>`_ can enrich the stored entries with additional computed fields --- vector embeddings for semantic search, LLM-extracted keywords and summaries, or any other derived metadata. Enhancement is a separate step from ingestion: you can ingest first and enhance later, re-enhance with different models, or skip enhancement entirely if you only need keyword search.
 
 Ingestion Architecture
 ----------------------
@@ -10,7 +10,7 @@ Ingestion Architecture
 .. raw:: html
    :file: ../../_diagrams/ariel-ingestion.html
 
-The ingestion pipeline follows a linear flow. A `facility adapter <Facility Adapters_>`_ connects to the source system --- whether that is a live HTTP API, a JSONL dump, or any other data source --- and yields entries one at a time as ``EnhancedLogbookEntry`` TypedDicts. Each entry carries a unique ID, timestamp, author, raw text, and a metadata dict for facility-specific fields. The ``ARIELRepository`` upserts these entries into the ``enhanced_entries`` table in PostgreSQL, deduplicating by entry ID so that re-running ingestion is safe and idempotent. Once the base entries are stored, optional `enhancement modules <Enhancement Pipeline_>`_ can be run as a separate step to compute additional derived fields --- embeddings, keywords, summaries, or any other enrichment --- and write them back to the `database`_.
+The ingestion pipeline follows a linear flow. A `facility adapter <Facility Adapters_>`_ connects to the source system --- whether that is a live HTTP API, a JSONL dump, or any other data source --- and yields entries one at a time as ``EnhancedLogbookEntry`` TypedDicts. Each entry carries a unique ID, timestamp, author, raw text, and a metadata dict for facility-specific fields. The ``ARIELRepository`` upserts these entries into the ``enhanced_entries`` table in PostgreSQL, deduplicating by entry ID so that re-running ingestion is safe and idempotent. Once the base entries are stored, optional `enhancement modules <Enhancement Pipeline_>`_ can be run as a separate step to compute additional derived fields --- embeddings, keywords, summaries, or any other enrichment --- and write them back to the :doc:`database </reference/contracts/ariel>`.
 
 .. admonition:: Batch and Live Ingestion
    :class: note
@@ -286,115 +286,9 @@ The computed interval is capped at ``max_interval_seconds``. After a successful 
    in the ``watch`` config block to start polling from the beginning of time instead.
 
 
-.. _`database`:
-
-Database Schema
-===============
-
-All ingested and enhanced data lives in PostgreSQL. The core ``enhanced_entries`` table stores one row per logbook entry with the normalized fields that every adapter produces --- entry ID, timestamp, author, raw text, and a JSONB metadata column for facility-specific extras. Enhancement modules write their results either into columns on this same table (keywords, summaries) or into dedicated per-model tables (vector embeddings). The pgvector extension provides the ``vector`` column type and cosine-distance operators that power semantic search. Core tables and an embedding table for each configured model are created automatically by ``osprey ariel migrate``, which reads ``enhancement_modules.text_embedding.models`` to determine which embedding tables to create. ``osprey ariel reembed`` (re)creates and backfills a single model's table on demand.
-
-.. admonition:: pgvector requirement
-   :class: important
-
-   The **pgvector** extension is required for semantic search. It is automatically installed in the Osprey-managed PostgreSQL container (``osprey up``). For external databases, install it manually: ``CREATE EXTENSION IF NOT EXISTS vector;``
-
-Core Tables
------------
-
-**enhanced_entries** --- Primary storage for logbook entries:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 25 20 55
-
-   * - Column
-     - Type
-     - Description
-   * - ``entry_id``
-     - ``TEXT PRIMARY KEY``
-     - Unique entry identifier
-   * - ``source_system``
-     - ``TEXT``
-     - Origin system name (e.g., "ALS eLog")
-   * - ``timestamp``
-     - ``TIMESTAMPTZ``
-     - Entry creation time
-   * - ``author``
-     - ``TEXT``
-     - Entry author
-   * - ``raw_text``
-     - ``TEXT``
-     - Full entry text (subject + details)
-   * - ``summary``
-     - ``TEXT``
-     - LLM-generated summary (from semantic processor)
-   * - ``keywords``
-     - ``TEXT[]``
-     - LLM-extracted keywords (from semantic processor)
-   * - ``metadata``
-     - ``JSONB``
-     - Additional structured data (title, tags, attachments)
-
-**Per-model embedding tables** (e.g., ``text_embeddings_nomic_embed_text``):
-
-.. list-table::
-   :header-rows: 1
-   :widths: 25 25 50
-
-   * - Column
-     - Type
-     - Description
-   * - ``id``
-     - ``SERIAL PRIMARY KEY``
-     - Auto-incrementing primary key
-   * - ``entry_id``
-     - ``TEXT UNIQUE``
-     - Foreign key to enhanced_entries
-   * - ``embedding``
-     - ``vector(<dim>)``
-     - pgvector embedding column
-
-**ingestion_runs** --- Tracks ingestion history:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 25 20 55
-
-   * - Column
-     - Type
-     - Description
-   * - ``id``
-     - ``SERIAL``
-     - Auto-incrementing ID
-   * - ``started_at``
-     - ``TIMESTAMPTZ``
-     - Ingestion start time
-   * - ``completed_at``
-     - ``TIMESTAMPTZ``
-     - Ingestion completion time
-   * - ``entries_added``
-     - ``INTEGER``
-     - Number of new entries added
-   * - ``entries_updated``
-     - ``INTEGER``
-     - Number of existing entries updated
-   * - ``entries_failed``
-     - ``INTEGER``
-     - Number of entries that failed
-   * - ``source_system``
-     - ``TEXT``
-     - Source adapter name
-
-
-Migration System
-----------------
-
-Migrations are run via ``osprey ariel migrate`` and managed by the ``run_migrations()`` function in ``database/migrations.py``. When ``text_embedding`` is enabled, ``migrate`` creates an embedding table for each model listed in ``enhancement_modules.text_embedding.models`` (falling back to ``nomic-embed-text``, 768, if none is configured); ``osprey ariel reembed`` (re)creates and backfills a single model's table on demand.
-
-.. admonition:: Schema Evolution
-   :class: outreach
-
-   The current schema was designed around three facility logbook formats (ALS, JLab, ORNL) and may not capture every field your facility needs. The ``metadata`` JSONB column provides flexibility for facility-specific extras, but if your logbook requires a fundamentally different table structure, please open a pull request or contact us --- the ingestion and storage layers are designed to accommodate new schemas without disrupting existing ones.
+The PostgreSQL schema this data lands in --- the ``enhanced_entries`` table, the
+per-model embedding tables, and the migrations that create them --- is documented
+in :doc:`/reference/contracts/ariel`.
 
 
 See Also
@@ -404,7 +298,7 @@ See Also
     How search uses the ingested and enhanced data
 
 :doc:`/reference/contracts/ariel`
-    Capability, context flow, and error classification
+    MCP tools, the capabilities API, and the database schema
 
 :doc:`/reference/cli`
     CLI reference for ``osprey ariel ingest``, ``osprey ariel enhance``, and other commands

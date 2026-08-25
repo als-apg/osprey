@@ -80,8 +80,8 @@ sources:
 
   how-to/bluesky/queue.rst:             # 256 lines
     ranges:
-      - {lines: "198-229", dest: "reference/configuration/profile#bluesky"}      # the bluesky: keys dropdown
-    stays: ["1-197", "230-256"]
+      - {lines: "210-229", dest: "reference/configuration/profile#bluesky"}      # the five bluesky: keys + list-table
+    stays: ["1-209", "230-256"]   # dropdown header + deployer stack prose stay with the how-to
 
   # ── Facility services ───────────────────────────────────────────────────
   how-to/use-channel-finder.rst:        # 298 lines
@@ -115,12 +115,12 @@ sources:
 
   how-to/ariel/data-ingestion.rst:      # 410 lines
     ranges:
-      - {lines: "291-399", dest: "reference/contracts/ariel"}              # Database Schema, Core Tables, Migration System
+      - {lines: "289-399", dest: "reference/contracts/ariel"}              # `database` label + Database Schema, Core Tables, Migration System
       - {lines: "30-45", dest: "contributing/extending-osprey#ariel"}      # adapter implementation code
       - {lines: "73-87", dest: "contributing/extending-osprey#ariel"}
       - {lines: "106-167", dest: "contributing/extending-osprey#ariel"}    # tab-set of enhancement classes
       - {lines: "173-188", dest: "contributing/extending-osprey#ariel"}
-    stays: ["1-29", "46-72", "88-105", "168-172", "189-290", "400-410"]   # operator prose and the 49-67 adapter table
+    stays: ["1-29", "46-72", "88-105", "168-172", "189-288", "400-410"]   # operator prose and the 49-67 adapter table
 
   # ── Reference and architecture sources ──────────────────────────────────
   cli-reference/index.rst:              # 1117 lines
@@ -175,3 +175,9 @@ retired_headings:
   - Extending the integration
   # See Also sections dropped from osprey-integration and use-python-executor
   - See Also
+  # architecture/python-executor.rst is the retitled Python Execution Service page
+  - Python Execution Service
+  # how-to/control-systems/use-connectors.rst is the retitled Add a Connector page
+  - Add a Connector
+  # reference/contracts/ariel.rst is the retitled Osprey Integration page
+  - Osprey Integration

@@ -28,14 +28,6 @@ Documentation Structure
       Install Osprey, create your first project, and deploy a control assistant
       with a coding agent and MCP servers.
 
-   .. grid-item-card:: Architecture
-      :link: architecture/index
-      :link-type: doc
-      :class-header: sd-bg-info sd-text-white
-
-      Core concepts: agentic orchestration, MCP servers, connectors,
-      human-in-the-loop safety, and the runtime API.
-
    .. grid-item-card:: How-To Guides
       :link: how-to/index
       :link-type: doc
@@ -51,6 +43,14 @@ Documentation Structure
 
       The exact keys, shapes, and commands: the CLI, every configuration
       file, and the contracts services exchange.
+
+   .. grid-item-card:: Architecture
+      :link: architecture/index
+      :link-type: doc
+      :class-header: sd-bg-info sd-text-white
+
+      Core concepts: agentic orchestration, MCP servers, connectors,
+      human-in-the-loop safety, and the runtime API.
 
    .. grid-item-card:: Contributing
       :link: contributing/index
@@ -86,7 +86,7 @@ Documentation Structure
    :hidden:
 
    getting-started/index
-   architecture/index
    how-to/index
    reference/index
+   architecture/index
    contributing/index

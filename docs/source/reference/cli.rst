@@ -643,6 +643,40 @@ the build as it stands.
    osprey chat --resume abc123
    osprey chat --repo ~/als-assistant
 
+osprey query
+============
+
+Send a prompt to this deployment's agent, print the answer, and exit. See
+:doc:`/how-to/agent-interfaces/cli-agent`.
+
+.. code-block:: bash
+
+   osprey query PROMPT [OPTIONS]
+
+Runs read-only: write, execute and destructive tools are blocked at the agent
+SDK level, so the command is safe in CI pipelines and automated workflows. It
+asks the deployment enclosing the current directory, answering from its
+``build/`` as it was last rendered. When ``profile.yml`` or a file it points at
+has changed since that build, a warning on stderr says so and the query runs
+anyway.
+
+``--json`` — Emit a JSON object with ``final_text``, ``tool_traces``,
+``mcp_servers`` and ``exit_code`` on stdout.
+
+``--repo DIRECTORY`` — Deployment repository to act on.
+
+Exit codes: ``0`` the agent completed and every expected MCP server connected,
+``1`` the verdict failed (a server was missing from the session, the agent
+returned an error result, or the run hit its cost or turn budget), ``2`` a usage
+error (nothing built to answer from, the agent SDK is not installed, or the
+provider is not configured).
+
+.. code-block:: bash
+
+   osprey query "What PVs are used for beam current?"
+   osprey query --repo ~/als-assistant "List vacuum sections"
+   osprey query --json "Summarise recent alarms"
+
 osprey eject
 ============
 
@@ -959,7 +993,7 @@ All subcommands accept a common flag:
    ``ci``: a matching file is left untouched, and a file the scaffolder did not
    write needs ``--force``. Refuses when no ``osprey`` program can be found to
    name. Starting at boot also needs ``loginctl enable-linger $USER`` once —
-   see :doc:`../how-to/deploy-a-facility`.
+   see :doc:`/how-to/deploy-a-facility`.
 
 ``osprey scaffold list``
    List all build artifacts and their ownership status (framework vs.
@@ -1109,11 +1143,5 @@ switch the interfaces over to local bundles.
 Environment Variables
 =====================
 
-.. code-block:: bash
-
-   ANTHROPIC_API_KEY=sk-...          # Or OPENAI_API_KEY, GOOGLE_API_KEY, etc.
-
-Provider keys live in the deployment repository's ``.env`` and are read from
-there. No environment variable selects which deployment a command acts on:
-every lifecycle verb finds the repository by walking up from the working
-directory, and ``--repo DIRECTORY`` names another one.
+The variables the CLI reads, and where they belong, are listed in
+:doc:`/reference/configuration/environment-variables`.

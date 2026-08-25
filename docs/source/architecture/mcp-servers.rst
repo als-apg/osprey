@@ -211,8 +211,9 @@ Python Executor
 
 Package: ``osprey.mcp_server.python_executor``
 
-Executes Python code in a sandboxed environment with process isolation,
-limits enforcement, and timeout protection.
+Runs agent-authored Python as a separate process on the host --- a process
+boundary with limits enforcement and timeout protection, not a sandbox; see
+:doc:`/architecture/python-executor`.
 
 **Tools:**
 
