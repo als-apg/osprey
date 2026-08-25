@@ -72,8 +72,10 @@ def test_every_valid_key_is_accepted_and_read() -> None:
             "port": 8190,
             "tiled_enabled": True,
             "tiled_port": 8191,
+            "second_lane": True,
             "plan_dir": "/facility/plans",
             "excluded_plans": ["orm"],
+            "devices_file": "data/facility_devices.yml",
         },
     }
 
@@ -83,8 +85,10 @@ def test_every_valid_key_is_accepted_and_read() -> None:
         port=8190,
         tiled_enabled=True,
         tiled_port=8191,
+        second_lane=True,
         plan_dir="/facility/plans",
         excluded_plans=["orm"],
+        devices_file="data/facility_devices.yml",
     )
 
 
