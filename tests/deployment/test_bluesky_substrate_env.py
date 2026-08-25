@@ -1,11 +1,8 @@
 """Deploy-time provisioning for the bluesky plan stack.
 
-Covers the three things ``osprey up`` has to put in place before
-``compose up`` mounts them, all in ``container_lifecycle``:
+Covers the key material ``osprey up`` has to put in place before ``compose up``
+mounts it, both in ``container_lifecycle``:
 
-* ``_ensure_bluesky_substrate_env`` — the EPICS-substrate device env, and the
-  honesty of what it says when it declines (a mock deployment is browse-only;
-  it is not "left on a demo runner").
 * ``_ensure_bluesky_control_plane_keys`` — the RE manager's control-socket
   CURVE keypair, which must *pair* and therefore cannot ride on the
   independent per-variable recipes in ``_ensure_service_tokens``.
@@ -13,11 +10,17 @@ Covers the three things ``osprey up`` has to put in place before
   certificates, generated unconditionally so a browse-only deploy that later
   flips its connector does not find the plane silently broken.
 
+The plan devices are no longer among them: the worker reads an authored
+devices file staged into the build context at render time
+(``_stage_bluesky_devices`` in ``compose_generator``), so nothing is derived
+into ``.env`` for them any more. What survives here is the template side of
+that contract — ``TestComposeTemplateContract`` pins the container path and
+mount source the staging step has to keep feeding.
+
 The compose template (``templates/services/bluesky/docker-compose.yml.j2``) is
 the binding contract for the paths and variable names asserted here.
 """
 
-import json
 import os
 import re
 import stat
@@ -29,7 +32,6 @@ from osprey.deployment.container_lifecycle import (
     _bluesky_curve_paths,
     _ensure_bluesky_control_plane_keys,
     _ensure_bluesky_document_plane_certs,
-    _ensure_bluesky_substrate_env,
 )
 
 BLUESKY_STACK = ["bluesky", "virtual_accelerator"]
@@ -45,9 +47,6 @@ def env_path(tmp_path, monkeypatch):
     for var in (
         "BLUESKY_QSERVER_ZMQ_PRIVATE_KEY",
         "BLUESKY_QSERVER_ZMQ_PUBLIC_KEY",
-        "BLUESKY_EPICS_SUBSTRATE",
-        "BLUESKY_EPICS_SETPOINTS",
-        "BLUESKY_EPICS_READBACKS",
     ):
         monkeypatch.delenv(var, raising=False)
     return tmp_path / ".env"
@@ -82,86 +81,6 @@ def _curve_keypair():
         public, secret = zmq.curve_keypair()
         if b"$" not in public and b"$" not in secret:
             return public, secret
-
-
-class TestSubstrateMockHonesty:
-    """A mock deploy is browse-only — the log must not promise a demo runner."""
-
-    def test_mock_log_says_browse_only_and_names_the_flip(self, env_path, caplog):
-        config = {"deployed_services": BLUESKY_STACK, "control_system": {"type": "mock"}}
-
-        with caplog.at_level("INFO"):
-            _ensure_bluesky_substrate_env(config, env_path=env_path)
-
-        assert "browse-only" in caplog.text
-        # The one-line flip that turns a browse-only deployment into an
-        # executing one. Asserted against the bridge's own constant rather than
-        # a literal: the deploy path spells the command out (it cannot import
-        # the bridge, whose module needs bluesky_queueserver_api), so the two
-        # spellings can only drift apart silently. Pinning them here is what
-        # makes a rename of either one fail rather than diverge.
-        from osprey.services.bluesky_bridge.queue_backend import FLIP_COMMAND
-
-        assert FLIP_COMMAND in caplog.text
-
-    def test_mock_log_never_promises_a_demo(self, env_path, caplog):
-        """A browse-only deployment must not be told a demo will run for it.
-
-        The bridge once had an in-process demo runner, and the deploy once
-        advertised it; both are gone. A mock deployment browses, and the log
-        must say only that.
-        """
-        config = {"deployed_services": BLUESKY_STACK, "control_system": {"type": "mock"}}
-
-        with caplog.at_level("INFO"):
-            _ensure_bluesky_substrate_env(config, env_path=env_path)
-
-        assert "demo" not in caplog.text.lower()
-
-    def test_mock_writes_no_substrate_env(self, env_path):
-        """The derivation itself is unchanged: mock still derives nothing."""
-        config = {"deployed_services": BLUESKY_STACK, "control_system": {"type": "mock"}}
-
-        _ensure_bluesky_substrate_env(config, env_path=env_path)
-
-        assert not env_path.exists()
-
-
-class TestSubstrateEnvFilePermissions:
-    """Every deploy-time append leaves the project ``.env`` owner-only.
-
-    The substrate block's own values are device names, not secrets — but the
-    same file also carries the service auth tokens and the RE manager's
-    control-socket private key, and this write can be the one that *creates*
-    it. Provisioning the mode per-file rather than per-block (the shared
-    ``_append_env_block`` helper) is what keeps a secrets-destined ``.env``
-    from ever existing world-readable.
-    """
-
-    def test_substrate_write_leaves_env_owner_only(self, env_path):
-        (env_path.parent / "data").mkdir()
-        (env_path.parent / "data" / "channel_limits.json").write_text(
-            json.dumps(
-                {
-                    "SR:MAG:HCM:01:CURRENT:SP": {"min": -10, "max": 10},
-                    "SR:MAG:HCM:01:CURRENT:RB": {"min": -10, "max": 10},
-                    "SR:MAG:VCM:02:CURRENT:SP": {"min": -10, "max": 10},
-                    "SR:MAG:VCM:02:CURRENT:RB": {"min": -10, "max": 10},
-                    "SR:DIAG:BPM:01:POSITION:X": {"min": -5, "max": 5},
-                    "SR:DIAG:BPM:01:POSITION:Y": {"min": -5, "max": 5},
-                }
-            ),
-            encoding="utf-8",
-        )
-        config = {
-            "deployed_services": BLUESKY_STACK,
-            "control_system": {"type": "virtual_accelerator"},
-        }
-
-        _ensure_bluesky_substrate_env(config, env_path=env_path)
-
-        assert "BLUESKY_EPICS_SETPOINTS" in _dotenv(env_path)
-        assert stat.S_IMODE(env_path.stat().st_mode) == 0o600
 
 
 class TestControlPlaneKeys:
@@ -616,11 +535,32 @@ class TestComposeTemplateContract:
     these names have always had.
     """
 
-    @staticmethod
-    def _template_text():
+    #: What ``resolve_limits_mount`` hands the template: the two halves of the
+    #: limits bind, already anchored host-side. Spelled here only so the test
+    #: can assert the template pastes them through verbatim.
+    LIMITS_MOUNT = {
+        "source": "./data/channel_limits.json",
+        "target": "/app/project/data/channel_limits.json",
+    }
+
+    @classmethod
+    def _template_text(cls, **extra):
+        """The single-lane ``full`` render, optionally with staging context.
+
+        The pinned lane contexts carry the shape the injector produces and
+        stop there; the two keys the deploy adds at render time are supplied
+        here. ``limits_mount`` unconditionally, because the ``full`` shape
+        enables writes and the template hard-fails without it (its halves are
+        host-computed, so there is no template-side default to fall back on).
+        ``bluesky_devices`` only when a caller asks: its absence is the
+        browse-only shape, which the gate test below renders on purpose.
+        """
         from tests.deployment.test_lane_compose import _render_text, _single_lane_contexts
 
-        return _render_text(_single_lane_contexts()["full"])
+        context = dict(_single_lane_contexts()["full"])
+        context["limits_mount"] = cls.LIMITS_MOUNT
+        context.update(extra)
+        return _render_text(context)
 
     def test_every_expansion_of_both_halves_is_guarded_fail_closed(self):
         """`:?` on BOTH names is why an empty value of either is refused upstream.
@@ -659,6 +599,62 @@ class TestComposeTemplateContract:
 
         assert "./data/bluesky_curve/bridge:/app/curve:ro" in text
         assert "./data/bluesky_curve/queueserver:/app/curve:ro" in text
+
+    def test_device_file_env_and_mount_are_the_staged_pair(self):
+        """The worker's device variable names exactly what the bind carries.
+
+        The two halves are the whole contract between the render-time staging
+        step and the container: ``_stage_bluesky_devices`` copies the authored
+        document into the bluesky service's build context under a fixed
+        basename, and the worker switches on ``BLUESKY_DEVICES_FILE`` alone. A
+        change to either the staged path or the container path that is not
+        matched on the other side leaves the worker naming a file the mount
+        does not carry, so the two are pinned together rather than separately.
+        """
+        text = self._template_text(bluesky_devices=True)
+
+        assert "BLUESKY_DEVICES_FILE: /app/project/data/bluesky_devices.yml" in text
+        assert (
+            "./build/services/bluesky/bluesky_devices.yml:/app/project/data/bluesky_devices.yml:ro"
+        ) in text
+
+    def test_device_wiring_is_absent_when_nothing_was_staged(self):
+        """No staged file means no variable and no mount -- fail closed.
+
+        The browse-only shape. Naming a file the bind does not carry would
+        fail the worker's own load, which is why the gate defaults false
+        rather than pointing at a path and hoping.
+        """
+        text = self._template_text()
+
+        assert "BLUESKY_DEVICES_FILE" not in text
+        assert "bluesky_devices.yml" not in text
+
+    def test_limits_mount_halves_are_pasted_through_verbatim(self):
+        """Both halves of the limits bind are computed host-side, not spelled here.
+
+        ``resolve_limits_mount`` anchors the source against the compose project
+        directory and the target against the container's project root; a
+        template that derived either would be a second spelling of a rule the
+        connector already follows. Rendered on both the bridge and the
+        queueserver, because the reference monitor moved into the worker and
+        the limits DB had to follow it there.
+        """
+        source = self.LIMITS_MOUNT["source"]
+        target = self.LIMITS_MOUNT["target"]
+
+        text = self._template_text()
+
+        assert text.count(f"- {source}:{target}:ro") == 2
+
+    def test_limits_mount_is_gated_on_writes(self):
+        """A read-only deploy never opens the limits DB, so it never mounts it."""
+        from tests.deployment.test_lane_compose import _render_text, _single_lane_contexts
+
+        context = dict(_single_lane_contexts()["minimal"])
+        context["limits_mount"] = self.LIMITS_MOUNT
+
+        assert self.LIMITS_MOUNT["source"] not in _render_text(context)
 
 
 class TestGeneratedProjectGitignore:

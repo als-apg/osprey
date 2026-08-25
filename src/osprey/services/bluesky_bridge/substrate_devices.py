@@ -1,14 +1,13 @@
 """Canonical derivation of the bluesky bridge's EPICS-substrate plan devices.
 
 Single source of truth for turning a *built project's own*
-``data/channel_limits.json`` into the bridge's EPICS-substrate device set
-(``BLUESKY_EPICS_SUBSTRATE`` / ``BLUESKY_EPICS_SETPOINTS`` / ``_READBACKS`` — see
-``osprey.services.bluesky_bridge.devices._specs_from_env`` for the format
-those env vars carry). Correctors are restricted to the pyat-coupled SR
-HCM/VCM ``:SP``/``:RB`` partition (a write actually steers the beam via the
-AT lattice model); BPMs are the pyat-coupled SR ``DIAG:BPM`` readbacks. Never
-a hardcoded preset channel — always derived from the deployed project's own
-data.
+``data/channel_limits.json`` into the bridge's EPICS-substrate device set, in
+the two-list device-file format the queueserver worker reads (see
+``osprey.services.bluesky_bridge.devices._specs_from_file`` for the schema and
+the parser). Correctors are restricted to the pyat-coupled SR HCM/VCM
+``:SP``/``:RB`` partition (a write actually steers the beam via the AT lattice
+model); BPMs are the pyat-coupled SR ``DIAG:BPM`` readbacks. Never a hardcoded
+preset channel — always derived from the deployed project's own data.
 
 Device name == channel address
 ------------------------------
@@ -42,27 +41,24 @@ and must not be mistaken for one. Every write a plan performs still passes
 the connector's per-put reference monitor and the bridge's arming + limits
 facade, which are the boundary.
 
-Deploy caveat: ``container_lifecycle._ensure_bluesky_substrate_env`` never
-overwrites an already-set value, so a project keeps whatever
-``BLUESKY_EPICS_SETPOINTS``/``_READBACKS`` its ``.env`` already holds until those
-lines are removed. Fresh deploys get the address names automatically.
-
 Two consumers share this module (DRY, one derivation):
 
-- ``osprey.deployment.container_lifecycle`` (``_ensure_bluesky_substrate_env``),
-  which auto-configures a VA-backed Bluesky stack's ``.env`` on ``osprey up``
-  so the bridge starts in substrate mode with real channel names,
-  turn-key.
+- ``osprey.deployment.compose_generator`` (``_stage_bluesky_devices``), which
+  derives and stages the device file for a VA-backed Bluesky stack on every
+  render, so the worker starts with real channel names, turn-key.
 - ``tests/e2e/_orm_stack.py``, whose ``select_correctors``/``select_bpms``/
-  ``write_substrate_env`` delegate here instead of re-deriving the same logic.
+  ``write_devices_file`` delegate here instead of re-deriving the same logic.
+
+There is exactly one producer of the derived document -- ``devices_document``
+below -- so the build path and the e2e harness can never drift on what the
+worker is handed.
 
 Host/deploy-side only — NOT part of the bridge's own container import
 surface. This module imports ``osprey.services.virtual_accelerator.manifest``
-(``classify_partition``/``PARTITION_PYAT_COUPLED``) -- the same
-virtual-accelerator/channel-finder coupling ``_specs_from_env``'s module
-docstring says the bridge's substrate branch must never take on directly
-(the bridge is meant to stay control-system agnostic; the PV list reaches it
-only via ``BLUESKY_EPICS_SETPOINTS``/``_READBACKS``). Nothing under
+(``classify_partition``/``PARTITION_PYAT_COUPLED``) -- the
+virtual-accelerator/channel-finder coupling the bridge must never take on
+directly (the bridge is meant to stay control-system agnostic; the device set
+reaches it only as a mounted file). Nothing under
 ``osprey.services.bluesky_bridge`` that runs *inside* the bridge container
 (``app.py``, ``devices/*``) may import this module — it lives alongside the
 bridge's device code only because it is conceptually about the bridge's
@@ -72,22 +68,21 @@ only from the host-side deploy/CLI process and from tests.
 
 from __future__ import annotations
 
-import json
+import os
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, TypeVar
 
-# Env var names the bridge's own substrate-mode parser reads (see
-# osprey.services.bluesky_bridge.devices._specs_from_env for the format).
-# Imported here rather than restated so the deploy-time producer and the
-# bridge's own consumer can never drift on the var names.
-from osprey.services.bluesky_bridge.devices._specs_from_env import (
-    READBACKS_ENV,
-    SETPOINTS_ENV,
-    SUBSTRATE_ENV,
-)
+import yaml
 
-"""Env var that switches the bridge from its demo runner to the EPICS substrate."""
+# Key names of the device-file document the worker parses. Imported rather
+# than restated so the host-side producer and the container-side consumer can
+# never drift on the schema.
+from osprey.services.bluesky_bridge.devices._specs_from_file import (
+    READABLES_KEY,
+    SETTABLES_KEY,
+)
 
 _T = TypeVar("_T")
 
@@ -219,49 +214,82 @@ def select_bpms(limits: dict[str, Any], count: int | None = None) -> dict[str, s
     return _keyed_by_address(addresses, lambda addr: addr, count, "SR BPM readbacks")
 
 
-def format_setpoints_env(correctors: dict[str, tuple[str, str]]) -> str:
-    """Format ``correctors`` (as returned by ``select_correctors``) as the
-    ``BLUESKY_EPICS_SETPOINTS`` value (see ``_specs_from_env``'s module
-    docstring for the exact ``name=SP|RB`` syntax)."""
-    return ",".join(f"{name}={sp}|{rb}" for name, (sp, rb) in correctors.items())
+def devices_document(limits: dict[str, Any]) -> dict[str, list[dict[str, str]]]:
+    """Build the worker's device document from ``limits`` (a parsed
+    ``channel_limits.json``).
 
+    Returns the two-list mapping ``_specs_from_file`` parses: ``settables``
+    entries carry ``name``/``setpoint``/``readback`` (one per
+    ``select_correctors`` pair), ``readables`` entries carry ``name``/``pv``
+    (one per ``select_bpms`` readback). Both keys are always present, even
+    when empty, so a caller can see *which* half a project yielded nothing for
+    rather than inferring it from an absent key.
 
-def format_readbacks_env(bpms: dict[str, str]) -> str:
-    """Format ``bpms`` (as returned by ``select_bpms``) as the
-    ``BLUESKY_EPICS_READBACKS`` value (``name=RB`` syntax)."""
-    return ",".join(f"{name}={rb}" for name, rb in bpms.items())
-
-
-def derive_substrate_env(project_dir: Path) -> dict[str, str]:
-    """Derive the bridge's EPICS-substrate env from a *built* project's own
-    ``data/channel_limits.json``.
-
-    Returns ``{"BLUESKY_EPICS_SUBSTRATE": "1", "BLUESKY_EPICS_SETPOINTS": "...",
-    "BLUESKY_EPICS_READBACKS": "..."}`` when the project yields at least one
-    corrector pair and one BPM readback. Returns ``{}`` -- never raises -- when
-    ``channel_limits.json`` is missing, unreadable/malformed, or yields no
-    correctors or no BPMs, so a caller on a deploy path can always treat an
-    empty result as "skip auto-configuration" rather than a hard failure.
+    ``readback`` is emitted for every corrector because the selector only ever
+    returns complete ``:SP``/``:RB`` pairs; a spec whose readback equalled its
+    setpoint would omit the key entirely rather than write ``null``, which the
+    loader accepts but which reads as "unset by mistake".
     """
-    limits_path = Path(project_dir) / "data" / "channel_limits.json"
-    if not limits_path.is_file():
-        return {}
-
-    try:
-        limits = json.loads(limits_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return {}
-
-    if not isinstance(limits, dict):
-        return {}
-
     correctors = select_correctors(limits, count=None)
     bpms = select_bpms(limits, count=None)
-    if not correctors or not bpms:
-        return {}
 
-    return {
-        SUBSTRATE_ENV: "1",
-        SETPOINTS_ENV: format_setpoints_env(correctors),
-        READBACKS_ENV: format_readbacks_env(bpms),
-    }
+    settables: list[dict[str, str]] = []
+    for name, (setpoint, readback) in correctors.items():
+        entry = {"name": name, "setpoint": setpoint}
+        if readback != setpoint:
+            entry["readback"] = readback
+        settables.append(entry)
+
+    readables = [{"name": name, "pv": read_pv} for name, read_pv in bpms.items()]
+
+    return {SETTABLES_KEY: settables, READABLES_KEY: readables}
+
+
+_FILE_MODE = 0o644
+"""Mode the staged device file is written with; see ``write_devices_file``."""
+
+_GENERATED_HEADER = """\
+# Generated by OSPREY from the deployed project's own data/channel_limits.json
+# (osprey.services.bluesky_bridge.substrate_devices). Every render rewrites this
+# file, so edits here are lost -- author your own device file and point
+# `bluesky.devices_file` at it instead.
+#
+# Which channels are scan devices, and which readback pairs with which setpoint,
+# is a projection of the facility's namespace. That same namespace is described
+# by the channel-finder database and the knowledge graph; the three are to be
+# kept in step, and unifying them is a later piece of work.
+"""
+
+
+def write_devices_file(path: Path, limits: dict[str, Any]) -> dict[str, list[dict[str, str]]]:
+    """Write the document ``devices_document(limits)`` builds to ``path`` as
+    YAML, and return it.
+
+    The write is atomic (same-directory temp file + ``os.replace``): the file is
+    staged into a build tree that a running deploy may mount, so a reader must
+    never observe a half-written device set, and a failed write must leave the
+    previous document intact rather than truncated.
+
+    Returns the document so a caller that also wants to report counts or
+    validate what it just wrote does not have to re-derive or re-read it.
+    """
+    path = Path(path)
+    document = devices_document(limits)
+    body = yaml.safe_dump(document, sort_keys=False, default_flow_style=False, allow_unicode=True)
+
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(_GENERATED_HEADER)
+            handle.write(body)
+        # ``mkstemp`` creates the temp file 0600 and ``os.replace`` carries that
+        # mode onto the destination -- unreadable to a container user that is not
+        # the host user who rendered it, which is exactly how this file is
+        # consumed (bind-mounted ``:ro`` into the queueserver worker).
+        os.chmod(tmp_name, _FILE_MODE)
+        os.replace(tmp_name, path)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
+
+    return document

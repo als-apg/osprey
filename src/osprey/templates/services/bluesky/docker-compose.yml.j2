@@ -59,9 +59,6 @@ services:
 {%- set launch_token_ref = '${' ~ lane_env ~ '_LAUNCH_TOKEN}' %}
 {%- set qserver_private_ref = '${' ~ lane_env ~ '_QSERVER_ZMQ_PRIVATE_KEY:?minted by `osprey up`; deploy through it rather than running compose directly}' %}
 {%- set qserver_public_ref = '${' ~ lane_env ~ '_QSERVER_ZMQ_PUBLIC_KEY:?minted by `osprey up`; deploy through it rather than running compose directly}' %}
-{%- set substrate_ref = '${' ~ lane_env ~ '_EPICS_SUBSTRATE:-}' %}
-{%- set setpoints_ref = '${' ~ lane_env ~ '_EPICS_SETPOINTS:-}' %}
-{%- set readbacks_ref = '${' ~ lane_env ~ '_EPICS_READBACKS:-}' %}
   {{ lane }}-bridge:
     image: ${OSPREY_BLUESKY_BRIDGE_IMAGE:-{{ svc.image | default(osprey_images.bluesky_bridge) }}}
 {#- LANE 1 ONLY owns the build, for the same reason the queueserver below
@@ -282,13 +279,6 @@ services:
       # archiver recorder's external-IOC branch.
       EPICS_CA_NAME_SERVERS: "{{ svc.ca_name_servers }}"
       EPICS_CA_AUTO_ADDR_LIST: "NO"
-      # EPICS-substrate device selection. Passthrough only — the operator or
-      # deploy env chooses the actual PVs, never hardcoded here. Per lane, so
-      # two lanes pointed at two machines can name two device sets; the
-      # variable INSIDE the container keeps its one name either way.
-      BLUESKY_EPICS_SUBSTRATE: "{{ substrate_ref }}"
-      BLUESKY_EPICS_SETPOINTS: "{{ setpoints_ref }}"
-      BLUESKY_EPICS_READBACKS: "{{ readbacks_ref }}"
 {% elif 'virtual_accelerator' in deployed_services %}
       # Reach the co-deployed Virtual Accelerator over Channel
       # Access. Name-server TCP transport is the one host<->container CA
@@ -297,16 +287,6 @@ services:
       # operator override stays consistent between the two services.
       EPICS_CA_NAME_SERVERS: "virtual-accelerator:{{ (services.virtual_accelerator | default({})).port | default(5064) }}"
       EPICS_CA_AUTO_ADDR_LIST: "NO"
-      # EPICS-substrate device selection. Passthrough only — the operator or
-      # deploy env chooses the actual PVs, never hardcoded here. The devices
-      # themselves are built by the queueserver worker, which is where these
-      # same three variables are read (qserver_startup.py); the bridge no
-      # longer branches on them. The :- empty default keeps an unset value
-      # harmless: no substrate means an empty device namespace, i.e.
-      # browse-only.
-      BLUESKY_EPICS_SUBSTRATE: "{{ substrate_ref }}"
-      BLUESKY_EPICS_SETPOINTS: "{{ setpoints_ref }}"
-      BLUESKY_EPICS_READBACKS: "{{ readbacks_ref }}"
 {% endif %}
 {% if svc.tiled_enabled | default(false) %}
       # Tiled persistence: the bridge READS the durable catalog here to serve
@@ -363,10 +343,21 @@ services:
       # directory (/app/project, set above) exactly as the connector/startup
       # guard expect (limits_validator.py, app.py's
       # _assert_limits_readable_if_writable) — the mounted config.yml lives
-      # there, not at the host build's project_root. Source path mirrors the
-      # Virtual Accelerator's data mount convention: the repo's own data/ tree,
-      # named relative to the pinned project directory.
-      - ./data/channel_limits.json:/app/project/data/channel_limits.json:ro
+      # there, not at the host build's project_root.
+      #
+      # Both halves of the bind are computed HOST-side by
+      # `resolve_limits_mount` (compose_generator.py) and consumed here as
+      # finished strings. One configured value —
+      # control_system.limits_checking.database_path — has to name one file for
+      # the operator, for this bind source and for the connector that reopens it
+      # in the container, and the two halves anchor differently: the source
+      # against the pinned compose project directory, the target against the
+      # container's project root, with an absolute operator-owned path mounted
+      # verbatim on both sides. This Jinja context holds those anchors but
+      # cannot derive them, so a template that spelled the path itself would be
+      # a second spelling of the same rule, free to drift from the one the
+      # connector follows. The writes gate above still decides WHETHER to mount.
+      - {{ limits_mount.source }}:{{ limits_mount.target }}:ro
 {% endif %}
     networks:
       # Dual-homed: osprey-network for the bluesky-web sidecar and Tiled,
@@ -533,14 +524,28 @@ services:
       BLUESKY_ZMQ_PUBLISH_ADDR: "tcp://{{ lane }}-bridge:5567"
       BLUESKY_ZMQ_CURVE_SECRET_KEY: /app/curve/publisher.key_secret
       BLUESKY_ZMQ_CURVE_SERVER_PUBLIC_KEY: /app/curve/proxy.key
-      # Substrate wiring for the devices the startup module builds. Unlike the
-      # bridge's copy above this is NOT gated on the VA being co-deployed: a
-      # facility pointing at real EPICS has no VA container but still needs
-      # its substrate. The `:-` empty defaults keep an unset substrate
-      # harmless — the module then yields an empty namespace (browse-only).
-      BLUESKY_EPICS_SUBSTRATE: "{{ substrate_ref }}"
-      BLUESKY_EPICS_SETPOINTS: "{{ setpoints_ref }}"
-      BLUESKY_EPICS_READBACKS: "{{ readbacks_ref }}"
+{% if bluesky_devices | default(false) %}
+      # Device wiring for the namespace the startup module builds. The worker
+      # switches on THIS variable alone (`DEVICES_FILE_ENV` in
+      # qserver_startup.py): one authored document names each device and the
+      # channels behind it, in place of the three EPICS_* prefix variables that
+      # used to make the container infer a device set from PV spellings. Only
+      # the queueserver carries it — the bridge is a facade over this manager
+      # and builds no devices of its own.
+      #
+      # The container path is fixed here rather than passed through, and matches
+      # the mount target below: the worker must never learn the host-side
+      # location, exactly as with config.yml and the CURVE certificates.
+      #
+      # `| default(false)` is a belt for hand-built render contexts (tests that
+      # assemble a bare dict); both renderers type `bluesky_devices` as a real
+      # boolean returned by `_stage_bluesky_devices`, so on a real render the
+      # key is always present and the default never fires. It defaults FALSE
+      # because the fail-closed direction is browse-only: an absent key means
+      # no file was staged, and naming a file the mount does not carry would
+      # fail the worker's own load rather than degrade to reading nothing.
+      BLUESKY_DEVICES_FILE: /app/project/data/bluesky_devices.yml
+{% endif %}
 {% if svc.plan_dir %}
       # Same in-container path as the bridge's mount target below: the
       # startup module builds the plan namespace with the same plan_loader,
@@ -589,8 +594,24 @@ services:
       # Split per container by directory rather than by file so each side can
       # only read the secret it is supposed to hold: this one carries the
       # publisher's secret certificate and the bridge proxy's PUBLIC one, and
-      # never the proxy's secret. Same ./data/ convention as the limits DB.
+      # never the proxy's secret. Written as a repo-relative ./data/ source,
+      # the same spelling rule every bind in this file follows — including the
+      # limits DB, whose two halves are now computed host-side rather than
+      # spelled here.
       - ./data/{{ lane_key }}_curve/queueserver:/app/curve:ro
+{% if bluesky_devices | default(false) %}
+      # The device file the env var above names. Unlike the limits DB, the
+      # SOURCE is a literal staged path rather than a computed one: the staging
+      # step copies whatever `bluesky.devices_file` names — or derives a set
+      # from the limits database — into this service's build context under a
+      # fixed basename it owns (`BLUESKY_DEVICES_FILENAME`), so the operator's
+      # own filename and directory never reach this bind and no configured path
+      # is left here to resolve. Both plan lanes declare the same service
+      # `path` and therefore render this one directory, staging identical bytes
+      # on the second pass; one staged file consequently serves both lanes, and
+      # any per-lane device split lives inside the document, not in this mount.
+      - ./build/services/bluesky/bluesky_devices.yml:/app/project/data/bluesky_devices.yml:ro
+{% endif %}
 {% if svc.plan_dir %}
       - {{ svc.plan_dir }}:/app/project/plans:ro
 {% endif %}
@@ -600,8 +621,10 @@ services:
       # empty-DB failsafe blocks every write and no plan can move anything.
       # Same /app/project root as config.yml so a relative
       # control_system.limits_checking.database_path resolves identically on
-      # both sides.
-      - ./data/channel_limits.json:/app/project/data/channel_limits.json:ro
+      # both sides. Same host-computed strings as the bridge's copy — see the
+      # note there for why the path is resolved once by `resolve_limits_mount`
+      # and never spelled in this template.
+      - {{ limits_mount.source }}:{{ limits_mount.target }}:ro
 {% endif %}
     networks:
       # Necessarily dual-homed: {{ lane }}-internal for the bridge and Redis,

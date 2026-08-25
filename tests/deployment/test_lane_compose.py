@@ -98,17 +98,46 @@ def _lane_block(
     return block
 
 
+#: The finished channel-limits bind mount ``resolve_limits_mount`` computes for
+#: a deployment whose config is read from the repo root. Both halves reach the
+#: template as strings the generator already resolved, so a context that leaves
+#: the key out is not a render any deployment can produce — a writable one can
+#: never reach the template without it.
+LIMITS_MOUNT: dict[str, str] = {
+    "source": "./data/channel_limits.json",
+    "target": "/app/project/data/channel_limits.json",
+}
+
+#: The one staged device document, and the bind that carries it. The source is
+#: literal (the staging step owns the basename), which is what makes the
+#: two-lane claim below checkable: both lanes render this same string.
+DEVICES_FILE_TARGET = "/app/project/data/bluesky_devices.yml"
+DEVICES_MOUNT = f"./build/services/bluesky/bluesky_devices.yml:{DEVICES_FILE_TARGET}:ro"
+
+
 def _context(
     *,
     lanes: dict[str, dict[str, Any]],
     deployed_services: list[str],
     writes_enabled: bool = False,
     va_port: int = 5064,
+    devices_present: bool = False,
 ) -> dict[str, Any]:
-    """Mirror ``compose_generator.render_template``'s context contract."""
+    """Mirror ``compose_generator.render_template``'s context contract.
+
+    Two keys are computed by the generator rather than configured, and both are
+    typed here for the same reason: a production render always carries them, so
+    a context that omits one pins a render no deploy can reach.
+
+    ``bluesky_devices`` is the real boolean ``_stage_bluesky_devices`` returns —
+    ONE value for the whole file, not one per lane, because both lanes declare
+    the same service ``path`` and therefore stage into one directory.
+    ``limits_mount`` is injected whenever writes are enabled, which is exactly
+    when the template mounts it.
+    """
     services: dict[str, Any] = dict(lanes)
     services["virtual_accelerator"] = {"port": va_port}
-    return {
+    context: dict[str, Any] = {
         "osprey_labels": {
             "project_name": "proj",
             "project_root": "/tmp/proj",
@@ -121,7 +150,11 @@ def _context(
         "deployed_services": deployed_services,
         "control_system": {"writes_enabled": writes_enabled},
         "services": services,
+        "bluesky_devices": devices_present,
     }
+    if writes_enabled:
+        context["limits_mount"] = LIMITS_MOUNT
+    return context
 
 
 def _render_text(context: dict[str, Any]) -> str:
@@ -149,6 +182,14 @@ def _single_lane_contexts() -> dict[str, dict[str, Any]]:
     (co-deployed VA, Tiled, writes, a facility plan directory, exclusions and
     a host-env passthrough), because the branches those flags open are where a
     lane-parameterized template is most likely to drift.
+
+    Both stage no device file. That is not an omission: these contexts are
+    reused as the canonical single-lane render by
+    ``tests/deployment/test_bluesky_substrate_env.py``, whose browse-only test
+    renders them as-is and asserts the device wiring is absent. The staged
+    shape is pinned there instead, beside the staging step that produces it —
+    and as parsed YAML by the device tests in this module and in
+    ``tests/cli/test_bluesky_compose_render.py``.
     """
     return {
         "minimal": _context(
@@ -173,13 +214,27 @@ def _single_lane_contexts() -> dict[str, dict[str, Any]]:
 
 @pytest.mark.parametrize("name", sorted(_single_lane_contexts()))
 def test_single_lane_render_is_byte_identical_to_the_pinned_shape(name: str) -> None:
-    """A lane-disabled render must reproduce the pre-lane template exactly.
+    """A single-lane render must reproduce its pinned shape exactly.
 
-    The goldens were produced from the template BEFORE the lane axis was
-    introduced, so this is a before/after equality and not a self-consistency
-    check. Byte equality rather than parsed equality on purpose: a rendered
-    compose file is also read by humans and diffed by operators, and a
-    reshuffled-but-equivalent document is a change they have to review.
+    The goldens were first produced from the template BEFORE the lane axis was
+    introduced, so what they pin is a before/after equality rather than a
+    self-consistency check. Byte equality rather than parsed equality on
+    purpose: a rendered compose file is also read by humans and diffed by
+    operators, and a reshuffled-but-equivalent document is a change they have
+    to review.
+
+    **Update discipline** — a failure here means a template edit moved a
+    single-lane render, which is never on its own a reason to hand-edit a
+    golden. Regenerate the pair from the same contexts, in the SAME reviewed
+    change as the template edit that moved them::
+
+        PYTHONPATH=src ./.venv/bin/python tests/deployment/test_lane_compose.py
+
+    then account for every changed byte. The device-file rewrite is the second
+    deliberate move these carry: the three retired ``BLUESKY_EPICS`` passthrough
+    variables left both containers, and the channel-limits bind became the pair
+    of strings the generator computes host-side — the same file, spelled once
+    at render time instead of twice in the template.
     """
     # Final-newline count is normalized on both sides: the repo's
     # end-of-file-fixer hook owns the goldens' trailing newline, which the
@@ -362,6 +417,78 @@ def test_each_lane_mounts_its_own_curve_certificate_directory(two_lane: dict[str
         "bluesky-live-bridge": ["./data/bluesky_live_curve/bridge:/app/curve:ro"],
         "bluesky-live-queueserver": ["./data/bluesky_live_curve/queueserver:/app/curve:ro"],
     }
+
+
+@pytest.fixture
+def two_lane_with_devices() -> dict[str, Any]:
+    """The same two-lane deployment, rendered after a device file was staged.
+
+    ``bluesky_devices`` is one boolean for the whole render — the staging step
+    runs once per lane against the same service directory and reaches the same
+    decision — so there is no per-lane variant of this fixture to write.
+    """
+    return _render(
+        _context(
+            lanes=VA_BASELINE_LANES,
+            deployed_services=["bluesky", "bluesky_live", "virtual_accelerator"],
+            devices_present=True,
+        )
+    )
+
+
+def test_both_lanes_read_the_one_staged_device_file(
+    two_lane_with_devices: dict[str, Any],
+) -> None:
+    """The device document is SHARED, unlike every per-lane resource above.
+
+    Both lanes declare the same service ``path``, so the staging step writes
+    one file into one build context; a mount naming a per-lane path would point
+    the second lane at a file nothing ever writes, and the worker would fail
+    its own load rather than come up browse-only. Any split between the two
+    machines' device sets therefore lives INSIDE the document, not in this
+    mount.
+    """
+    managers = ("queueserver", "bluesky-live-queueserver")
+    mounts = {
+        manager: [
+            volume
+            for volume in two_lane_with_devices["services"][manager]["volumes"]
+            if "bluesky_devices" in str(volume)
+        ]
+        for manager in managers
+    }
+    assert mounts == {
+        "queueserver": [DEVICES_MOUNT],
+        "bluesky-live-queueserver": [DEVICES_MOUNT],
+    }
+
+    named = {
+        manager: _env(two_lane_with_devices, manager).get("BLUESKY_DEVICES_FILE")
+        for manager in managers
+    }
+    assert named == {
+        "queueserver": DEVICES_FILE_TARGET,
+        "bluesky-live-queueserver": DEVICES_FILE_TARGET,
+    }
+
+
+def test_neither_lanes_bridge_is_given_the_device_file(
+    two_lane_with_devices: dict[str, Any],
+) -> None:
+    """Devices are built by the managers; a bridge is a facade over one."""
+    for bridge in ("bluesky-bridge", "bluesky-live-bridge"):
+        service = two_lane_with_devices["services"][bridge]
+        assert "BLUESKY_DEVICES_FILE" not in (service.get("environment") or {}), bridge
+        assert not any("bluesky_devices" in str(v) for v in service["volumes"]), bridge
+
+
+def test_no_lane_carries_the_device_mount_when_nothing_was_staged(
+    two_lane: dict[str, Any],
+) -> None:
+    """Browse-only is fail-closed and applies to the whole render, both lanes."""
+    for service in two_lane["services"].values():
+        assert not any("bluesky_devices" in str(v) for v in service.get("volumes") or [])
+        assert "BLUESKY_DEVICES_FILE" not in (service.get("environment") or {})
 
 
 def test_each_lane_gets_its_own_redis_volume_and_internal_network(
@@ -665,65 +792,6 @@ def test_each_lane_declares_its_own_launch_token(env_path: Path) -> None:
     assert _SERVICE_TOKEN_VARS["bluesky_live"] == ("BLUESKY_LIVE_LAUNCH_TOKEN",)
 
 
-def test_substrate_env_is_written_once_per_lane(
-    env_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Same devices, per-lane variables.
-
-    The device NAMES are a property of the facility and come out the same for
-    both lanes; the variables are still per lane, so narrowing one lane's
-    substrate cannot silently narrow the other's.
-    """
-    from osprey.deployment.container_lifecycle import _ensure_bluesky_substrate_env
-    from osprey.services.bluesky_bridge import substrate_devices
-
-    monkeypatch.setattr(
-        substrate_devices,
-        "derive_substrate_env",
-        lambda _project_dir: {
-            "BLUESKY_EPICS_SUBSTRATE": "sr",
-            "BLUESKY_EPICS_SETPOINTS": "A:SP",
-            "BLUESKY_EPICS_READBACKS": "A:RB",
-        },
-    )
-    config = {**TWO_LANE_CONFIG, "control_system": {"type": "virtual_accelerator"}}
-
-    _ensure_bluesky_substrate_env(config, env_path=env_path)
-    written = _dotenv(env_path)
-
-    assert written["BLUESKY_EPICS_SUBSTRATE"] == "sr"
-    assert written["BLUESKY_LIVE_EPICS_SUBSTRATE"] == "sr"
-    assert written["BLUESKY_LIVE_EPICS_SETPOINTS"] == "A:SP"
-    assert written["BLUESKY_LIVE_EPICS_READBACKS"] == "A:RB"
-
-
-def test_substrate_env_on_one_lane_is_the_pre_lane_variable_set(
-    env_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """An existing project's ``.env`` gains exactly the three names it always did."""
-    from osprey.deployment.container_lifecycle import _ensure_bluesky_substrate_env
-    from osprey.services.bluesky_bridge import substrate_devices
-
-    monkeypatch.setattr(
-        substrate_devices,
-        "derive_substrate_env",
-        lambda _project_dir: {
-            "BLUESKY_EPICS_SUBSTRATE": "sr",
-            "BLUESKY_EPICS_SETPOINTS": "A:SP",
-            "BLUESKY_EPICS_READBACKS": "A:RB",
-        },
-    )
-    config = {**ONE_LANE_CONFIG, "control_system": {"type": "virtual_accelerator"}}
-
-    _ensure_bluesky_substrate_env(config, env_path=env_path)
-
-    assert set(_dotenv(env_path)) == {
-        "BLUESKY_EPICS_SUBSTRATE",
-        "BLUESKY_EPICS_SETPOINTS",
-        "BLUESKY_EPICS_READBACKS",
-    }
-
-
 def test_one_template_serving_two_lanes_is_passed_to_compose_once() -> None:
     """Both lanes declare the same ``path``, so the lookup reports the file twice.
 
@@ -896,3 +964,23 @@ def test_the_read_proxy_refuses_a_lane_it_does_not_serve() -> None:
         )
         is None
     )
+
+
+def _regenerate() -> None:
+    """Overwrite the single-lane goldens from today's template.
+
+    Rendered from :func:`_single_lane_contexts`, the same contexts the pinned
+    test renders, so a regenerated golden can only differ where the template
+    does. See that test's update discipline before running this.
+    """
+    GOLDEN_DIR.mkdir(parents=True, exist_ok=True)
+    for name, context in sorted(_single_lane_contexts().items()):
+        path = GOLDEN_DIR / f"{name}.yml"
+        # The repo's end-of-file-fixer owns the trailing newline the renderer
+        # does not emit, and the pinned test normalizes it on both sides.
+        path.write_text(_render_text(context).rstrip("\n") + "\n", encoding="utf-8")
+        print(f"wrote {path}")
+
+
+if __name__ == "__main__":
+    _regenerate()

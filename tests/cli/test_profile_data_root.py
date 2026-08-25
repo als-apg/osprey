@@ -107,7 +107,12 @@ class TestFullReplacement:
 
     def test_bundle_files_absent_from_build(self, tmp_path: Path) -> None:
         profile_dir = tmp_path / "profile"
-        profile_path = _write_profile(profile_dir)
+        # One of the two artifacts dropped below is the channel-limits
+        # database, and a deployment holding none has to be read-only: writes
+        # ON with no limits file to enforce is its own refusal at render time
+        # (`resolve_limits_mount`), and letting it fire here would decide this
+        # test on a fact it is not about.
+        profile_path = _write_profile(profile_dir, config={"control_system.writes_enabled": False})
 
         # Drop two distinctive bundle artifacts from the profile's copy: if the
         # bundle tree were layered under (or merged into) the profile tree,

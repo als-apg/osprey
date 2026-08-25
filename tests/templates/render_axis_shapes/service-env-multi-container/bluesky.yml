@@ -339,14 +339,7 @@ services:
       BLUESKY_ZMQ_PUBLISH_ADDR: "tcp://bluesky-bridge:5567"
       BLUESKY_ZMQ_CURVE_SECRET_KEY: /app/curve/publisher.key_secret
       BLUESKY_ZMQ_CURVE_SERVER_PUBLIC_KEY: /app/curve/proxy.key
-      # Substrate wiring for the devices the startup module builds. Unlike the
-      # bridge's copy above this is NOT gated on the VA being co-deployed: a
-      # facility pointing at real EPICS has no VA container but still needs
-      # its substrate. The `:-` empty defaults keep an unset substrate
-      # harmless — the module then yields an empty namespace (browse-only).
-      BLUESKY_EPICS_SUBSTRATE: "${BLUESKY_EPICS_SUBSTRATE:-}"
-      BLUESKY_EPICS_SETPOINTS: "${BLUESKY_EPICS_SETPOINTS:-}"
-      BLUESKY_EPICS_READBACKS: "${BLUESKY_EPICS_READBACKS:-}"
+
 
 
 
@@ -372,8 +365,12 @@ services:
       # Split per container by directory rather than by file so each side can
       # only read the secret it is supposed to hold: this one carries the
       # publisher's secret certificate and the bridge proxy's PUBLIC one, and
-      # never the proxy's secret. Same ./data/ convention as the limits DB.
+      # never the proxy's secret. Written as a repo-relative ./data/ source,
+      # the same spelling rule every bind in this file follows — including the
+      # limits DB, whose two halves are now computed host-side rather than
+      # spelled here.
       - ./data/bluesky_curve/queueserver:/app/curve:ro
+
 
 
     networks:
