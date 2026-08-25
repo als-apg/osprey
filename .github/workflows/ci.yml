@@ -442,6 +442,18 @@ jobs:
         cd docs
         uv run make html SPHINXOPTS="-W --keep-going"
 
+    # sphinx_reredirects writes one stub page per `redirects` key. A stub that
+    # never got written means a moved page's old URL 404s for every reader who
+    # bookmarked it.
+    - name: Check redirect stubs were emitted
+      run: |
+        keys=$(uv run python -c "import os, runpy; os.chdir('docs/source'); print(' '.join(runpy.run_path('conf.py')['redirects']))")
+        missing=""
+        for key in $keys; do
+          [ -f "docs/build/html/$key.html" ] || missing="$missing $key"
+        done
+        [ -z "$missing" ] || { echo "redirect stubs missing from the build:$missing"; exit 1; }
+
     - name: Check for broken links
       run: |
         cd docs

@@ -59,8 +59,14 @@ extensions = [
     "sphinx.ext.graphviz",  # Graph visualization
     "sphinx.ext.todo",  # TODO notes
     "sphinx_design",  # Design components (cards, tabs, etc.)
+    "sphinx_reredirects",  # Old-URL redirects for moved pages
     "workflow_autodoc",  # Custom: Auto-document workflow files
 ]
+
+# Old page path -> new location. Keys are docnames (no suffix) of pages that no
+# longer exist; values are PAGE-RELATIVE targets with the `.html` suffix, e.g.
+# "cli-reference/index": "../reference/cli.html". Populated as pages move.
+redirects: dict[str, str] = {}
 
 templates_path = ["_templates"]
 exclude_patterns = []
