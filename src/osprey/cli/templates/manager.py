@@ -226,103 +226,11 @@ class TemplateManager:
         if not project_dir.exists():
             project_dir.mkdir(parents=True)
 
-        # 3. Prepare template context
-        package_name = project_name.replace("-", "_").lower()
-        class_name = self._generate_class_name(package_name)
-
-        # Detect current Python environment
-        import sys
-
-        current_python = sys.executable
-
-        # Fall back to preset profile artifacts when the caller didn't pass any.
-        # An explicit empty dict from `osprey build` means the
-        # profile deliberately selects nothing, and must not be overridden.
-        if artifacts is None:
-            tmpl_manifest = manifest.load_template_manifest(self.template_root, data_bundle)
-            if tmpl_manifest:
-                artifacts = tmpl_manifest.get("artifacts", {})
-
-        # Derive feature flags from artifact selections.
-        selected_hooks = (artifacts or {}).get("hooks", [])
-        selected_web_panels = (artifacts or {}).get("web_panels", [])
-
-        ctx = {
-            "project_name": project_name,
-            "package_name": package_name,
-            "app_display_name": project_name,  # Used in templates for display/documentation
-            "app_class_name": class_name,  # Used in templates for class names
-            "registry_class_name": class_name,  # Backward compatibility
-            "project_description": f"{project_name} - Osprey Agent Application",
-            "framework_version": manifest.get_framework_version(),
-            "project_root": str(project_dir.absolute()),
-            "venv_path": "${LOCAL_PYTHON_VENV}",
-            "current_python_env": current_python,  # Default; overridden by caller context
-            "template_name": data_bundle,  # Make bundle name available in config.yml
-            "data_bundle": data_bundle,
-            "selected_hooks": selected_hooks,
-            "selected_web_panels": selected_web_panels,
-            # Enable-able builtin panel registry (single source of truth in
-            # osprey.profiles.web_panels). Templates derive their enable list
-            # from this so it can't drift from the real registry. sorted() for
-            # deterministic rendered output.
-            "builtin_panels": sorted(BUILTIN_PANELS),
-            # No `env` key: the render reads nothing from `os.environ`, and
-            # writes no `.env` at all — the deployment's one secret store is the
-            # repo-root `.env`, outside this tree.
-            # Provider API-key env vars, derived from the provider registry
-            # (single source of truth in osprey.models.provider_registry) so
-            # env.example.j2 can't drift from the real provider list.
-            # Ordered list of {"provider", "var"} dicts; key-less providers
-            # (ollama, vllm, …) are excluded.
-            "provider_api_keys": scaffolding.provider_api_key_entries(),
-            # The subset of the above this profile actually uses. Empty here so
-            # a caller with no profile still renders the whole list uncommented;
-            # `osprey init` fills it in and the rest drop below a divider.
-            "active_provider_vars": [],
-            # Deploy-minted service credentials, derived from the map the
-            # deploy path mints from, so .env.example documents every one of
-            # them. Ordered list of {"var", "services", "note"} dicts.
-            "service_token_vars": scaffolding.service_token_var_entries(),
-            # The build profile's `env:` block, documented in .env.example.
-            # Defaulted here so a caller that has no profile (programmatic
-            # create_project) still renders the file.
-            "env_required": [],
-            "env_defaults": {},
-            **(context or {}),
-        }
-
-        # Derive channel finder configuration when the channel-finder agent
-        # is selected (either explicitly via build profile artifacts, or via
-        # the preset-profile fallback above for programmatic callers).
-        _profile_agents = (artifacts or {}).get("agents", [])
-        if "channel-finder" in _profile_agents:
-            channel_finder_mode = ctx.get("channel_finder_mode")
-            if channel_finder_mode is None:
-                raise BuildProfileError(
-                    "channel_finder_mode is required when the channel-finder agent "
-                    "is selected. Pin it in your profile "
-                    "(e.g. `channel_finder_mode: hierarchical`) or pass "
-                    "`--set channel_finder_mode=<paradigm>` to `osprey build`."
-                )
-            if channel_finder_mode not in VALID_CHANNEL_FINDER_MODES:
-                raise BuildProfileError(
-                    f"channel_finder_mode must be one of {VALID_CHANNEL_FINDER_MODES} "
-                    f"(got {channel_finder_mode!r})"
-                )
-            from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
-
-            ctx.update(
-                {
-                    "channel_finder_mode": channel_finder_mode,
-                    **_enable_flags(channel_finder_mode),
-                    "default_pipeline": channel_finder_mode,
-                    "channel_finder_pipeline": channel_finder_mode,
-                    "channel_finder_tools": list(
-                        CHANNEL_FINDER_TOOLS_BY_PIPELINE.get(channel_finder_mode, [])
-                    ),
-                }
-            )
+        # 3. Prepare template context. The artifact fallback is resolved into
+        # the local so the manifest-output filtering below reads the same
+        # effective selection the context was built from.
+        artifacts = self._effective_artifacts(data_bundle, artifacts)
+        ctx = self._project_context(project_name, project_dir, data_bundle, context, artifacts)
 
         # 4. Create project structure
         scaffolding.create_project_structure(
@@ -367,7 +275,7 @@ class TemplateManager:
         scaffolding.copy_template_data(
             self.template_root,
             project_dir,
-            package_name,
+            ctx["package_name"],
             data_bundle,
             ctx,
             jinja_env=self.jinja_env,
@@ -437,10 +345,15 @@ class TemplateManager:
             ctx["facility_permissions"] = cc_config.get("permissions", {})
             # Model provider resolution for init-time rendering
             from osprey.build.claude_code_resolver import ClaudeCodeModelResolver
+            from osprey.build.claude_code_telemetry import openobserve_published_port
 
             api_providers = rendered_config.get("api", {}).get("providers", {})
             try:
-                model_spec = ClaudeCodeModelResolver.resolve(cc_config, api_providers)
+                model_spec = ClaudeCodeModelResolver.resolve(
+                    cc_config,
+                    api_providers,
+                    openobserve_port=openobserve_published_port(rendered_config),
+                )
             except ValueError:
                 model_spec = None
             ctx["claude_code_model_spec"] = model_spec
@@ -533,6 +446,179 @@ class TemplateManager:
         )
 
         return project_dir
+
+    def render_config(
+        self,
+        project_name: str,
+        project_dir: Path,
+        output_path: Path,
+        data_bundle: str = "control_assistant",
+        context: dict[str, Any] | None = None,
+        artifacts: dict[str, list[str]] | None = None,
+    ) -> None:
+        """Render only the ``config.yml`` that :meth:`create_project` would.
+
+        Same template, same context — what the project says it deploys and
+        where, without the rest of the render. ``osprey build`` uses it to
+        read what an app template deploys at its defaults: the hosting
+        deployment an attached profile built alone is told about.
+
+        Args:
+            project_name: Name of the project the context is built for.
+            project_dir: Where the project would render (``project_root``
+                in the context).
+            output_path: Where the rendered ``config.yml`` is written.
+            data_bundle: Data bundle (app template) to render.
+            context: Additional template context variables.
+            artifacts: Profile-driven artifact selection, as for
+                :meth:`create_project`.
+
+        Raises:
+            ValueError: If the data bundle does not exist or renders no
+                ``config.yml``.
+        """
+        bundle_dir = self.template_root / "apps" / data_bundle
+        if not bundle_dir.is_dir():
+            raise ValueError(
+                f"Template '{data_bundle}' not found. "
+                f"Available templates: {', '.join(self.list_app_templates())}"
+            )
+        artifacts = self._effective_artifacts(data_bundle, artifacts)
+        ctx = self._project_context(project_name, project_dir, data_bundle, context, artifacts)
+        scaffolding.render_project_config(
+            self.template_root, self.jinja_env, output_path, data_bundle, ctx
+        )
+
+    def _effective_artifacts(
+        self, data_bundle: str, artifacts: dict[str, list[str]] | None
+    ) -> dict[str, list[str]] | None:
+        """The artifact selection a render of *data_bundle* is made with.
+
+        The caller's own selection where it supplied one — an explicit empty
+        dict from ``osprey build`` means the profile deliberately selects
+        nothing, and must not be overridden — and the data bundle's manifest
+        otherwise. Every public entry point resolves this into its local
+        before building the context, because the same value gates the
+        manifest-output filtering after the render.
+        """
+        if artifacts is not None:
+            return artifacts
+        tmpl_manifest = manifest.load_template_manifest(self.template_root, data_bundle)
+        if tmpl_manifest:
+            return tmpl_manifest.get("artifacts", {})
+        return None
+
+    def _project_context(
+        self,
+        project_name: str,
+        project_dir: Path,
+        data_bundle: str,
+        context: dict[str, Any] | None,
+        artifacts: dict[str, list[str]] | None,
+    ) -> dict[str, Any]:
+        """The template context a project render of *data_bundle* is made with.
+
+        The defaults every template may read, the caller's *context* over
+        them, and the channel-finder flags derived from the artifact
+        selection.
+
+        Raises:
+            BuildProfileError: If the channel-finder agent is selected with no
+                valid ``channel_finder_mode``.
+        """
+        package_name = project_name.replace("-", "_").lower()
+        class_name = self._generate_class_name(package_name)
+
+        # Detect current Python environment
+        import sys
+
+        current_python = sys.executable
+
+        # Callers resolve the manifest fallback (_effective_artifacts) before
+        # calling; *artifacts* here is already the effective selection.
+
+        # Derive feature flags from artifact selections.
+        selected_hooks = (artifacts or {}).get("hooks", [])
+        selected_web_panels = (artifacts or {}).get("web_panels", [])
+
+        ctx = {
+            "project_name": project_name,
+            "package_name": package_name,
+            "app_display_name": project_name,  # Used in templates for display/documentation
+            "app_class_name": class_name,  # Used in templates for class names
+            "registry_class_name": class_name,  # Backward compatibility
+            "project_description": f"{project_name} - Osprey Agent Application",
+            "framework_version": manifest.get_framework_version(),
+            "project_root": str(project_dir.absolute()),
+            "venv_path": "${LOCAL_PYTHON_VENV}",
+            "current_python_env": current_python,  # Default; overridden by caller context
+            "template_name": data_bundle,  # Make bundle name available in config.yml
+            "data_bundle": data_bundle,
+            "selected_hooks": selected_hooks,
+            "selected_web_panels": selected_web_panels,
+            # Enable-able builtin panel registry (single source of truth in
+            # osprey.profiles.web_panels). Templates derive their enable list
+            # from this so it can't drift from the real registry. sorted() for
+            # deterministic rendered output.
+            "builtin_panels": sorted(BUILTIN_PANELS),
+            # No `env` key: the render reads nothing from `os.environ`, and
+            # writes no `.env` at all — the deployment's one secret store is the
+            # repo-root `.env`, outside this tree.
+            # Provider API-key env vars, derived from the provider registry
+            # (single source of truth in osprey.models.provider_registry) so
+            # env.example.j2 can't drift from the real provider list.
+            # Ordered list of {"provider", "var"} dicts; key-less providers
+            # (ollama, vllm, …) are excluded.
+            "provider_api_keys": scaffolding.provider_api_key_entries(),
+            # The subset of the above this profile actually uses. Empty here so
+            # a caller with no profile still renders the whole list uncommented;
+            # `osprey init` fills it in and the rest drop below a divider.
+            "active_provider_vars": [],
+            # Deploy-minted service credentials, derived from the map the
+            # deploy path mints from, so .env.example documents every one of
+            # them. Ordered list of {"var", "services", "note"} dicts.
+            "service_token_vars": scaffolding.service_token_var_entries(),
+            # The build profile's `env:` block, documented in .env.example.
+            # Defaulted here so a caller that has no profile (programmatic
+            # create_project) still renders the file.
+            "env_required": [],
+            "env_defaults": {},
+            **(context or {}),
+        }
+
+        # Derive channel finder configuration when the channel-finder agent
+        # is selected (either explicitly via build profile artifacts, or via
+        # the preset-profile fallback above for programmatic callers).
+        _profile_agents = (artifacts or {}).get("agents", [])
+        if "channel-finder" in _profile_agents:
+            channel_finder_mode = ctx.get("channel_finder_mode")
+            if channel_finder_mode is None:
+                raise BuildProfileError(
+                    "channel_finder_mode is required when the channel-finder agent "
+                    "is selected. Pin it in your profile "
+                    "(e.g. `channel_finder_mode: hierarchical`) or pass "
+                    "`--set channel_finder_mode=<paradigm>` to `osprey build`."
+                )
+            if channel_finder_mode not in VALID_CHANNEL_FINDER_MODES:
+                raise BuildProfileError(
+                    f"channel_finder_mode must be one of {VALID_CHANNEL_FINDER_MODES} "
+                    f"(got {channel_finder_mode!r})"
+                )
+            from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
+
+            ctx.update(
+                {
+                    "channel_finder_mode": channel_finder_mode,
+                    **_enable_flags(channel_finder_mode),
+                    "default_pipeline": channel_finder_mode,
+                    "channel_finder_pipeline": channel_finder_mode,
+                    "channel_finder_tools": list(
+                        CHANNEL_FINDER_TOOLS_BY_PIPELINE.get(channel_finder_mode, [])
+                    ),
+                }
+            )
+
+        return ctx
 
     def regenerate_claude_code(
         self,

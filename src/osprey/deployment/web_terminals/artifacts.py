@@ -33,6 +33,7 @@ from osprey.deployment.web_terminals.auth_credentials import (
 from osprey.deployment.web_terminals.personas import (
     normalize_users,
     personas_needing_archiver_password,
+    personas_needing_ariel_mirror,
     personas_needing_ariel_password,
     personas_needing_dispatcher_token,
     personas_needing_facility_bundle,
@@ -45,7 +46,7 @@ from osprey.deployment.web_terminals.render import (
     render_web_terminals,
 )
 from osprey.utils.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
-from osprey.utils.workspace import BUILD_DIR_NAME
+from osprey.utils.workspace import AUDIT_DIR_RELPATH, BUILD_DIR_NAME
 
 #: Filename of the rendered web-stack compose file, as
 #: :func:`~osprey.deployment.web_terminals.render.render_web_terminals` keys it.
@@ -315,6 +316,84 @@ def _terminal_secrets(config: Any, root: Path) -> dict[str, str] | None:
     return secrets or None
 
 
+def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
+    """Every disk-derived input the deploy hands :func:`render_web_terminals`.
+
+    Resolved HERE and passed down, because ``render_web_terminals()`` reads no
+    filesystem of its own (see its docstring): the ``.env.auth`` digest; which
+    personas declare the EVENTS panel and so need the dispatcher's bearer,
+    which configure ARIEL and so need its Postgres password, which both allow
+    writes and run the bluesky server and so may arm a queue start, which
+    configure a graph store and so need its Neo4j password — each in their own
+    per-user environment block; which name a facility-knowledge bundle or run
+    a qmd export and so get the deployment's bundle or mirror bind-mounted,
+    and the groups those shared directories (and every user's audit zone)
+    were provisioned with; and the roster's operator secrets.
+
+    The one seam between "what is on disk" and "what the render is told", so a
+    test that wants the render the deploy actually produces asks this rather
+    than restating a subset of the inputs — a subset is exactly how a mount the
+    deploy emits can be invisible to a test that never passed its entitlement.
+
+    Fails closed BEFORE any render, so a refused deploy leaves no half-written
+    artifacts behind: a persona holding ``BLUESKY_LAUNCH_TOKEN`` whose shipped
+    settings still permit ``Bash`` can arm a queue start from a shell, with none
+    of the chat approval the token exists to make sufficient. ``osprey up`` and
+    ``decommission_user`` each already refused this earlier, where refusing is
+    cheaper and cannot half-apply; ``force_recreate_auth_sidecar``'s
+    pre-recreate re-render reaches here having passed neither, which is why the
+    seam checks for itself. The entitled set comes back from the guard so the
+    render is handed exactly the set that was cleared.
+
+    Args:
+        config: The parsed facility config.
+        repo_root: The deployment repo root.
+
+    Returns:
+        Keyword arguments for :func:`render_web_terminals`.
+
+    Raises:
+        BashLaunchTokenConflictError: See :func:`check_bash_launch_token_conflict`.
+    """
+    from osprey.deployment.compose_generator import (
+        resolve_ariel_mirror_dir,
+        resolve_facility_bundle_dir,
+        shared_corpus_gid,
+    )
+
+    root = Path(repo_root)
+    launch_token_personas = check_bash_launch_token_conflict(config, root)
+    return {
+        "auth_env_digest": auth_env_digest(root),
+        "dispatcher_personas": personas_needing_dispatcher_token(config, root),
+        "ariel_personas": personas_needing_ariel_password(config, root),
+        "launch_token_personas": launch_token_personas,
+        "graphdb_personas": personas_needing_graphdb_password(config, root),
+        "archiver_password_personas": personas_needing_archiver_password(config, root),
+        "facility_bundle_personas": personas_needing_facility_bundle(config, root),
+        # A pure read, like every other disk-derived input here: the deploy path
+        # provisions the bundle directory before this render (see
+        # deploy_up_web_terminals), and this asks what group it ended up with so
+        # each entitled service can join it. An unprovisioned directory answers
+        # None and emits no `group_add` — the honest render, since joining a
+        # group that was never established would be a guess.
+        "facility_bundle_gid": shared_corpus_gid(resolve_facility_bundle_dir(config, root)),
+        # The ARIEL mirror and each user's audit zone: the same pure reads, for
+        # the same reason, of directories the deploy provisioned before this
+        # render. The audit zone's group is read off its root, which the
+        # per-user subdirectories inherit.
+        "ariel_mirror_personas": personas_needing_ariel_mirror(config, root),
+        "ariel_mirror_gid": shared_corpus_gid(resolve_ariel_mirror_dir(config, root)),
+        "audit_gid": shared_corpus_gid(root / AUDIT_DIR_RELPATH),
+        # The roster's operator secrets, read back off the deploy .env (see
+        # _terminal_secrets for the None case and why it is not an open door).
+        # Without this the render emits no per-user snippet at all, while
+        # nginx.conf.j2 still emits the `include` that reads one — an nginx that
+        # refuses to start, pointing at a path nothing ever wrote.
+        "terminal_secrets": _terminal_secrets(config, root),
+    }
+
+
 def write_web_terminal_artifacts(config: Any, repo_root: Path | str | None = None) -> list[Path]:
     """Render the web-terminal artifacts into the repo's ``build/`` zone.
 
@@ -382,55 +461,10 @@ def write_web_terminal_artifacts(config: Any, repo_root: Path | str | None = Non
             its own (see :func:`_terminal_secrets`). Raised before any file is
             written or cleared.
     """
-    from osprey.deployment.compose_generator import (
-        resolve_facility_bundle_dir,
-        resolve_repo_root,
-        shared_corpus_gid,
-    )
+    from osprey.deployment.compose_generator import resolve_repo_root
 
     root = Path(repo_root) if repo_root is not None else resolve_repo_root(config)
-    # Every disk-derived input is resolved HERE and passed down, because
-    # render_web_terminals() reads no filesystem of its own (see its docstring):
-    # the .env.auth digest, which personas declare the EVENTS panel and so need
-    # the dispatcher's bearer, which configure ARIEL and so need its Postgres
-    # password, which both allow writes and run the bluesky server and so may
-    # arm a queue start, which configure a graph store and so need its Neo4j
-    # password — each in their own per-user environment block — and which name a
-    # facility-knowledge bundle and so get it bind-mounted.
-    # Fail closed BEFORE the render, so a refused deploy leaves no half-written
-    # artifacts behind: a persona holding BLUESKY_LAUNCH_TOKEN whose shipped
-    # settings still permit `Bash` can arm a queue start from a shell, with none
-    # of the chat approval the token exists to make sufficient. `osprey up` and
-    # `decommission_user` each already refused this earlier, where refusing is
-    # cheaper and cannot half-apply; force_recreate_auth_sidecar's pre-recreate
-    # re-render reaches here having passed neither, which is why the seam checks
-    # for itself. The entitled set comes back from the guard so the render is
-    # handed exactly the set that was cleared.
-    launch_token_personas = check_bash_launch_token_conflict(config, root)
-
-    artifacts = render_web_terminals(
-        config,
-        auth_env_digest=auth_env_digest(root),
-        dispatcher_personas=personas_needing_dispatcher_token(config, root),
-        ariel_personas=personas_needing_ariel_password(config, root),
-        launch_token_personas=launch_token_personas,
-        graphdb_personas=personas_needing_graphdb_password(config, root),
-        archiver_password_personas=personas_needing_archiver_password(config, root),
-        facility_bundle_personas=personas_needing_facility_bundle(config, root),
-        # A pure read, like every other disk-derived input here: the deploy path
-        # provisions the bundle directory before this render (see
-        # deploy_up_web_terminals), and this asks what group it ended up with so
-        # each entitled service can join it. An unprovisioned directory answers
-        # None and emits no `group_add` — the honest render, since joining a
-        # group that was never established would be a guess.
-        facility_bundle_gid=shared_corpus_gid(resolve_facility_bundle_dir(config, root)),
-        # The roster's operator secrets, read back off the deploy .env (see
-        # _terminal_secrets for the None case and why it is not an open door).
-        # Without this the render emits no per-user snippet at all, while
-        # nginx.conf.j2 still emits the `include` that reads one — an nginx that
-        # refuses to start, pointing at a path nothing ever wrote.
-        terminal_secrets=_terminal_secrets(config, root),
-    )
+    artifacts = render_web_terminals(config, **resolve_render_inputs(config, root))
     dest = web_artifacts_dir(root)
     # Before the first write, never after: a render that raised above must not
     # have removed the snippets the currently-deployed stack is still reading,

@@ -49,6 +49,12 @@ from typing import Any
 
 from osprey.deployment.errors import DeploymentPreconditionError
 
+#: Key of the sidecar's block under ``services:`` — also its compose service
+#: name and its ``deployed_services`` entry. Spelled once so the build-time
+#: validator that asks "is there a block to dial" reads the same key the
+#: resolver below does.
+QMD_SERVICE_NAME = "qmd"
+
 #: Host port the sidecar publishes. Deliberately NOT qmd's own default of
 #: 8181: the daemon binds loopback only (``listen(port, "localhost")``,
 #: hardcoded, no ``--host`` flag), so the container's entrypoint runs qmd on the
@@ -76,11 +82,11 @@ DEFAULT_INTERVAL_SECONDS = 30
 
 #: Config key an operator edits to move the published host port. Spelled once
 #: so the deploy-time port-conflict remedy and the schema cannot drift apart.
-PORT_CONFIG_KEY = "services.qmd.port"
+PORT_CONFIG_KEY = f"services.{QMD_SERVICE_NAME}.port"
 
 #: Config key naming a host directory of pre-staged GGUF model files. Spelled
 #: once so the schema, the deploy-time preflight and its refusal text agree.
-MODELS_DIR_CONFIG_KEY = "services.qmd.models_dir"
+MODELS_DIR_CONFIG_KEY = f"services.{QMD_SERVICE_NAME}.models_dir"
 
 #: The exact filenames the three models must carry, in the order the sidecar
 #: loads them: embedding, reranker, query expansion.
@@ -162,7 +168,7 @@ def resolve_qmd_service_config(config: Mapping[str, Any] | None) -> QMDServiceCo
     services = config.get("services")
     if not isinstance(services, Mapping):
         return None
-    block = services.get("qmd")
+    block = services.get(QMD_SERVICE_NAME)
     if not isinstance(block, Mapping):
         return None
     return QMDServiceConfig(

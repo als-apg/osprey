@@ -15,6 +15,8 @@ import base64
 import os
 import re
 import warnings
+from collections.abc import Mapping
+from typing import Any
 
 # OTEL / Claude Code telemetry vars the resolver may inject into the env block.
 #
@@ -209,6 +211,117 @@ def _openobserve_host_override() -> str | None:
     return os.environ.get("OSPREY_OTEL_OPENOBSERVE_HOST") or None
 
 
+#: The port the OpenObserve container LISTENS on. Fixed by the image, and what
+#: the service template publishes ``services.openobserve.port`` onto
+#: (``<bind>:<port>:5080/tcp``). It is the right port only from inside the
+#: store's own compose network, where the store is reached by DNS name; from
+#: anywhere else — the host, a host-networked container — the store is reached
+#: at the port it PUBLISHES, which a project moves freely.
+OPENOBSERVE_LISTEN_PORT = 5080
+
+#: The variable a compose author sets beside ``OSPREY_OTEL_OPENOBSERVE_HOST``
+#: when the host it names is reached on a port the config cannot know — the
+#: bridge case, where the compose DNS name answers on the listen port. Same
+#: convention as the host variable: topology is declared, never sniffed.
+OPENOBSERVE_PORT_ENV_VAR = "OSPREY_OTEL_OPENOBSERVE_PORT"
+
+
+def openobserve_published_port(config: Mapping[str, Any] | None) -> int:
+    """The port this deployment publishes the telemetry store on.
+
+    Read from ``services.openobserve.port`` — the one key that moves it, and the
+    same key the service template, the deploy preflight and ``osprey health``
+    read — falling back to :data:`OPENOBSERVE_LISTEN_PORT`, which is what the
+    template publishes when the key is absent. A persona render carries the
+    key too: profile inheritance copies the hosting profile's ``config:``
+    overlay into every attached render, so a moved store moves every client.
+
+    Args:
+        config: Loaded ``config.yml`` mapping, or ``None``.
+
+    Returns:
+        The published port, as an ``int``.
+
+    Raises:
+        TelemetryConfigError: The key is present but not an integer port.
+    """
+    services = (config or {}).get("services") or {}
+    block = services.get("openobserve") if isinstance(services, Mapping) else None
+    raw = block.get("port") if isinstance(block, Mapping) else None
+    if raw is None:
+        return OPENOBSERVE_LISTEN_PORT
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        raise TelemetryConfigError(
+            f"services.openobserve.port must be an integer port, got {raw!r}"
+        ) from None
+
+
+def _openobserve_port_override() -> int | None:
+    """Explicit OpenObserve port from the deploy environment, or ``None``.
+
+    The port half of :func:`_openobserve_host_override`, read the same way and
+    for the same reason. An unset or empty variable is no override; a set one
+    that is not an integer is a compose-authoring error and is refused rather
+    than silently ignored, because the value was written deliberately.
+
+    Raises:
+        TelemetryConfigError: The variable is set but not an integer port.
+    """
+    raw = os.environ.get(OPENOBSERVE_PORT_ENV_VAR)
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        raise TelemetryConfigError(
+            f"{OPENOBSERVE_PORT_ENV_VAR} must be an integer port, got {raw!r}"
+        ) from None
+
+
+def resolve_openobserve_port(config: Mapping[str, Any] | None) -> int:
+    """The port a runtime launch reaches the telemetry store on.
+
+    The deploy environment's declaration wins (:func:`_openobserve_port_override`);
+    otherwise the port this deployment publishes
+    (:func:`openobserve_published_port`). Runtime launch paths call this;
+    build-time renders, which must not read the builder's environment, call
+    :func:`openobserve_published_port` directly.
+    """
+    return _openobserve_port_override() or openobserve_published_port(config)
+
+
+def resolve_runtime_telemetry_endpoint(config: Mapping[str, Any] | None) -> str | None:
+    """The OTLP endpoint an agent launched from this process would post to.
+
+    The same inputs the launch path hands :func:`_build_telemetry_env` —
+    container context, the deploy environment's host and port overrides, the
+    port the deployment publishes — so what the ``reach`` health category
+    knocks on is what the exporter dials from here, not a re-derivation.
+
+    Args:
+        config: Loaded ``config.yml`` mapping, or ``None``.
+
+    Returns:
+        The endpoint URL, or ``None`` when telemetry is off, not the
+        OpenObserve backend, or misconfigured (the launch path refuses that
+        loudly; the probe has nothing to knock on).
+    """
+    telemetry_cfg = ((config or {}).get("claude_code") or {}).get("telemetry")
+    if not isinstance(telemetry_cfg, dict) or not telemetry_cfg.get("enabled"):
+        return None
+    try:
+        return _resolve_telemetry_endpoint(
+            telemetry_cfg,
+            in_container=_running_in_container(),
+            openobserve_host=_openobserve_host_override(),
+            openobserve_port=resolve_openobserve_port(config),
+        )
+    except (TelemetryConfigError, ValueError):
+        return None
+
+
 def _parse_header_map(value: dict | str) -> dict[str, str]:
     """Parse OTLP headers config into a ``{key: value}`` dict.
 
@@ -241,13 +354,30 @@ def _render_kv_map(value: dict | str) -> str:
 
 
 def _resolve_telemetry_endpoint(
-    telemetry_cfg: dict, *, in_container: bool, openobserve_host: str | None = None
+    telemetry_cfg: dict,
+    *,
+    in_container: bool,
+    openobserve_host: str | None = None,
+    openobserve_port: int | None = None,
 ) -> str:
     """Resolve the OTLP exporter endpoint, failing loud on misconfiguration.
 
     Priority: an explicit ``endpoint`` wins verbatim; otherwise an
     ``openobserve`` backend derives the org endpoint from the container context.
     Any other enabled-but-unaddressed config is a misconfiguration and raises.
+
+    Args:
+        telemetry_cfg: The ``claude_code.telemetry`` section.
+        in_container: Whether the agent runs in a container — selects the
+            OpenObserve default host (``openobserve`` vs ``localhost``).
+        openobserve_host: Explicit store host from the deploy env; wins over
+            the ``in_container`` derivation.
+        openobserve_port: The port the store is reached on from where this
+            launch runs — the deploy env's declaration or the port the
+            deployment publishes (:func:`resolve_openobserve_port`). ``None``
+            falls back to :data:`OPENOBSERVE_LISTEN_PORT`, which is right only
+            for a caller inside the store's own compose network; every launch
+            path passes the resolved port.
 
     Raises:
         ValueError: If no endpoint can be resolved; if ``protocol`` is ``grpc``
@@ -269,7 +399,7 @@ def _resolve_telemetry_endpoint(
                 raise TelemetryConfigError(
                     "claude_code.telemetry.protocol is 'grpc' but the OTLP endpoint "
                     "is auto-derived from backend: openobserve, which serves HTTP "
-                    "only (port 5080) — a gRPC exporter aimed there would drop every "
+                    "only — a gRPC exporter aimed there would drop every "
                     "metric and log silently. Use protocol: http/protobuf, or set an "
                     "explicit claude_code.telemetry.endpoint pointing at a collector "
                     "that speaks gRPC."
@@ -277,8 +407,9 @@ def _resolve_telemetry_endpoint(
             # An explicit host from the deploy env wins (the compose author knows
             # the network topology); otherwise derive from container context.
             host = openobserve_host or ("openobserve" if in_container else "localhost")
+            port = openobserve_port or OPENOBSERVE_LISTEN_PORT
             org = telemetry_cfg.get("openobserve", {}).get("org", "default")
-            endpoint = f"http://{host}:5080/api/{org}"
+            endpoint = f"http://{host}:{port}/api/{org}"
         else:
             raise TelemetryConfigError(
                 "claude_code.telemetry is enabled but no 'endpoint' is set and "
@@ -369,12 +500,13 @@ def _build_telemetry_env(
     *,
     in_container: bool = False,
     openobserve_host: str | None = None,
+    openobserve_port: int | None = None,
     defer_unresolved_creds: bool = False,
 ) -> dict[str, str]:
     """Build the OTEL/telemetry env block from the ``claude_code.telemetry`` config.
 
     Reads no environment and does no filesystem/network I/O — the
-    ``${VAR}``-expansion, container detection, and host override happen
+    ``${VAR}``-expansion, container detection, and host/port resolution happen
     upstream. Its only side effect is a single advisory ``warnings.warn`` when
     full content capture is active on a non-openobserve backend. Returns an
     empty dict when telemetry is absent or disabled.
@@ -387,6 +519,8 @@ def _build_telemetry_env(
         openobserve_host: Explicit OpenObserve host from the deploy env; when
             set it wins over the ``in_container`` derivation (the compose author
             knows the network topology).
+        openobserve_port: The port the store is reached on from where this
+            launch runs (see :func:`_resolve_telemetry_endpoint`).
 
     Returns:
         A ``{VAR: "value"}`` dict; every value is a string (never bool). Keys
@@ -408,7 +542,10 @@ def _build_telemetry_env(
         "OTEL_LOGS_EXPORTER": "otlp",
         "OTEL_EXPORTER_OTLP_PROTOCOL": str(telemetry_cfg.get("protocol", "http/protobuf")),
         "OTEL_EXPORTER_OTLP_ENDPOINT": _resolve_telemetry_endpoint(
-            telemetry_cfg, in_container=in_container, openobserve_host=openobserve_host
+            telemetry_cfg,
+            in_container=in_container,
+            openobserve_host=openobserve_host,
+            openobserve_port=openobserve_port,
         ),
     }
 

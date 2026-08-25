@@ -348,3 +348,80 @@ def _isolate_env(monkeypatch):
     """Keep the ambient CI diag settings out of these tests."""
     monkeypatch.delenv(ENV_DIR, raising=False)
     monkeypatch.delenv(ENV_STACK_TIMEOUT, raising=False)
+
+
+# ---------------------------------------------------------------------------
+# The durations report the lane tees into pytest.log reaches the summary
+# ---------------------------------------------------------------------------
+
+_DURATIONS_LOG = (
+    "tests/test_a.py::test_fast PASSED\n"
+    "\x1b[33m============================= slowest 50 durations =============================\x1b[0m\n"
+    "140.79s call     tests/templates/test_limits.py::TestStable::test_every_edge\n"
+    "53.67s setup    tests/integration/test_export.py::test_formats[text/csv]@docker\n"
+    "0.51s teardown tests/test_a.py::test_fast\n"
+    "\x1b[33m=========================== short test summary info ============================\x1b[0m\n"
+    "1 passed in 195.0s\n"
+)
+
+_FINISHED_RUN = [
+    {"event": "start", "nodeid": "tests/test_a.py::test_fast", "worker": "gw0"},
+    {"event": "finish", "nodeid": "tests/test_a.py::test_fast", "worker": "gw0"},
+]
+
+
+def test_summary_reads_the_durations_report_from_the_teed_log(tmp_path):
+    (tmp_path / "pytest.log").write_text(_DURATIONS_LOG)
+    assert _load_summary().slowest_tests(tmp_path) == [
+        (140.79, "call", "tests/templates/test_limits.py::TestStable::test_every_edge"),
+        (53.67, "setup", "tests/integration/test_export.py::test_formats[text/csv]@docker"),
+        (0.51, "teardown", "tests/test_a.py::test_fast"),
+    ]
+
+
+def test_summary_distinguishes_no_log_from_a_log_without_a_report(tmp_path):
+    assert _load_summary().slowest_tests(tmp_path) is None
+    # A lane killed mid-suite has a log that stops before the final report.
+    (tmp_path / "pytest.log").write_text("tests/test_a.py::test_fast PASSED\n")
+    assert _load_summary().slowest_tests(tmp_path) == []
+
+
+def test_summary_report_tabulates_the_slowest_tests(tmp_path):
+    _write_jsonl(tmp_path / "events-gw0.jsonl", _FINISHED_RUN)
+    (tmp_path / "pytest.log").write_text(_DURATIONS_LOG)
+    report = _load_summary().render_report(tmp_path)
+    assert "**Slowest tests (top 3 of 3 reported" in report
+    assert (
+        "| 140.8 | call | `tests/templates/test_limits.py::TestStable::test_every_edge` |" in report
+    )
+
+
+def test_summary_report_caps_the_table_and_says_so(tmp_path):
+    summary = _load_summary()
+    rows = "".join(
+        f"{100 - i}.00s call tests/test_a.py::t{i}\n" for i in range(summary.SLOWEST_ROWS + 5)
+    )
+    (tmp_path / "pytest.log").write_text(
+        f"=== slowest 50 durations ===\n{rows}=== short test summary info ===\n"
+    )
+    _write_jsonl(tmp_path / "events-gw0.jsonl", _FINISHED_RUN)
+    report = summary.render_report(tmp_path)
+    assert f"top {summary.SLOWEST_ROWS} of {summary.SLOWEST_ROWS + 5} reported" in report
+    assert report.count("| call |") == summary.SLOWEST_ROWS
+
+
+def test_summary_report_names_a_killed_lanes_missing_report(tmp_path):
+    _write_jsonl(
+        tmp_path / "events-gw0.jsonl",
+        [{"event": "start", "nodeid": "tests/test_a.py::wedged", "worker": "gw0"}],
+    )
+    (tmp_path / "pytest.log").write_text("tests/test_a.py::wedged\n")
+    report = _load_summary().render_report(tmp_path)
+    assert "No durations report in `pytest.log`" in report
+
+
+def test_summary_report_omits_the_section_without_a_log(tmp_path):
+    _write_jsonl(tmp_path / "events-gw0.jsonl", _FINISHED_RUN)
+    report = _load_summary().render_report(tmp_path)
+    assert "Slowest tests" not in report
+    assert "durations report" not in report

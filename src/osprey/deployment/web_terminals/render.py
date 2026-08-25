@@ -19,10 +19,13 @@ from urllib.parse import quote
 
 from jinja2 import Environment, FileSystemLoader
 
+from osprey.bluesky_bridge_connection import discover_lane_keys, lane_env_prefix
 from osprey.deployment.compose_generator import (
+    configured_ariel_mirror_path,
     repo_identity,
     repo_relative_mount_source,
     resolve_repo_root,
+    user_audit_relpath,
 )
 from osprey.deployment.web_terminals.auth_credentials import (
     TERMINAL_SECRET_VAR_PREFIX,
@@ -33,6 +36,7 @@ from osprey.deployment.web_terminals.personas import (
     USERNAME_CHARSET_RE,
     as_dict,
     config_archiver_password_env,
+    config_needs_ariel_mirror,
     config_needs_ariel_password,
     config_needs_dispatcher_token,
     config_needs_facility_bundle,
@@ -50,7 +54,7 @@ from osprey.deployment.web_terminals.ports import (
     base_ports_from_config,
 )
 from osprey.utils.facility import resolve_facility_name
-from osprey.utils.workspace import agent_data_base_dir
+from osprey.utils.workspace import AUDIT_DIR_RELPATH, agent_data_base_dir
 
 # Package-relative location of the .j2 sources (Tasks 1.3/1.6). Resolved via
 # importlib.resources, NOT Path(__file__).parent, so this works from an installed
@@ -510,6 +514,53 @@ def _container_bundle_dir(config: Any, container_project_dir: str) -> str | None
     return (PurePosixPath(container_project_dir) / base).as_posix()
 
 
+def _container_mirror_dir(config: Any, container_project_dir: str) -> str | None:
+    """Where the deployment's ARIEL qmd mirror mounts, as this container sees it.
+
+    The mirror counterpart of :func:`_container_bundle_dir`, derived the same
+    way and for the same reason: the target has to be the directory the
+    exporter inside the container actually WRITES — it resolves
+    ``ariel.enhancement_modules.qmd_export.mirror_path`` against the project
+    root, which in-container is *container_project_dir* — or the bind covers
+    nothing and the container's own logbook enhancements land in its writable
+    layer, unindexed by the sidecar and gone at the next recreate. Read through
+    the one reader every other consumer of the key uses
+    (:func:`~osprey.deployment.compose_generator.configured_ariel_mirror_path`),
+    ``settings`` winning over the module block exactly as the exporter merges
+    them. Absolute values are not re-anchored, as for the bundle. Same known
+    limit as its sibling: the path is read from the DEPLOY config, not each
+    persona's own, and the lint reports a persona that relocated it.
+
+    :return: The in-container mount target, or ``None`` when the deployment
+        writes no mirror at all.
+    """
+    from osprey.deployment.compose_generator import configured_ariel_mirror_path
+
+    raw = configured_ariel_mirror_path(as_dict(config))
+    if raw is None:
+        return None
+    base = PurePosixPath(raw)
+    if base.is_absolute():
+        return base.as_posix()
+    return (PurePosixPath(container_project_dir) / base).as_posix()
+
+
+def _container_audit_dir(container_project_dir: str) -> str:
+    """Where a per-user container's audit zone mounts, as that container sees it.
+
+    The python executor appends its refusal log under
+    ``<project root>/<AUDIT_DIR_RELPATH>``
+    (:func:`osprey.services.python_executor.refusal_audit.audit_dir`), and the
+    project root in-container is *container_project_dir*. Derived from the
+    same constant the writer uses rather than spelled here, for the reason
+    :func:`_container_agent_data_dir` gives: a path the container does not
+    write to is a mount over an empty directory, while the log — the one
+    record of what the agent tried and was refused — accumulates in the
+    writable layer and vanishes at the next recreate.
+    """
+    return (PurePosixPath(container_project_dir) / AUDIT_DIR_RELPATH).as_posix()
+
+
 def render_web_terminals(
     config: Any,
     auth_env_digest: str | None = None,
@@ -519,6 +570,9 @@ def render_web_terminals(
     graphdb_personas: set[str] | None = None,
     facility_bundle_personas: set[str] | None = None,
     facility_bundle_gid: int | None = None,
+    ariel_mirror_personas: set[str] | None = None,
+    ariel_mirror_gid: int | None = None,
+    audit_gid: int | None = None,
     archiver_password_personas: dict[str, str] | None = None,
     terminal_secrets: dict[str, str] | None = None,
 ) -> dict[str, str]:
@@ -618,6 +672,25 @@ def render_web_terminals(
             directory does not exist yet, or a platform with no gids) emits no
             ``group_add``, which is the honest render rather than a guessed
             group.
+        ariel_mirror_personas: Persona names whose project runs an ARIEL qmd
+            export that writes a mirror, and whose container therefore gets the
+            deployment's mirror directory bind-mounted at the path its own
+            exporter writes (see
+            :func:`osprey.deployment.web_terminals.personas.personas_needing_ariel_mirror`).
+            Same placement and same reason as ``facility_bundle_personas``:
+            a mount, not a secret, resolved from disk and passed in. Without it
+            an entry enhanced inside that container is written into the
+            container's writable layer — never indexed by the sidecar, gone at
+            the next recreate. ``None`` emits no mount for any user.
+        ariel_mirror_gid: Group id of the mirror directory on the host, for
+            the same ``group_add:`` reason as ``facility_bundle_gid``. ``None``
+            emits no group for it.
+        audit_gid: Group id of the deployment's audit zone on the host
+            (``var/audit``), under which the deploy provisions one directory
+            per roster user and this render binds it at the user's container
+            audit path. Every per-user service joins it, because every
+            container writes its refusal log there. ``None`` emits no group
+            for it.
         archiver_password_personas: ``{persona_name: env_var_name}`` for the
             personas whose archiver connector authenticates with a password,
             resolved from disk by
@@ -853,6 +926,28 @@ def render_web_terminals(
                     )
                     else None
                 ),
+                # Where the deployment's ARIEL qmd mirror mounts inside THIS
+                # user's container, or None when the user is not entitled or
+                # the deployment writes no mirror. Same shape and same reason
+                # as container_bundle_dir: per service, and the template
+                # cannot emit the mount without a target.
+                "container_mirror_dir": (
+                    _container_mirror_dir(root, entry["container_project_dir"])
+                    if (
+                        entry["persona"] in (ariel_mirror_personas or set())
+                        if entry.get("persona")
+                        else config_needs_ariel_mirror(root)
+                    )
+                    else None
+                ),
+                # Where this user's refusal audit log is written inside the
+                # container, and the host directory that backs it. Every user,
+                # unconditionally: the python executor runs in every persona
+                # and its audit zone is the one path here that the roster's
+                # tier does not gate. The source is per user so two containers
+                # writing the same fixed filename cannot clobber each other.
+                "container_audit_dir": _container_audit_dir(entry["container_project_dir"]),
+                "audit_source": repo_relative_mount_source(user_audit_relpath(entry["name"])),
             }
         )
 
@@ -925,12 +1020,22 @@ def render_web_terminals(
     # only the target differs per persona.
     raw_bundle_path = as_dict(root.get("facility_knowledge")).get("bundle_path")
     bundle_path = raw_bundle_path.strip() if isinstance(raw_bundle_path, str) else ""
+    mirror_path = configured_ariel_mirror_path(root)
 
     compose_ctx = {
         "facility_prefix": facility_prefix,
         "registry_url": registry.get("url") or "",
         "image_source": image_source,
         "services": services,
+        # The launch token of every plan lane this deployment renders, granted
+        # together to each entitled persona (`svc.wants_launch_token`): lane
+        # 1's `BLUESKY_LAUNCH_TOKEN` alone on the single-lane deployment every
+        # project is by default, plus the second lane's own on a deployment
+        # that opted into one. Read off the deploy config's `services.<lane>`
+        # blocks, which is how every other lane consumer counts lanes.
+        "launch_token_env_vars": [
+            f"{lane_env_prefix(lane)}_LAUNCH_TOKEN" for lane in discover_lane_keys(root)
+        ],
         "nginx_port": nginx_port,
         "landing_url": landing_url,
         "facility_timezone": facility.get("timezone") or "UTC",
@@ -971,6 +1076,19 @@ def render_web_terminals(
         # `group_add` accepts group names as well as numeric ids, and quoting
         # keeps a numeric one from being read as anything else.
         "facility_bundle_gid": str(facility_bundle_gid) if facility_bundle_gid is not None else "",
+        # The ONE host directory every entitled user's mirror mount writes into
+        # — the deployment's mirror, the same one the qmd sidecar indexes and
+        # the host exporter fills — spelled through the same bind-source rule
+        # as the bundle above and for the same reasons. Empty string when the
+        # deployment writes no mirror.
+        "ariel_mirror_source": (
+            repo_relative_mount_source(mirror_path) if mirror_path is not None else ""
+        ),
+        "ariel_mirror_gid": str(ariel_mirror_gid) if ariel_mirror_gid is not None else "",
+        # The group of the deployment's audit zone, joined by every per-user
+        # service; its per-user subdirectories are provisioned by the deploy
+        # with the same inherited group.
+        "audit_gid": str(audit_gid) if audit_gid is not None else "",
         **auth_tls_ctx,
     }
 

@@ -127,7 +127,7 @@ The built-in enhancement modules:
                settings:
                  mirror_path: var/ariel_mirror
 
-      ``mirror_path`` is resolved against the directory holding ``config.yml``. Keep it under ``var/``: the mirror is machine-written from PostgreSQL, it is as large as the logbook, and ``var/`` is the directory git ignores --- a path under ``data/`` would commit a generated corpus. An enabled export with no ``mirror_path`` is refused at startup rather than skipped, because a mirror nobody writes looks exactly like "search returns nothing".
+      ``mirror_path`` is resolved against the project root --- the deployment repo, not the ``build/`` render inside it, which is exactly where the qmd sidecar bind-mounts the same path from. Keep it under ``var/``: the mirror is machine-written from PostgreSQL, it is as large as the logbook, and ``var/`` is the directory git ignores --- a path under ``data/`` would commit a generated corpus. An enabled export with no ``mirror_path`` is refused at startup rather than skipped, because a mirror nobody writes looks exactly like "search returns nothing".
 
       **Requirements:** the ``services.qmd`` sidecar, which bind-mounts this same directory read-only. See :ref:`qmd-search-sidecar`.
 

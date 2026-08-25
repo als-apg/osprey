@@ -284,28 +284,38 @@ name rather than a secret.
 .. important::
 
    For ``backend: openobserve`` the OTLP endpoint is **auto-derived** and you
-   should not hardcode it. The derived form is ``http://<host>:5080/api/<org>``
-   — note the ``5080`` is fixed: the derivation does *not* follow a changed
-   ``services.openobserve.port``, so if you publish the store on a different
-   host port, set ``endpoint:`` explicitly instead. The ``<host>`` part is
-   chosen for the running context:
+   should not hardcode it. The derived form is ``http://<host>:<port>/api/<org>``,
+   with both halves chosen for the running context:
 
    - **On the host** (``osprey web`` / ``osprey query`` on your machine) the host
-     is ``localhost`` — the store's published port.
-   - **Inside a bridge-networked container** (for example the containerized
+     is ``localhost`` and the port is the one the store **publishes** —
+     ``services.openobserve.port``, so moving the store moves the exporter
+     with it.
+   - **Inside a host-networked container** (every web-terminal persona
+     container, a dispatch worker on the host network) the container's
+     loopback is the host's, so the address is the same published one. The
+     framework's compose files declare the host explicitly
+     (``OSPREY_OTEL_OPENOBSERVE_HOST=127.0.0.1`` or ``localhost``), because
+     the emitter's own container detection would otherwise pick the compose
+     DNS name, which resolves to nothing there.
+   - **Inside a bridge-networked container** (the default containerized
      dispatch worker) the store is reachable only by its compose service DNS
-     name, ``openobserve``. The framework's dispatch-worker service declares this
-     by setting ``OSPREY_OTEL_OPENOBSERVE_HOST=openobserve`` in its compose
-     environment. That explicit declaration — rather than sniffing the container
-     runtime — is what makes emit work identically under Docker and Podman.
+     name, ``openobserve``, and on the port it **listens** on inside its own
+     container (5080) rather than the published one. The dispatch-worker
+     service declares both, ``OSPREY_OTEL_OPENOBSERVE_HOST=openobserve`` and
+     ``OSPREY_OTEL_OPENOBSERVE_PORT=5080``. That explicit declaration — rather
+     than sniffing the container runtime — is what makes emit work identically
+     under Docker and Podman.
 
    If you run your own containerized emitter, set
    ``OSPREY_OTEL_OPENOBSERVE_HOST`` to whatever host reaches OpenObserve from
-   inside that container: the compose service name on a bridge network, or
+   inside that container — the compose service name on a bridge network
+   (with ``OSPREY_OTEL_OPENOBSERVE_PORT`` naming the listen port), or
    ``localhost`` when the container uses host networking (``network_mode: host``),
-   where the compose DNS name would not resolve. Leave it unset on a plain host
-   run. Hardcoding ``endpoint:`` instead would point every context at the same
-   host and silently drop records from the ones it doesn't fit.
+   where the compose DNS name would not resolve and the published port
+   applies. Leave both unset on a plain host run. Hardcoding ``endpoint:``
+   instead would point every context at the same address and silently drop
+   records from the ones it doesn't fit.
 
 On its next run the agent emits to OpenObserve, and its logs and metrics appear
 in the UI.

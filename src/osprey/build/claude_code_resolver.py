@@ -28,6 +28,7 @@ from osprey.build.claude_code_telemetry import (
     _build_telemetry_env,
     _openobserve_host_override,
     _running_in_container,
+    resolve_openobserve_port,
 )
 from osprey.models.tiers import VALID_TIERS
 from osprey.utils.dotenv import chain_files
@@ -503,6 +504,13 @@ def load_provider_spec(
         include_telemetry=include_telemetry,
         defer_unresolved_telemetry_creds=defer_unresolved_telemetry_creds,
         environ=lookup,
+        # A runtime launch: the deploy environment's port declaration wins,
+        # else the port this deployment publishes the store on. Resolved only
+        # when telemetry is being built: it is a telemetry input, and a
+        # malformed port must not poison provider resolution for a caller
+        # that asked for none (the dispatch worker's degrade-and-retry relies
+        # on include_telemetry=False never raising a telemetry fault).
+        openobserve_port=resolve_openobserve_port(cfg) if include_telemetry else None,
     )
 
 
@@ -654,6 +662,7 @@ class ClaudeCodeModelResolver:
         include_telemetry: bool = True,
         defer_unresolved_telemetry_creds: bool = False,
         environ: Mapping[str, str] | None = None,
+        openobserve_port: int | None = None,
     ) -> ClaudeCodeModelSpec | None:
         """Build a ``ClaudeCodeModelSpec`` from config.
 
@@ -698,6 +707,15 @@ class ClaudeCodeModelResolver:
                 :func:`load_provider_spec` passes its ``os.environ`` +
                 project-``.env`` overlay, which is what enables the override on
                 every runtime path.
+            openobserve_port: The port the telemetry store is reached on from
+                where this spec will run — ``services.openobserve.port`` for a
+                build-time render, the deploy environment's declaration or
+                that same key for a runtime launch
+                (:func:`~osprey.build.claude_code_telemetry.resolve_openobserve_port`).
+                Threaded in rather than read here, for the same reason as
+                ``environ``: this method also renders ``settings.json`` at
+                build time. Omitted, the derived endpoint falls back to the
+                store's listen port.
 
         Returns:
             Resolved spec, or ``None`` when no provider is configured.
@@ -914,6 +932,7 @@ class ClaudeCodeModelResolver:
                     telemetry_cfg,
                     in_container=_running_in_container(),
                     openobserve_host=_openobserve_host_override(),
+                    openobserve_port=openobserve_port,
                     defer_unresolved_creds=defer_unresolved_telemetry_creds,
                 )
             )

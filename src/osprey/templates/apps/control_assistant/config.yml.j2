@@ -274,8 +274,11 @@ services:
                           # (default 127.0.0.1); no per-service bind_address.
     ttl_path: ./data/demo_machine.ttl
                           # Corpus to seed the store from, resolved against this
-                          # file's directory (the same rule as
-                          # `facility_knowledge.bundle_path`). This one is the
+                          # file's directory — the render — unlike
+                          # `facility_knowledge.bundle_path` and every other
+                          # config-relative path, which resolve against the
+                          # project root: the store is seeded from the `data/`
+                          # the build assembled here. This one is the
                           # demo machine — the same devices and channels the
                           # channel database in `data/` describes, rebuilt as a
                           # graph, so the agent's graph answers and its channel
@@ -287,11 +290,9 @@ services:
                           # tree and rebuild). A build profile that ships its
                           # own `data:` tree replaces this directory wholesale,
                           # so it must set this key in its `config:` overlay.
-                          # The ALS corpus stays available at
-                          # ./services/graphdb/als_gtb.ttl — point this key
-                          # there, or at your own TTL, to seed that instead.
-                          # Comment it out to bring the store up bootstrapped
-                          # but empty.
+                          # Point this key at your own TTL to seed that
+                          # instead, or comment it out to bring the store up
+                          # bootstrapped but empty.
     # JVM memory. Neo4j sizes nothing automatically inside a container — left
     # unset it reads the HOST's memory and picks numbers the container's own
     # limit will not honour — so all three are spelled out. Budget roughly
@@ -989,9 +990,10 @@ ariel:
   vocabulary:
     enabled: true
 
-    # Resolved against the directory holding this file, like every other
-    # config-relative path here (`qmd_export.mirror_path` and
-    # `facility_knowledge.bundle_path` follow the same rule).
+    # Resolved against the project root (the deployment repo, not this
+    # rendered file's build/ directory), like every other config-relative
+    # path here (`qmd_export.mirror_path` and `facility_knowledge.bundle_path`
+    # follow the same rule).
     path: data/ariel/vocabulary.yml
 
     # Whether a search that expresses no preference gets expansion. Shipped
@@ -1119,14 +1121,15 @@ ariel:
     qmd_export:
       enabled: true
       settings:
-        # Resolved against the directory holding this file, like every other
-        # config-relative path here (`facility_knowledge.bundle_path` follows
-        # the same rule). It belongs under var/, the durable STATE zone: the
-        # mirror is machine-written from Postgres, is as large as the logbook,
-        # and the repo's .gitignore keeps var/ out of git — a path under data/
-        # would commit a generated corpus. The compose generator binds this
-        # same value into the sidecar read-only, so moving the mirror stays a
-        # one-place edit.
+        # Resolved against the project root (the deployment repo, not this
+        # rendered file's build/ directory), like every other config-relative
+        # path here (`facility_knowledge.bundle_path` follows the same rule).
+        # It belongs under var/, the durable STATE zone: the mirror is
+        # machine-written from Postgres, is as large as the logbook, and the
+        # repo's .gitignore keeps var/ out of git — a path under data/ would
+        # commit a generated corpus. The compose generator binds this same
+        # value into the sidecar read-only from that same root, so moving the
+        # mirror stays a one-place edit.
         mirror_path: var/ariel_mirror
 
   # Default provider for EMBEDDING modules that name none of their own. It is
@@ -1158,9 +1161,10 @@ logbook:
 # ============================================================
 # OKF bundle providing deep facility knowledge (subsystems, devices,
 # procedures, physics notes, references) to the facility_knowledge
-# MCP server.  Resolved relative to this config file's directory
-# (project root).  Replace with the absolute path to your own bundle
-# once you have customised the example content.
+# MCP server.  Resolved relative to the project root (the deployment
+# repo, not this rendered file's build/ directory).  Replace with the
+# absolute path to your own bundle once you have customised the example
+# content.
 
 facility_knowledge:
   bundle_path: data/facility_knowledge

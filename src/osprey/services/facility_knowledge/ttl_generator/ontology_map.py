@@ -9,9 +9,9 @@ this module and :func:`load_demo_ontology` reads it.  A facility with its own
 vocabulary points :func:`load_ontology` at its own file instead of editing the
 generator.
 
-The demo table copies its class hierarchy edge-for-edge from the shipped ALS
-corpus (``src/osprey/templates/services/graphdb/als_gtb.ttl``), so a query that
-rolls devices up to ``narad_sem:Magnet`` on the ALS graph rolls the analogous
+The demo table copies its class hierarchy edge-for-edge from the NARAD
+shared-semantics vocabulary the als-ontology project defines, so a query that
+rolls devices up to ``narad_sem:Magnet`` on any NARAD graph rolls the analogous
 devices up on the demo graph.  The file's own ``_comment`` block records where
 the demo machine has no exact NARAD class and which nearest class stands in.
 

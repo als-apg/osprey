@@ -146,7 +146,7 @@ Search modules are leaf-level functions that execute a single search strategy ag
       1. the ``services.qmd`` sidecar (see :ref:`qmd-search-sidecar`), and
       2. the ``qmd_export`` :ref:`enhancement module <Enhancement Pipeline>`, which writes the markdown mirror the sidecar indexes.
 
-      Either one alone is useless: an export with no sidecar indexes nothing, and a sidecar with no export searches an empty corpus. The shipped ``control-assistant`` and ``ariel-standalone`` templates enable both, together with the sidecar itself.
+      Either one alone is useless: an export with no sidecar indexes nothing, and a sidecar with no export searches an empty corpus. The shipped ``control-assistant`` and ``ariel-standalone`` templates enable both, together with the sidecar itself. A web-terminal persona deploys no sidecar of its own and reaches the hosting deployment's through ``services.qmd.port`` instead — a key the build copies from the hosting deployment's render into every persona, so nothing pins it by hand — and ``osprey build`` refuses a persona that keeps ``hybrid`` on with no sidecar to dial (:doc:`../build-profiles`).
 
       ``hybrid`` also does not degrade the way semantic search does. A query against a sidecar that is not there is reported as *search is down*, deliberately, so that the agent cannot read an outage as "nothing matched".
 
@@ -482,10 +482,11 @@ Configuration
            patterns_enabled: true          # default: true
            pattern_timeout_seconds: 10.0   # default: 10.0
 
-A relative ``path`` resolves against the directory holding the ``config.yml``
-that was loaded --- the same rule as ``qmd_export.mirror_path`` and
-``facility_knowledge.bundle_path`` --- so the panel, the CLI and the MCP server
-all read the same file no matter where the process was started.
+A relative ``path`` resolves against the project root of the ``config.yml``
+that was loaded (the deployment repo, not its ``build/`` render) --- the same
+rule as ``qmd_export.mirror_path`` and ``facility_knowledge.bundle_path`` ---
+so the panel, the CLI and the MCP server all read the same file no matter
+where the process was started.
 
 ``enabled: true`` with no ``path``, an ``expand_modes`` entry naming a module
 that is unknown or not enabled, and a malformed pattern knob are all

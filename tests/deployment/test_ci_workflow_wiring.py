@@ -4452,3 +4452,94 @@ def test_all_checks_passed_needs_target_switch_agentic__mutation_drops_check_pr_
     assert TARGET_SWITCH_AGENTIC_JOB in _jobs(mutated)[GATE_JOB]["needs"]
     with pytest.raises(AssertionError):
         test_all_checks_passed_needs_target_switch_agentic(mutated)
+
+
+# ---------------------------------------------------------------------------
+# deploy-e2e skips Dependabot; lint proves the lockfile before sync can heal it
+# ---------------------------------------------------------------------------
+
+DEPLOY_JOB = "deploy-e2e"
+LINT_JOB = "lint"
+LOCK_CHECK_STEP = "Lockfile is current with pyproject"
+INSTALL_STEP = "Install dependencies"
+_DEPENDABOT_GUARD = "github.actor != 'dependabot[bot]'"
+
+
+def test_deploy_e2e_skips_dependabot(workflow: dict[str, Any]) -> None:
+    """Dependabot branches live in this repo, so the same-repo fork check does
+    not exclude them — but Dependabot runs resolve secrets against the (empty)
+    Dependabot store, and `osprey up`'s .env preflight then fails on the
+    missing ALS_APG_API_KEY. The lane must carry the same actor guard and
+    revalidation arm as every other secret-gated lane."""
+    condition = _jobs(workflow)[DEPLOY_JOB]["if"]
+    assert _DEPENDABOT_GUARD in condition
+    assert "inputs.revalidate_secret_lanes" in condition
+
+
+def test_deploy_e2e_skips_dependabot__mutation_reverts_to_fork_only_guard() -> None:
+    """The exact guard this lane shipped with for months: same-repo check
+    only, which Dependabot passes — and then reds every one of its PRs."""
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[DEPLOY_JOB]["if"] = (
+        "github.event_name == 'pull_request'"
+        " && github.event.pull_request.head.repo.full_name == github.repository"
+    )
+    with pytest.raises(AssertionError):
+        test_deploy_e2e_skips_dependabot(mutated)
+
+
+def test_gate_summary_names_the_deploy_lane(workflow: dict[str, Any]) -> None:
+    """The Dependabot run summary enumerates the lanes the gate cannot vouch
+    for; a skipped lane missing from that list is a silent coverage gap."""
+    step = _find_named_step(workflow, GATE_JOB, "Check all jobs status")
+    assert "Deploy E2E Test (build + deploy pipeline)" in step["run"]
+
+
+def test_gate_summary_names_the_deploy_lane__mutation_drops_the_line() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    kept = [
+        line
+        for line in step["run"].splitlines(keepends=True)
+        if "Deploy E2E Test (build + deploy pipeline)" not in line
+    ]
+    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
+    step["run"] = "".join(kept)
+    with pytest.raises(AssertionError):
+        test_gate_summary_names_the_deploy_lane(mutated)
+
+
+def _step_names(wf: dict[str, Any], job_name: str) -> list[str]:
+    return [step.get("name", "") for step in _jobs(wf)[job_name]["steps"]]
+
+
+def test_lint_checks_the_lockfile_before_installing(workflow: dict[str, Any]) -> None:
+    """`uv lock --check` is the only place a pyproject/uv.lock split can
+    surface: every other lane runs a plain `uv sync`, which re-locks a stale
+    lockfile in the runner and goes green. Ordering is the pin's sharp edge —
+    `uv sync` rewrites the lock on disk, so a check placed after the install
+    step always passes."""
+    step = _find_named_step(workflow, LINT_JOB, LOCK_CHECK_STEP)
+    assert "uv lock --check" in step["run"]
+    names = _step_names(workflow, LINT_JOB)
+    assert names.index(LOCK_CHECK_STEP) < names.index(INSTALL_STEP)
+
+
+def test_lint_checks_the_lockfile__mutation_drops_the_step() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[LINT_JOB]["steps"]
+    steps[:] = [s for s in steps if s.get("name") != LOCK_CHECK_STEP]
+    with pytest.raises(AssertionError):
+        test_lint_checks_the_lockfile_before_installing(mutated)
+
+
+def test_lint_checks_the_lockfile__mutation_moves_it_after_sync() -> None:
+    """The subtle regression: the step survives a refactor but lands after
+    `uv sync`, which has just healed the very staleness it was checking for."""
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[LINT_JOB]["steps"]
+    (check,) = [s for s in steps if s.get("name") == LOCK_CHECK_STEP]
+    steps.remove(check)
+    steps.insert(next(i for i, s in enumerate(steps) if s.get("name") == INSTALL_STEP) + 1, check)
+    with pytest.raises(AssertionError):
+        test_lint_checks_the_lockfile_before_installing(mutated)

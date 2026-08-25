@@ -34,6 +34,7 @@ from osprey.deployment.compose_generator import (
     clean_deployment,
     compose_base_cmd,
     compose_provider_env,
+    configured_ariel_mirror_path,
     prepare_compose_files,
     repo_identity,
     resolve_image_defaults,
@@ -4752,10 +4753,11 @@ def _graphdb_config_dir(project_dir: Path) -> Path:
 
     What a relative ``services.graphdb.ttl_path`` resolves against — see
     :func:`_graphdb_ttl_text`. Derived from the project root the deploy was
-    handed rather than from :func:`osprey_connectors.workspace.resolve_config_path`,
-    which falls back to the process working directory: a deploy driven with
-    ``--repo`` from somewhere else would otherwise resolve the corpus against
-    whatever directory the operator happened to be standing in.
+    handed rather than from
+    :func:`osprey_connectors.workspace.resolve_config_path`, which falls back
+    to the process working directory: a deploy driven with ``--repo`` from
+    somewhere else would otherwise resolve the corpus against whatever
+    directory the operator happened to be standing in.
 
     Both project shapes are covered by one rule, the same one
     ``resolve_config_path`` applies to a working directory: the render one zone
@@ -4771,12 +4773,17 @@ def _graphdb_config_dir(project_dir: Path) -> Path:
 def _graphdb_ttl_text(ttl_path: str, project_dir: Path) -> tuple[Path, str]:
     """Read the configured TTL corpus, resolving its path the documented way.
 
-    ``ttl_path`` follows the ``facility_knowledge.bundle_path`` rule — ``~``
-    expanded, an absolute value used as written, a relative one resolved against
-    the ``config.yml`` directory — because ``osprey knowledge seed-graph`` reads
-    the same key by the same rule. Two resolutions of one key would mean the
-    deploy and the verb could seed a store from different files while both
-    reporting success.
+    ``ttl_path`` is render-relative: ``~`` expanded, an absolute value used as
+    written, a relative one resolved against the ``config.yml`` directory
+    (:func:`osprey.utils.config_paths.resolve_render_relative_path`) — the
+    one config-relative key that is, because the corpus it names is an
+    artifact of the render: the documented default,
+    ``./data/demo_machine.ttl``, is read from the ``data/`` tree the build
+    assembled for this project, so a corpus regenerated into the profile's
+    data tree reaches the store on the next build like every other rendered
+    artifact. ``osprey knowledge seed-graph`` reads the same key by the same
+    rule; two resolutions of one key would mean the deploy and the verb could
+    seed a store from different files while both reporting success.
 
     :param ttl_path: The configured ``services.graphdb.ttl_path`` value.
     :param project_dir: Root of the built project.
@@ -4784,9 +4791,9 @@ def _graphdb_ttl_text(ttl_path: str, project_dir: Path) -> tuple[Path, str]:
     :raises OSError: If the corpus is not on disk or cannot be read — reported
         by the caller's envelope, never fatal.
     """
-    from osprey.services.facility_knowledge.bundle_path import resolve_bundle_path
+    from osprey.utils.config_paths import resolve_render_relative_path
 
-    resolved = resolve_bundle_path(ttl_path, _graphdb_config_dir(project_dir))
+    resolved = resolve_render_relative_path(ttl_path, _graphdb_config_dir(project_dir))
     return resolved, resolved.read_text(encoding="utf-8")
 
 
@@ -5290,6 +5297,42 @@ def _collect_unmet_preconditions(
         raise UnmetPreconditionsError(findings)
 
 
+def _preflight_legacy_ariel_mirror(config: dict, repo_root: Path) -> None:
+    """Warn when the logbook mirror still sits where an earlier release wrote it.
+
+    ``ariel.enhancement_modules.qmd_export.mirror_path`` used to resolve
+    against the directory holding ``config.yml`` — ``build/`` — while the qmd
+    sidecar bind-mounted the same relative path from the repo root, so the
+    exporter filled ``build/var/ariel_mirror`` and the sidecar indexed an
+    empty ``var/ariel_mirror``. Config-relative paths now anchor on the
+    project root (:func:`osprey.utils.config_paths.resolve_config_relative_path`),
+    which puts writer and reader in one place — and leaves a deployment
+    upgraded in place with its corpus in the old one. Files there are not
+    moved: the mirror is a derived artifact and ``osprey ariel qmd-resync``
+    regenerates it in seconds, which is what this names.
+    """
+    relpath = configured_ariel_mirror_path(config)
+    if not relpath or Path(relpath).is_absolute():
+        return
+    legacy = repo_root / "build" / relpath
+    current = repo_root / relpath
+    if not legacy.is_dir() or legacy.resolve() == current.resolve():
+        return
+    count = sum(1 for entry in legacy.rglob("*") if entry.is_file())
+    if not count:
+        return
+    logger.warning(
+        "%d file(s) under %s were written by an earlier release, which resolved "
+        "ariel.enhancement_modules.qmd_export.mirror_path against build/; the qmd "
+        "sidecar indexes %s. Run `osprey ariel qmd-resync` to regenerate the mirror "
+        "there, then remove %s.",
+        count,
+        legacy,
+        current,
+        legacy,
+    )
+
+
 def _start_stack(
     config: dict,
     compose_files: list[str],
@@ -5373,6 +5416,7 @@ def _start_stack(
     # on a host that was configured this way because it has no route out. Checked
     # here, before the build the setting is meant to shorten.
     preflight_qmd_models_dir(config)
+    _preflight_legacy_ariel_mirror(config, Path(repo_root))
 
     # And the same shape once more for the graph store: a `graphdb` in
     # deployed_services with no `services.graphdb` block describes no store at

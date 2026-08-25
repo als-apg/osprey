@@ -125,7 +125,7 @@ other key becomes a probe parameter.
 Built-in service categories
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Beyond the always-on framework checks, three built-in categories are
+Beyond the always-on framework checks, four built-in categories are
 **presence-gated on their config blocks**: they contribute rows only when the
 corresponding service is configured, so a minimal build shows no empty tiles.
 
@@ -161,6 +161,20 @@ corresponding service is configured, so a minimal build shows no empty tiles.
   names ``osprey knowledge seed-graph`` as the remedy. The agent's own graph
   tools report the same degraded states from the inside — see
   :doc:`/how-to/facility-knowledge/use-facility-graph`.
+- ``reach`` — appears when this render has a client switched on for a shared
+  service: hybrid logbook search and the OKF panel (the qmd sidecar), the
+  graph MCP server (the graph store), the ARIEL panel and MCP server
+  (Postgres), agent telemetry (the OpenObserve store), the Bluesky MCP server
+  (the bridge), the EVENTS and BLUESKY tabs (their sidecars), and the
+  virtual-accelerator connector. One row per service, and the address it
+  knocks on is the one **the client itself resolves** from this config, in the
+  process running the check — so the same category answers a different
+  question on the host (what ``osprey`` commands reach) and inside a per-user
+  web-terminal container, where the health MCP server runs it (what that
+  user's agent reaches). A knock is a TCP connect; a closed port warns and
+  names the config key the client resolved it from, and a client switched on
+  with nothing to resolve warns with the key that would give it one — the
+  same condition ``osprey build`` refuses (:doc:`/how-to/build-profiles`).
 
 .. note::
 

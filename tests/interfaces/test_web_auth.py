@@ -22,6 +22,8 @@ from osprey.interfaces.web_auth import (
     BIND_HOST_ENV,
     OPERATOR_SECRET_ENV,
     PANEL_TOKEN_ENV,
+    ROSTER_ACCEPT_ENV,
+    ROSTER_SECRET_ENV_PREFIX,
     WebCredentials,
     get_web_credentials,
     mint_secret,
@@ -364,6 +366,70 @@ def test_absent_candidates_are_refused(credentials: WebCredentials, missing: str
     assert credentials.verify_operator(missing) is False
     assert credentials.verify_panel(missing) is False
     assert credentials.verify_session(missing) is False
+
+
+def test_roster_secrets_authorise_as_the_operator() -> None:
+    """A shared sidecar handed the roster's per-user secrets lets each of them
+    in as the operator — and still nothing else."""
+    credentials = WebCredentials(
+        operator_secret="operator-value",
+        panel_token="panel-value",
+        roster_secrets=("alice-value", "bob-value"),
+    )
+    assert credentials.verify_operator("operator-value") is True
+    assert credentials.verify_operator("alice-value") is True
+    assert credentials.verify_operator("bob-value") is True
+    assert credentials.verify_operator("panel-value") is False
+    assert credentials.verify_operator("alice-valu") is False
+    assert credentials.verify_panel("alice-value") is False
+
+
+def test_roster_secrets_are_popped_not_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With the sidecar's accept flag set, every ``OSPREY_TERMINAL_SECRET_<USER>``
+    leaves ``os.environ`` for the reason the operator secret does (the flag
+    with them), blank ones (``${VAR:-}`` of an unset variable) count as
+    absent, and the rest are accepted."""
+    import os
+
+    monkeypatch.setenv(OPERATOR_SECRET_ENV, "supplied-operator-secret")
+    monkeypatch.setenv(ROSTER_ACCEPT_ENV, "1")
+    monkeypatch.setenv(f"{ROSTER_SECRET_ENV_PREFIX}ALICE", "alice-value")
+    monkeypatch.setenv(f"{ROSTER_SECRET_ENV_PREFIX}BOB", " bob-value ")
+    monkeypatch.setenv(f"{ROSTER_SECRET_ENV_PREFIX}CAROL", "")
+
+    credentials = get_web_credentials()
+
+    assert credentials.roster_secrets == ("alice-value", "bob-value")
+    assert credentials.verify_operator("alice-value") is True
+    assert credentials.verify_operator("bob-value") is True
+    assert credentials.verify_operator("") is False
+    assert not [name for name in os.environ if name.startswith(ROSTER_SECRET_ENV_PREFIX)]
+    assert ROSTER_ACCEPT_ENV not in os.environ
+
+
+def test_roster_secrets_without_the_accept_flag_are_popped_and_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The host's own ``osprey web`` loads the deploy ``.env``, which carries
+    EVERY roster user's secret. Seeing them is not being told to accept them:
+    without the flag only the bluesky-web sidecar's compose sets, they are
+    popped (never inherited by a child) and no roster user is the operator."""
+    import os
+
+    monkeypatch.setenv(OPERATOR_SECRET_ENV, "supplied-operator-secret")
+    monkeypatch.delenv(ROSTER_ACCEPT_ENV, raising=False)
+    monkeypatch.setenv(f"{ROSTER_SECRET_ENV_PREFIX}ALICE", "alice-value")
+
+    credentials = get_web_credentials()
+
+    assert credentials.roster_secrets == ()
+    assert credentials.verify_operator("alice-value") is False
+    assert credentials.verify_operator("supplied-operator-secret") is True
+    assert not [name for name in os.environ if name.startswith(ROSTER_SECRET_ENV_PREFIX)]
+
+
+def test_single_user_shape_has_no_roster() -> None:
+    assert get_web_credentials().roster_secrets == ()
 
 
 def test_non_ascii_candidate_is_refused_not_raised(credentials: WebCredentials) -> None:

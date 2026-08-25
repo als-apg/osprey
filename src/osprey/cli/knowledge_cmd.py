@@ -280,8 +280,8 @@ def _resolve_ttl(ttl: Path | None) -> Path:
     if ttl is not None:
         return ttl
 
-    from osprey.services.facility_knowledge.bundle_path import resolve_bundle_path
     from osprey.utils.config import get_config_value
+    from osprey.utils.config_paths import resolve_render_relative_path
 
     raw = get_config_value("services.graphdb.ttl_path", None)
     if raw is None:
@@ -289,7 +289,9 @@ def _resolve_ttl(ttl: Path | None) -> Path:
             "No TTL path given and services.graphdb.ttl_path is not set in config."
         )
 
-    path = resolve_bundle_path(raw)
+    # Render-relative, like the deploy's own seeding (container_lifecycle
+    # `_graphdb_ttl_text`): the corpus is an artifact of the render.
+    path = resolve_render_relative_path(raw)
     if not path.is_file():
         raise click.ClickException(
             f"services.graphdb.ttl_path names a file that is not there: {path}\n"

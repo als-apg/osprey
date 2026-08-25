@@ -143,9 +143,10 @@ Working with a Bundle
          facility_knowledge:
            bundle_path: data/facility_knowledge
 
-      Relative paths are resolved against the directory containing ``config.yml``
-      (the project root).  For the ``control-assistant`` preset the example
-      bundle is scaffolded into ``data/facility_knowledge/`` automatically.
+      Relative paths are resolved against the project root — the deployment
+      repo, not the ``build/`` render inside it, which every ``osprey build``
+      re-creates. For the ``control-assistant`` preset the example bundle is
+      scaffolded into ``data/facility_knowledge/`` automatically.
 
       .. _shared-bundle-multi-user:
 

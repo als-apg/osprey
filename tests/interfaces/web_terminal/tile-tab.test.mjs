@@ -73,7 +73,8 @@ describe('tile-tab renderer', () => {
     const { createTileTab } = await import(MOD);
     const api = fakeApi();
     /** @type {(e: {title: string}) => void} */ let onTitle = () => {};
-    api.onDidTitleChange = vi.fn((/** @type {any} */ fn) => { onTitle = fn; return { dispose: vi.fn() }; });
+    api.onDidTitleChange = /** @type {any} */ (
+      vi.fn((/** @type {any} */ fn) => { onTitle = fn; return { dispose: vi.fn() }; }));
     const tab = createTileTab('iframe:okf');
     tab.init({ title: 'KNOWLEDGE', params: {}, api });
 

@@ -192,9 +192,9 @@ generated.
 ``osprey knowledge build-ttl`` generated — the demo machine — a phrase can be
 matched against the description written for a single channel, against what the
 last two tokens of an address mean, against the prose for a device family, a
-system or a ring, and against the synonyms an operator would say out loud. The
-ALS corpus OSPREY ships is a fixed artifact with less prose in it: there the
-way in is a name, an alternate name, a section or a device class.
+system or a ring, and against the synonyms an operator would say out loud. A
+corpus imported from a facility export may carry less prose: there the way in
+is a name, an alternate name, a section or a device class.
 
 ``validate`` and ``preview`` have no file to open on this pipeline, so both
 report what the store is and which commands act on it. Health reports the store

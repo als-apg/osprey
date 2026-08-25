@@ -57,6 +57,8 @@ web:
     events:
       url: http://localhost:8020
       path: /dashboard
+      label: EVENTS
+      health_endpoint: /health
 """
 
 # The dispatcher block of the copied triggers file, likewise captured from the

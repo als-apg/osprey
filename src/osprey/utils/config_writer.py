@@ -499,6 +499,34 @@ def config_update_fields(
     logger.debug("config_update_fields: updated %d field(s) in %s", len(updates), config_path)
 
 
+def config_delete_field(config_path: Path, dotted_key: str) -> bool:
+    """Remove one dotted key from a YAML config, preserving comments.
+
+    The inverse of one :func:`config_update_fields` entry. Never creates
+    anything: a missing parent or leaf is a no-op.
+
+    Args:
+        config_path: Path to the YAML file.
+        dotted_key: ``"dot.separated.key"`` of the entry to remove.
+
+    Returns:
+        Whether the key was present and removed.
+    """
+    data = _load(config_path)
+    parts = dotted_key.split(".")
+    node = data
+    for part in parts[:-1]:
+        if not isinstance(node, dict) or part not in node:
+            return False
+        node = node[part]
+    if not isinstance(node, dict) or parts[-1] not in node:
+        return False
+    del node[parts[-1]]
+    _save(config_path, data)
+    logger.debug("config_delete_field: removed %s from %s", dotted_key, config_path)
+    return True
+
+
 def _set_dotted_anchored(
     root: Any, data: Any, dotted_key: str, value: Any, *, create_only: bool
 ) -> None:

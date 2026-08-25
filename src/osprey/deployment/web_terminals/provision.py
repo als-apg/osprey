@@ -31,9 +31,11 @@ from osprey.deployment.compose_generator import (
     compose_base_cmd,
     compose_provider_env,
     ensure_shared_corpus_dir,
+    resolve_ariel_mirror_dir,
     resolve_facility_bundle_dir,
     resolve_project_name,
     resolve_repo_root,
+    resolve_user_audit_dir,
 )
 from osprey.deployment.runtime_helper import (
     ComposeProvider,
@@ -74,6 +76,7 @@ from osprey.deployment.web_terminals.personas import (
     entry_requires_login,
     normalize_users,
     resolve_personas,
+    roster_user_names,
 )
 from osprey.deployment.web_terminals.postup_hooks import (
     enable_linger,
@@ -84,6 +87,7 @@ from osprey.deployment.web_terminals.postup_hooks import (
 from osprey.deployment.web_terminals.render import _auth_tls_context
 from osprey.deployment.web_terminals.seeding import seed_user_containers
 from osprey.utils.logger import get_logger
+from osprey.utils.workspace import AUDIT_DIR_RELPATH
 
 logger = get_logger("deployment.lifecycle")
 
@@ -1337,6 +1341,28 @@ def deploy_up_web_terminals(
                 f"Facility-knowledge bundle shared via group {bundle_gid} "
                 "(every web terminal joins it; the sidecar indexes it read-only)."
             )
+
+    # The ARIEL qmd mirror, for exactly the reasons above: every entitled
+    # terminal's own qmd_export module writes into it, the sidecar indexes it
+    # read-only, and the render can only emit the group it can read off disk.
+    mirror_dir = resolve_ariel_mirror_dir(config, repo_root)
+    if mirror_dir is not None:
+        mirror_gid = ensure_shared_corpus_dir(mirror_dir, relative_to=repo_root)
+        if mirror_gid is not None:
+            logger.info(
+                f"ARIEL qmd mirror shared via group {mirror_gid} "
+                "(every entitled web terminal writes it; the sidecar indexes it read-only)."
+            )
+
+    # Each roster user's audit zone (`var/audit/<user>/`), bound into that
+    # user's container where its python executor appends the refusal log. The
+    # zone's root is provisioned first so the per-user directories inherit
+    # its group — the one the render emits for every service — and each
+    # subdirectory is created here rather than by the runtime, which would
+    # create a missing bind source owned by root.
+    ensure_shared_corpus_dir(Path(repo_root) / AUDIT_DIR_RELPATH, relative_to=repo_root)
+    for user in roster_user_names((config.get("modules") or {}).get("web_terminals") or {}):
+        ensure_shared_corpus_dir(resolve_user_audit_dir(repo_root, user), relative_to=repo_root)
 
     write_web_terminal_artifacts(config, repo_root)
 

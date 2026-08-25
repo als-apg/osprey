@@ -51,15 +51,16 @@ def resolve_mirror_path(raw: str | Path, config_dir: Path | None = None) -> Path
     :func:`osprey.utils.config_paths.resolve_config_relative_path`, which is
     what every config-relative path in a rendered project promises: expand
     ``~``, return an absolute value unchanged, and resolve a relative one
-    against the directory holding ``config.yml``. The exporter, the resync CLI
-    and the compose mount must all land on the same directory, or the sidecar
-    indexes a tree nobody writes to.
+    against the project root — the repo, not the ``build/`` render inside it.
+    The exporter, the resync CLI and the compose mount must all land on the
+    same directory, or the sidecar indexes a tree nobody writes to; the compose
+    mount is anchored on the repo root, which is why the resolver is.
 
     Args:
         raw: The configured value, as read from
             ``enhancement_modules.qmd_export.mirror_path``.
-        config_dir: Directory containing ``config.yml``. When omitted it is
-            derived from
+        config_dir: Directory containing ``config.yml``; the project root is
+            derived from it. When omitted it is derived from
             :func:`osprey.utils.workspace.resolve_config_path`, which falls
             back to the process CWD when ``OSPREY_CONFIG`` is unset.
 

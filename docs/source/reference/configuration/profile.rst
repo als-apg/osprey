@@ -488,6 +488,41 @@ template says. For what the mode changes about the agent's answers, see
 :doc:`/how-to/use-channel-finder`; for the corpus behind them,
 :doc:`/how-to/facility-knowledge/use-facility-graph`.
 
+The qmd sidecar behind hybrid logbook search is guarded the same way. The
+``control-assistant`` and ``ariel-standalone`` templates switch
+``ariel.search_modules.hybrid`` on and deploy the ``services.qmd`` sidecar that
+answers it, but an attached project renders ``services: {}`` — so on its own it
+would keep the mode with nothing behind it, and every logbook query would fail
+with *no qmd sidecar is configured*. ``osprey build`` refuses that instead of
+rendering it.
+
+An attached project rarely has to say anything, because **the build tells it
+where the host's services are**. Every client-facing fact — the sidecar's port,
+the graph store's bolt port, the Postgres the logbook lives in, the telemetry
+store's port, the Bluesky bridge, the EVENTS and BLUESKY tab URLs — is copied
+from the hosting deployment's own render into each persona built beside it, so
+a service moved on the hosting profile moves every persona with it, and the
+shipped ``control-assistant-*`` presets pin none of them. A persona profile
+that spells one of these keys with a *different* value is refused — the two
+copies would dial different places, and the build names both. (A persona
+inherits the hosting profile's ``config:`` keys, so a port moved there is
+spelled in every persona as the host's own value, and agrees.) A persona
+built *alone* (``osprey init --preset control-assistant-ariel`` in a
+repo with no hosting deployment) is told what its app template deploys at the
+shipped defaults instead, and there its ``config:`` is where a host that
+differs is named:
+
+.. code-block:: yaml
+
+   config:
+     services.qmd.port: 9180        # the sidecar of the deployment this build shares a host with
+     # or: ariel.search_modules.hybrid.enabled: false
+
+The same facts are checked again at run time: the ``reach`` category of
+``osprey health`` (and of the system-health tab, inside each user's container)
+resolves every live client's endpoint the way the client does and knocks on it
+(:doc:`/how-to/health-and-monitoring/configure-health-checks`).
+
 .. _profile-va-archiver:
 
 The ``va_archiver`` block

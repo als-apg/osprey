@@ -96,8 +96,29 @@ services:
       # a non-browser client sends it as `X-Osprey-Terminal-Secret`. No
       # :-default for the same reason as the launch token above; `osprey up`
       # mints it into the project .env (container_lifecycle's per-service
-      # token-mint map).
+      # token-mint map). In a multi-user deployment each per-user terminal
+      # proxies its BLUESKY tab here with ITS OWN secret, never this one —
+      # see the roster grant just below.
       OSPREY_TERMINAL_SECRET: ${OSPREY_TERMINAL_SECRET}
+{%- if bluesky_panel_secret_env_vars | default([]) %}
+      # THE ROSTER GRANT. Every web-terminal user whose persona shows the
+      # BLUESKY tab proxies it here with the operator secret THEIR container
+      # holds (under the fixed OSPREY_TERMINAL_SECRET name, interpolated from
+      # their own OSPREY_TERMINAL_SECRET_<SUFFIX> in the deploy .env). Listing
+      # each of those variables here lets this sidecar's web gate accept any
+      # of them beside the deployment-wide secret above, so no user's
+      # container is ever handed that secret, and a user purged from the
+      # roster is refused here the moment `osprey up` re-renders. Only the
+      # entitled users are listed (compose_generator resolves them from the
+      # personas' rendered configs); the others cannot reach this sidecar and
+      # get no key to it. The flag is what makes web_auth ACCEPT the roster
+      # variables it finds: every process that loads the deploy .env sees
+      # them all, and only this sidecar may treat them as its operators.
+      OSPREY_TERMINAL_ACCEPT_ROSTER_SECRETS: "1"
+{%- for var in bluesky_panel_secret_env_vars %}
+      {{ var }}: ${{ "{" }}{{ var }}:-}
+{%- endfor %}
+{%- endif %}
       # Marks the container shape for web_auth: an empty secret then refuses
       # startup naming the variable, instead of minting a value that is
       # announced only to the container log and reachable by nobody.

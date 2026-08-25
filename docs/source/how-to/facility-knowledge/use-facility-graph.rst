@@ -190,22 +190,19 @@ Then load it (see :doc:`okf-bundle` for the seeding verb in full):
 What the Presets Seed
 =====================
 
-* **control-assistant** seeds ``./data/demo_machine.ttl`` — the demo machine,
-  generated from the preset's own channel databases with the command above and
-  regenerable the same way. The ALS corpus still ships alongside it at
-  ``./services/graphdb/als_gtb.ttl``; point ``ttl_path`` there, or at a corpus
-  of your own, to seed that instead.
-* **ariel-standalone** seeds ``./services/graphdb/als_gtb.ttl``, a real
-  facility's corpus, as the worked non-demo example.
+Both presets seed ``./data/demo_machine.ttl`` — the demo machine, generated
+from the control-assistant preset's own channel databases with the command
+above and regenerable the same way. The ARIEL standalone preset ships the same
+corpus so that every OSPREY demo describes one facility. Point ``ttl_path`` at
+a corpus of your own to seed that instead.
 
 .. note::
 
    A build profile that ships its own ``data:`` tree replaces the bundle's
    ``data/`` directory wholesale, which takes ``demo_machine.ttl`` with it.
    Such a profile has to set ``services.graphdb.ttl_path`` in its ``config:``
-   overlay — at its own corpus, or at ``./services/graphdb/als_gtb.ttl``.
-   Otherwise the deploy warns, the store comes up empty, and every query
-   reports the empty state above.
+   overlay, at its own corpus. Otherwise the deploy warns, the store comes up
+   empty, and every query reports the empty state above.
 
 
 .. _graph-external-store:
@@ -303,9 +300,12 @@ directly:
 
 Two consequences worth knowing before you move anything:
 
-* **Move the port on the hosting deployment and you must move the same number
-  in both persona presets.** They carry their own copy; nothing derives it for
-  them.
+* **Move the port on the hosting deployment and every persona follows.** A
+  persona built beside its deployment is told the store's bolt port from the
+  deployment's own render — the same way it is told the qmd sidecar's port,
+  the Postgres the logbook lives in and the rest (:doc:`/how-to/build-profiles`) — so
+  nothing in a persona preset restates it, and a persona that restates it
+  with a different number is refused at build time.
 * A ``deployment.bind_address`` pinned to a specific non-loopback interface
   publishes the store there and not on ``localhost``, so the personas would no
   longer reach it. URL-backed panels have the same shape — they name

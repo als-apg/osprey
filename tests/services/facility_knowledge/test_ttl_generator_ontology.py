@@ -115,7 +115,7 @@ def test_table_maps_no_family_the_database_lacks(ontology: OntologyMap) -> None:
 
 
 def test_mapping_matches_the_narad_vocabulary(ontology: OntologyMap) -> None:
-    """The FAMILY-to-class assignments are the ones the ALS corpus would use."""
+    """The FAMILY-to-class assignments land on the shared NARAD vocabulary."""
     expected = {
         "BPM": "BeamPositionMonitor",
         "CAVITY": "AcceleratingCavity",
@@ -155,8 +155,8 @@ def test_unknown_family_names_the_family_and_the_table(ontology: OntologyMap) ->
 # ---------------------------------------------------------------------------
 
 
-def test_hierarchy_mirrors_the_als_corpus(ontology: OntologyMap) -> None:
-    """The subClassOf edges are copied from als_gtb.ttl, edge for edge."""
+def test_hierarchy_mirrors_the_narad_vocabulary(ontology: OntologyMap) -> None:
+    """The subClassOf edges are the NARAD shared-semantics hierarchy, edge for edge."""
     expected_parents = {
         "AcceleratorDevice": None,
         "Magnet": "AcceleratorDevice",
