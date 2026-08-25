@@ -503,9 +503,10 @@ def test_resolve_personas_non_default_persona_registry_mode_suffixes_image() -> 
     ]
 
 
-def test_resolve_personas_local_mode_suffixes_every_persona_including_default() -> None:
-    """Local mode builds `<persona.project>-<persona>:local` for every persona —
-    unlike registry mode, the default persona is not special-cased on the image."""
+def test_resolve_personas_local_mode_tags_every_persona_by_render_including_default() -> None:
+    """Local mode builds `<persona.project>:local` for every persona — the tag
+    names the render alone, and unlike registry mode, the default persona is
+    not special-cased on the image."""
     # Arrange
     web_terminals = {
         "users": ["alice", {"name": "gmartino", "index": 1, "persona": "gui"}],
@@ -523,13 +524,34 @@ def test_resolve_personas_local_mode_suffixes_every_persona_including_default() 
     # Assert
     images = {entry["name"]: entry["image"] for entry in result}
     assert images == {
-        "alice": "als-assistant-cli:local",
-        "gmartino": "als-gui-assistant-gui:local",
+        "alice": "als-assistant:local",
+        "gmartino": "als-gui-assistant:local",
     }
     # Default persona's container dir follows its own catalog project, like every
     # other persona — no facility-prefix special case (here `als-assistant`).
     default_entry = next(entry for entry in result if entry["name"] == "alice")
     assert default_entry["container_project_dir"] == "/app/als-assistant"
+
+
+def test_resolve_personas_local_mode_entry_without_project_keeps_suffixed_tag() -> None:
+    """A catalog entry with no `project` of its own resolves onto the facility
+    default project, whose `<default>-<persona>:local` suffix is what keeps the
+    tag disjoint from the dispatch worker's `<project>:local` image — a render
+    of its own is what earns a persona the unsuffixed tag."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "persona": "bare"}],
+        "default_persona": "bare",
+        "image_source": "local",
+        "personas": {"bare": {"project_path": "profiles/bare"}},
+    }
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result[0]["image"] == "als-assistant-bare:local"
+    assert result[0]["project"] == "als-assistant"
 
 
 def test_resolve_personas_entry_without_persona_key_inherits_default_persona() -> None:

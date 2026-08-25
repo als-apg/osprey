@@ -140,7 +140,7 @@ BASE_PORTS = {
     "channel_finder": 19981,
 }
 
-PERSONA_IMAGE_TAG = f"{PERSONA_PROJECT}-{PERSONA}:local"
+PERSONA_IMAGE_TAG = f"{PERSONA_PROJECT}:local"
 NGINX_C = f"{PREFIX}-nginx"
 
 # The persona build is a real framework install; give it room.
