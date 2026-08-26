@@ -156,8 +156,8 @@ window.addEventListener('message', (e) => {
  * stream the terminal reads. Only `agent_activity` frames are forwarded; file
  * and panel frames on the shared stream belong to the terminal. A frame that
  * failed to parse arrives as the raw string (createEventSource's fallback) and
- * is ignored, as is one without a `target` — the same guard panel-manager's
- * dispatch applies.
+ * is ignored, as is one without a `target` — the same guard panel-sse's frame
+ * dispatcher applies.
  *
  * Prefixing, backoff and reconnection are createEventSource's job; the
  * factory is injectable so tests can drive it without a network.

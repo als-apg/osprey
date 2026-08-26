@@ -406,8 +406,9 @@ export function setServerVisiblePanels(ids) {
  * every `iframe:` placeholder in a stored layout (they may simply not be
  * created yet this session), so a placeholder whose service was genuinely
  * removed from the deployment survives the restore — this is the cleanup for
- * that case, called by panel-manager once its registry is loaded (and again on
- * runtime registration). Prunes immediately and on every later layout apply.
+ * that case, called by panel-manager once its registry is loaded (and again
+ * by panel-lifecycle's addPanel on runtime registration). Prunes immediately
+ * and on every later layout apply.
  * @param {Iterable<string>} ids
  */
 export function setKnownServicePanels(ids) {
@@ -604,7 +605,8 @@ export function focusPanel(panelId) {
  * kept (cached) so a later show/focus re-reveals it with its state intact.
  * Also handles panels this adapter never adopted (no managed entry) — a
  * restored placeholder for a panel closed on another client still needs its
- * tile removed. Consumed by panel-manager's hide paths.
+ * tile removed. Consumed by panel-manager's, panel-sse's and
+ * panel-placement's hide paths.
  * @param {string} panelId
  */
 export function hidePanel(panelId) {

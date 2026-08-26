@@ -165,7 +165,7 @@ def test_frontend_panel_manager_registers_system_health_tab():
     assert "/api/system-health-server" in js
     assert "SYSTEM" in js
     # healthEndpoint MUST be the explicit '/health': an omitted/null value skips
-    # polling and pins the tab healthy (panel-manager.js:461).
+    # polling and pins the tab healthy (panel-lifecycle.js initPanel).
     assert "healthEndpoint: '/health'" in js
 
 

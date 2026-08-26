@@ -3,9 +3,9 @@
  *
  * A slim, fixed zone in the host chrome showing the most recent agent action
  * as text ("agent wrote SR01:HCM1:SP"). Frames arrive through panel-manager's
- * setActivityStripHandler seam: every agent_activity frame the rail cannot
- * anchor (kinds 'channel'/'run'/'artifact', plus 'panel' frames whose id has
- * no rail entry) lands here verbatim.
+ * setActivityStripHandler seam, fed by panel-sse.js's frame dispatcher: every
+ * agent_activity frame the rail cannot anchor (kinds 'channel'/'run'/'artifact',
+ * plus 'panel' frames whose id has no rail entry) lands here verbatim.
  *
  * Model: a single visible entry, latest wins. Any newer frame — same target
  * or different — replaces the entry and resets the auto-clear timer, so rapid
@@ -15,8 +15,9 @@
  * Suppression: when the panel that self-signals this activity is already the
  * active panel, the strip stays silent (the gallery navigates on focus SSE,
  * the bluesky panel shows its launched banner, and the rail glow has already
- * fired in panel-manager). The kind→panel mapping is the SUPPRESSION table
- * below; suppression itself is a pure function (exported for tests).
+ * fired in panel-sse's frame dispatcher). The kind→panel mapping is the
+ * SUPPRESSION table below; suppression itself is a pure function (exported
+ * for tests).
  *
  * Three modules, one feature: this one owns the live line, activity-format.js
  * words every frame for both surfaces, and activity-history.js is the
