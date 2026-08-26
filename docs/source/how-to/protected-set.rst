@@ -181,8 +181,9 @@ wiring.
 Which surfaces ask
 ==================
 
-Five writers consult the set. Each records its own name in the audit ledger, so
-one query can be narrowed to a single surface or span all of them:
+Five writers consult the set. Each files its refusals under its own name in the
+audit trail --- one file per surface --- so one query can be narrowed to a single
+surface or span all of them:
 
 .. list-table::
    :header-rows: 1
@@ -299,15 +300,17 @@ than something only the agent saw. Config refusals are phrased identically
 whichever surface produced them — ``BLOCKED a protected config key`` — and carry
 key names only, never values.
 
-**The attempt is recorded in** ``var/audit/protected-writes.jsonl``. It sits in
-the state zone beside ``readonly-refusals.jsonl``, and it is durable by
-construction: ``osprey build`` re-renders ``build/`` wholesale and never
-touches ``var/``, and ``osprey reset`` keeps ``var/audit`` unless you pass
-``--purge-audit``. The two ledgers are separate because they answer different
-questions — "did the agent try to move the machine" versus "did the agent try to
-rewrite the framework that constrains it".
+**The attempt is recorded in** ``var/audit/<identity>/<surface>.jsonl``. The
+path is the whole filing system: ``<identity>`` is whoever was acting, so on a
+multi-user deployment each person's refusals stay in their own directory, and
+``<surface>`` is the writer that refused, so a gallery refusal and a config
+refusal never share a file. The zone is durable by construction: ``osprey
+build`` re-renders ``build/`` wholesale and never touches ``var/``, and
+``osprey reset`` keeps ``var/audit`` unless you pass ``--purge-audit``.
 
-One JSON object per line, six fields:
+The same record shape covers every safety decision OSPREY files, so one reader
+handles a refused config key and a refused control-system write alike. One JSON
+object per line:
 
 .. list-table::
    :header-rows: 1
@@ -319,21 +322,44 @@ One JSON object per line, six fields:
      - UTC timestamp, ``YYYY-MM-DDTHH:MM:SSZ``
    * - ``surface``
      - Which writer refused — one of the five surface names above
-   * - ``target_file``
-     - The file the write was aimed at
-   * - ``key_or_path``
-     - What inside it was protected: a dotted config key, or the
-       project-relative path when the whole file is the target
-   * - ``channel``
-     - The channel that owns the target, named the same way the refusal message
-       names it
+   * - ``actor``
+     - Who was acting, from the terminal login where there is one
+   * - ``posture``
+     - The session's posture at the time, ``sandbox`` or ``writes``. The
+       protected set is closed in both; this says what else was in force
+   * - ``posture_source``
+     - How that posture was established — ``spawn`` (fixed when the session
+       started), ``live`` (read from the session's setting at the time),
+       ``app`` (a web request, which belongs to no session), ``process`` (no
+       session posture at all, as in a CLI run). Never guessed from the
+       posture value
+   * - ``session``
+     - The terminal session the posture belonged to, or ``null`` outside one
+   * - ``subject``
+     - What was protected: a dotted config key, or the project-relative path
+       when the whole file is the target
+   * - ``decision``
+     - ``refused`` on this page — the same field reads ``allowed`` on the
+       records of calls that went through
    * - ``reason``
      - Short machine-readable reason — ``protected_key``, ``reserved path``,
-       ``reserved path in ownership store``
+       ``reserved path in ownership store``; a control-system write the
+       session posture refused reads ``posture`` on every surface (the hook,
+       the MCP server and the Python executor all spell it the same way)
+   * - ``detail``
+     - The file the write was aimed at (``target=``) and the channel that owns
+       it, named the same way the refusal message names it
 
 A ``PUT`` that would have changed many protected keys at once names the first
-ten and counts the rest in the message, but every changed key reaches the
-ledger. The cap trims the message, never the audit.
+ten and counts the rest in the message, but **every changed key gets its own
+line**. The cap trims the message, never the audit. A refused request leaves
+exactly those lines and no others: the surface that decided files the record,
+and the layers around it stand aside rather than filing the same refusal
+again.
+
+These five files are part of a larger trail — the same record shape covers
+tool calls, hook decisions, logins and web mutations. What else is in it, who
+can read it, and what it does not promise are :ref:`below <how-to-audit-trail>`.
 
 .. note::
 
@@ -341,6 +367,98 @@ ledger. The cap trims the message, never the audit.
    unreachable feed degrades the trail and never turns a refusal into a server
    error — an error that reads like the gate malfunctioned is the one shape an
    operator could mistake for a gate that failed open.
+
+.. _how-to-audit-trail:
+
+The audit trail
+===============
+
+These refusals are one part of a single trail. Under ``var/audit/`` there is one
+directory per identity, and one file per surface inside it. Every
+safety-relevant decision the deployment makes is one line in one of them:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 45 55
+
+   * - File under ``var/audit/<identity>/``
+     - What it records
+   * - ``http_config.jsonl``, ``setup_patch.jsonl``, ``claude_setup.jsonl``,
+       ``scaffold_gallery.jsonl``, ``scaffold_restore.jsonl``
+     - The five protected-set surfaces above
+   * - ``executor.jsonl``
+     - Python runs a safety layer refused — see :ref:`python-executor-protected-paths`
+   * - ``<server>.jsonl``
+     - Tool calls on an OSPREY MCP server, allowed and refused alike, in a file
+       named for the server: ``osprey_workspace``, ``python``, ``bluesky``
+   * - ``hook_writes_check.jsonl``, ``hook_approval.jsonl``,
+       ``hook_limits.jsonl``, ``hook_memory_guard.jsonl``
+     - What the safety hooks denied, and what they put in front of a person
+   * - ``http_mutation.jsonl``, ``web_auth.jsonl``
+     - Requests that changed something through a web API, and the 401s and 403s
+       the login check itself refused
+   * - ``auth_sidecar.jsonl`` (under ``var/audit/sidecar/``)
+     - Logins and login refusals, where a deployment has a login wall
+
+``decision`` reads ``allowed`` or ``refused`` on almost all of them, and ``ask``
+in ``hook_approval.jsonl``, where the hook did neither: it put the call in front
+of an operator. What the operator then said is visible in what follows — an
+approved call leaves its own record on the server that ran it, and a declined
+one never reaches a server at all.
+
+Some of that is chatter rather than safety: every request that changes state is
+recorded, so moving a panel around the terminal leaves lines in
+``http_mutation.jsonl`` next to the config edits. One asymmetry worth knowing
+before you go looking: a *refused* WebSocket upgrade is recorded, an admitted
+one is not — a live session's activity is its tool records, not its connection.
+
+Who can read it
+---------------
+
+In a multi-user deployment the directories are the isolation. Each user's
+container is handed ``var/audit/<their name>/`` and nothing else under
+``var/audit/``, so alice's terminal cannot read — or rewrite — bob's records,
+even though both live in one project. The login service writes its own
+``var/audit/sidecar/``, which it owns as root and which no terminal mounts at
+all; each dispatch worker and the Bluesky panel service write their own
+subdirectory on the same terms.
+
+**The deployment-wide view is the host's.** All of it is one tree on the deploy
+host, so whoever has a shell there reads every subdirectory with ``grep``, and
+that is the only place a question spanning several people can be answered.
+
+Inside a container, the admin tier can read its own records without a shell:
+``GET /api/audit/recent`` returns the newest records from that container's own
+subdirectory, newest first, behind the same switch as the Config panel
+(``web.config_panel.enabled``). It never reaches another user's.
+
+What the trail is not
+---------------------
+
+**It is append-only, not tamper-evident.** Lines are only ever appended, and
+OSPREY never rewrites or prunes one. But there is no hash chain and no
+signature: anyone who can write a subdirectory can edit or delete lines in it —
+the host's administrator included — and nothing in a later read would show that
+they had. It is an operational record of what the deployment decided, which is
+what answers "what happened here". If you need something that holds against
+someone with write access, ship the lines off the host as they are written, to a
+collector the deployment cannot reach back into.
+
+**Nothing rotates or expires it.** The files grow until you do something about
+them. ``osprey reset --purge-audit`` empties the zone deliberately; rotation,
+retention windows and forwarding are yours to arrange.
+
+**One file carries a payload:** ``executor.jsonl``. Every other record holds
+identifiers and config keys only — a surface name, a username, a tool name, a
+dotted key, a short reason — never a config value, a prompt, or an agent
+message. The Python executor is the deliberate exception: a refused run records
+the code it refused, whole, in a ``source`` field (8000 characters, with
+``source_truncated: true`` where a longer script was cut). A record of a refused
+write that does not say what the write *was* is an alert, not an audit trail.
+What that means for anyone reading or forwarding the trail: this one file
+contains whatever the agent tried to run, including anything the conversation
+put into the script. Give it the same care as the code itself, and expect it to
+be the file that grows.
 
 See also
 ========

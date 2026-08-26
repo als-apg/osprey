@@ -6,8 +6,9 @@ Require a Login
 
 The landing page lists the roster; a login decides who may open a card. This
 page covers the two ways to require one — passwords OSPREY manages, or the
-single sign-on your facility already runs — the HTTPS that either needs, where
-passwords live, and what to do when someone leaves.
+single sign-on your facility already runs — the HTTPS that either needs, how a
+provider's groups can pick which tier a login lands on, where passwords live,
+what a login leaves in the audit trail, and what to do when someone leaves.
 
 
 With no ``auth`` stanza nginx asks for no credentials and speaks plain HTTP —
@@ -152,6 +153,139 @@ The service listens on ``127.0.0.1`` on the deploy host itself (the web stack
 uses host networking), so nginx reaches it and nothing off-host does. It is not
 published as a container port, and anyone with a shell on the deploy host can
 reach it — the same as every per-user terminal.
+
+.. _multi-user-role-from-sso:
+
+Let single sign-on pick the tier
+--------------------------------
+
+Each roster entry names the persona it runs as, and pinning that per user is
+the simplest thing to do. Where your provider already knows who is an operator
+and who is a visitor, you can state that mapping once instead:
+
+.. code-block:: yaml
+
+   modules:
+     web_terminals:
+       authorization:
+         roles:
+           operator: {persona: readwrite}
+           viewer: {persona: readonly}
+         claims:
+           claim: groups          # the ID-token claim holding group membership
+           map:                   # that claim's values, onto the roles above
+             ca-operators: operator
+             ca-viewers: viewer
+       users:
+         - name: alice
+           index: 0
+           role: operator         # in place of `persona: readwrite`
+           oidc_subject: "8f4c1e02-..."
+
+``roles`` is the static half, and it applies in every login mode: a role names
+one persona from the catalog, and a roster entry carries ``role:`` **or**
+``persona:`` — never both, which lint refuses. (With both written down, nothing
+says which one governs, and a later edit to the role's persona would silently
+not reach that entry.) A role that names no persona, a map entry naming a role
+you never declared, and half a ``claims`` stanza each stop the build with the
+offender named, rather than rendering a deployment whose privileges are not
+what the file says.
+
+``claims`` is the single sign-on half: it names the ID-token claim your
+provider puts group membership in, and maps that claim's **values** onto the
+same role names. Real providers send a list, so the values are what is matched,
+not the claim as a whole. A login arriving with
+
+.. code-block:: json
+
+   {"groups": ["ca-operators", "building-6"]}
+
+is granted ``operator``: ``ca-operators`` is in the map and ``building-6``
+matches nothing. Every value is matched rather than the first one that hits, so
+the role someone is granted never depends on the order the provider happened to
+list their groups in. Several values naming the *same* role are fine. The other
+two outcomes are refusals — a 403 at the front door, each recorded in the audit
+trail with its own reason:
+
+* **No value matches the map.** The account holds none of the groups this
+  deployment maps, so there is no role to grant.
+* **Values name more than one role.** Somebody is in an operator group *and* a
+  viewer group; picking either one would be a guess about which privilege they
+  meant to use.
+
+Matching is exact: values are compared as written, with no case folding. The
+role a login resolves to travels with that session: it reaches the person's
+terminal as an identity header, and is named on the login record in the
+audit trail.
+
+**The role a login carries has to be the role its terminal was built as.** The
+roster's ``role:`` does two jobs, and both are in force in every mode. It
+resolves to a persona at build time — that is what decides which project a
+card's container is built from — and it is what the session carries. Under
+password login, that is the whole story.
+
+Under single sign-on it depends on whether you wrote a ``claims`` map:
+
+* **No** ``claims`` **map.** Nothing asked the provider about privilege, so the
+  role is the roster's, exactly as under a password.
+* **A** ``claims`` **map.** The validated ID token decides the role — and it has
+  to be the one the roster named for the person whose card was clicked. If
+  someone's groups map to ``operator`` while their roster entry says
+  ``observer``, the login is refused: 403, recorded as ``role_mismatch``, no
+  session issued. Refusing grants nobody anything. It turns away a login whose
+  asserted privilege describes a different terminal than the one behind the
+  door, which is a roster and a provider that have drifted apart — fix it in
+  whichever of the two is out of date.
+
+One case has nothing to cross-check: a roster entry that names no role at all,
+because it pins a ``persona:`` directly or just rides the default. Its container
+is not bound to a role, so there is nothing for the token to disagree with and
+the token's role is what the session carries.
+
+The mirror does not hold: a ``claims`` stanza in a password deployment resolves
+nothing, because no ID token arrives to read it from. ``osprey up`` warns about
+that one rather than failing — it is what a facility writes while staging a move
+to single sign-on — but until the method is ``oidc``, none of the roles in it is
+ever granted.
+
+**Every login is recorded.** Successes and refusals alike land in
+``var/audit/sidecar/auth_sidecar.jsonl`` on the deploy host: one line each,
+naming the user, the category (``password_login`` and ``oidc_login``, or a
+refusal such as ``unmapped_role_claim`` or ``ambiguous_role_claim``), and the
+role granted. That file belongs to the authentication service — no terminal
+container mounts it, and only a shell on the host reads it. Three deliberate
+gaps in it: an attempt the rate limiter turned away records nothing, so an
+unauthenticated caller cannot make the trail grow at will; a failed password is
+one category whatever went wrong with it — a wrong password, a name not on
+the roster and an account with no password set are indistinguishable, so the
+trail cannot be read backwards to enumerate who exists; and a single sign-on
+refusal that an unauthenticated caller can reach for free (a user with no
+mapped provider identity, or one whose mapped identity cannot be carried) is
+filed once per window, with the ones it swallowed counted on the next record
+as ``folded_refusals``.
+
+.. note::
+
+   **Microsoft Entra ID: when the group claim goes missing.** An account in
+   more than a few dozen groups triggers *group overage* — Entra leaves
+   ``groups`` out of the ID token altogether and puts a pointer to Microsoft
+   Graph there instead (``_claim_names``, ``_claim_sources``). That lands on
+   a missing-claim refusal, which is the honest outcome: the authentication
+   service reads identity only from the ID token it already validated, and
+   following the pointer would not help anyway — it never calls the userinfo
+   endpoint at all. The refusal is audited and names the claim it looked for,
+   and the log line beside it lists the claim names that did arrive, which is
+   how you recognize an overage.
+
+   Two changes at the provider fix it, and both work by bounding the claim to
+   this one application rather than to everything the account belongs to:
+
+   * **Emit fewer groups.** In the app registration's token configuration,
+     emit the groups *assigned to this application* (or security groups only)
+     rather than every group the account is in.
+   * **Map app roles instead.** Define app roles on the registration, assign
+     people to them, and point ``claim`` at ``roles``. The map's keys become
+     your app-role values; nothing else about the block changes.
 
 Leave one entry public
 ----------------------
@@ -339,6 +473,22 @@ ends that one user's session and leaves the others alone.
    memory, so restarting that container forgets it. A cookie captured before a
    logout could be replayed until it expires on its own — within
    ``auth.session_lifetime``.
+
+.. note::
+
+   **A role change takes effect at the next login.** A session's role is
+   resolved when the session is minted and then travels inside the signed
+   cookie, so editing a roster ``role:`` — or moving someone between groups at
+   the provider — does not reach a session that is already open. It changes
+   what their *next* login is granted. Where a role has to be withdrawn now,
+   end the session rather than the role: ``osprey users decommission <name>``,
+   or wait out ``auth.session_lifetime``.
+
+   Switching ``auth.method`` is the exception. Moving a deployment from
+   passwords to single sign-on drops the role from every session minted under
+   the old method straight away — that role was granted by a proof the
+   deployment no longer accepts. Those sessions stay open until they expire;
+   they just stop carrying a privilege.
 
 Removing someone needs care, because a credential can outlive the person's
 account in three different ways:

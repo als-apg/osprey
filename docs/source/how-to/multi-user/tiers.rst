@@ -225,6 +225,16 @@ the read-only default until its file says otherwise. :doc:`Build Profiles
 <../build-profiles>` covers what a persona file may contain and how the floor
 is written so that a delta can lift it.
 
+A roster entry can also name a **role** instead of a persona, and let the role
+carry the mapping — ``operator: {persona: readwrite}`` written once, rather than
+a persona pinned on every entry. That changes nothing about the mechanism above:
+a role resolves to a persona before anything is built, so which persona a card
+runs and which container it opens are the same either way. What the role adds is that
+it survives the login: it travels with the session, reaches the terminal as an
+identity header, and is named on the login record in the audit trail. Where a
+facility runs single sign-on, the provider's own groups can be what decides it —
+see :ref:`Let single sign-on pick the tier <multi-user-role-from-sso>`.
+
 What makes it hold
 ==================
 
@@ -327,8 +337,20 @@ record the edit is the copy every config write takes before it writes
 anything, kept in the state zone at ``var/agent_data/config-backups/``: a copy
 of the file as it stood immediately before the last write, one slot per file,
 overwritten on each save — so it is a way back from the last change rather
-than a history of them. Carry a change you want to keep back into
+than a history of them. The *history* is in :ref:`the audit trail
+<how-to-audit-trail>`: every request that changes something through a web API
+leaves a line naming the route and who was acting, and a refused protected key
+leaves one of its own. Neither carries the values that were written — that is
+what the backup copy is for. Between them: the trail says an edit happened and
+who made it, the backup says what the file looked like just before, and the
+drift check says nothing at all. Carry a change you want to keep back into
 ``profile.yml`` and rebuild, or the next build renders it away.
+
+**It is also the tier that can read the audit trail from inside a container.**
+``GET /api/audit/recent`` sits behind the same switch as the Config panel, and
+returns the newest safety records from *that container's own* subdirectory —
+never another user's, which no container can reach. A view across the whole
+deployment is the deploy host's shell, not a tier.
 
 So the admin tier's real distinction is not a wider set of live knobs. It is
 having the deployment-editing surfaces at all — ``setup-mode``, ``setup_patch``
@@ -415,6 +437,8 @@ Related pages
 
 - :doc:`../protected-set` — the files and config keys no agent-side writer may
   rewrite, on any tier, and where a refusal is recorded.
+- :ref:`The audit trail <how-to-audit-trail>` — what every tier's sessions
+  leave behind, who can read it, and what it does not promise.
 - :ref:`The privilege split <containerize-privilege-split>` — what the
   container does with file ownership, and what a bare host does not.
 - :ref:`What executed code may not change <python-executor-protected-paths>`

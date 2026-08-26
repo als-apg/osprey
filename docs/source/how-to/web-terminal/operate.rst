@@ -105,10 +105,11 @@ control_system.writes_enabled off; no session can step out of the sandbox"*,
 and the badge on a sandboxed session there is shown disabled rather than
 offering a switch that is certain to fail.
 
-A session has to have started before it can be given a posture --- a session
+A terminal session has to have started before it can be given a posture --- it
 only exists on disk once it has been sent a prompt. Until then the request is
 refused with *"This session has not started yet --- send one prompt first, then
-set its posture."*
+set its posture."* (Chat sessions answer to a different rule; see the note at
+the end of this section.)
 
 Postures survive a restart. They are stored in
 ``var/agent_data/session-postures.json``, written as soon as you switch and
@@ -166,13 +167,32 @@ writes off says so in its own words and says nothing about postures.
 
 .. note::
 
-   Simple mode's chat and the operator websocket run their agent through the
-   Agent SDK rather than a terminal, and they apply the posture at the moment
-   they start that agent, exactly as the terminal does. What is not connected
-   yet is the switch: the posture route accepts only a terminal session's id,
-   so those two surfaces cannot be addressed from the badge today. A follow-up
-   closes that gap; until then, treat the posture as a control over terminal
-   sessions.
+   **The other two surfaces.** Simple mode's chat and the operator websocket
+   run their agent through the Agent SDK rather than a terminal, and both apply
+   the posture at the moment they start that agent, exactly as the terminal
+   does. Where they differ is in whether you can switch one while it runs.
+
+   A **chat session can be switched**, and the flip restarts its agent the same
+   way. The badge in the card header addresses terminal sessions; a chat is
+   addressed by its chat id, through the same ``POST /api/terminal/posture``
+   route. The rule about having sent a prompt first does not apply to it ---
+   a chat is addressable from the moment its first prompt starts its agent,
+   including while that agent is still starting up, and it stays addressable
+   for as long as it is running or has a posture on record, so a chat you
+   sandboxed can always be brought back out. One thing is worth knowing before
+   relying on this: the chat page mints a new chat id every time it loads, so
+   a chat's posture lasts as long as that page does rather than following the
+   conversation.
+
+   An **operator websocket session keeps the posture it was started with.**
+   There is no way to flip one while it runs, and its posture is not restored
+   across a restart --- its id is minted when the connection is accepted and
+   names nothing afterwards, so there would be nothing to restore it to. That
+   stays true until an operator client exists to define its reconnect protocol.
+   Every audit record such a session emits is labelled
+   ``posture_source=spawn``, which is the trail's way of saying the posture was
+   fixed when the session started rather than read from a live setting --- see
+   the record fields on the :ref:`protected set <how-to-protected-set>` page.
 
 Documentation and feedback settings
 -----------------------------------

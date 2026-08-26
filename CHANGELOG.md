@@ -87,7 +87,7 @@ Compatibility is documented in release notes, not encoded in the version string.
   out or open a shared library at all; resubmit such work as readwrite.
 - A refused write is now visible, not silent. The operator is alerted that a
   write was attempted and blocked, and the attempt is recorded — with the
-  offending source — in `var/audit/readonly-refusals.jsonl`, which survives
+  offending source — in `var/audit/<identity>/executor.jsonl`, which survives
   builds and `osprey reset`.
 - Readwrite Python executions now always require human approval under the
   `selective` policy, independent of whether the write-pattern scanner
@@ -99,8 +99,8 @@ Compatibility is documented in release notes, not encoded in the version string.
   galleries, the Claude-setup file API, the Config panel, ARIEL's config
   editor, the `setup_patch` tool and the restore that runs at session start —
   and a refusal names the channel that does own the file. Each blocked attempt
-  is shown in the terminal's activity feed and recorded in
-  `var/audit/protected-writes.jsonl`.
+  is shown in the terminal's activity feed and recorded under
+  `var/audit/<identity>/`, in a file named for the surface that refused it.
   Executed Python is held to the same line by zone: it cannot write into
   `build/`, the profile sources, or the audit ledger. See the "Protected Set"
   how-to.
@@ -111,7 +111,10 @@ Compatibility is documented in release notes, not encoded in the version string.
   the hook, the connector, the Python executor and every process the agent
   spawns. Postures are per session, persist across restarts in
   `var/agent_data/session-postures.json`, and a deployment rendered with
-  writes off cannot leave the sandbox. See "Sandbox one session" in the Web
+  writes off cannot leave the sandbox. Chat sessions can be switched the same
+  way. Operator WebSocket sessions keep the posture they were started with —
+  there is no client to define what a reconnect means yet — and their postures
+  are not restored across a restart. See "Sandbox one session" in the Web
   Terminal how-to.
 - Two new keys, `web.config_panel.enabled` and
   `web.scaffold_gallery.write_enabled` (both default `true`), close the Config
@@ -125,6 +128,51 @@ Compatibility is documented in release notes, not encoded in the version string.
   profile that writes a permission list as a bare string, or spells
   `claude_code` both dotted and nested, is refused at build time instead of
   silently changing which tools end up denied.
+- One audit trail now holds the safety decisions the deployment makes: refused
+  control-system writes, refused protected keys, MCP tool calls, hook
+  denials and approval prompts, requests that changed something over HTTP, and
+  logins. Each is one line under `var/audit/<identity>/<surface>.jsonl` naming
+  who was acting, the session's posture, and where that posture came from. This
+  replaces the two separate refusal ledgers. Records carry identifiers and
+  config keys only — never a value, a prompt or an agent message — with one
+  deliberate exception: a refused Python run still records the code it refused,
+  so treat that file like the code. The trail is append-only but **not**
+  tamper-evident: nothing rotates it, and nothing would show that a line had
+  been edited. Forward it off the host if you need more than an operational
+  record. `osprey reset --purge-audit` still empties it.
+- The sandbox posture is now enforced by the tool servers themselves, not only
+  by the agent-side hook: a sandboxed session's write tools are refused before
+  the tool body runs, whatever the agent was permitted. Read-only `execute` is
+  unaffected. MCP servers a facility supplies itself are not covered by that
+  layer, and the writes-check hook now refuses them by server name under the
+  sandbox posture instead of passing them silently. Re-render (`osprey build`)
+  to pick this up; an older render clamps a built-in floor only.
+- New `modules.web_terminals.authorization` block: name a role once
+  (`operator: {persona: readwrite}`) and let roster entries carry `role:` in
+  place of `persona:`. Under single sign-on, an ID-token claim maps a person's
+  groups onto those roles — every value is matched, so a grant never depends on
+  the order a provider happened to list groups in, and a claim matching nothing
+  or matching two roles is refused with a 403 that says which, and so is a
+  login whose groups map to a different role than the person's roster entry
+  names — the role a session carries is always the one its terminal was built
+  as. Switching a deployment from passwords to single sign-on drops the role
+  from sessions minted under the old method instead of letting them keep it
+  until they expire. A deployment with no `authorization:` block is unchanged.
+- The signed-in user and their role now reach each terminal as headers the login
+  service set, and every proxied location clears the browser's own copies first,
+  in every auth mode — so a client cannot assert an identity. Logins and login
+  refusals are recorded in `var/audit/sidecar/`.
+- Web-terminal user names must match `^[a-z0-9][a-z0-9_-]*$` in every login
+  mode, `none` included — the name is now the directory a person's audit records
+  are written to, so a render refuses one that is not a single path segment.
+- The Bluesky panel service records its own audit trail under
+  `var/audit/bluesky-web/`, on the same terms as every other container that
+  records.
+- Multi-user: each container is handed only its own `var/audit/<user>/`, so one
+  person's terminal cannot read or rewrite another's records; the whole-stack
+  view is a shell on the deploy host. Inside a container, the new
+  `GET /api/audit/recent` returns that container's own newest records, behind
+  the same switch as the Config panel.
 
 ### Fixed
 
