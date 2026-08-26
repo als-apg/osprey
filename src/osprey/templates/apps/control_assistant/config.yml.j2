@@ -396,6 +396,14 @@ control_system:
                         # trust the value on this line, never the comment beside it.
                         # For production: carefully review hardware implications before enabling
                         # If disabled, ALL writes are blocked (non-configurable hard error)
+  # Write posture is per connector type, and this key is what a type inherits
+  # when its own block says nothing about itself. Each block under `connector:`
+  # below may state its own `writes_enabled` instead — the commented lines there
+  # show the shape — so a deployment whose real machine is a live one can arm
+  # writes on the virtual accelerator alone and leave the machine read-only.
+  # A type that states its own posture never falls back to this key.
+  # Only a literal `true` arms writes at either level: the quoted string "true"
+  # and 1 are not it, and leave writes off.
 
   # Additional tools blocked by the writes kill switch. Framework servers'
   # write-gated tools are added automatically; list custom server tools here so
@@ -534,6 +542,11 @@ control_system:
     virtual_accelerator:
       timeout: 5.0
       simulation_file: data/simulation/machine.json
+      # Write posture for the simulator alone. Uncomment to arm writes here
+      # while `control_system.writes_enabled` above stays false and keeps the
+      # live machine read-only. The shipped `control-assistant-va-readwrite`
+      # persona is exactly this pair of keys.
+      # writes_enabled: true
       # Channel the target switch reads to prove this target is reachable
       # before making it active. A target with no probe_channel is never
       # switched to. This one is served by the simulation machine model above.
@@ -570,6 +583,10 @@ control_system:
     # on its local subnet.
     epics:
       timeout: 5.0
+      # Write posture for the live machine. Stating it here pins it: a type that
+      # carries its own posture never falls back to the deployment-wide key, so
+      # `false` holds even if a profile or an overlay turns that key on.
+      # writes_enabled: false
       # Channel the target switch reads to prove the live machine is reachable
       # before making it active. Facility-specific, so nothing is shipped set:
       # while it is unset this target is never switched to (the deployment

@@ -426,7 +426,16 @@ keys:
   control_system: {evidence: 'get_config_value\("control_system", \{\}\)'}
   control_system.type: {evidence: 'get_config_value\("control_system\.type", "mock"\)'}
   control_system.writes_enabled:
-    evidence: 'get_config_value\("control_system\.writes_enabled", False\)'
+    evidence: '"control_system\.writes_enabled"'
+    note: >-
+      Deployment-wide write posture. The reader is the per-connector-type
+      resolver `type_writes_enabled` in `osprey_connectors.types`: with no
+      `control_system.connector.<type>.writes_enabled` key present, its inherit
+      branch falls back to this global key, so every call site reaches this key
+      through the resolver rather than reading it directly. The anchor is the
+      dotted spelling itself, which that module names as the constant
+      `WRITES_ENABLED_KEY` and every refusal quotes back to the operator.
+      Escaped, so the vacuity cap does not apply.
   control_system.limits_checking: {evidence: 'limits_checking'}
   control_system.limits_checking.enabled:
     evidence: 'get_config_value\("control_system\.limits_checking\.enabled", False\)'
@@ -434,6 +443,17 @@ keys:
     evidence: 'get_config_value\("control_system\.limits_checking\.database_path", None\)'
   control_system.limits_checking.allow_unlisted_channels:
     evidence: 'allow_unlisted_channels'
+  control_system.write_tools:
+    rendered: false
+    evidence: 'control_system\.get\("write_tools", \[\]\)'
+    note: >-
+      Extra tool names a project folds into the writes kill switch, commented
+      in the three templates that carry the stanza so no template render
+      carries it. The reader is the claude_code renderer, which hands the list
+      to `hook_config.json` as `control_system_write_tools`; the writes-check
+      hook reads it from there. Tools named here are refused per call and never
+      enter `permissions.deny`, which is why a mixed-posture render can gate
+      them at all.
   control_system.write_verification:
     evidence: 'get_config_value\("control_system\.write_verification", \{\}\)'
   control_system.write_verification.default_level:
@@ -501,6 +521,34 @@ keys:
       probe channel is facility-specific and cannot be guessed, and an unset
       one leaves the live target un-switchable-to rather than falsely
       eligible — the fail-closed direction.
+  control_system.connector.virtual_accelerator.writes_enabled:
+    rendered: false
+    evidence: 'block\[TYPE_WRITES_ENABLED_LEAF\] is True'
+    note: >-
+      Per-connector-type override of `control_system.writes_enabled`. The
+      Jinja templates that carry a virtual_accelerator block write it
+      commented, so no template render carries it and `rendered` stays false;
+      the shipped presets `control-assistant-va-readwrite` (true) and
+      `control-assistant-readonly` (false) DO write it into a project's real
+      config.yml when applied, so an audit of a built deployment will find it.
+      Tri-state: absent inherits the global key, literally `true` arms writes
+      for this type, and any other value leaves them unarmed without
+      inheriting. The reader is `type_writes_enabled` in
+      `osprey_connectors.types`, and the evidence is the line in it that takes
+      the leaf out of the resolved connector block -- the one expression that
+      cannot outlive the reader. The epics entry below cites the same site on
+      purpose: one type-keyed resolver serves every connector type, a custom
+      connector's dotted module path included.
+  control_system.connector.epics.writes_enabled:
+    rendered: false
+    evidence: 'block\[TYPE_WRITES_ENABLED_LEAF\] is True'
+    note: >-
+      Same key, same tri-state semantics and the same single reader for the
+      epics block, likewise written commented in the templates so no template
+      render carries it. Arming writes against a live machine is a facility
+      decision that cannot ship pre-made, so no shipped preset ever sets this
+      one true; `control-assistant-readonly` writes it false into an applied
+      project's config.yml, which is the one way a build produces it.
 
   # ── Control-system target switch ────────────────────────────────────
   control_system.target_switch:

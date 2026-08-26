@@ -2339,6 +2339,9 @@ def _conflicted_persona_config(tmp_path, users, *, personas):
 
     `personas` maps a persona name to `(writes_enabled, denies_bash)`, so a case
     can pair the launch-token entitlement with either shipped permission state.
+    Every project runs the bluesky server explicitly -- the server is opt-in in
+    the registry, so omitting the key would leave no project entitled and no
+    conflict to refuse -- which leaves `writes_enabled` as the only tier switch.
     """
     import json as _json
 
@@ -2347,7 +2350,13 @@ def _conflicted_persona_config(tmp_path, users, *, personas):
         project_dir = tmp_path / "profiles" / name
         (project_dir / ".claude").mkdir(parents=True)
         (project_dir / "config.yml").write_text(
-            yaml.safe_dump({"project_name": name, "control_system": {"writes_enabled": writes}}),
+            yaml.safe_dump(
+                {
+                    "project_name": name,
+                    "control_system": {"writes_enabled": writes},
+                    "claude_code": {"servers": {"bluesky": {"enabled": True}}},
+                }
+            ),
             encoding="utf-8",
         )
         (project_dir / ".claude" / "settings.json").write_text(

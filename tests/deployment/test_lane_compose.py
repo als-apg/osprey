@@ -120,6 +120,7 @@ def _context(
     lanes: dict[str, dict[str, Any]],
     deployed_services: list[str],
     writes_enabled: bool = False,
+    control_system: dict[str, Any] | None = None,
     va_port: int = 5064,
     devices_present: bool = False,
 ) -> dict[str, Any]:
@@ -132,11 +133,22 @@ def _context(
     ``bluesky_devices`` is the real boolean ``_stage_bluesky_devices`` returns —
     ONE value for the whole file, not one per lane, because both lanes declare
     the same service ``path`` and therefore stage into one directory.
-    ``limits_mount`` is injected whenever writes are enabled, which is exactly
+    ``limits_mount`` is injected whenever some lane is armed, which is exactly
     when the template mounts it.
+
+    The per-lane ``writes_enabled`` the template gates its limits-DB mount on
+    comes from the production helper rather than being written here by hand:
+    the generator precomputes it for exactly this template, so a hand-supplied
+    value would exercise the gate without exercising what decides it.
     """
+    from osprey.deployment.compose_generator import _bluesky_lane_write_posture
+
+    section = control_system if control_system is not None else {"writes_enabled": writes_enabled}
     services: dict[str, Any] = dict(lanes)
     services["virtual_accelerator"] = {"port": va_port}
+    posture = _bluesky_lane_write_posture(services, section)
+    for lane_key, armed in posture.items():
+        services[lane_key] = {**services[lane_key], "writes_enabled": armed}
     context: dict[str, Any] = {
         "osprey_labels": {
             "project_name": "proj",
@@ -148,11 +160,11 @@ def _context(
         "system": {"timezone": "UTC"},
         "deployment": {},
         "deployed_services": deployed_services,
-        "control_system": {"writes_enabled": writes_enabled},
+        "control_system": section,
         "services": services,
         "bluesky_devices": devices_present,
     }
-    if writes_enabled:
+    if any(posture.values()):
         context["limits_mount"] = LIMITS_MOUNT
     return context
 
@@ -618,6 +630,75 @@ def test_a_lane_block_present_but_undeployed_renders_nothing() -> None:
         )
     )
     assert set(rendered["services"]) == {"bluesky-bridge", "queueserver", "bluesky-redis"}
+
+
+# ---------------------------------------------------------------------------
+# Per-lane write posture
+# ---------------------------------------------------------------------------
+
+#: The read-only mount the writes gate opens, spelled as compose reads it.
+LIMITS_DB_MOUNT = f"{LIMITS_MOUNT['source']}:{LIMITS_MOUNT['target']}:ro"
+
+
+def _limits_mounts(rendered: dict[str, Any], service: str) -> list[str]:
+    return [v for v in rendered["services"][service]["volumes"] if "channel_limits.json" in v]
+
+
+def test_a_single_lanes_posture_is_the_deployment_wide_one() -> None:
+    """The value the gate reads now must be the value it used to read.
+
+    Every existing project is single-lane and has exactly one posture, so a
+    lane whose precomputed answer differed from ``control_system.writes_enabled``
+    would arm — or disarm — a deployment nobody reconfigured.
+    """
+    from osprey.deployment.compose_generator import _bluesky_lane_write_posture
+
+    lane = {"bluesky": {"port": 8090}}
+
+    def posture(control_system: dict[str, Any] | None) -> bool:
+        return _bluesky_lane_write_posture(lane, control_system)["bluesky"]
+
+    assert posture({"writes_enabled": True}) is True
+    assert posture({"writes_enabled": False}) is False
+    assert posture(None) is False
+    # A VA baseline reaches the resolver by a different route (its target
+    # resolves, where a mock deployment's ``live`` does not) and must still
+    # answer the deployment-wide value when no connector block narrows it.
+    assert posture({"type": "virtual_accelerator", "writes_enabled": True}) is True
+
+
+def test_only_the_lane_whose_target_is_armed_mounts_the_limits_db() -> None:
+    """A live-baseline deployment can arm writes on its VA lane alone.
+
+    Both containers of the armed lane, not just its bridge: the per-put
+    reference monitor runs in the RE Manager, and an armed manager without the
+    DB refuses every write from the empty-DB failsafe.
+    """
+    # Writes off deployment-wide, armed in the VA connector block.
+    control_system = {
+        "type": "epics",
+        "writes_enabled": False,
+        "connector": {"virtual_accelerator": {"writes_enabled": True}},
+    }
+    rendered = _render(
+        _context(
+            lanes={
+                "bluesky": _lane_block(
+                    8090,
+                    target="live",
+                    ca_name_servers=f"{CA_NAME_SERVERS_REQUIRED_PREFIX}set it}}",
+                ),
+                "bluesky_va": _lane_block(8190, target="va"),
+            },
+            deployed_services=["bluesky", "bluesky_va", "virtual_accelerator"],
+            control_system=control_system,
+        )
+    )
+
+    assert _limits_mounts(rendered, "bluesky-va-bridge") == [LIMITS_DB_MOUNT]
+    assert _limits_mounts(rendered, "bluesky-va-queueserver") == [LIMITS_DB_MOUNT]
+    assert _limits_mounts(rendered, "bluesky-bridge") == []
+    assert _limits_mounts(rendered, "queueserver") == []
 
 
 # ---------------------------------------------------------------------------

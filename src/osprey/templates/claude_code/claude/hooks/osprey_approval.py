@@ -21,9 +21,22 @@ stdin ──► Parse JSON
               │
               ▼
          Load config.yml
-         approval section
               │
               ▼
+  Is this call a write, and is the deployment
+  NOT armed for the target it would act on?
+     │                    │
+    YES                  NO / no posture stated
+     │                    │
+     ▼                    │
+  EXIT, no decision       │
+  (writes_check's deny    │
+   or the tool's own      │
+   lane gate refuses it)  │
+                          ▼
+                 approval section
+                          │
+                          ▼
   enabled: false?  ──YES──► EXIT (allow)
      │
     NO
@@ -48,6 +61,15 @@ Per-tool policies from `approval.tools` in config.yml:
 
 Creates a pre-execution notebook artifact for code review whenever
 `execute` requires approval (write mode, write patterns, or always policy).
+
+## Write posture
+
+Ahead of all of that, a write tool whose target this deployment has not armed
+exits with NO decision at all, so that the layer which refuses it — the
+`osprey_writes_check` deny, or `queue_start`'s own lane gate — is not reopened
+by an approval prompt. Posture is per target, so the same tool on the same
+deployment can defer on one target and prompt on the other. A config that
+states no posture anywhere prompts exactly as it always has.
 
 ## Write-approval stamps
 
@@ -81,9 +103,13 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from osprey_hook_log import (
     get_hook_input,
+    is_write_call,
+    is_write_tool,
     load_hook_config,
     load_osprey_config,
     log_hook,
+    short_tool_name,
+    write_tools,
 )
 
 # The shared, stdlib-only reader for the control-system target state — the ONLY
@@ -1287,9 +1313,15 @@ def _rendered_lanes(config: dict) -> list[tuple[str, str]]:
 
 
 def _declared_lane_target(config: dict, lane_key: str) -> str | None:
-    """The control target a lane's own config block declares, or ``None``."""
+    """The control target a lane's own config block declares, or ``None``.
+
+    Read exactly as ``bluesky_bridge_connection.lane_declared_target`` reads it,
+    whitespace included: the tool this prompt gates resolves the same key
+    through that function, and a value one of them trims and the other does not
+    is a lane the two answer for differently.
+    """
     target = _lane_block(config, lane_key).get("target")
-    return target.strip() if isinstance(target, str) and target.strip() else None
+    return target if isinstance(target, str) and target else None
 
 
 def _lane_situation(config: dict, hook_input=None, read_record=None) -> dict:
@@ -1787,6 +1819,138 @@ def _create_pre_execution_notebook(code: str, exec_mode: str, config: dict) -> s
         return None
 
 
+# ---------------------------------------------------------------------------
+# Write posture: is this deployment armed for the target THIS call would act on
+# ---------------------------------------------------------------------------
+# Posture is per target (`control_system.connector.<type>.writes_enabled` over
+# `control_system.writes_enabled`), so "are writes disabled here" is only
+# answerable once the call has been pointed at a target. The rules themselves
+# live in `osprey_target_state.writes_posture`, shared with `osprey_writes_check`
+# so the deny and the missing prompt can never disagree about one deployment.
+#
+# What this file owns is the TARGETING: which target a given call would act on.
+#
+# * every ordinary write tool follows the SESSION target, from the state file;
+# * a queue START binds to a plan lane instead, and the lane's target is
+#   render-time truth in the rendered config — the same map the prompt's lane
+#   lines read. A start naming no lane binds to the single rendered lane where
+#   there is only one, which is what the tool's own `_bind_lane` does;
+# * every other queue tool is left alone entirely.
+#
+# THE RULE THIS FILE OBEYS: DEFER IS ONLY SAFE WHERE A REFUSAL IS GUARANTEED.
+# Deferring emits no decision, so the call proceeds unless some other layer
+# refuses it. There are exactly two guarantors, and they cover different tools:
+#
+# * `osprey_writes_check` denies the session-targeted write tools. That deny is
+#   the whole reason this short-circuit exists (an "ask" from here reopens
+#   `can_use_tool` over it), and it is what makes a defer safe for them;
+# * `queue_start` refuses in-tool, before its bridge is called, whenever the
+#   bound lane's target is not armed. `writes_check` deliberately allows every
+#   lane-addressed tool, so for a start THAT gate is the only guarantor — and it
+#   only fires once the lane is placed. A start whose lane cannot be placed
+#   therefore keeps its prompt rather than deferring into a gap.
+
+#: Queue tools are addressed by lane rather than by the session target, and only
+#: a START names one. `queue_add` composes onto an idle queue and starts nothing
+#: (the server withholds the launch token, and the bridge refuses
+#: `launch_token_required` the moment the queue drains), and a plain stop is
+#: ungated everywhere by design. Neither has a target to resolve, and neither is
+#: ever short-circuited: a prompt that vanished on a tool nobody denies would be
+#: a gate removed rather than a gate applied.
+_QUEUE_TOOL_PREFIX = "queue_"
+_LANE_ADDRESSED_TOOL = "queue_start"
+
+
+def _unanswerable_posture(short_name):
+    """The posture to assume when the question could not be answered at all.
+
+    Not armed — a defer — wherever `osprey_writes_check` is guaranteed to deny,
+    so the two layers compose into a refusal rather than into a gap. The
+    lane-addressed start is the exception: `writes_check` allows every
+    lane-addressed tool, and the tool's own gate cannot fire on a lane nobody
+    placed, so a defer there would be an allow with no prompt at all.
+    """
+    return None if short_name == _LANE_ADDRESSED_TOOL else False
+
+
+def _lane_posture(config, section, tool_input):
+    """Posture for a queue start, or ``None`` when its lane cannot be placed.
+
+    The lane map is render-time truth from the config's `services.<lane>`
+    blocks. A start that names no lane still binds to the one lane a single-lane
+    deployment has — that is what `_bind_lane` does server-side, so it is the
+    lane the bridge will use and its posture is the honest answer. A start that
+    names no lane on a two-lane render, or one naming a lane this deployment
+    does not carry, is genuinely unplaced and keeps its prompt.
+    """
+    lanes = _rendered_lanes(config)
+    lane = tool_input.get("lane") if isinstance(tool_input, dict) else None
+    if not lane:
+        if len(lanes) != 1:
+            return None
+        target = lanes[0][1]
+    else:
+        target = next((declared for key, declared in lanes if key == lane), None)
+    if target not in (_TARGET_LIVE, _TARGET_VA):
+        # Includes the unplaced lane. A `services.<lane>.target` naming
+        # something else is a config this hook cannot read as a target, and
+        # `writes_posture` would answer it from the deployment-wide key — a
+        # posture for a machine nobody identified.
+        return None
+    return _target_state.writes_posture(section, target)
+
+
+def _session_posture(section, hook_input):
+    """Posture for the target this SESSION is pointed at."""
+    result = _target_state.read_session_target(hook_input)
+    if _target_state.is_baseline(result):
+        # A baseline fallback still NAMES the deployment's baseline target, and
+        # answering for it would state a posture for a session that may have
+        # switched away from it. The posture every target this session could
+        # REACH agrees on is the only one that cannot become a guess in favour
+        # of hardware — the same call `osprey_writes_check` makes on the same
+        # shape, so the two cannot part company over an unidentified session.
+        return _target_state.most_restrictive_posture(section)
+    return _target_state.writes_posture(section, result.get("target"))
+
+
+def _call_write_posture(config, tool_name, short_name, tool_input, hook_input):
+    """Whether writes are armed for what this call would touch. Never raises.
+
+    ``True`` armed, ``False`` explicitly not armed, and ``None`` for every shape
+    that must keep normal approval: a tool that is not a write, a readonly
+    execution, a queue tool this hook does not target, a start whose lane cannot
+    be placed, and a config that states no posture anywhere.
+
+    Everything the answer depends on — the generated write-tool list, the config
+    section, the state file, the lane map — sits inside one ``try``, and a
+    failure resolves the way :func:`_unanswerable_posture` describes rather than
+    propagating: an uncaught exception here would exit non-zero with no JSON and
+    let the call through with neither a prompt nor a decision.
+    """
+    try:
+        if not is_write_tool(tool_name, write_tools()):
+            return None
+        if not is_write_call(tool_name, tool_input, short_name):
+            return None
+        if short_name.startswith(_QUEUE_TOOL_PREFIX) and short_name != _LANE_ADDRESSED_TOOL:
+            return None
+
+        if _target_state is None:
+            # The reader is also where the posture RULES live, so a render
+            # without it cannot answer this at all. The sibling is rendered
+            # beside this file by the same build, so this is theoretical rather
+            # than an upgrade path.
+            return _unanswerable_posture(short_name)
+
+        section = config.get("control_system") if isinstance(config, dict) else None
+        if short_name == _LANE_ADDRESSED_TOOL:
+            return _lane_posture(config, section, tool_input)
+        return _session_posture(section, hook_input)
+    except Exception:
+        return _unanswerable_posture(short_name)
+
+
 def main():
     hook_input = get_hook_input()
     if not hook_input:
@@ -1805,43 +1969,50 @@ def main():
         sys.exit(0)
 
     tool_input = hook_input.get("tool_input", {})
-    short_name = tool_name[len(matched_prefix) :]
+    short_name = short_tool_name(tool_name, _prefixes)
 
     config = load_osprey_config(hook_input)
     approval_config = config.get("approval", {})
 
-    # Deterministic short-circuit when writes are EXPLICITLY disabled at the
-    # deployment level. Empirically (Claude Code SDK 2.x, not source-verified):
-    # PreToolUse hook-decision aggregation does NOT honour writes_check's JSON
-    # deny if this hook ALSO emits an "ask" decision — aggregation appears to
-    # be any-ask-wins, not deny-dominates, when multiple hooks return decisions
-    # for the same tool call. Without the short-circuit `can_use_tool` fires
-    # and the deployment-disabled invariant is violated.
+    # Deterministic short-circuit when this deployment is NOT armed for the
+    # target this call would act on. Empirically (Claude Code SDK 2.x, not
+    # source-verified): PreToolUse hook-decision aggregation does NOT honour
+    # writes_check's JSON deny if this hook ALSO emits an "ask" decision —
+    # aggregation appears to be any-ask-wins, not deny-dominates, when multiple
+    # hooks return decisions for the same tool call. Without the short-circuit
+    # `can_use_tool` fires and the unarmed invariant is violated.
     #
-    # For `mcp__controls__channel_write` the renderer's `permissions.deny`
-    # augmentation in `src/osprey/cli/templates/claude_code.py` is the PRIMARY
-    # mechanism — it hard-blocks before any PreToolUse hook fires. The defer
-    # below is intentional belt-and-braces against renderer drift (e.g., a
-    # stale `settings.json` after a `writes_enabled` flip without regen).
+    # How much this defer carries depends on the render, and posture is per
+    # target, so `src/osprey/cli/templates/claude_code.py` renders three ways:
     #
-    # Gate on `is False` (not falsy) so unit tests that omit the
-    # `control_system` block from their config see normal approval behaviour.
-    control_system_cfg = config.get("control_system") or {}
-    if control_system_cfg.get("writes_enabled") is False:
-        if (
-            tool_name == "mcp__python__execute"
-            and tool_input.get("execution_mode", "readonly") != "readonly"
-        ):
-            log_hook("approval", hook_input, status="defer", detail="writes_disabled")
-            sys.exit(0)
-        elif tool_name == "mcp__controls__channel_write":
-            log_hook(
-                "approval",
-                hook_input,
-                status="defer",
-                detail="writes_disabled_belt_and_braces",
-            )
-            sys.exit(0)
+    # * NO target may write — every write tool is hard-denied in
+    #   `permissions.deny`, which blocks before any PreToolUse hook fires. There
+    #   the deny is primary and this defer is belt-and-braces against renderer
+    #   drift, such as a stale `settings.json` after a posture flip without
+    #   regen;
+    # * EVERY target may write — nothing is rendered and nothing defers here;
+    # * the targets DISAGREE — settings.json is rendered once, before any
+    #   session picks a target, so a static deny would be wrong on the armed
+    #   target and a static `ask` would be wrong on the unarmed one. The render
+    #   therefore steps aside entirely: it denies nothing and pulls every
+    #   writes-check-gated matcher OUT of `ask`. On that render there is no
+    #   static gate at all, and this defer together with writes_check's
+    #   per-target deny IS the whole gate — for the lane-addressed queue tools
+    #   writes_check skips, the bluesky tools' own lane-bound posture re-read is.
+    #
+    # Three-way, and the third way is the point: a config that states no posture
+    # at all falls through to normal approval, so every deployment that predates
+    # the per-target key keeps exactly the prompt it has today. Only an explicit
+    # `False` defers, and only where a refusal is guaranteed — see
+    # `_call_write_posture`, which answers every part of that question.
+    if _call_write_posture(config, tool_name, short_name, tool_input, hook_input) is False:
+        log_hook(
+            "approval",
+            hook_input,
+            status="defer",
+            detail=f"writes_not_armed tool={short_name}",
+        )
+        sys.exit(0)
 
     # Global toggle — disabled means allow everything
     if not approval_config.get("enabled", True):

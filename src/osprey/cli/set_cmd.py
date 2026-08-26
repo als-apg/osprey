@@ -155,6 +155,7 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
       $ osprey set config.facility.name='ALS Storage Ring'
       $ osprey set epics_gateway=als
       $ osprey set --repo ~/als-assistant config.control_system.writes_enabled=true
+      $ osprey set config.control_system.connector.virtual_accelerator.writes_enabled=true
     """
     from osprey.deployment.staleness import check_drift
     from osprey.errors import BuildProfileError

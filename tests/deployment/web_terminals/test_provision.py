@@ -1112,7 +1112,13 @@ def test_force_recreate_auth_sidecar_is_a_warning_not_a_failure_without_a_stack(
 
 
 def _persona_project(root: Path, name: str, *, writes: bool, denies_bash: bool) -> str:
-    """Write a persona project under *root*; return its relative project_path."""
+    """Write a persona project under *root*; return its relative project_path.
+
+    Every project here runs the bluesky server, spelled out rather than left to
+    a default: the server is opt-in in the registry, so a project that omits the
+    key runs no server and can never hold the launch token. `writes` alone is
+    what moves a project across the tier boundary.
+    """
     import json
 
     import yaml
@@ -1120,7 +1126,13 @@ def _persona_project(root: Path, name: str, *, writes: bool, denies_bash: bool) 
     project_dir = root / "profiles" / name
     (project_dir / ".claude").mkdir(parents=True)
     (project_dir / "config.yml").write_text(
-        yaml.safe_dump({"project_name": name, "control_system": {"writes_enabled": writes}}),
+        yaml.safe_dump(
+            {
+                "project_name": name,
+                "control_system": {"writes_enabled": writes},
+                "claude_code": {"servers": {"bluesky": {"enabled": True}}},
+            }
+        ),
         encoding="utf-8",
     )
     deny = ["Bash", "Edit"] if denies_bash else ["Edit"]

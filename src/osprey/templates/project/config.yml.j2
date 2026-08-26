@@ -198,6 +198,11 @@ control_system:
 
   # Write Access Control - Master safety switch
   writes_enabled: false  # Set true only for production hardware control
+  # This is the posture each connector type inherits when its own block says
+  # nothing about itself. A type can state its own instead - see the commented
+  # `writes_enabled` lines in the connector blocks below - so a project pointed
+  # at a real machine can arm writes on its simulator alone. Only a literal
+  # `true` arms writes anywhere: the quoted string "true" and 1 leave them off.
   # write_tools:                # Additional tools blocked by writes kill switch
   #   - "mcp__my_server__dangerous_write"
 
@@ -259,6 +264,10 @@ control_system:
     # with `type: virtual_accelerator` above, or switch a running session to it.
     virtual_accelerator:
       timeout: 5.0
+      # Write posture for this connector type alone. Uncomment to arm writes on
+      # the simulator while the deployment-wide `writes_enabled` above keeps the
+      # real machine read-only. Left out, this type inherits that key.
+      # writes_enabled: true
       # Channel the target switch reads to prove this target is reachable
       # before making it active. A target with no probe_channel is never
       # switched to. Replace with a channel your VA's machine model serves.
@@ -285,6 +294,10 @@ control_system:
           use_name_server: true
     epics:
       timeout: 5.0
+      # Write posture for the live machine. A type that states its own posture
+      # never falls back to the deployment-wide key, so `false` here holds even
+      # if a profile or an overlay turns that key on.
+      # writes_enabled: false
       # Channel the target switch reads to prove the live machine is reachable
       # before making it active. Facility-specific, so nothing is shipped set:
       # while it is unset this target is never switched to (the deployment

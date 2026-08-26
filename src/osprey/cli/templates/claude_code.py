@@ -14,6 +14,7 @@ from typing import Any
 
 import yaml
 
+from osprey.bluesky_tool_names import QUEUE_CONTROL_TOOLS
 from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.profile_conventions import SETUP_PATCH_TOOL, ownership_name
 from osprey.cli.styles import console
@@ -31,8 +32,11 @@ logger = logging.getLogger("osprey.cli.templates")
 # build_claude_code_context below): it accepts both read-only and write-access
 # kernels, so the kill switch pulls it OUT of `ask` instead of hard-denying it
 # outright. Every other _WRITES_CHECK-gated tool is presumed pure-write and
-# must be denied. Module-level so tests can assert against the same set the
-# renderer actually uses instead of re-declaring it.
+# must be denied — on a render where no target may write. Where the targets
+# disagree nothing can be denied statically and the whole gated set is pulled
+# from ask instead; membership here still decides which of them the
+# required-tool rescue may re-grant. Module-level so tests can assert against
+# the same set the renderer actually uses instead of re-declaring it.
 _MIXED_READ_WRITE_TEMPLATES = {"python"}
 
 #: Tools OSPREY denies outright in every generated ``.claude/settings.json``.
@@ -325,6 +329,15 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         "agent_data_root": agent_data_base_dir(config),
         # Write tools blocked by the writes kill switch (for hook_config.json)
         "control_system_write_tools": control_system.get("write_tools", []),
+        # Write tools the kill switch stops short of gating on the session's
+        # control target: a queue operation binds to a plan lane, not to the
+        # target this session points at, so the writes-check hook leaves it to
+        # the tool's own lane gate. SHORT names — an `extends` clone renames
+        # only the server prefix, and the hook compares the short name so the
+        # clone keeps the same carve-out. Sourced from the registry rather than
+        # spelled in the hook, so renaming a tool never touches that standalone
+        # hook source.
+        "lane_addressed_tools": list(QUEUE_CONTROL_TOOLS),
         # Control system type for protocol-aware safety rules
         "control_system_type": control_system.get("type", "mock"),
         # Whether this deployment renders the target switch, for the
@@ -615,9 +628,40 @@ def build_claude_code_context(
     # accepts both read_only and write_access kernels, so it is pulled into
     # remove_ask instead (see docstring above); every other writes-check-gated
     # tool is presumed pure-write and denied outright.
-    if not config.get("control_system", {}).get("writes_enabled", False):
+    #
+    # Write posture is per target, so the render is three-way rather than two:
+    #
+    # * NO target may write — the kill switch above, unchanged. One static deny
+    #   is correct because the tool is illegal wherever the session points.
+    # * EVERY target may write — nothing rendered, unchanged.
+    # * The targets DISAGREE — the deny cannot be static, because the same tool
+    #   is legal on one target and refused on the other and settings.json is
+    #   rendered once, before any session picks a target. So the render steps
+    #   aside: every writes-check-gated matcher is pulled from `ask` and none is
+    #   denied, and the runtime carries it per call in three places —
+    #   osprey_writes_check (stage 1 the session posture, stage 2 the active
+    #   target's posture), the approval hook's defer, and, for the lane-addressed
+    #   `queue_*` tools that stage 2 deliberately skips, the lane-bound posture
+    #   re-read inside the bluesky queue tools themselves. Dropping the `ask` is
+    #   the load-bearing half: a static ask entry left in settings.json would
+    #   reopen the can_use_tool prompt none of those three can suppress (the SDK
+    #   aggregates any-ask-wins), and an operator would be prompted to approve a
+    #   write the target's posture forbids.
+    #
+    # The postures come from `session_posture`, which yields both targets only
+    # on a deployment that renders the switch and otherwise yields the built
+    # connector's own posture alone. Looping CONTROL_TARGETS here instead would
+    # call a deployment mixed on the strength of a target no session can select
+    # — a mock deployment carrying an armed epics block would lose its hard deny
+    # over a machine it never reaches.
+    from osprey_connectors.types import session_posture
+
+    control_system = config.get("control_system", {}) or {}
+    writes_by_target = session_posture(control_system)
+    if not all(writes_by_target.values()):
         from osprey.registry.mcp import _WRITES_CHECK, FRAMEWORK_SERVERS
 
+        mixed = any(writes_by_target.values())
         facility_perms = dict(ctx["facility_permissions"])
         # Kill-switch denies land in their OWN context key, never in
         # facility_permissions['deny']. `remove_deny` is profile-authored and
@@ -654,6 +698,13 @@ def build_claude_code_context(
         required_ask = {
             tool for a in ctx["agents"] if a["enabled"] for tool in a.get("requires_ask_tools", [])
         }
+        # The matchers pulled from `ask` because their template is documented
+        # read/write-mixed — the only ones the rescue below may promote to
+        # `allow`. Tracked separately from `remove_ask`, which on a mixed render
+        # also holds the pure-write matchers (and which a profile can seed with
+        # anything at all): a pure-write tool in `allow` is an unguarded write,
+        # so the rescue must never be able to reach one.
+        mixed_remove_ask: set[str] = set()
         # Cover extends clones too, not just the literal template names: the
         # runtime hook templates (osprey_writes_check.py, osprey_approval.py)
         # exact-match template tool names and are clone-unaware — they are the
@@ -674,6 +725,10 @@ def build_claude_code_context(
                 if matcher.startswith(old_prefix):
                     matcher = new_prefix + matcher[len(old_prefix) :]
                 if template in _MIXED_READ_WRITE_TEMPLATES:
+                    mixed_remove_ask.add(matcher)
+                    if matcher not in remove_ask:
+                        remove_ask.append(matcher)
+                elif mixed:
                     if matcher not in remove_ask:
                         remove_ask.append(matcher)
                 elif matcher not in killswitch_deny and matcher not in already_denied:
@@ -682,10 +737,11 @@ def build_claude_code_context(
         # hard-requires that the kill-switch just pulled from `ask`. `allow`
         # (not `ask`) keeps it off the approval-prompt path the writes-check
         # kill switch guards, so the read-only agent keeps its compute without
-        # reopening a write-access bypass. A required *pure-write* tool would be
-        # in `deny`, not `remove_ask`, and is deliberately NOT rescued here.
+        # reopening a write-access bypass. Drawn from `mixed_remove_ask` and not
+        # from `remove_ask`: a pure-write tool is denied on an all-off render and
+        # hook-gated on a mixed one, and must reach `allow` from neither.
         for tool in sorted(required_ask):
-            if tool in remove_ask and tool not in allow:
+            if tool in mixed_remove_ask and tool not in allow:
                 allow.append(tool)
         facility_perms["remove_ask"] = remove_ask
         facility_perms["allow"] = allow

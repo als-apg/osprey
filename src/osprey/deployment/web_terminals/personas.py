@@ -31,7 +31,19 @@ from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from osprey.bluesky_bridge_connection import (
+    LANE_KEYS,
+    LANE_ONE,
+    SECOND_LANE_KEYS,
+    lane_declared_target,
+)
 from osprey.deployment.graphdb_service import resolve_graphdb_service_config
+from osprey.registry.mcp import FRAMEWORK_SERVERS
+from osprey_connectors.types import (
+    baseline_target,
+    target_writes_enabled,
+    target_writes_enabled_key,
+)
 
 # Matches ${VAR} and $VAR env references inside modules.web_terminals.image_tag.
 _ENV_REF_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)")
@@ -163,6 +175,132 @@ def config_needs_ariel_mirror(config: Any) -> bool:
     return configured_ariel_mirror_path(as_dict(config)) is not None
 
 
+def bluesky_server_enabled(config: Any) -> bool:
+    """True if ``config`` leaves the ``bluesky`` MCP server running.
+
+    The one answer to "does this project run the bluesky server", shared by the
+    launch-token entitlement here and by the reach contract's projections and
+    consumers in :mod:`osprey.deployment.reach`, so the two halves of the
+    bluesky contract cannot disagree about the same config.
+
+    ``claude_code.servers.bluesky.enabled`` is an *override*, read exactly the
+    way :func:`osprey.registry.mcp.resolve_servers` reads it: a literal ``False``
+    switches the server off, a literal ``True`` switches it on, and absence
+    leaves the registry's own default. That default is taken from the registry
+    rather than restated here — the bluesky server is opt-in
+    (``default_enabled=False``), and a hand-copied default is one that can drift
+    away from the definition the render actually obeys.
+    """
+    servers = as_dict(as_dict(as_dict(config).get("claude_code")).get("servers"))
+    value = as_dict(servers.get("bluesky")).get("enabled")
+    if value is False:
+        return False
+    if value is True:
+        return True
+    return FRAMEWORK_SERVERS["bluesky"].default_enabled
+
+
+#: Each second lane's control target, inverted from the keys that name them. A
+#: lane is named for the target it serves, never for its index, so the key
+#: itself answers what a block that never wrote ``target:`` leaves open.
+_SECOND_LANE_TARGETS = {key: target for target, key in SECOND_LANE_KEYS.items()}
+
+
+def lane_control_target(config: Any, lane: str) -> str:
+    """The control target ``lane`` drives in this project's rendered config.
+
+    ``services.<lane>.target`` where the render wrote one, read through
+    :func:`~osprey.bluesky_bridge_connection.lane_declared_target` so the build
+    side and the bridge side answer from one place. Two fallbacks, for the two
+    ways a block can carry no target:
+
+    * **Lane 1 on a single-lane deployment** has never carried the key — it
+      serves the only target the deployment has — so it takes the deployment
+      baseline (:func:`~osprey_connectors.types.baseline_target`), which is the
+      same fallback ``queue_backend.resolve_lane_identity`` applies bridge-side.
+    * **A second lane** takes the target its own key names. That name IS its
+      target, fixed at render time, so deriving it from the key is a reading of
+      the lane's identity rather than a guess about it.
+    """
+    declared = lane_declared_target(lane, as_dict(config))
+    if declared:
+        return declared
+    if lane in _SECOND_LANE_TARGETS:
+        return _SECOND_LANE_TARGETS[lane]
+    return baseline_target(as_dict(config).get("control_system"))
+
+
+def _config_renders_lane(config: Any, lane: str) -> bool:
+    """Whether this project's rendered config carries ``lane`` at all.
+
+    A second lane exists as its own ``services.<lane>`` block, which is the
+    deployment's own statement that it renders that lane; a render that carries
+    no such block has no bridge there to arm, so the lane entitles nothing. Lane
+    1 needs no block — every deployment has had it since the bridge shipped —
+    and its presence is decided by :func:`bluesky_server_enabled` instead.
+    """
+    if lane == LANE_ONE:
+        return True
+    return isinstance(as_dict(as_dict(config).get("services")).get(lane), dict)
+
+
+def config_needs_launch_token_for(config: Any, lane: str) -> bool:
+    """True if ``config`` may arm a queue start on ``lane`` specifically.
+
+    The per-lane form of :func:`config_needs_launch_token`, and the one every
+    lane's own token is granted on. A lane is bound at render time to one
+    control target, so the posture that decides whether its token may be issued
+    is that TARGET's — a deployment whose baseline is a live machine can arm
+    writes on its virtual-accelerator lane alone, and the live lane must stay
+    disarmed while it does.
+
+    Three conditions, each reading absence as "not granted":
+
+    * **This render carries the lane** (:func:`_config_renders_lane`). An
+      undeclared second lane has no bridge to arm, so it entitles nothing.
+    * **Writes are armed for the lane's target**
+      (:func:`~osprey_connectors.types.target_writes_enabled` of
+      :func:`lane_control_target`) — the tri-state per-connector posture, which
+      falls back to ``control_system.writes_enabled`` for a target whose
+      connector type this deployment never named. Anything short of a literal
+      ``true`` at whichever level answers arms nothing, which is the read-only
+      tier's whole boundary.
+    * **The bluesky server is left running** (:func:`bluesky_server_enabled`).
+      A token for a server that never starts arms nothing while still handing
+      the agent a live credential.
+
+    :param config: One project's rendered config document.
+    :param lane: A lane's ``services.<lane>`` key — see
+        :data:`~osprey.bluesky_bridge_connection.LANE_KEYS`.
+    """
+    root = as_dict(config)
+    if not bluesky_server_enabled(root):
+        return False
+    if not _config_renders_lane(root, lane):
+        return False
+    return target_writes_enabled(root.get("control_system"), lane_control_target(root, lane))
+
+
+def launch_token_writes_key(config: Any, lane: str) -> str:
+    """The config key an operator sets to change ``lane``'s write posture.
+
+    The build-side twin of the MCP server's own refusal wording
+    (``mcp_server.bluesky.tools.queue``): a refusal names the key that decides
+    the posture for the target THIS lane drives, never the deployment-wide one,
+    because sending an operator to ``control_system.writes_enabled`` would have
+    them arm — or disarm — every target at once, the machine they deliberately
+    left alone included. Writing the block key answers whatever the global key
+    says, since the per-connector leaf is read as a tri-state.
+
+    :data:`~osprey_connectors.types.WRITES_ENABLED_KEY` is named only where the
+    lane's target resolves to no connector type at all — ``live`` on a
+    deployment that never described its real machine — because there the
+    deployment-wide key IS the whole posture that config has.
+    """
+    section = as_dict(config).get("control_system")
+    return target_writes_enabled_key(section, lane_control_target(config, lane))
+
+
 def config_needs_launch_token(config: Any) -> bool:
     """True if ``config`` both allows writes and runs the bluesky MCP server.
 
@@ -176,28 +314,15 @@ def config_needs_launch_token(config: Any) -> bool:
     agent's queue tools, and a project that shows the panel but runs no bluesky
     server has nothing to arm.
 
-    The two conditions are deliberately asymmetric, because their defaults are:
-
-    * ``control_system.writes_enabled`` must be **explicitly** ``True``. This is
-      the read-only tier's whole boundary — a read-only persona expresses itself
-      as ``writes_enabled: false``, and an absent or null key means writes were
-      never granted. Anything other than a literal ``True`` therefore entitles
-      nothing.
-    * ``claude_code.servers.bluesky.enabled`` must merely be **not** ``False``.
-      That key is an *override* over the server's built-in default (see
-      :func:`osprey.registry.mcp.resolve_servers`, which likewise disables only
-      on a literal ``enabled: false``), so an absent key leaves the server
-      enabled. Reading absence as "disabled" here would deny the token to
-      correctly-configured projects that simply never wrote the override.
-
-    Neither condition entitles on its own: writes without the server have no
-    caller, and the server without writes has nothing it may arm.
+    This is :func:`config_needs_launch_token_for` on
+    :data:`~osprey.bluesky_bridge_connection.LANE_ONE` — the lane every
+    deployment has — so the rule lives in one place and a caller that knows
+    nothing about lanes still asks about the lane it has always meant. Which
+    write posture answers for lane 1 is that function's to decide: the lane's
+    declared target, else the deployment baseline, resolved through the
+    per-connector tri-state.
     """
-    root = as_dict(config)
-    if as_dict(root.get("control_system")).get("writes_enabled") is not True:
-        return False
-    servers = as_dict(as_dict(root.get("claude_code")).get("servers"))
-    return as_dict(servers.get("bluesky")).get("enabled", True) is not False
+    return config_needs_launch_token_for(config, LANE_ONE)
 
 
 def config_needs_graphdb_password(config: Any) -> bool:
@@ -217,16 +342,17 @@ def config_needs_graphdb_password(config: Any) -> bool:
     That is the same posture ``ARIEL_DB_PASSWORD`` already has: one Postgres
     password shared by every ARIEL consumer, with the read-only guarantee living
     in what the consumer does rather than in which password it holds. The
-    contrast is :func:`config_needs_launch_token`, which *is* gated on
-    ``control_system.writes_enabled``, because there the credential itself is
-    the capability — nothing downstream of holding it stops a queue start.
+    contrast is :func:`config_needs_launch_token`, which *is* gated on write
+    posture — per lane, on the target that lane drives — because there the
+    credential itself is the capability: nothing downstream of holding it stops
+    a queue start.
 
     The blast radius bounds the decision: the store holds a disposable mirror of
     a Turtle corpus, re-seedable from it with ``osprey knowledge seed-graph``, so
     the worst case is corpus integrity rather than facility data or hardware.
-    This predicate is consequently **never** gated on ``writes_enabled`` — doing
-    so would leave the read-only operator terminal, the very tier the graph
-    search is meant to serve, unable to reach the store at all.
+    This predicate is consequently **never** gated on write posture — doing so
+    would leave the read-only operator terminal, the very tier the graph search
+    is meant to serve, unable to reach the store at all.
 
     Two conditions, read the way each key's own default reads:
 
@@ -517,36 +643,45 @@ def personas_needing_ariel_mirror(config: Any, project_root: Any) -> set[str]:
     return _personas_whose_config(config, project_root, config_needs_ariel_mirror)
 
 
-def personas_needing_launch_token(config: Any, project_root: Any) -> set[str]:
-    """Names of catalog personas whose rendered project may arm a queue start.
+def personas_needing_launch_token_by_lane(config: Any, project_root: Any) -> dict[str, set[str]]:
+    """Which personas may arm a queue start, per plan lane.
 
-    This is the tier boundary in roster form. :func:`config_needs_launch_token`
-    decides the question per project; this wrapper is where that decision
-    becomes a *set* a caller can hand a bearer token to, one persona at a
-    time -- and it is therefore also where the security property the whole
-    feature rests on actually holds: a read-only persona's rendered
-    ``config.yml`` carries ``control_system.writes_enabled: false``, which can
-    never satisfy the predicate, so a read-only persona can never appear in
-    this set and can never be handed ``BLUESKY_LAUNCH_TOKEN``. That guarantee
-    falls out of walking the same per-persona ``config.yml`` files
-    :func:`personas_needing_dispatcher_token` and
-    :func:`personas_needing_ariel_password` already walk -- there is no
-    separate roster-level flag to keep in sync with the tier, and so nothing
-    that a future persona addition could forget to set.
+    The tier boundary in roster form, one set per lane, and the shape
+    every lane's own token is granted from: each lane carries its own
+    ``<PREFIX>_LAUNCH_TOKEN``, and a persona holds a lane's token only where
+    that lane's control target is armed in its rendered ``config.yml``. A
+    deployment whose baseline is a live machine therefore hands out the VA
+    lane's token while withholding lane 1's, which is the whole point of the
+    posture being per target rather than per deployment.
+
+    Asked once per lane through :func:`_personas_whose_config`, the same walk
+    every other per-persona grant uses, so no lane can disagree with the others
+    about which personas a roster deploys.
 
     :param config: The parsed deploy config.
     :param project_root: Deploy project root; relative ``project_path`` values
         resolve against it.
-    :return: The subset of referenced persona names entitled to
-        ``BLUESKY_LAUNCH_TOKEN`` (see :func:`config_needs_launch_token`).
+    :return: ``{lane: personas}`` for the lanes that entitle somebody. A lane no
+        persona may arm is ABSENT rather than present with an empty set — the
+        deployment renders no such grant at all, and an empty entry would read
+        like one that was withheld.
     """
-    return _personas_whose_config(config, project_root, config_needs_launch_token)
+    by_lane: dict[str, set[str]] = {}
+    for lane in LANE_KEYS:
+        entitled = _personas_whose_config(
+            config,
+            project_root,
+            lambda persona_config, lane=lane: config_needs_launch_token_for(persona_config, lane),
+        )
+        if entitled:
+            by_lane[lane] = entitled
+    return by_lane
 
 
 def personas_needing_graphdb_password(config: Any, project_root: Any) -> set[str]:
     """Names of catalog personas whose rendered project queries the graph store.
 
-    Unlike :func:`personas_needing_launch_token`, this set deliberately spans
+    Unlike :func:`personas_needing_launch_token_by_lane`, this set deliberately spans
     both tiers: a read-only persona that configures a graph store belongs in it,
     because the store has exactly one account and the read-only guarantee lives
     in the ``graph`` MCP server's read transactions rather than in the
@@ -1846,7 +1981,8 @@ def personas_not_denying_bash(config: Any, project_root: Any) -> set[str]:
     while its agent may also run a shell can read that token out of its own
     environment and arm a queue with a plain HTTP call, bypassing the chat
     approval entirely — the approval gates the ``queue_start`` tool, not a
-    shell. Intersecting this set with :func:`personas_needing_launch_token`
+    shell. Intersecting this set with the union of
+    :func:`personas_needing_launch_token_by_lane`
     therefore names exactly the personas a deploy must refuse.
 
     Walks the roster itself rather than routing through the shared

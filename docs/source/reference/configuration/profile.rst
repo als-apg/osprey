@@ -160,7 +160,15 @@ sections in their own ``config.yml.j2``.
    config:
      # Control system
      control_system.type: epics
-     control_system.writes_enabled: true
+     # The posture every connector type inherits when it says nothing itself.
+     control_system.writes_enabled: false
+     # ... and one type's own answer, which does not fall back to the key
+     # it inherits from. This pair arms the simulator and leaves the machine
+     # read-only — but only on a deployment that also configures and deploys a
+     # virtual accelerator, since a session has to be able to reach that target
+     # for the key to mean anything (see the "Use the Virtual Accelerator"
+     # how-to).
+     control_system.connector.virtual_accelerator.writes_enabled: true
      control_system.limits_checking.enabled: true
 
      # Archiver
@@ -356,14 +364,28 @@ built from three sources, in this order:
    * - The write kill switch
      - Appended last and **never** filtered
 
-The third source is the one to know about. Setting
-``control_system.writes_enabled: false`` does not merely stop the write path
-at run time; it also puts the write tools into the rendered deny list. Those
-entries are generated, not authored, and no ``remove_deny`` reaches them. A
-profile that sets ``writes_enabled: false`` and also writes
+The third source is the one to know about. A profile that leaves **no** control
+target armed does not merely stop the write path at run time; it also puts the
+framework servers' write tools into the rendered deny list. Those entries are
+generated, not authored, and no ``remove_deny`` reaches them. (Tools a profile
+lists under ``control_system.write_tools`` are a different mechanism: they
+never reach ``permissions.deny``, in any render, and are refused by the
+writes-check hook instead.) A profile that arms nothing and also writes
 ``remove_deny: ["mcp__controls__channel_write"]`` still renders that deny —
 which is the point. A read-only posture that a later edit could quietly lift
 would not be a posture at all.
+
+Arming *some* targets and not others renders differently, and the difference is
+worth knowing before you write such a profile. ``settings.json`` is rendered
+once, before any session has picked a target, so a tool that is legal on the
+simulator and refused on the machine cannot be denied there — and it cannot be
+left in ``ask`` either, or an operator would be prompted to approve a write the
+target's posture forbids. Such a profile therefore renders **neither**: the
+gated tools leave both lists, and the boundary is carried per call by the
+safety hook (which reads the session's active target) and by the connector
+behind it. The static deny is the stronger of the two, so reach for it — a
+profile that arms nothing — whenever the requirement is "this tier can never
+move anything".
 
 .. admonition:: Permission lists grow across ``extends``; they never shrink
    :class: important

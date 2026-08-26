@@ -2,14 +2,18 @@
 # Write-capable persona — the operations tier of the control-assistant
 # multi-user stack.
 #
-# This preset inherits everything from `control-assistant` and keeps the
-# write gate armed. `control_system.writes_enabled: true` does NOT mean
-# unguarded writes: every channel write still passes the writes-check hook,
-# per-channel min/max limits, and the mandatory human approval prompt before
-# the connector executes it. The tier difference is whether the write path
-# exists at all, not whether it is supervised.
+# This preset inherits everything from `control-assistant` and keeps the write
+# gate armed on every machine the session can be pointed at: write posture is
+# per connector type, and `control_system.writes_enabled: true` is what a type
+# inherits when its own block says nothing, so no type here says otherwise.
 #
-# The read-only counterpart is `control-assistant-readonly`.
+# Armed does NOT mean unguarded: every channel write still passes the
+# writes-check hook, per-channel min/max limits, and the mandatory human
+# approval prompt before the connector executes it. The tier difference is
+# whether the write path exists at all, not whether it is supervised.
+#
+# The read-only counterpart is `control-assistant-readonly`. Between the two
+# sits `control-assistant-va-readwrite`, armed on the simulator alone.
 
 name: Control Assistant (Read-Write)
 
@@ -32,8 +36,11 @@ web_panels:
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY — see the base profile's block.
 config:
-  # The single axis this persona hard-pins: this key is the tier boundary, so
-  # it must not drift silently if the base's default ever changes.
+  # The single axis this persona hard-pins. It is the inherited posture rather
+  # than a verdict: a `control_system.connector.<type>.writes_enabled` key
+  # anywhere in the chain answers for that type instead, which is how the
+  # simulator-only tier is built. With none written, every type reads this key,
+  # so it must not drift silently if the base's default ever changes.
   control_system.writes_enabled: true
   # Full split-pane terminal + workspace layout for the write-armed operator.
   # Pinned on both sides of the tier boundary (readonly pins `simple`) rather

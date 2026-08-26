@@ -52,6 +52,11 @@ What it proves, in order
 7. Coming home, the written value is **not** visible on the other target: a
    value approved for one machine never reached the other.
 8. The final roster names the target the session ended on.
+9. The same write, asked for on the baseline target, is **refused** before
+   anything is sent: this deployment arms writes on the virtual accelerator
+   alone, and the refusal names that target's own block.
+10. The roster reports the split per target — one deployment, two write
+    postures.
 
 Scope, stated rather than implied
 ---------------------------------
@@ -75,6 +80,14 @@ Scope, stated rather than implied
   it cannot restore (or where the endpoint is a container about to be removed),
   the trail names the channel and the value left on it. Silence is never an
   outcome.
+* **The write posture is per target, and an input like everything else.** The
+  demo wants a deployment that arms writes on ``va`` and not on the baseline —
+  ``control_system.connector.<type>.writes_enabled``, one leaf per connector
+  type. Step 9 asks for a write on the baseline anyway and expects the
+  refusal, but it reads the posture out of config with the production resolver
+  first and does not make the attempt at all against a deployment that arms
+  that target: a demo is not a reason to put a value on a machine somebody
+  armed on purpose.
 * Nothing here has touched hardware, and nothing here is a statement about a
   real facility's gateways.
 
@@ -444,12 +457,19 @@ def scratch_config(
     Both blocks name an explicit gateway port, because the containers bind
     ephemeral ports and nothing may guess them, and both are reached in
     name-server mode.
+
+    The write posture is the demo's subject from step 9 on: the
+    deployment-wide key is off, and only the virtual accelerator's own block
+    arms writes. The live block says ``false`` in its own words rather than
+    leaning on that default, so flipping the deployment-wide key back on
+    cannot arm the target wearing the live machine's connector type.
     """
 
-    def block(port: int) -> dict[str, Any]:
+    def block(port: int, *, writes_enabled: bool) -> dict[str, Any]:
         return {
             "timeout": CONNECTOR_TIMEOUT_S,
             "probe_channel": probe_channel,
+            "writes_enabled": writes_enabled,
             "gateways": {
                 "read_only": {"address": "localhost", "port": port, "use_name_server": True},
                 "write_access": {"address": "localhost", "port": port, "use_name_server": True},
@@ -460,7 +480,7 @@ def scratch_config(
         "project_root": str(project_root),
         "control_system": {
             "type": "epics",
-            "writes_enabled": True,
+            "writes_enabled": False,
             "limits_checking": {
                 "enabled": True,
                 "allow_unlisted_channels": False,
@@ -471,8 +491,8 @@ def scratch_config(
                 "drain_timeout_s": DRAIN_TIMEOUT_S,
             },
             "connector": {
-                "epics": block(live_port),
-                "virtual_accelerator": block(va_port),
+                "epics": block(live_port, writes_enabled=False),
+                "virtual_accelerator": block(va_port, writes_enabled=True),
             },
         },
         # The mongodb-backed archive the posture requires. Nothing in this demo
@@ -669,7 +689,7 @@ async def _read_one(address: str, number: int, claims: Claims) -> float:
 
 
 async def run_demo(posture: Posture, audit: Audit) -> None:
-    """Drive the eight steps. Raises :class:`StepFailed` at the first broken claim."""
+    """Drive the ten steps. Raises :class:`StepFailed` at the first broken claim."""
     from osprey.mcp_server.control_system import server_context as server_context_mod
     from osprey.mcp_server.control_system import target_state
     from osprey.mcp_server.control_system.connector_host_manager import ConnectorHostManager
@@ -681,6 +701,7 @@ async def run_demo(posture: Posture, audit: Audit) -> None:
     from osprey.mcp_server.control_system.tools import channel_write as channel_write_tool
     from osprey.mcp_server.control_system.tools import control_target as control_target_tools
     from osprey_connectors import honesty
+    from osprey_connectors.types import target_writes_enabled
 
     config = MCPServerConfig(raw=posture.raw, config_path=posture.config_path)
     manager = ConnectorHostManager(
@@ -967,6 +988,86 @@ async def run_demo(posture: Posture, audit: Audit) -> None:
             ),
         )
 
+        # -- 9. the same write, refused on the baseline target -----------------
+        # Write posture is per connector type, so the deployment that just wrote
+        # on 'va' refuses the identical write here — and the refusal has to send
+        # the operator to THIS target's block rather than to a key that would
+        # arm every target the deployment has.
+        control_section = posture.raw.get("control_system") or {}
+        baseline_key = posture_key(control_section, baseline)
+        audit.step(
+            9,
+            manager.active_target(),
+            f"asking for the same write on {baseline!r}, which {baseline_key} does not arm",
+        )
+        claims.require(
+            not target_writes_enabled(control_section, baseline),
+            9,
+            f"{baseline_key} arms writes on {baseline!r}, so nothing was attempted here: this "
+            f"step is about a deployment that arms its simulator alone, and asking a target "
+            f"somebody armed on purpose for a refusal would just be a write",
+        )
+        try:
+            allowed = await _tool(channel_write_tool.channel_write)(
+                operations=[{"channel": posture.write_channel, "value": posture.write_value}]
+            )
+        except Exception as refused:  # noqa: BLE001 - a refusal IS a raised tool error
+            envelope = _error_envelope(refused)
+        else:
+            raise StepFailed(
+                9,
+                f"the write was NOT refused on {baseline!r}: {str(allowed)[:400]} — "
+                f"{posture.write_channel} may now carry {posture.write_value} on that machine, "
+                f"which nothing here restores; check it by hand",
+                claims.target(),
+            )
+        claims.require(
+            envelope.get("error_type") == "write_refused",
+            9,
+            f"the write did not come back as a posture refusal: {json.dumps(envelope)[:400]}",
+        )
+        details = envelope.get("details") or {}
+        claims.require(
+            details.get("reason") == "WRITES_DISABLED",
+            9,
+            f"the refusal was some other refusal: reason={details.get('reason')!r} — "
+            f"{envelope.get('error_message')}",
+        )
+        identity = details.get("active_target") or {}
+        claims.require(
+            identity.get("name") == baseline,
+            9,
+            f"the refusal named target {identity.get('name')!r} rather than the {baseline!r} "
+            f"the session is on, so it does not say which machine turned the write down",
+        )
+        audit.ok(
+            9,
+            manager.active_target(),
+            f"refused before anything was sent (error_type='write_refused', "
+            f"reason='WRITES_DISABLED', active target {identity.get('label')!r} at "
+            f"{identity.get('endpoint') or 'an unstated endpoint'}); the block that arms THIS "
+            f"target is {baseline_key}, which is what an operator edits — never a "
+            f"deployment-wide key, which would arm both machines at once",
+        )
+
+        # -- 10. one deployment, two postures, said by the roster ---------------
+        audit.step(10, manager.active_target(), "asking the roster what each target may write")
+        roster = json.loads(await _tool(control_target_tools.control_target)())
+        rows = roster["access_details"]["targets"]
+        permitted = {name: row.get("writes_permitted") for name, row in sorted(rows.items())}
+        claims.require(
+            permitted.get(baseline) is False and permitted.get("va") is True,
+            10,
+            f"the roster does not report the split this deployment configures: {permitted}",
+        )
+        audit.ok(
+            10,
+            manager.active_target(),
+            f"{baseline}.writes_permitted=False ({baseline_key}), va.writes_permitted=True "
+            f"({posture_key(control_section, 'va')}) — one session, two machines, one of them "
+            f"armed",
+        )
+
     finally:
         # Every exit path, including a failure in the middle of step 6: the
         # machine is either put back or the leftover is named. Silence is the
@@ -976,6 +1077,43 @@ async def run_demo(posture: Posture, audit: Audit) -> None:
         with contextlib.suppress(Exception):
             await manager.shutdown()
         server_context_mod.reset_server_context()
+
+
+def posture_key(section: dict[str, Any], target: str) -> str:
+    """The config key that arms writes for *target*, as an operator must edit it.
+
+    The **resolved block** key, ``control_system.connector.<type>.writes_enabled``
+    — the line a facility changes to arm one machine and not the other. Naming
+    the deployment-wide key instead would send an operator to a setting that
+    arms every target this deployment has, which is the opposite of what steps 9
+    and 10 are about.
+
+    A target that resolves to no connector type has no block to name, and the
+    deployment-wide key is then the only posture it ever had; that is the same
+    fallback :func:`~osprey_connectors.types.target_writes_enabled` applies, and
+    it is read from there rather than restated.
+    """
+    from osprey_connectors.types import target_writes_enabled_key
+
+    return target_writes_enabled_key(section, target)
+
+
+def _error_envelope(exc: Exception) -> dict[str, Any]:
+    """The structured envelope behind a refused tool call.
+
+    An MCP tool reports a refusal by raising, with the standard envelope as the
+    exception's text (``osprey.mcp_server.errors.make_error``). Anything that is
+    not that envelope comes back under error type ``unparsed`` with the text
+    intact, so a step reads what actually happened instead of failing on a
+    decode error raised by the trail's own plumbing.
+    """
+    try:
+        envelope = json.loads(str(exc))
+    except ValueError:
+        envelope = None
+    if not isinstance(envelope, dict):
+        return {"error_type": "unparsed", "error_message": f"{type(exc).__name__}: {exc}"}
+    return envelope
 
 
 def _reason_of(row: dict[str, Any]) -> str:
@@ -1228,6 +1366,12 @@ def print_plan(arguments: argparse.Namespace, audit: Audit) -> None:
         "mock archiver); no mongod is booted and no history is read"
     )
     audit.note("transport: name-server mode only; the UDP address-list path is covered by units")
+    audit.note(
+        "write posture: the deployment must arm writes for 'va' and not for the baseline "
+        "target (control_system.connector.<type>.writes_enabled, one leaf per connector "
+        "type); step 9 reads that from config and attempts nothing where the baseline is "
+        "armed"
+    )
     audit.plan(1, "ask the target roster before anything is switched; 'va' must be eligible")
     audit.plan(2, f"start the connector host on the baseline and read {probe} -> value A")
     audit.plan(3, "switch to 'va' through control_target_set")
@@ -1236,6 +1380,17 @@ def print_plan(arguments: argparse.Namespace, audit: Audit) -> None:
     audit.plan(6, f"write {arguments.write_value} to {write} on the active target and read it back")
     audit.plan(7, f"switch back to the baseline; {write} must NOT carry the written value there")
     audit.plan(8, "ask the target roster again; it must name both targets and the ending target")
+    audit.plan(
+        9,
+        f"ask for the same write to {write} on the baseline target; the reference monitor "
+        "must refuse it before anything is sent, and the refusal must name that target's own "
+        "control_system.connector.<type>.writes_enabled",
+    )
+    audit.plan(
+        10,
+        "ask the roster once more; writes_permitted must be true for 'va' and false for "
+        "the baseline target",
+    )
     audit.result_pass()
 
 

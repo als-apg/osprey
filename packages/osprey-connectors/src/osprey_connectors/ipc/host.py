@@ -46,7 +46,9 @@ resolved to a connector type by :func:`osprey_connectors.types.resolve_target`
 holder can decide privately which machine ``live`` means.
 
 Writes are deliberately **not** grantable by launch payload. The connector's
-write guard reads ``control_system.writes_enabled`` from the project config, and
+write guard reads the posture of its own connector type from the project config
+— ``control_system.connector.<type>.writes_enabled``, which inherits
+``control_system.writes_enabled`` when that block says nothing about it — and
 ``execution_mode`` here can only *add* the ``OSPREY_EXECUTION_MODE=readonly``
 claim, never clear an inherited one. A child cannot be talked into writing by
 the way it was started; only the deployment's own config enables writes.
@@ -76,8 +78,8 @@ asserts its own derivation against::
       # diagnostics, alongside the five verification fields above
       "connector_type": str,     # what `target` resolved to
       "target":         str,
-      "writes_enabled": bool,    # the inputs the gateway selection was made with
-      "readonly_run":   bool,
+      "writes_enabled": bool,    # that type's posture, and the run mode: the
+      "readonly_run":   bool,    # two inputs the gateway selection was made with
       "epics_env":      {...},   # EPICS_CA_*/EPICS_PVA_* set by connect()
       "pid":            int,
     }
@@ -309,21 +311,32 @@ def _as_port(value: str | None) -> Any:
     return int(value) if value.isdigit() else value
 
 
-def _writes_enabled_input() -> bool:
-    """``control_system.writes_enabled`` as the connector reads it.
+def _writes_enabled_input(connector_type: str) -> bool:
+    """Whether this child's connector type is armed for writes.
 
-    Deliberately the same lookup and the same fail-closed exception set as
-    :meth:`EPICSConnector.connect`, because this is the input that decided
-    which gateway it selected. Reporting a different answer than the one the
-    selection was made with would make the parent's verification compare two
-    unrelated things.
+    Write posture is per connector type, so the answer depends on which type
+    this child is serving. That type is the one the init frame already resolved
+    and the factory stamped on the connector, threaded in rather than derived a
+    second time here: a report that re-read the config for a type would be free
+    to name one the child is not running.
+
+    Deliberately the same resolver, the same type and the same fail-closed
+    exception set the connector's own gateway selection uses, because this is
+    the input that decided which gateway it selected. Reporting a different
+    answer than the one the selection was made with would make the parent's
+    verification compare two unrelated things.
+
+    The section is read from the project config rather than taken from the init
+    payload for the same reason: the connector reads its posture there.
     """
     from osprey_connectors.config import get_config_value
+    from osprey_connectors.types import type_writes_enabled
 
     try:
-        return bool(get_config_value("control_system.writes_enabled", False))
+        section = get_config_value("control_system", {})
     except (FileNotFoundError, KeyError, RuntimeError):
         return False
+    return type_writes_enabled(section, connector_type)
 
 
 def _rule_role(gateways: dict[str, Any], writes_enabled: bool, readonly_run: bool) -> str | None:
@@ -388,7 +401,7 @@ def _post_connect_report(
     if not isinstance(gateways, dict):
         gateways = {}
 
-    writes_enabled = _writes_enabled_input()
+    writes_enabled = _writes_enabled_input(connector_type)
     readonly_run = is_readonly_run()
     mode, host, port = _installed_endpoint()
 

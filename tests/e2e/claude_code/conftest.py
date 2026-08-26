@@ -130,6 +130,53 @@ def safety_project_writes_off(tmp_path_factory):
     return repo
 
 
+#: The connector type the mixed-render fixture's ``live`` target resolves to: the
+#: mock connector by dotted path. ``live`` is derived from ``control_system.type``
+#: only when that type is not a simulated one, and the registry name ``mock`` is;
+#: the same class by its module path is "as written", so it counts as the
+#: deployment's real machine while still needing no hardware. It is the same
+#: device ``tests/mcp_server/test_switch_lifecycle.py`` uses to make a mock
+#: deployment switch-capable.
+MIXED_RENDER_LIVE_TYPE = "osprey_connectors.control_system.mock_connector.MockConnector"
+
+
+@pytest.fixture(scope="module")
+def safety_project_mixed_render(tmp_path_factory):
+    """Module-scoped switch-capable deployment armed on ``va`` only, session on ``live``.
+
+    ``control_system.writes_enabled: false`` keeps the live target read-only and
+    ``control_system.connector.virtual_accelerator.writes_enabled: true`` arms
+    the simulator — the posture pair the shipped ``control-assistant-va-readwrite``
+    preset spells. The render is made switch-capable the way the switch
+    lifecycle tests do it: ``control_system.type`` is the mock connector by
+    dotted path (so ``live`` resolves to it) with a connector block of its own,
+    beside the ``virtual_accelerator`` block the control-assistant render already
+    carries. Nothing switches, so the session stays on the baseline ``live``
+    target and the controls MCP server publishes exactly that in its target
+    state file at startup.
+
+    Re-renders the Claude Code artifacts after the edit. On a render whose
+    targets disagree the renderer emits NO static ``permissions.deny`` for
+    ``channel_write`` (the same tool is legal on ``va``); it pulls the tool out
+    of ``permissions.ask`` instead, and the whole boundary rests on the
+    PreToolUse hook chain — ``osprey_writes_check`` denying for the session's
+    target and ``osprey_approval`` deferring.
+    """
+    tmp = tmp_path_factory.mktemp("safety-mixed-render")
+    repo = init_project(tmp, "safety-mixed-render", provider="als-apg")
+    config_path = render_dir(repo) / "config.yml"
+    config = yaml.safe_load(config_path.read_text())
+    section = config["control_system"]
+    section["type"] = MIXED_RENDER_LIVE_TYPE
+    section["writes_enabled"] = False
+    connector = section["connector"]
+    connector[MIXED_RENDER_LIVE_TYPE] = dict(connector["mock"])
+    connector["virtual_accelerator"]["writes_enabled"] = True
+    config_path.write_text(yaml.dump(config, default_flow_style=False))
+    _rerender_claude_artifacts(repo)
+    return repo
+
+
 @pytest.fixture(scope="module")
 def safety_project_selective(tmp_path_factory):
     """Module-scoped deployment mirroring the production per-tool approval default.

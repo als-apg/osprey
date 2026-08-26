@@ -138,7 +138,14 @@ def _capability(response: httpx.Response) -> dict[str, Any]:
     body = response.json()
     assert body["status"] == "ok"
     capability = body["capability"]
-    assert set(capability) == {"can_execute", "reason", "detail", "lane", "lane_target"}
+    assert set(capability) == {
+        "can_execute",
+        "reason",
+        "detail",
+        "lane",
+        "lane_target",
+        "lane_degraded",
+    }
     assert isinstance(capability["can_execute"], bool)
     assert capability["reason"] in _ALL_REASONS
     assert isinstance(capability["detail"], str) and capability["detail"]
@@ -148,6 +155,10 @@ def _capability(response: httpx.Response) -> dict[str, Any]:
     # `tests/services/test_lane_capability.py` for how they are derived.
     assert isinstance(capability["lane"], str) and capability["lane"]
     assert capability["lane_target"] in {"live", "va"}
+    # Null on a lane whose declared target resolves, which is every lane these
+    # fixtures stage; the degraded shape is pinned in
+    # `tests/services/test_qserver_lane_ladder.py`.
+    assert capability["lane_degraded"] is None
     return capability
 
 

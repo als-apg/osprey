@@ -334,7 +334,7 @@ services:
       # never needs to know the host-side location.
       - {{ svc.plan_dir }}:/app/project/plans:ro
 {% endif %}
-{% if (control_system | default({})).writes_enabled | default(false) %}
+{% if svc.writes_enabled %}
       # Channel limits DB: only meaningful once writes are
       # enabled — a read-only deploy never opens it. Mounted under the SAME
       # /app/project root as config.yml above so a relative
@@ -614,7 +614,7 @@ services:
 {% if svc.plan_dir %}
       - {{ svc.plan_dir }}:/app/project/plans:ro
 {% endif %}
-{% if (control_system | default({})).writes_enabled | default(false) %}
+{% if svc.writes_enabled %}
       # The per-put reference monitor moved into this container with the
       # RunEngine, so the limits DB has to come with it: without the file the
       # empty-DB failsafe blocks every write and no plan can move anything.

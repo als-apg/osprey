@@ -22,6 +22,7 @@ assertions on the parsed result.
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 
@@ -71,6 +72,19 @@ def _write_config(project_path: Path, cs_type: str = "epics") -> None:
 
 def _read_config(project_path: Path) -> dict:
     return pyyaml.safe_load((project_path / "config.yml").read_text(encoding="utf-8"))
+
+
+def _declare_lane_target(project_path: Path, lane_key: str, target: str) -> None:
+    """Put a hand-written ``target`` on a lane block.
+
+    The shape a profile's ``config:`` overlay leaves behind: it is merged into
+    config.yml before the injectors run, so this is what ``_inject_bluesky``
+    finds when it loads the file.
+    """
+    config = _read_config(project_path)
+    block = config["services"].get(lane_key) or {}
+    config["services"][lane_key] = {**block, "target": target}
+    (project_path / "config.yml").write_text(pyyaml.safe_dump(config), encoding="utf-8")
 
 
 def _line_no(text: str, needle: str) -> int:
@@ -408,3 +422,80 @@ def test_profile_round_trip() -> None:
     profile = _parse_profile(pyyaml.safe_load("name: lanes\nbluesky:\n  port: 8090\n"))
     assert profile.bluesky is not None
     assert profile.bluesky.second_lane is False
+
+
+# ---------------------------------------------------------------------------
+# The declared lane target
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("lane_key", ["bluesky", "bluesky_va", "bluesky_live"])
+def test_a_lane_target_that_names_no_control_target_is_refused(
+    tmp_path: Path, lane_key: str
+) -> None:
+    """The one lane-target mistake no runtime signal can repair.
+
+    A target that does not RESOLVE is a deployment that has not described its
+    machine yet, and the bridge falls back to the baseline for it. A target
+    that is not spelled ``live`` or ``va`` is a typo, and it would fall back
+    forever while the author went on believing the lane served what they wrote.
+    Every lane key is swept, not just the ones this build renders: a block left
+    behind by a profile that once set ``second_lane`` keeps its target, and the
+    bridge reads it whether or not this build wrote it.
+    """
+    project = tmp_path / "project"
+    _write_config(project, cs_type="epics")
+    _declare_lane_target(project, lane_key, "prod")
+
+    with pytest.raises(BuildProfileError) as excinfo:
+        _inject_bluesky(BlueskyConfig(), project, VAConfig())
+
+    message = str(excinfo.value)
+    assert f"services.{lane_key}.target" in message
+    assert "'prod'" in message
+    assert "'live'" in message and "'va'" in message
+
+
+@pytest.mark.parametrize("target", ["live", "va"])
+def test_a_lane_target_the_build_derives_is_accepted(tmp_path: Path, target: str) -> None:
+    """Both spellings are targets, so neither is the typo the refusal is for."""
+    project = tmp_path / "project"
+    _write_config(project, cs_type="epics")
+    _declare_lane_target(project, "bluesky", target)
+
+    _inject_bluesky(BlueskyConfig(), project, VAConfig())
+
+    # Derived, not carried: the injector owns this key on the lanes it renders,
+    # and a single-lane block has never had one.
+    assert "target" not in _read_config(project)["services"]["bluesky"]
+
+
+def test_a_lane_whose_target_resolves_to_nothing_is_named_at_build_time(
+    tmp_path: Path, caplog
+) -> None:
+    """A VA baseline's live lane has no connector block, and should be told so.
+
+    Not a refusal — that lane is the shipped, correct case, and its gateway
+    arrives at ``osprey up`` as EPICS_CA_NAME_SERVERS. What it does not have is
+    a block of its own, so it inherits the deployment-wide write posture, and
+    the build is where an author can still do something about that.
+    """
+    project = tmp_path / "project"
+    _write_config(project, cs_type="virtual_accelerator")
+
+    with caplog.at_level(logging.WARNING):
+        _inject_bluesky(BlueskyConfig(second_lane=True), project, None)
+
+    assert "bluesky_live" in caplog.text
+    assert "control_system.connector.epics" in caplog.text
+
+
+def test_a_live_baseline_pair_names_no_lane_at_build_time(tmp_path: Path, caplog) -> None:
+    """Both of its targets resolve, so neither lane is short of anything."""
+    project = tmp_path / "project"
+    _write_config(project, cs_type="epics")
+
+    with caplog.at_level(logging.WARNING):
+        _inject_bluesky(BlueskyConfig(second_lane=True), project, VAConfig(port=5064))
+
+    assert "control_system.connector" not in caplog.text

@@ -47,6 +47,15 @@ __pycache__/
 .claude/settings.local.json
 CLAUDE.local.md
 
+# Host-side working state under the deployment repo's .claude/ tree: open
+# planning artifacts, epic state, nested git worktrees, and agent log/receipt
+# history. None of it is deployment source an image's runtime reads — it is
+# how the repo got built, not what runs.
+.claude/plans/
+.claude/epics/
+.claude/worktrees/
+.claude/.logs/
+
 # The compose document a deploy merges at the repo root when the container
 # runtime needs a single file. Machine-written on the host, rewritten by every
 # `osprey up`, and meaningless inside an image — the build already keeps it out

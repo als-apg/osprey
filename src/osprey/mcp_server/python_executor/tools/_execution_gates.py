@@ -2,8 +2,8 @@
 
 Both tools take an ``execution_mode`` string and guard control-system writes
 with two independent checks: a per-call readonly gate (pattern detection) and a
-deployment-level kill switch (``control_system.writes_enabled`` in the project
-config). Each gate only recognises one canonical spelling, so any *other*
+deployment-level kill switch (the write posture of the control target this
+session is on). Each gate only recognises one canonical spelling, so any *other*
 string falls through both — not "readonly", so write patterns are not blocked;
 not "readwrite", so the kill switch never fires. Rejecting unknown modes here
 closes that hole for every caller at once, and gives the kill switch a single
@@ -61,12 +61,55 @@ def require_known_execution_mode(execution_mode: str) -> None:
     )
 
 
-def enforce_deployment_writes_gate(execution_mode: str) -> None:
-    """Raise ``ToolError`` (safety_error) on readwrite runs in a no-writes deployment.
+def session_control_target() -> str | None:
+    """The control target this session is on, or ``None`` when there is none to read.
+
+    ``None`` is not a failure: it is the honest answer for a session that never
+    selected a target, and the posture lookup reads it as the deployment
+    baseline — the connector an unstamped run provably builds.
+
+    Every way of not knowing lands there too, which is why the read lives here
+    and not inside :func:`enforce_deployment_writes_gate`'s import guard.
+    Failing to learn the target must *narrow* the write question to the
+    baseline; joining a guard whose failure path is ``return`` would drop the
+    write check altogether on a state directory that happened to be unreadable.
+    """
+    try:
+        from osprey.mcp_server.python_executor.executor import _session_target_record
+
+        record = _session_target_record()
+    except Exception:
+        logger.warning(
+            "Session control target unavailable — the deployment writes gate "
+            "answers for the baseline target",
+            exc_info=True,
+        )
+        return None
+
+    if record is None:
+        return None
+    target = record.get("target")
+    return str(target) if target else None
+
+
+def enforce_deployment_writes_gate(execution_mode: str, target: str | None) -> None:
+    """Raise ``ToolError`` (safety_error) on readwrite runs the target's posture does not arm.
 
     Fires whenever the caller asks for write mode, regardless of whether the
     pattern detector recognises specific write syntax — the deployment-level
     kill switch must not depend on detection accuracy.
+
+    Write posture is per control target, so the question is asked about the one
+    this session is on: a deployment whose baseline is a live machine can have
+    writes armed on its virtual accelerator and refused on the machine, and a
+    single deployment-wide answer would be wrong for one of them. ``None``
+    means no target was readable, which the posture lookup answers for the
+    baseline rather than by skipping.
+
+    Args:
+        execution_mode: The run's mode; only ``"readwrite"`` is gated here.
+        target: The session's control target, from
+            :func:`session_control_target`, or ``None`` for the baseline.
     """
     if execution_mode != "readwrite":
         return
@@ -76,7 +119,7 @@ def enforce_deployment_writes_gate(execution_mode: str) -> None:
             get_execution_control_config,
         )
 
-        exec_control_config = get_execution_control_config()
+        exec_control_config = get_execution_control_config(target=target)
     except ImportError:
         logger.warning(
             "Execution control config unavailable — skipping deployment-level writes check"
@@ -87,13 +130,16 @@ def enforce_deployment_writes_gate(execution_mode: str) -> None:
         exec_control_config is not None
         and exec_control_config.control_system_writes_enabled is False
     ):
+        key = exec_control_config.writes_enabled_key
+        active_target = exec_control_config.active_target
+        scope = f"control target '{active_target}'" if active_target else "this deployment"
         make_error(
             "safety_error",
-            "Control-system writes are disabled in this deployment "
-            "(control_system.writes_enabled=false in project config).",
+            f"Control-system writes are disabled for {scope} ({key}=false in project config).",
             [
-                "Set control_system.writes_enabled=true in the project config to enable writes.",
+                f"Set {key}=true in the project config to enable writes for {scope}.",
             ],
+            details={"active_target": active_target, "writes_enabled_key": key},
         )
 
 
