@@ -1,7 +1,8 @@
 """Tests for the TTL-based OKF stub seeder.
 
-All tests that actually invoke rdflib are guarded by ``pytest.importorskip``
-so the suite remains green when the ``knowledge`` extra is not installed.
+All tests that actually invoke rdflib are guarded by ``pytest.importorskip``,
+so they report a clear skip if rdflib is not importable — it is a core
+dependency, so that means a broken environment.
 """
 
 from __future__ import annotations
@@ -68,8 +69,10 @@ def mini_ttl(tmp_path: Path) -> Path:
 
 
 def _require_rdflib():
-    """Skip current test if rdflib is not installed."""
-    return pytest.importorskip("rdflib", reason="rdflib not installed (knowledge extra required)")
+    """Skip current test if rdflib is not importable."""
+    return pytest.importorskip(
+        "rdflib", reason="rdflib not importable (core dependency; broken environment)"
+    )
 
 
 # ---------------------------------------------------------------------------

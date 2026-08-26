@@ -13,7 +13,7 @@ Three things are checked here, in rising order of cost:
    tier-3 channel database carries every predicate the shipped example queries
    touch, with the counts the channel database and the limits file imply.
 
-``rdflib`` is imported at module scope on purpose: it is in the ``dev`` extra, so
+``rdflib`` is imported at module scope on purpose: it is a core dependency, so
 a missing rdflib is a broken test environment rather than a reason to skip and
 report a vacuous green.  The *source* modules still import it lazily —
 ``test_import_isolation.py`` guards that.

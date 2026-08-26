@@ -22,7 +22,9 @@ Compatibility is documented in release notes, not encoded in the version string.
   resolve it: pin podman-compose in `containers.conf`, or deploy on docker.
   `podman login` does not help, because the credential does not come from
   podman's auth file.
-
+- Graph-mode builds now write the channel-suggestions snapshot from the corpus
+  named by `services.graphdb.ttl_path`, so the web-panel typeahead keeps
+  working after a project moves to the graph pipeline instead of going quiet.
 - The build-drift gate no longer counts material `osprey up` mints itself: the
   per-lane Bluesky CURVE certificates now live under `data/.runtime/`, a
   reserved runtime-output subpath the fingerprint never hashes and the build
@@ -51,6 +53,10 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- `rdflib` is now a core dependency instead of a member of the `knowledge`
+  extra, which keeps `linkml-runtime`. Every build can parse a Turtle corpus
+  whichever extras are installed; the extra itself stays, so existing install
+  commands keep working.
 - Web Terminal and every standalone panel (workspace, Channel Finder, lattice
   dashboard, knowledge panel) now use the same display menu as ARIEL: the sliders
   button opens one popover with the light/dark switch, the Expert/Simple view and

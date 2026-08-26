@@ -1,8 +1,11 @@
 """Import-isolation guard: rdflib and neo4j must stay OUT of sys.modules when
 the facility-knowledge runtime read path is imported.
 
-rdflib belongs exclusively to the offline TTL seeder (``knowledge`` extra) and
-the TTL generator (:mod:`osprey.services.facility_knowledge.ttl_generator`);
+rdflib is a core dependency, but inside the facility-knowledge package only
+the offline TTL seeder and the TTL generator
+(:mod:`osprey.services.facility_knowledge.ttl_generator`) import it — as does
+the graph-mode channel snapshot (:mod:`osprey.deployment.channel_snapshot`) —
+and all of them do so lazily, keeping it out of the runtime read path;
 neo4j belongs exclusively to the graph seeder (:mod:`.seeder.graph_seeder`) and
 the graph MCP server (:mod:`osprey.mcp_server.graph`), both of which import it
 lazily inside the functions that dial the store. Importing any of those modules
@@ -312,9 +315,9 @@ class TestIsolationDetectorsFire:
     """Negative controls: both detectors must fail when the driver IS imported.
 
     Without these, an uninstalled package or a broken code template would let
-    every isolation test above pass while checking nothing. rdflib ships in the
-    ``dev`` extra and neo4j in the base dependencies, so both imports below are
-    expected to succeed — and the assertion in the child is expected to trip.
+    every isolation test above pass while checking nothing. rdflib and neo4j are
+    both base dependencies, so both imports below are expected to succeed — and
+    the assertion in the child is expected to trip.
     """
 
     def test_rdflib_detector_fires_when_rdflib_is_imported(self):

@@ -12,9 +12,10 @@ seed.  ``compile-ontology`` stands upstream of ``build-ttl`` in turn: it is the
 authoring verb, turning a LinkML schema into the compiled FAMILY-to-class table
 that ``build-ttl`` emits the corpus against.
 
-Note: this module is intentionally importable WITHOUT the ``knowledge``
-extra (rdflib) installed, and without the ``neo4j`` driver.  Any rdflib or
-neo4j usage must be guarded by a lazy import inside the command body.
+Note: this module is intentionally importable without ``rdflib`` or the
+``neo4j`` driver in the import graph.  Both are core dependencies, so this is
+about keeping the CLI's import graph small, not about optional installs: any
+rdflib or neo4j usage must be guarded by a lazy import inside the command body.
 """
 
 from __future__ import annotations
@@ -179,23 +180,21 @@ def seed_from_ttl(ttl: Path, bundle: Path, force: bool) -> None:
     - File present, diff body, no --force → skip and report "differs, use --force".
     - File present, diff body, --force   → overwrite and report "overwritten".
 
-    The 'knowledge' extra (rdflib) is required.  A clean error is printed
-    when it is absent — no traceback.
+    The TTL is read with rdflib, a core dependency.  If rdflib is missing the
+    installation is incomplete, and a clean error is printed — no traceback.
     """
+    # rdflib is imported lazily inside the seeder, so an absent one surfaces
+    # either here at import time or inside seed_from_ttl itself.  Both mean the
+    # same broken environment, so both get the same repair hint.
     try:
         from osprey.services.facility_knowledge.seeder.ttl_seeder import seed_from_ttl as _seed
-    except ImportError as exc:  # rdflib absent
-        raise click.ClickException(
-            f"The 'knowledge' extra is required for seed-from-ttl: {exc}\n"
-            "Install it with: pip install 'osprey-framework[knowledge]'"
-        ) from exc
 
-    try:
         stubs = _seed(ttl)
-    except ImportError as exc:  # rdflib absent (raised inside seed_from_ttl)
+    except ImportError as exc:
         raise click.ClickException(
-            f"The 'knowledge' extra is required for seed-from-ttl: {exc}\n"
-            "Install it with: pip install 'osprey-framework[knowledge]'"
+            f"rdflib is not importable: {exc}\n"
+            "It is a core dependency, so this environment is incomplete. "
+            "Reinstall it with: pip install --upgrade osprey-framework"
         ) from exc
 
     from osprey.services.facility_knowledge.okf.bundle import OKFBundle

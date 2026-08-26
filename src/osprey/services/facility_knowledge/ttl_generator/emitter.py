@@ -568,7 +568,8 @@ def build_graph(model: GraphModel, ontology: OntologyMap) -> rdflib.Graph:
     Raises:
         UndirectedSignalError: If any signal group is still undirected.
         UnknownFamilyError: If a device family has no class in the table.
-        ImportError: If ``rdflib`` is not installed.
+        ImportError: If ``rdflib`` is not importable, which means the
+            installation is incomplete.
     """
     from rdflib import Graph, URIRef
 
@@ -583,9 +584,9 @@ def build_graph(model: GraphModel, ontology: OntologyMap) -> rdflib.Graph:
 def serialize_turtle(model: GraphModel, ontology: OntologyMap) -> str:
     """Serialise the corpus as deterministic Turtle text.
 
-    Pure text assembly — no ``rdflib`` involved, so this works in an
-    installation without the ``knowledge`` extra.  Identical input always yields
-    identical output, byte for byte.
+    Pure text assembly — no ``rdflib`` involved, so this keeps rdflib out of
+    the emitter's import graph.  Identical input always yields identical output,
+    byte for byte.
 
     Args:
         model: The derived graph, with directions already assigned.

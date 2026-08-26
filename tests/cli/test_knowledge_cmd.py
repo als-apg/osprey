@@ -345,7 +345,7 @@ def test_seed_from_ttl_no_rdflib_clean_error(
         runner = CliRunner()
         result = runner.invoke(knowledge, ["seed-from-ttl", str(mini_ttl), str(seed_bundle)])
 
-    # Exit code must be non-zero; output must mention the knowledge extra.
+    # Exit code must be non-zero; the message must name rdflib.
     assert result.exit_code != 0
     assert "knowledge" in result.output.lower() or "rdflib" in result.output.lower()
     # No Python traceback should appear.
@@ -354,7 +354,7 @@ def test_seed_from_ttl_no_rdflib_clean_error(
 
 @pytest.mark.skipif(
     __import__("importlib").util.find_spec("rdflib") is None,
-    reason="rdflib not installed (knowledge extra required)",
+    reason="rdflib not importable (core dependency; broken environment)",
 )
 def test_seed_from_ttl_writes_stubs(mini_ttl: Path, seed_bundle: Path) -> None:
     """Fresh seed writes one stub per device node and exits 0."""
@@ -368,7 +368,7 @@ def test_seed_from_ttl_writes_stubs(mini_ttl: Path, seed_bundle: Path) -> None:
 
 @pytest.mark.skipif(
     __import__("importlib").util.find_spec("rdflib") is None,
-    reason="rdflib not installed (knowledge extra required)",
+    reason="rdflib not importable (core dependency; broken environment)",
 )
 def test_seed_from_ttl_idempotent(mini_ttl: Path, seed_bundle: Path) -> None:
     """Re-running seed-from-ttl on an unchanged TTL produces no new writes."""
@@ -388,7 +388,7 @@ def test_seed_from_ttl_idempotent(mini_ttl: Path, seed_bundle: Path) -> None:
 
 @pytest.mark.skipif(
     __import__("importlib").util.find_spec("rdflib") is None,
-    reason="rdflib not installed (knowledge extra required)",
+    reason="rdflib not importable (core dependency; broken environment)",
 )
 def test_seed_from_ttl_skips_diff_without_force(mini_ttl: Path, seed_bundle: Path) -> None:
     """Existing stub with different body is NOT overwritten without --force."""
@@ -412,7 +412,7 @@ def test_seed_from_ttl_skips_diff_without_force(mini_ttl: Path, seed_bundle: Pat
 
 @pytest.mark.skipif(
     __import__("importlib").util.find_spec("rdflib") is None,
-    reason="rdflib not installed (knowledge extra required)",
+    reason="rdflib not importable (core dependency; broken environment)",
 )
 def test_seed_from_ttl_force_overwrites(mini_ttl: Path, seed_bundle: Path) -> None:
     """--force causes an existing stub with a different body to be overwritten."""
