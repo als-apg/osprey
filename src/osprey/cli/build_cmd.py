@@ -2316,6 +2316,7 @@ def _build_repo(
         click.UsageError: When no deployment repo encloses the search path.
     """
     from osprey.deployment.errors import CapturedProcessError
+    from osprey.deployment.subprocess_capture import diagnose_captured_failure
 
     from .build_profile import resolve_build_document
     from .build_profile_deploy import deploy_aware_config_errors, deploy_aware_config_warnings
@@ -2575,6 +2576,13 @@ def _build_repo(
         # under, so the message names the spool rather than repeating it — and
         # carries no ✗ of its own, because that phase's failure line has one.
         logger.error("Build failed: %s", e)
+        # Some of those failures say nothing an operator can act on — a registry
+        # 401 naming a password that was never sent is the standing example. The
+        # same seam `osprey up` uses answers them here, and stays silent on
+        # every failure it cannot name.
+        remedy = diagnose_captured_failure(e)
+        if remedy is not None:
+            logger.error("→ %s", remedy)
         raise click.Abort() from e
     except Exception as e:
         logger.error("✗ Unexpected error: %s", e)

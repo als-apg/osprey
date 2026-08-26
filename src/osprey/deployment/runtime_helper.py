@@ -747,3 +747,142 @@ def get_container_image_id(
     return _inspect_image_id(
         [runtime, "container", "inspect", "--format", "{{.Image}}", container], env
     )
+
+
+# ---------------------------------------------------------------------------
+# podman + Docker Compose v2: the empty-credential registry refusal
+#
+# `podman compose` is a dispatcher, and one of the providers it will dispatch
+# to is the Docker Compose v2 CLI plugin. detect_compose_provider reports that
+# host as DOCKER_V2 and OSPREY invokes it correctly -- the argv shape is not the
+# problem. Image BUILDS are: a `FROM` that has to fetch its base image reaches
+# the registry with an empty credential instead of with none at all, and the
+# registry answers 401. The same host pulls the same image fine through `podman
+# pull` and through `podman compose pull`; only the build path carries the
+# empty credential, which is why this cannot be fixed with `podman login`.
+#
+# An anonymous pull would have worked. Supplying ""/"" is strictly worse than
+# supplying nothing, and it is what converts a working public pull into a
+# refusal whose wording ("incorrect username or password") points at a password
+# nobody typed.
+
+
+#: Substrings that together identify the empty-credential refusal. All must be
+#: present: the 401 wording alone is also what a genuinely wrong `podman login`
+#: produces, and mistaking that for this bug would send an operator to change a
+#: provider when they should fix their password. Requiring the pull-time frame
+#: ("fetching manifest") pins it to the build path this actually affects.
+_REGISTRY_AUTH_DENIED_MARKERS: tuple[str, ...] = (
+    "fetching manifest",
+    "unable to retrieve auth token",
+    "incorrect username or password",
+)
+
+
+#: What to do about it. Both entries are real escapes, in the order a facility
+#: would prefer them: podman-compose is the provider OSPREY's own CI pins for
+#: the podman lane, and docker is the other supported runtime outright.
+_REGISTRY_AUTH_REMEDY = (
+    "podman handed the registry an EMPTY credential for this pull, and the registry "
+    "rejected it -- the wording names a password, but none was ever sent. This is the "
+    "podman-with-Docker-Compose-v2 provider pairing, not a wrong login: `podman login` "
+    "does not fix it, because the credential does not come from podman's auth file.\n"
+    "Either:\n"
+    "  - install podman-compose and pin it as podman's provider, in containers.conf:\n"
+    "\n"
+    "        [engine]\n"
+    '        compose_providers = ["/absolute/path/to/podman-compose"]\n'
+    "\n"
+    "  - or run this deployment on docker (start the Docker daemon, or set\n"
+    "    container_runtime: docker), which uses its own compose provider.\n"
+    "\n"
+    "Pre-pulling the base images (`podman pull <image>`) also unblocks a single run: "
+    "a build that needs no fetch never presents the credential."
+)
+
+
+def diagnose_build_failure(output: str) -> str | None:
+    """Explain a failed build's output, or ``None`` when there is nothing to add.
+
+    Reads a captured build log (or any fragment of one) and recognizes the
+    empty-credential registry refusal described above, which otherwise reaches
+    the operator as a 401 about a password they never entered.
+
+    Substring matching rather than a parse: the text arrives wrapped in the
+    dispatcher's own chatter, in whichever line-ending and ANSI decoration the
+    provider emitted, and every one of those variants is the same failure.
+
+    Deliberately conservative. It answers only the signature it can name, so a
+    build that failed for any other reason -- a missing wheel, a compile error,
+    an unreachable private registry -- passes through untouched rather than
+    collecting a confident and wrong remedy.
+
+    :param output: Captured build output, whole or partial.
+    :returns: Operator-facing remedy text, or ``None`` for no opinion.
+    """
+    if not output:
+        return None
+    if all(marker in output for marker in _REGISTRY_AUTH_DENIED_MARKERS):
+        return _REGISTRY_AUTH_REMEDY
+    return None
+
+
+#: The one action that resolves the pairing, rendered in the CLI's remedy slot
+#: rather than inside the advisory so it is not said twice.
+PODMAN_COMPOSE_PROVIDER_REMEDY = (
+    "install podman-compose and pin it in containers.conf "
+    '([engine] compose_providers = ["/absolute/path/to/podman-compose"]), '
+    "or deploy on docker"
+)
+
+
+def podman_compose_provider_advisory(config: Mapping[str, Any] | None = None) -> str | None:
+    """Warn ahead of a build that this host's compose provider breaks base-image pulls.
+
+    Fires only for podman served by Docker Compose v2 -- the pairing
+    :func:`detect_compose_provider` reports as
+    :attr:`ComposeProvider.DOCKER_V2` behind a ``podman`` argv. podman served by
+    podman-compose is the configuration OSPREY's CI podman lane pins, and docker
+    served by Docker Compose v2 is the ordinary docker case; both stay silent.
+
+    A warning and not a refusal, on purpose. The pairing is one OSPREY declares
+    supported and invokes correctly, and the break lands only on builds that
+    must FETCH a base image -- a host whose images are already local, or which
+    pulls from a registry that accepts the empty credential, completes normally.
+    Refusing those would be causing an outage to describe one. What the operator
+    needs before a long build is the name of the thing that is about to go
+    wrong; :func:`diagnose_build_failure` says it again, in place, if it does.
+
+    Total in the same sense as
+    :func:`~osprey.deployment.container_lifecycle._podman_network_backend`:
+    a host that cannot answer gets no opinion. Both failures it might raise on
+    -- no usable runtime, an unsupported provider -- are already reported by the
+    callers that own them, far better than a provider note could.
+
+    :param config: Optional deploy config, for the runtime it may pin.
+    :returns: Operator-facing advisory text, or ``None`` when the pairing is
+        absent or the host cannot be interrogated.
+    """
+    try:
+        base = get_runtime_command(config)
+    except RuntimeError:
+        return None
+
+    if not base or base[0] != "podman":
+        return None
+
+    try:
+        info = detect_compose_provider(base, config)
+    except (RuntimeError, UnsupportedComposeProviderError):
+        return None
+
+    if info.provider is not ComposeProvider.DOCKER_V2:
+        return None
+
+    return (
+        "`podman compose` on this host is served by Docker Compose v2, not by "
+        "podman-compose. Image builds that must fetch a base image reach the registry "
+        "with an empty credential on that pairing and are refused with a 401 naming a "
+        "password that was never sent. Images already present locally are unaffected, "
+        "so a build with nothing to fetch still succeeds."
+    )

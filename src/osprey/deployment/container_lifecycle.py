@@ -60,10 +60,12 @@ from osprey.deployment.host_ports import (
 )
 from osprey.deployment.qmd_service import preflight_qmd_models_dir
 from osprey.deployment.runtime_helper import (
+    PODMAN_COMPOSE_PROVIDER_REMEDY,
     ComposeProvider,
     UnsupportedComposeProviderError,
     detect_compose_provider,
     get_runtime_command,
+    podman_compose_provider_advisory,
     runtime_env,
     verify_runtime_is_running,
     with_plain_progress,
@@ -3852,6 +3854,32 @@ def _preflight_bluesky_network_backend(config: dict) -> None:
     )
 
 
+def _preflight_podman_compose_provider(config: dict) -> None:
+    """Name the podman + Docker-Compose-v2 registry break before anything is built.
+
+    Purely advisory, and silent on every host but that one pairing. See
+    :func:`~osprey.deployment.runtime_helper.podman_compose_provider_advisory`
+    for why this warns rather than refuses, and why a probe would have to build
+    an image to be sure.
+
+    Placed with the other preflights so the operator reads it in the second
+    before a build starts rather than in the minutes after one fails. The
+    failure it describes is also translated in place, if it happens, by
+    :func:`~osprey.deployment.runtime_helper.diagnose_build_failure`.
+
+    :param config: Raw deploy config, for the runtime it may pin.
+    """
+    advisory = podman_compose_provider_advisory(config)
+    if advisory is None:
+        return
+
+    _warn_fact(
+        "podman's compose provider is Docker Compose v2, not podman-compose",
+        advisory,
+        PODMAN_COMPOSE_PROVIDER_REMEDY,
+    )
+
+
 def _web_terminals_enabled(config: dict) -> bool:
     """True if ``modules.web_terminals.enabled`` is set on ``config``.
 
@@ -5380,6 +5408,13 @@ def _start_stack(
     # on. Ahead of every container-touching command below, so the refusal
     # leaves the host untouched.
     _preflight_bluesky_network_backend(config)
+
+    # And one question about the compose provider behind it: podman served by
+    # Docker Compose v2 cannot fetch a base image during a build, and the 401
+    # that produces names a password nobody typed. Advisory only -- a host with
+    # its images already local builds fine on that pairing -- so it warns here
+    # and, if the build does fail, says it again in place.
+    _preflight_podman_compose_provider(config)
 
     # Fail fast on a host-port collision (a foreign stack, or a second project
     # on the same host) with an actionable diagnosis, rather than letting
