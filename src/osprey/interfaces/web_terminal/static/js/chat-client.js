@@ -129,6 +129,42 @@ async function pump(reader, callbacks) {
 }
 
 /**
+ * A transport failure carrying the endpoint's machine-readable reason.
+ *
+ * `status` is the HTTP status; `slug` is the `detail.error` slug the chat
+ * routes put in every rejection body (`chat_terminated`, `turn_in_progress`,
+ * `chat_capacity`, …) or `''` when the body carried none. Callers key their
+ * user-facing copy on the slug: two rejections share status 409 and mean
+ * opposite things to the operator — one says a turn is already running, the
+ * other says this chat was restarted and the prompt needs sending again.
+ * @typedef {Error & { status: number, slug: string }} TransportError
+ */
+
+/**
+ * Build the {@link TransportError} for a non-2xx response, reading the slug out
+ * of the JSON body. A body that is absent, empty, or not JSON is not a failure
+ * of its own — the status still describes the rejection — so the slug is left
+ * empty and the caller falls back to it.
+ * @param {Response} res
+ * @returns {Promise<TransportError>}
+ */
+async function transportError(res) {
+  let slug = '';
+  try {
+    const detail = (await res.json())?.detail;
+    if (detail && typeof detail.error === 'string') slug = detail.error;
+  } catch {
+    /* no body, or not the JSON error shape — the status carries the failure */
+  }
+  const err = /** @type {TransportError} */ (
+    new Error(`HTTP ${res.status}: ${res.statusText}`)
+  );
+  err.status = res.status;
+  err.slug = slug;
+  return err;
+}
+
+/**
  * Report a transport-level failure to the caller.
  * @param {ChatCallbacks} callbacks
  * @param {unknown} err
@@ -170,7 +206,7 @@ export function sendPrompt(chatId, prompt, callbacks = {}) {
         body: JSON.stringify({ prompt, chat_id: chatId }),
         signal: controller.signal,
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      if (!res.ok) throw await transportError(res);
       if (!res.body) throw new Error('Chat response has no readable body');
       reader = res.body.getReader();
       await pump(reader, callbacks);
@@ -208,7 +244,7 @@ export async function interrupt(chatId) {
   const res = await fetch(withPrefix(`${CHAT_ENDPOINT}/${encodeURIComponent(chatId)}/interrupt`), {
     method: 'POST',
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  if (!res.ok) throw await transportError(res);
   return res;
 }
 

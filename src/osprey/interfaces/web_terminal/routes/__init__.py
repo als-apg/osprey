@@ -10,6 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from osprey.interfaces.web_terminal.routes.agent_activity import router as agent_activity_router
+from osprey.interfaces.web_terminal.routes.audit import router as audit_router
 from osprey.interfaces.web_terminal.routes.chat import router as chat_router
 from osprey.interfaces.web_terminal.routes.config import router as config_router
 from osprey.interfaces.web_terminal.routes.feedback import router as feedback_router
@@ -24,6 +25,7 @@ from osprey.interfaces.web_terminal.routes.websocket import router as websocket_
 router = APIRouter()
 router.include_router(panels_router)
 router.include_router(agent_activity_router)
+router.include_router(audit_router)
 router.include_router(session_router)
 router.include_router(config_router)
 router.include_router(files_router)

@@ -30,7 +30,7 @@ Three properties are load-bearing on both paths and each is asserted directly:
   once the render is root-owned -- so these pins look for it there.
 * **All-or-nothing.** One protected key refuses the whole body. A mixed request
   does not get to land its cosmetic half.
-* **It leaves a trace.** One ``protected-writes.jsonl`` record per refused key
+* **It leaves a trace.** One ``http_config`` ledger record per refused key
   and one activity frame, so the attempt is visible to the operator afterwards
   and not only to whoever saw the 403. The frame is stamped in-process, which is
   the point: no ``OSPREY_PANEL_TOKEN`` is needed to publish it.
@@ -62,6 +62,8 @@ import yaml
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from osprey.audit import writer
+from osprey.audit.protected import SURFACE_HTTP_CONFIG
 from osprey.cli.profile_conventions import (
     PROTECTED_CONFIG_KEYS,
     is_protected_key_path,
@@ -71,9 +73,8 @@ from osprey.cli.templates.manager import TemplateManager
 from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_RING_MAX
 from osprey.interfaces.web_terminal.routes.config import _changed_protected_keys
-from osprey.services.python_executor import refusal_audit
-from osprey.services.python_executor.refusal_audit import PROTECTED_WRITES_LOG_FILENAME
 from osprey.utils.config_writer import config_update_fields
+from osprey.utils.identity import acting_identity
 
 #: An unprotected key the Config panel may still write. ``claude_code`` is an
 #: agent-relevant section, but only its ``permissions``/``hooks``/``servers``
@@ -105,9 +106,9 @@ def built_project(tmp_path):
 
 @pytest.fixture
 def audit_zone(tmp_path, monkeypatch):
-    """Redirect the audit zone. ``audit_dir`` is the module's one documented seam."""
+    """Redirect the audit zone. ``writer.audit_dir`` is the ledger's one seam."""
     zone = tmp_path / "audit-zone" / "var" / "audit"
-    monkeypatch.setattr(refusal_audit, "audit_dir", lambda: zone)
+    monkeypatch.setattr(writer, "audit_dir", lambda: zone)
     return zone
 
 
@@ -129,7 +130,8 @@ def _deny(project_dir):
 
 
 def _audit_records(zone):
-    path = zone / PROTECTED_WRITES_LOG_FILENAME
+    """Every ``http_config`` record this identity filed, oldest first."""
+    path = zone / acting_identity() / f"{SURFACE_HTTP_CONFIG}.jsonl"
     if not path.is_file():
         return []
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
@@ -341,10 +343,10 @@ class TestPatchProtectedKeys:
         records = _audit_records(audit_zone)
         assert len(records) == 1
         assert records[0]["surface"] == "http_config"
-        assert records[0]["target_file"] == "config.yml"
-        assert records[0]["key_or_path"] == "control_system.limits_checking.enabled"
+        assert records[0]["subject"] == "control_system.limits_checking.enabled"
+        assert "target=config.yml" in records[0]["detail"]
         assert records[0]["reason"] == "protected_key"
-        assert "`config:` block" in records[0]["channel"]
+        assert "`config:` block" in records[0]["detail"]
 
     def test_patch_protected_refusal_is_published_as_activity(self, client):
         """In-process, which is the success criterion: no panel token anywhere."""
@@ -615,10 +617,10 @@ class TestPutProtectedDocument:
         records = _audit_records(audit_zone)
         assert len(records) == 1
         assert records[0]["surface"] == "http_config"
-        assert records[0]["target_file"] == "config.yml"
-        assert records[0]["key_or_path"] == "control_system.writes_enabled"
+        assert records[0]["subject"] == "control_system.writes_enabled"
+        assert "target=config.yml" in records[0]["detail"]
         assert records[0]["reason"] == "protected_key"
-        assert "`config:` block" in records[0]["channel"]
+        assert "`config:` block" in records[0]["detail"]
 
     def test_put_protected_refusal_is_published_as_activity(self, client, built_project):
         """In-process, which is the success criterion: no panel token anywhere."""
@@ -737,7 +739,7 @@ class TestPutProtectedDocument:
 
         Emptying the document changes every protected key the file carries at
         once -- far more than a refusal can name and stay readable. The message
-        names the first ten and counts the rest; ``protected-writes.jsonl`` gets
+        names the first ten and counts the rest; the ``http_config`` ledger gets
         all of them, because the trail is what a later investigation reads and a
         summarized trail is a missing one.
         """
@@ -756,7 +758,7 @@ class TestPutProtectedDocument:
 
         records = _audit_records(audit_zone)
         assert len(records) == len(current)
-        assert {r["key_or_path"] for r in records} == {".".join(k) for k in current}
+        assert {r["subject"] for r in records} == {".".join(k) for k in current}
         assert all(r["surface"] == "http_config" for r in records)
 
     def test_put_self_referential_yaml_is_refused_before_the_protected_check(

@@ -777,7 +777,7 @@ def test_put_config_backup_follows_a_relocated_agent_data_root(client, tmp_path)
 # surface onto the file that carries the write gate, the approval gate and the
 # paths the safety layers derive their zones from. It is gated exactly the way
 # the Web Terminal's ``PUT /api/config`` is -- same protected set, same 403,
-# same ``protected-writes.jsonl`` record -- because the protected set is
+# same ``http_config`` audit record -- because the protected set is
 # consulted by *every* framework writer, not just the terminal's.
 # --------------------------------------------------------------------------
 
@@ -792,20 +792,21 @@ _PROTECTED_DOC = (
 
 @pytest.fixture
 def audit_zone(tmp_path, monkeypatch):
-    """Redirect the audit zone. ``audit_dir`` is the module's one documented seam."""
-    from osprey.services.python_executor import refusal_audit
+    """Redirect the audit zone. ``writer.audit_dir`` is the ledger's one seam."""
+    from osprey.audit import writer
 
     zone = tmp_path / "audit-zone" / "var" / "audit"
-    monkeypatch.setattr(refusal_audit, "audit_dir", lambda: zone)
+    monkeypatch.setattr(writer, "audit_dir", lambda: zone)
     return zone
 
 
 def _audit_records(zone):
     import json
 
-    from osprey.services.python_executor.refusal_audit import PROTECTED_WRITES_LOG_FILENAME
+    from osprey.audit.protected import SURFACE_HTTP_CONFIG
+    from osprey.utils.identity import acting_identity
 
-    path = zone / PROTECTED_WRITES_LOG_FILENAME
+    path = zone / acting_identity() / f"{SURFACE_HTTP_CONFIG}.jsonl"
     if not path.is_file():
         return []
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
@@ -843,8 +844,8 @@ def test_put_config_refuses_a_removed_protected_key(client, gated_config, audit_
     records = _audit_records(audit_zone)
     assert len(records) == 1
     assert records[0]["surface"] == "http_config"
-    assert records[0]["target_file"] == "config.yml"
-    assert records[0]["key_or_path"] == "agent_data.base_dir"
+    assert "target=config.yml" in records[0]["detail"]
+    assert records[0]["subject"] == "agent_data.base_dir"
     assert records[0]["reason"] == "protected_key"
 
 
@@ -862,7 +863,7 @@ def test_put_config_refuses_a_changed_protected_value(client, gated_config, audi
     assert gated_config.read_bytes() == before
 
     records = _audit_records(audit_zone)
-    assert [r["key_or_path"] for r in records] == ["control_system.writes_enabled"]
+    assert [r["subject"] for r in records] == ["control_system.writes_enabled"]
 
 
 def test_put_config_refusal_leaks_no_value(client, gated_config, audit_zone):

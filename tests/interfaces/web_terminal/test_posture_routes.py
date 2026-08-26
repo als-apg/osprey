@@ -35,12 +35,19 @@ from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_auth import PANEL_TOKEN_ENV, get_web_credentials
 from osprey.interfaces.web_terminal.app import create_app
-from osprey.interfaces.web_terminal.operator_session import build_operator_child_env
+from osprey.interfaces.web_terminal.operator_session import (
+    POSTURE_SESSION_ENV,
+    POSTURE_SOURCE_ENV,
+    build_operator_child_env,
+)
 from osprey.interfaces.web_terminal.routes import chat as chat_routes
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 
 SESSION_A = "aaaaaaaa-1111-2222-3333-444444444444"
 SESSION_B = "bbbbbbbb-1111-2222-3333-444444444444"
+# A chat-pool key, minted the way the shipped client mints one
+# (``crypto.randomUUID()`` in static/js/chat.js): a bare lowercase UUID.
+CHAT_A = "cccccccc-1111-2222-3333-444444444444"
 
 
 @pytest.fixture
@@ -688,16 +695,31 @@ class _RecordingOperatorRegistry:
     test. What the handler computed and passed is what gets asserted.
     """
 
-    def __init__(self):
+    def __init__(self, live_chats=()):
         self.calls: list[dict] = []
+        # Stands in for the real registry's chat pool. The posture gate probes
+        # membership through ``get_chat_session``, so what lives here is what
+        # the gate sees as a live chat session.
+        self.chats: dict[str, object] = {
+            chat_id: SimpleNamespace(acquire_turn=lambda: 1) for chat_id in live_chats
+        }
 
     async def create_session(self, session_id, cwd, env=None):
         self.calls.append({"key": session_id, "cwd": cwd, "env": env})
         return SimpleNamespace(_queue=asyncio.Queue())
 
     async def get_or_create_chat_session(self, chat_id, cwd, env=None):
-        self.calls.append({"key": chat_id, "cwd": cwd, "env": env})
-        return SimpleNamespace(acquire_turn=lambda: 1), False
+        # The route hands the pool a zero-arg env BUILDER (so the posture read
+        # and the pool's registration of the creation cannot be separated —
+        # see ChatSessionPool.get_or_create); the real pool calls it inside its
+        # lock. Resolve it here too, so what is recorded is the mapping the
+        # child would really be given.
+        self.calls.append({"key": chat_id, "cwd": cwd, "env": env() if callable(env) else env})
+        session = self.chats.setdefault(chat_id, SimpleNamespace(acquire_turn=lambda: 1))
+        return session, False
+
+    def get_chat_session(self, chat_id):
+        return self.chats.get(chat_id)
 
     async def terminate_session_if_owner(self, session_id, owner):
         return None
@@ -831,32 +853,67 @@ class TestSdkPostureParity:
         """``POST /api/chat`` spawns its session under its own ``chat_id``.
 
         The chat pool is keyed on the caller-supplied ``chat_id``, so that is
-        the only identity the posture can attach to on this surface.
+        the only identity the posture can attach to on this surface. The two
+        keys here are bare UUIDs, the shape the shipped client mints and the
+        only shape the posture route will write — seeding the store under
+        anything else would prove the builder reads a state no route can
+        produce.
         """
         registry = _RecordingOperatorRegistry()
         client.app.state.operator_registry = registry
-        _seed_posture(client, "chat-alpha", "sandbox")
-        _seed_posture(client, "chat-beta", "writes")
+        _seed_posture(client, CHAT_A, "sandbox")
+        _seed_posture(client, SESSION_B, "writes")
 
         request = SimpleNamespace(app=client.app)
-        asyncio.run(chat_routes._acquire_chat_turn(request, "chat-alpha"))
-        asyncio.run(chat_routes._acquire_chat_turn(request, "chat-beta"))
+        asyncio.run(chat_routes._acquire_chat_turn(request, CHAT_A))
+        asyncio.run(chat_routes._acquire_chat_turn(request, SESSION_B))
 
         sandboxed, writing = registry.calls
-        assert sandboxed["key"] == "chat-alpha"
+        assert sandboxed["key"] == CHAT_A
         assert sandboxed["env"]["OSPREY_EXECUTION_MODE"] == "readonly"
-        assert writing["key"] == "chat-beta"
+        assert writing["key"] == SESSION_B
         assert "OSPREY_EXECUTION_MODE" not in writing["env"]
+
+    def test_sdk_parity_an_unaddressable_chat_id_is_not_labelled_live(self, client):
+        """A chat id no posture route can name is spawned ``process``.
+
+        ``chat_id`` is unconstrained on the chat surface, and an
+        embedder-chosen key like ``user-42-chat-3`` is refused 400 by both
+        posture verbs. ``live`` means "a store keeps answering for this key",
+        so stamping it there would put a provenance in the ledger that says a
+        runtime toggle governed a process no toggle can reach.
+        """
+        registry = _RecordingOperatorRegistry()
+        client.app.state.operator_registry = registry
+        request = SimpleNamespace(app=client.app)
+
+        asyncio.run(chat_routes._acquire_chat_turn(request, CHAT_A))
+        asyncio.run(chat_routes._acquire_chat_turn(request, "user-42-chat-3"))
+
+        addressable, embedder_chosen = registry.calls
+        assert addressable["env"][POSTURE_SOURCE_ENV] == "live"
+        assert embedder_chosen["env"][POSTURE_SOURCE_ENV] == "process"
+        # The key it was checked under is still recorded, either way.
+        assert embedder_chosen["env"][POSTURE_SESSION_ENV] == "user-42-chat-3"
+        # And that key really is unaddressable on both posture verbs.
+        assert (
+            client.post(
+                "/api/terminal/posture",
+                json={"session_id": "user-42-chat-3", "posture": "sandbox"},
+            ).status_code
+            == 400
+        )
 
     def test_sdk_parity_operator_ws_child_env_is_keyed_on_its_session_key(self, client):
         """``/ws/operator`` spawns under the pool key it mints per connection.
 
         The operator websocket resumes nothing: it mints ``operator-<hex8>``
         at accept time and that key is the session's whole identity, so it is
-        what the posture lookup is keyed on. (The POST route's ``_UUID_RE``
-        gate means an operator cannot yet *set* a posture for such a key —
-        the seam is wired and honours the store; addressing it from the UI is
-        a separate surface question.)
+        what the posture lookup is keyed on. (Such a key is outside the posture
+        surface's closed grammar — ``_POSTURE_KEY_RE`` — by design, not for
+        want of a UI: an operator connection is addressable by nobody and its
+        posture is deliberately non-durable, so the seam honours whatever the
+        store held when the child started and nothing can flip it afterwards.)
         """
         registry = _RecordingOperatorRegistry()
         client.app.state.operator_registry = registry
@@ -887,3 +944,291 @@ class TestSdkPostureParity:
 
         assert registry.calls[0]["key"] == operator_key
         assert "OSPREY_EXECUTION_MODE" not in registry.calls[0]["env"]
+
+
+# ── The existence gate, across both topologies ───────────────────────────────
+#
+# ``POST /api/terminal/posture`` refuses a key that names no session, because a
+# posture on such a key is a toggle nothing will ever read. "No session",
+# though, is a question with two answers: the PTY topology's sessions are the
+# JSONL stems ``SessionDiscovery`` walks, and the SDK topology's chat sessions
+# live only in the operator registry's chat pool. Asking only the first is what
+# made a chat session's posture unsettable — the chat spawn already reads the
+# store back (``_acquire_chat_turn`` -> ``build_operator_child_env``), so the
+# store was readable there and not writable.
+
+
+class TestPostureGateAcrossTopologies:
+    def test_post_accepts_a_live_chat_pool_key(self, client, shared_root):
+        """A chat session live in the pool can have its posture set.
+
+        Nothing is on disk for it — the chat topology writes no JSONL stem —
+        so this is exactly the case the discovery-only gate used to 409.
+        """
+        client.app.state.operator_registry = _RecordingOperatorRegistry(live_chats=[CHAT_A])
+
+        with known_sessions():
+            resp = client.post(
+                "/api/terminal/posture",
+                json={"session_id": CHAT_A, "posture": "sandbox"},
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["session_id"] == CHAT_A
+        assert client.app.state.session_postures[CHAT_A] == "sandbox"
+        on_disk = json.loads((shared_root / "session-postures.json").read_text(encoding="utf-8"))
+        assert on_disk == {CHAT_A: "sandbox"}
+
+    def test_stored_chat_posture_reaches_that_chat_child(self, client):
+        """The point of writing the store: the next chat spawn carries it.
+
+        The gate exists to make the store *writable* for a chat key; this pins
+        that the key it writes is the same one the chat spawn looks up, so the
+        toggle and the child cannot disagree.
+        """
+        registry = _RecordingOperatorRegistry(live_chats=[CHAT_A])
+        client.app.state.operator_registry = registry
+
+        with known_sessions():
+            assert (
+                client.post(
+                    "/api/terminal/posture",
+                    json={"session_id": CHAT_A, "posture": "sandbox"},
+                ).status_code
+                == 200
+            )
+
+        asyncio.run(chat_routes._acquire_chat_turn(SimpleNamespace(app=client.app), CHAT_A))
+
+        assert registry.calls[-1]["key"] == CHAT_A
+        assert registry.calls[-1]["env"]["OSPREY_EXECUTION_MODE"] == "readonly"
+
+    def test_post_chat_key_without_a_live_session_conflicts(self, client):
+        """A key naming neither topology is still a 409, with the same remedy."""
+        client.app.state.operator_registry = _RecordingOperatorRegistry()
+
+        with known_sessions():
+            resp = client.post(
+                "/api/terminal/posture",
+                json={"session_id": CHAT_A, "posture": "sandbox"},
+            )
+
+        assert resp.status_code == 409
+        assert "send one prompt first" in json.dumps(resp.json()["detail"])
+        assert CHAT_A not in getattr(client.app.state, "session_postures", {})
+
+    def test_a_sandboxed_chat_can_be_brought_back_out(self, client, tmp_path):
+        """The store keeps a key addressable after the pool has dropped it.
+
+        The pool is LRU-capped, idle-reaped — and evicted by the flip itself,
+        which is the point: a successful sandbox is exactly what removes the
+        entry the gate used to require. Refusing on pool membership alone would
+        mean a chat could be sandboxed once and never brought back, with the
+        badge offering a switch that always 409s. An entry in the store is the
+        operator's own earlier decision about this key, and letting them revise
+        it grants nothing: the store only ever narrows a spawn.
+        """
+        registry = _RecordingOperatorRegistry(live_chats=[CHAT_A])
+        client.app.state.operator_registry = registry
+        client.app.state.config_path = _write_config(tmp_path, writes_enabled=True)
+
+        with known_sessions():
+            assert (
+                client.post(
+                    "/api/terminal/posture",
+                    json={"session_id": CHAT_A, "posture": "sandbox"},
+                ).status_code
+                == 200
+            )
+            registry.chats.pop(CHAT_A)
+            assert (
+                client.post(
+                    "/api/terminal/posture",
+                    json={"session_id": CHAT_A, "posture": "writes"},
+                ).status_code
+                == 200
+            )
+
+        assert client.app.state.session_postures[CHAT_A] == "writes"
+
+    def test_post_pty_stem_is_accepted_with_an_empty_chat_pool(self, client):
+        """Widening the gate must not cost the PTY topology its own answer."""
+        client.app.state.operator_registry = _RecordingOperatorRegistry()
+
+        with known_sessions(SESSION_A):
+            resp = client.post(
+                "/api/terminal/posture",
+                json={"session_id": SESSION_A, "posture": "sandbox"},
+            )
+
+        assert resp.status_code == 200
+
+    def test_gate_tolerates_a_registry_with_no_chat_pool(self, client):
+        """A registry that cannot be asked has no chat session to offer.
+
+        The probe answers ``False`` rather than raising, so a stand-in registry
+        (or a future one without the pool) degrades to the PTY-only gate
+        instead of turning every posture call into a 500.
+        """
+
+        # No ``get_chat_session`` at all; ``cleanup_all`` only because the
+        # app's own shutdown calls it.
+        async def _noop():
+            return None
+
+        client.app.state.operator_registry = SimpleNamespace(cleanup_all=_noop)
+
+        with known_sessions(SESSION_A):
+            assert (
+                client.post(
+                    "/api/terminal/posture",
+                    json={"session_id": SESSION_A, "posture": "sandbox"},
+                ).status_code
+                == 200
+            )
+            assert (
+                client.post(
+                    "/api/terminal/posture",
+                    json={"session_id": CHAT_A, "posture": "sandbox"},
+                ).status_code
+                == 409
+            )
+
+    def test_membership_probe_does_not_disturb_the_pool(self, client):
+        """Asking whether a chat session is live must not touch the pool.
+
+        The real accessor is a plain dict read: no idle-clock refresh, no
+        eviction, no creation. A probe that created a session would let a
+        posture call spawn an agent.
+        """
+        registry = _RecordingOperatorRegistry()
+        client.app.state.operator_registry = registry
+
+        with known_sessions():
+            client.post(
+                "/api/terminal/posture",
+                json={"session_id": CHAT_A, "posture": "sandbox"},
+            )
+
+        assert registry.chats == {}
+        assert registry.calls == []
+
+
+class TestPostureKeyGrammar:
+    """The posture surface's key grammar is closed: a bare canonical UUID.
+
+    Both identities the route can legitimately name are minted that way — a
+    Claude session-file stem and the shipped chat client's
+    ``crypto.randomUUID()`` — so closing the grammar costs no reach, and it
+    keeps a decorated or near-miss string from becoming a key in a store that
+    decides a child process's execution mode.
+    """
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "-" * 36,  # 36 legal characters, no UUID structure at all
+            "aaaaaaaaa-111-2222-3333-444444444444",  # 9-3-4-4-12: wrong grouping
+            "aaaaaaaa1111222233334444444444444444",  # 36 hex, no separators
+            "aaaaaaaa-1111-2222-3333-44444444444",  # one digit short
+        ],
+    )
+    def test_post_rejects_a_non_canonical_36_character_key(self, client, bad):
+        """Length and alphabet are not the contract — the shape is."""
+        with known_sessions(bad):
+            resp = client.post(
+                "/api/terminal/posture",
+                json={"session_id": bad, "posture": "sandbox"},
+            )
+
+        assert resp.status_code == 400
+        assert resp.json()["detail"]["error"] == "invalid_session_id"
+        assert bad not in getattr(client.app.state, "session_postures", {})
+
+    def test_post_rejects_an_operator_pool_key(self, client):
+        """``operator-<hex8>`` keys stay unreachable from this surface.
+
+        ``/ws/operator`` mints its pool key per connection and hands it to
+        nobody, so an operator cannot address one anyway; the spawn seam still
+        honours a posture stored under such a key (see
+        ``TestSdkPostureParity``), and offering a route to set one would mean
+        accepting a decorated key into the store on the operator's say-so.
+        """
+        operator_key = "operator-dddddddd"
+
+        with known_sessions(operator_key):
+            resp = client.post(
+                "/api/terminal/posture",
+                json={"session_id": operator_key, "posture": "sandbox"},
+            )
+
+        assert resp.status_code == 400
+        assert resp.json()["detail"]["error"] == "invalid_session_id"
+
+    def test_get_rejects_the_same_keys_as_post(self, client):
+        """One grammar, one error contract, both routes."""
+        for bad in ("-" * 36, "operator-dddddddd", "aaaaaaaa1111222233334444444444444444"):
+            resp = client.get("/api/terminal/posture", params={"session_id": bad})
+            assert resp.status_code == 400, bad
+            assert resp.json()["detail"]["error"] == "invalid_session_id"
+
+    def test_canonical_uuids_still_pass(self, client):
+        """The closed grammar must not cost a real session its posture."""
+        client.app.state.operator_registry = _RecordingOperatorRegistry(live_chats=[CHAT_A])
+
+        with known_sessions(SESSION_A):
+            assert (
+                client.post(
+                    "/api/terminal/posture",
+                    json={"session_id": SESSION_A, "posture": "sandbox"},
+                ).status_code
+                == 200
+            )
+            assert (
+                client.post(
+                    "/api/terminal/posture",
+                    json={"session_id": CHAT_A, "posture": "sandbox"},
+                ).status_code
+                == 200
+            )
+
+
+class TestGetPostureForChatKeys:
+    """GET stays tolerant for chat keys, exactly as it is for PTY ones.
+
+    The badge reads GET while the surface renders, which on the chat side can
+    be before the pool holds anything at all. A 409 there would blank the one
+    surface that tells the operator what the render permits, and answering
+    grants nothing: GET stores nothing and reports the same default the next
+    spawn under that key would actually carry.
+    """
+
+    def test_get_answers_for_a_chat_key_with_no_live_session(self, client, tmp_path):
+        client.app.state.config_path = _write_config(tmp_path, writes_enabled=True)
+        client.app.state.operator_registry = _RecordingOperatorRegistry()
+
+        with known_sessions():
+            resp = client.get("/api/terminal/posture", params={"session_id": CHAT_A})
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "session_id": CHAT_A,
+            "posture": "writes",
+            "rendered_writes_enabled": True,
+        }
+        assert CHAT_A not in getattr(client.app.state, "session_postures", {})
+
+    def test_get_reads_back_a_chat_key_posture(self, client, tmp_path):
+        """What POST wrote under a chat key is what the badge reads back."""
+        client.app.state.config_path = _write_config(tmp_path, writes_enabled=True)
+        client.app.state.operator_registry = _RecordingOperatorRegistry(live_chats=[CHAT_A])
+
+        with known_sessions():
+            client.post(
+                "/api/terminal/posture",
+                json={"session_id": CHAT_A, "posture": "sandbox"},
+            )
+
+        body = client.get("/api/terminal/posture", params={"session_id": CHAT_A}).json()
+
+        assert body["posture"] == "sandbox"

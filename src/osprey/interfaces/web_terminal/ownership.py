@@ -74,7 +74,7 @@ try:  # pragma: no cover - present on every POSIX deployment target
 except ImportError:  # pragma: no cover - Windows has no flock
     fcntl = None  # type: ignore[assignment]
 
-from osprey.services.python_executor.refusal_audit import record_protected_refusal
+from osprey.audit.protected import SURFACE_SCAFFOLD_RESTORE, record_protected_refusal
 
 logger = logging.getLogger(__name__)
 
@@ -191,11 +191,12 @@ def _safe_relative(output_path: str) -> PurePosixPath | None:
     return candidate
 
 
-#: Surface name the restore records its refusals under, so an operator reading
-#: ``protected-writes.jsonl`` can tell a body refused at container start from
-#: one refused in the gallery. They arrive by different routes and at different
-#: privilege levels, and the restore's are the ones worth waking up for.
-RESTORE_REFUSAL_SURFACE = "scaffold_restore"
+#: Surface name the restore records its refusals under, and therefore the
+#: ledger they land in (``var/audit/<identity>/scaffold_restore.jsonl``), so an
+#: operator can tell a body refused at container start from one refused in the
+#: gallery. They arrive by different routes and at different privilege levels,
+#: and the restore's are the ones worth waking up for.
+RESTORE_REFUSAL_SURFACE = SURFACE_SCAFFOLD_RESTORE
 
 
 def _audit_restore_refusal(path: str, *, channel: str, reason: str, because: str) -> None:
@@ -210,16 +211,22 @@ def _audit_restore_refusal(path: str, *, channel: str, reason: str, because: str
     Args:
         path: Project-relative path the store record aimed at.
         channel: Channel that owns it, or the phrase standing in for one.
-        reason: Short slug queried out of ``protected-writes.jsonl``.
+        reason: Short slug queried out of the ``scaffold_restore`` ledger.
         because: The clause completing "Refusing to restore <path> from the
             ownership store: <because>."
     """
+    # ``claim=False``: this refusal skips one stored body and lets the walk --
+    # or the request that triggered it -- carry on, so it is not the decision
+    # any outer audit layer is awaiting. Claiming it would silence that layer's
+    # own, still-true record of an operation that did happen. See
+    # :mod:`osprey.audit.protected`.
     record_protected_refusal(
         surface=RESTORE_REFUSAL_SURFACE,
         target_file=path,
         key_or_path=path,
         channel=channel,
         reason=reason,
+        claim=False,
     )
     logger.warning("Refusing to restore %s from the ownership store: %s.", path, because)
 

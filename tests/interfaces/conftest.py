@@ -16,6 +16,8 @@ from urllib.parse import urlsplit
 
 import pytest
 
+from osprey.audit import writer
+
 # The port/uvicorn helpers now live in a supported module shared with the docs
 # screenshot runner; re-export them under their historical underscore names so
 # every ``tests/interfaces`` importer stays byte-for-byte unchanged.
@@ -334,3 +336,23 @@ def chromium_browser() -> Iterator[Browser]:
     finally:
         browser.close()
         pw.stop()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_audit_zone(tmp_path, monkeypatch):
+    """Keep every record an interface-app test fires out of the live ledger.
+
+    ``writer.audit_dir`` is the ledger's one seam — the HTTP middleware, the
+    protected-set funnel and the hook emitters all resolve the zone through
+    it — so redirecting it here contains a whole app test. Interfaces-wide
+    (this directory and every subdirectory) because the modules that need it
+    are exactly the ones whose authors would not think to ask: the auth
+    middleware, token-exchange and ARIEL display-menu suites were filing real
+    ``web_auth`` / ``http_mutation`` records into ``var/audit/<you>/`` on every
+    run. A test that fires no recorder pays nothing. Named privately so the
+    ``audit_zone`` fixtures some modules define still win — an explicitly
+    requested fixture is set up after the autouse one and re-points the seam.
+    """
+    zone = tmp_path / "audit-zone" / "var" / "audit"
+    monkeypatch.setattr(writer, "audit_dir", lambda: zone)
+    return zone

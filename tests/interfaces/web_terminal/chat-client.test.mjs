@@ -249,6 +249,53 @@ describe('sendPrompt: transport failures', () => {
     expect(cb.onError).toHaveBeenCalledTimes(1);
     expect(cb.onError.mock.calls[0][0]).toBeInstanceOf(Error);
     expect(cb.onError.mock.calls[0][0].message).toBe('HTTP 503: Service Unavailable');
+    // A body-less rejection still carries its status; the slug is simply empty.
+    expect(cb.onError.mock.calls[0][0].status).toBe(503);
+    expect(cb.onError.mock.calls[0][0].slug).toBe('');
+  });
+
+  test('a rejection body carries its detail.error slug to the caller', async () => {
+    // Two 409s from this endpoint mean opposite things to the operator, and
+    // only the slug separates them — the controller keys its copy on it.
+    const body = {
+      detail: { error: 'chat_terminated', message: 'send the prompt again' },
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ...streamResponse([], { ok: false, status: 409, statusText: 'Conflict' }),
+        json: async () => body,
+      }))
+    );
+
+    const cb = collector();
+    chat.sendPrompt('c', 'p', cb.handlers);
+    await vi.waitFor(() => expect(cb.onClose).toHaveBeenCalledTimes(1));
+
+    const err = cb.onError.mock.calls[0][0];
+    expect(err.status).toBe(409);
+    expect(err.slug).toBe('chat_terminated');
+    expect(err.message).toBe('HTTP 409: Conflict');
+  });
+
+  test('a non-JSON rejection body is not itself a failure', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ...streamResponse([], { ok: false, status: 502, statusText: 'Bad Gateway' }),
+        json: async () => {
+          throw new SyntaxError('Unexpected token <');
+        },
+      }))
+    );
+
+    const cb = collector();
+    chat.sendPrompt('c', 'p', cb.handlers);
+    await vi.waitFor(() => expect(cb.onClose).toHaveBeenCalledTimes(1));
+
+    expect(cb.onError).toHaveBeenCalledTimes(1);
+    expect(cb.onError.mock.calls[0][0].status).toBe(502);
+    expect(cb.onError.mock.calls[0][0].slug).toBe('');
   });
 
   test('a rejected fetch reports onError and closes', async () => {

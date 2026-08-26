@@ -11,10 +11,26 @@ shared invariants hold uniformly:
 
 1. The three static mounts (``/static/fonts``, ``/design-system``, ``/static``)
    are all present.
-2. Both :class:`NoCacheStaticMiddleware` and :class:`ExceptionLoggingMiddleware`
-   are registered.
+2. :class:`NoCacheStaticMiddleware`, :class:`ExceptionLoggingMiddleware` and
+   :class:`HttpAuditMiddleware` (the audit layer for admitted mutations) are
+   all registered.
 3. :class:`WebAuthMiddleware` is registered (the auth gate).
-4. ``CORSMiddleware`` is **absent** — nothing here is cross-origin.
+4. The two safety layers sit at the two ends of the shared block:
+   :class:`WebAuthMiddleware` outermost of everything,
+   :class:`HttpAuditMiddleware` inside every other layer
+   ``configure_interface_app`` installs. Pinned here, on the nine real apps,
+   and not only on a synthetic one — "this lands in every interface app" is
+   the audit layer's own spec, and an interface that grew its own middleware
+   around the shared block would break it silently.
+
+   ``bluesky_web`` is why the audit assertion is "inside the shared block"
+   rather than ``user_middleware[-1]``: it registers its own ``@app.middleware
+   ("http")`` no-cache wrapper at module scope, *before* calling
+   ``configure_interface_app``, so that wrapper ends up innermost of all. It
+   only fills in response headers — it decides nothing and rewrites no status
+   — so the status the audit layer records is still the one the route
+   produced.
+5. ``CORSMiddleware`` is **absent** — nothing here is cross-origin.
 
 Each factory has a slightly different signature, so a small per-interface builder
 mirrors exactly how that interface's own tests construct the app (see e.g.
@@ -34,6 +50,7 @@ from starlette.routing import Mount
 
 from osprey.interfaces.common_middleware import (
     ExceptionLoggingMiddleware,
+    HttpAuditMiddleware,
     NoCacheStaticMiddleware,
     WebAuthMiddleware,
 )
@@ -174,6 +191,7 @@ def test_both_middlewares_present(interface_app: FastAPI) -> None:
     classes = {mw.cls for mw in interface_app.user_middleware}
     assert NoCacheStaticMiddleware in classes
     assert ExceptionLoggingMiddleware in classes
+    assert HttpAuditMiddleware in classes, "HttpAuditMiddleware (the audit layer) not registered"
 
 
 def test_web_auth_middleware_present(interface_app: FastAPI) -> None:
@@ -185,6 +203,19 @@ def test_web_auth_middleware_is_outermost(interface_app: FastAPI) -> None:
     # Added last => outermost => runs first: the gate authenticates before any
     # other middleware or route. Starlette lists user_middleware outermost-first.
     assert interface_app.user_middleware[0].cls is WebAuthMiddleware
+
+
+def test_http_audit_middleware_is_innermost(interface_app: FastAPI) -> None:
+    # Added first => innermost of the shared block => runs last: it never sees
+    # a request the gate refused (so a refusal is recorded once), and the
+    # status it records is the one the route produced rather than one an outer
+    # layer rewrote. Asserted against the shared block rather than against
+    # user_middleware[-1] because bluesky_web registers a header-only no-cache
+    # wrapper of its own before the block (see this module's docstring).
+    classes = [mw.cls for mw in interface_app.user_middleware]
+    audit_at = classes.index(HttpAuditMiddleware)
+    outside = [WebAuthMiddleware, ExceptionLoggingMiddleware, NoCacheStaticMiddleware]
+    assert all(classes.index(cls) < audit_at for cls in outside), classes
 
 
 def test_cors_middleware_absent(interface_app: FastAPI) -> None:

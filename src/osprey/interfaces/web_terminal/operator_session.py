@@ -11,6 +11,7 @@ import logging
 import re
 import time
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -54,10 +55,33 @@ except ImportError:
     CLIConnectionError = Exception  # type: ignore[assignment,misc]
 
 
+#: Env marker naming *where* the child's posture decision came from, and the
+#: posture-store key it was made under. The pair is what the audit envelope
+#: records as ``posture_source`` and ``session``; a child that finds neither
+#: was not spawned by a posture-aware surface at all and reports ``process``.
+POSTURE_SOURCE_ENV = "OSPREY_POSTURE_SOURCE"
+POSTURE_SESSION_ENV = "OSPREY_POSTURE_SESSION"
+
+#: The two sources a *spawning* surface can claim. ``live`` is a session key
+#: the posture store keeps answering for after the child is up (the chat pool's
+#: ``chat_id``, a PTY pool key); ``spawn`` is a key minted for one child and
+#: addressable by nobody, so its posture is whatever was true at spawn.
+POSTURE_SOURCE_SPAWN = "spawn"
+POSTURE_SOURCE_LIVE = "live"
+
+#: The closed set the envelope accepts. ``app`` is stamped by the HTTP layer
+#: and ``process`` is what a child with no marker at all reports; neither is
+#: reachable from this seam, but validating against the whole set here keeps a
+#: typo from reaching an audit record as a source nothing can interpret.
+_POSTURE_SOURCES = frozenset({POSTURE_SOURCE_SPAWN, POSTURE_SOURCE_LIVE, "app", "process"})
+
+
 def build_operator_child_env(
     project_cwd: str | None,
     session_key: str | None = None,
     app: Any = None,
+    *,
+    posture_source: str = POSTURE_SOURCE_LIVE,
 ) -> dict[str, str]:
     """Build the environment for an SDK-backed operator or chat session.
 
@@ -97,6 +121,23 @@ def build_operator_child_env(
     and nothing here removes it. The posture narrows privilege; it cannot
     widen it.
 
+    Alongside the posture it stamps the **audit pair**:
+    ``OSPREY_POSTURE_SOURCE`` (this call site's *posture_source*) and
+    ``OSPREY_POSTURE_SESSION`` (*session_key*). Two rules differ from the
+    posture value's and both matter:
+
+    * The pair is set **unconditionally** whenever there is a session key —
+      a ``writes`` session exports both markers, as does a key the store has
+      never held. The markers are not a privilege, so the narrowing-only rule
+      does not apply to them: they say *which* key was consulted and *who*
+      consulted it, and a session that was checked and came back ``writes`` is
+      a different audit fact from one nobody ever asked about. Only
+      ``OSPREY_EXECUTION_MODE`` stays inside the sandbox branch.
+    * ``posture_source`` is passed in, never worked out here. It cannot be
+      derived from the posture: ``writes`` and never-stored are the same
+      value, and the source is a property of the *call site*, not of the
+      answer the store gave. Every in-tree caller names it explicitly.
+
     Layering note: the posture store lives in ``routes.websocket`` (with the
     routes that read and write it), and that module imports *this* one, so the
     lookup is a function-local import rather than a module-level one. Keeping
@@ -116,12 +157,37 @@ def build_operator_child_env(
             environment and no marker is added.
         app: The FastAPI app holding the posture store on its state. Required
             alongside *session_key* for the lookup to happen.
+        posture_source: Which surface is spawning this child, from
+            :data:`_POSTURE_SOURCES`. ``POST /api/chat`` passes
+            :data:`POSTURE_SOURCE_LIVE` for a ``chat_id`` the posture surface
+            can address, and ``process`` for one it cannot (a caller-chosen id
+            outside the bare-UUID grammar, which no store will ever answer
+            for); ``/ws/operator``
+            passes :data:`POSTURE_SOURCE_SPAWN` (its ``operator-<hex8>`` key is
+            minted per connection and the posture route, which requires a
+            session UUID, can never address it). Defaults to ``live``, the
+            shape of a key the store keeps answering for — but every call site
+            in this tree states its own, and a test pins that.
 
     Returns:
         A fresh env dict for ``ClaudeAgentOptions.env``.
+
+    Raises:
+        ValueError: If *posture_source* is outside the envelope's closed set.
     """
+    if posture_source not in _POSTURE_SOURCES:
+        raise ValueError(
+            f"posture_source must be one of {sorted(_POSTURE_SOURCES)}, got {posture_source!r}"
+        )
+
     env = build_clean_env(project_cwd=project_cwd)
     env[PANEL_TOKEN_ENV] = get_web_credentials().panel_token
+
+    # The audit pair, stamped after the strip (build_clean_env would drop it)
+    # and outside the sandbox branch below — see the rules in the docstring.
+    if session_key:
+        env[POSTURE_SOURCE_ENV] = posture_source
+        env[POSTURE_SESSION_ENV] = session_key
 
     if session_key and app is not None:
         # Function-local: routes.websocket imports this module, so importing
@@ -670,12 +736,32 @@ class OperatorRegistry:
     # ---- Chat pool facade (Simple-mode; see ChatSessionPool) ---- #
 
     async def get_or_create_chat_session(
-        self, chat_id: str, cwd: str, env: dict[str, str] | None = None
+        self,
+        chat_id: str,
+        cwd: str,
+        env: dict[str, str] | Callable[[], dict[str, str] | None] | None = None,
     ) -> tuple[OperatorSession, bool]:
+        """Pass-through to :meth:`ChatSessionPool.get_or_create`.
+
+        *env* may be a mapping or a zero-arg builder; the builder form is what
+        keeps a caller's environment read atomic with the pool's registration
+        of the creation (``routes/chat.py`` relies on it for the runtime
+        posture).
+        """
         return await self.chats.get_or_create(chat_id, cwd, env)
 
     def get_chat_session(self, chat_id: str) -> OperatorSession | None:
         return self.chats.get(chat_id)
+
+    def has_chat_key(self, chat_id: str) -> bool:
+        """Pass-through to :meth:`ChatSessionPool.has_key`.
+
+        The *addressability* question, as opposed to the "what did we
+        terminate" question :meth:`get_chat_session` answers: this one also
+        says yes while a creation is still inside ``start()``, which is the
+        window a posture flip has to be able to name.
+        """
+        return self.chats.has_key(chat_id)
 
     async def terminate_chat_session(self, chat_id: str) -> None:
         await self.chats.terminate(chat_id)

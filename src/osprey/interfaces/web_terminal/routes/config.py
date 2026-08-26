@@ -35,7 +35,7 @@ router = APIRouter()
 _CONFIG_FILE = "config.yml"
 
 #: Machine-ish reason recorded for a refused protected key. The same string
-#: ``setup_patch`` records, so one query over ``protected-writes.jsonl`` finds
+#: ``setup_patch`` records, so one query across the protected-set ledgers finds
 #: every protected-key refusal regardless of which surface produced it.
 _PROTECTED_KEY_REASON = "protected_key"
 
@@ -49,7 +49,7 @@ _ABSENT = object()
 #: the rest. A PATCH body is small enough that this never fires; a PUT replaces
 #: the whole document, so deleting one block can change dozens of keys at once
 #: and the detail would stop being readable. Every changed key still reaches
-#: ``protected-writes.jsonl`` -- the cap trims the message, never the audit.
+#: the ledger as its own record -- the cap trims the message, never the audit.
 _MAX_NAMED_KEYS = 10
 
 #: What a successful write reports when this process may not write the render
@@ -262,7 +262,8 @@ def _refuse_protected_keys(request: Request, keys: list[str]) -> HTTPException:
     keys its body aimed at, PUT names the protected keys its replacement
     document would have changed. One refusal path, so the two cannot drift into
     telling an operator different stories about the same rule, and one query
-    over ``protected-writes.jsonl`` still finds every refusal either produced.
+    across ``var/audit/*/http_config.jsonl`` still finds every refusal either
+    produced, per identity.
 
     The machine-readable parts stay ``setup_patch``'s to the letter -- the same
     ``reason``, the same ``surface``, the same ``BLOCKED a protected config key``
@@ -305,14 +306,20 @@ def _refuse_protected_keys(request: Request, keys: list[str]) -> HTTPException:
 
     for key in keys:
         try:
-            from osprey.services.python_executor.refusal_audit import record_protected_refusal
+            from osprey.audit.envelope import POSTURE_SOURCE_APP
+            from osprey.audit.protected import SURFACE_HTTP_CONFIG, record_protected_refusal
 
             record_protected_refusal(
-                surface="http_config",
+                surface=SURFACE_HTTP_CONFIG,
                 target_file=_CONFIG_FILE,
                 key_or_path=key,
                 channel=channel,
                 reason=_PROTECTED_KEY_REASON,
+                # A web request belongs to no session: the server process is
+                # nobody's session child, so the env ladder would file this as
+                # a bare ``process`` while ``HttpAuditMiddleware`` stamps
+                # ``app`` for the very same request.
+                posture_source=POSTURE_SOURCE_APP,
             )
         except Exception:  # noqa: BLE001 -- audit is best-effort; the refusal is not
             logger.warning("Could not record the protected-key refusal for audit", exc_info=True)

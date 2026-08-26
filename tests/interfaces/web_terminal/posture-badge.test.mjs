@@ -327,7 +327,7 @@ describe('a refused toggle', () => {
       status: 409,
       detail: {
         error: 'session_not_started',
-        message: 'This session has not started yet — send one prompt first, then set its posture.',
+        message: 'This session has not started yet — send one prompt first, then set its posture. A chat session becomes addressable again on its next prompt.',
       },
     };
     await boot({ posture: 'writes' });

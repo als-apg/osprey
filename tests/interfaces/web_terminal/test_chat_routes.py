@@ -699,15 +699,21 @@ async def _collect_sse(resp) -> list[dict]:
     return _data_frames("".join(chunks))
 
 
-async def _inflight_session(registry, chat_id: str, *, cwd: str = "/tmp"):
+async def _inflight_session(req, chat_id: str):
     """Create a real chat session and park it mid-turn on the stall responder.
 
     Returns ``(session, token)`` with a genuinely in-flight turn: the guard is
     held and the reader is running (blocked in ``receive_response``), so the
     registry reports the session busy.
+
+    Built through the route's own ``_acquire_chat_turn`` rather than by handing
+    the pool a bare ``{}``. The pool now compares the environment a live entry
+    was built from before reusing it, so a session seeded with an environment
+    no route would produce is not reusable by the route — it would be torn
+    down and rebuilt, and a test meaning to park one session would quietly get
+    two.
     """
-    session, _ = await registry.get_or_create_chat_session(chat_id, cwd, {})
-    token = session.acquire_turn()
+    session, token, _reused = await chat_module._acquire_chat_turn(req, chat_id)
     await session.send_prompt("hold")
     await asyncio.wait_for(session._client.reached_hold.wait(), timeout=1.0)
     return session, token
@@ -770,7 +776,7 @@ class TestChatStatusMapIntegration:
         with _seam(_stall_responder()) as make:
             registry = OperatorRegistry()
             req = _req(registry)
-            session, token = await _inflight_session(registry, "c")
+            session, token = await _inflight_session(req, "c")
 
             with pytest.raises(HTTPException) as ei:
                 await chat_module.chat(req, chat_module.ChatRequest(prompt="second", chat_id="c"))
@@ -787,7 +793,7 @@ class TestChatStatusMapIntegration:
         with _seam(_stall_responder()) as make:
             registry = OperatorRegistry(chat_max_sessions=1)
             req = _req(registry)
-            a, token = await _inflight_session(registry, "A")
+            a, token = await _inflight_session(req, "A")
 
             with pytest.raises(HTTPException) as ei:
                 await chat_module.chat(req, chat_module.ChatRequest(prompt="x", chat_id="B"))
@@ -876,7 +882,7 @@ class TestChatDeleteEndpointIntegration:
         with _seam(_stall_responder()) as make:
             registry = OperatorRegistry()
             req = _req(registry)
-            session, _token = await _inflight_session(registry, "c")
+            session, _token = await _inflight_session(req, "c")
 
             resp = await asyncio.wait_for(chat_module.delete_chat("c", req), timeout=3.0)
 
@@ -893,7 +899,7 @@ class TestChatInterruptEndpointIntegration:
         with _seam(_stall_responder()) as make:
             registry = OperatorRegistry()
             req = _req(registry)
-            session, token = await _inflight_session(registry, "c")
+            session, token = await _inflight_session(req, "c")
 
             resp = await chat_module.interrupt_chat("c", req)
 

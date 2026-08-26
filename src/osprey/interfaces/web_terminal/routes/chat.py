@@ -23,15 +23,21 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-from osprey.interfaces.web_terminal.chat_session_pool import ChatCapacityError
+from osprey.audit.envelope import POSTURE_SOURCE_PROCESS
+from osprey.interfaces.web_terminal.chat_session_pool import (
+    ChatCapacityError,
+    ChatSessionTerminatedError,
+)
 from osprey.interfaces.web_terminal.operator_session import (
     CLAUDE_SDK_AVAILABLE,
+    POSTURE_SOURCE_LIVE,
     OperatorSession,
     TurnInProgressError,
     TurnSilenceTimeout,
     build_operator_child_env,
     is_terminal_event,
 )
+from osprey.interfaces.web_terminal.routes.websocket import is_posture_key
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +50,27 @@ HEARTBEAT_INTERVAL_S = 15
 
 
 class ChatRequest(BaseModel):
+    """Body of ``POST /api/chat``.
+
+    ``chat_id`` is deliberately unconstrained. It is the caller's own pool key
+    — any client that wants a private conversation picks one and keeps using
+    it — and narrowing it here would break every embedder that keys chats on
+    something of its own while buying nothing: the id never leaves the pool's
+    in-memory dict on this path.
+
+    The closed bare-UUID grammar lives on the *posture* surface instead
+    (``_require_session_uuid`` in ``routes/websocket.py``), because that is
+    where a caller-supplied key becomes a store key on disk that decides a
+    child's execution mode. The practical consequence is worth stating: the
+    shipped client mints its chat id with ``crypto.randomUUID()``
+    (``static/js/chat.js``), so its chats are addressable by the posture route,
+    while a chat id of some other shape still chats perfectly well and simply
+    cannot have a posture set on it. Such a child is spawned — and audited —
+    as ``posture_source=process`` rather than ``live``, because ``live`` means
+    "a store keeps answering for this key" and for an unaddressable id no
+    store ever will (see :func:`_acquire_chat_turn`).
+    """
+
     prompt: str
     chat_id: str
 
@@ -90,7 +117,8 @@ async def _acquire_chat_turn(request: Request, chat_id: str) -> tuple[OperatorSe
 
     Returns ``(session, token, was_reused)``. Maps registry/guard failures to the
     HTTP contract: :class:`ChatCapacityError` -> 429, :class:`TurnInProgressError`
-    -> 409, both with a machine-readable body.
+    -> 409, :class:`ChatSessionTerminatedError` -> 409, each with a
+    machine-readable body.
     """
     cwd: str = request.app.state.project_cwd
     registry = request.app.state.operator_registry
@@ -99,9 +127,41 @@ async def _acquire_chat_turn(request: Request, chat_id: str) -> tuple[OperatorSe
         session, was_reused = await registry.get_or_create_chat_session(
             chat_id,
             cwd,
+            # A BUILDER, not a mapping — and that is load-bearing, not style.
             # The chat pool is keyed on chat_id, so that is this surface's
             # session identity and the key its runtime posture hangs on.
-            build_operator_child_env(cwd, session_key=chat_id, app=request.app),
+            #
+            # The source is "live" only for a chat_id the posture surface can
+            # actually address. chat_id is deliberately unconstrained here
+            # (see ChatRequest), while the posture routes refuse anything
+            # outside the closed bare-UUID grammar with a 400 — so for an
+            # embedder-chosen key like "user-42-chat-3" no store will ever
+            # answer, and stamping "live" would tell an auditor that a runtime
+            # toggle governed a process no toggle can reach. "process" is the
+            # honest word for that child: nothing established its posture but
+            # the environment it inherited. The shipped client mints its id
+            # with crypto.randomUUID(), so it always takes the "live" arm.
+            #
+            # Reading the store HERE and passing the result down would leave
+            # the read and the pool's registration of this creation separated
+            # by everything on the way in. Nothing today suspends in that gap,
+            # but any awaited work added to this handler (an audit emitter, an
+            # identity lookup) would let a concurrent POST /api/terminal/posture
+            # land inside it: the flip writes the store, terminates a pool that
+            # is still empty, answers 200 — and this creation then registers a
+            # child carrying the posture the operator just left. The pool calls
+            # the builder inside the lock hold that registers the pending
+            # creation, so the flip must land wholly before it (fresh env) or
+            # wholly after (superseded creation, 409). See
+            # ``ChatSessionPool.get_or_create``.
+            lambda: build_operator_child_env(
+                cwd,
+                session_key=chat_id,
+                app=request.app,
+                posture_source=(
+                    POSTURE_SOURCE_LIVE if is_posture_key(chat_id) else POSTURE_SOURCE_PROCESS
+                ),
+            ),
         )
     except ChatCapacityError:
         raise HTTPException(
@@ -109,6 +169,20 @@ async def _acquire_chat_turn(request: Request, chat_id: str) -> tuple[OperatorSe
             detail={
                 "error": "chat_capacity",
                 "message": "All chat sessions are busy; try again shortly.",
+            },
+        ) from None
+    except ChatSessionTerminatedError:
+        # The chat was torn down while this very session was starting — a
+        # posture flip or an explicit DELETE. Retrying is the whole remedy and
+        # it respawns under whatever the store now holds, so say so rather than
+        # letting a deliberate teardown surface as a 500.
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "chat_terminated",
+                "message": (
+                    "This chat was terminated while it was starting; send the prompt again."
+                ),
             },
         ) from None
 

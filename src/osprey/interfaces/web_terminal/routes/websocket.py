@@ -19,7 +19,13 @@ from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisco
 from pydantic import BaseModel
 
 from osprey.interfaces.web_auth import PANEL_TOKEN_ENV, get_web_credentials
-from osprey.interfaces.web_terminal.operator_session import build_operator_child_env
+from osprey.interfaces.web_terminal.operator_session import (
+    POSTURE_SESSION_ENV,
+    POSTURE_SOURCE_ENV,
+    POSTURE_SOURCE_LIVE,
+    POSTURE_SOURCE_SPAWN,
+    build_operator_child_env,
+)
 from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 
 logger = logging.getLogger(__name__)
@@ -27,6 +33,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _UUID_RE = re.compile(r"^[a-f0-9-]{36}$")
+
+# The posture surface's *closed* key grammar: a canonical lowercase UUID, and
+# nothing else. ``_UUID_RE`` above is the loose shape check the resume path
+# (``switch_session``) applies to ids Claude itself wrote; it admits any 36
+# characters drawn from ``[a-f0-9-]``, which is fine for "does this look like a
+# session file stem" and much too wide for a key that is written to a store on
+# disk and later decides a child process's execution mode. Both identities the
+# posture route can legitimately name — a discovered PTY session (a Claude
+# session-file stem) and a live chat-pool session (``crypto.randomUUID()`` in
+# ``static/js/chat.js``) — are canonical UUIDs, so nothing shipped loses reach
+# by closing the grammar here. The ``/ws/operator`` pool's minted
+# ``operator-<hex8>`` keys stay unaddressable by design.
+_POSTURE_KEY_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 # ── Per-session runtime posture ──────────────────────────────────────────────
 #
@@ -58,17 +77,37 @@ class PostureRequest(BaseModel):
     posture: Literal["sandbox", "writes"]
 
 
+def is_posture_key(session_id: str) -> bool:
+    """Whether *session_id* matches the posture surface's closed key grammar.
+
+    The public half of :data:`_POSTURE_KEY_RE`, for the one caller outside this
+    module that has to agree with the posture route on what it can address:
+    ``routes/chat.py`` labels a chat child's ``posture_source`` by it, because
+    a key this answers ``False`` for is a key no posture store will ever answer
+    for. Kept as a function rather than an exported pattern so the grammar
+    itself stays private and there is one place to change it.
+    """
+    return bool(_POSTURE_KEY_RE.match(session_id))
+
+
 def _require_session_uuid(session_id: str) -> None:
-    """Refuse *session_id* unless it is shaped like a Claude session UUID.
+    """Refuse *session_id* unless it is a canonical, bare session UUID.
 
     One implementation for both posture routes, so the two cannot drift on the
     status, the error slug or the sentence. An arbitrary string can never
     become a store key that is then written to disk.
 
+    The grammar is closed (:data:`_POSTURE_KEY_RE`): eight-four-four-four-twelve
+    lowercase hex, no prefix, no suffix. Every key the posture surface can
+    legitimately name is minted that way — a Claude session-file stem or a chat
+    id from ``crypto.randomUUID()`` — so the closed form costs no reach and
+    keeps decorated keys (``operator-<hex8>``) and near-miss strings out of a
+    store that decides a child's execution mode.
+
     Raises:
         HTTPException: 400 ``invalid_session_id`` when the shape does not match.
     """
-    if not _UUID_RE.match(session_id):
+    if not is_posture_key(session_id):
         raise HTTPException(
             status_code=400,
             detail={
@@ -76,6 +115,176 @@ def _require_session_uuid(session_id: str) -> None:
                 "message": "session_id must be a Claude session UUID.",
             },
         )
+
+
+def _holds_a_chat_pool_entry(app, session_id: str) -> bool:
+    """Whether the chat pool holds an entry under *session_id* right now.
+
+    Deliberately **not** a liveness check: ``get_chat_session`` reads the
+    pool's session map and a dead-but-unreaped entry answers ``True``. That is
+    the right answer for both callers — such a key still names a chat the
+    operator can address, and terminating it evicts the corpse, which is what
+    wants to happen anyway.
+
+    What it is emphatically not is a gate on whether there is anything to
+    terminate. The map it reads is one of *two* places a chat can live: a
+    creation still inside ``start()`` sits in the pool's ``_pending`` and is
+    invisible here, which is exactly the child a posture flip most needs to
+    catch. :func:`_terminate_for_respawn` therefore terminates unconditionally
+    and uses this only to describe what happened.
+
+    The Simple-mode chat surface (``POST /api/chat``) keys its pool on the
+    caller-supplied ``chat_id`` and spawns the child under that key, so the
+    pool key and the posture-store key are the same string. Membership is read
+    through the registry's own read-only accessor — never the pool's internals
+    — so a probe cannot refresh an entry's idle clock or evict anything.
+
+    Absent or unfamiliar registries answer ``False`` rather than raising: the
+    caller is an existence gate, and a registry that cannot be asked simply has
+    no chat session to offer.
+    """
+    registry = getattr(app.state, "operator_registry", None)
+    getter = getattr(registry, "get_chat_session", None)
+    if not callable(getter):
+        return False
+    return getter(session_id) is not None
+
+
+def _chat_pool_answers_to(app, session_id: str) -> bool:
+    """Whether the chat pool would answer to *session_id* at all.
+
+    The *addressability* probe, and deliberately a wider question than
+    :func:`_holds_a_chat_pool_entry`: it also says ``True`` while a creation is
+    still inside ``start()``. That window is not a corner case on this surface
+    — it is the first prompt of a chat, the moment the child is being armed
+    with tools — and answering ``False`` there is what made a flip during chat
+    creation a 409 that wrote nothing and terminated nothing, while the
+    pre-flip child went on to register itself into the pool with the
+    environment the operator had just stepped out of.
+
+    Reached through the registry's own read-only facade
+    (:meth:`~osprey.interfaces.web_terminal.operator_session.OperatorRegistry.has_chat_key`),
+    so a probe disturbs no LRU order and creates nothing. A registry that
+    predates the facade — a hand-rolled double, say — falls back to the
+    narrower session-map probe rather than raising, the same tolerance the rest
+    of this surface grants an unfamiliar registry.
+    """
+    registry = getattr(app.state, "operator_registry", None)
+    prober = getattr(registry, "has_chat_key", None)
+    if callable(prober):
+        return bool(prober(session_id))
+    return _holds_a_chat_pool_entry(app, session_id)
+
+
+async def _terminate_for_respawn(app, session_id: str) -> tuple[str, ...]:
+    """Terminate every live child answering to *session_id*, via its owning pool.
+
+    A posture reaches an agent only through a child process's environment, so
+    applying one means killing the child that carries the old one and letting
+    it come back. Which pool can do that is a property of the topology, not of
+    the key's shape:
+
+    * the **PTY registry** owns terminal sessions keyed on a Claude UUID; and
+    * the **chat pool** behind ``operator_registry`` owns Simple-mode SDK
+      sessions keyed on the caller's ``chat_id``.
+
+    The PTY registry is asked whether it holds a session under this key,
+    because ``terminate_session`` there is only meaningful for one it holds.
+    The chat pool is **not** asked: it is told to terminate whenever the
+    registry exposes the call. The route used to blind-call the PTY registry
+    for every key; for a chat key that pops nothing, so the operator got a 200
+    and the SDK child kept running with the posture they had just left.
+
+    Gating the chat terminate on a membership probe would reintroduce that in a
+    narrower window. The probe reads the pool's session map, and a creation
+    still inside ``start()`` lives in the pool's ``_pending`` instead — so a
+    flip arriving while a chat is being created would answer "nothing here",
+    skip the terminate, and let the pre-flip child register itself into the
+    pool *after* the operator was told 200. ``ChatSessionPool.terminate`` is
+    documented idempotent and busy-safe: for a key it does not hold it pops
+    nothing and supersedes nothing, so the unconditional call costs one no-op
+    on a PTY-only key and closes the window on a chat one.
+
+    ``ChatSessionPool.has_key`` *can* see a starting creation, and the
+    addressability gate uses it — but gating the terminate on it would still
+    be a probe and an act with a gap between them, and the pool's own lock is
+    the only thing that closes that gap. The unconditional call keeps the
+    decision inside the pool, where it belongs.
+
+    Both pools can own one key at once — ``chat_id`` is caller-chosen and
+    nothing stops an embedder from picking a live PTY session's UUID — so both
+    are terminated in that case rather than one being guessed at.
+
+    Returns the names of the pools that had a *pooled* entry under the key, for
+    the log line. It is a description, not the set of calls made: an in-flight
+    chat creation is superseded without appearing here, because the supersede
+    is deliberately fire-and-forget (a hung ``start()`` must not hang the
+    operator's toggle) and the pool has no answer to give back yet. An empty
+    tuple means the key was addressable but nothing was pooled under it, which
+    is the normal state of a discovered PTY session nobody has attached to.
+    """
+    terminated: list[str] = []
+
+    pty_registry = getattr(app.state, "pty_registry", None)
+    if pty_registry is not None and pty_registry.get_session(session_id) is not None:
+        pty_registry.terminate_session(session_id)
+        terminated.append("pty")
+
+    registry = getattr(app.state, "operator_registry", None)
+    terminate_chat = getattr(registry, "terminate_chat_session", None)
+    held_a_chat_entry = _holds_a_chat_pool_entry(app, session_id)
+    if callable(terminate_chat):
+        await terminate_chat(session_id)
+        if held_a_chat_entry:
+            terminated.append("chat")
+    elif held_a_chat_entry:
+        # Same tolerance the membership probe grants an unfamiliar registry
+        # (a test double, say): it can answer the probe but cannot be told to
+        # act. The store is still written, so the next spawn under this key
+        # carries the posture — only the live child outlives the change.
+        logger.warning(
+            "Session %s names a chat-pool entry on a registry with no "
+            "terminate_chat_session; its running child keeps the old posture "
+            "until it is restarted",
+            session_id,
+        )
+
+    return tuple(terminated)
+
+
+def _posture_key_is_addressable(app, session_id: str) -> bool:
+    """Whether some real session answers to *session_id* on either topology.
+
+    The posture is per session, so a key that names no session is a key nothing
+    will ever spawn under. Three answers count, cheapest first:
+
+    * a **chat session the pool would answer to** — pooled, or still inside
+      ``start()`` (:func:`_chat_pool_answers_to`). The SDK topology's key
+      exists from the moment the pool accepts the creation and never appears
+      in the JSONL stems the discovery walks.
+    * a **key the posture store already holds an entry for**. The chat pool is
+      LRU-capped, idle-reaped, and evicted by the flip itself, so pool
+      membership is a fact with an end — and without this clause a chat
+      sandboxed once could never be brought back out, because the successful
+      flip is what removed it from the pool. An entry in the store is the
+      operator's own earlier, accepted decision about this key; letting them
+      revise it grants nothing new (the store only ever *narrows* a spawn, and
+      a key nothing spawns under is inert), while refusing it would strand a
+      session in the sandbox.
+    * a **PTY session discovered on disk** — a Claude session-file stem, which
+      only exists once the operator has sent a prompt. Checked last: it walks
+      the session directory, while the other two are in-memory reads.
+
+    Checking only the stems is what made a chat session's posture unsettable:
+    the chat spawn already honours the store (``_acquire_chat_turn`` passes the
+    key to ``build_operator_child_env``), so the store was readable on that
+    surface and not writable — a badge the operator could not act on.
+    """
+    if _chat_pool_answers_to(app, session_id):
+        return True
+    if session_id in _session_postures(app):
+        return True
+    return session_id in SessionDiscovery(app.state.project_cwd).snapshot_session_ids()
 
 
 def _atomic_write_json(path: Path, data: dict[str, Any]) -> None:
@@ -139,6 +348,12 @@ def _posture_store_path(app) -> Path:
     return _resolve_posture_store_path(app)[0]
 
 
+#: Prefix of the ``/ws/operator`` session keys (``operator-<hex8>``, minted per
+#: accepted websocket). Postures under these keys are deliberately
+#: **non-durable**: see :func:`_load_postures`.
+_NON_DURABLE_KEY_PREFIX = "operator-"
+
+
 def _load_postures(path: Path) -> dict[str, str]:
     """Read the persisted postures, tolerating every kind of absence.
 
@@ -148,6 +363,38 @@ def _load_postures(path: Path) -> dict[str, str]:
     reach it. A missing or corrupt file yields an empty store — the operator
     can set the postures again, which is a far better outcome than every spawn
     and every toggle failing on a file nobody can repair from the browser.
+
+    **Operator keys do not survive a restart.** ``operator-<hex8>`` keys name a
+    ``/ws/operator`` connection, and that registry is per *process*: the key is
+    minted when the websocket is accepted and is addressable by nothing else,
+    so a key restored from disk can never name a live session. Keeping such an
+    entry would grow the store without bound with keys nothing will ever spawn
+    under, and would let a future key collision hand a fresh connection a
+    stranger's posture. Durability of the operator half stays out of scope
+    until an operator client exists to define its reconnect protocol.
+
+    The other two key shapes survive the filter, and one of them has to. A PTY
+    session's Claude UUID names a session file that outlives the process, so
+    its posture is durable in the full sense: the key comes back and the
+    restored entry governs the respawn.
+
+    A chat ``chat_id`` is weaker, and the honest version is worth stating: the
+    shipped client mints a fresh one per page load (``crypto.randomUUID()`` in
+    ``static/js/chat.js``), so a restored chat posture is *speculative* — no
+    shipped client will ever address that key again, and it would be reachable
+    only by a future client that persists its id. Chat keys are nonetheless
+    kept, because they are bare canonical UUIDs and so indistinguishable at
+    load time from the PTY stems that must survive; filtering them would need
+    a key registry this store does not have. The unbounded-growth objection
+    that justifies dropping ``operator-`` keys does apply here in miniature —
+    it is bounded by one entry per chat the operator actually sandboxed, not
+    by one per connection, which is why it is tolerated rather than solved.
+
+    This load-side filter is the single enforcement point.
+    :func:`_persist_postures` still writes whatever the in-memory store holds,
+    operator keys included — the in-memory entries are live and load-bearing
+    for the rest of the process's life, and dropping them on the way *out*
+    would only add a second place for the rule to drift.
     """
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
@@ -162,7 +409,9 @@ def _load_postures(path: Path) -> dict[str, str]:
     return {
         key: value
         for key, value in raw.items()
-        if isinstance(key, str) and value in _VALID_POSTURES
+        if isinstance(key, str)
+        and value in _VALID_POSTURES
+        and not key.startswith(_NON_DURABLE_KEY_PREFIX)
     }
 
 
@@ -290,12 +539,15 @@ async def _discover_and_notify(
 ) -> str | None:
     """Discover a newly-created Claude session UUID and notify the client.
 
-    Returns the discovered UUID (or None). Also rekeys the registry entry.
+    Returns the discovered UUID (or None). Also rekeys the registry entry —
+    ``app`` is handed along so the session's posture-store entry moves with it
+    and the audit alias back to the spawn key is recorded; see
+    :meth:`~osprey.interfaces.web_terminal.pty_manager.PtyRegistry.rekey_session`.
     """
     loop = asyncio.get_event_loop()
     new_id = await loop.run_in_executor(None, discovery.discover_new_session, snapshot, timeout)
     if new_id:
-        registry.rekey_session(current_key, new_id)
+        registry.rekey_session(current_key, new_id, app=websocket.app)
         try:
             await websocket.send_text(json.dumps({"type": "session_info", "session_id": new_id}))
         except Exception:
@@ -360,9 +612,18 @@ def _build_extra_env(
     # ``OSPREY_EXECUTION_MODE=readonly`` through hooks_env has made a
     # deployment-wide decision, and a per-session ``writes`` posture must not
     # be able to lift it: this toggle narrows privilege, it never widens it.
+    # The audit pair rides along whenever there is a key to name, ``writes``
+    # sessions included: it records which key was consulted and that a live
+    # store answered, which is a different fact from the posture it answered
+    # with. Only the posture *value* below is narrowing-only. The source is
+    # always "live" here — a PTY pool key is exactly the id the posture route
+    # addresses, so the store keeps answering for it after the child is up.
     posture_key = claude_session_id or telemetry_session_id
-    if posture_key and _session_postures(websocket.app).get(posture_key) == POSTURE_SANDBOX:
-        extra_env["OSPREY_EXECUTION_MODE"] = "readonly"
+    if posture_key:
+        extra_env[POSTURE_SOURCE_ENV] = POSTURE_SOURCE_LIVE
+        extra_env[POSTURE_SESSION_ENV] = posture_key
+        if _session_postures(websocket.app).get(posture_key) == POSTURE_SANDBOX:
+            extra_env["OSPREY_EXECUTION_MODE"] = "readonly"
     return extra_env
 
 
@@ -667,36 +928,41 @@ async def set_terminal_posture(body: PostureRequest, request: Request):
     """Set one session's runtime posture and respawn it under the new one.
 
     The posture reaches the agent only through a child process's environment,
-    so recording it is not enough: the session's PTY is terminated, and the
-    client's reconnect brings the session back with the posture applied. The
-    store is updated and persisted *before* the terminate, because the respawn
-    reads it back through :func:`_build_extra_env` and would otherwise race it.
+    so recording it is not enough: the live child is terminated through the
+    pool that owns it (:func:`_terminate_for_respawn`), and the next attach or
+    prompt brings the session back with the posture applied. The store is
+    updated and persisted *before* the terminate, because the respawn reads it
+    back — through :func:`_build_extra_env` on the PTY seam and
+    ``build_operator_child_env`` on the chat one — and would otherwise race it.
 
     Three refusals, all before anything is written:
 
-    * **409** — the id names no session on disk. A Claude session file only
-      appears once the operator has sent a prompt, and until then there is
-      nothing to respawn; the detail says so, because "send one prompt first"
-      is the entire remedy and the alternative is a toggle that silently does
-      nothing.
+    * **409** — the id names no session at all: no chat the pool would answer
+      to, no entry already in the store, no Claude session file on disk (see
+      :func:`_posture_key_is_addressable`). A PTY session's file only appears
+      once the operator has sent a prompt, and a chat the pool has dropped and
+      never had a posture set on comes back on its next prompt; until then
+      there is nothing to respawn, and the detail says so, because sending a
+      prompt is the entire remedy and the alternative is a toggle that
+      silently does nothing.
     * **403** — ``writes`` on a render whose ``control_system.writes_enabled``
       is off. The posture may narrow what the render permits, never widen it.
-    * **400** — an id that is not a session UUID, checked with the same
-      ``_UUID_RE`` ``switch_session`` uses, so an arbitrary string can never
-      become a store key that is then written to disk.
+    * **400** — an id outside the closed key grammar
+      (:func:`_require_session_uuid`), so an arbitrary string can never become
+      a store key that is then written to disk.
     """
     session_id = body.session_id
     _require_session_uuid(session_id)
 
-    discovery = SessionDiscovery(request.app.state.project_cwd)
-    if session_id not in discovery.snapshot_session_ids():
+    if not _posture_key_is_addressable(request.app, session_id):
         raise HTTPException(
             status_code=409,
             detail={
                 "error": "session_not_started",
                 "message": (
                     "This session has not started yet — send one prompt first, "
-                    "then set its posture."
+                    "then set its posture. A chat session becomes addressable "
+                    "again on its next prompt."
                 ),
             },
         )
@@ -718,9 +984,12 @@ async def set_terminal_posture(body: PostureRequest, request: Request):
     store = _session_postures(request.app)
     store[session_id] = body.posture
     _persist_postures(request.app, store)
-    request.app.state.pty_registry.terminate_session(session_id)
+    terminated = await _terminate_for_respawn(request.app, session_id)
     logger.info(
-        "Session %s posture set to %s; PTY terminated for respawn", session_id, body.posture
+        "Session %s posture set to %s; terminated for respawn on: %s",
+        session_id,
+        body.posture,
+        ", ".join(terminated) if terminated else "no live child",
     )
 
     return {"status": "ok", "session_id": session_id, "posture": body.posture}
@@ -750,8 +1019,9 @@ async def get_terminal_posture(session_id: str, request: Request):
     written a session file, and refusing there would blank the one surface that
     tells the operator what the render permits. Answering costs nothing: a read
     grants nothing, stores nothing, and reports exactly the posture that
-    session will spawn under. The id is still shape-checked with the same
-    ``_UUID_RE`` POST uses, so the two routes keep one error contract.
+    session will spawn under — for a chat key just as for a PTY one. The id is
+    still shape-checked with the same closed grammar POST uses, so the two
+    routes keep one error contract.
     """
     _require_session_uuid(session_id)
 
@@ -819,7 +1089,16 @@ async def operator_ws(websocket: WebSocket):
         # operator_key is this connection's whole identity — the operator
         # websocket resumes no Claude session — so it is the key the runtime
         # posture is looked up under.
-        env = build_operator_child_env(project_cwd=cwd, session_key=operator_key, app=websocket.app)
+        # "spawn": operator_key is minted here and addressable by nothing else
+        # (the posture route only takes a session UUID), so whatever the store
+        # holds for it at spawn is the whole story this child's audit records
+        # can tell about where its posture came from.
+        env = build_operator_child_env(
+            project_cwd=cwd,
+            session_key=operator_key,
+            app=websocket.app,
+            posture_source=POSTURE_SOURCE_SPAWN,
+        )
         session = await registry.create_session(operator_key, cwd=cwd, env=env)
     except Exception as exc:
         logger.error("Failed to create operator session: %s", exc)

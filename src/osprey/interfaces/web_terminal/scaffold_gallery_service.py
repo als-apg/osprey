@@ -21,6 +21,8 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
+from osprey.audit.envelope import POSTURE_SOURCE_APP
+from osprey.audit.protected import SURFACE_SCAFFOLD_GALLERY, record_protected_refusal
 from osprey.cli.profile_conventions import NOT_PROJECT_RELATIVE_CHANNEL
 from osprey.cli.templates.manager import TemplateManager
 from osprey.interfaces.web_terminal.ownership import (
@@ -44,7 +46,6 @@ from osprey.services.build_artifacts.ownership import (
     update_manifest_add_user_owned,
     update_manifest_remove_user_owned,
 )
-from osprey.services.python_executor.refusal_audit import record_protected_refusal
 from osprey.utils.config import resolve_env_vars
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle at runtime, annotation only
@@ -59,9 +60,10 @@ logger = logging.getLogger(__name__)
 DIRECTORY_ENTRY_FILE = "SKILL.md"
 
 
-#: Surface name this module records its refusals under, so an operator reading
-#: ``protected-writes.jsonl`` can tell a gallery refusal from a config-route one.
-REFUSAL_SURFACE = "scaffold_gallery"
+#: Surface name this module records its refusals under, and therefore the
+#: ledger its refusals land in (``var/audit/<identity>/scaffold_gallery.jsonl``),
+#: so an operator can tell a gallery refusal from a config-route one.
+REFUSAL_SURFACE = SURFACE_SCAFFOLD_GALLERY
 
 
 class ProtectedArtifactError(PermissionError):
@@ -1172,6 +1174,11 @@ class ScaffoldGalleryService:
             key_or_path=output_path,
             channel=channel,
             reason="reserved path",
+            # Every way into this gate is a scaffold route, and a web request
+            # belongs to no session: the ``app`` stamp is the same one
+            # ``HttpAuditMiddleware`` files for the request this refusal
+            # answers, where the env ladder would say ``process``.
+            posture_source=POSTURE_SOURCE_APP,
         )
         raise ProtectedArtifactError(
             f"'{canonical_name}' belongs to {channel}. {outcome}.",
