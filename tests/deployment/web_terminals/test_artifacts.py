@@ -12,6 +12,8 @@ from osprey.deployment.web_terminals.artifacts import (
     ZERO_MIGRATION_OFFENDER,
     BashLaunchTokenConflictError,
     auth_env_digest,
+    bash_launch_token_offenders,
+    check_bash_launch_token_conflict,
     write_web_terminal_artifacts,
 )
 from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
@@ -229,8 +231,11 @@ def _tiered_roster_config(tmp_path, *, rw_denies_bash: bool = True, ro_denies_ba
     `alice` runs a read-write persona that also runs the bluesky server, so its
     project satisfies both halves of the launch-token predicate. `bob` runs a
     read-only persona — `writes_enabled: false` — which can never satisfy it.
-    Both ship the shell deny by default; the `*_denies_bash` switches drop it to
-    construct the conflict the deploy guard refuses.
+    Both spell out `claude_code.servers.bluesky.enabled`: the server is opt-in in
+    the registry, so a project that omits the key runs no server and would sit
+    outside the predicate for the wrong reason. Both ship the shell deny by
+    default; the `*_denies_bash` switches drop it to construct the conflict the
+    deploy guard refuses.
     """
     config = _config(
         [
@@ -244,7 +249,10 @@ def _tiered_roster_config(tmp_path, *, rw_denies_bash: bool = True, ro_denies_ba
             "project_path": _write_persona_project(
                 tmp_path,
                 "rw",
-                {"control_system": {"writes_enabled": True}},
+                {
+                    "control_system": {"writes_enabled": True},
+                    "claude_code": {"servers": {"bluesky": {"enabled": True}}},
+                },
                 denies_bash=rw_denies_bash,
             ),
         },
@@ -253,7 +261,10 @@ def _tiered_roster_config(tmp_path, *, rw_denies_bash: bool = True, ro_denies_ba
             "project_path": _write_persona_project(
                 tmp_path,
                 "ro",
-                {"control_system": {"writes_enabled": False}},
+                {
+                    "control_system": {"writes_enabled": False},
+                    "claude_code": {"servers": {"bluesky": {"enabled": True}}},
+                },
                 denies_bash=ro_denies_bash,
             ),
         },
@@ -528,11 +539,16 @@ def _zero_migration_config(tmp_path, *, writes_enabled: bool = True, denies_bash
     """A persona-less roster: the web image IS the deploy project.
 
     No persona catalog and no default_persona, so every entry runs the deploy
-    project itself; entitlement is answered by ``config_needs_launch_token`` on
-    the deploy config, and the shipped settings artifact is
-    ``<project_root>/.claude/settings.json``.
+    project itself; entitlement is answered by ``config_needs_launch_token_for``
+    on the deploy config, and the shipped settings artifact is
+    ``<project_root>/.claude/settings.json``. The deploy config spells out
+    ``claude_code.servers.bluesky.enabled`` for the same reason every persona
+    fixture here does: the server is opt-in in the registry, so a config that
+    omits the key runs no server and would sit outside the predicate for the
+    wrong reason.
     """
     config = _config(["alice"])
+    config["claude_code"] = {"servers": {"bluesky": {"enabled": True}}}
     if writes_enabled:
         config["control_system"] = {"writes_enabled": True}
     if denies_bash:
@@ -588,9 +604,11 @@ def test_a_default_persona_roster_is_covered_by_the_persona_check_not_the_sentin
     config = _tiered_roster_config(tmp_path, rw_denies_bash=False)
     config["modules"]["web_terminals"]["default_persona"] = "readwrite"
     config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0}]
-    # Entitle the deploy root too; the sentinel must still not appear, because
-    # no entry actually runs the deploy project.
+    # Entitle the deploy root too — writes AND the bluesky server, or the
+    # entitlement would not be real — and the sentinel must still not appear,
+    # because no entry actually runs the deploy project.
     config["control_system"] = {"writes_enabled": True}
+    config["claude_code"] = {"servers": {"bluesky": {"enabled": True}}}
 
     with pytest.raises(BashLaunchTokenConflictError) as excinfo:
         write_web_terminal_artifacts(config, tmp_path)
@@ -621,7 +639,13 @@ def test_every_offending_persona_is_named_not_just_the_first(tmp_path):
     config["modules"]["web_terminals"]["personas"]["alsobad"] = {
         "project": "bad2",
         "project_path": _write_persona_project(
-            tmp_path, "bad2", {"control_system": {"writes_enabled": True}}, denies_bash=False
+            tmp_path,
+            "bad2",
+            {
+                "control_system": {"writes_enabled": True},
+                "claude_code": {"servers": {"bluesky": {"enabled": True}}},
+            },
+            denies_bash=False,
         ),
     }
 
@@ -643,10 +667,154 @@ def test_the_guard_follows_the_shipped_artifact_not_the_config_intent(tmp_path):
     config = _tiered_roster_config(tmp_path)
     rw_config = tmp_path / "profiles" / "rw" / "config.yml"
     parsed = yaml.safe_load(rw_config.read_text(encoding="utf-8"))
-    parsed["claude_code"] = {"permissions": {"remove_deny": ["Bash"]}}
+    # Merged, not assigned: the same section already carries the bluesky server
+    # this persona is entitled through, and replacing it would disarm the persona
+    # the test is about rather than only editing its permissions.
+    parsed["claude_code"]["permissions"] = {"remove_deny": ["Bash"]}
     rw_config.write_text(yaml.safe_dump(parsed), encoding="utf-8")
 
     # The built artifact — what the image actually carries — still denies Bash.
     write_web_terminal_artifacts(config, tmp_path)
 
     assert _LAUNCH_TOKEN_LINE in _rendered_services(tmp_path / "build")["web-alice"]["environment"]
+
+
+# ---------------------------------------------------------------------------
+# The guard is per LANE
+#
+# Each plan lane carries its own launch token, armed by the write posture of
+# the control target that lane drives. A persona can therefore hold the VA
+# lane's token on a deployment whose baseline is a live machine — and a shell
+# in that container reaches the VA hardware just as directly, so the conflict
+# is refused on any lane, not only on lane 1.
+# ---------------------------------------------------------------------------
+
+#: A persona project whose baseline is a live machine with writes disarmed, that
+#: arms the VA connector alone and renders the VA second lane. Lane 1 declares no
+#: target and so drives `live`, which this config leaves unarmed.
+_VA_ARMED_PROJECT: dict = {
+    "control_system": {
+        "type": "epics",
+        "writes_enabled": False,
+        "connector": {"epics": {}, "virtual_accelerator": {"writes_enabled": True}},
+    },
+    "services": {"bluesky_va": {"target": "va", "port": 8091}},
+    "claude_code": {"servers": {"bluesky": {"enabled": True}}},
+}
+
+
+def _va_lane_roster_config(tmp_path, *, denies_bash: bool = True):
+    """A one-user roster whose persona is entitled on the VA lane only."""
+    config = _config([{"name": "alice", "index": 0, "persona": "va_operator"}])
+    config["modules"]["web_terminals"]["personas"] = {
+        "va_operator": {
+            "project": "va",
+            "project_path": _write_persona_project(
+                tmp_path, "va", _VA_ARMED_PROJECT, denies_bash=denies_bash
+            ),
+        }
+    }
+    return config
+
+
+def test_the_guard_returns_the_entitlement_map_keyed_by_lane(tmp_path):
+    """The guard hands its caller what it cleared, so the render grants exactly the
+    set that passed. Keyed by lane, because each lane's token is a separate grant:
+    the tiered roster arms lane 1 and renders no other."""
+    result = check_bash_launch_token_conflict(_tiered_roster_config(tmp_path), tmp_path)
+
+    assert result == {"bluesky": {"readwrite"}}
+
+
+def test_a_persona_entitled_on_the_va_lane_alone_is_still_a_conflict(tmp_path):
+    """The refusal is not about lane 1. A persona holding only the VA lane's token
+    can read it out of its environment and arm the virtual accelerator's queue with
+    no approval, which is the same bypass on a different machine."""
+    config = _va_lane_roster_config(tmp_path, denies_bash=False)
+
+    with pytest.raises(BashLaunchTokenConflictError) as excinfo:
+        write_web_terminal_artifacts(config, tmp_path)
+
+    assert excinfo.value.personas == ["va_operator"]
+    assert excinfo.value.personas_by_lane == {"bluesky_va": ["va_operator"]}
+
+
+def test_the_refusal_names_the_lane_and_the_key_that_disarms_it(tmp_path):
+    """The remedy has to name the key an operator actually edits. Sending them to
+    the deployment-wide key would have them disarm every target at once — and on
+    this deployment that key is already false, so it would read as no remedy at
+    all."""
+    with pytest.raises(BashLaunchTokenConflictError) as excinfo:
+        check_bash_launch_token_conflict(
+            _va_lane_roster_config(tmp_path, denies_bash=False), tmp_path
+        )
+
+    message = str(excinfo.value)
+    assert "bluesky_va" in message
+    assert "BLUESKY_VA_LAUNCH_TOKEN" in message
+    assert "control_system.connector.virtual_accelerator.writes_enabled" in message
+    assert "claude_code.servers.bluesky.enabled" in message
+
+
+def test_the_offender_set_is_the_union_over_every_lane(tmp_path):
+    """`bash_launch_token_offenders` answers one question — who is in conflict —
+    for a caller that must not raise. One token is one shell away from arming its
+    own lane, so entitlement on ANY lane puts a persona in the set."""
+    assert bash_launch_token_offenders(_va_lane_roster_config(tmp_path), tmp_path) == set()
+    assert bash_launch_token_offenders(
+        _va_lane_roster_config(tmp_path / "conflicted", denies_bash=False), tmp_path / "conflicted"
+    ) == {"va_operator"}
+
+
+def test_a_lane_nobody_may_arm_is_absent_from_the_entitlement_map(tmp_path):
+    """Lane 1 drives the live machine here and is disarmed, so it is missing from
+    the map rather than present with an empty set — the deployment renders no
+    lane-1 grant at all."""
+    result = check_bash_launch_token_conflict(_va_lane_roster_config(tmp_path), tmp_path)
+
+    assert result == {"bluesky_va": {"va_operator"}}
+
+
+def test_the_va_lane_grant_reaches_no_lane_one_token(tmp_path):
+    """The tier boundary, per target: a persona armed only for the virtual
+    accelerator must never be handed lane 1's token, which arms the live machine."""
+    write_web_terminal_artifacts(_va_lane_roster_config(tmp_path), tmp_path)
+
+    alice_env = _rendered_services(tmp_path / "build")["web-alice"]["environment"]
+    assert not any("BLUESKY_LAUNCH_TOKEN" in value for value in alice_env)
+
+
+def test_a_personaless_roster_armed_on_the_va_lane_alone_is_refused_by_lane(tmp_path):
+    """The two halves together: no persona is in effect, and the deploy config
+    arms the virtual accelerator alone while its baseline live machine stays
+    read-only. The persona-less entry therefore holds the VA lane's token and
+    nothing else — and with no shell deny shipped, the refusal must name that
+    lane and the per-connector key that disarms it, not lane 1 and not the
+    deployment-wide key (which is already false here and would read as no
+    remedy at all)."""
+    config = _config(["alice"])
+    config.update(
+        {
+            "control_system": {
+                "type": "epics",
+                "writes_enabled": False,
+                "connector": {"epics": {}, "virtual_accelerator": {"writes_enabled": True}},
+            },
+            "services": {"bluesky_va": {"target": "va", "port": 8091}},
+            "claude_code": {"servers": {"bluesky": {"enabled": True}}},
+        }
+    )
+
+    with pytest.raises(BashLaunchTokenConflictError) as excinfo:
+        write_web_terminal_artifacts(config, tmp_path)
+
+    assert excinfo.value.personas == [ZERO_MIGRATION_OFFENDER]
+    assert excinfo.value.personas_by_lane == {"bluesky_va": [ZERO_MIGRATION_OFFENDER]}
+    message = str(excinfo.value)
+    assert "BLUESKY_VA_LAUNCH_TOKEN" in message
+    assert "control_system.connector.virtual_accelerator.writes_enabled" in message
+    assert "no persona" in message
+    assert not (tmp_path / "build").exists()
+    # The ask-only reader binds the same entry: one shared predicate, so the
+    # collect-all preflight cannot clear what the raising guard refuses.
+    assert bash_launch_token_offenders(config, tmp_path) == {ZERO_MIGRATION_OFFENDER}

@@ -28,7 +28,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.bluesky_bridge_connection import SECOND_LANE_KEYS
+from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS
 from osprey.deployment.reach import (
     REACH_CONTRACTS,
     SHARED_PATHS,
@@ -421,3 +421,91 @@ def test_the_graph_channel_finder_is_a_store_consumer_of_its_own():
     }
     assert project_attached_overrides(host, off) == {}
     assert reach_errors(off) == []
+
+
+# ---------------------------------------------------------------------------
+# Each plan lane's launch token, on a synthetic two-lane render
+# ---------------------------------------------------------------------------
+
+
+def _launch_token_grants(config: dict) -> dict[str, bool]:
+    """Each lane's launch-token grant, as the registry's own gate answers it.
+
+    Read off the contracts rather than restated, so a lane whose grant is
+    rewired to some other posture shows up here as the wrong answer.
+    """
+    grants: dict[str, bool] = {}
+    for lane in LANE_KEYS:
+        for grant in REACH_CONTRACTS[lane].credentials:
+            grants[grant.env] = grant.gate(config)
+    return grants
+
+
+def test_a_lanes_launch_token_follows_that_lanes_own_target():
+    """The per-target boundary, lane by lane: a deployment built for a live
+    machine, arming writes on its virtual-accelerator lane alone, hands out the
+    VA lane's token and withholds the live lane's — even though the two lanes
+    run in one container for one persona."""
+    config = {
+        "claude_code": {"servers": {"bluesky": {"enabled": True}}},
+        "control_system": {
+            "type": "epics",
+            "writes_enabled": False,
+            "connector": {"virtual_accelerator": {"writes_enabled": True}},
+        },
+        "services": {
+            "bluesky": {"port": 8090, "target": "live"},
+            "bluesky_va": {"port": 8091, "target": "va"},
+        },
+    }
+
+    assert _launch_token_grants(config) == {
+        "BLUESKY_LAUNCH_TOKEN": False,
+        "BLUESKY_VA_LAUNCH_TOKEN": True,
+        # Lane 1 serves this deployment's live target; there is no second live
+        # lane to arm.
+        "BLUESKY_LIVE_LAUNCH_TOKEN": False,
+    }
+
+
+def test_a_global_true_does_not_arm_a_lane_whose_own_block_says_false():
+    """The mirror deployment — built for the simulator, told about its real
+    machine by a connector block that disarms it. The deployment-wide key is
+    the VA lane's posture by inheritance, and says nothing about the live lane,
+    whose own block has already answered."""
+    config = {
+        "claude_code": {"servers": {"bluesky": {"enabled": True}}},
+        "control_system": {
+            "type": "virtual_accelerator",
+            "writes_enabled": True,
+            "connector": {"epics": {"writes_enabled": False}},
+        },
+        "services": {
+            "bluesky": {"port": 8090, "target": "va"},
+            "bluesky_live": {"port": 8091, "target": "live"},
+        },
+    }
+
+    assert _launch_token_grants(config) == {
+        "BLUESKY_LAUNCH_TOKEN": True,
+        "BLUESKY_LIVE_LAUNCH_TOKEN": False,
+        "BLUESKY_VA_LAUNCH_TOKEN": False,
+    }
+
+
+def test_no_lane_is_armed_without_the_bluesky_server():
+    """A token for a server that never starts arms nothing while still handing
+    the agent a live credential — so the server's own switch, whose registry
+    default is off, gates every lane's grant."""
+    config = {
+        "control_system": {"type": "virtual_accelerator", "writes_enabled": True},
+        "services": {
+            "bluesky": {"port": 8090, "target": "va"},
+            "bluesky_live": {"port": 8091, "target": "live"},
+        },
+    }
+
+    assert set(_launch_token_grants(config).values()) == {False}
+
+    config["claude_code"] = {"servers": {"bluesky": {"enabled": True}}}
+    assert _launch_token_grants(config)["BLUESKY_LAUNCH_TOKEN"] is True

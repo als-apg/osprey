@@ -56,6 +56,7 @@ from urllib.parse import urlsplit
 from osprey.bluesky_bridge_connection import (
     BRIDGE_URL_ENV_VAR,
     DEFAULT_BRIDGE_PORT,
+    LANE_ONE,
     SECOND_LANE_KEYS,
     bridge_url_from_config,
     lane_env_prefix,
@@ -75,13 +76,14 @@ from osprey.deployment.web_terminals.personas import (
     BLUESKY_PANEL_ID,
     EVENTS_PANEL_ID,
     as_dict,
+    bluesky_server_enabled,
     config_declares_panel,
     config_needs_ariel_mirror,
     config_needs_ariel_password,
     config_needs_dispatcher_token,
     config_needs_facility_bundle,
     config_needs_graphdb_password,
-    config_needs_launch_token,
+    config_needs_launch_token_for,
 )
 
 __all__ = [
@@ -325,7 +327,22 @@ def _telemetry_on(config: Mapping[str, Any]) -> bool:
 
 
 def _bluesky_server_on(config: Mapping[str, Any]) -> bool:
-    return _servers_enabled(config, "bluesky", default=False)
+    # One predicate with the launch-token entitlement, so a projection and the
+    # credential that goes with it can never disagree about the same config.
+    return bluesky_server_enabled(config)
+
+
+def _launch_token_needed(lane: str) -> Predicate:
+    # A lane is bound at render time to ONE control target, so the token that
+    # arms a queue start there is granted on that target's write posture and no
+    # other: a deployment whose baseline is a live machine arms its
+    # virtual-accelerator lane while the live lane stays disarmed. Every lane
+    # asks personas.config_needs_launch_token_for, which also reads a lane this
+    # render never carried as nothing to arm.
+    def _needed(config: Mapping[str, Any]) -> bool:
+        return config_needs_launch_token_for(config, lane)
+
+    return _needed
 
 
 def _second_lane_on(lane: str) -> Predicate:
@@ -346,19 +363,6 @@ def _second_lane_on(lane: str) -> Predicate:
         )
 
     return _on
-
-
-def _second_lane_launch_token_needed(lane: str) -> Predicate:
-    # Lane 1's tier boundary (config_needs_launch_token), applied to a lane
-    # this render carries: a persona entitled to arm lane 1 is entitled to arm
-    # every lane it is told, since its session may be switched to either
-    # target — and a render that carries no such lane has nothing to arm.
-    def _needed(config: Mapping[str, Any]) -> bool:
-        return config_needs_launch_token(config) and isinstance(
-            as_dict(config.get("services")).get(lane), Mapping
-        )
-
-    return _needed
 
 
 def _second_lane_resolves(lane: str) -> Predicate:
@@ -526,9 +530,7 @@ def _second_lane_contract(lane: str) -> ReachContract:
             ProjectedKey(f"services.{lane}.port", gate=_bluesky_server_on),
             ProjectedKey(f"services.{lane}.target", gate=_bluesky_server_on),
         ),
-        credentials=(
-            CredentialGrant(f"{prefix}_LAUNCH_TOKEN", _second_lane_launch_token_needed(lane)),
-        ),
+        credentials=(CredentialGrant(f"{prefix}_LAUNCH_TOKEN", _launch_token_needed(lane)),),
         note=f"resolve_bridge_url({lane!r}) dials the lane's published port on loopback",
     )
 
@@ -669,7 +671,7 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
             # means absent here, which is that resolver's single-lane answer.
             ProjectedKey("services.bluesky.target", gate=_bluesky_server_on),
         ),
-        credentials=(CredentialGrant("BLUESKY_LAUNCH_TOKEN", config_needs_launch_token),),
+        credentials=(CredentialGrant("BLUESKY_LAUNCH_TOKEN", _launch_token_needed(LANE_ONE)),),
         note="resolve_bridge_url dials the published port on loopback",
     ),
     # The SECOND plan lane a deploying profile opts into (`bluesky.second_lane`),
@@ -680,7 +682,7 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
     # 1, port and target, so a persona's session switched to the other
     # machine is routed to that machine's lane rather than refused as a
     # single-lane render — and armed by that lane's own token, granted on the
-    # same tier boundary as lane 1's.
+    # write posture of the target that lane drives rather than on lane 1's.
     **{lane: _second_lane_contract(lane) for lane in SECOND_LANE_KEYS.values()},
     "bluesky_web": ReachContract(
         service="bluesky_web",

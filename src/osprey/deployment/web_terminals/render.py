@@ -19,7 +19,7 @@ from urllib.parse import quote
 
 from jinja2 import Environment, FileSystemLoader
 
-from osprey.bluesky_bridge_connection import discover_lane_keys, lane_env_prefix
+from osprey.bluesky_bridge_connection import LANE_KEYS, lane_env_prefix
 from osprey.deployment.compose_generator import (
     configured_ariel_mirror_path,
     repo_identity,
@@ -41,7 +41,7 @@ from osprey.deployment.web_terminals.personas import (
     config_needs_dispatcher_token,
     config_needs_facility_bundle,
     config_needs_graphdb_password,
-    config_needs_launch_token,
+    config_needs_launch_token_for,
     effective_image_source,
     entry_requires_login,
     env_var_suffix,
@@ -561,12 +561,49 @@ def _container_audit_dir(container_project_dir: str) -> str:
     return (PurePosixPath(container_project_dir) / AUDIT_DIR_RELPATH).as_posix()
 
 
+def _launch_token_env_vars(
+    config: Any,
+    entry: dict[str, Any],
+    launch_token_personas: dict[str, set[str]] | None,
+) -> list[str]:
+    """The launch-token variable names ONE roster entry is handed, in render order.
+
+    Entitlement is decided per persona AND per lane, because each plan lane is a
+    whole bridge stack armed by its own token and a deployment can arm writes on
+    its virtual-accelerator lane while its live lane stays read-only. Handing an
+    entitled persona every rendered lane's token would let a launch approved
+    against one machine be replayed against the other.
+
+    A persona-less roster entry — the zero-migration path, where the web image IS
+    the deploy project — is answered from this same config, with no disk read, so
+    the determinism contract holds either way.
+
+    :param config: The parsed facility config (the deploy config's own root).
+    :param entry: One resolved roster entry.
+    :param launch_token_personas: ``{lane: personas}`` — see
+        :func:`render_web_terminals`.
+    :return: ``<PREFIX>_LAUNCH_TOKEN`` for each lane this entry may arm, empty
+        when it may arm none.
+    """
+    persona = entry.get("persona")
+    entitled_by_lane = launch_token_personas or {}
+    return [
+        f"{lane_env_prefix(lane)}_LAUNCH_TOKEN"
+        for lane in LANE_KEYS
+        if (
+            persona in entitled_by_lane.get(lane, set())
+            if persona
+            else config_needs_launch_token_for(config, lane)
+        )
+    ]
+
+
 def render_web_terminals(
     config: Any,
     auth_env_digest: str | None = None,
     dispatcher_personas: set[str] | None = None,
     ariel_personas: set[str] | None = None,
-    launch_token_personas: set[str] | None = None,
+    launch_token_personas: dict[str, set[str]] | None = None,
     graphdb_personas: set[str] | None = None,
     facility_bundle_personas: set[str] | None = None,
     facility_bundle_gid: int | None = None,
@@ -623,16 +660,22 @@ def render_web_terminals(
             back to the shipped default, so a container that never receives it
             authenticates with the wrong password against a Postgres initialized
             with the minted one. ``None`` emits no line.
-        launch_token_personas: Persona names entitled to arm a Bluesky queue
-            start, resolved from disk by
-            :func:`osprey.deployment.web_terminals.personas.personas_needing_launch_token`.
+        launch_token_personas: ``{lane: persona names}`` — which personas are
+            entitled to arm a queue start on which plan lane, resolved from disk
+            by
+            :func:`osprey.deployment.web_terminals.personas.personas_needing_launch_token_by_lane`.
             Same placement and same reason as ``dispatcher_personas`` — see that
             argument for why a per-persona credential belongs in the per-user
             ``environment:`` block and never in the shared ``.env.users``.
-            The tier boundary bites hardest here: ``BLUESKY_LAUNCH_TOKEN`` is
-            what lets the ``bluesky`` MCP server arm a queue start without a
-            second confirmation, so a read-only persona holding it would be able
-            to move hardware. ``None`` emits no line.
+            Keyed by lane because each lane is a whole bridge stack armed by its
+            own ``<PREFIX>_LAUNCH_TOKEN``: a deployment whose baseline is a live
+            machine arms its virtual-accelerator lane alone, and a persona
+            entitled there must not also hold the live lane's token. The tier
+            boundary bites hardest here: the token is what lets the ``bluesky``
+            MCP server arm a queue start without a second confirmation, so a
+            read-only persona holding it would be able to move hardware. A lane
+            no persona may arm is absent from the map (an empty set grants the
+            same nothing). ``None`` emits no line for any user.
         graphdb_personas: Persona names whose project configures a graph store,
             and whose users therefore need the Neo4j password ``osprey up``
             minted into the deploy ``.env`` (see
@@ -771,6 +814,7 @@ def render_web_terminals(
     services = []
     for entry in resolved_users:
         user_ports = allocate_ports(base_ports, entry["index"])
+        launch_token_env_vars = _launch_token_env_vars(root, entry, launch_token_personas)
         services.append(
             {
                 "user": entry["name"],
@@ -881,15 +925,12 @@ def render_web_terminals(
                     if entry.get("persona")
                     else config_needs_ariel_password(root)
                 ),
-                # Whether this user's container gets the Bluesky queue's launch
-                # token (see the `launch_token_personas` arg). Persona-less
-                # entries are answered from this same config, with no disk read,
-                # exactly as above.
-                "wants_launch_token": (
-                    entry["persona"] in (launch_token_personas or set())
-                    if entry.get("persona")
-                    else config_needs_launch_token(root)
-                ),
+                # Which plan lanes' launch tokens this user's container gets
+                # (see the `launch_token_personas` arg), and whether it gets any
+                # at all. Both derived from the one list, so the template's gate
+                # cannot disagree with what it would emit inside it.
+                "wants_launch_token": bool(launch_token_env_vars),
+                "launch_token_env_vars": launch_token_env_vars,
                 # Whether this user's container gets the graph store's Neo4j
                 # password (see the `graphdb_personas` arg). Persona-less
                 # entries are answered from this same config, with no disk read,
@@ -1027,15 +1068,6 @@ def render_web_terminals(
         "registry_url": registry.get("url") or "",
         "image_source": image_source,
         "services": services,
-        # The launch token of every plan lane this deployment renders, granted
-        # together to each entitled persona (`svc.wants_launch_token`): lane
-        # 1's `BLUESKY_LAUNCH_TOKEN` alone on the single-lane deployment every
-        # project is by default, plus the second lane's own on a deployment
-        # that opted into one. Read off the deploy config's `services.<lane>`
-        # blocks, which is how every other lane consumer counts lanes.
-        "launch_token_env_vars": [
-            f"{lane_env_prefix(lane)}_LAUNCH_TOKEN" for lane in discover_lane_keys(root)
-        ],
         "nginx_port": nginx_port,
         "landing_url": landing_url,
         "facility_timezone": facility.get("timezone") or "UTC",
