@@ -51,6 +51,14 @@ Compatibility is documented in release notes, not encoded in the version string.
 - `artifact_delete_all` reports one activity entry ("N artifacts (scope)") instead
   of one per deleted artifact, so clearing a large gallery no longer pushes
   everything else out of the activity history.
+- The pyAT specialist hands in one artifact: its answer, filed under **Lattice
+  Analysis**. It no longer owes a second JSON copy of the same numbers — that copy
+  was re-typed by the model out of its own output, so it was never more
+  authoritative than the answer itself, and the code that produced the values is
+  already saved as the notebook artifact of the run. Large arrays for plotting are
+  still saved from inside the computing call and cited by id. The
+  `results_category:` frontmatter key and the hand-in refusal that enforced it are
+  removed.
 - The facility knowledge graph agent files its answers under **Facility Knowledge**
   in the gallery, alongside the documented-knowledge agent, instead of the generic
   **Agent Response** group. That fallback group is now labelled **Uncategorized**,

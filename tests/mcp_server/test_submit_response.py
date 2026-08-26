@@ -8,12 +8,7 @@ Covers:
   - Custom data_type passed through
   - source_agent / category mapping
   - skip_artifact mode
-  - The results-data contract: an agent whose rendered definition declares a
-    ``results_category`` hands in its computed quantities as ``data`` and the
-    tool files them as a JSON artifact there — and refuses a hand-in without them
 """
-
-import json
 
 import pytest
 
@@ -37,24 +32,12 @@ def workspace(tmp_path, monkeypatch):
     """Initialize a temporary ArtifactStore workspace.
 
     ``OSPREY_CONFIG`` is pinned into the same temp dir so the tool resolves its
-    project — and therefore its ``.claude/agents/`` declarations — there rather
-    than wherever pytest happens to run.
+    project there rather than wherever pytest happens to run.
     """
     monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
     initialize_artifact_store(workspace_root=tmp_path)
     yield tmp_path
     reset_artifact_store()
-
-
-def _declare_agent(project_dir, name, results_category=None):
-    """Render a minimal ``.claude/agents/<name>.md`` the way the build would."""
-    agents_dir = project_dir / ".claude" / "agents"
-    agents_dir.mkdir(parents=True, exist_ok=True)
-    lines = ["---", f"name: {name}"]
-    if results_category is not None:
-        lines.append(f"results_category: {results_category}")
-    lines += ["---", f"# {name}", ""]
-    (agents_dir / f"{name}.md").write_text("\n".join(lines), encoding="utf-8")
 
 
 class TestSubmitResponse:
@@ -260,12 +243,13 @@ class TestSubmitResponse:
         assert len(store.list_entries()) == 0
 
     @pytest.mark.asyncio
-    async def test_narrative_does_not_claim_a_domain_category(self, workspace):
-        """The prose artifact must not land in a domain results category.
+    async def test_unnamed_category_falls_back_to_uncategorized(self, workspace):
+        """A hand-in that names no category files under the generic fallback.
 
-        pyat-specialist's computed quantities are filed as JSON under
-        ``lattice_analysis``. If this markdown claimed the same key, that
-        category would stop identifying structured results.
+        The fallback is deliberately unhelpful — it shows as "Uncategorized" in
+        the gallery — because an agent that names nothing has told the operator
+        nothing about what its answer holds. Agent templates are gated on
+        naming one (tests/registry/test_agent_submit_categories.py).
         """
         raw = await _fn(
             title="AR Optics Summary",
@@ -277,8 +261,33 @@ class TestSubmitResponse:
         entry = get_artifact_store().get_entry(data["artifact_id"])
         assert entry is not None
         assert entry.artifact_type == "markdown"
-        assert entry.category != "lattice_analysis"
         assert entry.category == "agent_response"
+
+    @pytest.mark.asyncio
+    async def test_one_call_files_exactly_one_artifact(self, workspace):
+        """Prose is the whole deliverable: one hand-in, one artifact.
+
+        A computing agent used to owe a second JSON copy of its own numbers,
+        re-typed by the model out of its own stdout. The values live in the
+        answer; the executed code and its output are already saved as the
+        notebook artifact of the run that produced them.
+        """
+        raw = await _fn(
+            title="AR optics",
+            content="| quantity | value |\n|---|---|\n| nu_x | 0.2345 |",
+            data_type="lattice_analysis",
+            source_agent="pyat-specialist",
+        )
+        data = extract_response_dict(raw)
+
+        assert data["status"] == "success"
+        assert "data_artifact_id" not in data
+
+        entries = get_artifact_store().list_entries()
+        assert len(entries) == 1
+        assert entries[0].artifact_type == "markdown"
+        assert entries[0].category == "lattice_analysis"
+        assert entries[0].source_agent == "pyat-specialist"
 
     @pytest.mark.asyncio
     async def test_description_carries_the_label_not_the_key(self, workspace):
@@ -326,123 +335,3 @@ class TestSubmitResponse:
         entry = get_artifact_store().get_entry(data["artifact_id"])
         assert entry is not None
         assert entry.category == "channel_addresses"
-
-
-class TestResultsDataContract:
-    """An agent that declares ``results_category`` owes ``data`` at hand-in.
-
-    The declaration lives in the agent's own rendered definition — the same
-    frontmatter the dispatch worker reads for tool surfaces — so one file says
-    both what the agent may use and what it must hand back.
-    """
-
-    @pytest.mark.asyncio
-    async def test_data_is_filed_as_json_in_the_declared_category(self, workspace):
-        _declare_agent(workspace, "pyat-specialist", "lattice_analysis")
-        payload = {"tune_x": 0.2345, "tune_y": 0.1876, "circumference_m": 182.0}
-
-        raw = await _fn(
-            title="AR optics",
-            content="Tunes and circumference computed from the design lattice.",
-            source_agent="pyat-specialist",
-            data=payload,
-        )
-        data = extract_response_dict(raw)
-
-        assert data["status"] == "success"
-        store = get_artifact_store()
-
-        # The prose is still the agent_response markdown it always was.
-        prose = store.get_entry(data["artifact_id"])
-        assert prose is not None
-        assert prose.artifact_type == "markdown"
-        assert prose.category == "agent_response"
-
-        # The data sheet is a second artifact, JSON, in the declared category,
-        # attributed to the same agent, and holds exactly what was handed in.
-        results = store.get_entry(data["data_artifact_id"])
-        assert results is not None
-        assert results.artifact_type == "json"
-        assert results.category == "lattice_analysis"
-        assert results.source_agent == "pyat-specialist"
-        assert json.loads(store.get_file_path(results.id).read_text()) == payload
-        # The two know about each other.
-        assert results.metadata["response_artifact_id"] == prose.id
-        assert prose.metadata["data_artifact_id"] == results.id
-
-    @pytest.mark.asyncio
-    async def test_declared_agent_without_data_is_refused(self, workspace):
-        _declare_agent(workspace, "pyat-specialist", "lattice_analysis")
-
-        with assert_raises_error(error_type="validation_error") as ctx:
-            await _fn(
-                title="AR optics",
-                content="Tunes computed from the design lattice.",
-                source_agent="pyat-specialist",
-            )
-
-        msg = ctx["envelope"]["error_message"]
-        assert "pyat-specialist" in msg
-        assert "lattice_analysis" in msg
-        assert "data=" in msg
-        # Nothing half-filed: no prose artifact either.
-        assert get_artifact_store().list_entries() == []
-
-    @pytest.mark.asyncio
-    async def test_empty_data_counts_as_missing(self, workspace):
-        _declare_agent(workspace, "pyat-specialist", "lattice_analysis")
-
-        with assert_raises_error(error_type="validation_error"):
-            await _fn(
-                title="AR optics",
-                content="Tunes computed from the design lattice.",
-                source_agent="pyat-specialist",
-                data={},
-            )
-        assert get_artifact_store().list_entries() == []
-
-    @pytest.mark.asyncio
-    async def test_data_from_an_agent_with_no_declaration_is_refused(self, workspace):
-        _declare_agent(workspace, "logbook-search")
-
-        with assert_raises_error(error_type="validation_error") as ctx:
-            await _fn(
-                title="Vacuum events",
-                content="Three events found.",
-                source_agent="logbook-search",
-                data={"events": 3},
-            )
-
-        assert "results_category" in ctx["envelope"]["error_message"]
-        assert get_artifact_store().list_entries() == []
-
-    @pytest.mark.asyncio
-    async def test_unregistered_declared_category_is_refused(self, workspace):
-        _declare_agent(workspace, "odd-agent", "not_a_real_category")
-
-        with assert_raises_error(error_type="validation_error") as ctx:
-            await _fn(
-                title="Something",
-                content="Some prose.",
-                source_agent="odd-agent",
-                data={"x": 1},
-            )
-
-        assert "not_a_real_category" in ctx["envelope"]["error_message"]
-        assert get_artifact_store().list_entries() == []
-
-    @pytest.mark.asyncio
-    async def test_agents_with_no_declaration_are_untouched(self, workspace):
-        """A searcher hands in prose exactly as before — no data, no refusal."""
-        _declare_agent(workspace, "logbook-search")
-
-        raw = await _fn(
-            title="Vacuum events",
-            content="Three events found.",
-            source_agent="logbook-search",
-        )
-        data = extract_response_dict(raw)
-
-        assert data["status"] == "success"
-        assert "data_artifact_id" not in data
-        assert len(get_artifact_store().list_entries()) == 1

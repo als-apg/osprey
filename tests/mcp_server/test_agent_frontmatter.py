@@ -1,16 +1,12 @@
 """Tests for the shared ``.claude/agents/*.md`` frontmatter reader.
 
-The dispatch worker and ``submit_response`` both read what an agent declares
-about itself from the rendered agent file. One parser, so the two cannot
-disagree about which files are agents or what their names are.
+The dispatch worker reads what an agent declares about itself — its name and
+its tools — from the rendered agent file.
 """
 
 import logging
 
-from osprey.mcp_server.agent_frontmatter import (
-    parse_agent_frontmatter,
-    results_category_for,
-)
+from osprey.mcp_server.agent_frontmatter import parse_agent_frontmatter
 
 
 def _write_agent(agents_dir, filename, body):
@@ -51,37 +47,11 @@ class TestParseAgentFrontmatter:
 
     def test_duplicate_name_last_wins(self, tmp_path, caplog):
         agents = tmp_path / ".claude" / "agents"
-        _write_agent(agents, "a.md", "---\nname: dup\nresults_category: first\n---\n")
-        _write_agent(agents, "b.md", "---\nname: dup\nresults_category: second\n---\n")
+        _write_agent(agents, "a.md", "---\nname: dup\ntools: first\n---\n")
+        _write_agent(agents, "b.md", "---\nname: dup\ntools: second\n---\n")
 
         with caplog.at_level(logging.WARNING):
             parsed = parse_agent_frontmatter(tmp_path)
 
-        assert parsed["dup"]["results_category"] == "second"
+        assert parsed["dup"]["tools"] == "second"
         assert any("dup" in r.message for r in caplog.records)
-
-
-class TestResultsCategoryFor:
-    def test_declared(self, tmp_path):
-        agents = tmp_path / ".claude" / "agents"
-        _write_agent(
-            agents,
-            "pyat-specialist.md",
-            "---\nname: pyat-specialist\nresults_category: lattice_analysis\n---\n",
-        )
-        assert results_category_for("pyat-specialist", tmp_path) == "lattice_analysis"
-
-    def test_undeclared_agent_and_unknown_agent(self, tmp_path):
-        agents = tmp_path / ".claude" / "agents"
-        _write_agent(agents, "logbook-search.md", "---\nname: logbook-search\n---\n")
-
-        assert results_category_for("logbook-search", tmp_path) is None
-        assert results_category_for("nobody", tmp_path) is None
-
-    def test_blank_or_non_string_declaration_is_none(self, tmp_path):
-        agents = tmp_path / ".claude" / "agents"
-        _write_agent(agents, "a.md", "---\nname: a\nresults_category: ''\n---\n")
-        _write_agent(agents, "b.md", "---\nname: b\nresults_category: [x]\n---\n")
-
-        assert results_category_for("a", tmp_path) is None
-        assert results_category_for("b", tmp_path) is None
