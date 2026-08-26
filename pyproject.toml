@@ -147,6 +147,12 @@ dependencies = [
     # no build step, so it carries none of the platform-wheel concerns that
     # justify keeping other clients optional. Core rather than an extra.
     "neo4j>=5.20",
+    # RDF/Turtle parser for the graph-mode channel snapshot: `osprey build` reads
+    # the corpus at services.graphdb.ttl_path in the CLI's own process
+    # (deployment.channel_snapshot). Pure Python, no build step, so it carries
+    # none of the platform-wheel concerns that justify keeping other clients
+    # optional. Core rather than an extra.
+    "rdflib>=7.0",
     # ARIEL proxy support for HTTP ingestion through SOCKS tunnels
     "aiohttp-socks>=0.8.0",
     # File system monitoring for web terminal
@@ -241,7 +247,6 @@ dev = [
     "psycopg[binary,pool]>=3.3.4,<4.0.0",  # ARIEL search integration tests
     "psycopg-pool>=3.3.1,<4.0.0",  # ARIEL search integration tests
     "pillow>=12.3.0",  # Perceptual diffing for the design-system visual regression suite
-    "rdflib>=7.0",  # TTL generator tests (semantic round-trip); runtime use stays in the knowledge extra
     "linkml-runtime>=1.11.1,<2",  # Ontology compiler + its tests; runtime use stays in the knowledge extra
 ]
 
@@ -279,9 +284,8 @@ gchat = [
     "pysocks>=1.7",
 ]
 
-# Facility knowledge / ontology support (OKF markdown bundles, RDF reasoning)
+# Facility knowledge / ontology support (LinkML schema loading for the ontology compiler)
 knowledge = [
-    "rdflib>=7.0",
     # LinkML schema loading for the ontology compiler. Known transitive baggage:
     # prefixcommons -> pytest-logging (2015) -> pytest lands in this extra; inert, accepted.
     "linkml-runtime>=1.11.1,<2",

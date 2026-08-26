@@ -51,6 +51,10 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- `rdflib` is now a core dependency instead of a member of the `knowledge`
+  extra, which keeps `linkml-runtime`. Every build can parse a Turtle corpus
+  whichever extras are installed; the extra itself stays, so existing install
+  commands keep working.
 - Web Terminal and every standalone panel (workspace, Channel Finder, lattice
   dashboard, knowledge panel) now use the same display menu as ARIEL: the sliders
   button opens one popover with the light/dark switch, the Expert/Simple view and

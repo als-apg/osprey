@@ -593,34 +593,3 @@ class TestToolInternalErrors:
 
         with assert_raises_error(error_type="not_found"):
             await get_tool_fn(read_concept)(concept_id="no/such")
-
-
-# ---------------------------------------------------------------------------
-# Module import safety
-# ---------------------------------------------------------------------------
-
-
-class TestModuleImportSafety:
-    """Importing the server package must not pull in rdflib."""
-
-    def test_no_rdflib_import_on_server_import(self):
-        """rdflib must not be imported as a side effect of loading server.py.
-
-        This check is only meaningful when rdflib is NOT installed at all
-        (i.e. the ``knowledge`` extra is absent).  When rdflib IS installed,
-        other tests in the suite (seeder tests) will have imported it already,
-        so the presence of ``rdflib`` in ``sys.modules`` no longer indicates
-        a side-effect from server.py — skip rather than false-fail.
-        """
-        import importlib.util
-        import sys
-
-        if importlib.util.find_spec("rdflib") is not None:
-            pytest.skip(
-                "rdflib is installed; isolation check only applies when the knowledge extra is absent"
-            )
-
-        # server.py is already imported in this session; verify rdflib is absent.
-        assert "rdflib" not in sys.modules, (
-            "rdflib was imported as a side effect of importing the facility_knowledge server"
-        )
