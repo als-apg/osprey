@@ -2,13 +2,14 @@
 
 Covers every pipeline backend the Channel Finder supports, the emission
 predicate (feature switch, absent database, empty database, size guard), the
-graph paradigm that has no file to snapshot at all, and the fail-soft behaviour
-that keeps an unreadable database from blocking a build.
+graph paradigm, whose snapshot is derived from the Turtle corpus, and the
+fail-soft behaviour that keeps an unreadable database from blocking a build.
 """
 
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,7 @@ from osprey.deployment.channel_snapshot import (
     DEFAULT_MAX_CHANNELS,
     MAX_CHANNELS_CONFIG_KEY,
     _load_channel_records,
+    _render_dir,
     compute_channel_snapshot,
 )
 from osprey.services.channel_finder.core.exceptions import PipelineModeError
@@ -43,6 +45,59 @@ def _config(
     config: dict = {"channel_finder": {"pipelines": {pipeline: {"database": database}}}}
     if suggestions is not None:
         config["web"] = {"channel_suggestions": suggestions}
+    return config
+
+
+def _write_ttl(path: Path, bindings: list[tuple[str, str]] | str) -> Path:
+    """Write a Turtle corpus fixture and return its path.
+
+    A list of ``(binding id, address)`` pairs becomes one ``ChannelBinding`` per
+    pair; a string is written verbatim, for the corpora whose object terms are
+    the point of the test.
+    """
+    if isinstance(bindings, str):
+        path.write_text(bindings)
+        return path
+
+    lines = [
+        "@prefix narad_p: <https://narad.example.org/property/> .",
+        "@prefix narad_sem: <https://narad.example.org/schema/shared_semantics/> .",
+        "",
+    ]
+    lines += [
+        f"<https://example.org/binding/{binding_id}> a narad_sem:ChannelBinding ; "
+        f'narad_p:fullPv "{address}" .'
+        for binding_id, address in bindings
+    ]
+    path.write_text("\n".join(lines) + "\n")
+    return path
+
+
+def _graph_config(
+    ttl_path: Path | str | None = None,
+    *,
+    suggestions: dict | None = None,
+    config_dir: Path | str | None = None,
+    graphdb_block: dict | None = None,
+) -> dict:
+    """Build the slice of project config the graph-mode decision reads.
+
+    ``graphdb_block`` writes the ``services.graphdb`` block verbatim, for the
+    cases that need a block without a usable ``ttl_path``; with neither it nor
+    ``ttl_path`` given, the config carries no ``services`` block at all.
+    """
+    config: dict = {"channel_finder": {"pipeline_mode": "graph"}}
+
+    block = graphdb_block
+    if block is None and ttl_path is not None:
+        block = {"ttl_path": str(ttl_path)}
+    if block is not None:
+        config["services"] = {"graphdb": block}
+
+    if suggestions is not None:
+        config["web"] = {"channel_suggestions": suggestions}
+    if config_dir is not None:
+        config["config_dir"] = str(config_dir)
     return config
 
 
@@ -260,21 +315,8 @@ class TestEmissionPredicate:
         assert str(DEFAULT_MAX_CHANNELS) in caplog.text
 
 
-class TestGraphParadigm:
-    """The graph paradigm keeps its channels out of reach of the build."""
-
-    def test_the_graph_paradigm_emits_nothing_and_says_the_typeahead_is_off(self, caplog):
-        config = {"channel_finder": {"pipeline_mode": "graph"}}
-
-        with caplog.at_level("WARNING"):
-            decision = compute_channel_snapshot(config)
-
-        assert decision.emit is False
-        assert decision.channels == []
-        assert decision.count == 0
-        assert decision.source_path is None
-        assert "typeahead" in caplog.text
-        assert "graph" in caplog.text.lower()
+class TestUnknownPipelineMode:
+    """A mode naming no paradigm is a configuration mistake, not a degraded panel."""
 
     def test_an_unknown_pipeline_mode_is_rejected_rather_than_quietly_skipped(self):
         config = {"channel_finder": {"pipeline_mode": "telepathy"}}
@@ -285,6 +327,214 @@ class TestGraphParadigm:
     def test_loading_records_for_an_unknown_pipeline_raises_a_pipeline_mode_error(self, tmp_path):
         with pytest.raises(PipelineModeError, match="telepathy"):
             _load_channel_records("telepathy", {}, tmp_path / "unused.json")
+
+
+class TestGraphParadigm:
+    """The graph paradigm snapshots the Turtle corpus the build host holds."""
+
+    def test_a_graph_corpus_contributes_its_sorted_deduplicated_addresses(self, tmp_path):
+        ttl = _write_ttl(
+            tmp_path / "corpus.ttl",
+            [
+                ("b1", "SR:BPM:02:X"),
+                ("b2", "SR:BPM:01:X"),
+                # The same address bound twice — two bindings, one channel.
+                ("b3", "SR:BPM:02:X"),
+            ],
+        )
+
+        decision = compute_channel_snapshot(_graph_config(ttl))
+
+        assert decision.emit is True
+        assert decision.channels == ["SR:BPM:01:X", "SR:BPM:02:X"]
+        assert decision.count == 2
+        assert decision.source_path == ttl
+
+    def test_a_corpus_whose_name_ends_in_rdf_is_still_read_as_turtle(self, tmp_path):
+        # The format is forced, so the extension rdflib would otherwise guess
+        # an XML parser from says nothing about how the corpus is read.
+        ttl = _write_ttl(
+            tmp_path / "corpus.rdf",
+            [("b1", "SR:BPM:01:X"), ("b2", "SR:BPM:02:X")],
+        )
+
+        decision = compute_channel_snapshot(_graph_config(ttl))
+
+        assert decision.emit is True
+        assert decision.count == 2
+
+    def test_an_iri_object_is_dropped_and_a_tagged_literal_keeps_its_lexical_form(self, tmp_path):
+        ttl = _write_ttl(
+            tmp_path / "mixed.ttl",
+            "@prefix narad_p: <https://narad.example.org/property/> .\n"
+            "@prefix narad_sem: <https://narad.example.org/schema/shared_semantics/> .\n"
+            "\n"
+            "<https://example.org/binding/b1> a narad_sem:ChannelBinding ;\n"
+            "    narad_p:fullPv <urn:not-a-literal> .\n"
+            "<https://example.org/binding/b2> a narad_sem:ChannelBinding ;\n"
+            '    narad_p:fullPv "SR:BPM:01:X"@en .\n',
+        )
+
+        decision = compute_channel_snapshot(_graph_config(ttl))
+
+        assert decision.emit is True
+        assert decision.channels == ["SR:BPM:01:X"]
+        assert not any("urn:not-a-literal" in channel for channel in decision.channels)
+
+    @pytest.mark.parametrize(
+        "config",
+        [
+            pytest.param(_graph_config(), id="no-services-block"),
+            pytest.param(_graph_config(graphdb_block={"port_host": 7687}), id="no-ttl-path"),
+        ],
+    )
+    def test_graph_mode_without_a_configured_corpus_says_so_at_debug(self, config, caplog):
+        # An external store with no local corpus is a correct configuration, so
+        # this must not warn on every build.
+        with caplog.at_level("DEBUG", logger="deployment.channel_snapshot"):
+            decision = compute_channel_snapshot(config)
+
+        assert decision.emit is False
+        assert decision.count == 0
+        assert decision.source_path is None
+        assert [record.message for record in caplog.records if record.levelname == "WARNING"] == []
+        assert any(
+            record.levelname == "DEBUG" and "services.graphdb.ttl_path" in record.getMessage()
+            for record in caplog.records
+        )
+
+    def test_a_blank_ttl_path_warns_rather_than_raising(self, caplog):
+        config = _graph_config(graphdb_block={"ttl_path": ""})
+
+        with caplog.at_level("WARNING"):
+            decision = compute_channel_snapshot(config)
+
+        assert decision.emit is False
+        assert decision.source_path is None
+        assert "services.graphdb" in caplog.text
+
+    def test_a_missing_corpus_warns_with_the_path_and_emits_nothing(self, tmp_path, caplog):
+        missing = tmp_path / "gone.ttl"
+
+        with caplog.at_level("WARNING"):
+            decision = compute_channel_snapshot(_graph_config(missing))
+
+        assert decision.emit is False
+        assert decision.source_path == missing
+        assert str(missing) in caplog.text
+
+    def test_a_ttl_path_naming_a_directory_warns_and_emits_nothing(self, tmp_path, caplog):
+        directory = tmp_path / "corpus_dir"
+        directory.mkdir()
+
+        with caplog.at_level("WARNING"):
+            decision = compute_channel_snapshot(_graph_config(directory))
+
+        assert decision.emit is False
+        assert str(directory) in caplog.text
+
+    def test_non_turtle_bytes_warn_with_the_path_and_emit_nothing(self, tmp_path, caplog):
+        ttl = _write_ttl(tmp_path / "corpus.ttl", "this is not turtle")
+
+        with caplog.at_level("WARNING"):
+            decision = compute_channel_snapshot(_graph_config(ttl))
+
+        assert decision.emit is False
+        assert decision.channels == []
+        assert str(ttl) in caplog.text
+
+    def test_a_corpus_without_full_pv_literals_emits_nothing(self, tmp_path):
+        ttl = _write_ttl(tmp_path / "bare.ttl", [])
+
+        decision = compute_channel_snapshot(_graph_config(ttl))
+
+        assert decision.emit is False
+        assert decision.count == 0
+        assert decision.channels == []
+
+    def test_a_corpus_above_the_size_guard_emits_nothing_and_names_the_key(self, tmp_path, caplog):
+        ttl = _write_ttl(
+            tmp_path / "corpus.ttl",
+            [("b1", "SR:BPM:01:X"), ("b2", "SR:BPM:02:X")],
+        )
+        config = _graph_config(ttl, suggestions={"max_channels": 1})
+
+        with caplog.at_level("WARNING"):
+            decision = compute_channel_snapshot(config)
+
+        assert decision.emit is False
+        assert decision.count == 2
+        assert MAX_CHANNELS_CONFIG_KEY in caplog.text
+
+    def test_switching_the_feature_off_never_opens_the_corpus(self, tmp_path, caplog):
+        # The corpus does not exist: reaching it at all would warn.
+        config = _graph_config(tmp_path / "gone.ttl", suggestions={"enabled": False})
+
+        with caplog.at_level("WARNING"):
+            decision = compute_channel_snapshot(config)
+
+        assert decision.emit is False
+        assert decision.source_path is None
+        assert caplog.records == []
+
+    def test_an_unimportable_rdflib_warns_with_the_reinstall_hint(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        ttl = _write_ttl(tmp_path / "corpus.ttl", [("b1", "SR:BPM:01:X")])
+        monkeypatch.setitem(sys.modules, "rdflib", None)
+
+        with caplog.at_level("WARNING"):
+            decision = compute_channel_snapshot(_graph_config(ttl))
+
+        assert decision.emit is False
+        assert decision.source_path == ttl
+        assert "rdflib" in caplog.text
+        assert "pip install --upgrade osprey-framework" in caplog.text
+
+    def test_a_relative_ttl_path_resolves_against_the_recorded_config_dir(
+        self, tmp_path, monkeypatch
+    ):
+        render = tmp_path / "render"
+        (render / "data").mkdir(parents=True)
+        _write_ttl(render / "data" / "corpus.ttl", [("b1", "SR:BPM:01:X")])
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+
+        decision = compute_channel_snapshot(_graph_config("data/corpus.ttl", config_dir=render))
+
+        assert decision.emit is True
+        assert decision.source_path == (render / "data" / "corpus.ttl").resolve()
+
+    def test_a_relative_ttl_path_without_a_config_dir_follows_the_running_config(
+        self, tmp_path, monkeypatch
+    ):
+        # No ``config_dir`` and no ``OSPREY_CONFIG`` (the suite clears it): the
+        # corpus is resolved against the config.yml this process runs against,
+        # which with no render in the working directory is that directory.
+        (tmp_path / "data").mkdir()
+        _write_ttl(tmp_path / "data" / "corpus.ttl", [("b1", "SR:BPM:01:X")])
+        monkeypatch.chdir(tmp_path)
+
+        decision = compute_channel_snapshot(_graph_config("data/corpus.ttl"))
+
+        assert decision.emit is True
+        assert decision.source_path == (tmp_path / "data" / "corpus.ttl").resolve()
+
+        # With a render in place, ``build/config.yml`` is that config, so the
+        # same configured string now names the corpus inside the render.
+        build = tmp_path / "build"
+        (build / "data").mkdir(parents=True)
+        (build / "config.yml").write_text("")
+        _write_ttl(
+            build / "data" / "corpus.ttl",
+            [("b1", "SR:BPM:01:X"), ("b2", "SR:BPM:02:X")],
+        )
+
+        decision = compute_channel_snapshot(_graph_config("data/corpus.ttl"))
+
+        assert decision.source_path == (build / "data" / "corpus.ttl").resolve()
+        assert decision.count == 2
 
 
 class TestFailSoft:
@@ -337,3 +587,27 @@ class TestFailSoft:
 
         assert decision.emit is True
         assert decision.source_path == tmp_path / "data" / "channel_databases" / "als.json"
+
+
+class TestRenderDir:
+    """The anchor a relative render-relative path is resolved against."""
+
+    def test_a_set_config_dir_is_returned_as_a_path(self, tmp_path):
+        assert _render_dir({"config_dir": str(tmp_path)}) == tmp_path
+
+    def test_an_empty_config_dir_is_no_anchor(self):
+        assert _render_dir({"config_dir": ""}) is None
+
+    def test_a_blank_config_dir_is_no_anchor(self):
+        assert _render_dir({"config_dir": "   "}) is None
+
+    def test_an_absent_config_dir_is_no_anchor(self):
+        assert _render_dir({}) is None
+
+    def test_a_non_string_config_dir_is_no_anchor(self, tmp_path):
+        assert _render_dir({"config_dir": 123}) is None
+        assert _render_dir({"config_dir": tmp_path}) is None
+
+    def test_project_root_is_not_consulted(self, tmp_path):
+        """``project_root`` is the repo root — the wrong anchor for this key."""
+        assert _render_dir({"project_root": str(tmp_path)}) is None

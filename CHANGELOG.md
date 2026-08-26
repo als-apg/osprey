@@ -22,7 +22,9 @@ Compatibility is documented in release notes, not encoded in the version string.
   resolve it: pin podman-compose in `containers.conf`, or deploy on docker.
   `podman login` does not help, because the credential does not come from
   podman's auth file.
-
+- Graph-mode builds now write the channel-suggestions snapshot from the corpus
+  named by `services.graphdb.ttl_path`, so the web-panel typeahead keeps
+  working after a project moves to the graph pipeline instead of going quiet.
 - The build-drift gate no longer counts material `osprey up` mints itself: the
   per-lane Bluesky CURVE certificates now live under `data/.runtime/`, a
   reserved runtime-output subpath the fingerprint never hashes and the build
