@@ -4543,3 +4543,363 @@ def test_lint_checks_the_lockfile__mutation_moves_it_after_sync() -> None:
     steps.insert(next(i for i, s in enumerate(steps) if s.get("name") == INSTALL_STEP) + 1, check)
     with pytest.raises(AssertionError):
         test_lint_checks_the_lockfile_before_installing(mutated)
+
+
+# ---------------------------------------------------------------------------
+# (j) every dockerbuild-marked module reaches a lane that gates the merge
+# ---------------------------------------------------------------------------
+#
+# Section (e) proves a marked module LEFT the shared e2e lane. Nothing proved it
+# ARRIVED anywhere: the per-lane "job exists"/"needs"/"check_pr_lane" assertions
+# above are hand-written one lane at a time, so a lane nobody remembered to pin
+# could be deleted whole and this module stayed green. That is not hypothetical
+# — it was true of both halves of the auth/audit wiring (the full-chain lane and
+# the audit two-container step) until this section existed.
+#
+# The general guard below closes it for every marked module, present and future,
+# in the same shape as (e): scan the marker, then require the file to be named by
+# some job's run step, that job to appear in the gate's `needs:`, and the gate
+# script to actually examine its result. The `needs:` half is self-enforcing (a
+# dangling needs entry is a workflow error); the other two are not. The per-lane
+# assertions that follow are redundant with it on purpose — a partial removal
+# then names the lane it broke instead of only reporting a set.
+
+FULL_CHAIN_JOB = "full-chain-auth-e2e"
+FULL_CHAIN_TEST_FILE = "tests/e2e/test_full_chain_auth.py"
+FULL_CHAIN_RUN_STEP = "Run full-chain auth E2E"
+FULL_CHAIN_SKIP_GATE_STEP = "Fail the lane on any skipped test"
+#: The two lanes full-chain-auth strictly subsumes: each builds ONE real image
+#: (the deployed sidecar Dockerfile / the production project image), this one
+#: builds both in a single job. Its budget must therefore exceed both of theirs,
+#: which is the property pinned below — not the particular minute counts.
+SINGLE_BUILD_AUTH_JOBS = ("auth-perimeter-e2e", "terminal-auth-multiuser-e2e")
+PRIVSPLIT_JOB = "privilege-split-e2e"
+PRIVSPLIT_TEST_FILE = "tests/e2e/test_privilege_split.py"
+PRIVSPLIT_SKIP_GATE_STEP = "Fail the lane on a lane-wide skip"
+AUDIT_2C_TEST_FILE = "tests/e2e/test_audit_two_container.py"
+AUDIT_2C_STEP = "Run audit two-container mechanism E2E"
+#: `success() || failure()`, never the default `success()`: the module runs as a
+#: SECOND step behind test_privilege_split.py, so a red first step would skip it
+#: — and a skipped step reads like a passing one in a run summary.
+AUDIT_2C_STEP_IF = "success() || failure()"
+
+
+def _jobs_running_e2e_file(wf: dict[str, Any], test_file: str) -> list[str]:
+    """Job names with a step whose ``run`` actually EXECUTES *test_file*.
+
+    ``--ignore=<file>`` is stripped before matching, so the shared ``e2e-tests``
+    lane — which names every marked file precisely to skip it — is never counted
+    as a home. That subtraction is what makes this the "arrived" half of the
+    marker guard rather than a restatement of the "left" half.
+    """
+    homes = []
+    for name, spec in _jobs(wf).items():
+        for step in spec.get("steps") or []:
+            if test_file in str(step.get("run", "")).replace(f"--ignore={test_file}", ""):
+                homes.append(name)
+                break
+    return sorted(homes)
+
+
+def _gate_checks_lane(wf: dict[str, Any], job: str) -> bool:
+    """Does the gate script's ``check_pr_lane`` roll-up examine *job*'s result?"""
+    pattern = rf'check_pr_lane\s+"[^"]*"\s+"\$\{{\{{\s*needs\.{re.escape(job)}\.result\s*\}}\}}"'
+    return re.search(pattern, _gate_run_text(wf)) is not None
+
+
+def _unwired_dockerbuild_modules(wf: dict[str, Any]) -> dict[str, list[str]]:
+    """Marked e2e files with no lane that both runs them and gates the merge."""
+    needs = _jobs(wf)[GATE_JOB]["needs"]
+    unwired = {}
+    for test_file in _dockerbuild_marked_e2e_files():
+        homes = _jobs_running_e2e_file(wf, test_file)
+        gating = [j for j in homes if j in needs and _gate_checks_lane(wf, j)]
+        if not gating:
+            unwired[test_file] = homes
+    return unwired
+
+
+def test_every_dockerbuild_marked_module_reaches_a_gating_lane(workflow: dict[str, Any]) -> None:
+    """A marked module is ``--ignore``'d out of the shared lane, so the only
+    thing that can run it is a job of its own — and the only thing that makes
+    that job's result matter is the gate. Delete either end and the module
+    silently runs nowhere, or runs and is never looked at, while every check
+    stays green. This is the guard the e2e modules' own CI-HONESTY docstrings
+    point at, in the general form: a lane added tomorrow is covered the day the
+    marker lands, not whenever someone remembers to hand-write four assertions.
+    """
+    files = _dockerbuild_marked_e2e_files()
+    assert files, "expected at least one dockerbuild-marked e2e file (marker scan broke?)"
+    unwired = _unwired_dockerbuild_modules(workflow)
+    assert unwired == {}, (
+        "dockerbuild-marked e2e module(s) with no lane that runs them AND gates the "
+        f"merge (file -> jobs that run it): {unwired} — each needs a job, a "
+        f"`needs:` entry on '{GATE_JOB}', and a check_pr_lane line reading its result"
+    )
+
+
+def test_every_dockerbuild_marked_module_reaches_a_gating_lane__mutation_lane_stops_running_it() -> (
+    None
+):
+    """The lane survives as a green job that no longer runs the module — the
+    cheapest way to lose an e2e lane, and invisible to every other check here."""
+    mutated = copy.deepcopy(_load_workflow())
+    _find_named_step(mutated, FULL_CHAIN_JOB, FULL_CHAIN_RUN_STEP)["run"] = "echo LANE-DELETED\n"
+    assert FULL_CHAIN_TEST_FILE in _unwired_dockerbuild_modules(mutated)
+    assert AUDIT_2C_TEST_FILE not in _unwired_dockerbuild_modules(mutated)  # others survive
+    with pytest.raises(AssertionError):
+        test_every_dockerbuild_marked_module_reaches_a_gating_lane(mutated)
+
+
+def test_every_dockerbuild_marked_module_reaches_a_gating_lane__mutation_gate_drops_the_need() -> (
+    None
+):
+    """Dropping a lane's ``needs`` entry unhooks BOTH modules that ride it."""
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[GATE_JOB]["needs"].remove(PRIVSPLIT_JOB)
+    assert sorted(_unwired_dockerbuild_modules(mutated)) == [
+        AUDIT_2C_TEST_FILE,
+        PRIVSPLIT_TEST_FILE,
+    ]
+    with pytest.raises(AssertionError):
+        test_every_dockerbuild_marked_module_reaches_a_gating_lane(mutated)
+
+
+def test_every_dockerbuild_marked_module_reaches_a_gating_lane__mutation_gate_stops_checking() -> (
+    None
+):
+    """The one-line regression the finding named: the ``needs`` entry stays (so
+    the roll-up still waits) but the gate stops reading the result, and a red
+    lane sits inside a green merge gate."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    kept = [line for line in step["run"].splitlines(keepends=True) if FULL_CHAIN_JOB not in line]
+    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
+    step["run"] = "".join(kept)
+    assert FULL_CHAIN_JOB in _jobs(mutated)[GATE_JOB]["needs"]  # the self-enforcing half survives
+    with pytest.raises(AssertionError):
+        test_every_dockerbuild_marked_module_reaches_a_gating_lane(mutated)
+
+
+def test_full_chain_auth_job_exists(workflow: dict[str, Any]) -> None:
+    assert FULL_CHAIN_JOB in _jobs(workflow)
+
+
+def test_full_chain_auth_job_exists__mutation_drops_job() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del mutated["jobs"][FULL_CHAIN_JOB]
+    with pytest.raises(AssertionError):
+        assert FULL_CHAIN_JOB in _jobs(mutated)
+
+
+def test_full_chain_auth_job_runs_its_module(workflow: dict[str, Any]) -> None:
+    """The named step is the lane's whole point; the generic guard above reports
+    the module as homeless if it goes, this one says which step to look at."""
+    assert (
+        FULL_CHAIN_TEST_FILE
+        in _find_named_step(workflow, FULL_CHAIN_JOB, FULL_CHAIN_RUN_STEP)["run"]
+    )
+
+
+def test_full_chain_auth_job_runs_its_module__mutation_drops_the_module() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, FULL_CHAIN_JOB, FULL_CHAIN_RUN_STEP)
+    step["run"] = step["run"].replace(FULL_CHAIN_TEST_FILE, "tests/e2e/test_something_else.py")
+    with pytest.raises(AssertionError):
+        test_full_chain_auth_job_runs_its_module(mutated)
+
+
+def test_all_checks_passed_needs_full_chain_auth(workflow: dict[str, Any]) -> None:
+    assert FULL_CHAIN_JOB in _jobs(workflow)[GATE_JOB]["needs"]
+
+
+def test_all_checks_passed_needs_full_chain_auth__mutation_drops_needs_entry() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[GATE_JOB]["needs"].remove(FULL_CHAIN_JOB)
+    with pytest.raises(AssertionError):
+        assert FULL_CHAIN_JOB in _jobs(mutated)[GATE_JOB]["needs"]
+
+
+def test_check_pr_lane_covers_full_chain_auth(workflow: dict[str, Any]) -> None:
+    """Only lane in the repo that exercises login -> nginx -> sidecar -> persona
+    container end to end. Its result must be read where the merge is decided."""
+    assert _gate_checks_lane(workflow, FULL_CHAIN_JOB), (
+        f"the gate script has no check_pr_lane line reading needs.{FULL_CHAIN_JOB}.result"
+    )
+
+
+def test_check_pr_lane_covers_full_chain_auth__mutation_drops_the_check_line() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    kept = [line for line in step["run"].splitlines(keepends=True) if FULL_CHAIN_JOB not in line]
+    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
+    step["run"] = "".join(kept)
+    with pytest.raises(AssertionError):
+        test_check_pr_lane_covers_full_chain_auth(mutated)
+
+
+def test_privilege_split_job_runs_the_audit_two_container_module(workflow: dict[str, Any]) -> None:
+    """The audit two-container module rides as a SECOND step in an existing lane
+    rather than a job of its own, so neither the ``needs`` half nor the
+    check_pr_lane half says anything about it: delete the step and the lane keeps
+    its green check. It must also run on a red first step — the default
+    ``success()`` would skip it, and skipped reads like passed."""
+    step = _find_named_step(workflow, PRIVSPLIT_JOB, AUDIT_2C_STEP)
+    assert AUDIT_2C_TEST_FILE in step["run"]
+    assert step.get("if") == AUDIT_2C_STEP_IF, (
+        f"'{AUDIT_2C_STEP}' must carry `if: {AUDIT_2C_STEP_IF}` so a red "
+        f"'{PRIVSPLIT_TEST_FILE}' step cannot hide it; got {step.get('if')!r}"
+    )
+
+
+def test_privilege_split_job_runs_the_audit_two_container_module__mutation_drops_the_step() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[PRIVSPLIT_JOB]["steps"]
+    kept = [s for s in steps if s.get("name") != AUDIT_2C_STEP]
+    assert len(kept) == len(steps) - 1, "expected exactly one step to run the audit module"
+    _jobs(mutated)[PRIVSPLIT_JOB]["steps"] = kept
+    with pytest.raises(AssertionError):
+        test_privilege_split_job_runs_the_audit_two_container_module(mutated)
+
+
+def test_privilege_split_job_runs_the_audit_two_container_module__mutation_defaults_the_if() -> (
+    None
+):
+    """The quiet half of the same regression: the step survives but only runs
+    when the module ahead of it passed, so one red step hides the other."""
+    mutated = copy.deepcopy(_load_workflow())
+    del _find_named_step(mutated, PRIVSPLIT_JOB, AUDIT_2C_STEP)["if"]
+    with pytest.raises(AssertionError, match="must carry"):
+        test_privilege_split_job_runs_the_audit_two_container_module(mutated)
+
+
+def _lane_pytest_steps(wf: dict[str, Any], job: str) -> list[dict[str, Any]]:
+    return [s for s in _jobs(wf)[job]["steps"] if "uv run pytest" in str(s.get("run", ""))]
+
+
+def _lane_junit_reports(wf: dict[str, Any], job: str) -> list[str]:
+    return [r for step in _lane_pytest_steps(wf, job) for r in _JUNIT_RE.findall(step["run"])]
+
+
+def test_full_chain_auth_job_fails_on_any_skipped_test(workflow: dict[str, Any]) -> None:
+    """Every way this lane can skip is a misconfiguration, not an environment
+    gap: the module's only skip paths are "no container runtime" and "daemon not
+    responding", and this lane exists precisely to have both. pytest exits 0 on
+    an all-skipped run, so the lane would report a green check over a stack it
+    never built. The junit report closes that — zero skips, and a non-zero test
+    count so an empty selection cannot pass the same check trivially."""
+    steps = _lane_pytest_steps(workflow, FULL_CHAIN_JOB)
+    reports = _lane_junit_reports(workflow, FULL_CHAIN_JOB)
+    assert len(reports) == len(steps), (
+        f"every pytest step in '{FULL_CHAIN_JOB}' must write a --junitxml report; got {reports}"
+    )
+    gate = _find_named_step(workflow, FULL_CHAIN_JOB, FULL_CHAIN_SKIP_GATE_STEP)["run"]
+    unread = [r for r in reports if r not in gate]
+    assert unread == [], f"'{FULL_CHAIN_SKIP_GATE_STEP}' never reads: {unread}"
+    assert 'get("skipped"' in gate, "the gate must read the junit skipped count"
+    assert "sys.exit(1)" in gate, "the gate must fail the job, not just print"
+
+
+def test_full_chain_auth_job_fails_on_any_skipped_test__mutation_drops_the_report() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _lane_pytest_steps(mutated, FULL_CHAIN_JOB)[0]
+    step["run"] = _JUNIT_RE.sub("", step["run"])
+    with pytest.raises(AssertionError, match="must write a --junitxml report"):
+        test_full_chain_auth_job_fails_on_any_skipped_test(mutated)
+
+
+def test_full_chain_auth_job_fails_on_any_skipped_test__mutation_gate_stops_failing() -> None:
+    """A gate that prints the skip count without exiting non-zero is decorative:
+    the job still reports success over a lane that ran nothing."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, FULL_CHAIN_JOB, FULL_CHAIN_SKIP_GATE_STEP)
+    step["run"] = step["run"].replace("sys.exit(1)", "pass")
+    with pytest.raises(AssertionError, match="must fail the job"):
+        test_full_chain_auth_job_fails_on_any_skipped_test(mutated)
+
+
+def test_privilege_split_lane_fails_on_a_lane_wide_skip(workflow: dict[str, Any]) -> None:
+    """Deliberately NOT the zero-skip gate the single-module lanes use.
+    ``test_audit_two_container.py`` carries per-test guards for runtimes that
+    remap ids or rewrite bind-mount ownership, each documenting the half of the
+    property that still holds, and its own ``_degraded_host`` helper already
+    FAILS rather than skips on a CI runner for the class it considers a lane
+    misconfiguration. What no in-test guard can catch is the module skipping
+    WHOLE — no runtime, an unusable mount source, a module-level skipif — because
+    then nothing runs to fail. So a report that collected nothing, or in which
+    every test skipped, must fail the lane."""
+    steps = _lane_pytest_steps(workflow, PRIVSPLIT_JOB)
+    reports = _lane_junit_reports(workflow, PRIVSPLIT_JOB)
+    assert len(reports) == len(steps), (
+        f"every pytest step in '{PRIVSPLIT_JOB}' must write a --junitxml report; got {reports}"
+    )
+    step = _find_named_step(workflow, PRIVSPLIT_JOB, PRIVSPLIT_SKIP_GATE_STEP)
+    gate = step["run"]
+    unread = [r for r in reports if r not in gate]
+    assert unread == [], f"'{PRIVSPLIT_SKIP_GATE_STEP}' never reads: {unread}"
+    assert 'get("skipped"' in gate, "the gate must read the junit skipped count"
+    assert "skipped == total" in gate, "the gate must fail on a module that skipped in full"
+    assert "sys.exit(1)" in gate, "the gate must fail the job, not just print"
+    assert step.get("if") == AUDIT_2C_STEP_IF, (
+        f"'{PRIVSPLIT_SKIP_GATE_STEP}' must carry `if: {AUDIT_2C_STEP_IF}`, or a red "
+        "step ahead of it skips the very check that reads what the run proved"
+    )
+
+
+def test_privilege_split_lane_fails_on_a_lane_wide_skip__mutation_drops_a_report() -> None:
+    """One module reported and one not is the silent-partial-fix shape."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _lane_pytest_steps(mutated, PRIVSPLIT_JOB)[1]
+    step["run"] = _JUNIT_RE.sub("", step["run"])
+    with pytest.raises(AssertionError, match="must write a --junitxml report"):
+        test_privilege_split_lane_fails_on_a_lane_wide_skip(mutated)
+
+
+def test_privilege_split_lane_fails_on_a_lane_wide_skip__mutation_gate_tolerates_all_skipped() -> (
+    None
+):
+    """Downgrading the all-skipped arm to a warning is the whole regression: the
+    lane goes back to reporting success over a module that built nothing."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, PRIVSPLIT_JOB, PRIVSPLIT_SKIP_GATE_STEP)
+    step["run"] = step["run"].replace("skipped == total", "skipped < 0")
+    with pytest.raises(AssertionError, match="skipped in full"):
+        test_privilege_split_lane_fails_on_a_lane_wide_skip(mutated)
+
+
+def test_full_chain_auth_lane_outbudgets_the_single_build_lanes(workflow: dict[str, Any]) -> None:
+    """The lane builds BOTH real framework images — the deployed sidecar
+    Dockerfile and the production project image — where each sibling below
+    builds one, and its neighbours measure a single such build at 7-11 minutes
+    cold. Held to the SAME cap as a one-build lane, the worst legal in-test path
+    runs past the ceiling and the lane reds on wall clock rather than on
+    anything it asserts. What is pinned is the relation, not the minute counts:
+    strictly more work must carry strictly more budget, at both the job cap and
+    the step cap under it."""
+    jobs = _jobs(workflow)
+    job_cap = jobs[FULL_CHAIN_JOB]["timeout-minutes"]
+    step_cap = _sole_heavy_step(jobs[FULL_CHAIN_JOB])["timeout-minutes"]
+    for sibling in SINGLE_BUILD_AUTH_JOBS:
+        sibling_job_cap = jobs[sibling]["timeout-minutes"]
+        sibling_step_cap = _sole_heavy_step(jobs[sibling])["timeout-minutes"]
+        assert job_cap > sibling_job_cap, (
+            f"'{FULL_CHAIN_JOB}' builds two images where '{sibling}' builds one, but "
+            f"carries the same or less job budget ({job_cap} vs {sibling_job_cap} minutes)"
+        )
+        assert step_cap > sibling_step_cap, (
+            f"'{FULL_CHAIN_JOB}''s pytest step carries the same or less budget than "
+            f"'{sibling}''s ({step_cap} vs {sibling_step_cap} minutes)"
+        )
+
+
+def test_full_chain_auth_lane_outbudgets_the_single_build_lanes__mutation_back_to_sibling_cap() -> (
+    None
+):
+    """The shipped-before state: two builds held to a one-build lane's ceiling."""
+    mutated = copy.deepcopy(_load_workflow())
+    sibling = _jobs(mutated)[SINGLE_BUILD_AUTH_JOBS[0]]
+    job = _jobs(mutated)[FULL_CHAIN_JOB]
+    job["timeout-minutes"] = sibling["timeout-minutes"]
+    _sole_heavy_step(job)["timeout-minutes"] = _sole_heavy_step(sibling)["timeout-minutes"]
+    with pytest.raises(AssertionError, match="job budget"):
+        test_full_chain_auth_lane_outbudgets_the_single_build_lanes(mutated)

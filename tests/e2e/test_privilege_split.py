@@ -561,9 +561,15 @@ def admin_state(admin_image):
         _wait_for_health(base_url, cid)
 
         after = _exec(cid, "cat", settings)
-        audit = _exec(cid, "cat", f"{root}/var/audit/protected-writes.jsonl")
+        # The root maintenance phase runs under the writer's ``maintenance``
+        # marker, so everything the entrypoint's restore records lands in
+        # ``var/audit/<identity>/maintenance.jsonl`` -- a file the app user
+        # never appends to, which is how the ledger keeps one uid per file. The
+        # identity directory is globbed rather than named: it is whatever the
+        # container's identity resolves to.
+        audit = _exec(cid, "sh", "-c", f"cat {root}/var/audit/*/maintenance.jsonl")
         installed = _exec(cid, "test", "-e", f"{render}/{RESERVED_OUTPUT_PATH}")
-        audit_owner = _exec(cid, "stat", "-c", "%U %a", f"{root}/var/audit/protected-writes.jsonl")
+        audit_owner = _exec(cid, "sh", "-c", f"stat -c '%U %G %a' {root}/var/audit/*/ | head -1")
         restored_body = _exec(cid, "cat", f"{render}/{RESTORED_OUTPUT_PATH}")
         restored_owner = _exec(cid, "stat", "-c", "%U", f"{render}/{RESTORED_OUTPUT_PATH}")
 
@@ -716,13 +722,14 @@ class TestScaffoldRestoreReservedGate:
             ")\n"
             "from osprey.interfaces.web_terminal.ownership import resolve_ownership\n"
             f"render = Path({admin_state.root!r}) / 'build'\n"
-            "from osprey.services.python_executor.refusal_audit import (\n"
-            "    protected_writes_log_path,\n"
-            ")\n"
-            f"audit = Path({admin_state.root!r}) / 'var' / 'audit' / 'protected-writes.jsonl'\n"
+            "from osprey.audit.protected import SURFACE_SCAFFOLD_RESTORE\n"
+            "from osprey.audit.writer import ledger_path\n"
+            "from osprey.utils.identity import acting_identity\n"
+            f"audit = (Path({admin_state.root!r}) / 'var' / 'audit' / acting_identity()\n"
+            "         / f'{SURFACE_SCAFFOLD_RESTORE}.jsonl')\n"
             "read = lambda: audit.read_text().splitlines() if audit.exists() else []\n"
             "before = len(read())\n"
-            "DIAG = str(protected_writes_log_path())\n"
+            "DIAG = str(ledger_path(SURFACE_SCAFFOLD_RESTORE))\n"
             "mode = resolve_ownership(render).mode.value\n"
             "restored = restore_scaffold_bodies(render)\n"
             "print(json.dumps({\n"
@@ -748,37 +755,43 @@ class TestScaffoldRestoreReservedGate:
         matching = [
             r
             for r in result["appended"]
-            if r.get("surface") == "scaffold_restore"
-            and r.get("key_or_path") == RESERVED_OUTPUT_PATH
+            if r.get("surface") == "scaffold_restore" and r.get("subject") == RESERVED_OUTPUT_PATH
         ]
         assert matching, (
             f"this restore appended no scaffold_restore refusal: {result['appended']}; "
             f"the process writes its log to {result['diag_log']}"
         )
         assert matching[-1]["reason"] == "reserved path in ownership store"
-        assert matching[-1]["channel"], "the refusal recorded no owning channel"
+        assert "channel=" in matching[-1]["detail"], "the refusal recorded no owning channel"
 
-    def test_the_entrypoint_hands_the_audit_log_back_to_the_runtime_user(self, admin_state):
-        """Whoever creates the log first decides who can ever append to it.
+    def test_the_entrypoint_leaves_the_audit_zone_writable_by_the_runtime_user(self, admin_state):
+        """Whoever creates the identity directory first decides who can file in it.
 
-        The entrypoint's restore runs as root and is now the FIRST writer of
-        ``protected-writes.jsonl`` on a fresh deployment, so the file is created
-        root-owned 0644 — and the server, as uid 1000, then cannot append to it.
-        ``record_protected_refusal`` never raises, so every later refusal by the
-        running app would be dropped in silence: the exact failure the audit log
-        exists to prevent, introduced by the thing that made the restore work.
+        The entrypoint's restore runs as root and is the FIRST writer into
+        ``var/audit/<identity>/`` on a fresh deployment. Its own records go to
+        ``maintenance.jsonl`` — root and the app user never share a file, which
+        is what the writer's maintenance marker is for — but they share the
+        DIRECTORY, and a root-owned 0755 directory would leave the server, as
+        uid 1000, unable to create ``scaffold_restore.jsonl`` at all. The
+        recorder never raises, so every later refusal would be dropped in
+        silence: the exact failure the audit trail exists to prevent.
 
-        The state zone is the agent user's by construction (the image chowns
-        ``var/`` wholesale), so root handing it back after its startup writes is
-        the invariant, not a patch for this one file.
+        Two shapes pass, and both are the invariant rather than a patch: the
+        directory is handed back to the agent user (the state zone is theirs by
+        construction — the image chowns ``var/`` wholesale), or it is the
+        group-shared setgid directory a bind-mounted audit zone is provisioned
+        as, which the hand-back deliberately prunes and the entrypoint joins by
+        group instead.
         """
         assert admin_state.audit_owner.returncode == 0, (
-            f"no protected-write audit log after the restart: {admin_state.audit_owner.stderr}"
+            f"no audit identity directory after the restart: {admin_state.audit_owner.stderr}"
         )
-        owner = admin_state.audit_owner.stdout.split()[0]
-        assert owner == "osprey", (
-            "the audit log is owned by root, so the server cannot append to it and "
-            f"every refusal it makes is silently lost: {admin_state.audit_owner.stdout!r}"
+        owner, _group, mode = admin_state.audit_owner.stdout.split()[:3]
+        group_writable = int(mode[-2]) & 0o2 != 0
+        assert owner == "osprey" or group_writable, (
+            "the audit directory is root-owned with no group write, so the server "
+            "cannot file a record in it and every refusal it makes is silently "
+            f"lost: {admin_state.audit_owner.stdout!r}"
         )
 
     def test_a_body_that_symlinks_out_of_the_store_is_refused_and_audited(self, admin_state):
@@ -832,7 +845,10 @@ class TestScaffoldRestoreReservedGate:
             "    restore_scaffold_bodies,\n"
             ")\n"
             f"render = Path({admin_state.root!r}) / 'build'\n"
-            f"audit = Path({admin_state.root!r}) / 'var' / 'audit' / 'protected-writes.jsonl'\n"
+            "from osprey.audit.protected import SURFACE_SCAFFOLD_RESTORE\n"
+            "from osprey.utils.identity import acting_identity\n"
+            f"audit = (Path({admin_state.root!r}) / 'var' / 'audit' / acting_identity()\n"
+            "         / f'{SURFACE_SCAFFOLD_RESTORE}.jsonl')\n"
             "read = lambda: audit.read_text().splitlines() if audit.exists() else []\n"
             "before = len(read())\n"
             "restored = restore_scaffold_bodies(render)\n"
@@ -881,7 +897,7 @@ class TestScaffoldRestoreReservedGate:
             json.loads(line) for line in admin_state.audit.stdout.splitlines() if line.strip()
         ]
         assert any(
-            r.get("surface") == "scaffold_restore" and r.get("key_or_path") == RESERVED_OUTPUT_PATH
+            r.get("surface") == "scaffold_restore" and r.get("subject") == RESERVED_OUTPUT_PATH
             for r in records
         ), f"no scaffold_restore refusal from the entrypoint: {records}"
 
