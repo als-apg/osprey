@@ -20,9 +20,9 @@ Two properties are under test throughout, and both are load-bearing:
   file-existence oracle, and making the refusal contingent on state that has
   nothing to do with what makes the key protected.
 
-The refusal also has to leave a trace: one ``protected-writes.jsonl`` record
-per attempt, and one activity emit, so a refused edit is visible to the
-operator afterwards and not only to the agent that saw the error.
+The refusal also has to leave a trace: one record per attempt on the
+``setup_patch`` ledger, and one activity emit, so a refused edit is visible to
+the operator afterwards and not only to the agent that saw the error.
 """
 
 import json
@@ -32,9 +32,10 @@ from unittest.mock import patch
 import pytest
 import yaml
 
+from osprey.audit import protected, writer
+from osprey.audit.protected import SURFACE_SETUP_PATCH
 from osprey.cli.profile_conventions import RESERVED_PATH_CHANNELS, is_protected_key
-from osprey.services.python_executor import refusal_audit
-from osprey.services.python_executor.refusal_audit import PROTECTED_WRITES_LOG_FILENAME
+from osprey.utils.identity import acting_identity
 from osprey_connectors.config import RUNTIME_WRITE_PATH_KEYS
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
@@ -57,7 +58,7 @@ def render(tmp_path, monkeypatch):
 
     ``resolve_config_path`` is patched in the tool's own namespace (the tool
     resolves the project root as its parent), and the audit zone is redirected
-    through :func:`refusal_audit.audit_dir` — the single seam that module
+    through :func:`osprey.audit.writer.audit_dir` — the single seam the writer
     documents for exactly this, so the test never has to stand up a real repo.
     """
     (tmp_path / "config.yml").write_text(
@@ -76,7 +77,7 @@ def render(tmp_path, monkeypatch):
         )
         + "\n"
     )
-    monkeypatch.setattr(refusal_audit, "audit_dir", lambda: tmp_path / "var" / "audit")
+    monkeypatch.setattr(writer, "audit_dir", lambda: tmp_path / "var" / "audit")
     with patch(f"{SETUP_MOD}.resolve_config_path", return_value=tmp_path / "config.yml"):
         yield tmp_path
 
@@ -91,7 +92,8 @@ def _snapshot(root: Path) -> dict[str, bytes]:
 
 
 def _audit_records(root: Path) -> list[dict]:
-    path = root / "var" / "audit" / PROTECTED_WRITES_LOG_FILENAME
+    """Every record on this identity's ``setup_patch`` ledger."""
+    path = root / "var" / "audit" / acting_identity() / f"{SURFACE_SETUP_PATCH}.jsonl"
     if not path.is_file():
         return []
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
@@ -168,18 +170,19 @@ async def test_refusal_leaves_both_files_byte_identical(render, file, key_path):
 
 @pytest.mark.unit
 async def test_refusal_writes_one_audit_record(render):
-    """One ``protected-writes.jsonl`` line, naming the surface, key and channel."""
+    """One ledger line, naming the surface, the key and the owning channel."""
     fn = _get_setup_patch()
     with _notify(), assert_raises_error(error_type="protected_key"):
         await fn(file="config.yml", key_path="control_system.writes_enabled", value=SENTINEL)
 
     (record,) = _audit_records(render)
     assert record["surface"] == "setup_patch"
-    assert record["target_file"] == "config.yml"
-    assert record["key_or_path"] == "control_system.writes_enabled"
-    assert record["channel"] == RESERVED_PATH_CHANNELS["config.yml"], (
-        "the log and the refusal message must name the channel the same way"
+    assert record["subject"] == "control_system.writes_enabled"
+    assert "target=config.yml" in record["detail"]
+    assert RESERVED_PATH_CHANNELS["config.yml"] in record["detail"], (
+        "the record and the refusal message must name the channel the same way"
     )
+    assert record["decision"] == "refused"
     assert record["reason"] == "protected_key"
     assert SENTINEL not in json.dumps(record), "the audit trail is not a place for the value"
 
@@ -192,7 +195,7 @@ async def test_each_refusal_appends_its_own_record(render):
         with _notify(), assert_raises_error(error_type="protected_key"):
             await fn(file="config.yml", key_path=key_path, value="x")
 
-    assert [r["key_or_path"] for r in _audit_records(render)] == [
+    assert [r["subject"] for r in _audit_records(render)] == [
         "control_system.writes_enabled",
         "agent_data.base_dir",
     ]
@@ -308,7 +311,7 @@ async def test_a_broken_audit_recorder_does_not_rescue_the_write(render):
         # module top, the broken_recorder.called assertion below goes red
         # instead of this test passing vacuously with the fault never injected.
         patch.object(
-            refusal_audit, "record_protected_refusal", side_effect=OSError("read-only")
+            protected, "record_protected_refusal", side_effect=OSError("read-only")
         ) as broken_recorder,
         _notify(),
         assert_raises_error(error_type="protected_key"),

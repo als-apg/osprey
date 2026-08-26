@@ -24,6 +24,25 @@ from osprey.mcp_server.python_executor.tools._execution_gates import enforce_pos
 pytestmark = pytest.mark.unit
 
 
+@pytest.fixture(autouse=True)
+def _audit_zone(tmp_path, monkeypatch):
+    """Redirect the audit zone into ``tmp_path`` for every test in this file.
+
+    The clamp *records* its refusal, and ``writer.audit_dir`` resolves against
+    the real project root — so without this a plain ``pytest`` run appends
+    refusals that never happened to the deployment's own ledger, where an
+    operator cannot tell them from the real ones.
+
+    Autouse rather than requested by the two tests that fire the clamp today: a
+    test added here later inherits the redirect instead of rediscovering the
+    leak the hard way.
+    """
+    from osprey.audit import writer
+
+    monkeypatch.setattr(writer, "audit_dir", lambda: tmp_path / "var" / "audit")
+    return tmp_path / "var" / "audit"
+
+
 def _envelope(exc_info) -> dict:
     """The structured error envelope ``make_error`` packed into the ToolError."""
     return json.loads(str(exc_info.value))
@@ -34,7 +53,7 @@ def test_readwrite_refused_under_sandbox_posture(monkeypatch):
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
 
     with pytest.raises(ToolError) as exc_info:
-        enforce_posture_clamp("readwrite")
+        enforce_posture_clamp("readwrite", tool="execute")
 
     envelope = _envelope(exc_info)
     assert envelope["error"] is True
@@ -52,7 +71,7 @@ def test_posture_refusal_names_the_posture_not_the_deployment(monkeypatch):
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
 
     with pytest.raises(ToolError) as exc_info:
-        enforce_posture_clamp("readwrite")
+        enforce_posture_clamp("readwrite", tool="execute")
 
     envelope = _envelope(exc_info)
     text = envelope["error_message"] + " " + " ".join(envelope["suggestions"])
@@ -66,7 +85,7 @@ def test_readonly_passes_under_sandbox_posture(monkeypatch):
     """A readonly run is exactly what the sandbox posture permits."""
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
 
-    assert enforce_posture_clamp("readonly") is None
+    assert enforce_posture_clamp("readonly", tool="execute") is None
 
 
 def test_no_mode_var_means_not_a_sandbox_run(monkeypatch):
@@ -77,8 +96,8 @@ def test_no_mode_var_means_not_a_sandbox_run(monkeypatch):
     """
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
 
-    assert enforce_posture_clamp("readonly") is None
-    assert enforce_posture_clamp("readwrite") is None
+    assert enforce_posture_clamp("readonly", tool="execute") is None
+    assert enforce_posture_clamp("readwrite", tool="execute") is None
 
 
 @pytest.mark.parametrize("value", ["readwrite", "READONLY", "", "sandbox", "true"])
@@ -91,5 +110,5 @@ def test_other_values_leave_both_modes_unchanged(monkeypatch, value):
     """
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", value)
 
-    assert enforce_posture_clamp("readonly") is None
-    assert enforce_posture_clamp("readwrite") is None
+    assert enforce_posture_clamp("readonly", tool="execute") is None
+    assert enforce_posture_clamp("readwrite", tool="execute") is None

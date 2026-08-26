@@ -229,9 +229,10 @@ def test_readonly_imports_syntax_error_is_not_an_issue_here():
 def _audit_records(root):
     import json
 
-    from osprey.services.python_executor.refusal_audit import REFUSAL_LOG_FILENAME
+    from osprey.audit.envelope import SURFACE_EXECUTOR
+    from osprey.utils.identity import acting_identity
 
-    path = root / "var" / "audit" / REFUSAL_LOG_FILENAME
+    path = root / "var" / "audit" / acting_identity() / f"{SURFACE_EXECUTOR}.jsonl"
     if not path.is_file():
         return []
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
@@ -240,10 +241,10 @@ def _audit_records(root):
 @pytest.mark.unit
 async def test_denied_import_is_recorded_with_its_source(tmp_path, monkeypatch):
     """The import denylist refusal names the layer and keeps the offending code."""
-    from osprey.services.python_executor import refusal_audit
+    from osprey.audit import writer
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(refusal_audit, "audit_dir", lambda: tmp_path / "var" / "audit")
+    monkeypatch.setattr(writer, "audit_dir", lambda: tmp_path / "var" / "audit")
 
     code = "import epics\nepics.caput('SR:CORR:SP', 1.0)\n"
     fn = _get_python_execute()
@@ -253,19 +254,19 @@ async def test_denied_import_is_recorded_with_its_source(tmp_path, monkeypatch):
             await fn(code=code, description="import a client", execution_mode="readonly")
 
     (record,) = _audit_records(tmp_path)
-    assert record["layer"] == "import_denylist"
+    assert record["reason"] == "import_denylist"
     assert record["source"] == code
-    assert record["description"] == "import a client"
-    assert any("epics" in issue for issue in record["trigger"])
+    assert "description=import a client" in record["detail"]
+    assert "epics" in record["detail"]
 
 
 @pytest.mark.unit
 async def test_a_clean_readonly_run_writes_no_audit_record(tmp_path, monkeypatch):
     """The log must stay a record of refusals, not of executions."""
-    from osprey.services.python_executor import refusal_audit
+    from osprey.audit import writer
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(refusal_audit, "audit_dir", lambda: tmp_path / "var" / "audit")
+    monkeypatch.setattr(writer, "audit_dir", lambda: tmp_path / "var" / "audit")
 
     fn = _get_python_execute()
     with patch(

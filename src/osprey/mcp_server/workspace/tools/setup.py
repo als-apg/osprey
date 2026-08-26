@@ -45,7 +45,7 @@ _HOT_CHANGE_PATHS = {
 _SAFETY_KEY_PREFIX = "control_system."
 
 # The `error_type` a protected-key refusal carries on the wire, and the `reason`
-# recorded beside it in `protected-writes.jsonl`. One constant because the two
+# recorded beside it in the `setup_patch` ledger. One constant because the two
 # are read together: an operator who finds a refusal in the audit log looks for
 # the error the agent reported, and two spellings would make them look unrelated.
 _PROTECTED_KEY_REASON = "protected_key"
@@ -332,10 +332,10 @@ async def _refuse_protected_key(file: str, key_path: str) -> NoReturn:
     channel = RESERVED_PATH_CHANNELS.get(file, _UNKNOWN_CHANNEL)
 
     try:
-        from osprey.services.python_executor.refusal_audit import record_protected_refusal
+        from osprey.audit.protected import SURFACE_SETUP_PATCH, record_protected_refusal
 
         record_protected_refusal(
-            surface="setup_patch",
+            surface=SURFACE_SETUP_PATCH,
             target_file=file,
             key_or_path=key_path,
             channel=channel,

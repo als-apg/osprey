@@ -206,8 +206,8 @@ def resolve_protected_roots(
       the two directories in ``STATE_ZONE_DIRS`` this is the one the agent does
       not own: ``var/agent_data`` is its workspace and comes back as a
       *permitted* root below, while the ledger is written only by the parent
-      process (``services/python_executor/refusal_audit.py``, called from the
-      MCP tool layer) and never by the child. A run that could rewrite it could
+      process (``osprey.audit.writer``, called from the MCP tool layer) and
+      never by the child. A run that could rewrite it could
       erase the evidence of its own refusal.
 
     Entries that do not exist yet are included on purpose: a repo without a

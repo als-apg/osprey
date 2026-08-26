@@ -3,7 +3,8 @@
 Every channel-finder pipeline package (``channel_finder_hierarchical``,
 ``channel_finder_middle_layer``, ``channel_finder_in_context``,
 ``channel_finder_graph``) reaches its ``create_server()`` factory through the
-same entry point, :func:`run_cf_main`. The three database-backed pipelines
+same entry point, :func:`run_cf_main`, which delegates to the framework-wide
+:func:`~osprey.mcp_server.startup.run_mcp_server`. The three database-backed pipelines
 share the whole startup sequence as well — config-builder priming, server
 context, workspace singletons, tool imports — which :func:`build_cf_server`
 holds so those variants become thin parameterizations of it; the graph
@@ -15,34 +16,43 @@ package.
 
 from __future__ import annotations
 
-import importlib
 import logging
 import os
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
-from fastmcp import FastMCP
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    # NOT a runtime import. ``fastmcp.settings`` snapshots the environment when
+    # fastmcp is first imported, and every ``python -m
+    # osprey.mcp_server.channel_finder_<variant>`` reaches run_cf_main through
+    # this module -- so a module-scope ``from fastmcp import FastMCP`` here would
+    # freeze that snapshot BEFORE ``load_dotenv_from_project()`` had loaded the
+    # project ``.env``, leaving fastmcp's settings and the environment free to
+    # disagree about the transport.
+    from fastmcp import FastMCP
 
 
 def run_cf_main(server_module: str) -> None:
     """Entry point for ``python -m osprey.mcp_server.channel_finder_<variant>``.
+
+    A thin delegate to :func:`~osprey.mcp_server.startup.run_mcp_server`, which
+    every other framework MCP server already uses: dotenv load, logging setup,
+    audit-middleware install, then run. Folding the two together is what keeps
+    the channel-finder variants audited on the same terms as everything else --
+    a second startup sequence here would need a second install site, and the two
+    would drift.
 
     Args:
         server_module: Dotted path of the variant's ``server`` module, which
             must expose a ``create_server()`` factory (e.g.
             ``"osprey.mcp_server.channel_finder_hierarchical.server"``).
     """
-    from osprey.mcp_env import load_dotenv_from_project
-    from osprey.utils.logger import configure_logging
+    from osprey.mcp_server.startup import run_mcp_server
 
-    load_dotenv_from_project()
-    # stdout carries the JSON-RPC stream; configure_logging() routes records to stderr.
-    configure_logging()
-
-    server = importlib.import_module(server_module).create_server()
-    server.run()
+    run_mcp_server(server_module)
 
 
 def build_cf_server(

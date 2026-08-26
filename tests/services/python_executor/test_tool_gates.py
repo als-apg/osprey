@@ -4,7 +4,7 @@ The unit suite (``test_path_policy.py``) pins what the walker *sees*. This one
 pins that both MCP tools actually consult it, that they do so in **every**
 execution mode rather than under the readonly branch, and that a refusal leaves
 the same audit record the other pre-execution layers leave — only with
-``layer: "path_policy"``.
+``reason: "path_policy"``, on the unified ledger's ``executor`` surface.
 
 The refusals here all fire before the subprocess is launched, so nothing is
 mocked for them: reaching an assertion at all proves the gate ran ahead of
@@ -42,13 +42,19 @@ def _execute_file():
     return get_tool_fn(execute_file)
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def audit_zone(tmp_path, monkeypatch):
-    """Redirect the refusal ledger; the one seam ``refusal_audit`` documents."""
-    from osprey.services.python_executor import refusal_audit
+    """Redirect the audit zone; ``writer.audit_dir`` is the one seam it documents.
+
+    Autouse, so a test that records without asking for the zone cannot append
+    to the deployment's real ledger: the posture-clamp cases below refuse
+    *before* they read any code, and a refusal an operator finds in
+    ``var/audit/`` that no operator caused is worse than no record at all.
+    """
+    from osprey.audit import writer
 
     zone = tmp_path / "audit"
-    monkeypatch.setattr(refusal_audit, "audit_dir", lambda: zone)
+    monkeypatch.setattr(writer, "audit_dir", lambda: zone)
     return zone
 
 
@@ -76,9 +82,11 @@ def _script(root, code):
 
 
 def _refusal_records(audit_zone):
-    from osprey.services.python_executor.refusal_audit import REFUSAL_LOG_FILENAME
+    """Every executor record this identity filed — the ledger is per-identity."""
+    from osprey.audit.envelope import SURFACE_EXECUTOR
+    from osprey.utils.identity import acting_identity
 
-    log = audit_zone / REFUSAL_LOG_FILENAME
+    log = audit_zone / acting_identity() / f"{SURFACE_EXECUTOR}.jsonl"
     if not log.exists():
         return []
     return [json.loads(line) for line in log.read_text().splitlines() if line.strip()]
@@ -149,7 +157,7 @@ async def test_execute_file_matches_execute(execution_mode, script_root, audit_z
 
 @BOTH_MODES
 async def test_refusal_is_recorded_with_the_path_policy_layer(execution_mode, audit_zone):
-    from osprey.services.python_executor.refusal_audit import LAYER_PATH_POLICY
+    from osprey.mcp_server.python_executor.tools._execution_gates import LAYER_PATH_POLICY
 
     with assert_raises_error(error_type="safety_error"):
         await _execute()(
@@ -160,10 +168,13 @@ async def test_refusal_is_recorded_with_the_path_policy_layer(execution_mode, au
 
     records = _refusal_records(audit_zone)
     assert len(records) == 1
-    assert records[0]["layer"] == LAYER_PATH_POLICY == "path_policy"
-    assert records[0]["tool"] == "execute"
+    assert records[0]["reason"] == LAYER_PATH_POLICY == "path_policy"
+    assert records[0]["subject"] == "execute"
     assert records[0]["source"] == RENDER_ZONE_WRITE
-    assert any("build/config.yml" in issue for issue in records[0]["trigger"])
+    # The layer, the mode and what matched all ride in the record's detail.
+    assert "tool=execute" in records[0]["detail"]
+    assert f"mode={execution_mode}" in records[0]["detail"]
+    assert "build/config.yml" in records[0]["detail"]
 
 
 async def test_execute_file_refusal_is_recorded(script_root, audit_zone):
@@ -177,8 +188,8 @@ async def test_execute_file_refusal_is_recorded(script_root, audit_zone):
 
     records = _refusal_records(audit_zone)
     assert len(records) == 1
-    assert records[0]["layer"] == "path_policy"
-    assert records[0]["tool"] == "execute_file"
+    assert records[0]["reason"] == "path_policy"
+    assert records[0]["subject"] == "execute_file"
 
 
 # ---------------------------------------------------------------------------
@@ -196,7 +207,7 @@ async def test_guard_tamper_is_refused_at_the_tool_layer(execution_mode, audit_z
         )
 
     assert any("_restore_patched_targets" in s for s in ctx["envelope"]["suggestions"])
-    assert _refusal_records(audit_zone)[0]["layer"] == "path_policy"
+    assert _refusal_records(audit_zone)[0]["reason"] == "path_policy"
 
 
 # ---------------------------------------------------------------------------
