@@ -41,7 +41,11 @@ execution time against devices that were never built.
 Self-contained on purpose: this module reads its own env and builds its own
 connector rather than importing the bridge's in-process runner wiring, which
 the queue backend replaces. It runs in a different container from ``app.py``
-and must keep working when that wiring is gone.
+and must keep working when that wiring is gone. The one thing it does import
+from the bridge's side is ``queue_backend``'s lane resolver — which machine
+this worker binds to is the same question the bridge answers on its capability
+record, and one ladder is what keeps the two containers from describing the
+lane differently.
 
 **NEVER use a relative import in this file — not even inside a function.** In
 production this module is not imported at all: it is the manager's
@@ -110,25 +114,66 @@ open instead of hanging the manager forever."""
 
 
 def resolve_control_system_type() -> str:
-    """Read ``control_system.type`` from the mounted project config.
+    """The connector type this worker builds, by the lane resolution ladder.
 
-    Single source of truth: one config line flips the whole Bluesky stack
-    between the mock connector and real Channel Access. Fail-SAFE default of
-    ``"mock"`` whenever the config cannot be read at all (no project config
-    context, or a transient lookup failure) — the mock connector never touches
-    Channel Access, so an unreadable config can never silently connect this
-    worker to real hardware.
+    A single-lane deployment — every project rendered before the lane axis
+    existed — declares no target, and the ladder's first rung is then exactly
+    what this function has always answered: ``control_system.type``, fail-SAFE
+    to ``"mock"`` when the config cannot be read at all, because the mock
+    connector never touches Channel Access. A lane that DOES declare a target
+    resolves through it instead, which is how two lanes over one mounted
+    config.yml build two different connectors.
+
+    Delegated to ``queue_backend`` rather than restated here even though this
+    module is otherwise self-contained: the ladder decides which machine this
+    worker's devices bind to, and the bridge beside it publishes the same
+    answer on its capability record. Two spellings of that is one of them
+    being wrong about a machine somebody can move.
     """
+    from osprey.services.bluesky_bridge.queue_backend import resolve_lane_connector_type
+
+    return resolve_lane_connector_type()[0]
+
+
+def worker_writes_enabled() -> bool:
+    """Whether this worker is armed to drive the machine its lane addresses.
+
+    The same answer the reference monitor inside the connector reaches, from
+    the same inputs — stated here because the type the ladder lands on is the
+    whole point of the lane axis (a VA lane beside a live baseline is armed by
+    the VA block alone), and a worker that comes up unarmed should say so at
+    startup rather than leave an operator to discover it on a refused write.
+
+    Which posture applies follows the rung the ladder stopped on:
+
+    * a lane whose target resolved is armed by its own type's block,
+      ``control_system.connector.<type>.writes_enabled``, inheriting the
+      deployment-wide key when that block says nothing;
+    * a DEGRADED lane (rung 3) is armed by ``control_system.writes_enabled``
+      and nothing else. It was built as the deployment baseline while
+      addressing a different machine, so the baseline type's block describes a
+      machine this lane does not talk to — arming a facility gateway on the
+      strength of "you may write to the simulator" is exactly the confusion the
+      per-type posture exists to prevent. The deployment-wide key is the only
+      thing such a config has ever said about this lane.
+
+    False whenever the config cannot be read, and False in a readonly run
+    whatever the deployment says.
+    """
+    from osprey.services.bluesky_bridge.queue_backend import resolve_lane_connector_type
     from osprey.utils.config import get_config_value
+    from osprey_connectors.control_system.base import is_readonly_run
+    from osprey_connectors.types import WRITES_ENABLED_KEY, type_writes_enabled
 
+    connector_type, lane_degraded = resolve_lane_connector_type()
     try:
-        control_system_type = get_config_value("control_system.type", "mock")
+        if lane_degraded:
+            armed = get_config_value(WRITES_ENABLED_KEY, False) is True
+        else:
+            armed = type_writes_enabled(get_config_value("control_system", {}), connector_type)
     except (FileNotFoundError, KeyError, RuntimeError):
-        return "mock"
-
-    if not control_system_type or not isinstance(control_system_type, str):
-        return "mock"
-    return control_system_type
+        return False
+    return armed and not is_readonly_run()
 
 
 def build_connector_config(control_system_type: str) -> dict[str, Any]:
@@ -156,16 +201,30 @@ async def create_connector() -> Any:
     when it executed plans in-process.
     """
     from osprey.connectors.factory import ConnectorFactory, register_builtin_connectors
+    from osprey.services.bluesky_bridge.queue_backend import resolve_lane_connector_type
 
-    control_system_type = resolve_control_system_type()
+    control_system_type, lane_degraded = resolve_lane_connector_type()
+    if lane_degraded:
+        logger.warning("qserver_startup: %s", lane_degraded)
     register_builtin_connectors()  # idempotent; must run before create
     connector = await ConnectorFactory.create_control_system_connector(
         build_connector_config(control_system_type)
     )
+    if lane_degraded:
+        # The factory stamps the type it built, and the reference monitor keys
+        # this deployment's per-type write posture on that stamp. A degraded
+        # lane was built as the baseline type while addressing a machine this
+        # config never tied to that type, so the type's block does not describe
+        # it: clearing the stamp is what makes the monitor read
+        # `control_system.writes_enabled` — the only posture the config has
+        # ever stated about this lane — which is also what
+        # `worker_writes_enabled` reports.
+        connector._connector_type = None
     logger.info(
-        "qserver_startup: connected the worker's OSPREY connector (control_system.type=%s, %s)",
+        "qserver_startup: connected the worker's OSPREY connector (type=%s, %s, writes %s)",
         control_system_type,
         type(connector).__name__,
+        "enabled" if worker_writes_enabled() else "disabled",
     )
     return connector
 

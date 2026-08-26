@@ -1175,12 +1175,17 @@ def _render_bluesky_template(
         "osprey_images": _image_defaults(),
         "osprey_version": "",
     }
-    # Task 3.2: control_system is omitted by default (matching every
-    # pre-existing call site below), so `control_system.writes_enabled |
-    # default(false)` must resolve against Jinja2's default Undefined without
-    # raising. Only pass it when a caller explicitly cares.
+    # control_system is omitted by default (matching every pre-existing call
+    # site below). The template reads each lane's posture from
+    # `svc.writes_enabled`, which compose_generator precomputes per lane from
+    # the resolver (`_bluesky_lane_write_posture`) rather than from the flat
+    # key, so a caller that cares stamps the lane the way the generator does.
     if writes_enabled is not None:
         kwargs["control_system"] = {"writes_enabled": writes_enabled}
+        kwargs["services"] = {
+            **kwargs["services"],
+            "bluesky": {**kwargs["services"]["bluesky"], "writes_enabled": writes_enabled},
+        }
     if writes_enabled:
         # The limits bind is spelled by `resolve_limits_mount` and consumed
         # here as finished strings, so a writable render must be handed them —
@@ -5827,9 +5832,13 @@ def test_inject_project_metadata_passes_config_dir_keys_through(tmp_path: Path) 
 # staying in step at both entry-point shapes - a deploy reading a config from
 # `build/`, and a build rendering from a staging tree that becomes it.
 #
-# Refusals ride on `control_system.writes_enabled`, because that is what gates
-# the mount. Read-only deployments never open the file, so an unset or
-# not-yet-staged path there is a posture and not a fault.
+# Refusals ride on the union over the targets a session here can select
+# (`any_target_writes_enabled`), because that is what gates the mount: the
+# template mounts the file per Bluesky lane, off each lane's own target posture,
+# so a deployment-wide `writes_enabled: false` with an armed
+# `connector.<type>.writes_enabled` still mounts it. A deployment with no armed
+# target never opens the file, so an unset or not-yet-staged path there is a
+# posture and not a fault.
 # ---------------------------------------------------------------------------
 
 LIMITS_KEY = "control_system.limits_checking.database_path"
@@ -6017,6 +6026,102 @@ def test_limits_mount_refuses_a_writable_deployment_whose_file_is_absent(
         "the reason must name the host path that was probed, not just the key"
     )
     assert excinfo.value.remedy, "an unstaged file has a fix, so a remedy is owed"
+
+
+def _mixed_posture_limits_config(database_path: object) -> dict:
+    """Read-only deployment-wide, armed on its virtual accelerator.
+
+    The posture this branch exists for: ``control_system.writes_enabled`` is
+    ``false`` and the VA's own block overrides it, so the VA lane renders
+    ``svc.writes_enabled`` true and mounts the limits database while the flat
+    key says the deployment writes nothing.
+    """
+    return {
+        "type": "virtual_accelerator",
+        "writes_enabled": False,
+        "connector": {"virtual_accelerator": {"writes_enabled": True}},
+        "limits_checking": {"enabled": True, "database_path": database_path},
+    }
+
+
+def test_limits_mount_refuses_a_per_target_writable_deployment_whose_file_is_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A target armed per type earns the same refusal as a global one.
+
+    The mount is rendered per lane, off each lane's own target posture, so the
+    deployment-wide key is not what decides whether this file is mounted - the
+    union over the targets a session here can select is. Reading the flat key
+    would let this exact config, the one the per-target posture exists for,
+    render an armed lane binding a file that is not on the host: an absent bind
+    source is created as an empty directory by the container runtime, so the
+    build-time refusal is the only place it is caught.
+    """
+    config_path = _write_config(
+        tmp_path,
+        deployed_services=[],
+        control_system=_mixed_posture_limits_config(DEFAULT_LIMITS_RELPATH),
+    )
+
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(DeploymentPreconditionError, match=re.escape(LIMITS_KEY)) as excinfo:
+        prepare_compose_files(str(config_path))
+
+    assert str(tmp_path / DEFAULT_LIMITS_RELPATH) in excinfo.value.reason, (
+        "the reason must name the host path that was probed, not just the key"
+    )
+    assert "writes_enabled" in excinfo.value.reason, (
+        "the reason must say which posture makes the absent file fatal"
+    )
+
+
+def test_limits_mount_refuses_a_per_target_writable_deployment_with_no_configured_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Armed per target, no path: refused, not rendered as an empty bind.
+
+    Without the refusal the key is absent from the render context and the
+    template's per-lane mount spells a bind with neither source nor target -
+    a compose file that does not parse, produced from a config that does.
+    """
+    config_path = _write_config(
+        tmp_path,
+        deployed_services=[],
+        control_system=_mixed_posture_limits_config(None),
+    )
+
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(DeploymentPreconditionError, match=re.escape(LIMITS_KEY)) as excinfo:
+        prepare_compose_files(str(config_path))
+
+    assert "writes_enabled" in excinfo.value.reason, (
+        "the reason must say which posture makes the missing key fatal"
+    )
+
+
+def test_limits_mount_returned_for_a_per_target_writable_deployment_with_the_file_staged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The armed-per-target render gets the same finished strings as any other.
+
+    The predicate change is about which postures are checked, not about how the
+    path is spelled: once the file is staged, the mount the armed VA lane
+    consumes is the ordinary repo-root spelling.
+    """
+    config_path = _write_config(
+        tmp_path,
+        deployed_services=[],
+        control_system=_mixed_posture_limits_config(DEFAULT_LIMITS_RELPATH),
+    )
+    _stage_limits_file(tmp_path)
+
+    monkeypatch.chdir(tmp_path)
+    config, _ = prepare_compose_files(str(config_path))
+
+    assert config["limits_mount"] == {
+        "source": f"./{DEFAULT_LIMITS_RELPATH}",
+        "target": f"/app/project/{DEFAULT_LIMITS_RELPATH}",
+    }
 
 
 def test_limits_mount_refuses_a_writable_deployment_with_a_non_string_path(

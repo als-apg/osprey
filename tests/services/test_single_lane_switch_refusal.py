@@ -79,13 +79,20 @@ def deployment(tmp_path, monkeypatch):
         control_system = {"type": _BASELINE_TYPES[baseline], "writes_enabled": True}
 
         # The baseline comes from the shared resolver reading the deployment
-        # config; the kill switch is a separate, dotted read in the tool module.
+        # config; the tool module reads the write posture separately.
         monkeypatch.setattr(
             target_banner, "load_osprey_config", lambda: {"control_system": control_system}
         )
 
         def fake_get_config_value(key: str, default: Any = None, config_path: Any = None) -> Any:
-            return {"control_system.writes_enabled": True}.get(key, default)
+            # The whole section, not only the deployment-wide flag: write
+            # posture is resolved per control target out of
+            # `control_system.connector`, so a stub serving one dotted key would
+            # answer "unarmed" for every lane whatever this deployment says.
+            return {
+                "control_system": control_system,
+                "control_system.writes_enabled": True,
+            }.get(key, default)
 
         monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
 

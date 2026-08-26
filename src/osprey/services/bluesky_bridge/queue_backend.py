@@ -219,6 +219,93 @@ def _baseline_lane_target() -> str:
     return connector_types.TARGET_LIVE
 
 
+def _control_system_section() -> dict[str, Any]:
+    """The mounted config's ``control_system:`` mapping, or an empty one.
+
+    Empty is the same answer :func:`_resolve_control_system_type` fails safe to:
+    a deployment whose config cannot be read has declared nothing, and every
+    resolver that takes this section already reads "nothing declared" as the
+    fail-closed side.
+    """
+    from osprey.utils.config import get_config_value
+
+    try:
+        section = get_config_value("control_system", {})
+    except _CONFIG_READ_ERRORS:
+        return {}
+    return section if isinstance(section, dict) else {}
+
+
+def _declared_lane_target(lane: str) -> str | None:
+    """The target ``services.<lane>.target`` declares, or ``None`` when it says nothing.
+
+    ``None`` covers both an unreadable config and the single-lane deployment
+    every project has rendered so far, whose block has never carried the key —
+    the two want the same answer, which is "this lane declares no target".
+    """
+    from osprey.utils.config import get_config_value
+
+    try:
+        declared = get_config_value(f"services.{lane}.target", None)
+    except _CONFIG_READ_ERRORS:
+        return None
+    return declared if isinstance(declared, str) and declared else None
+
+
+def resolve_lane_connector_type() -> tuple[str, str | None]:
+    """The connector type this lane's queueserver worker builds, and how it degraded.
+
+    A resolution ladder, top rung wins, because a lane's declared target and the
+    deployment's own ``control_system.type`` are two different facts and a
+    two-lane deployment is exactly where they disagree:
+
+    1. The lane declares NO target — every single-lane deployment — so
+       ``control_system.type`` is the whole answer, unchanged from before the
+       lane axis existed.
+    2. The lane declares a target that RESOLVES on this deployment: that type.
+       It is also the key of the block the connector's settings and its write
+       posture come from, so a VA lane beside a live baseline is armed by
+       ``control_system.connector.virtual_accelerator`` alone.
+    3. The lane declares a target this deployment cannot resolve. The LIVE lane
+       of a virtual-accelerator baseline is the shipped case: it declares
+       ``live`` and the config carries no live connector block, because its
+       gateway is a facility address no build can verify and
+       ``${EPICS_CA_NAME_SERVERS:?}`` is what supplies it at ``osprey up``. The
+       answer stays ``control_system.type`` — what that lane has always built —
+       so it keeps working, with the write posture that type inherits from the
+       deployment-wide key. The mismatch is *reported* rather than absorbed:
+       the lane addresses one machine with a type the config tied to another.
+    4. Nothing usable at all: ``mock``, which never touches Channel Access.
+
+    Never raises, for the same reason :func:`resolve_lane_identity` does not.
+
+    Returns:
+        ``(connector_type, lane_degraded)``. ``lane_degraded`` is ``None``
+        except on rung 3, where it is the operator-facing sentence naming the
+        target the lane declared against the type it actually built.
+    """
+    from osprey_connectors.types import EPICS, resolve_target
+
+    lane = os.environ.get(LANE_ENV) or DEFAULT_LANE
+    baseline_type = _resolve_control_system_type()
+
+    declared = _declared_lane_target(lane)
+    if declared is None:
+        return baseline_type, None
+
+    try:
+        return resolve_target(_control_system_section(), declared), None
+    except ValueError:
+        return baseline_type, (
+            f"Lane {lane!r} declares the {declared!r} target, which this deployment "
+            f"cannot resolve to a control system, so its worker is built as "
+            f"{baseline_type!r} — the deployment baseline — and inherits the "
+            f"deployment-wide write posture. Configure the connector block for the "
+            f"machine this lane addresses (control_system.connector.{EPICS}, say) to "
+            f"make the lane concrete."
+        )
+
+
 def resolve_lane_identity() -> tuple[str, str]:
     """This bridge's lane and the control target that lane serves.
 
@@ -240,16 +327,9 @@ def resolve_lane_identity() -> tuple[str, str]:
     Returns:
         ``(lane, lane_target)`` — the lane's service key, and ``live``/``va``.
     """
-    from osprey.utils.config import get_config_value
-
     lane = os.environ.get(LANE_ENV) or DEFAULT_LANE
-
-    try:
-        declared = get_config_value(f"services.{lane}.target", None)
-    except _CONFIG_READ_ERRORS:
-        declared = None
-
-    if isinstance(declared, str) and declared:
+    declared = _declared_lane_target(lane)
+    if declared is not None:
         return lane, declared
     # No declared target is the single-lane deployment: it has never had a
     # reason to name a target, because it serves the only one the deployment
@@ -359,6 +439,13 @@ class Capability:
         lane_target: The control target that lane serves, ``live`` or ``va``.
             Fixed at render time; see :func:`resolve_lane_identity` for why it
             can never be the SESSION's target.
+        lane_degraded: ``None`` on a lane whose declared target resolves to a
+            connector type this deployment configured, which is every lane that
+            is fully described. Otherwise the sentence naming what the lane
+            declared against what its worker was actually built as — see rung 3
+            of :func:`resolve_lane_connector_type`. Independent of
+            ``can_execute``: such a lane executes plans perfectly well, against
+            a machine the config never tied to its target.
     """
 
     can_execute: bool
@@ -366,6 +453,7 @@ class Capability:
     detail: str
     lane: str
     lane_target: str
+    lane_degraded: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """The capability as the JSON object the status surface publishes."""
@@ -375,6 +463,7 @@ class Capability:
             "detail": self.detail,
             "lane": self.lane,
             "lane_target": self.lane_target,
+            "lane_degraded": self.lane_degraded,
         }
 
 
@@ -1018,10 +1107,15 @@ class QueueBackend:
         consumer looking at a "no" needs to know WHICH lane said it. It is
         resolved once, up here, from render-time facts alone — nothing below
         can make it depend on what the manager answered.
+
+        The connector type below is the LANE's, not the deployment's: the
+        queueserver container beside this bridge builds its worker by
+        :func:`resolve_lane_connector_type`, and a record naming a different
+        connector than the one plans will actually run against would be a
+        capability describing some other lane.
         """
         lane, lane_target = resolve_lane_identity()
-        connector_type = _resolve_connector_type()
-        if connector_type is None:
+        if _resolve_connector_type() is None:
             return Capability(
                 can_execute=False,
                 reason=REASON_CONFIG_UNREADABLE,
@@ -1033,6 +1127,7 @@ class QueueBackend:
                     "container."
                 ),
             )
+        connector_type, lane_degraded = resolve_lane_connector_type()
 
         if connector_type == "mock":
             return Capability(
@@ -1040,6 +1135,7 @@ class QueueBackend:
                 reason=REASON_BROWSE_ONLY_CONNECTOR,
                 lane=lane,
                 lane_target=lane_target,
+                lane_degraded=lane_degraded,
                 detail=(
                     "This deployment uses the mock connector, which cannot move hardware, "
                     "so plans can be composed and validated but not executed. To "
@@ -1053,6 +1149,7 @@ class QueueBackend:
                 reason=REASON_UNSUPPORTED_CONNECTOR,
                 lane=lane,
                 lane_target=lane_target,
+                lane_degraded=lane_degraded,
                 detail=(
                     f"The {connector_type!r} connector is not one the plan stack can execute "
                     f"plans against. To execute plans, run `{FLIP_COMMAND}` and redeploy."
@@ -1065,6 +1162,7 @@ class QueueBackend:
                 reason=REASON_MANAGER_NOT_CONFIGURED,
                 lane=lane,
                 lane_target=lane_target,
+                lane_degraded=lane_degraded,
                 detail=(
                     "No queue server is configured for this deployment "
                     f"({QSERVER_CONTROL_ADDRESS_ENV} is unset), so plans cannot be executed."
@@ -1079,6 +1177,7 @@ class QueueBackend:
                 reason=REASON_MANAGER_UNREACHABLE,
                 lane=lane,
                 lane_target=lane_target,
+                lane_degraded=lane_degraded,
                 detail=f"The queue server is not answering, so plans cannot be executed: {exc}",
             )
 
@@ -1087,6 +1186,7 @@ class QueueBackend:
             reason=REASON_EXECUTABLE,
             lane=lane,
             lane_target=lane_target,
+            lane_degraded=lane_degraded,
             detail=f"Plans execute against the {connector_type!r} connector.",
         )
 

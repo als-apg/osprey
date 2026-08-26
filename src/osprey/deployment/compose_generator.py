@@ -668,15 +668,26 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
     (hence ``repo_root=None``) — rewriting it repo-relative would silently
     re-point the mount at a file that is not there.
 
-    Refusals are gated on ``control_system.writes_enabled`` because that is what
-    gates the mount itself. A read-only deployment never enforces limits against
-    this file, so an unset or not-yet-staged path is a posture there, not a
-    fault. A writable deployment without a limits database is the one unsafe
-    combination — the same one
-    ``bluesky_bridge.validation._assert_limits_readable_if_writable`` refuses to
-    start on — and catching it here turns an unhealthy container an hour into a
-    deploy into a refusal while the operator still has the config in front of
-    them.
+    Refusals are gated on :func:`~osprey_connectors.types.any_target_writes_enabled`
+    because that is what gates the mount itself. The mount is rendered per
+    Bluesky lane, on each lane's own target posture
+    (:func:`_bluesky_lane_write_posture`), so a deployment whose
+    deployment-wide key is ``false`` still mounts this file into a lane whose
+    ``control_system.connector.<type>.writes_enabled`` arms it. Reading the flat
+    key here would skip both refusals on exactly that config and hand the
+    template a mount it does not have: with the path unset the render emits a
+    bind with no source, and with it set but unstaged a build-time refusal
+    degrades into a container that comes up enforcing an unreadable file. The
+    union predicate — the same one the web terminal's write gate reads — is what
+    keeps the refusal and the mount describing the same deployment.
+
+    A deployment with no armed target never enforces limits against this file,
+    so an unset or not-yet-staged path is a posture there, not a fault. One that
+    arms a target without a limits database is the one unsafe combination — the
+    same one ``bluesky_bridge.validation._assert_limits_readable_if_writable``
+    refuses to start on — and catching it here turns an unhealthy container an
+    hour into a deploy into a refusal while the operator still has the config in
+    front of them.
 
     :param config: The loaded project config
     :type config: dict
@@ -689,25 +700,30 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
         will be read under; ``""`` for the repo root itself
     :type deployed_config_dir: str
     :return: ``{"source": ..., "target": ...}``, or ``None`` when the key names
-        no path at all and writes are disabled
+        no path at all and no target arms writes
     :rtype: dict[str, str] or None
-    :raises DeploymentPreconditionError: Writes are enabled and the key is
+    :raises DeploymentPreconditionError: Some target arms writes and the key is
         unset, is not a string, or names a file that is not on this host
     """
+    from osprey_connectors.types import any_target_writes_enabled
+
     control_system = config.get("control_system") or {}
     limits_checking = control_system.get("limits_checking") or {}
     raw = limits_checking.get("database_path")
-    writes_enabled = bool(control_system.get("writes_enabled", False))
+    writes_enabled = any_target_writes_enabled(control_system)
 
     if not isinstance(raw, str) or not raw.strip():
         if writes_enabled:
             raise DeploymentPreconditionError(
                 reason=(
-                    f"control_system.writes_enabled is true, so the "
-                    f"channel-limits database is mounted into the services that "
-                    f"write — but {LIMITS_DATABASE_CONFIG_KEY} names no path "
-                    f"(found: {raw!r}). There is nothing to mount, so those "
-                    f"services would come up with no limits to enforce."
+                    f"At least one control target arms writes_enabled (from "
+                    f"control_system.writes_enabled or a "
+                    f"control_system.connector.<type>.writes_enabled that "
+                    f"overrides it), so the channel-limits database is mounted "
+                    f"into the services that write — but "
+                    f"{LIMITS_DATABASE_CONFIG_KEY} names no path (found: "
+                    f"{raw!r}). There is nothing to mount, so those services "
+                    f"would come up with no limits to enforce."
                 ),
                 remedy=(
                     f"Set {LIMITS_DATABASE_CONFIG_KEY} to the limits file, "
@@ -715,8 +731,10 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
                     "    control_system:\n"
                     "      limits_checking:\n"
                     "        database_path: data/channel_limits.json\n"
-                    "Or set control_system.writes_enabled: false to deploy "
-                    "read-only, which needs no limits database."
+                    "Or disarm every target — control_system.writes_enabled: "
+                    "false with no control_system.connector.<type>."
+                    "writes_enabled: true overriding it — to deploy read-only, "
+                    "which needs no limits database."
                 ),
             )
         # Read-only and unconfigured: nothing to spell, and nothing that would
@@ -744,8 +762,11 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
     if writes_enabled and not on_host.is_file():
         raise DeploymentPreconditionError(
             reason=(
-                f"control_system.writes_enabled is true, so the channel-limits "
-                f"database is mounted into the services that write — but "
+                f"At least one control target arms writes_enabled (from "
+                f"control_system.writes_enabled or a "
+                f"control_system.connector.<type>.writes_enabled that overrides "
+                f"it), so the channel-limits database is mounted into the "
+                f"services that write — but "
                 f"{LIMITS_DATABASE_CONFIG_KEY} is {raw!r} and there is no file "
                 f"at {on_host}. A bind source that does not exist is created by "
                 f"the container runtime as an empty directory, so the deployment "
@@ -1105,6 +1126,37 @@ def resolve_image_defaults(config):
     }
 
 
+def _bluesky_lane_write_posture(services, control_system):
+    """Whether writes are armed for each declared Bluesky lane, by lane key.
+
+    Write posture follows the control-system TARGET, and a Bluesky lane is bound
+    to one target at render time — so a deployment can arm writes on its virtual
+    accelerator lane while its live lane stays read-only. The template cannot
+    resolve a target to a connector type itself, so the answer is computed here
+    and read off the lane's own ``services.<lane>`` block.
+
+    A lane with no declared ``target`` — which is every single-lane render —
+    serves the deployment baseline, so its posture is the deployment-wide one it
+    has always been.
+
+    :param services: The config's ``services:`` mapping.
+    :type services: dict
+    :param control_system: The config's ``control_system:`` section.
+    :return: Lane service key to armed flag, for the lanes declared in *services*
+    :rtype: dict[str, bool]
+    """
+    from osprey.bluesky_bridge_connection import LANE_KEYS
+    from osprey_connectors.types import baseline_target, target_writes_enabled
+
+    return {
+        key: target_writes_enabled(
+            control_system, services[key].get("target") or baseline_target(control_system)
+        )
+        for key in LANE_KEYS
+        if isinstance(services.get(key), dict)
+    }
+
+
 def _inject_project_metadata(config):
     """Add project tracking metadata for container labels.
 
@@ -1288,6 +1340,18 @@ def _inject_project_metadata(config):
         worker_cfg.setdefault("image", image_defaults["worker"])
         services["dispatch_worker"] = worker_cfg
         config_with_labels["services"] = services
+
+    # Each Bluesky lane's write posture, resolved here because the template
+    # cannot (:func:`_bluesky_lane_write_posture`). Same copy-on-write as the
+    # worker image above, so the shared input config is never mutated.
+    services = config_with_labels.get("services")
+    if isinstance(services, dict):
+        posture = _bluesky_lane_write_posture(services, config_with_labels.get("control_system"))
+        if posture:
+            services = dict(services)
+            for lane_key, armed in posture.items():
+                services[lane_key] = {**services[lane_key], "writes_enabled": armed}
+            config_with_labels["services"] = services
 
     return config_with_labels
 

@@ -709,6 +709,79 @@ def _baseline_lane_target(config: Any, virtual_accelerator: VAConfig | None) -> 
     return target
 
 
+#: Every service key a bluesky plan lane can occupy — lane 1's historical key
+#: plus the two target-named siblings. The set a declared-target check has to
+#: sweep: a block this build does not render (a leftover from a profile that
+#: once set ``second_lane``) keeps whatever target it was written with, and the
+#: bridge reads that block at run time whether or not this build wrote it.
+_LANE_SERVICE_KEYS = ("bluesky", *sorted(_SECOND_LANE_SERVICE_KEY.values()))
+
+
+def _refuse_unknown_lane_targets(config: Any) -> None:
+    """Refuse a lane whose ``target`` names no control target at all.
+
+    The one lane-target mistake no runtime signal can repair. A target that
+    does not RESOLVE is a deployment that has not described its machine yet,
+    and the bridge handles it by falling back to the deployment baseline — but
+    a target that is not spelled ``live`` or ``va`` is a typo, and a typo
+    resolves to the baseline forever while the author goes on believing the
+    lane serves what they wrote.
+
+    Raises:
+        BuildProfileError: A lane block declares a target outside
+            :data:`~osprey_connectors.types.CONTROL_TARGETS`.
+    """
+    services = config.get("services") or {}
+    if not hasattr(services, "get"):
+        return
+    valid = ", ".join(repr(target) for target in connector_types.CONTROL_TARGETS)
+    for lane_key in _LANE_SERVICE_KEYS:
+        block = services.get(lane_key)
+        declared = block.get("target") if hasattr(block, "get") else None
+        if declared is None or declared in connector_types.CONTROL_TARGETS:
+            continue
+        raise BuildProfileError(
+            f"services.{lane_key}.target is {declared!r}, which is not a control "
+            f"target. A bluesky plan lane serves one of {valid}, spelled exactly. "
+            f"The build derives this key from the deployment baseline, so drop it "
+            f"or spell the target you meant."
+        )
+
+
+def _warn_underivable_lane_targets(config: Any, lanes: list[tuple[str, dict[str, Any]]]) -> None:
+    """Name the lanes whose declared target this config cannot resolve to a type.
+
+    Not a refusal, deliberately. The live lane of a virtual-accelerator
+    baseline is exactly this shape and is the shipped, correct case: its
+    gateway is a facility address no build can verify, which is why its
+    addressing contract is the ``${EPICS_CA_NAME_SERVERS:?}`` variable that
+    fails loudly at ``osprey up``. Such a lane's worker is built as the
+    deployment baseline and keeps working; what it does not have is a connector
+    block of its own, so it inherits the deployment-wide write posture instead
+    of carrying one. That is worth saying at build time, when the author is
+    still holding the profile.
+    """
+    control_system = config.get("control_system") or {}
+    for lane_key, lane_config in lanes:
+        target = lane_config.get("target")
+        if target is None:
+            continue
+        try:
+            connector_types.resolve_target(control_system, target)
+        except ValueError:
+            logger.warning(
+                "    Lane %s declares the %r target, which this config cannot resolve "
+                "to a control system: its worker builds %r — the deployment baseline — "
+                "and inherits control_system.writes_enabled. Configure the connector "
+                "block for the machine it addresses (control_system.connector.%s, say) "
+                "to make the lane concrete.",
+                lane_key,
+                target,
+                connector_types.resolve_control_system_type(control_system),
+                connector_types.EPICS,
+            )
+
+
 def _facility_plan_keys(bluesky: BlueskyConfig) -> dict[str, Any]:
     """The facility plan keys every lane's service block carries.
 
@@ -779,9 +852,10 @@ def _inject_bluesky(
             never reaches the check.
 
     Raises:
-        BuildProfileError: If ``second_lane`` is set on a deployment whose
-            baseline control-system type is not a switch target, or on a live
-            baseline that deploys no virtual accelerator.
+        BuildProfileError: If a lane block declares a ``target`` that is not a
+            control target at all, or if ``second_lane`` is set on a deployment
+            whose baseline control-system type is not a switch target, or on a
+            live baseline that deploys no virtual accelerator.
     """
     from ruamel.yaml import YAML
 
@@ -812,6 +886,8 @@ def _inject_bluesky(
     yaml.preserve_quotes = True
     with open(config_path) as fh:
         config = yaml.load(fh)
+
+    _refuse_unknown_lane_targets(config)
 
     # No ``image`` key: the service builds the local bluesky-bridge image on
     # first ``osprey up``. Override with OSPREY_BLUESKY_BRIDGE_IMAGE, or
@@ -851,6 +927,8 @@ def _inject_bluesky(
             if lane_target == "live":
                 lane_config["ca_name_servers"] = _LIVE_LANE_CA_NAME_SERVERS
         lanes.append((_SECOND_LANE_SERVICE_KEY[second], second_config))
+
+    _warn_underivable_lane_targets(config, lanes)
 
     deployed = config.get("deployed_services", []) or []
     for lane_key, lane_config in lanes:

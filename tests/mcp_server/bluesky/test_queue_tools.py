@@ -52,16 +52,24 @@ def _reset_bluesky_context():
     reset_server_context()
 
 
-def _configure(tmp_path, monkeypatch, *, writes: bool | None, token: str | None) -> None:
+def _configure(
+    tmp_path,
+    monkeypatch,
+    *,
+    writes: bool | None,
+    token: str | None,
+    control_system: dict | None = None,
+) -> None:
     """Put the process in a deployment posture: writes on/off, token set/unset.
 
     ``writes=None`` writes no config.yml at all — the fail-closed case.
+    ``control_system`` writes that whole section instead of the deployment-wide
+    flag alone, which is how a per-connector-type posture is staged.
     """
     monkeypatch.chdir(tmp_path)
-    if writes is not None:
-        (tmp_path / "config.yml").write_text(
-            yaml.dump({"control_system": {"writes_enabled": writes}})
-        )
+    section = control_system if control_system is not None else {"writes_enabled": writes}
+    if control_system is not None or writes is not None:
+        (tmp_path / "config.yml").write_text(yaml.dump({"control_system": section}))
     if token is None:
         monkeypatch.delenv("BLUESKY_LAUNCH_TOKEN", raising=False)
     else:
@@ -252,13 +260,19 @@ async def test_queue_add_withholds_the_token_when_writes_are_disabled(tmp_path, 
     manager's live state) permits it only while the queue is idle and refuses
     it the moment the queue is draining. Asserting on the absent header pins
     the mechanism; a status-code assertion would not.
+
+    The add SUCCEEDING is half the contract and is asserted too: an unarmed
+    lane that could no longer compose a queue would have turned the
+    compose-while-unarmed guarantee into a refusal nobody asked for.
     """
     _configure(tmp_path, monkeypatch, writes=False, token=_TOKEN)
-    with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as m:
+    body = {"run_id": "r1", "revision": 3, "item": {"item_uid": "u1"}}
+    with patch(f"{_MOD}._http_post_json", return_value=(200, body)) as m:
         with patch(f"{_MOD}.notify_agent_activity_async"):
-            await _add_fn()(draft_revision=3)
+            result = await _add_fn()(draft_revision=3)
 
     assert m.call_args.kwargs["headers"] is None
+    assert extract_response_dict(result)["run_id"] == "r1"
 
 
 async def test_queue_add_missing_config_fails_closed_and_withholds_the_token(tmp_path, monkeypatch):
@@ -326,13 +340,93 @@ async def test_queue_add_armed_refusal_names_the_kill_switch_when_writes_are_off
         "the queue is running, so adding an item requires the launch token",
         manager_state="executing_queue",
     )
+    with patch(f"{_MOD}._http_post_json", return_value=(403, body)) as m:
+        with assert_raises_error(error_type="launch_token_required") as ctx:
+            await _add_fn()(draft_revision=7)
+
+    # The other half of the compose-while-unarmed contract: the same tokenless
+    # request that an idle queue accepts is what a draining queue refuses.
+    assert m.call_args.kwargs["headers"] is None
+    envelope = ctx["envelope"]
+    assert envelope["details"]["code"] == "launch_token_required"
+    assert envelope["details"]["manager_state"] == "executing_queue"
+    assert any("writes_enabled" in s for s in envelope["suggestions"])
+
+
+async def test_queue_add_names_the_bound_lanes_own_posture_key_in_the_withheld_hint(
+    tmp_path, monkeypatch
+):
+    """The hint names the key that would arm THIS lane's machine, not the global one.
+
+    A deployment that resolves its live target to a connector type has a
+    per-type key to point at, and pointing at the deployment-wide one instead
+    would tell an operator to arm every target in order to run a plan on one.
+    """
+    _configure(
+        tmp_path,
+        monkeypatch,
+        writes=None,
+        token=_TOKEN,
+        control_system={
+            "type": "epics",
+            "writes_enabled": False,
+            "connector": {"epics": {"gateways": {"read_only": {"host": "gw-ro"}}}},
+        },
+    )
+    body = _refusal(
+        "launch_token_required",
+        "the queue is running, so adding an item requires the launch token",
+        manager_state="executing_queue",
+    )
     with patch(f"{_MOD}._http_post_json", return_value=(403, body)):
         with assert_raises_error(error_type="launch_token_required") as ctx:
             await _add_fn()(draft_revision=7)
 
-    envelope = ctx["envelope"]
-    assert envelope["details"]["code"] == "launch_token_required"
-    assert any("writes_enabled" in s for s in envelope["suggestions"])
+    suggestions = ctx["envelope"]["suggestions"]
+    assert any("control_system.connector.epics.writes_enabled" in s for s in suggestions)
+    assert any("'bluesky'" in s and "'live'" in s for s in suggestions)
+
+
+async def test_queue_add_still_composes_in_a_readonly_session(tmp_path, monkeypatch):
+    """A read-only run withholds the token; it does not stop a queue being built.
+
+    The deployment is fully armed here, so the only thing keeping the token off
+    this request is the sandbox posture — and composing onto an idle queue moves
+    nothing, so it must still succeed.
+    """
+    _armed(tmp_path, monkeypatch)
+    monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
+    body = {"run_id": "r1", "revision": 3, "item": {"item_uid": "u1"}}
+    with patch(f"{_MOD}._http_post_json", return_value=(200, body)) as m:
+        with patch(f"{_MOD}.notify_agent_activity_async"):
+            result = await _add_fn()(draft_revision=3)
+
+    assert m.call_args.kwargs["headers"] is None
+    assert extract_response_dict(result)["run_id"] == "r1"
+
+
+async def test_queue_add_readonly_refusal_names_the_sandbox_posture_not_a_config_key(
+    tmp_path, monkeypatch
+):
+    """A read-only session must not be told to edit a key that already says true.
+
+    Writes ARE armed in this deployment, so the config-key hint would send an
+    operator to change something that was never what withheld the token.
+    """
+    _armed(tmp_path, monkeypatch)
+    monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
+    body = _refusal(
+        "launch_token_required",
+        "the queue is running, so adding an item requires the launch token",
+        manager_state="executing_queue",
+    )
+    with patch(f"{_MOD}._http_post_json", return_value=(403, body)):
+        with assert_raises_error(error_type="launch_token_required") as ctx:
+            await _add_fn()(draft_revision=7)
+
+    suggestions = ctx["envelope"]["suggestions"]
+    assert any("OSPREY_EXECUTION_MODE=readonly" in s for s in suggestions)
+    assert all("profile.yml" not in s for s in suggestions)
 
 
 async def test_queue_add_writes_enabled_refusal_does_not_blame_the_kill_switch(
