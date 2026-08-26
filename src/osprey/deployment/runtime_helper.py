@@ -836,7 +836,7 @@ PODMAN_COMPOSE_PROVIDER_REMEDY = (
 )
 
 
-def podman_compose_provider_advisory(config: Mapping[str, Any] | None = None) -> str | None:
+def podman_compose_provider_advisory(runtime: str, provider: ComposeProvider) -> str | None:
     """Warn ahead of a build that this host's compose provider breaks base-image pulls.
 
     Fires only for podman served by Docker Compose v2 -- the pairing
@@ -853,30 +853,21 @@ def podman_compose_provider_advisory(config: Mapping[str, Any] | None = None) ->
     needs before a long build is the name of the thing that is about to go
     wrong; :func:`diagnose_build_failure` says it again, in place, if it does.
 
-    Total in the same sense as
-    :func:`~osprey.deployment.container_lifecycle._podman_network_backend`:
-    a host that cannot answer gets no opinion. Both failures it might raise on
-    -- no usable runtime, an unsupported provider -- are already reported by the
-    callers that own them, far better than a provider note could.
+    Takes the resolved runtime and provider rather than probing for them. The
+    deploy has already paid for both by the time a preflight runs, and probing
+    again from here would reach past the module-bound ``get_runtime_command``
+    that the lifecycle tests patch -- shelling out for an answer the caller is
+    holding. Being a pure function of the pairing also means it cannot fail, so
+    unlike its sibling preflights it needs no totality contract of its own: the
+    caller owns "the host could not be interrogated", which is where the two
+    exceptions involved were already being reported.
 
-    :param config: Optional deploy config, for the runtime it may pin.
+    :param runtime: The resolved container runtime (``docker`` or ``podman``).
+    :param provider: The compose provider detected behind it.
     :returns: Operator-facing advisory text, or ``None`` when the pairing is
-        absent or the host cannot be interrogated.
+        anything else.
     """
-    try:
-        base = get_runtime_command(config)
-    except RuntimeError:
-        return None
-
-    if not base or base[0] != "podman":
-        return None
-
-    try:
-        info = detect_compose_provider(base, config)
-    except (RuntimeError, UnsupportedComposeProviderError):
-        return None
-
-    if info.provider is not ComposeProvider.DOCKER_V2:
+    if runtime != "podman" or provider is not ComposeProvider.DOCKER_V2:
         return None
 
     return (

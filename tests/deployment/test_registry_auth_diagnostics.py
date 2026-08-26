@@ -16,13 +16,8 @@ the two things that actually resolve it.
 
 from __future__ import annotations
 
-import pytest
-
-from osprey.deployment import runtime_helper
 from osprey.deployment.runtime_helper import (
     ComposeProvider,
-    ComposeProviderInfo,
-    UnsupportedComposeProviderError,
     diagnose_build_failure,
     podman_compose_provider_advisory,
 )
@@ -38,29 +33,6 @@ REAL_FAILURE = (
     "retrieve auth token: invalid username/password: unauthorized: incorrect "
     "username or password\n"
 )
-
-
-def _provider(provider: ComposeProvider) -> ComposeProviderInfo:
-    """A minimal ComposeProviderInfo carrying just the provider identity."""
-    return ComposeProviderInfo(
-        provider=provider,
-        version=(2, 24, 5),
-        version_text="2.24.5",
-        banner="probe banner",
-    )
-
-
-def _pin(monkeypatch, runtime: str, provider: ComposeProvider | None) -> None:
-    """Pin the resolved runtime and, unless None, the detected provider."""
-    monkeypatch.setattr(
-        runtime_helper, "get_runtime_command", lambda config=None: [runtime, "compose"]
-    )
-    if provider is not None:
-        monkeypatch.setattr(
-            runtime_helper,
-            "detect_compose_provider",
-            lambda cmd=None, config=None: _provider(provider),
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -104,52 +76,48 @@ def test_diagnosis_survives_a_partial_or_wrapped_log() -> None:
 
 
 # ---------------------------------------------------------------------------
-# podman_compose_provider_advisory -- the up-front warning
+# podman_compose_provider_advisory -- a pure function of the resolved pairing
 
 
-def test_advises_on_podman_with_the_docker_compose_provider(monkeypatch) -> None:
+def test_advises_on_podman_with_the_docker_compose_provider() -> None:
     """The broken pairing is named before any image is built."""
-    _pin(monkeypatch, "podman", ComposeProvider.DOCKER_V2)
-
-    advisory = podman_compose_provider_advisory({})
+    advisory = podman_compose_provider_advisory("podman", ComposeProvider.DOCKER_V2)
 
     assert advisory is not None
     assert "podman-compose" in advisory
 
 
-def test_no_advisory_for_podman_with_podman_compose(monkeypatch) -> None:
+def test_no_advisory_for_podman_with_podman_compose() -> None:
     """The supported podman pairing is silent -- this is the CI configuration."""
-    _pin(monkeypatch, "podman", ComposeProvider.PODMAN_COMPOSE)
-    assert podman_compose_provider_advisory({}) is None
+    assert podman_compose_provider_advisory("podman", ComposeProvider.PODMAN_COMPOSE) is None
 
 
-def test_no_advisory_for_docker(monkeypatch) -> None:
+def test_no_advisory_for_docker() -> None:
     """Docker Compose v2 behind the docker runtime is the ordinary case."""
-    _pin(monkeypatch, "docker", ComposeProvider.DOCKER_V2)
-    assert podman_compose_provider_advisory({}) is None
+    assert podman_compose_provider_advisory("docker", ComposeProvider.DOCKER_V2) is None
+    assert podman_compose_provider_advisory("docker", ComposeProvider.PODMAN_COMPOSE) is None
 
 
-@pytest.mark.parametrize(
-    "boom",
-    [RuntimeError("no runtime"), UnsupportedComposeProviderError("unsupported")],
-)
-def test_advisory_stays_silent_when_the_host_cannot_be_interrogated(monkeypatch, boom) -> None:
-    """Total, like _podman_network_backend: no answer means no opinion.
+def test_the_advisory_never_probes() -> None:
+    """It must not shell out: the lifecycle site that calls it forbids that.
 
-    An advisory that raised would become the outage it exists to describe, and
-    the callers that own these two failures say them far better than a
-    provider note can.
+    The deploy has already resolved both values by the time the preflight runs,
+    and a probe from here would reach past the module-bound `get_runtime_command`
+    the lifecycle tests patch -- which is exactly how this function's first
+    version broke twenty-three of them.
     """
+    import subprocess
 
-    def _raise(*_args, **_kwargs):
-        raise boom
+    def _forbidden(*args, **kwargs):
+        raise AssertionError(f"the advisory ran a subprocess: {args!r}")
 
-    monkeypatch.setattr(runtime_helper, "get_runtime_command", _raise)
-    assert podman_compose_provider_advisory({}) is None
-
-    _pin(monkeypatch, "podman", None)
-    monkeypatch.setattr(runtime_helper, "detect_compose_provider", _raise)
-    assert podman_compose_provider_advisory({}) is None
+    original = subprocess.run
+    subprocess.run = _forbidden
+    try:
+        assert podman_compose_provider_advisory("podman", ComposeProvider.DOCKER_V2) is not None
+        assert podman_compose_provider_advisory("docker", ComposeProvider.DOCKER_V2) is None
+    finally:
+        subprocess.run = original
 
 
 # ---------------------------------------------------------------------------
@@ -187,7 +155,7 @@ def test_captured_failure_is_silent_on_an_unreadable_spool(tmp_path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# the preflight itself
+# the preflight itself -- resolution through the seam the lifecycle tests patch
 
 
 def test_preflight_warns_once_on_the_broken_pairing(monkeypatch) -> None:
@@ -201,31 +169,47 @@ def test_preflight_warns_once_on_the_broken_pairing(monkeypatch) -> None:
         lambda summary, detail=None, remedy=None: warned.append((summary, detail, remedy)),
     )
     monkeypatch.setattr(
-        container_lifecycle, "podman_compose_provider_advisory", lambda config: "the advisory"
+        container_lifecycle, "get_runtime_command", lambda config=None: ["podman", "compose"]
     )
 
-    container_lifecycle._preflight_podman_compose_provider({})
+    container_lifecycle._preflight_podman_compose_provider({}, ComposeProvider.DOCKER_V2)
 
     assert len(warned) == 1
     summary, detail, remedy = warned[0]
     assert "podman-compose" in summary
-    assert detail == "the advisory"
+    assert "empty credential" in detail
     assert "containers.conf" in remedy
 
 
-def test_preflight_is_silent_when_there_is_no_advisory(monkeypatch) -> None:
-    """Every host but the broken pairing sees nothing at all."""
+def test_preflight_is_silent_on_the_supported_pairing(monkeypatch) -> None:
+    """podman served by podman-compose -- the CI configuration -- says nothing."""
     from osprey.deployment import container_lifecycle
 
     warned: list[tuple] = []
+    monkeypatch.setattr(container_lifecycle, "_warn_fact", lambda *a, **k: warned.append(a))
     monkeypatch.setattr(
-        container_lifecycle,
-        "_warn_fact",
-        lambda *a, **k: warned.append(a),
-    )
-    monkeypatch.setattr(
-        container_lifecycle, "podman_compose_provider_advisory", lambda config: None
+        container_lifecycle, "get_runtime_command", lambda config=None: ["podman", "compose"]
     )
 
-    container_lifecycle._preflight_podman_compose_provider({})
+    container_lifecycle._preflight_podman_compose_provider({}, ComposeProvider.PODMAN_COMPOSE)
+    assert warned == []
+
+
+def test_preflight_defers_to_the_refusal_that_owns_a_dead_runtime(monkeypatch) -> None:
+    """A host with no usable runtime gets no advisory, and no exception.
+
+    verify_runtime_is_running reports that far better than a provider aside
+    could, and raising from here would bury the refusal that stops the deploy.
+    """
+    from osprey.deployment import container_lifecycle
+
+    warned: list[tuple] = []
+    monkeypatch.setattr(container_lifecycle, "_warn_fact", lambda *a, **k: warned.append(a))
+
+    def _raise(*_args, **_kwargs):
+        raise RuntimeError("no usable runtime")
+
+    monkeypatch.setattr(container_lifecycle, "get_runtime_command", _raise)
+
+    container_lifecycle._preflight_podman_compose_provider({}, ComposeProvider.DOCKER_V2)
     assert warned == []

@@ -3854,7 +3854,7 @@ def _preflight_bluesky_network_backend(config: dict) -> None:
     )
 
 
-def _preflight_podman_compose_provider(config: dict) -> None:
+def _preflight_podman_compose_provider(config: dict, provider: ComposeProvider) -> None:
     """Name the podman + Docker-Compose-v2 registry break before anything is built.
 
     Purely advisory, and silent on every host but that one pairing. See
@@ -3867,9 +3867,28 @@ def _preflight_podman_compose_provider(config: dict) -> None:
     failure it describes is also translated in place, if it happens, by
     :func:`~osprey.deployment.runtime_helper.diagnose_build_failure`.
 
+    Takes the provider the caller already resolved rather than probing for it.
+    That is not just thrift: this note asks the HOST a question, so it must sit
+    below every refusal that reads only this deployment's own files -- a deploy
+    about to abort on a drifted env chain or a machine-minted pin should not
+    first start a provider process to be told something it will never use. Both
+    names it does read are the ones bound in THIS module, the seam the lifecycle
+    tests patch, so it adds no bare subprocess to a site that forbids them.
+
+    Total, like :func:`_podman_network_backend`: a host with no usable runtime
+    gets no advisory. That failure is not this note's to report --
+    ``verify_runtime_is_running`` says it far better, and pre-empting it with a
+    provider aside would bury the refusal that actually stops the deploy.
+
     :param config: Raw deploy config, for the runtime it may pin.
+    :param provider: The compose provider the start sequence already detected.
     """
-    advisory = podman_compose_provider_advisory(config)
+    try:
+        runtime = get_runtime_command(config)[0]
+    except RuntimeError:
+        return
+
+    advisory = podman_compose_provider_advisory(runtime, provider)
     if advisory is None:
         return
 
@@ -5409,13 +5428,6 @@ def _start_stack(
     # leaves the host untouched.
     _preflight_bluesky_network_backend(config)
 
-    # And one question about the compose provider behind it: podman served by
-    # Docker Compose v2 cannot fetch a base image during a build, and the 401
-    # that produces names a password nobody typed. Advisory only -- a host with
-    # its images already local builds fine on that pairing -- so it warns here
-    # and, if the build does fail, says it again in place.
-    _preflight_podman_compose_provider(config)
-
     # Fail fast on a host-port collision (a foreign stack, or a second project
     # on the same host) with an actionable diagnosis, rather than letting
     # `compose up` collapse mid-start on a bare "address already in use". Runs
@@ -5502,6 +5514,14 @@ def _start_stack(
     # be told something it will never use. Above the advisory below, which is
     # the first thing whose wording depends on the answer.
     provider = _compose_provider(config)
+
+    # First use of that answer: podman served by Docker Compose v2 cannot fetch a
+    # base image during a build, and the 401 it gets names a password nobody
+    # typed. Here rather than up with the other preflights for the reason the
+    # comment above gives -- it needs the host's answer, so it must not run ahead
+    # of the refusals that read only this deployment's own files. Still well above
+    # the image build, which is the only thing it is trying to get ahead of.
+    _preflight_podman_compose_provider(config, provider)
 
     # Advisory, and last of the .env preflights so it reads the files every
     # provisioner above has finished writing: the shell and the env chain can
