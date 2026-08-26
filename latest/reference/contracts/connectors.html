@@ -600,20 +600,41 @@ whole batch; when omitted, every channel resolves its own, which is why
 <code class="docutils literal notranslate"><span class="pre">osprey.runtime.write_channel</span></code>.</p>
 <section id="write-safety-configuration">
 <span id="write-safety-config"></span><h3>Write Safety Configuration<a class="headerlink" href="#write-safety-configuration" title="Link to this heading">#</a></h3>
-<p>Write operations are disabled by default:</p>
+<p>Write operations are disabled by default, and write permission is set per
+connector type:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">          </span><span class="c1"># Master switch for all write operations</span>
+<span class="w">  </span><span class="nt">writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">                  </span><span class="c1"># what a type inherits when it says</span>
+<span class="w">                                         </span><span class="c1"># nothing about itself</span>
+<span class="w">  </span><span class="nt">connector</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">virtual_accelerator</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">               </span><span class="c1"># ... and this type&#39;s own answer</span>
+<span class="w">    </span><span class="nt">epics</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">              </span><span class="c1"># pinned, so the inherited key</span>
+<span class="w">                                         </span><span class="c1"># cannot arm it later</span>
 </pre></div>
 </div>
-<p>If <code class="docutils literal notranslate"><span class="pre">writes_enabled</span></code> is omitted, it defaults to <code class="docutils literal notranslate"><span class="pre">false</span></code> and all writes are
-blocked. It is a <strong>launch-time deployment posture, not a live kill-switch</strong>:
+<p>A connector type that carries no <code class="docutils literal notranslate"><span class="pre">writes_enabled</span></code> of its own inherits
+<code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code>; one that carries it uses its own value and
+never falls back. Both default to blocked when omitted, and <strong>only a literal
+``true`` arms writes</strong> — the quoted string <code class="docutils literal notranslate"><span class="pre">'true'</span></code> and the number <code class="docutils literal notranslate"><span class="pre">1</span></code> do
+not. A custom connector’s block is keyed by the same dotted module path that
+selects it, so <code class="docutils literal notranslate"><span class="pre">mypackage.TangoConnector</span></code> names one block and is never split
+on its dots.</p>
+<p>Write posture is a <strong>launch-time deployment posture, not a live kill-switch</strong>:
 read from config and process-cached, so flipping it in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> does not
 affect a running process. The enforced kill-switch lives at the harness layer
 (a renderer <code class="docutils literal notranslate"><span class="pre">permissions.deny</span></code> on the write tool, then regenerate and
 relaunch); in-flight control of an active plan is the RunEngine’s own
 <code class="docutils literal notranslate"><span class="pre">abort</span></code> / <code class="docutils literal notranslate"><span class="pre">pause</span></code>.</p>
-<p>The connector applies <strong>per-write mechanical safety</strong> — the <code class="docutils literal notranslate"><span class="pre">writes_enabled</span></code>
-gate, limits validation, the fail-closed validation path — on every put. That
+<p>That rendered deny list is written once, before any session has chosen a
+target, so it exists only where <strong>no</strong> target may write. A deployment armed on
+one target and not another renders no deny at all, and the refusal arrives per
+call instead, from the safety hook and from the connector, naming the target
+that refused it. Tools a project lists under <code class="docutils literal notranslate"><span class="pre">control_system.write_tools</span></code>
+take that per-call path in every render: they are never in the deny list, and
+the writes-check hook is what refuses them.</p>
+<p>The connector applies <strong>per-write mechanical safety</strong> — the write-posture gate,
+limits validation, the fail-closed validation path — on every put. That
 is a separate, complementary layer from the <strong>per-intent human authorization</strong>
 at the tool boundary (the approval hook, the launch token for plans), which
 gates the <em>intent</em> once rather than every put. The approval layer cannot

@@ -557,7 +557,15 @@ approval first, and the prompt names the machine you would be moving to.</p>
 <p>Ask the OSPREY agent for these in plain language — <em>“what am I pointed at?”</em>,
 <em>“switch to the virtual accelerator”</em>. A session on the simulator looks like a
 session on the machine: reads, writes and the python executor all follow the
-switch. The archive does not — archive reads keep the deployment’s one
+switch.</p>
+<p>Whether writes are <em>allowed</em> follows it too. Write posture is per control
+target, so a deployment can be armed on the simulator and read-only on the
+machine — the same tool call that moved a setpoint before the switch is refused
+after it, naming the target that refused. That is a property of the deployment’s
+config, not of the switch, and it is set up in
+<a class="reference internal" href="use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a>. Ask <code class="docutils literal notranslate"><span class="pre">control_target</span></code> if you want to know
+before you move: every row carries its own <code class="docutils literal notranslate"><span class="pre">writes_permitted</span></code>.</p>
+<p>The archive does not follow the switch — archive reads keep the deployment’s one
 configured archiver, and are stamped with the session target and the archiver
 that served them, so which machine a set of history is about is never
 ambiguous.</p>
@@ -700,8 +708,10 @@ it. A row older than three probe intervals is marked <code class="docutils liter
 than presented as current.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">writes_permitted</span></code>, <code class="docutils literal notranslate"><span class="pre">real_machine</span></code>, <code class="docutils literal notranslate"><span class="pre">probe_channel</span></code></p></td>
-<td><p>Whether writes are possible at all on this deployment, whether this
-target is the real machine, and the channel a switch would prove it with.</p></td>
+<td><p>Whether writes are permitted on <strong>this target</strong>, whether this target is
+the real machine, and the channel a switch would prove it with. Two rows
+of the same deployment can disagree about the first one: write posture is
+per target, so a simulator may be armed beside a live machine that is not.</p></td>
 </tr>
 </tbody>
 </table>

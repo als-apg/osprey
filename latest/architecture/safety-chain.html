@@ -516,8 +516,10 @@ is part of the trust boundary. The chain for <code class="docutils literal notra
 </svg>
 </div>
 <ol class="arabic simple">
-<li><p><strong>osprey_writes_check</strong> — Kill switch. Blocks all writes when <code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code>
-is <code class="docutils literal notranslate"><span class="pre">false</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. Applies to both <code class="docutils literal notranslate"><span class="pre">channel_write</span></code> and <code class="docutils literal notranslate"><span class="pre">execute</span></code>.</p></li>
+<li><p><strong>osprey_writes_check</strong> — Kill switch. Blocks a write when the session’s control
+target is not armed for writes — <code class="docutils literal notranslate"><span class="pre">control_system.connector.&lt;type&gt;.writes_enabled</span></code>
+in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, or the <code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code> a type with no block of
+its own inherits. Applies to both <code class="docutils literal notranslate"><span class="pre">channel_write</span></code> and <code class="docutils literal notranslate"><span class="pre">execute</span></code>.</p></li>
 <li><p><strong>osprey_limits</strong> — Validates the setpoint against the channel limits database
 (min, max, step size, writable flag). Only applies to <code class="docutils literal notranslate"><span class="pre">channel_write</span></code>.</p></li>
 <li><p><strong>osprey_approval</strong> — Human approval gate. Per-tool policy dispatch: <code class="docutils literal notranslate"><span class="pre">always</span></code> (require

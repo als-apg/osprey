@@ -645,7 +645,15 @@ under <code class="docutils literal notranslate"><span class="pre">claude_code</
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
 <span class="w">  </span><span class="c1"># Control system</span>
 <span class="w">  </span><span class="nt">control_system.type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">epics</span>
-<span class="w">  </span><span class="nt">control_system.writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="c1"># The posture every connector type inherits when it says nothing itself.</span>
+<span class="w">  </span><span class="nt">control_system.writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">  </span><span class="c1"># ... and one type&#39;s own answer, which does not fall back to the key</span>
+<span class="w">  </span><span class="c1"># it inherits from. This pair arms the simulator and leaves the machine</span>
+<span class="w">  </span><span class="c1"># read-only — but only on a deployment that also configures and deploys a</span>
+<span class="w">  </span><span class="c1"># virtual accelerator, since a session has to be able to reach that target</span>
+<span class="w">  </span><span class="c1"># for the key to mean anything (see the &quot;Use the Virtual Accelerator&quot;</span>
+<span class="w">  </span><span class="c1"># how-to).</span>
+<span class="w">  </span><span class="nt">control_system.connector.virtual_accelerator.writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">  </span><span class="nt">control_system.limits_checking.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 
 <span class="w">  </span><span class="c1"># Archiver</span>
@@ -838,14 +846,27 @@ subtract what a profile added</p></td>
 </tbody>
 </table>
 </div>
-<p>The third source is the one to know about. Setting
-<code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled:</span> <span class="pre">false</span></code> does not merely stop the write path
-at run time; it also puts the write tools into the rendered deny list. Those
-entries are generated, not authored, and no <code class="docutils literal notranslate"><span class="pre">remove_deny</span></code> reaches them. A
-profile that sets <code class="docutils literal notranslate"><span class="pre">writes_enabled:</span> <span class="pre">false</span></code> and also writes
+<p>The third source is the one to know about. A profile that leaves <strong>no</strong> control
+target armed does not merely stop the write path at run time; it also puts the
+framework servers’ write tools into the rendered deny list. Those entries are
+generated, not authored, and no <code class="docutils literal notranslate"><span class="pre">remove_deny</span></code> reaches them. (Tools a profile
+lists under <code class="docutils literal notranslate"><span class="pre">control_system.write_tools</span></code> are a different mechanism: they
+never reach <code class="docutils literal notranslate"><span class="pre">permissions.deny</span></code>, in any render, and are refused by the
+writes-check hook instead.) A profile that arms nothing and also writes
 <code class="docutils literal notranslate"><span class="pre">remove_deny:</span> <span class="pre">[&quot;mcp__controls__channel_write&quot;]</span></code> still renders that deny —
 which is the point. A read-only posture that a later edit could quietly lift
 would not be a posture at all.</p>
+<p>Arming <em>some</em> targets and not others renders differently, and the difference is
+worth knowing before you write such a profile. <code class="docutils literal notranslate"><span class="pre">settings.json</span></code> is rendered
+once, before any session has picked a target, so a tool that is legal on the
+simulator and refused on the machine cannot be denied there — and it cannot be
+left in <code class="docutils literal notranslate"><span class="pre">ask</span></code> either, or an operator would be prompted to approve a write the
+target’s posture forbids. Such a profile therefore renders <strong>neither</strong>: the
+gated tools leave both lists, and the boundary is carried per call by the
+safety hook (which reads the session’s active target) and by the connector
+behind it. The static deny is the stronger of the two, so reach for it — a
+profile that arms nothing — whenever the requirement is “this tier can never
+move anything”.</p>
 <div class="important admonition">
 <p class="admonition-title">Permission lists grow across <code class="docutils literal notranslate"><span class="pre">extends</span></code>; they never shrink</p>
 <p>The permission lists under <code class="docutils literal notranslate"><span class="pre">config:</span></code> — <code class="docutils literal notranslate"><span class="pre">deny</span></code>, <code class="docutils literal notranslate"><span class="pre">ask</span></code> and their

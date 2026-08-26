@@ -146,23 +146,46 @@ whole batch; when omitted, every channel resolves its own, which is why
 Write Safety Configuration
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Write operations are disabled by default:
+Write operations are disabled by default, and write permission is set per
+connector type:
 
 .. code-block:: yaml
 
    control_system:
-     writes_enabled: true          # Master switch for all write operations
+     writes_enabled: false                  # what a type inherits when it says
+                                            # nothing about itself
+     connector:
+       virtual_accelerator:
+         writes_enabled: true               # ... and this type's own answer
+       epics:
+         writes_enabled: false              # pinned, so the inherited key
+                                            # cannot arm it later
 
-If ``writes_enabled`` is omitted, it defaults to ``false`` and all writes are
-blocked. It is a **launch-time deployment posture, not a live kill-switch**:
+A connector type that carries no ``writes_enabled`` of its own inherits
+``control_system.writes_enabled``; one that carries it uses its own value and
+never falls back. Both default to blocked when omitted, and **only a literal
+``true`` arms writes** — the quoted string ``'true'`` and the number ``1`` do
+not. A custom connector's block is keyed by the same dotted module path that
+selects it, so ``mypackage.TangoConnector`` names one block and is never split
+on its dots.
+
+Write posture is a **launch-time deployment posture, not a live kill-switch**:
 read from config and process-cached, so flipping it in ``config.yml`` does not
 affect a running process. The enforced kill-switch lives at the harness layer
 (a renderer ``permissions.deny`` on the write tool, then regenerate and
 relaunch); in-flight control of an active plan is the RunEngine's own
 ``abort`` / ``pause``.
 
-The connector applies **per-write mechanical safety** — the ``writes_enabled``
-gate, limits validation, the fail-closed validation path — on every put. That
+That rendered deny list is written once, before any session has chosen a
+target, so it exists only where **no** target may write. A deployment armed on
+one target and not another renders no deny at all, and the refusal arrives per
+call instead, from the safety hook and from the connector, naming the target
+that refused it. Tools a project lists under ``control_system.write_tools``
+take that per-call path in every render: they are never in the deny list, and
+the writes-check hook is what refuses them.
+
+The connector applies **per-write mechanical safety** — the write-posture gate,
+limits validation, the fail-closed validation path — on every put. That
 is a separate, complementary layer from the **per-intent human authorization**
 at the tool boundary (the approval hook, the launch token for plans), which
 gates the *intent* once rather than every put. The approval layer cannot

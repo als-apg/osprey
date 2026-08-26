@@ -677,14 +677,21 @@ add an armed one.)</p></td>
 </tbody>
 </table>
 </div>
-<p class="sd-card-text">The agent is held to a harder rule on top of this: while the project’s
-<code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code> switch is off, its <code class="docutils literal notranslate"><span class="pre">queue_add</span></code> and
-<code class="docutils literal notranslate"><span class="pre">queue_start</span></code> tools are denied outright — it cannot queue or start
-anything, even on an idle queue. Its halts and its read tools are never
-taken away.</p>
+<p class="sd-card-text">The agent is held to a harder rule on top of this: where the project may
+write to no control target at all, its <code class="docutils literal notranslate"><span class="pre">queue_add</span></code> and <code class="docutils literal notranslate"><span class="pre">queue_start</span></code>
+tools are denied outright — it cannot queue or start anything, even on an
+idle queue. Its halts and its read tools are never taken away.</p>
+<p class="sd-card-text">Write posture is per control target, and each queue lane is bound at build
+time to one target, so a deployment can arm the lane that drives the
+simulator and leave the lane that drives the live machine unarmed. Nothing
+is denied up front on such a deployment — the deny list is written once,
+before a session picks a target — and <code class="docutils literal notranslate"><span class="pre">queue_add</span></code> and <code class="docutils literal notranslate"><span class="pre">queue_start</span></code>
+refuse per call instead, with <code class="docutils literal notranslate"><span class="pre">writes_disabled</span></code>, naming the lane’s machine.</p>
 <p class="sd-card-text">In a deployed control room the agent holds the launch token only where the
-deployment grants it — to a persona configured for control-system writes
-that also runs the bluesky MCP server. Where it is granted, the agent’s
+deployment grants it, and it is granted <strong>per lane</strong>: to a persona whose
+config arms writes for the machine that lane drives and that also runs the
+bluesky MCP server. A persona can hold the simulator lane’s token and none
+for the live one. Where it is granted, the agent’s
 <code class="docutils literal notranslate"><span class="pre">queue_start</span></code> arms the queue itself, and your approval of that tool call
 is the arming decision. Where it is not, <code class="docutils literal notranslate"><span class="pre">queue_start</span></code> is refused with
 <code class="docutils literal notranslate"><span class="pre">launch_token_required</span></code> and the start stays with you, from the BLUESKY

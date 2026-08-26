@@ -555,9 +555,9 @@ development and R&amp;D default:</p>
 <p>Everything below is configuration only — which machine sits behind that API.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>Write operations require explicit opt-in whichever connector is selected.
+<p>Write operations require explicit opt-in, per connector type.
 See <a class="reference internal" href="../../reference/contracts/connectors.html#write-safety-config"><span class="std std-ref">Write Safety Configuration</span></a> in <a class="reference internal" href="../../reference/contracts/connectors.html"><span class="doc">Connector Contracts</span></a> for
-the <code class="docutils literal notranslate"><span class="pre">writes_enabled</span></code> setting that controls write permissions.</p>
+the <code class="docutils literal notranslate"><span class="pre">writes_enabled</span></code> settings that control write permissions.</p>
 </div>
 </section>
 <section id="pick-a-control-system">
@@ -585,7 +585,7 @@ EPICS</label><div class="sd-tab-content docutils">
 <span class="w">    </span><span class="nt">epics</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">gateways</span><span class="p">:</span>
 <span class="w">        </span><span class="c1"># EPICS uses one process-wide CA context, so the connector points at a</span>
-<span class="w">        </span><span class="c1"># single gateway. When control_system.writes_enabled is true and a</span>
+<span class="w">        </span><span class="c1"># single gateway. When writes are armed for this connector type and a</span>
 <span class="w">        </span><span class="c1"># write_access gateway is set, writes route through it; otherwise the</span>
 <span class="w">        </span><span class="c1"># connector uses read_only (so a read-only deployment rejects writes at</span>
 <span class="w">        </span><span class="c1"># the network layer as well).</span>

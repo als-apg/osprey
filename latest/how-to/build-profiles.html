@@ -1048,8 +1048,11 @@ green build as proof the exclusion took.</p>
 <p><code class="docutils literal notranslate"><span class="pre">exclude:</span></code> carves a tier by <em>removing</em> capability. When the boundary you
 want is “may not write,” prefer flipping the enforcement switch instead —
 the bundled <code class="docutils literal notranslate"><span class="pre">control-assistant-readonly</span></code> preset differs from its
-write-capable sibling only on <code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code>, leaving
-the tool surface identical (see <a class="reference internal" href="web-terminal/multi-user/tiers.html"><span class="doc">Privilege Tiers</span></a>).</p>
+write-capable sibling only on write posture, leaving the tool surface
+identical (see <a class="reference internal" href="web-terminal/multi-user/tiers.html"><span class="doc">Privilege Tiers</span></a>). Write posture is per
+control target, so that tier pins the deployment-wide
+<code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code> <em>and</em> each connector type’s own key: the
+flat key is what a type inherits, not a floor over it.</p>
 </div>
 <p>To keep the bluesky server <strong>on</strong> while hiding an individual plan, set
 <code class="docutils literal notranslate"><span class="pre">bluesky.excluded_plans</span></code> instead:</p>

@@ -599,12 +599,16 @@ written to <code class="docutils literal notranslate"><span class="pre">config.y
 marker in its environment, and every process it launches inherits it. Two
 people working in two sessions of the same deployment can hold different
 postures, and one of them sandboxing theirs does not touch the other.</p>
-<p>It narrows, and never widens. On a deployment rendered with
-<code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code> off, no session can leave the sandbox: the
-request is refused with <em>“This deployment is rendered with
-control_system.writes_enabled off; no session can step out of the sandbox”</em>,
-and the badge on a sandboxed session there is shown disabled rather than
-offering a switch that is certain to fail.</p>
+<p>It narrows, and never widens. On a deployment rendered so that <strong>no</strong> control
+target may be written to, no session can leave the sandbox: the request is
+refused with <em>“This deployment arms writes for no control target … No session
+can step out of the sandbox until one target is armed”</em>, and the badge on a
+sandboxed session there is shown disabled rather than offering a switch that is
+certain to fail.</p>
+<p>Write posture is per target, so a deployment armed on one target and not another
+is not that deployment: its sessions can leave the sandbox, and what they meet
+afterwards depends on where the session is pointed. Leaving the sandbox restores
+the deployment’s posture; it never adds to it.</p>
 <p>A session has to have started before it can be given a posture — a session
 only exists on disk once it has been sent a prompt. Until then the request is
 refused with <em>“This session has not started yet — send one prompt first, then
@@ -665,11 +669,12 @@ here.”</em></p></li>
 <li><p>The executor — <em>“This terminal session is in the sandbox posture, which
 refuses control-system writes regardless of what the run asks for.”</em></p></li>
 </ul>
-<p>None of them mentions <code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code>, deliberately: changing
-that key would not lift a posture refusal, and a message that pointed at it
-would send an operator to rebuild a deployment when a single click was the
-remedy. The reverse holds too — a write refused because the deployment has
-writes off says so in its own words and says nothing about postures.</p>
+<p>None of them mentions the deployment’s write posture, deliberately: changing a
+<code class="docutils literal notranslate"><span class="pre">writes_enabled</span></code> key would not lift a posture refusal, and a message that
+pointed at one would send an operator to rebuild a deployment when a single
+click was the remedy. The reverse holds too — a write refused because this
+target is not armed says so in its own words, names the key that would arm it,
+and says nothing about postures.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>Simple mode’s chat and the operator websocket run their agent through the

@@ -716,10 +716,43 @@ container by hand, see the warning under <a class="reference internal" href="#ru
 <h2>Write limits<a class="headerlink" href="#write-limits" title="Link to this heading">#</a></h2>
 <p>Channels listed in the project’s <code class="docutils literal notranslate"><span class="pre">channel_limits.json</span></code> carry a min/max range,
 and a write outside that range is rejected before it reaches the IOC; an
-in-range write goes through. The mandatory write-approval flow and the
-<code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code> switch apply unchanged — the Virtual
-Accelerator connector inherits the same write-safety wiring as the EPICS
-connector.</p>
+in-range write goes through. The mandatory write-approval flow applies
+unchanged — the Virtual Accelerator connector inherits the same write-safety
+wiring as the EPICS connector.</p>
+<section id="arm-writes-here-without-arming-the-machine">
+<h3>Arm writes here without arming the machine<a class="headerlink" href="#arm-writes-here-without-arming-the-machine" title="Link to this heading">#</a></h3>
+<p>Write posture is per control target, and this is the page where that matters
+most: the Virtual Accelerator can be write-armed while the live machine the
+same deployment knows about stays read-only.
+<code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code> is the posture a connector type inherits when
+it says nothing about itself; a block under <code class="docutils literal notranslate"><span class="pre">connector:</span></code> answers for that type
+instead.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">          </span><span class="c1"># what every type inherits — the live machine</span>
+<span class="w">  </span><span class="nt">connector</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">virtual_accelerator</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">       </span><span class="c1"># ... and the simulator alone is armed</span>
+</pre></div>
+</div>
+<p>Only a literal <code class="docutils literal notranslate"><span class="pre">true</span></code> arms a target. The quoted string <code class="docutils literal notranslate"><span class="pre">'true'</span></code> and the
+number <code class="docutils literal notranslate"><span class="pre">1</span></code> do not, at either level, and a config that uses one of them will
+find its writes refused. A type that states its own posture never falls back to
+the inherited key, so the <code class="docutils literal notranslate"><span class="pre">false</span></code> above holds for the live machine even if a
+profile turns the deployment-wide key on.</p>
+<p>Switching the session to the live target (see
+<a class="reference internal" href="switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a>) therefore takes its writes away, with no config
+edit and no rebuild — the same write tool that moves the simulator is refused
+on the machine. The bundled <code class="docutils literal notranslate"><span class="pre">control-assistant-va-readwrite</span></code> persona ships
+exactly that pair of keys.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>On a deployment whose targets disagree like this, <code class="docutils literal notranslate"><span class="pre">settings.json</span></code> denies
+nothing up front — it is rendered once, before any session has picked a
+target — so every refusal arrives per call instead, from the safety hook and
+the connector, naming the target that refused it. Tools you list under
+<code class="docutils literal notranslate"><span class="pre">control_system.write_tools</span></code> are refused by that same hook, which is how
+they are gated in every deployment.</p>
+</div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>The tutorial runs the limits checker in permissive mode
@@ -727,6 +760,7 @@ connector.</p>
 from <code class="docutils literal notranslate"><span class="pre">channel_limits.json</span></code> is not blocked. Range enforcement covers listed
 channels; it is not a closed allowlist here.</p>
 </div>
+</section>
 </section>
 <section id="the-archive">
 <h2>The archive<a class="headerlink" href="#the-archive" title="Link to this heading">#</a></h2>
@@ -967,7 +1001,10 @@ reporting the key as merely unset.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#connecting-to-the-ioc">Connecting to the IOC</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-from-a-source-checkout">Running from a source checkout</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#scenarios">Scenarios</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#write-limits">Write limits</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#write-limits">Write limits</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#arm-writes-here-without-arming-the-machine">Arm writes here without arming the machine</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-archive">The archive</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-history-is-there">What history is there</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-archive-will-not-claim">What the archive will not claim</a></li>
