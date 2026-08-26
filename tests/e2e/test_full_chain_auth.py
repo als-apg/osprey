@@ -194,8 +194,8 @@ PRESET = "hello-world"
 
 #: The two catalog personas. ``operator`` is the REAL framework image; ``probe``
 #: is the header-echoing stub. Their catalog *projects* differ because a
-#: persona's image tag is ``<catalog project>-<persona>:local``, and two
-#: personas sharing a project name would share a tag.
+#: persona's image tag is ``<catalog project>:local`` — the render names the
+#: image, so two personas sharing a project name would share a tag.
 TERMINAL_PERSONA = "operator"
 TERMINAL_PROJECT = f"{PREFIX}-operator"
 PROBE_PERSONA = "probe"
@@ -234,10 +234,10 @@ BASE_PORTS = {
 }
 
 AUTH_IMAGE_TAG = f"{PREFIX}-assistant-auth:local"
-# `<catalog project>-<persona>:local`, exactly as resolve_personas derives a
-# local-mode persona tag.
-TERMINAL_IMAGE_TAG = f"{TERMINAL_PROJECT}-{TERMINAL_PERSONA}:local"
-PROBE_IMAGE_TAG = f"{PROBE_PROJECT}-{PROBE_PERSONA}:local"
+# `<catalog project>:local`, exactly as resolve_personas derives a local-mode
+# persona tag for a catalog entry that names its own project.
+TERMINAL_IMAGE_TAG = f"{TERMINAL_PROJECT}:local"
+PROBE_IMAGE_TAG = f"{PROBE_PROJECT}:local"
 
 NGINX_C = f"{PREFIX}-nginx"
 AUTH_C = f"{PREFIX}-auth"
