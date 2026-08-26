@@ -729,6 +729,11 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
                 "bluesky.excluded_plans must be a list of plan-name strings "
                 f"(got {excluded_plans!r})"
             )
+        devices_file = bluesky_raw.get("devices_file", BlueskyConfig.devices_file)
+        if not isinstance(devices_file, str) or not devices_file:
+            raise BuildProfileError(
+                f"bluesky.devices_file must be a non-empty path string (got {devices_file!r})"
+            )
         bluesky = BlueskyConfig(
             port=bluesky_raw.get("port", 8090),
             tiled_enabled=bluesky_raw.get("tiled_enabled", False),
@@ -736,6 +741,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             second_lane=bool(bluesky_raw.get("second_lane", False)),
             plan_dir=bluesky_raw.get("plan_dir"),
             excluded_plans=excluded_plans,
+            devices_file=devices_file,
         )
 
     va_raw = raw.get("virtual_accelerator")

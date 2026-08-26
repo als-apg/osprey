@@ -417,14 +417,14 @@ def _minted_token(repo: Path) -> str:
 
 
 def _channel_limits(repo: Path) -> dict[str, Any]:
-    """The limits database the deployed containers actually read.
+    """The deployment repo's own limits database.
 
-    ``control_system.limits_checking.database_path`` resolves against
-    ``CONFIG_FILE``'s directory, and the render points that at
-    ``<repo>/build/config.yml`` -- so the render's copy, not the operator-owned
-    source under ``<repo>/data/``, is the file whose channels the containers see.
+    ``osprey build`` copies ``<repo>/data`` into the build zone verbatim, so
+    this file and the ``build/data/`` copy the containers read are the same
+    bytes and name the same channels -- but only this one exists before the
+    build, which is when the plan devices have to be chosen and authored.
     """
-    return json.loads((repo / "build" / "data" / "channel_limits.json").read_text(encoding="utf-8"))
+    return json.loads((repo / "data" / "channel_limits.json").read_text(encoding="utf-8"))
 
 
 # ---------------------------------------------------------------------------
@@ -479,20 +479,43 @@ def deployed_sandbox_stack(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> Iterator[DeployedSandboxStack]:
     base = tmp_path_factory.mktemp("sandbox_escape_build")
+
+    # The plan devices are authored BETWEEN `init` and `build`: the build copies
+    # <repo>/data into the build zone and stages the device file it finds there
+    # for the queueserver worker, so a set written after the build would never
+    # reach a container. The escape target is one of those devices -- it has to
+    # be IN the worker's namespace for the refusal under test to be the limits
+    # facade refusing a legal device, not the worker rejecting an unknown name.
+    escape_sp = ""
+    escape_rb = ""
+    positive_correctors: dict[str, tuple[str, str]] = {}
+    bpms: dict[str, str] = {}
+
+    def author_devices(repo: Path) -> None:
+        nonlocal escape_sp, escape_rb, positive_correctors, bpms
+        limits = _channel_limits(repo)
+        correctors = _orm_stack.select_correctors(limits, count=CORRECTOR_COUNT)
+        bpms = _orm_stack.select_bpms(limits, count=BPM_COUNT)
+        escape_name, (escape_sp, escape_rb) = sorted(correctors.items())[0]
+        positive_correctors = {
+            name: pair for name, pair in correctors.items() if name != escape_name
+        }
+        _orm_stack.write_devices_file(repo, correctors=correctors, bpms=bpms)
+
     # The deployment REPO: `osprey up` runs here, `.env` lives here, and the
     # render `osprey build` produced is `<repo>/build`.
     repo = _orm_stack.build_project_subprocess(
-        PROJECT_NAME, output_dir=base, bridge_port=BRIDGE_PORT, timeout=BUILD_TIMEOUT_SEC
+        PROJECT_NAME,
+        output_dir=base,
+        bridge_port=BRIDGE_PORT,
+        timeout=BUILD_TIMEOUT_SEC,
+        pre_build=author_devices,
     )
+    _orm_stack.assert_devices_authored(positive_correctors, bpms)
 
-    limits = _channel_limits(repo)
-    correctors = _orm_stack.select_correctors(limits, count=CORRECTOR_COUNT)
-    bpms = _orm_stack.select_bpms(limits, count=BPM_COUNT)
-    escape_name, (escape_sp, escape_rb) = sorted(correctors.items())[0]
-    positive_correctors = {name: pair for name, pair in correctors.items() if name != escape_name}
-    # Writes the repo root's `.env` — the deployment's whole secret store, and
-    # the file `osprey up` refuses to start without.
-    _orm_stack.write_substrate_env(repo, correctors=correctors, bpms=bpms)
+    # The repo root's `.env` — the deployment's whole secret store, and the file
+    # `osprey up` refuses to start without.
+    _orm_stack.seed_repo_env(repo)
 
     osprey_bin = _orm_stack.find_osprey_console_script()
 

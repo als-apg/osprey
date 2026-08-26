@@ -40,7 +40,7 @@ def _bundle_data_dir() -> Path:
     return Path(osprey.__file__).parent / "templates" / "apps" / "control_assistant" / "data"
 
 
-def _write_profile(repo_dir: Path, *, deploy_va: bool = False) -> Path:
+def _write_profile(repo_dir: Path, *, deploy_va: bool = False, config: dict | None = None) -> Path:
     """A profile sourcing its own copy of the bundled control-assistant tree.
 
     ``hierarchical`` resolves to tier 3, the tier whose three paradigm
@@ -55,6 +55,11 @@ def _write_profile(repo_dir: Path, *, deploy_va: bool = False) -> Path:
     here but the mount one is about the files and the ``.env`` keys, both of
     which the build produces whether or not the IOC is deployed, and rendering
     a service costs each of them a template copy.
+
+    ``config`` carries dotted overrides into the rendered ``config.yml`` — the
+    profile's own escape hatch for a value the bundle's template pins, used
+    here by the one test that has to build a deployment holding no
+    channel-limits database.
     """
     repo_dir.mkdir(parents=True, exist_ok=True)
     shutil.copytree(_bundle_data_dir(), repo_dir / "data")
@@ -69,6 +74,8 @@ def _write_profile(repo_dir: Path, *, deploy_va: bool = False) -> Path:
     }
     if deploy_va:
         profile["virtual_accelerator"] = {"port": 5064}
+    if config:
+        profile["config"] = config
     path = repo_dir / "profile.yml"
     path.write_text(yaml.dump(profile, default_flow_style=False))
     return path
@@ -291,7 +298,11 @@ class TestSkippedWithoutParadigmDatabases:
 
     def test_the_build_still_succeeds(self, tmp_path):
         repo_dir = tmp_path / "repo"
-        _write_profile(repo_dir)
+        # The limits database is what this tree loses, so the deployment is
+        # read-only: writes ON with no limits file to enforce is a refusal of
+        # its own (`resolve_limits_mount`), and letting that fire here would
+        # decide this test on a fact it is not about.
+        _write_profile(repo_dir, config={"control_system.writes_enabled": False})
         (repo_dir / "data" / LIMITS_FILENAME).unlink()
 
         # Profile data is user-owned: a tree the generator can't use is not a

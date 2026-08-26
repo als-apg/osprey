@@ -14,9 +14,10 @@ the FR1/FR2 contract has to hold:
 Companion to ``tests/simulation/test_scenario_physics_render.py``, which pins the
 same renderer at the function level. Between them they are the whole proof: no
 e2e activates a physics fault. Every deployed plan-stack e2e boots a HEALTHY
-machine -- ``_orm_stack.write_substrate_env`` writes no physics block, so
-``tests/e2e/test_orm_roundtrip.py`` and ``tests/e2e/test_plan_stack_agentic.py``
-exercise only this mechanism's no-fault path.
+machine -- nothing those lanes write to the repo's ``.env`` carries a physics
+block, so ``tests/e2e/test_orm_roundtrip.py`` and
+``tests/e2e/test_plan_stack_agentic.py`` exercise only this mechanism's
+no-fault path.
 """
 
 from __future__ import annotations

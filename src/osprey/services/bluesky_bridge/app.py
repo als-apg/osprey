@@ -190,10 +190,10 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
       fail-OPEN refuses startup (raises) only if writes are enabled, limits
       checking is enabled, and the limits database can't be read — every other
       combination, including writes disabled entirely, starts normally. It runs
-      unconditionally here, never behind a wiring flag such as
-      `BLUESKY_EPICS_SUBSTRATE`: the posture it guards against is a property of
-      the project config, not of how the bridge happens to be wired, and a
-      gated guard leaves whole classes of deployment unchecked.
+      unconditionally here, never behind a device-wiring flag such as
+      `BLUESKY_DEVICES_FILE`: the posture it guards against is a property of
+      the project config, not of whether this deployment wires up any devices
+      at all, and a gated guard leaves whole classes of deployment unchecked.
     - The document plane: the 0MQ proxy the queueserver's Publisher connects
       to, and the dispatcher that turns that stream into live rows.
       Unconfigured is a no-op; see `document_plane.start_from_env`.

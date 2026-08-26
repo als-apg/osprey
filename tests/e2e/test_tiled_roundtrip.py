@@ -73,7 +73,7 @@ from typing import Any
 import pytest
 
 from osprey.deployment.compose_generator import resolve_project_name
-from tests.e2e import _queue_drive
+from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
 from tests.e2e._volumes import remove_project_volumes
 
@@ -256,7 +256,10 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             f"osprey build failed (rc={build.returncode}):\n"
             f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
         )
-    _seed_repo_env(repo)
+    # The repo root's `.env` — the deployment's whole secret store, and the file
+    # `osprey up` refuses to start without. The plan devices are not among what
+    # `up` appends here: they reach the worker as the device file the build staged.
+    _orm_stack.seed_repo_env(repo)
 
     # Force a fresh --dev build so the deployed bridge container runs CURRENT
     # source (osprey up does not pass --build to compose, so it would
@@ -300,24 +303,22 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
                 f"{exc}\n{queue_stack_logs(resolve_project_name({'project_name': PROJECT_NAME}))}"
             )
 
-        # Device names come from the .env `osprey up` itself wrote
-        # (_ensure_bluesky_substrate_env derives them from the render's own
-        # channel_limits.json) -- never a hardcoded facility channel, and never a
+        # Device names come from the device file the BUILD staged and the worker
+        # mounts -- this lane authors none of its own, so what is read back here
+        # is the turn-key derivation from the deployment's own
+        # channel_limits.json: never a hardcoded facility channel, and never a
         # second copy of that derivation living in this test.
-        correctors = _parse_setpoints(_env_value(repo, "BLUESKY_EPICS_SETPOINTS"))
-        bpms = _parse_readbacks(_env_value(repo, "BLUESKY_EPICS_READBACKS"))
-        assert correctors and bpms, "up wired no plan devices into the repo's .env"
+        correctors, bpms = _orm_stack.staged_devices(repo)
+        assert correctors and bpms, "the build staged no plan devices for the worker"
 
         yield DeployedStack(
             repo=repo,
             correctors=correctors,
             bpms=bpms,
-            # The render's copy, not the source one the operator edits: it is the
-            # file the deployed containers get, and the bounds below have to be
-            # the bounds the bridge enforces.
-            limits=json.loads(
-                (repo / "build" / "data" / "channel_limits.json").read_text(encoding="utf-8")
-            ),
+            # The repo's own copy, which the build copies into build/data
+            # verbatim: same bytes the deployed containers get, so the bounds
+            # below are the bounds the bridge enforces.
+            limits=json.loads((repo / "data" / "channel_limits.json").read_text(encoding="utf-8")),
             token=_env_value(repo, "BLUESKY_LAUNCH_TOKEN"),
         )
     finally:
@@ -331,22 +332,6 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         remove_project_volumes(resolve_project_name({"project_name": PROJECT_NAME}))
 
 
-def _seed_repo_env(repo: Path) -> None:
-    """Give the repo the ``.env`` ``osprey up`` refuses to start without.
-
-    The repo root's ``.env`` is the deployment's whole secret store and the file
-    every compose invocation is pointed at, so ``up`` aborts when it is absent.
-    ``osprey init`` writes one only when the shell exports a key for the
-    profile's provider, which this lane does not need — this is the ``cp
-    .env.example .env`` the CLI itself recommends, done for the operator. The
-    substrate values ``up`` mints (launch token, plan devices) are appended to
-    whatever is here.
-    """
-    env_path = repo / ".env"
-    if not env_path.exists():
-        shutil.copy(repo / ".env.example", env_path)
-
-
 def _env_value(repo: Path, key: str) -> str:
     from osprey.utils.dotenv import parse_dotenv_file
 
@@ -355,29 +340,6 @@ def _env_value(repo: Path, key: str) -> str:
     value = parse_dotenv_file(env_path).get(key)
     assert value, f"{key} missing/empty in the deployment repo's .env"
     return value
-
-
-def _parse_setpoints(value: str) -> dict[str, tuple[str, str]]:
-    """Parse ``BLUESKY_EPICS_SETPOINTS`` (``name=SP|RB,...``) back into a mapping."""
-    out: dict[str, tuple[str, str]] = {}
-    for chunk in value.split(","):
-        if not chunk.strip():
-            continue
-        name, _, spec = chunk.partition("=")
-        sp, _, rb = spec.partition("|")
-        out[name.strip()] = (sp.strip(), rb.strip())
-    return out
-
-
-def _parse_readbacks(value: str) -> dict[str, str]:
-    """Parse ``BLUESKY_EPICS_READBACKS`` (``name=RB,...``) back into a mapping."""
-    out: dict[str, str] = {}
-    for chunk in value.split(","):
-        if not chunk.strip():
-            continue
-        name, _, rb = chunk.partition("=")
-        out[name.strip()] = rb.strip()
-    return out
 
 
 def _wait_for_health(url: str, timeout: float) -> None:

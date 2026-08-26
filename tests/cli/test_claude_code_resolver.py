@@ -143,6 +143,38 @@ class TestUnsupportedProvider:
         with pytest.raises(ValueError, match="api.providers"):
             ClaudeCodeModelResolver.resolve({"provider": "my-proxy"})
 
+    def test_error_names_the_configured_providers_too(self):
+        """The resolver accepts the UNION of built-ins and api.providers, so the
+        error must name that union — not only the three built-ins (#725). The
+        breakdown says which half each name came from."""
+        api_providers = {
+            "stanford": {"base_url": "https://x", "models": {"sonnet": "gpt-4o"}},
+            "argo": {"base_url": "https://y", "models": {"sonnet": "claudesonnet45"}},
+        }
+        with pytest.raises(ValueError) as excinfo:
+            ClaudeCodeModelResolver.resolve({"provider": "slac"}, api_providers)
+
+        message = str(excinfo.value)
+        assert "Available providers: als-apg, anthropic, argo, cborg, stanford" in message
+        assert "built-in: als-apg, anthropic, cborg" in message
+        assert "from api.providers in config.yml: argo, stanford" in message
+
+    def test_error_without_api_providers_says_none_configured(self):
+        with pytest.raises(ValueError, match=r"from api.providers in config.yml: none"):
+            ClaudeCodeModelResolver.resolve({"provider": "bad"})
+
+    def test_error_suggests_a_close_match(self):
+        api_providers = {"stanford": {"base_url": "https://x", "models": {"sonnet": "m"}}}
+        with pytest.raises(ValueError, match=r"Did you mean 'stanford'\?"):
+            ClaudeCodeModelResolver.resolve({"provider": "stanfrod"}, api_providers)
+        with pytest.raises(ValueError, match=r"Did you mean 'anthropic'\?"):
+            ClaudeCodeModelResolver.resolve({"provider": "anthropc"})
+
+    def test_error_makes_no_suggestion_for_a_distant_name(self):
+        with pytest.raises(ValueError) as excinfo:
+            ClaudeCodeModelResolver.resolve({"provider": "zzzz-nothing-like-it"})
+        assert "Did you mean" not in str(excinfo.value)
+
     def test_known_in_api_providers_does_not_raise(self):
         spec = ClaudeCodeModelResolver.resolve(
             {"provider": "my-proxy"},

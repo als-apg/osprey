@@ -217,7 +217,7 @@ broadest/slowest:
   thrown exception instead of a silent no-op.
 - If it's a **panel** (embeddable in the Web Terminal hub): support both
   standalone and embedded modes -- ``applyEmbedded()`` on load, an
-  ``<osprey-theme-switcher>`` that hides itself when embedded (the hub owns
+  ``<osprey-display-menu>`` that hides itself when embedded (the hub owns
   theme chrome there), branding hidden when embedded -- plus a
   ``test_contract_params.py`` case, which is the up-to-date spec for the
   dual-mode checklist and well-known parameters. See

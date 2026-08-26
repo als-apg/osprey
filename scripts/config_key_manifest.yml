@@ -115,6 +115,28 @@ keys:
       byte-for-byte what it rendered before the axes existed.
   services:
     evidence: 'get_config_value\("services\.postgresql", \{\}\)'
+  # The bluesky bridge's plan-lane blocks are INJECTOR-written, not template-
+  # rendered: `_inject_bluesky` writes `services.bluesky` (and, on a two-lane
+  # deploy, its `bluesky_va`/`bluesky_live` sibling) into an already-rendered
+  # project config, so none of the five shipped templates carries them and they
+  # are outside the rendered union this manifest is otherwise derived from.
+  # Only `devices_file` is recorded, because only it is written UNCONDITIONALLY
+  # on every lane of every bluesky deploy — its disappearance is therefore a
+  # real signal, where the omit-when-unset neighbours (`plan_dir`,
+  # `excluded_plans`) would go silent for a configuration reason.
+  services.bluesky.devices_file:
+    rendered: false
+    evidence: '\{"devices_file": bluesky\.devices_file\}'
+    note: >-
+      Names where the Bluesky plan device file is AUTHORED, replacing the
+      per-deployment env-var channel. Written by `_inject_bluesky` via
+      `_facility_plan_keys` in cli/build_injectors.py, from `bluesky.devices_file`
+      in the build profile; defaults to `data/bluesky_devices.yml`. A relative
+      path resolves against the rendered config's own directory (so it travels
+      with the built project); an absolute path is operator-owned and read
+      as-is. `rendered: false` because no shipped config.yml.j2 renders it —
+      the injector does — which is what would otherwise trip the phantom-key
+      check.
   services.openobserve: {evidence: 'get\("openobserve", \{\}\)'}
   services.openobserve.path: {evidence: 'service_config\["path"\]'}
   services.openobserve.port: {evidence: 'services\.openobserve\.port'}

@@ -128,7 +128,6 @@ a:hover { color: var(--color-accent-light); }
 body.embedded .app-header { display: none; }
 body.embedded .app-main { padding-top: 0; }
 body.embedded .app-logo { display: none; }
-body.embedded osprey-theme-switcher { display: none; }
 
 .header-left {
   display: flex;
@@ -193,30 +192,6 @@ body.embedded osprey-theme-switcher { display: none; }
   align-items: center;
   gap: var(--cf-space-3);
   height: 100%;
-}
-
-/* <osprey-theme-switcher>'s toggle button (design_system/static/js/components/
-   osprey-theme-switcher.js) ships no skin of its own -- it renders a bare
-   `.header-icon-btn` button and leaves styling to each interface, same split
-   as the shared <osprey-drawer>. */
-.header-icon-btn {
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--cf-radius-sm);
-  color: var(--text-muted);
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.header-icon-btn:hover {
-  color: var(--color-accent-light);
-  border-color: var(--border-accent);
-  background: var(--accent-tint-06);
 }
 
 /* ================================================================

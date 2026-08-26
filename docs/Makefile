@@ -17,7 +17,7 @@ help:
 	@echo "  test-deps           Install documentation dependencies"
 	@echo "  pre-commit-test     Quick test (assumes deps installed)"
 	@echo "  screenshots         Regenerate default (standalone) doc screenshots"
-	@echo "  screenshots-<name>  Regenerate one recipe by name (e.g. screenshots-theme_switcher)"
+	@echo "  screenshots-<name>  Regenerate one recipe by name (e.g. screenshots-display_menu)"
 
 .PHONY: help Makefile test-build test-deps pre-commit-test screenshots screenshots-%
 

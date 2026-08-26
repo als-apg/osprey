@@ -2411,9 +2411,10 @@ _REQUIRED_TOOLS = (
 class DeployedScanStack:
     """Everything a live test needs about the one deployed project.
 
-    ``correctors``/``readbacks`` are the device names wired into the bridge worker
-    (``write_substrate_env``), so a test that composes a plan names exactly the
-    devices the deployed worker registered.
+    ``correctors``/``readbacks`` are the device names the build staged into the
+    queueserver worker's device file (``_orm_stack.write_devices_file``), so a
+    test that composes a plan names exactly the devices the deployed worker
+    registered.
     """
 
     repo: Path
@@ -2461,6 +2462,29 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
     ``sdk_helpers._default_opus_model`` reads) is written regardless.
     """
     base = tmp_path_factory.mktemp("scan_stack_agentic_build")
+
+    # The plan devices are authored BETWEEN `init` and `build`: the build copies
+    # <repo>/data into the build zone and stages the device file it finds there
+    # for the queueserver worker, so a set written after the build would never
+    # reach a container.
+    #
+    # Correctors and BPMs come from the deployment repo's own
+    # channel_limits.json — the same bytes the build copies to build/data, and
+    # never a hardcoded preset channel. The default 4+4 slice is deliberate:
+    # these scenarios ask for a measurement on a healthy stack, so no particular
+    # device has to be in range, and a small device count keeps a real run to
+    # seconds rather than minutes.
+    limits: dict[str, Any] = {}
+    correctors: dict[str, tuple[str, str]] = {}
+    bpms: dict[str, str] = {}
+
+    def author_devices(repo: Path) -> None:
+        nonlocal limits, correctors, bpms
+        limits = _orm_stack.channel_limits(repo)
+        correctors = _orm_stack.select_correctors(limits)
+        bpms = _orm_stack.select_bpms(limits)
+        _orm_stack.write_devices_file(repo, correctors=correctors, bpms=bpms)
+
     repo = _orm_stack.build_project_subprocess(
         PROJECT_NAME,
         output_dir=base,
@@ -2469,19 +2493,13 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
         timeout=BUILD_TIMEOUT_SEC,
         provider=JUDGE_PROVIDER,
         extra_config=_EXTRA_CONFIG,
+        pre_build=author_devices,
     )
+    _orm_stack.assert_devices_authored(correctors, bpms)
 
-    # Correctors and BPMs come from the BUILT project's own channel_limits.json
-    # — never a hardcoded preset channel. The default 4+4 slice is deliberate:
-    # these scenarios ask for a measurement on a healthy stack, so no particular
-    # device has to be in range, and a small device count keeps a real run to
-    # seconds rather than minutes.
-    # The render's copy, not the operator-owned source under <repo>/data/ —
-    # build/data is the file the deployed containers actually read.
-    limits = _orm_stack.channel_limits(repo / "build")
-    correctors = _orm_stack.select_correctors(limits)
-    bpms = _orm_stack.select_bpms(limits)
-    _orm_stack.write_substrate_env(repo, correctors=correctors, bpms=bpms)
+    # The repo root's `.env` — the deployment's whole secret store, and the file
+    # `osprey up` refuses to start without.
+    _orm_stack.seed_repo_env(repo)
 
     _orm_stack.force_image_rebuild(BRIDGE_IMAGE, VA_IMAGE, PANELS_IMAGE)
 

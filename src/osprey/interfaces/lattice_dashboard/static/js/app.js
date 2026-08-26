@@ -8,8 +8,8 @@
  */
 
 import { initTheme } from '/design-system/js/theme-manager.js';
-import { applyEmbedded } from '/design-system/js/frame-params.js';
-import '/design-system/js/components/osprey-theme-switcher.js';
+import { applyEmbedded, isEmbedded } from '/design-system/js/frame-params.js';
+import '/design-system/js/components/osprey-display-menu.js';
 import { refreshFast, runVerification, createNetClient } from './net.js';
 import {
   updateSummaryStats,
@@ -25,10 +25,14 @@ import { createUI } from './ui.js';
 import { createHeader } from './header.js';
 import { loadSettings, renderSettingsForm } from './settings.js';
 
-// Panel embedded in the Web Terminal hub: apply the hub's broadcast theme
-// and follow live changes. theme-boot.js already applied data-theme
-// pre-paint; this call attaches the follower's postMessage listener.
-initTheme({ role: 'follower' });
+// Standalone, this page owns its own theme chrome (the header
+// <osprey-display-menu>), so it runs theme-manager.js in the hub role:
+// persistence, OS auto-follow and ?theme= handling all come with it, and
+// broadcast is a structural no-op on a page with no iframes. Embedded in the
+// Web Terminal hub it is a follower instead: theme-boot.js already applied
+// data-theme pre-paint, and this attaches the postMessage listener for the
+// hub's live broadcasts.
+initTheme({ role: isEmbedded() ? 'follower' : 'hub' });
 
 // ── Configuration ───────────────────────────────────────
 

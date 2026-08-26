@@ -43,6 +43,20 @@
 export const CONTRACT_VERSION = '1';
 
 /**
+ * Whether this page was loaded as an embedded panel: the `embedded` query
+ * param is exactly `"true"` (any other value -- `"false"`, `"1"`, absent --
+ * reads as standalone). The one predicate behind {@link applyEmbedded},
+ * exposed so a page can branch on it before `<body>` carries the class -- a
+ * standalone page runs theme-manager.js in the `hub` role (persisting picks
+ * from its own `<osprey-display-menu>`), an embedded one as a `follower`.
+ *
+ * @returns {boolean}
+ */
+export function isEmbedded() {
+  return new URLSearchParams(window.location.search).get('embedded') === 'true';
+}
+
+/**
  * Read the `embedded` query param and, when it is exactly `"true"`, add the
  * `embedded` class to `document.body`. No-op otherwise (including when the
  * param is absent, or set to any other value such as `"false"` or `"1"`).
@@ -50,8 +64,7 @@ export const CONTRACT_VERSION = '1';
  * @returns {void}
  */
 export function applyEmbedded() {
-  const embedded = new URLSearchParams(window.location.search).get('embedded') === 'true';
-  if (embedded) {
+  if (isEmbedded()) {
     document.body.classList.add('embedded');
   }
 }

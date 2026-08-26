@@ -54,7 +54,7 @@ partial figure exists is therefore a fraction of a short run — an assertion
 that would be racing the run rather than testing the route.
 
 No physics fault is seeded on this stack (no ``VA_BPM_ERRORS``/``VA_CORR_GAIN``
-in the written ``.env`` — see ``_orm_stack.write_substrate_env``), so the VA's read
+in the written ``.env``), so the VA's read
 path is deterministic: the baseline reads return identical values and the
 measured per-BPM sigma is exactly zero. That is legal and is not a skip — see
 ``bump_analysis.noise_floor_violations`` on why a zero sigma is a fact about
@@ -62,10 +62,12 @@ readback resolution rather than a fault — and it means the convergence band
 here is exactly ``±TOLERANCE_M``, with no noise term taking over.
 
 No preset channel names are hardcoded: correctors and BPMs are derived from the
-render's own ``build/data/channel_limits.json`` — the limits database the
-deployed containers actually read — via ``_orm_stack.select_correctors``/
-``select_bpms``, and then chosen from those lists BY POSITION. See
-``CORRECTOR_INDICES`` for why the positions are what they are.
+deployment repo's own ``data/channel_limits.json`` — the limits database the
+build copies verbatim into the build zone, where the deployed containers read
+it — via ``_orm_stack.select_correctors``/``select_bpms``, and then chosen from
+those lists BY POSITION. See ``CORRECTOR_INDICES`` for why the positions are
+what they are. They reach the queueserver worker as the device file this
+fixture authors before the build stages it.
 
 Ports: every published port of this deployment is pinned to a value this module
 owns — see the constants block below for the value per service and the sibling
@@ -463,6 +465,55 @@ def _horizontal_devices(limits: dict[str, Any]) -> tuple[list[str], list[str]]:
 @pytest.fixture(scope="module")
 def deployed_bump_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[DeployedBumpStack]:
     base = tmp_path_factory.mktemp("bump_roundtrip_build")
+
+    # The plan devices are authored BETWEEN `init` and `build`: the build copies
+    # <repo>/data into the build zone and stages the device file it finds there
+    # for the queueserver worker, so a set written after the build would never
+    # reach a container. The bump's geometry is chosen here too, from the repo's
+    # own data/channel_limits.json — the same bytes the build copies to
+    # build/data, and the only copy that exists this early.
+    stack: DeployedBumpStack | None = None
+
+    def author_devices(repo: Path) -> None:
+        nonlocal stack
+        limits = _orm_stack.channel_limits(repo)
+        available_correctors, available_bpms = _horizontal_devices(limits)
+
+        bpm_indices = (
+            TARGET_BPM_INDEX,
+            *CLOSURE_BPM_INDICES,
+            SPAN_MONITOR_BPM_INDEX,
+            CLOSURE_MONITOR_BPM_INDEX,
+        )
+        assert len(available_correctors) > max(CORRECTOR_INDICES), (
+            f"the deployed project yields {len(available_correctors)} horizontal correctors, "
+            f"too few for this bump's geometry (needs position {max(CORRECTOR_INDICES)})"
+        )
+        assert len(available_bpms) > max(bpm_indices), (
+            f"the deployed project yields {len(available_bpms)} horizontal BPM readbacks, "
+            f"too few for this bump's geometry (needs position {max(bpm_indices)})"
+        )
+
+        stack = DeployedBumpStack(
+            repo=repo,
+            correctors=[available_correctors[index] for index in CORRECTOR_INDICES],
+            target_bpm=available_bpms[TARGET_BPM_INDEX],
+            closure_readbacks=[available_bpms[index] for index in CLOSURE_BPM_INDICES],
+            span_monitor=available_bpms[SPAN_MONITOR_BPM_INDEX],
+            closure_monitor=available_bpms[CLOSURE_MONITOR_BPM_INDEX],
+        )
+
+        # Only the devices this bump names reach the worker namespace: every one
+        # of them is a Channel Access connection the RE worker environment has to
+        # open before the queue will accept a plan, and the full 144-device
+        # inventory would spend that on devices no assertion here reads.
+        all_correctors = _orm_stack.select_correctors(limits, count=None)
+        _orm_stack.write_devices_file(
+            repo,
+            correctors={name: all_correctors[name] for name in stack.correctors},
+            bpms={name: name for name in stack.all_bpms},
+        )
+
     # The deployment REPO: `osprey up` runs here, `.env` lives here, and the
     # render `osprey build` produced is `<repo>/build`.
     repo = _orm_stack.build_project_subprocess(
@@ -472,51 +523,13 @@ def deployed_bump_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
         va_port=VA_CA_PORT,
         timeout=BUILD_TIMEOUT_SEC,
         extra_config=EXTRA_CONFIG,
+        pre_build=author_devices,
     )
+    assert stack is not None, "the pre-build hook did not run -- no devices were authored"
 
-    # The render's copy, not the operator-owned source under <repo>/data/:
-    # control_system.limits_checking.database_path resolves against the
-    # rendered config's directory, so build/data is the file the containers
-    # actually read.
-    limits = _orm_stack.channel_limits(repo / "build")
-    available_correctors, available_bpms = _horizontal_devices(limits)
-
-    bpm_indices = (
-        TARGET_BPM_INDEX,
-        *CLOSURE_BPM_INDICES,
-        SPAN_MONITOR_BPM_INDEX,
-        CLOSURE_MONITOR_BPM_INDEX,
-    )
-    assert len(available_correctors) > max(CORRECTOR_INDICES), (
-        f"the deployed project yields {len(available_correctors)} horizontal correctors, "
-        f"too few for this bump's geometry (needs position {max(CORRECTOR_INDICES)})"
-    )
-    assert len(available_bpms) > max(bpm_indices), (
-        f"the deployed project yields {len(available_bpms)} horizontal BPM readbacks, "
-        f"too few for this bump's geometry (needs position {max(bpm_indices)})"
-    )
-
-    stack = DeployedBumpStack(
-        repo=repo,
-        correctors=[available_correctors[index] for index in CORRECTOR_INDICES],
-        target_bpm=available_bpms[TARGET_BPM_INDEX],
-        closure_readbacks=[available_bpms[index] for index in CLOSURE_BPM_INDICES],
-        span_monitor=available_bpms[SPAN_MONITOR_BPM_INDEX],
-        closure_monitor=available_bpms[CLOSURE_MONITOR_BPM_INDEX],
-    )
-
-    # Only the devices this bump names reach the worker namespace: every one of
-    # them is a Channel Access connection the RE worker environment has to open
-    # before the queue will accept a plan, and the full 144-device inventory
-    # would spend that on devices no assertion here reads.
-    all_correctors = _orm_stack.select_correctors(limits, count=None)
-    # Writes the repo root's `.env` — the deployment's whole secret store, and
-    # the file `osprey up` refuses to start without.
-    _orm_stack.write_substrate_env(
-        repo,
-        correctors={name: all_correctors[name] for name in stack.correctors},
-        bpms={name: name for name in stack.all_bpms},
-    )
+    # The repo root's `.env` — the deployment's whole secret store, and the file
+    # `osprey up` refuses to start without.
+    _orm_stack.seed_repo_env(repo)
 
     osprey_bin = _orm_stack.find_osprey_console_script()
 

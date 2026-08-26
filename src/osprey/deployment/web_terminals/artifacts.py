@@ -31,6 +31,8 @@ from osprey.deployment.web_terminals.auth_credentials import (
     terminal_secret_var,
 )
 from osprey.deployment.web_terminals.personas import (
+    as_dict,
+    config_needs_launch_token,
     normalize_users,
     personas_needing_archiver_password,
     personas_needing_ariel_mirror,
@@ -40,6 +42,7 @@ from osprey.deployment.web_terminals.personas import (
     personas_needing_graphdb_password,
     personas_needing_launch_token,
     personas_not_denying_bash,
+    settings_json_denies_bash,
 )
 from osprey.deployment.web_terminals.render import (
     clear_nginx_templates_dir,
@@ -51,6 +54,13 @@ from osprey.utils.workspace import AUDIT_DIR_RELPATH, BUILD_DIR_NAME
 #: Filename of the rendered web-stack compose file, as
 #: :func:`~osprey.deployment.web_terminals.render.render_web_terminals` keys it.
 WEB_COMPOSE_FILENAME = "docker-compose.web.yml"
+
+#: The offender :class:`BashLaunchTokenConflictError` names for the roster
+#: entries that run no persona (the zero-migration path). Those entries share
+#: the deploy project's own image, config and ``.claude/settings.json``, so
+#: they are one offender however many of them there are — and a spelling no
+#: persona catalog key can collide with.
+ZERO_MIGRATION_OFFENDER = "(no persona: the deploy project)"
 
 
 class BashLaunchTokenConflictError(DeploymentError):
@@ -75,19 +85,19 @@ class BashLaunchTokenConflictError(DeploymentError):
     to a warning; a safety refusal that a credential rotation could swallow is
     not a refusal.
 
-    Three boundaries this guard does **not** cover, none of them accidental:
+    Persona-less roster entries are bound too. Both sides of the persona
+    intersection are keyed on persona names, so an entry naming no persona —
+    the zero-migration path, where the web image *is* the deploy project —
+    appears in neither set; :func:`bash_launch_token_offenders` therefore asks
+    the same two questions of the deploy project itself (entitlement via
+    :func:`~osprey.deployment.web_terminals.personas.config_needs_launch_token`
+    on the deploy config, exactly as
+    :func:`~osprey.deployment.web_terminals.render.render_web_terminals` grants
+    it, and the deny via ``<project_root>/.claude/settings.json``) and reports
+    a conflict there under :data:`ZERO_MIGRATION_OFFENDER`.
 
-    * **Persona-less roster entries are out of reach.** Both sides of the
-      intersection are keyed on persona names, so a roster entry naming no
-      persona — the zero-migration path, where the web image *is* the deploy
-      project — appears in neither set and is not bound by this check.
-      :func:`~osprey.deployment.web_terminals.render.render_web_terminals`
-      answers that entry's entitlement independently, via
-      :func:`~osprey.deployment.web_terminals.personas.config_needs_launch_token`
-      on the deploy config itself. This is consistent with the feature's scope:
-      the single-user path already resolves this token today, so it is not new
-      exposure — but a reader who assumes the guard covers every entitled
-      container will be wrong.
+    Two boundaries this guard does **not** cover, neither of them accidental:
+
     * **The check is render-scoped, not image-scoped.** It reads the rendered
       project directory, which equals the image's ``.claude/settings.json`` only
       as of that image's last build: ``COPY . /app/<project>/`` bakes the
@@ -105,14 +115,26 @@ class BashLaunchTokenConflictError(DeploymentError):
     Args:
         personas: The offending persona names — every persona that is both
             entitled to the launch token and shipping a settings artifact that
-            does not deny ``Bash``. All of them are named in the message; an
-            operator fixing one at a time would otherwise redeploy once per
-            offender to discover the next.
+            does not deny ``Bash`` — plus :data:`ZERO_MIGRATION_OFFENDER` when
+            the persona-less entries are in conflict. All of them are named in
+            the message; an operator fixing one at a time would otherwise
+            redeploy once per offender to discover the next.
     """
 
     def __init__(self, personas: Iterable[str]) -> None:
         self.personas = sorted(personas)
         named = ", ".join(repr(name) for name in self.personas)
+        zero_migration_note = (
+            (
+                f" {ZERO_MIGRATION_OFFENDER!r} stands for the roster entries that run "
+                f"no persona at all: they run the deploy project itself, so the "
+                f"entitlement is the deploy config's own control_system.writes_enabled "
+                f"and bluesky server, and the settings.json read is the deploy "
+                f"project's .claude/settings.json."
+            )
+            if ZERO_MIGRATION_OFFENDER in self.personas
+            else ""
+        )
         super().__init__(
             f"Refusing to deploy: {named} would be granted BLUESKY_LAUNCH_TOKEN "
             f"while also permitted to run a shell. Each named persona is entitled to "
@@ -131,7 +153,7 @@ class BashLaunchTokenConflictError(DeploymentError):
             f"`image:`, so nothing rebuilds at start. Or withdraw the entitlement by "
             f"moving that persona off the bluesky server "
             f"(claude_code.servers.bluesky.enabled: false) or off writes "
-            f"(control_system.writes_enabled: false)."
+            f"(control_system.writes_enabled: false).{zero_migration_note}"
         )
 
 
@@ -206,13 +228,56 @@ def bash_launch_token_offenders(config: Any, project_root: Path | str) -> set[st
         project_root: Deploy project root; relative ``project_path`` values
             resolve against it.
 
+    The persona intersection cannot see roster entries that run no persona (the
+    zero-migration path — no ``default_persona`` and no explicit ``persona`` on
+    the entry — where the web image *is* the deploy project). Those entries are
+    entitled exactly the way :func:`~osprey.deployment.web_terminals.render.render_web_terminals`
+    grants them the token: :func:`config_needs_launch_token` on the deploy
+    config itself. Their shipped settings artifact is the deploy project's own
+    ``.claude/settings.json``, so the same two questions are asked of
+    ``project_root`` and a conflict there is reported under
+    :data:`ZERO_MIGRATION_OFFENDER`.
+
     Returns:
         Every persona both entitled to ``BLUESKY_LAUNCH_TOKEN`` and shipping
-        settings that do not deny ``Bash``. Empty when there is no conflict.
+        settings that do not deny ``Bash``, plus :data:`ZERO_MIGRATION_OFFENDER`
+        when the persona-less entries are in that state. Empty when there is no
+        conflict.
     """
-    return personas_needing_launch_token(config, project_root) & personas_not_denying_bash(
+    offenders = personas_needing_launch_token(config, project_root) & personas_not_denying_bash(
         config, project_root
     )
+    if (
+        _roster_has_personaless_entries(config)
+        and config_needs_launch_token(config)
+        and not settings_json_denies_bash(project_root)
+    ):
+        offenders.add(ZERO_MIGRATION_OFFENDER)
+    return offenders
+
+
+def _roster_has_personaless_entries(config: Any) -> bool:
+    """True if some roster entry runs no persona and so runs the deploy project.
+
+    Mirrors the resolution ``render_web_terminals`` applies: a ``default_persona``
+    covers every entry that names none, so with one set no entry is persona-less;
+    without one, a bare-string entry or an object entry lacking a string
+    ``persona`` is. Well-formedness of the roster is lint's job — a malformed
+    entry is simply not counted here, matching ``normalize_users`` dropping it.
+    """
+    web_terminals = as_dict(as_dict(as_dict(config).get("modules")).get("web_terminals"))
+    default_persona = web_terminals.get("default_persona")
+    if isinstance(default_persona, str) and default_persona:
+        return False
+    users = web_terminals.get("users")
+    for user in users if isinstance(users, list) else []:
+        if isinstance(user, str):
+            return True
+        if isinstance(user, dict) and not (
+            isinstance(user.get("persona"), str) and user["persona"]
+        ):
+            return True
+    return False
 
 
 def web_artifacts_dir(repo_root: Path | str) -> Path:

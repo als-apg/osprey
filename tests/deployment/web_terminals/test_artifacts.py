@@ -9,6 +9,7 @@ import pytest
 import yaml
 
 from osprey.deployment.web_terminals.artifacts import (
+    ZERO_MIGRATION_OFFENDER,
     BashLaunchTokenConflictError,
     auth_env_digest,
     write_web_terminal_artifacts,
@@ -521,6 +522,80 @@ def test_a_correctly_configured_deployment_renders_without_the_guard_firing(tmp_
 
     assert written
     assert _LAUNCH_TOKEN_LINE in _rendered_services(tmp_path / "build")["web-alice"]["environment"]
+
+
+def _zero_migration_config(tmp_path, *, writes_enabled: bool = True, denies_bash: bool = True):
+    """A persona-less roster: the web image IS the deploy project.
+
+    No persona catalog and no default_persona, so every entry runs the deploy
+    project itself; entitlement is answered by ``config_needs_launch_token`` on
+    the deploy config, and the shipped settings artifact is
+    ``<project_root>/.claude/settings.json``.
+    """
+    config = _config(["alice"])
+    if writes_enabled:
+        config["control_system"] = {"writes_enabled": True}
+    if denies_bash:
+        (tmp_path / ".claude").mkdir()
+        (tmp_path / ".claude" / "settings.json").write_text(
+            json.dumps({"permissions": {"allow": [], "deny": list(_SHIPPED_DENY), "ask": []}}),
+            encoding="utf-8",
+        )
+    return config
+
+
+def test_an_entitled_personaless_roster_without_the_bash_deny_refuses(tmp_path):
+    """The zero-migration half of the same conflict: no persona is in effect, the
+    deploy config itself entitles every entry to the token, and the deploy
+    project ships no shell deny (here: no settings.json at all, which counts the
+    same — absence is not evidence of a deny). The guard must refuse rather than
+    leaving the persona-less path silently unbound."""
+    config = _zero_migration_config(tmp_path, denies_bash=False)
+
+    with pytest.raises(BashLaunchTokenConflictError) as excinfo:
+        write_web_terminal_artifacts(config, tmp_path)
+
+    assert excinfo.value.personas == [ZERO_MIGRATION_OFFENDER]
+    assert "no persona" in str(excinfo.value)
+    assert not (tmp_path / "build").exists()
+
+
+def test_an_entitled_personaless_roster_shipping_the_bash_deny_deploys(tmp_path):
+    """The negative control: the deploy project ships the shell deny every OSPREY
+    build produces, so the entitled persona-less entry keeps its token."""
+    written = write_web_terminal_artifacts(_zero_migration_config(tmp_path), tmp_path)
+
+    assert written
+    assert _LAUNCH_TOKEN_LINE in _rendered_services(tmp_path / "build")["web-alice"]["environment"]
+
+
+def test_an_unentitled_personaless_roster_is_not_a_conflict(tmp_path):
+    """No entitlement, nothing for a shell to read — a bare zero-migration deploy
+    with no write grant must keep deploying exactly as before."""
+    config = _zero_migration_config(tmp_path, writes_enabled=False, denies_bash=False)
+
+    written = write_web_terminal_artifacts(config, tmp_path)
+
+    assert written
+    env = _rendered_services(tmp_path / "build")["web-alice"]["environment"]
+    assert not any("BLUESKY_LAUNCH_TOKEN" in value for value in env)
+
+
+def test_a_default_persona_roster_is_covered_by_the_persona_check_not_the_sentinel(tmp_path):
+    """Entries with no explicit persona but a default_persona resolve to the
+    default, so the persona-keyed intersection already binds them — the
+    persona-less check must not double-report (or misattribute) them."""
+    config = _tiered_roster_config(tmp_path, rw_denies_bash=False)
+    config["modules"]["web_terminals"]["default_persona"] = "readwrite"
+    config["modules"]["web_terminals"]["users"] = [{"name": "alice", "index": 0}]
+    # Entitle the deploy root too; the sentinel must still not appear, because
+    # no entry actually runs the deploy project.
+    config["control_system"] = {"writes_enabled": True}
+
+    with pytest.raises(BashLaunchTokenConflictError) as excinfo:
+        write_web_terminal_artifacts(config, tmp_path)
+
+    assert excinfo.value.personas == ["readwrite"]
 
 
 def test_a_read_only_persona_permitting_bash_is_not_a_conflict(tmp_path):

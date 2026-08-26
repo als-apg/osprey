@@ -77,8 +77,8 @@ pytestmark = [pytest.mark.browser, pytest.mark.slow]
 # popover (expert mode only), so every click on it goes through
 # `_click_settings_trigger` below, which opens the popover first.
 TRIGGER_SELECTOR = '[data-drawer-trigger="settings-drawer"]'
-DISPLAY_MENU_BTN_SELECTOR = "#display-menu-btn"
-DISPLAY_MENU_CARD_SELECTOR = "#display-menu-card"
+DISPLAY_MENU_BTN_SELECTOR = "#display-menu .display-menu-trigger"
+DISPLAY_MENU_CARD_SELECTOR = "#display-menu .display-menu-card"
 DRAWER_SELECTOR = "#settings-drawer"
 BACKDROP_SELECTOR = "#drawer-backdrop"
 CLOSE_BTN_SELECTOR = ".drawer-close-btn"
@@ -130,7 +130,7 @@ def _click_settings_trigger(page: Page) -> None:
     The settings trigger lives at the bottom of the display-menu popover, so
     the menu has to be opened first -- the real operator path, and the only one
     Playwright's actionability checks accept (the row is not visible while the
-    card is closed). display-menu.js closes the card on that click, so callers
+    card is closed). app.js closes the card on that click, so callers
     that reopen the drawer later must call this again rather than reuse a
     still-open popover.
     """
@@ -640,7 +640,7 @@ def test_settings_warning_double_click_yields_one_dialog(tmp_path, monkeypatch, 
 
         # Open the display-menu popover first so the row starts from its real
         # visible state; the two native clicks then fire back-to-back in one JS
-        # turn, before display-menu.js's own close can matter to the gate.
+        # turn, before app.js's own close can matter to the gate.
         page.click(DISPLAY_MENU_BTN_SELECTOR)
         page.evaluate(
             f"""() => {{

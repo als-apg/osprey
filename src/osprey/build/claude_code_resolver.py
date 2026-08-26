@@ -13,6 +13,7 @@ that name none — config always wins over the built-in table.
 
 from __future__ import annotations
 
+import difflib
 import json
 import logging
 import os
@@ -734,11 +735,22 @@ class ClaudeCodeModelResolver:
         if provider_name not in CLAUDE_CODE_PROVIDERS:
             # Custom proxy: must be defined in api.providers
             if provider_name not in api_providers:
-                supported = ", ".join(sorted(CLAUDE_CODE_PROVIDERS))
+                # The accepted set is the UNION of the built-ins and whatever
+                # api.providers declares, so the message names the union — an
+                # error that lists only the built-ins reads as "this framework
+                # supports three providers" and sends an operator off to add a
+                # proxy that is often already in their own config.yml (#725).
+                builtin = sorted(CLAUDE_CODE_PROVIDERS)
+                configured = sorted(set(api_providers) - set(CLAUDE_CODE_PROVIDERS))
+                available = sorted(set(builtin) | set(api_providers))
+                close = difflib.get_close_matches(provider_name, available, n=1)
+                hint = f" Did you mean '{close[0]}'?" if close else ""
                 raise ValueError(
-                    f"Unknown Claude Code provider '{provider_name}'. "
-                    f"Built-in providers: {supported}. "
-                    f"To use a custom provider, add it under `config:` api.providers "
+                    f"Unknown Claude Code provider '{provider_name}'.{hint} "
+                    f"Available providers: {', '.join(available)} "
+                    f"(built-in: {', '.join(builtin)}; "
+                    f"from api.providers in config.yml: {', '.join(configured) or 'none'}). "
+                    f"To add another, declare it under `config:` api.providers "
                     f"in profile.yml and run `osprey build` (config.yml is generated "
                     f"from profile.yml)."
                 )

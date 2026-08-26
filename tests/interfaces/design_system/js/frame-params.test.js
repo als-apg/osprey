@@ -19,6 +19,7 @@ import { test, expect, describe, afterEach, vi } from 'vitest';
 
 import {
   applyEmbedded,
+  isEmbedded,
   onModeChange,
   stripQueryMode,
   CONTRACT_VERSION,
@@ -70,6 +71,32 @@ describe('applyEmbedded', () => {
     applyEmbedded();
 
     expect(document.body.classList.contains('embedded')).toBe(false);
+  });
+});
+
+describe('isEmbedded', () => {
+  afterEach(() => {
+    document.body.className = '';
+    window.history.replaceState({}, '', '/');
+  });
+
+  test('is true only for ?embedded=true, exactly as applyEmbedded reads it', () => {
+    for (const [query, expected] of [
+      ['?embedded=true', true],
+      ['?embedded=false', false],
+      ['?embedded=1', false],
+      ['', false],
+    ]) {
+      window.history.replaceState({}, '', `/${query}`);
+      expect(isEmbedded()).toBe(expected);
+    }
+  });
+
+  test('answers from the URL, so a page can branch on it before applyEmbedded()', () => {
+    // The theme role is picked at module load; <body> may not carry the class yet.
+    window.history.replaceState({}, '', '/?embedded=true');
+    expect(document.body.classList.contains('embedded')).toBe(false);
+    expect(isEmbedded()).toBe(true);
   });
 });
 

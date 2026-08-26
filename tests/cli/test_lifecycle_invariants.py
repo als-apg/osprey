@@ -478,10 +478,19 @@ _RETIRED_SPELLING_ALLOWLIST: dict[tuple[str, str], str] = {
         )
         for line in (
             '"Auto-generated service auth tokens (osprey deploy up)",',
-            '"Auto-configured bluesky bridge plan devices (osprey deploy up)",',
             '"Auto-generated bluesky RE manager control-socket keypair (osprey deploy up)",',
         )
     },
+    # The bluesky plan-devices banner, carried by `reset` alone. The deploy-time
+    # step that minted that block wrote the device set into the `.env`; the
+    # build stages a device FILE instead, so nothing writes the banner any more.
+    # `reset` still has to match it, because `.env` files written by earlier
+    # releases hold the block and a banner this list drops is a block reset
+    # reports as stripped and leaves in place.
+    (
+        "src/osprey/deployment/reset.py",
+        '"Auto-configured bluesky bridge plan devices (osprey deploy up)",',
+    ): "`.env` banner header matched against files already on disk",
     # The web-terminal auth banners, for the same reason as the three above and
     # found by the same criterion once it learned to see the group name with no
     # verb after it. `auth_credentials` locates an existing block by matching

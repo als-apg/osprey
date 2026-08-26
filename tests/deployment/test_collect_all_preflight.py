@@ -663,7 +663,6 @@ def stubbed_start(monkeypatch):
         "_preflight_host_ports",
         "_preflight_archiver_pymongo",
         "_preflight_stale_store_volumes",
-        "_ensure_bluesky_substrate_env",
         "_ensure_bluesky_control_plane_keys",
         "_ensure_bluesky_document_plane_certs",
         "_preflight_env_chain_drift",

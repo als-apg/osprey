@@ -30,6 +30,27 @@ Compatibility is documented in release notes, not encoded in the version string.
   actionable suggestion — instead of only the probe channel, which misread as "the
   control system is down" when a single gateway beside a healthy one was unserved.
   (#718)
+- The `Unknown Claude Code provider` error now lists every provider the deployment
+  actually accepts — the built-ins and the ones declared under `api.providers` in
+  `config.yml`, marked as such — and suggests the closest name for a typo, instead
+  of naming only the three built-ins. (#725)
+- DOOCS connector: an explicit `verification_level="none"` write no longer consults
+  the limits database for a tolerance it will not use, matching the Mock and EPICS
+  connectors. An explicit `"callback"` write still resolves the channel's tolerance,
+  since DOOCS verifies it by readback.
+
+### Changed
+
+- Web Terminal and every standalone panel (workspace, Channel Finder, lattice
+  dashboard, knowledge panel) now use the same display menu as ARIEL: the sliders
+  button opens one popover with the light/dark switch, the Expert/Simple view and
+  the theme family picker. A pick made on any of these pages is remembered by the
+  browser and shared with the others. The inline light/dark button and family
+  dropdown the panels used to show in their header are gone; the terminal's
+  Settings and Log out entries stay at the bottom of the card.
+- `artifact_delete_all` reports one activity entry ("N artifacts (scope)") instead
+  of one per deleted artifact, so clearing a large gallery no longer pushes
+  everything else out of the activity history.
 
 ### Added
 
@@ -40,6 +61,11 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Security
 
+- Multi-user deploy: the Bash/launch-token guard now also covers roster entries that
+  run no persona (the deploy project itself). A deployment whose own config grants
+  writes and runs the Bluesky server, but whose `.claude/settings.json` does not
+  deny `Bash`, is refused at `osprey up` like a persona in the same state, and the
+  refusal names it as `(no persona: the deploy project)`.
 - Every OSPREY interface — the Web Terminal, ARIEL, Channel Finder, the artifact
   gallery, the Theme Lab and the rest — now authenticates every HTTP and
   WebSocket request, and every launcher that serves one prints a login URL
@@ -1093,13 +1119,16 @@ Compatibility is documented in release notes, not encoded in the version string.
   `.claude/skills/`. The "Run your first scan" how-to is now "Run your first
   plan" at a new URL.
 
-- The bluesky bridge's plan-device env vars are now named for what a control
-  room calls them: `BLUESKY_EPICS_MOTORS` is `BLUESKY_EPICS_SETPOINTS` and
-  `BLUESKY_EPICS_DETECTORS` is `BLUESKY_EPICS_READBACKS`. Their values and format
-  are unchanged. `osprey up` writes the new names; a project whose `.env` still
-  holds the old ones will find them ignored, so remove those two lines (or run
-  `osprey reset` then `osprey up`, which rewrites the block) to get plan devices
-  back.
+- A Bluesky deployment declares the devices its plans may drive in one device
+  file — `data/bluesky_devices.yml` by default, or wherever
+  `bluesky.devices_file` points. `osprey build` validates it and refuses to
+  build on an entry it cannot use, and the file travels with the built
+  deployment. A project that co-deploys the virtual accelerator and has no file
+  of its own gets one derived from its channel-limits database. With no file at
+  all the queue server can browse and describe plans but run none of them. The
+  bluesky lane mounts the limits database named by
+  `control_system.limits_checking.database_path`, and an edit to it takes
+  effect at the next `osprey build`.
 
 - The two shipped plans now name their read side `readbacks` instead of
   `detectors`, in the plan form, the queue summary, the approval prompt and the

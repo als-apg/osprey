@@ -359,11 +359,15 @@ def test_preview_iframe_inherits_gallery_theme(tmp_path, monkeypatch, chromium_b
     to carry its theme onto the iframe src and re-send it on load and on
     every change. Drives the whole chain: a gallery opened in a non-main
     theme, a preview mounted afterwards, then a hub-style broadcast.
+
+    The gallery is loaded ``?embedded=true``, as the hub loads it: only a
+    follower applies the broadcast at all (standalone, the gallery runs
+    theme-manager.js in the hub role behind its own display menu).
     """
     with _launch_artifacts(tmp_path, monkeypatch) as base_url:
         ctx = chromium_browser.new_context(viewport=VIEWPORT, color_scheme="dark")
         page = ctx.new_page()
-        page.goto(f"{base_url}/?theme=retro-light", wait_until="domcontentloaded")
+        page.goto(f"{base_url}/?theme=retro-light&embedded=true", wait_until="domcontentloaded")
         expect(page.locator("html")).to_have_attribute("data-theme", "retro-light")
 
         _card_for_title(page, HTML_TITLE).click()

@@ -29,14 +29,14 @@
  */
 
 import { initTheme } from "/design-system/js/theme-manager.js";
-import { applyEmbedded } from "/design-system/js/frame-params.js";
+import { applyEmbedded, isEmbedded } from "/design-system/js/frame-params.js";
 import { debounce } from "/design-system/js/dom.js";
 import {
   contributeHeader,
   onHeaderAction,
   isSimpleMode,
 } from "/design-system/js/header-contrib.js";
-import "/design-system/js/components/osprey-theme-switcher.js";
+import "/design-system/js/components/osprey-display-menu.js";
 import { el, isFallback, readPanelParams, STRUCTURE_MARKER } from "./helpers.js";
 import { initTree, renderTree, highlightActive, highlightStructure, selectConcept } from "./tree.js";
 import {
@@ -47,11 +47,14 @@ import {
 } from "./search.js";
 import { initSidebarResize } from "./resize.js";
 
-// Panel embedded in the Web Terminal hub: apply the hub's broadcast theme and
-// follow live `osprey-theme-change` messages. theme-boot.js already applied
-// data-theme pre-paint; this attaches the follower's postMessage listener
-// (replacing the legacy `theme:set` the panel's earlier TODO expected).
-initTheme({ role: "follower" });
+// Standalone, this page owns its own theme chrome (the header
+// <osprey-display-menu>), so it runs theme-manager.js in the hub role:
+// persistence, OS auto-follow and ?theme= handling all come with it, and
+// broadcast is a structural no-op on a page with no iframes. Embedded in the
+// Web Terminal hub it is a follower instead: theme-boot.js already applied
+// data-theme pre-paint, and this attaches the postMessage listener for the
+// hub's live broadcasts.
+initTheme({ role: isEmbedded() ? "follower" : "hub" });
 
 /**
  * Publish this panel's tile-bar contribution. Embedded in Expert, the sidebar's

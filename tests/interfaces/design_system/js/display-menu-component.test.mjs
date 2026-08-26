@@ -399,6 +399,84 @@ describe('<osprey-display-menu>', () => {
     });
   });
 
+  describe('projected action slot', () => {
+    /**
+     * Mount a menu whose markup carries page-owned action children — the
+     * hub's Settings (data-drawer-trigger, NOT data-drawer) and Log out.
+     * @param {string} [settingsDrawer]
+     */
+    function mountWithActions(settingsDrawer) {
+      const el = document.createElement('osprey-display-menu');
+      if (settingsDrawer !== undefined) el.setAttribute('settings-drawer', settingsDrawer);
+      el.innerHTML = `
+        <button class="display-menu-settings" id="page-settings" type="button"
+                data-drawer-trigger="settings-drawer">Settings</button>
+        <button class="display-menu-logout" id="page-logout" type="button">Log out</button>
+      `;
+      document.body.appendChild(el);
+      return /** @type {HTMLElement} */ (el);
+    }
+
+    test('moves the tag\'s children into the action row, last in the card, in order', () => {
+      const el = mountWithActions();
+      const card = qs(el, '.display-menu-card');
+      const actions = qs(el, '.display-menu-actions');
+
+      expect(card.lastElementChild).toBe(actions);
+      expect(Array.from(actions.children).map((c) => c.id)).toEqual(['page-settings', 'page-logout']);
+      // Nothing leaks outside the card: the trigger and the card are the only
+      // direct children left.
+      expect(Array.from(el.children).map((c) => c.className)).toEqual([
+        'display-menu-trigger',
+        'display-menu-card',
+      ]);
+    });
+
+    test('the built-in Settings entry leads the projected children when both are present', () => {
+      const el = mountWithActions('settings-drawer');
+      const actions = qs(el, '.display-menu-actions');
+      const first = /** @type {HTMLElement} */ (actions.firstElementChild);
+
+      expect(first.dataset.drawer).toBe('settings-drawer');
+      expect(first.id).toBe('');
+      expect(actions.lastElementChild?.id).toBe('page-logout');
+    });
+
+    test('projected children keep their own attributes and get no component contract', () => {
+      const el = mountWithActions();
+      const settings = qs(el, '#page-settings');
+
+      expect(settings.dataset.drawerTrigger).toBe('settings-drawer');
+      expect(settings.hasAttribute('data-drawer')).toBe(false);
+    });
+
+    test('a projected child\'s click leaves the card open (the page decides)', () => {
+      // The hub's Log out must NOT be closed away: its aria-busy state has to
+      // stay visible while the logout POST is in flight. The hub closes on its
+      // own Settings click by calling closeMenu() itself.
+      const el = mountWithActions();
+      qs(el, '.display-menu-trigger').click();
+
+      qs(el, '#page-logout').click();
+      expect(qs(el, '.display-menu-card').classList.contains('open')).toBe(true);
+
+      qs(el, '#page-settings').click();
+      expect(qs(el, '.display-menu-card').classList.contains('open')).toBe(true);
+
+      /** @type {any} */ (el).closeMenu();
+      expect(qs(el, '.display-menu-card').classList.contains('open')).toBe(false);
+    });
+
+    test('survives disconnect and reconnect without re-projecting', () => {
+      const el = mountWithActions();
+      el.remove();
+      document.body.appendChild(el);
+
+      expect(el.querySelectorAll('#page-logout')).toHaveLength(1);
+      expect(qs(el, '.display-menu-actions').lastElementChild?.id).toBe('page-logout');
+    });
+  });
+
   describe('embedded-hidden CSS rule (D15)', () => {
     test('injects the shared body.embedded osprey-display-menu rule itself', () => {
       mount();

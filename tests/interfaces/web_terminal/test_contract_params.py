@@ -176,11 +176,15 @@ def test_postmessage_theme_change_same_origin_only(tmp_path, monkeypatch, chromi
     with a spoofed origin -- so the acceptance step below is a real exercise
     of the accept path. The rejection step fakes a foreign origin via an
     in-page synthetic ``dispatchEvent(new MessageEvent(...))``.
+
+    Loaded ``?embedded=true``, as the hub loads it: only a follower applies
+    broadcasts at all. A standalone page runs theme-manager.js in the hub
+    role (it owns its own display menu) and ignores them by design.
     """
     # Arrange
     with _launch_channel_finder(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page()
-        page.goto(f"{base_url}?theme=dark", wait_until="load")
+        page.goto(f"{base_url}?theme=dark&embedded=true", wait_until="load")
         expect(page.locator("html[data-theme='dark']")).to_have_count(1)
 
         # Act -- genuine same-origin postMessage.
@@ -409,10 +413,10 @@ def test_postmessage_paste_to_terminal_rejects_foreign_origin(
 # assertion is skipped for it.
 # `theme_control_selector` + `toggle_action` are the per-panel pair the
 # three chrome tests below drive: the element the D15 embedded-hide rule
-# targets, and the callable that flips its appearance away from dark. Most
-# panels mount the bare `<osprey-theme-switcher>`, whose mode button IS the
-# control; ARIEL mounts `<osprey-display-menu>`, which collapses the same
-# preference behind a popover, so its action opens the card first. Both
+# targets, and the callable that flips its appearance away from dark. Every
+# panel mounts `<osprey-display-menu>`, which collapses the preference behind
+# a popover, so its action opens the card first; session.html still mounts
+# the bare `<osprey-theme-switcher>`, whose mode button IS the control. Both
 # reach theme-manager.js's `toggleTheme()` -- the tests assert the same
 # outcome either way, they just click through a different chrome.
 
@@ -440,24 +444,24 @@ _CHROME_CONTRACT_PANELS = [
     # header), so the branding assertion targets the element carrying the
     # rule -- `.logo` inside it still computes its own `display: flex`.
     ("ariel", _launch_ariel, "", ".header", "osprey-display-menu", _toggle_via_display_menu),
-    ("artifacts", _launch_artifacts, "", ".logo", "osprey-theme-switcher", _toggle_via_switcher),
+    ("artifacts", _launch_artifacts, "", ".logo", "osprey-display-menu", _toggle_via_display_menu),
     (
         "channel_finder",
         _launch_channel_finder,
         "",
         ".app-logo",
-        "osprey-theme-switcher",
-        _toggle_via_switcher,
+        "osprey-display-menu",
+        _toggle_via_display_menu,
     ),
     (
         "lattice_dashboard",
         _launch_lattice_dashboard,
         "",
         ".topbar-logo",
-        "osprey-theme-switcher",
-        _toggle_via_switcher,
+        "osprey-display-menu",
+        _toggle_via_display_menu,
     ),
-    ("okf_panel", _launch_okf_panel, "", None, "osprey-theme-switcher", _toggle_via_switcher),
+    ("okf_panel", _launch_okf_panel, "", None, "osprey-display-menu", _toggle_via_display_menu),
     (
         "web_terminal_session",
         _launch_web_terminal,

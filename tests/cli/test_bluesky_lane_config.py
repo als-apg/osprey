@@ -110,6 +110,7 @@ def test_single_lane_block_is_unchanged(tmp_path: Path, cs_type: str) -> None:
         "port": 8090,
         "tiled_enabled": False,
         "tiled_port": 8091,
+        "devices_file": "data/bluesky_devices.yml",
     }
     assert config["deployed_services"] == ["postgresql", "bluesky"]
     assert [key for key in config["services"] if key.startswith("bluesky_")] == []
@@ -202,8 +203,9 @@ def test_live_baseline_renders_a_va_second_lane(tmp_path: Path) -> None:
     assert config["deployed_services"] == ["postgresql", "bluesky", "bluesky_va"]
 
 
-def test_second_lane_carries_plan_dir_and_exclusions(tmp_path: Path) -> None:
-    """Plans belong to the facility, not to a target — both lanes load them."""
+def test_second_lane_carries_facility_plan_keys(tmp_path: Path) -> None:
+    """Plans and devices belong to the facility, not to a target — both lanes
+    carry them, including the always-written ``devices_file``."""
     project = tmp_path / "project"
     _write_config(project, cs_type="epics")
 
@@ -212,6 +214,7 @@ def test_second_lane_carries_plan_dir_and_exclusions(tmp_path: Path) -> None:
             second_lane=True,
             plan_dir="/facility/plans",
             excluded_plans=["scan_a", "scan_b"],
+            devices_file="/facility/devices.yml",
         ),
         project,
         VAConfig(),
@@ -222,6 +225,21 @@ def test_second_lane_carries_plan_dir_and_exclusions(tmp_path: Path) -> None:
         lane = config["services"][lane_key]
         assert lane["plan_dir"] == "/facility/plans"
         assert lane["excluded_plans"] == os.pathsep.join(["scan_a", "scan_b"])
+        assert lane["devices_file"] == "/facility/devices.yml"
+
+
+def test_second_lane_carries_the_default_devices_file(tmp_path: Path) -> None:
+    """``devices_file`` is always-written, so an unconfigured two-lane deploy
+    still lands the default path on BOTH lanes — the staging step never has to
+    re-derive it for a lane that said nothing."""
+    project = tmp_path / "project"
+    _write_config(project, cs_type="epics")
+
+    _inject_bluesky(BlueskyConfig(second_lane=True), project, VAConfig())
+
+    config = _read_config(project)
+    for lane_key in ("bluesky", "bluesky_va"):
+        assert config["services"][lane_key]["devices_file"] == "data/bluesky_devices.yml"
 
 
 def test_second_lane_keeps_section_banner_and_list_intact(tmp_path: Path) -> None:
