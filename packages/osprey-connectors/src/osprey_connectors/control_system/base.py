@@ -17,6 +17,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from osprey_connectors.types import (
+    WRITES_ENABLED_KEY,
+    type_writes_enabled,
+    writes_enabled_key,
+)
+
 logger = logging.getLogger("osprey_connectors.control_system")
 
 # Tripped the first time a write reads a config that still declares the retired
@@ -204,7 +210,9 @@ def _in_mcp_server_process() -> bool:
     return any(parts[i : i + span] == _MCP_SERVER_PACKAGE_PARTS for i in range(len(parts)))
 
 
-def _writes_disabled_result(channel_address: str, value: Any) -> ChannelWriteResult:
+def _writes_disabled_result(
+    channel_address: str, value: Any, connector_type: str | None = None
+) -> ChannelWriteResult:
     """Build the refusal result for a write the monitor never attempted.
 
     Three reasons share this shape, and each sends the operator somewhere
@@ -217,8 +225,11 @@ def _writes_disabled_result(channel_address: str, value: Any) -> ChannelWriteRes
     * this **script** was submitted readonly. The deployment may well allow
       writes; the run simply was not declared readwrite, and resubmitting it
       as readwrite (with human approval) is the remedy.
-    * the **deployment** has writes off, which is the only one of the three
-      that ``writes_enabled`` governs.
+    * the **deployment** has writes off for this connector type, which is the
+      only one of the three that ``writes_enabled`` governs. Posture is per
+      type, so the message names the block an operator actually has to edit:
+      ``control_system.connector.<type>.writes_enabled`` when the connector
+      knows its type, and the deployment-wide key when it does not.
 
     Only the wording forks. ``blocked`` and ``refusal_reason`` stay the same
     for all three: the same thing happened — the monitor refused, and the
@@ -245,9 +256,10 @@ def _writes_disabled_result(channel_address: str, value: Any) -> ChannelWriteRes
             "(human approval required) if the write is intended."
         )
     else:
+        key = writes_enabled_key(connector_type)
         message = (
             f"Write to '{channel_address}' blocked: writes are disabled. "
-            "Set control_system.writes_enabled: true in the build profile "
+            f"Set {key}: true in the build profile "
             "(profile.yml on the host), then rebuild and redeploy."
         )
     return ChannelWriteResult(
@@ -361,12 +373,26 @@ class ControlSystemConnector(ABC):
     """
 
     _limits_validator: Any = None  # Initialized by subclasses in connect()
+    # The connector type this instance was built as. Stamped by
+    # ConnectorFactory.create_control_system_connector() between construction and
+    # connect(), so connect() can already read the posture. Stays None on an
+    # instance nobody built through the factory: no type, so no per-type block.
+    _connector_type: str | None = None
 
     @property
     def _writes_enabled(self) -> bool:
-        """Check whether writes are enabled via global config.
+        """Check whether writes are enabled for this connector's type.
 
         Returns False (fail-safe) when config is unavailable.
+
+        Posture is per connector type:
+        ``control_system.connector.<type>.writes_enabled`` arms one type, and a
+        deployment that says nothing about a type keeps the deployment-wide
+        ``control_system.writes_enabled`` for it — see
+        :func:`~osprey_connectors.types.type_writes_enabled`. An unstamped
+        connector has no type to key that on, so the deployment-wide key is the
+        whole posture it can read — under the same rule as every other reader:
+        only a literal ``true`` arms it, never a truthy stand-in.
 
         ``control_system.writes_enabled`` is a **launch-time deployment posture,
         not a live kill-switch.** It is read from config and process-cached, so
@@ -384,7 +410,9 @@ class ControlSystemConnector(ABC):
         try:
             from osprey_connectors.config import get_config_value
 
-            return get_config_value("control_system.writes_enabled", False)
+            if self._connector_type is None:
+                return get_config_value(WRITES_ENABLED_KEY, False) is True
+            return type_writes_enabled(get_config_value("control_system", {}), self._connector_type)
         except (FileNotFoundError, RuntimeError):
             return False
 
@@ -408,7 +436,7 @@ class ControlSystemConnector(ABC):
             @functools.wraps(original_write)
             async def _guarded_write(self, channel_address, value, *args, **kwargs):
                 if not self._writes_enabled:
-                    return _writes_disabled_result(channel_address, value)
+                    return _writes_disabled_result(channel_address, value, self._connector_type)
                 return await original_write(self, channel_address, value, *args, **kwargs)
 
             cls.write_channel = _guarded_write
@@ -419,7 +447,10 @@ class ControlSystemConnector(ABC):
             @functools.wraps(original_multi)
             async def _guarded_multi(self, operations, *args, **kwargs):
                 if not self._writes_enabled:
-                    return [_writes_disabled_result(addr, val) for addr, val in operations]
+                    return [
+                        _writes_disabled_result(addr, val, self._connector_type)
+                        for addr, val in operations
+                    ]
                 return await original_multi(self, operations, *args, **kwargs)
 
             cls.write_multiple_channels = _guarded_multi

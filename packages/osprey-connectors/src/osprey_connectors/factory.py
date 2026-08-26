@@ -154,6 +154,9 @@ class ConnectorFactory:
 
         # Create connector instance
         connector = connector_class()
+        # The one seam between construction and connect(): the write posture is
+        # per connector type, and connect() itself may already consult it.
+        connector._connector_type = connector_type
 
         # Get type-specific configuration
         connector_configs = config.get("connector", {})

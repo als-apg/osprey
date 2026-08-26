@@ -14,7 +14,9 @@ factory, ``connect()`` — with no EPICS, no gateway and no network.
 
 The child runs with ``cwd`` set to a scratch directory and no ``CONFIG_FILE``,
 so no project config is reachable: writes are disabled, which is the posture
-the write tests assert against.
+the write tests assert against. The write-posture tests are the exception —
+posture is read from the project config, so they put a real config file in
+reach and point the child at it.
 
 The report-derivation helpers are unit-tested in-process at the bottom, since
 the interesting cases (name-server vs address-list mode, which gateway role was
@@ -31,8 +33,10 @@ import threading
 import time
 from collections import deque
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+import yaml
 
 from osprey_connectors.control_system.base import ChannelValue, ChannelWriteResult
 from osprey_connectors.ipc import frames, host
@@ -49,6 +53,29 @@ CONTROL_SYSTEM = {
     "type": MOCK_TYPE,
     "writes_enabled": False,
     "connector": {MOCK_TYPE: {"response_delay_ms": 10, "noise_level": 0.0}},
+}
+
+#: A deployment whose real machine is EPICS and whose simulator is armed: the
+#: deployment-wide posture is off, the virtual accelerator's own block turns
+#: writes on, and the live machine's block says nothing about them at all.
+MIXED_CONTROL_SYSTEM = {
+    "type": "epics",
+    "writes_enabled": False,
+    "connector": {
+        "epics": {
+            "gateways": {
+                "read_only": {"address": "ro.example.org", "port": 5064},
+                "write_access": {"address": "rw.example.org", "port": 5065},
+            }
+        },
+        "virtual_accelerator": {
+            "writes_enabled": True,
+            "gateways": {
+                "read_only": {"address": "va-ro.example.org", "port": 5074},
+                "write_access": {"address": "va-rw.example.org", "port": 5075},
+            },
+        },
+    },
 }
 
 #: Generous enough that a slow machine is not a failure, tight enough that a
@@ -285,6 +312,33 @@ def test_write_multiple_channels_refuses_every_operation(ready_child):
     assert all(result.refusal_reason == "WRITES_DISABLED" for result in results)
 
 
+def test_the_child_reports_the_posture_of_the_block_for_its_own_type(tmp_path):
+    """Write posture is per connector type, end to end through a real child.
+
+    The deployment-wide posture is off and the block for the type this child
+    resolved arms writes, so only a report that looked its own type up can say
+    the child is armed.
+    """
+    project = tmp_path / "project"
+    project.mkdir()
+    control_system = {
+        "type": MOCK_TYPE,
+        "writes_enabled": False,
+        "connector": {MOCK_TYPE: {"response_delay_ms": 10, "writes_enabled": True}},
+    }
+    config_file = project / "config.yml"
+    config_file.write_text(yaml.safe_dump({"control_system": control_system}))
+
+    spawned = Child(cwd=tmp_path)
+    try:
+        report = spawned.init(control_system=control_system, config_file=str(config_file)).value
+
+        assert report["connector_type"] == MOCK_TYPE
+        assert report["writes_enabled"] is True
+    finally:
+        spawned.close()
+
+
 # ------------------------------------------------------------- spawn_probe
 
 
@@ -495,3 +549,62 @@ def test_a_gateway_in_the_other_mode_is_not_a_match():
     )
 
     assert role is None
+
+
+# ------------------------------------------------ write posture (unit)
+
+
+@pytest.fixture
+def mixed_deployment(tmp_path, monkeypatch):
+    """Put :data:`MIXED_CONTROL_SYSTEM` on disk and in reach of this process.
+
+    Posture is read from the project config, where the connector reads it, so a
+    test about posture has to point at a real file rather than hand a section
+    in.
+    """
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(yaml.safe_dump({"control_system": MIXED_CONTROL_SYSTEM}))
+    monkeypatch.setenv("CONFIG_FILE", str(config_file))
+    return MIXED_CONTROL_SYSTEM
+
+
+def test_the_report_arms_the_target_whose_own_block_says_so(mixed_deployment):
+    report = host._post_connect_report(
+        SimpleNamespace(_epics_configured=False), "virtual_accelerator", "va", mixed_deployment
+    )
+
+    assert report["target"] == "va"
+    assert report["connector_type"] == "virtual_accelerator"
+    assert report["writes_enabled"] is True
+
+
+def test_a_target_whose_block_says_nothing_inherits_the_disabled_deployment(mixed_deployment):
+    # The epics block configures gateways and no posture, so this target keeps
+    # the deployment-wide answer — which is off, whatever the simulator's block
+    # says about the simulator.
+    report = host._post_connect_report(
+        SimpleNamespace(_epics_configured=False), "epics", "live", mixed_deployment
+    )
+
+    assert report["target"] == "live"
+    assert report["connector_type"] == "epics"
+    assert report["writes_enabled"] is False
+
+
+def test_a_readonly_run_keeps_an_armed_target_off_the_write_gateway(mixed_deployment, monkeypatch):
+    monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
+    monkeypatch.delenv("EPICS_CA_NAME_SERVERS", raising=False)
+    monkeypatch.setenv("EPICS_CA_ADDR_LIST", "va-ro.example.org")
+    monkeypatch.setenv("EPICS_CA_SERVER_PORT", "5074")
+
+    report = host._post_connect_report(
+        SimpleNamespace(_epics_configured=True), "virtual_accelerator", "va", mixed_deployment
+    )
+
+    # The block arms this target and the report says so: that is the deployment
+    # posture, and the same input connect() made its selection with. What the
+    # readonly run collapses is the selection itself — an armed target still
+    # went through the read gateway.
+    assert report["writes_enabled"] is True
+    assert report["readonly_run"] is True
+    assert report["selected_role"] == "read_only"

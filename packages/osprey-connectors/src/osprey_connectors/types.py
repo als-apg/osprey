@@ -19,6 +19,14 @@ privately can route a tool call somewhere the roster never claimed. The target i
 an *argument* here, never something this module reads from the environment: an
 environment-reading override would make the honesty predicate describe a
 deployment the process is no longer running.
+
+:func:`type_writes_enabled` and :func:`target_writes_enabled` answer "may this
+deployment write" the same way and for the same reason. Write posture is per
+connector type, so a deployment whose real machine is a live one can arm its
+simulator alone; and the lint that reads the config, the persona that tells an
+operator what they hold, and the connector that would perform the write all have
+to agree about which types are armed. Two readings of one posture is one of them
+being wrong about a machine somebody can move.
 """
 
 from typing import Any
@@ -47,6 +55,17 @@ CLI_ARCHIVER_TYPES = [MOCK_ARCHIVER, EPICS_ARCHIVER, MONGODB_ARCHIVER, DOOCS_ARC
 TARGET_LIVE = "live"
 TARGET_VA = "va"
 CONTROL_TARGETS = [TARGET_LIVE, TARGET_VA]
+
+# -- Write posture --
+#: The deployment-wide write posture, dotted as a caller spells it for
+#: ``get_config_value`` and as every refusal names it to an operator.
+WRITES_ENABLED_KEY = "control_system.writes_enabled"
+
+#: The same posture inside one connector block —
+#: ``control_system.connector.<type>.writes_enabled``. A leaf name, not a path:
+#: it is looked up in an already-resolved block, whose own key is the connector
+#: type in full.
+TYPE_WRITES_ENABLED_LEAF = "writes_enabled"
 
 #: Types that serve a machine nobody has to be careful around. They are the
 #: reason ``live`` cannot simply be "whatever the config selects": a deployment
@@ -211,6 +230,171 @@ def switch_capable(section: Any) -> bool:
         isinstance(connector.get(name), dict) and bool(connector.get(name))
         for name in types_by_target.values()
     )
+
+
+def type_writes_enabled(section: Any, connector_type: str) -> bool:
+    """Whether a deployment arms writes for one connector *type*.
+
+    A tri-state on ``control_system.connector.<type>.writes_enabled``, where
+    *connector_type* is one key. A custom connector's dotted module path
+    (``'mypackage.TangoConnector'``) names a single block, never a path through
+    several, so the type is looked up whole and never split on its dots:
+
+    - **Absent** — no connector table, no block for this type, a block that is
+      not a mapping, or a mapping without the leaf — inherits
+      ``control_system.writes_enabled``. That is the whole compatibility story:
+      a deployment that says nothing per type keeps the posture it had when the
+      deployment-wide key was the only posture there was.
+    - **Literally ``True``** arms writes for this type.
+    - **Any other value** leaves them unarmed, and does *not* fall back to the
+      deployment-wide key. A facility that wrote ``false`` under its live block
+      has said something about that machine, and a global ``true`` armed for the
+      simulator must not talk it into arming hardware. Values nobody can be sure
+      of land on the same side: the ``None`` YAML gives a bare
+      ``writes_enabled:``, the quoted string ``'true'``, ``1``. Unarmed is the
+      reading that costs an operator a config edit rather than a machine.
+
+    Keyed by type rather than by session target because that is the identity
+    most holders have: a connector, the factory that builds it, an IPC child, a
+    queueserver stamp all know which connector type they are and never which
+    target selected it. :func:`target_writes_enabled` is this same answer for
+    the holders that carry a target instead — the roster, the stdlib hooks, the
+    executor.
+
+    Never reads the environment, and in particular never consults
+    ``is_readonly_run()``. This is the deployment posture on its own; a caller
+    that must also honor a read-only run ANDs the two, so that what a config
+    describes stays what this function reports.
+
+    Args:
+        section: The ``control_system:`` config section, in the same shape
+            :func:`resolve_control_system_type` takes.
+        connector_type: A connector type name, as
+            :func:`resolve_control_system_type` and :func:`resolve_target`
+            return it — which is also its connector sub-block key.
+
+    Returns:
+        ``True`` only when writes are armed for that type. Never raises: a
+        section that is not a mapping is a deployment that has said nothing,
+        and a deployment that has said nothing is not armed.
+    """
+    connector = section.get("connector") if isinstance(section, dict) else None
+    block = connector.get(connector_type) if isinstance(connector, dict) else None
+    if not isinstance(block, dict) or TYPE_WRITES_ENABLED_LEAF not in block:
+        return _global_writes_enabled(section)
+    return block[TYPE_WRITES_ENABLED_LEAF] is True
+
+
+def target_writes_enabled(section: Any, target: Any) -> bool:
+    """Whether a deployment arms writes for one session *target*.
+
+    :func:`type_writes_enabled` for the type that target resolves to, so a
+    holder following the session target and a connector that knows only its own
+    type read one posture and not two.
+
+    A target that does not resolve answers :data:`WRITES_ENABLED_KEY` instead.
+    Two shapes reach that branch and both mean the same thing — there is no
+    per-type block to consult because there is no type. An unknown target names
+    nothing. ``live`` on a mock or hello_world-style deployment names a machine
+    the config never described, which :func:`resolve_target` refuses to guess;
+    such a deployment has only ever had the one deployment-wide posture, and
+    keeping it is parity rather than a fallback. Refusing here would instead
+    take the posture away from every deployment that never had a second target.
+
+    Args:
+        section: The ``control_system:`` config section.
+        target: The session target, one of :data:`CONTROL_TARGETS`.
+
+    Returns:
+        ``True`` only when writes are armed for that target. Never raises.
+    """
+    try:
+        connector_type = resolve_target(section, target)
+    except ValueError:
+        return _global_writes_enabled(section)
+    return type_writes_enabled(section, connector_type)
+
+
+def writes_enabled_key(connector_type: str | None) -> str:
+    """The config key that decides write posture for one connector *type*.
+
+    ``control_system.connector.<type>.writes_enabled`` — the one line a facility
+    edits to arm a machine and leave the others alone — or
+    :data:`WRITES_ENABLED_KEY` for a caller holding no type at all, which is
+    where :func:`type_writes_enabled` read that posture from anyway.
+
+    A refusal names the key that answered it, and that is the whole point of
+    spelling the key in one place: an operator sent to the deployment-wide key
+    would arm every target at once, the machine they deliberately left unarmed
+    included, and a refusal naming a key some other block overrides would have
+    them flip a line that changes nothing.
+    """
+    if not connector_type:
+        return WRITES_ENABLED_KEY
+    return f"control_system.connector.{connector_type}.{TYPE_WRITES_ENABLED_LEAF}"
+
+
+def target_writes_enabled_key(section: Any, target: Any) -> str:
+    """The config key that decides write posture for one session *target*.
+
+    :func:`writes_enabled_key` for the type that target resolves to, and the
+    deployment-wide key for a target that resolves to none — the same two
+    branches :func:`target_writes_enabled` reads the posture from, so the key a
+    refusal names is always the key that answered it. Never raises.
+    """
+    try:
+        connector_type = resolve_target(section, target)
+    except ValueError:
+        return WRITES_ENABLED_KEY
+    return writes_enabled_key(connector_type)
+
+
+def session_posture(section: Any) -> dict[str, bool]:
+    """Write posture per target a *session* on this deployment can be pointed at.
+
+    Both of :data:`CONTROL_TARGETS` when the deployment renders the switch
+    (:func:`switch_capable`), each through :func:`target_writes_enabled`.
+    Without the switch a session sits on the one connector
+    ``control_system.type`` builds, so the answer is that type's own posture
+    under its :func:`baseline_target` — read by type on purpose. ``live`` is the
+    switch's derivation, and on a mock deployment that happens to carry an
+    armed ``epics`` block it would name a machine no session here ever
+    reaches; the built connector's reference monitor reads the mock's posture,
+    and a render that read the other would promise a guarantee the runtime
+    does not share.
+
+    Something that must speak about "the deployment's targets" without holding
+    one — a posture button, a permissions render, a lint — iterates this rather
+    than :data:`CONTROL_TARGETS`, because :func:`target_writes_enabled` answers
+    an unresolvable target from the deployment-wide key for a holder that *has*
+    that target, and a speculative loop over both would let that fallback arm
+    a machine the config never described.
+    """
+    if switch_capable(section):
+        return {target: target_writes_enabled(section, target) for target in CONTROL_TARGETS}
+    built = resolve_control_system_type(section)
+    return {baseline_target(section): type_writes_enabled(section, built)}
+
+
+def any_target_writes_enabled(section: Any) -> bool:
+    """Whether writes are armed for at least one target a session here can select.
+
+    The union a caller with no target of its own may take, over
+    :func:`session_posture`. A deployment that says nothing per type answers
+    its deployment-wide key here exactly as it did when that key was the only
+    posture; one whose reachable targets are all explicitly unarmed answers
+    ``False`` no matter what the deployment-wide key says.
+    """
+    return any(session_posture(section).values())
+
+
+def _global_writes_enabled(section: Any) -> bool:
+    """The deployment-wide posture, ``control_system.writes_enabled``.
+
+    Explicitly ``True`` and nothing else — the same reading the per-type leaf
+    gets, so a quoted ``'true'`` or a ``1`` arms nothing at either level.
+    """
+    return isinstance(section, dict) and section.get(TYPE_WRITES_ENABLED_LEAF) is True
 
 
 def _live_type(section: Any) -> str:

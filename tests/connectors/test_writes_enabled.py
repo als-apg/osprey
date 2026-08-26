@@ -279,3 +279,148 @@ class TestWriteBlockedIntegration:
         assert result.success is True
         assert result.channel_address == "BEAM:CURRENT"
         assert result.value_written == 500.0
+
+
+#: A deployment that arms its simulator only: writes off deployment-wide, on for
+#: the virtual accelerator, and an ``epics`` block that says nothing about writes.
+_SIMULATOR_ARMED_SECTION = {
+    "type": "epics",
+    "writes_enabled": False,
+    "connector": {
+        "virtual_accelerator": {"writes_enabled": True},
+        "epics": {"port": 5064},
+    },
+}
+
+#: The mirror image: armed deployment-wide, disarmed for ``epics`` in particular.
+_LIVE_DISARMED_SECTION = {
+    "type": "epics",
+    "writes_enabled": True,
+    "connector": {"epics": {"writes_enabled": False}},
+}
+
+
+def _config_reader(section: dict[str, Any]) -> Callable[..., Any]:
+    """A ``get_config_value`` stand-in serving one ``control_system:`` section.
+
+    Answers the two paths the posture is read through — the section itself and
+    the deployment-wide key inside it — the way dot-path lookup would.
+    """
+
+    def _get(key: str, default: Any = None) -> Any:
+        if key == "control_system":
+            return section
+        if key == "control_system.writes_enabled":
+            return section.get("writes_enabled", default)
+        return default
+
+    return _get
+
+
+class _RecordingConnector(_WritableStub):
+    """Records the type stamp visible to ``connect()``."""
+
+    def __init__(self):
+        self.type_seen_in_connect: Any = "not connected"
+
+    async def connect(self, config):
+        self.type_seen_in_connect = self._connector_type
+
+
+class TestFactoryTypeStamp:
+    """The factory stamps the connector type it built, before connect() runs."""
+
+    def test_unstamped_by_default(self):
+        """An instance nobody built through the factory carries no type."""
+        assert _StubConnector()._connector_type is None
+
+    @pytest.mark.asyncio
+    async def test_stamp_is_visible_inside_connect(self):
+        from osprey.connectors import types
+        from osprey.connectors.factory import ConnectorFactory, isolated_connector_registries
+
+        with isolated_connector_registries(clear=True):
+            ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, _RecordingConnector)
+            connector = await ConnectorFactory.create_control_system_connector(
+                {"type": types.VIRTUAL_ACCELERATOR}
+            )
+
+        assert connector.type_seen_in_connect == types.VIRTUAL_ACCELERATOR
+        assert connector._connector_type == types.VIRTUAL_ACCELERATOR
+
+
+class TestPerTypeWritePosture:
+    """``control_system.connector.<type>.writes_enabled`` decides, per type."""
+
+    def test_armed_type_writes(self):
+        connector = _StubConnector()
+        connector._connector_type = "virtual_accelerator"
+        with patch(
+            "osprey.utils.config.get_config_value",
+            side_effect=_config_reader(_SIMULATOR_ARMED_SECTION),
+        ):
+            assert connector._writes_enabled is True
+
+    def test_other_type_stays_disarmed(self):
+        """The ``epics`` block names no posture, so it inherits the global false."""
+        connector = _StubConnector()
+        connector._connector_type = "epics"
+        with patch(
+            "osprey.utils.config.get_config_value",
+            side_effect=_config_reader(_SIMULATOR_ARMED_SECTION),
+        ):
+            assert connector._writes_enabled is False
+
+    def test_type_block_overrides_armed_global(self):
+        connector = _StubConnector()
+        connector._connector_type = "epics"
+        with patch(
+            "osprey.utils.config.get_config_value",
+            side_effect=_config_reader(_LIVE_DISARMED_SECTION),
+        ):
+            assert connector._writes_enabled is False
+
+    def test_unstamped_connector_reads_the_global_key(self):
+        """No type means no block to key a posture on: the global key is the posture."""
+        connector = _StubConnector()
+        with patch(
+            "osprey.utils.config.get_config_value",
+            side_effect=_config_reader(_LIVE_DISARMED_SECTION),
+        ):
+            assert connector._writes_enabled is True
+
+    @pytest.mark.parametrize("stand_in", ["true", 1, "yes"])
+    def test_unstamped_connector_arms_only_on_a_literal_true(self, stand_in):
+        """The global key is read under the same literal-``true`` rule as a block."""
+        connector = _StubConnector()
+        section = {"type": "epics", "writes_enabled": stand_in}
+        with patch(
+            "osprey.utils.config.get_config_value",
+            side_effect=_config_reader(section),
+        ):
+            assert connector._writes_enabled is False
+
+    @pytest.mark.asyncio
+    async def test_refusal_names_the_per_type_key(self):
+        connector = _StubConnector()
+        connector._connector_type = "epics"
+        with patch(
+            "osprey.utils.config.get_config_value",
+            side_effect=_config_reader(_SIMULATOR_ARMED_SECTION),
+        ):
+            result = await connector.write_channel("TEST:PV", 1.0)
+
+        assert result.blocked is True
+        assert "control_system.connector.epics.writes_enabled" in result.error_message
+        assert "Set control_system.writes_enabled" not in result.error_message
+
+    @pytest.mark.asyncio
+    async def test_refusal_on_an_unstamped_connector_names_the_global_key(self):
+        connector = _StubConnector()
+        with patch(
+            "osprey.utils.config.get_config_value",
+            side_effect=_config_reader(_SIMULATOR_ARMED_SECTION),
+        ):
+            result = await connector.write_channel("TEST:PV", 1.0)
+
+        assert "Set control_system.writes_enabled: true" in result.error_message

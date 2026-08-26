@@ -18,6 +18,7 @@ Typical usage:
     # Apply structured key-value updates
     config_update_fields(Path("config.yml"), {
         "control_system.writes_enabled": True,
+        "control_system.connector.virtual_accelerator.writes_enabled": True,
         "approval.tools.channel_write": "always",
     })
 """

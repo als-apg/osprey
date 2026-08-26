@@ -96,6 +96,15 @@ the corresponding MCP servers outright, verified via `resolve_servers`.
 | `deployed_services` | present in **all five**, values deliberately diverge: `[]` (`channel_finder_standalone`), `[openobserve]` (`project`, `hello_world`), `[postgresql, openobserve]` (`control_assistant`, `ariel_standalone`) | presence is universal, the value is capability-scoped — the channel finder is file-backed and needs no standing service. A guard must check presence only, never value equality. |
 | `api.providers.*` explanatory paragraph (comment) | `project`, `control_assistant` headers only | the 5-line `base_url` precedence + `default_model_id` paragraph is deliberate: those two are the documentation-carrying templates. `hello_world`, `ariel_standalone` and `channel_finder_standalone` keep one-line headers by design — the minimal bundles do not document key-by-key. Comment-only, so it never affects a rendered value. |
 
+`control_system.connector.<type>.writes_enabled` is a per-connector-type
+override of the global `control_system.writes_enabled` row above, and is
+deliberately **not** parity-required. It is written commented in the templates
+that carry the matching connector block, so it is never rendered and never
+enters the union a parity guard would compare. Its semantics are tri-state:
+absent inherits the global key, literally `true` arms writes for that connector
+type, and any other value leaves them unarmed. Arming writes is a per-facility
+decision, so no template may ship it live in any of the five.
+
 ### `api.providers` membership
 
 Not a fixed set. `project`, `control_assistant` and `hello_world` ship the full
