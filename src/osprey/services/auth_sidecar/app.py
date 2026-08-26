@@ -14,13 +14,16 @@ read ``request.app.state.settings`` (or depend on :func:`get_settings`) rather
 than reaching into :data:`os.environ` themselves. The shared per-process
 objects are built here for the same reason — the session codec
 (:func:`get_session_codec`), the revocation store
-(:func:`get_revocation_store`) and the login-attempt throttle
-(:func:`get_attempt_throttle`). Each only means anything if every route touches
+(:func:`get_revocation_store`), the login-attempt throttle
+(:func:`get_attempt_throttle`) and the audit-ledger window
+(:func:`get_audit_throttle`). Each only means anything if every route touches
 the same instance: four differently-parameterised codecs (or four clocks) let
 expiries disagree, a second revocation store is a logout nothing checks, and a
-second throttle counts every attempt as the first. Anything else shared across
-routes belongs here too, on the same pattern — built once in the factory,
-reached through an accessor.
+second throttle counts every attempt as the first. The last two are the same
+class and never the same object, for the opposite reason — see
+:func:`get_audit_throttle`. Anything else shared across routes belongs here
+too, on the same pattern — built once in the factory, reached through an
+accessor.
 
 Per-user values are keyed by
 :func:`~osprey.deployment.web_terminals.personas.env_var_suffix` — the one
@@ -483,6 +486,37 @@ def get_attempt_throttle(request: Request) -> AttemptThrottle:
     return throttle
 
 
+def get_audit_throttle(request: Request) -> AttemptThrottle:
+    """The app's one *ledger* window — deliberately not the login throttle.
+
+    A refusal an unauthenticated caller can reach for free would otherwise
+    append one audit record per request, so the ones that can be are filed
+    through a window: the first refusal in each window is recorded and the rest
+    are folded into it (see
+    :func:`~osprey.services.auth_sidecar.routes.oidc._refuse_login`).
+
+    That is a *second, separate* :class:`~osprey.services.auth_sidecar.throttle.AttemptThrottle`
+    instance and not the login one, because the two are governed by opposite
+    rules. The login throttle grows only on attempts that were actually
+    evaluated — growing it on unevaluated ones is the ratchet
+    :mod:`~osprey.services.auth_sidecar.throttle` exists to make impossible,
+    since it would let anyone spamming a roster name delay that operator's real
+    login. The ledger window, by contrast, is grown by exactly those unevaluated
+    refusals, because bounding how often the file repeats itself is its whole
+    job. One object cannot obey both rules, so there are two: a window that
+    delays a login and a window that de-duplicates a record can never be
+    confused for one another.
+
+    Same class and same parameters, on purpose — the append rate an operator
+    reasons about is then the familiar one — but never the same instance.
+
+    Raises:
+        RuntimeError: See :func:`_require_wired`.
+    """
+    throttle: AttemptThrottle = _require_wired(request, "audit_throttle", "audit throttle")
+    return throttle
+
+
 WEBSOCKET_REFUSAL_CODE = 1011
 """Close code for a websocket refused by the guard (RFC 6455 "internal error").
 
@@ -637,6 +671,12 @@ def create_app(env: Mapping[str, str] | None = None) -> FastAPI:
     # window early) — deliberately not the codec's.
     app.state.revocation_store = RevocationStore() if servable else None
     app.state.attempt_throttle = AttemptThrottle() if servable else None
+    # A THIRD window, and never the login one: this is the bound on how often
+    # the audit ledger repeats itself, grown by refusals that were never
+    # evaluated. `throttle.py` forbids growing the login window that way — it
+    # would let an unauthenticated caller delay a named operator's real login —
+    # so the two uses get their own instances. See `get_audit_throttle`.
+    app.state.audit_throttle = AttemptThrottle() if servable else None
 
     @app.get(HEALTH_PATH)
     async def health() -> dict[str, Any]:

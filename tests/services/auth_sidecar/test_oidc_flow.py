@@ -475,17 +475,19 @@ def test_an_expired_token_is_refused(idp: MockIdP, caplog: pytest.LogCaptureFixt
     assert "did not validate" in _osprey_log(caplog)
 
 
-def test_a_token_response_without_an_id_token_asserts_no_identity(idp: MockIdP) -> None:
+def test_a_token_response_without_an_id_token_is_refused(idp: MockIdP) -> None:
     """An OAuth2 provider where an OIDC one was configured.
 
-    Authlib parses no ID token, so the token carries no ``userinfo`` and there is
-    no identity to compare — a refusal, never a login on the access token alone.
+    Authlib parses no ID token, so nothing in the token response has been
+    validated and there is no identity to compare. The callback refuses on the
+    absent ID token itself — a provider fault of the same class as one that
+    fails validation, and never a login on the access token alone.
     """
     idp.omit_id_token = True
     with _browser(_sidecar(idp)) as client:
         response = _log_in(client, "alice")
 
-    assert response.status_code == 403
+    assert response.status_code == 502
     assert SESSION_COOKIE_NAME not in response.cookies
 
 
@@ -571,20 +573,26 @@ def test_a_user_with_no_mapped_identity_never_reaches_the_provider(idp: MockIdP)
     assert idp.authorize_requests == []
 
 
-def test_a_non_ascii_identity_can_log_in(idp: MockIdP) -> None:
-    """An operator whose mapped identity carries a diacritic is not locked out.
+def test_a_non_ascii_identity_is_refused_over_the_wire(idp: MockIdP) -> None:
+    """An identity the boundary cannot carry is refused, not half-forwarded.
 
-    Compared as ``str``, ``secrets.compare_digest`` raises ``TypeError`` on
-    exactly this input — turning the comparison that was about to succeed into a
-    500, permanently, for that one operator. This is the regression test.
+    A mapped identity travels onward to the terminal as an
+    ``X-Osprey-Auth-Subject`` header, which is latin-1 on the wire and ASCII by
+    Osprey's stricter rule — which an OIDC ``sub`` already satisfies by
+    specification. This deployment mapped a claim spelling that does not, so the
+    handshake completes against the IdP and the login is then refused with a
+    category pointing at the configuration. The refusal is a clean 403 rather
+    than the ``TypeError`` a ``str`` comparison would raise on this input, which
+    is why :func:`~osprey.services.auth_sidecar.routes.oidc._same_value`
+    compares UTF-8 bytes.
     """
     idp.subject = "jörg@example.org"
     app = _sidecar(idp, OSPREY_AUTH_OIDC_SUBJECT_ALICE="jörg@example.org")
     with _browser(app) as client:
         response = _log_in(client, "alice")
 
-    assert response.status_code == 303
-    assert _session_from(response).unlocked_usernames(now=0.0) == ("alice",)
+    assert response.status_code == 403
+    assert SESSION_COOKIE_NAME not in response.cookies
 
 
 def test_a_configured_claim_other_than_sub_is_honoured(idp: MockIdP) -> None:

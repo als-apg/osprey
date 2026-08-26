@@ -87,7 +87,15 @@ class FakeOIDCClient:
         state: str = FLOW_STATE,
     ) -> None:
         self.state = state
-        self.token = token if token is not None else {"userinfo": userinfo or {}}
+        # The default carries an `id_token` because the real client only fills
+        # `userinfo` when the token response had one, and the callback now
+        # requires it. An explicit `token=` is passed through untouched, which
+        # is how a test probes a token response of its own shape.
+        self.token = (
+            token
+            if token is not None
+            else {"id_token": "header.payload.signature", "userinfo": userinfo or {}}
+        )
         self.authorize_error = authorize_error
         self.callback_error = callback_error
         self.redirect_uri: str | None = None
@@ -566,12 +574,17 @@ def test_callback_ignores_a_user_query_parameter() -> None:
     assert SESSION_COOKIE_NAME not in response.cookies
 
 
-def test_callback_compares_a_non_ascii_identity_without_raising() -> None:
-    """A mapped identity carrying a diacritic must be able to log in.
+def test_callback_refuses_a_mapped_identity_that_cannot_be_carried() -> None:
+    """A mapped identity carrying a diacritic fails the login *closed*.
 
-    Compared as ``str``, ``secrets.compare_digest`` raises on exactly this
-    input, which would turn a login that should succeed into a 500 and lock the
-    operator out permanently.
+    The identity has to reach the terminal as an ``X-Osprey-Auth-Subject``
+    header, which is latin-1 on the wire; Osprey requires the stricter ASCII an
+    OIDC ``sub`` has by specification. Authorising this login would forward a
+    mangled identity or silently no identity at all, so it is refused — with its
+    own category, because the fault is in the deployment's claim mapping rather
+    than in the operator or the IdP. See
+    ``tests/services/auth_sidecar/test_role_payload.py`` for the audited
+    category and the ordering against the token exchange.
     """
     env = {**OIDC_ENV, "OSPREY_AUTH_OIDC_SUBJECT_ALICE": "jörg@example.org"}
     app = _app(env, FakeOIDCClient(userinfo={"sub": "jörg@example.org"}))
@@ -581,14 +594,20 @@ def test_callback_compares_a_non_ascii_identity_without_raising() -> None:
             CALLBACK_PATH, params={"code": "auth-code", "state": FLOW_STATE}, follow_redirects=False
         )
 
-    assert response.status_code == 303
-    assert _session_from(response).unlocked_usernames(now=0.0) == ("alice",)
+    assert response.status_code == 403
+    assert SESSION_COOKIE_NAME not in response.cookies
 
 
-def test_callback_refuses_a_differing_non_ascii_identity() -> None:
-    """The same comparison still denies when the values differ."""
-    env = {**OIDC_ENV, "OSPREY_AUTH_OIDC_SUBJECT_ALICE": "jörg@example.org"}
-    app = _app(env, FakeOIDCClient(userinfo={"sub": "jorg@example.org"}))
+def test_callback_compares_a_non_ascii_assertion_without_raising() -> None:
+    """A non-ASCII value on the *asserted* side still refuses rather than 500s.
+
+    The mapped identity is ordinary ASCII here, so the uncarryable-identity
+    guard does not fire and the comparison itself runs. Compared as ``str``,
+    ``secrets.compare_digest`` raises ``TypeError`` on exactly this input — and
+    the asserted claim is IdP-supplied, so that would be an unhandled 500 on
+    unauthenticated input rather than a refusal.
+    """
+    app = _app(client=FakeOIDCClient(userinfo={"sub": "jörg@example.org"}))
     with _client(app) as client:
         client.cookies.set(STATE_COOKIE_NAME, _pending("alice"))
         response = client.get(
@@ -637,8 +656,31 @@ def test_callback_refuses_a_non_string_claim() -> None:
     assert response.status_code == 403
 
 
-def test_callback_refuses_a_token_with_no_userinfo() -> None:
+def test_callback_refuses_a_token_with_no_id_token() -> None:
+    """An OAuth2 provider where an OIDC one was configured.
+
+    Authlib parses no ID token, so nothing it put in the token can be trusted as
+    claims — the same class of fault as an ID token that fails validation, and
+    refused the same way rather than continuing on the access token alone.
+    """
     app = _app(client=FakeOIDCClient(token={"access_token": "opaque"}))
+    with _client(app) as client:
+        client.cookies.set(STATE_COOKIE_NAME, _pending("alice"))
+        response = client.get(
+            CALLBACK_PATH, params={"code": "auth-code", "state": FLOW_STATE}, follow_redirects=False
+        )
+
+    assert response.status_code == 502
+
+
+def test_callback_refuses_a_validated_token_with_no_userinfo() -> None:
+    """The ID token was parsed but carried no identity claim: a refusal on the
+    identity itself, which is a 403 and not a provider fault."""
+    app = _app(
+        client=FakeOIDCClient(
+            token={"access_token": "opaque", "id_token": "header.payload.signature"}
+        )
+    )
     with _client(app) as client:
         client.cookies.set(STATE_COOKIE_NAME, _pending("alice"))
         response = client.get(
