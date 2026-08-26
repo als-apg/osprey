@@ -607,7 +607,12 @@ def up_verb(
         except (click.Abort, click.ClickException):
             raise
         except Exception as e:
-            _abort("Deployment failed", str(e))
+            # Some deploy failures carry a cause OSPREY can name and the raw
+            # text cannot -- a registry 401 for a password never sent. Local
+            # import to keep this module's import cost off every CLI start.
+            from osprey.deployment.subprocess_capture import diagnose_captured_failure
+
+            _abort("Deployment failed", str(e), diagnose_captured_failure(e))
         finally:
             os.chdir(previous)
 

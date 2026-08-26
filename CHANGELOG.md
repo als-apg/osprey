@@ -13,6 +13,16 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- A deploy on podman served by Docker Compose v2 now says so. On that provider
+  pairing, image builds that must fetch a base image reach the registry with an
+  empty credential and are refused with a 401 naming a password that was never
+  sent — after the build has already run for minutes. `osprey up` now warns
+  which provider is in use before building, and both `osprey up` and
+  `osprey build` translate the registry refusal into the two things that
+  resolve it: pin podman-compose in `containers.conf`, or deploy on docker.
+  `podman login` does not help, because the credential does not come from
+  podman's auth file.
+
 - The build-drift gate no longer counts material `osprey up` mints itself: the
   per-lane Bluesky CURVE certificates now live under `data/.runtime/`, a
   reserved runtime-output subpath the fingerprint never hashes and the build
@@ -66,6 +76,12 @@ Compatibility is documented in release notes, not encoded in the version string.
   Lattice Analysis have gallery icons of their own, and an artifact's description
   now reads as words ("Channel Addresses — channel-finder") rather than the
   internal key.
+- CI: pushing to a pull-request branch now cancels that branch's previous run
+  instead of leaving it queued. Pull requests run three unit-test cells rather
+  than four — Python 3.11 and 3.12 on Ubuntu, and 3.12 on macOS; the full
+  product still runs on `main`, on the nightly schedule and on manual dispatch.
+  The lean connectors wheel and the Tier 0 config-key guard now run as steps of
+  the package and lint jobs.
 
 ### Added
 
