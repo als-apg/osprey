@@ -22,5 +22,6 @@
 {
   "server_prefixes": {{ server_pfx | tojson }},
   "approval_prefixes": {{ approval_pfx | tojson }},
-  "write_tools": {{ write_tools | tojson }}
+  "write_tools": {{ write_tools | tojson }},
+  "lane_addressed_tools": {{ lane_addressed_tools | default([], true) | tojson }}
 }

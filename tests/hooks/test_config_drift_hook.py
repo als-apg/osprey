@@ -75,14 +75,21 @@ def _make_project(project_dir, *, writes_enabled: bool | None, channel_write: st
     ``writes_enabled=None`` omits the key entirely; ``channel_write=NO_PERMISSIONS``
     renders a settings.json with no ``permissions`` block at all.
     """
+    lines = ["control_system:", "  type: mock"]
+    if writes_enabled is not None:
+        lines.append(f"  writes_enabled: {'true' if writes_enabled else 'false'}")
+    return _make_project_from_text(
+        project_dir, "\n".join(lines) + "\n", channel_write=channel_write
+    )
+
+
+def _make_project_from_text(project_dir, config_text: str, *, channel_write: str):
+    """Same, for a config.yml whose exact text matters (shapes a bool cannot express)."""
     (project_dir / ".claude").mkdir(parents=True, exist_ok=True)
     config_path = project_dir / "config.yml"
     settings_path = project_dir / ".claude" / "settings.json"
 
-    lines = ["control_system:", "  type: mock"]
-    if writes_enabled is not None:
-        lines.append(f"  writes_enabled: {'true' if writes_enabled else 'false'}")
-    config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    config_path.write_text(config_text, encoding="utf-8")
 
     if channel_write == NO_PERMISSIONS:
         settings = {"hooks": {}}
@@ -93,6 +100,28 @@ def _make_project(project_dir, *, writes_enabled: bool | None, channel_write: st
         settings = {"permissions": {"deny": deny}}
     settings_path.write_text(json.dumps(settings, indent=2), encoding="utf-8")
     return config_path, settings_path
+
+
+# A deployment-wide posture plus a per-connector-type override: two line-anchored
+# `writes_enabled:` keys, both legitimate.
+MIXED_POSTURE_CONFIG = """\
+control_system:
+  type: mock
+  writes_enabled: false
+  connector:
+    virtual_accelerator:
+      writes_enabled: true
+"""
+
+# The second key carries no value at all — still a second key.
+BARE_SECOND_KEY_CONFIG = """\
+control_system:
+  type: mock
+  writes_enabled: true
+  connector:
+    virtual_accelerator:
+      writes_enabled:
+"""
 
 
 def _set_mtimes(config_path, settings_path, *, config_newer: bool):
@@ -273,6 +302,42 @@ def test_drift_matrix(tmp_path, run_drift, writes_enabled, channel_write, expect
     else:
         assert expected_fragment in err
         assert expected_fragment in json.loads(out)["hookSpecificOutput"]["additionalContext"]
+
+
+@pytest.mark.parametrize("channel_write", [DENIED, ALLOWED], ids=["denied", "allowed"])
+def test_silent_when_config_carries_more_than_one_writes_enabled(
+    tmp_path, run_drift, channel_write
+):
+    # Per-connector-type posture blocks repeat the key legitimately. The hook does
+    # not know which target the session runs against, so it must say nothing about
+    # writes in *either* deny state rather than warn off the first line it finds.
+    config_path, settings_path = _make_project_from_text(
+        tmp_path, MIXED_POSTURE_CONFIG, channel_write=channel_write
+    )
+    # Settings newer than config, so any output here is the writes check, not mtime.
+    _set_mtimes(config_path, settings_path, config_newer=False)
+
+    code, out, err = run_drift(tmp_path)
+
+    assert code == 0
+    assert err.strip() == ""
+    assert out.strip() == ""
+
+
+def test_silent_when_the_second_writes_enabled_has_no_value(tmp_path, run_drift):
+    # Counting is value-blind: a bare block key is a second key even though it
+    # parses as no boolean. Without that, this config would read as a lone
+    # `true` against a denying settings.json and warn.
+    config_path, settings_path = _make_project_from_text(
+        tmp_path, BARE_SECOND_KEY_CONFIG, channel_write=DENIED
+    )
+    _set_mtimes(config_path, settings_path, config_newer=False)
+
+    code, out, err = run_drift(tmp_path)
+
+    assert code == 0
+    assert err.strip() == ""
+    assert out.strip() == ""
 
 
 def test_warns_on_writes_mismatch(tmp_path, run_drift):
