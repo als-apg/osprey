@@ -284,11 +284,10 @@ Working with a Bundle
       on a clean bundle, 1 if any file fails.
 
       **seed-from-ttl** — seeds one OKF stub document per device node in a
-      NARAD/als-ontology Turtle file.  Requires the ``knowledge`` extra:
+      NARAD/als-ontology Turtle file:
 
       .. code-block:: console
 
-         $ pip install "osprey-framework[knowledge]"
          $ osprey knowledge seed-from-ttl devices.ttl data/facility_knowledge
 
       Idempotency rules applied per stub:
@@ -351,6 +350,7 @@ Working with a Bundle
 
       .. code-block:: console
 
+         $ pip install "osprey-framework[knowledge]"
          $ osprey knowledge compile-ontology demo_ontology.yaml demo_ontology.json
 
       The output is deterministic, so a committed table can be reviewed like any

@@ -762,9 +762,8 @@ failures in one pass (collect-all, never aborts on the first error):</p>
 are checked for frontmatter compliance (OKF §6/§11).  The command exits 0
 on a clean bundle, 1 if any file fails.</p>
 <p><strong>seed-from-ttl</strong> — seeds one OKF stub document per device node in a
-NARAD/als-ontology Turtle file.  Requires the <code class="docutils literal notranslate"><span class="pre">knowledge</span></code> extra:</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;osprey-framework[knowledge]&quot;</span>
-<span class="gp">$ </span>osprey<span class="w"> </span>knowledge<span class="w"> </span>seed-from-ttl<span class="w"> </span>devices.ttl<span class="w"> </span>data/facility_knowledge
+NARAD/als-ontology Turtle file:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>osprey<span class="w"> </span>knowledge<span class="w"> </span>seed-from-ttl<span class="w"> </span>devices.ttl<span class="w"> </span>data/facility_knowledge
 </pre></div>
 </div>
 <p>Idempotency rules applied per stub:</p>
@@ -816,7 +815,8 @@ the OSPREY source tree.</p>
 <p><strong>compile-ontology</strong> — turns the LinkML schema where a facility authors its
 device vocabulary into the ontology table <code class="docutils literal notranslate"><span class="pre">build-ttl</span></code> reads. Requires the
 <code class="docutils literal notranslate"><span class="pre">knowledge</span></code> extra:</p>
-<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>osprey<span class="w"> </span>knowledge<span class="w"> </span>compile-ontology<span class="w"> </span>demo_ontology.yaml<span class="w"> </span>demo_ontology.json
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;osprey-framework[knowledge]&quot;</span>
+<span class="gp">$ </span>osprey<span class="w"> </span>knowledge<span class="w"> </span>compile-ontology<span class="w"> </span>demo_ontology.yaml<span class="w"> </span>demo_ontology.json
 </pre></div>
 </div>
 <p>The output is deterministic, so a committed table can be reviewed like any

@@ -79,11 +79,12 @@ when those run dry. Arrow keys move through the list, **Enter** takes the
 highlighted name, **Escape** dismisses it. The suggestions only suggest — a
 name typed in full is accepted whether or not it appears in the list.
 
-The names come from the project's Channel Finder catalog: ``osprey build``
-writes a snapshot of it next to the generated config, and the panel reads
-that snapshot — no control-system traffic, and nothing to keep in sync at run
-time. A project with no channel database configured shows no suggestions and
-is otherwise unchanged.
+The names come from the project's Channel Finder catalog — the channel
+database, or in graph mode the Turtle corpus named by
+``services.graphdb.ttl_path``: ``osprey build`` writes a snapshot of it next
+to the generated config, and the panel reads that snapshot — no
+control-system traffic, and nothing to keep in sync at run time. A project
+that configures neither shows no suggestions and is otherwise unchanged.
 
 The feature is on by default, tuned under ``web.channel_suggestions`` in
 ``config.yml``:
@@ -96,18 +97,19 @@ The feature is on by default, tuned under ``web.channel_suggestions`` in
        max_channels: 50000   # the default
 
 ``max_channels`` guards the browser, not the build: every panel load fetches
-the whole snapshot, so a database holding more channels than the limit is
+the whole snapshot, so a catalog holding more channels than the limit is
 skipped instead of shipped — the build log names the limit it hit, and the
 form falls back to plain fields. Raise the limit to cover a larger facility,
 or set ``enabled: false`` to turn the feature off and write no snapshot at
 all. A build profile overrides these keys from its ``config:`` block in the
 dotted form, e.g. ``web.channel_suggestions.max_channels: 200000``.
 
-One staleness rule to know: editing a channel database inside the profile's
-``data/`` tree changes the build fingerprint, so ``osprey up`` refuses until
-you rebuild — the snapshot cannot silently go stale on that path. A database
-referenced from *outside* the profile tree is not fingerprinted; its snapshot
-refreshes only on the next explicit ``osprey build``.
+One staleness rule to know: editing a channel database or Turtle corpus
+inside the profile's ``data/`` tree changes the build fingerprint, so
+``osprey up`` refuses until you rebuild — the snapshot cannot silently go
+stale on that path. A database or corpus referenced from *outside* the
+profile tree is not fingerprinted; its snapshot refreshes only on the next
+explicit ``osprey build``.
 
 Adding your own panel
 ---------------------

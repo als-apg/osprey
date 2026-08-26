@@ -757,9 +757,10 @@ osprey<span class="w"> </span>channel-finder<span class="w"> </span>web<span cla
 <p>The explorer browses a channel database, so on the graph pipeline it shows a
 short pane saying so instead of a tree; database statistics and validation are
 not offered there. Ask the OSPREY agent for the channels you need — it answers
-from the graph. The channel-suggestion typeahead in the web panels is off in
-graph mode for the same reason: it is built from a database file on the build
-host, and there is none.</p>
+from the graph. The channel-suggestion typeahead in the web panels still
+works in graph mode: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> reads the channel names out of the
+Turtle corpus named by <code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code> and writes them into the
+snapshot the panels use.</p>
 <p>The <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> keys for every pipeline, and how the active one is served to
 the agent, are in <a class="reference internal" href="../reference/contracts/channel-finder.html"><span class="doc">Channel Finder Contracts</span></a>.</p>
 </section>
