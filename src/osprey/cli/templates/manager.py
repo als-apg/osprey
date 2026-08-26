@@ -496,12 +496,21 @@ class TemplateManager:
         claude_code.apply_textbooks_root(ctx, project_dir)
 
         # Resolve servers and agents via the data-driven registry.
-        from osprey.registry.mcp import resolve_agents, resolve_servers
+        from osprey.registry.mcp import mixed_read_write_tools, resolve_agents, resolve_servers
 
         ctx["servers"] = resolve_servers(cc_cfg, ctx)
         ctx["agents"] = resolve_agents(cc_cfg, ctx, project_dir, ctx["servers"])
         ctx["enabled_servers"] = {s["name"] for s in ctx["servers"] if s["enabled"]}
         ctx["enabled_agents"] = {a["name"] for a in ctx["agents"] if a["enabled"]}
+        # The render's read/write-MIXED tools, exactly as build_claude_code_context
+        # computes them for the regen path. Both paths render hook_config.json, and
+        # only the regen path runs that function: without this line a freshly BUILT
+        # project shipped an empty mixed list beside a populated write-tool list,
+        # while a rebuild of the same config shipped the real one. The consequence
+        # is fail-closed (the middleware clamps python execute as if pure-write),
+        # which is why nothing surfaced it — the Jinja environment is not strict, so
+        # the difference is one safety file quietly saying "nothing is exempt".
+        ctx["mixed_read_write_tools"] = mixed_read_write_tools(ctx["servers"])
 
         # Resolve allowed outputs from THIS render's effective artifact selection —
         # `artifacts` above, already the caller's own selection where it supplied

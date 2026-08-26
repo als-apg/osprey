@@ -643,6 +643,8 @@ def test_hook_config_with_no_enabled_servers(tmp_path):
         "server_prefixes": [],
         "approval_prefixes": [],
         "write_tools": [],
+        "write_servers": [],
+        "mixed_read_write_tools": [],
     }, f"all-disabled build should render empty lists; got {hook_cfg}"
 
 

@@ -1,6 +1,22 @@
+{#-
+  Runtime contract for the write-gating layers: the osprey_writes_check.py
+  PreToolUse hook and the MCP audit middleware both read this file as data.
+  Every key is emitted UNCONDITIONALLY — never under the writes-off
+  kill-switch condition — because both consumers run under a readonly session
+  posture too, where that condition never applied.
+
+  `mcp__<name>__.*` is what the registry gives a facility-custom server that
+  opts into writes_check: its tool names are unknown at render time. That
+  matcher lands in `write_tools` like any other (it is also what
+  read_only_disallowed_tools is built from), but the hook's exact-name
+  membership test can never match a real call against it — so the server is
+  named in `write_servers` as well, and the hook covers it by prefix.
+-#}
+{%- set _REGEX_META = ['.', '*', '+', '?', '[', ']', '(', ')', '|', '^', '$', '{', '}', '\\'] -%}
 {%- set server_pfx = [] -%}
 {%- set approval_pfx = [] -%}
 {%- set write_tools = [] -%}
+{%- set write_servers = [] -%}
 {%- for s in servers if s.enabled -%}
   {%- set _ = server_pfx.append("mcp__" ~ s.name ~ "__") -%}
   {%- for rule in s.hooks_pre -%}
@@ -10,6 +26,13 @@
       {%- endif -%}
       {%- if 'osprey_writes_check.py' in hook.command -%}
         {%- set _ = write_tools.append(rule.matcher) -%}
+        {#- Same walk as write_tools, deliberately: a server earns server-level
+            coverage from the write-gated rule itself, not from carrying a
+            regex somewhere (a read-only custom server gets the same matcher
+            shape, and listing it would refuse its reads). -#}
+        {%- if (_REGEX_META | select('in', rule.matcher) | list) and s.name not in write_servers -%}
+          {%- set _ = write_servers.append(s.name) -%}
+        {%- endif -%}
       {%- endif -%}
     {%- endfor -%}
   {%- endfor -%}
@@ -22,5 +45,7 @@
 {
   "server_prefixes": {{ server_pfx | tojson }},
   "approval_prefixes": {{ approval_pfx | tojson }},
-  "write_tools": {{ write_tools | tojson }}
+  "write_tools": {{ write_tools | tojson }},
+  "write_servers": {{ write_servers | tojson }},
+  "mixed_read_write_tools": {{ mixed_read_write_tools | default([], true) | tojson }}
 }

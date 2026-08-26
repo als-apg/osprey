@@ -26,15 +26,6 @@ from osprey.utils.facility import resolve_facility_name
 
 logger = logging.getLogger("osprey.cli.templates")
 
-# python's execute is the one documented read/write-mixed exception to the
-# kill-switch's hard-deny default (see the docstring in
-# build_claude_code_context below): it accepts both read-only and write-access
-# kernels, so the kill switch pulls it OUT of `ask` instead of hard-denying it
-# outright. Every other _WRITES_CHECK-gated tool is presumed pure-write and
-# must be denied. Module-level so tests can assert against the same set the
-# renderer actually uses instead of re-declaring it.
-_MIXED_READ_WRITE_TEMPLATES = {"python"}
-
 #: Tools OSPREY denies outright in every generated ``.claude/settings.json``.
 #:
 #: This is the interactive permission layer's hard floor: entries land in
@@ -349,6 +340,16 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # create_project path never runs that block, so the empty default is
         # what it renders (and must render: writes state is not settled there).
         "killswitch_deny": [],
+        # The render's read/write-MIXED tools, fully qualified — the writes
+        # kill switch's documented exception (mcp__python__execute and any
+        # extends clone of it), which a readonly posture keeps reachable
+        # instead of denying outright. Deriving it needs resolved servers, so
+        # the real list is written by build_claude_code_context below; this
+        # empty default only guarantees the key is never absent. That matters
+        # more than it looks: the Jinja environment is not strict, and an
+        # absent key renders as nothing at all — the same way hook_config.json
+        # once shipped with an empty write-tool list and no error to say so.
+        "mixed_read_write_tools": [],
     }
 
 
@@ -528,13 +529,24 @@ def build_claude_code_context(
     claude_code_config = config.get("claude_code", {})
     ctx["facility_permissions"] = claude_code_config.get("permissions", {})
 
-    from osprey.registry.mcp import resolve_agents, resolve_servers
+    from osprey.registry.mcp import mixed_read_write_tools, resolve_agents, resolve_servers
 
     ctx["servers"] = resolve_servers(claude_code_config, ctx)
     ctx["agents"] = resolve_agents(claude_code_config, ctx, project_dir, ctx["servers"])
 
     ctx["enabled_servers"] = {s["name"] for s in ctx["servers"] if s["enabled"]}
     ctx["enabled_agents"] = {a["name"] for a in ctx["agents"] if a["enabled"]}
+
+    # Read/write-mixed tools of THIS render, fully qualified, computed here
+    # rather than in a template: this is the first point where both halves are
+    # known — which mixed servers the project enables, and what an `extends`
+    # clone's tools are called after the registry rewrote their prefixes.
+    # Consumers (hook_config.json, and through it the MCP audit middleware's
+    # clamp set) render the finished list and classify nothing themselves.
+    # Written unconditionally, NOT inside the writes-off block below: the
+    # classification is a property of the tool, not of the current posture,
+    # and its consumers are read at run time under either one.
+    ctx["mixed_read_write_tools"] = mixed_read_write_tools(ctx["servers"])
 
     # Build-time index of the Bluesky plan catalog, for the bundled plans skill.
     #
@@ -607,10 +619,17 @@ def build_claude_code_context(
     # queue's arming tools automatically, plus any future write server with no code
     # change here). python's execute is the one documented exception — it
     # accepts both read_only and write_access kernels, so it is pulled into
-    # remove_ask instead (see docstring above); every other writes-check-gated
-    # tool is presumed pure-write and denied outright.
+    # remove_ask instead; every other writes-check-gated tool is presumed
+    # pure-write and denied outright. WHICH templates are read/write-mixed is
+    # the registry's call (MIXED_READ_WRITE_TEMPLATES), not this renderer's:
+    # the rendered hook config and the MCP audit middleware classify off that
+    # same entry, and a second spelling here is how the three would drift.
     if not config.get("control_system", {}).get("writes_enabled", False):
-        from osprey.registry.mcp import _WRITES_CHECK, FRAMEWORK_SERVERS
+        from osprey.registry.mcp import (
+            _WRITES_CHECK,
+            FRAMEWORK_SERVERS,
+            MIXED_READ_WRITE_TEMPLATES,
+        )
 
         facility_perms = dict(ctx["facility_permissions"])
         # Kill-switch denies land in their OWN context key, never in
@@ -667,7 +686,7 @@ def build_claude_code_context(
                 matcher = rule.matcher
                 if matcher.startswith(old_prefix):
                     matcher = new_prefix + matcher[len(old_prefix) :]
-                if template in _MIXED_READ_WRITE_TEMPLATES:
+                if template in MIXED_READ_WRITE_TEMPLATES:
                     if matcher not in remove_ask:
                         remove_ask.append(matcher)
                 elif matcher not in killswitch_deny and matcher not in already_denied:

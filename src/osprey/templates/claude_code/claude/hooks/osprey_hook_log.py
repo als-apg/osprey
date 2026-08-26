@@ -276,3 +276,302 @@ def log_hook(hook_name, hook_input, status="ok", detail=""):
                 f.write(json.dumps(record) + "\n")
         except Exception:
             pass  # never break a hook for logging
+
+
+# ---------------------------------------------------------------------------
+# Audit emission — the hook half of the unified ledger
+# ---------------------------------------------------------------------------
+#
+# `log_hook` above is a DEBUG facility: it is off unless someone turned it on,
+# it files under the render (`build/.claude/hooks/hook_debug.jsonl`, wiped by
+# the next `osprey build`), and it records allows and denies alike. None of
+# that is an audit trail. `emit_audit` below is the sibling that is one: always
+# on, anchored on the REPO through `get_repo_root`, and emitted only where the
+# hook layer actually decides something — a deny or an ask.
+#
+# It writes the same record `osprey.audit.writer` writes, into the same
+# `var/audit/<identity>/<surface>.jsonl` layout, and it may not import a line
+# of it: a hook is a fresh process launched by whatever `python3` is on PATH,
+# with no `osprey` importable and no third-party package guaranteed. So the
+# minimal subset is restated here in the standard library, and
+# `tests/hooks/test_hook_audit_emitter.py` pins every constant below against
+# `osprey.audit.envelope`, `osprey.audit.writer` and `osprey.audit.posture` so
+# the two cannot drift into two formats sharing one directory.
+#
+# Nothing here may cost a decision. Hooks fail OPEN — an uncaught exception
+# exits non-zero with no JSON and the tool proceeds — so `emit_audit` swallows
+# everything and answers `None`, and every call site puts it BEFORE the
+# `sys.exit(0)` that carries the decision, never after.
+
+#: The durable audit zone, relative to the repo root. Mirrors
+#: ``osprey_connectors.workspace.AUDIT_DIR_RELPATH``; the hook cannot import it.
+AUDIT_DIR_RELPATH = "var/audit"
+
+#: Every hook surface starts with this. The MCP middleware records under the
+#: server's own name and the HTTP layer under its route family, so the prefix
+#: is what keeps the hook subprocess's ledger disjoint from theirs without any
+#: cross-process coordination — which is the reason the hook needs no dedup
+#: marker: nothing else writes these files.
+AUDIT_SURFACE_PREFIX = "hook_"
+
+#: The identity ladder, mirroring ``osprey.utils.identity``: the multi-user
+#: deployment's per-container user, then the identity of a container that hosts
+#: no single user, then the local account, then an honest floor. Never the
+#: hostname — see that module for why.
+TERMINAL_USER_ENV = "OSPREY_TERMINAL_USER"
+AUDIT_IDENTITY_ENV = "OSPREY_AUDIT_IDENTITY"
+IDENTITY_ENV_LADDER = (TERMINAL_USER_ENV, AUDIT_IDENTITY_ENV)
+UNKNOWN_IDENTITY = "unknown"
+
+#: The spawn-time posture markers a session child inherits. Absent means this
+#: process was not launched by a posture-carrying spawn site at all.
+POSTURE_SOURCE_ENV = "OSPREY_POSTURE_SOURCE"
+POSTURE_SESSION_ENV = "OSPREY_POSTURE_SESSION"
+
+#: The closed set of provenances a record may claim for its posture, and the
+#: one a child-side emitter uses when the marker is absent, blank or
+#: unrecognised. `process` is the honest "we were not told" answer — a dispatch
+#: worker, a CLI run, a container-level execution mode — and deriving anything
+#: else from the posture VALUE would turn that into a confident guess.
+POSTURE_SOURCE_PROCESS = "process"
+AUDIT_POSTURE_SOURCES = ("spawn", "live", "app", POSTURE_SOURCE_PROCESS)
+
+#: The session posture, as the rest of OSPREY spells it. A hook sees it only
+#: through the execution mode it inherits, and only the exact ``readonly``
+#: string sandboxes a session — the same value comparison the posture deny
+#: itself makes, so the record and the decision read one variable one way.
+EXECUTION_MODE_ENV = "OSPREY_EXECUTION_MODE"
+READONLY_MODE = "readonly"
+POSTURE_SANDBOX = "sandbox"
+POSTURE_WRITES = "writes"
+
+#: Decision words. ``refused`` is the envelope's own spelling; ``ask`` is the
+#: third word this surface needs and the envelope deliberately does not enforce
+#: its two — an approval prompt is neither allowed nor refused by the hook, and
+#: recording it as either would be a false statement about what happened.
+AUDIT_DECISION_REFUSED = "refused"
+AUDIT_DECISION_ASK = "ask"
+
+#: Record fields that are always present, in envelope order after ``ts``.
+AUDIT_REQUIRED_FIELDS = (
+    "surface",
+    "actor",
+    "posture",
+    "posture_source",
+    "session",
+    "subject",
+    "decision",
+    "reason",
+)
+
+#: Bounds, matching the envelope's. Identifier-shaped fields are generous
+#: enough for any real name and bounded so a caller-supplied one cannot inflate
+#: the ledger; ``detail`` gets the larger free-form bound.
+AUDIT_MAX_FIELD_CHARS = 256
+AUDIT_MAX_DETAIL_CHARS = 1024
+
+#: The size one append stays inside, restated from ``osprey.audit.writer``.
+#: POSIX makes an ``O_APPEND`` write atomic with respect to other appenders at
+#: this scale, and hooks share the ``var/audit/<identity>/`` directory with the
+#: MCP middleware and the HTTP layers — so a hook record that ignored the bound
+#: would be the one line another emitter could land inside of. The per-field
+#: bounds above do NOT imply it: six 256-character identifiers plus a
+#: 1024-character ``detail`` encode to roughly 2.4 KB.
+AUDIT_MAX_RECORD_BYTES = 2048
+
+#: What an oversize ``detail`` is replaced by, restated from the writer. A
+#: fixed marker rather than a truncation: a record that says its context was
+#: dropped is honest, while a silently shortened one reads like the whole
+#: context. ``detail`` is the field that gives way because it is the only
+#: supplementary one — trimming identifiers would leave a record that names the
+#: wrong thing, so an identifier-only record over budget is written whole.
+AUDIT_DETAIL_DROPPED = "<dropped: record over the append bound>"
+
+#: Modes the writer uses, restated. Owner writes and group reads the ledger;
+#: the per-identity directory is setgid group-writable so the deploy-path
+#: provisioning and this fallback agree.
+AUDIT_FILE_MODE = 0o640
+AUDIT_DIR_MODE = 0o2770
+
+#: Append-only by construction: the descriptor cannot seek backwards.
+_AUDIT_OPEN_FLAGS = os.O_WRONLY | os.O_APPEND | os.O_CREAT
+
+# What disqualifies a string from being one path component.
+_AUDIT_UNSAFE = ("/", "\\", "\0")
+_AUDIT_RESERVED = (".", "..")
+
+
+def _audit_component(value):
+    """Return *value* stripped if it can serve as one path component, else ``""``."""
+    if not isinstance(value, str):
+        return ""
+    candidate = value.strip()
+    if not candidate or candidate in _AUDIT_RESERVED:
+        return ""
+    if any(bad in candidate for bad in _AUDIT_UNSAFE):
+        return ""
+    return candidate
+
+
+def acting_identity():
+    """Who a record names — the ladder of ``osprey.utils.identity``, restated.
+
+    The answer is used twice, as the record's ``actor`` and as the
+    ``var/audit/<identity>/`` directory, so a rung only counts when its value
+    can serve as both: that is what keeps the two from drifting apart. Reads
+    the environment on every call, because the markers are set per process by
+    compose and by the entrypoint.
+
+    Never raises. :func:`getpass.getuser` fails for a uid with no passwd entry,
+    which is ordinary in a slim image rather than exceptional.
+    """
+    for env_name in IDENTITY_ENV_LADDER:
+        candidate = _audit_component(os.environ.get(env_name))
+        if candidate:
+            return candidate
+    try:
+        import getpass
+
+        return _audit_component(getpass.getuser()) or UNKNOWN_IDENTITY
+    except Exception:
+        return UNKNOWN_IDENTITY
+
+
+def audit_posture_source():
+    """The provenance marker this process inherited, or ``process``.
+
+    Read, never inferred. A value outside :data:`AUDIT_POSTURE_SOURCES` is
+    treated as absent for the same reason the writer refuses one: a record
+    whose provenance is unrecognised reads as authoritative and is worse than
+    one that admits it was not told.
+    """
+    marker = _audit_component(os.environ.get(POSTURE_SOURCE_ENV))
+    return marker if marker in AUDIT_POSTURE_SOURCES else POSTURE_SOURCE_PROCESS
+
+
+def audit_ledger_path(hook_name, hook_input=None, identity=None):
+    """Where records from *hook_name* land: ``<repo>/var/audit/<identity>/<surface>.jsonl``.
+
+    Anchored on :func:`get_repo_root`, never on :func:`get_project_dir`: the
+    render is re-created wholesale by every ``osprey build`` and an audit trail
+    that a rebuild erases is not one.
+    """
+    who = identity or acting_identity()
+    root = Path(get_repo_root(hook_input))
+    return root / AUDIT_DIR_RELPATH / who / (audit_surface(hook_name) + ".jsonl")
+
+
+def audit_surface(hook_name):
+    """The surface name records from *hook_name* carry.
+
+    Derived from the same string the hook passes to :func:`log_hook`, so a hook
+    has exactly one name and the debug line and the audit record cannot come to
+    disagree about it. Underscores because the surface is also a file stem.
+    """
+    return AUDIT_SURFACE_PREFIX + str(hook_name).replace("-", "_")
+
+
+def _audit_field(value, limit):
+    """Bound one record field. Raises on a non-string, which the caller swallows."""
+    return value if len(value) <= limit else value[:limit]
+
+
+def _audit_encode(record):
+    """Serialize *record* to the bytes of one JSONL line.
+
+    Compact separators because the byte budget is the point, and the default
+    ``ensure_ascii`` because a ledger of pure ASCII lines is readable by every
+    consumer that will ever tail it. The writer's ``_encode``, restated.
+    """
+    return (json.dumps(record, separators=(",", ":")) + "\n").encode("utf-8", "replace")
+
+
+def _audit_line(record):
+    """The bytes to append for *record*, degraded to fit the append bound.
+
+    The writer's degrade order, minus the exception a hook cannot reach (the
+    executor's ``source``, which no hook record carries): supplementary context
+    gives way first, identifiers never give way. An identifier-only record that
+    is still over budget is written whole — one large line is better than a
+    record that names the wrong thing, and the reader tolerates it.
+    """
+    line = _audit_encode(record)
+    if len(line) <= AUDIT_MAX_RECORD_BYTES or record.get("detail") is None:
+        return line
+    record["detail"] = AUDIT_DETAIL_DROPPED
+    return _audit_encode(record)
+
+
+def emit_audit(hook_name, hook_input, decision, subject, reason, detail=None):
+    """Record one hook decision in the deployment's audit ledger.
+
+    Call this at a deny or an ask, before the ``sys.exit(0)`` that carries the
+    decision. Allows are not recorded here: the hook layer refuses and defers,
+    and the MCP middleware already records the calls it admits.
+
+    :param hook_name: The hook's own name, exactly as given to :func:`log_hook`.
+    :param hook_input: The parsed stdin payload, used only to anchor the repo.
+    :param decision: :data:`AUDIT_DECISION_REFUSED` or :data:`AUDIT_DECISION_ASK`.
+    :param subject: What was acted on — a tool name, a path. An identifier.
+    :param reason: Short machine-ish reason (``posture``, ``writes_disabled``).
+    :param detail: Optional supplementary context. Identifiers and config keys
+        only: never a config value, a channel value, a prompt or agent text.
+    :returns: The ledger path as a string, or ``None`` when nothing was stored.
+
+    Never raises, and never blocks a decision on the audit trail: an unwritable
+    zone, an unresolvable repo root or a malformed field costs the record and
+    nothing else.
+    """
+    try:
+        record = {"ts": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")}
+        identity = acting_identity()
+        session = _audit_component(os.environ.get(POSTURE_SESSION_ENV))
+        sandboxed = os.environ.get(EXECUTION_MODE_ENV) == READONLY_MODE
+        record["surface"] = audit_surface(hook_name)
+        record["actor"] = identity
+        record["posture"] = POSTURE_SANDBOX if sandboxed else POSTURE_WRITES
+        record["posture_source"] = audit_posture_source()
+        record["session"] = _audit_field(session, AUDIT_MAX_FIELD_CHARS) if session else None
+        record["subject"] = _audit_field(subject or UNKNOWN_IDENTITY, AUDIT_MAX_FIELD_CHARS)
+        record["decision"] = _audit_field(decision, AUDIT_MAX_FIELD_CHARS)
+        record["reason"] = _audit_field(reason or UNKNOWN_IDENTITY, AUDIT_MAX_FIELD_CHARS)
+        if detail:
+            record["detail"] = _audit_field(detail, AUDIT_MAX_DETAIL_CHARS)
+
+        path = audit_ledger_path(hook_name, hook_input, identity=identity)
+        line = _audit_line(record)
+
+        try:
+            fd = os.open(path, _AUDIT_OPEN_FLAGS, AUDIT_FILE_MODE)
+        except FileNotFoundError:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                # mkdir's mode is umask-masked and the setgid bit does not
+                # survive it at all, so the chmod is what actually sets the
+                # mode the deploy path provisions host-side. Best-effort: a
+                # narrower directory still beats a dropped record.
+                os.chmod(path.parent, AUDIT_DIR_MODE)
+            except OSError:
+                pass
+            fd = os.open(path, _AUDIT_OPEN_FLAGS, AUDIT_FILE_MODE)
+
+        try:
+            written = os.write(fd, line)
+            if written != len(line) and written > 0 and not line[:written].endswith(b"\n"):
+                # Terminate the fragment while the descriptor is still open, so
+                # the NEXT record starts on a line of its own instead of being
+                # appended onto a half-record and lost with it. One torn write
+                # must cost one record, not every record after it. The writer
+                # does exactly this, for exactly this reason.
+                try:
+                    os.write(fd, b"\n")
+                except OSError:
+                    pass
+        finally:
+            os.close(fd)
+
+        # A short write leaves a torn line, so the record is not stored — say
+        # so rather than hand back a path that suggests it is.
+        return str(path) if written == len(line) else None
+    except Exception:
+        return None

@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 # DRIFT GUARD: the test suite (test_write_tools.py) asserts that this list
 # equals the canonical one in the hook file — update both together.
 _FALLBACK_WRITE_TOOLS = [
+    "mcp__bluesky__queue_add",
+    "mcp__bluesky__queue_start",
     "mcp__controls__channel_write",
     "mcp__python__execute",
 ]
@@ -57,8 +59,8 @@ def load_write_tools(project_dir: Path) -> list[str]:
     key is missing or empty.
 
     The returned list always contains the full canonical write-tool floor
-    (``_FALLBACK_WRITE_TOOLS`` — ``mcp__controls__channel_write`` *and*
-    ``mcp__python__execute``): the fallback includes them by construction, and
+    (``_FALLBACK_WRITE_TOOLS`` — every write-gated tool the framework ships):
+    the fallback includes them by construction, and
     any member a loaded config omits is appended (with a warning) rather than
     trusted to be absent. This matters because ``disallowed_tools`` is the sole
     write guard under ``permission_mode=bypassPermissions`` (the approval hook
