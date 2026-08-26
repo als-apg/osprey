@@ -2080,6 +2080,16 @@ describe('classifyQueueAddResponse', () => {
     });
   });
 
+  test("a gate refusal's bare-string detail is surfaced, not flattened to the status", () => {
+    // The sidecar's own web gate answers `403 {"detail": "cross-origin request
+    // refused"}` — a string, not a refusal record. That sentence is the whole
+    // clue the operator gets; "HTTP 403" throws it away.
+    expect(classifyQueueAddResponse(403, { detail: 'cross-origin request refused' })).toEqual({
+      type: 'error',
+      detail: 'cross-origin request refused',
+    });
+  });
+
   test('an unknown code is a generic error carrying the sentence, else the status', () => {
     expect(
       classifyQueueAddResponse(500, { detail: { code: 'something_new', detail: 'boom' } })

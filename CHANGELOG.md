@@ -32,6 +32,9 @@ Compatibility is documented in release notes, not encoded in the version string.
   panel's sidecar, whose gate compares it against the sidecar's address. The
   proxy now drops `Origin` on that hop, as it already did the operator's
   credentials; the terminal's own gate has checked it before the proxy runs.
+- Bluesky panel: a refusal whose `detail` is a plain sentence rather than a
+  refusal record now reaches the Add-to-queue banner as that sentence, instead
+  of being flattened to a bare `HTTP <status>` the operator cannot act on.
 - The build-drift gate no longer counts material `osprey up` mints itself: the
   per-lane Bluesky CURVE certificates now live under `data/.runtime/`, a
   reserved runtime-output subpath the fingerprint never hashes and the build
