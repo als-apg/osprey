@@ -13,8 +13,10 @@ is part of the trust boundary. The chain for ``channel_write`` — the most safe
 .. raw:: html
    :file: ../_diagrams/safety-chain.html
 
-1. **osprey_writes_check** — Kill switch. Blocks all writes when ``control_system.writes_enabled``
-   is ``false`` in ``config.yml``. Applies to both ``channel_write`` and ``execute``.
+1. **osprey_writes_check** — Kill switch. Blocks a write when the session's control
+   target is not armed for writes — ``control_system.connector.<type>.writes_enabled``
+   in ``config.yml``, or the ``control_system.writes_enabled`` a type with no block of
+   its own inherits. Applies to both ``channel_write`` and ``execute``.
 
 2. **osprey_limits** — Validates the setpoint against the channel limits database
    (min, max, step size, writable flag). Only applies to ``channel_write``.

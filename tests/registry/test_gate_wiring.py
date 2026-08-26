@@ -226,11 +226,14 @@ def test_approval_template_source_carries_the_queue_control_constants() -> None:
 def test_writes_check_template_carries_no_bluesky_tool_literal() -> None:
     """The kill switch stays data-driven — no Bluesky tool name is hardcoded.
 
-    The arming tools' writes-check gating flows registry HookRule →
-    ``hook_config.json`` → this hook's runtime ``write_tools`` load, never a
-    literal here. Pinning the ABSENCE documents why a Bluesky tool rename never
-    needs to touch this standalone source (and flags anyone who reintroduces a
-    literal that would then silently drift on the next rename).
+    Both of the hook's tool-keyed decisions arrive as rendered data, never as a
+    literal here: which tools it gates at all flows registry HookRule →
+    ``hook_config.json`` → its runtime ``write_tools`` load, and which of them
+    skip the per-target stage because a plan lane addresses them flows
+    ``QUEUE_CONTROL_TOOLS`` → ``hook_config.json`` → its ``lane_addressed_tools``
+    load. Pinning the ABSENCE documents why a Bluesky tool rename never needs to
+    touch this standalone source (and flags anyone who reintroduces a literal
+    that would then silently drift on the next rename).
     """
     src = _hook_source("osprey_writes_check.py")
     present = [t for t in bsky.ALL_TOOLS if t in src]

@@ -443,6 +443,17 @@ keys:
     evidence: 'get_config_value\("control_system\.limits_checking\.database_path", None\)'
   control_system.limits_checking.allow_unlisted_channels:
     evidence: 'allow_unlisted_channels'
+  control_system.write_tools:
+    rendered: false
+    evidence: 'control_system\.get\("write_tools", \[\]\)'
+    note: >-
+      Extra tool names a project folds into the writes kill switch, commented
+      in the three templates that carry the stanza so no template render
+      carries it. The reader is the claude_code renderer, which hands the list
+      to `hook_config.json` as `control_system_write_tools`; the writes-check
+      hook reads it from there. Tools named here are refused per call and never
+      enter `permissions.deny`, which is why a mixed-posture render can gate
+      them at all.
   control_system.write_verification:
     evidence: 'get_config_value\("control_system\.write_verification", \{\}\)'
   control_system.write_verification.default_level:

@@ -119,15 +119,23 @@ quirks worth knowing:
       * - Withdraw a pending stop
         - The launch token — it lets the queue keep draining.
 
-   The agent is held to a harder rule on top of this: while the project's
-   ``control_system.writes_enabled`` switch is off, its ``queue_add`` and
-   ``queue_start`` tools are denied outright — it cannot queue or start
-   anything, even on an idle queue. Its halts and its read tools are never
-   taken away.
+   The agent is held to a harder rule on top of this: where the project may
+   write to no control target at all, its ``queue_add`` and ``queue_start``
+   tools are denied outright — it cannot queue or start anything, even on an
+   idle queue. Its halts and its read tools are never taken away.
+
+   Write posture is per control target, and each queue lane is bound at build
+   time to one target, so a deployment can arm the lane that drives the
+   simulator and leave the lane that drives the live machine unarmed. Nothing
+   is denied up front on such a deployment — the deny list is written once,
+   before a session picks a target — and ``queue_add`` and ``queue_start``
+   refuse per call instead, with ``writes_disabled``, naming the lane's machine.
 
    In a deployed control room the agent holds the launch token only where the
-   deployment grants it — to a persona configured for control-system writes
-   that also runs the bluesky MCP server. Where it is granted, the agent's
+   deployment grants it, and it is granted **per lane**: to a persona whose
+   config arms writes for the machine that lane drives and that also runs the
+   bluesky MCP server. A persona can hold the simulator lane's token and none
+   for the live one. Where it is granted, the agent's
    ``queue_start`` arms the queue itself, and your approval of that tool call
    is the arming decision. Where it is not, ``queue_start`` is refused with
    ``launch_token_required`` and the start stays with you, from the BLUESKY

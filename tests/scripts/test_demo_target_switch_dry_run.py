@@ -46,10 +46,10 @@ MODULE_NAME = "osprey_demo_target_switch"
 #: time, which is what the mutation audit is about.
 demo = None
 
-#: The eight claims, in the order the demo makes them. Pinned as a count and by
+#: The ten claims, in the order the demo makes them. Pinned as a count and by
 #: their numbering: a plan that silently lost a step would still print a tidy
 #: trail, and that is exactly the regression this catches.
-EXPECTED_STEPS = 8
+EXPECTED_STEPS = 10
 
 
 @pytest.fixture(autouse=True)
@@ -123,6 +123,19 @@ class TestTheDryRunPrintsThePlanAndDrivesNothing:
         assert "UDP" in notes
         assert "ASSERTED FROM CONFIG" in notes
         assert "no mongod is booted" in notes
+
+    def test_the_plan_names_the_block_an_operator_would_edit(self, dry_run):
+        """The refusal wording rule, in the plan an operator reads first.
+
+        A trail that told them to set the deployment-wide key would be telling
+        them to arm every target the deployment has, which is the opposite of
+        what step 9 demonstrates.
+        """
+        _, lines = dry_run("--self-provision")
+        joined = "\n".join(lines)
+
+        assert "control_system.connector.<type>.writes_enabled" in joined
+        assert "control_system.writes_enabled" not in joined
 
 
 class TestTheAuditGrammarIsStable:
@@ -248,6 +261,46 @@ class TestThePlanNeverInventsAnOperatorsChannels:
 
         assert demo.DEFAULT_PROBE_CHANNEL not in output
         assert demo.PLACEHOLDER_PROBE in output
+
+
+class TestTheRefusalNamesTheBlockAnOperatorEdits:
+    """Which key step 9 puts in front of an operator, per target."""
+
+    def test_each_target_names_its_own_connector_block(self):
+        section = {"type": "epics", "connector": {"epics": {}, "virtual_accelerator": {}}}
+
+        assert demo.posture_key(section, "live") == "control_system.connector.epics.writes_enabled"
+        assert (
+            demo.posture_key(section, "va")
+            == "control_system.connector.virtual_accelerator.writes_enabled"
+        )
+
+    def test_a_target_that_names_no_machine_falls_back_to_the_deployment_wide_key(self):
+        """A mock deployment's 'live' resolves to no connector type, so there is
+        no block to send anyone to — and that deployment only ever had the one
+        posture anyway."""
+        assert demo.posture_key({"type": "mock"}, "live") == "control_system.writes_enabled"
+
+
+class TestARefusalIsReadFromItsEnvelope:
+    """Step 9 reads a raised tool error; it must never fail on the plumbing."""
+
+    def test_the_standard_envelope_is_parsed(self):
+        raised = RuntimeError(
+            '{"error": true, "error_type": "write_refused", '
+            '"details": {"reason": "WRITES_DISABLED"}}'
+        )
+
+        envelope = demo._error_envelope(raised)
+
+        assert envelope["error_type"] == "write_refused"
+        assert envelope["details"]["reason"] == "WRITES_DISABLED"
+
+    def test_anything_else_is_handed_back_with_its_text_intact(self):
+        envelope = demo._error_envelope(TimeoutError("the connector host never answered"))
+
+        assert envelope["error_type"] == "unparsed"
+        assert "the connector host never answered" in envelope["error_message"]
 
 
 class TestTheLimitsNoteIsReadRatherThanAsserted:

@@ -220,11 +220,18 @@ items in execution order with their `item_uid`, plan `name` and `kwargs`; and
 Two layers gate the queue. They fail in visibly different ways, and telling
 them apart is what lets you explain a blocked plan instead of retrying it.
 
-### Layer 1: this deployment's writes switch, applied before the tool runs
+### Layer 1: the write posture of the machine the lane drives, applied before the tool runs
 
-When `control_system.writes_enabled` is false, `queue_add` and `queue_start`
-are not yours to call at all. The project's build puts them in its deny list,
-and a pre-tool hook refuses them again at call time.
+Write posture is per control target, not one switch for the deployment.
+`control_system.writes_enabled` is the posture a connector type inherits, and a
+`control_system.connector.<type>.writes_enabled` block answers for that type
+instead — so a deployment can be armed on its virtual accelerator and left
+unarmed on the live machine. Each queue lane is bound at build time to one
+target, and that target's posture is what applies to a call on that lane.
+
+**When no target here may write**, `queue_add` and `queue_start` are not yours
+to call at all. The project's build puts them in its deny list, and a pre-tool
+hook refuses them again at call time.
 
 What you will see is the **tool call denied** — not a bridge refusal. There is
 no request, no response body, and no `detail.code` to branch on, so there is
@@ -232,21 +239,30 @@ nothing to retry and nothing an argument change can fix. Say so plainly: this
 deployment has writes disabled, and turning them on is an operator action, not
 yours.
 
+**When the targets disagree**, nothing can be denied up front — the deny list is
+written once, before any session has picked a target — so the refusal arrives
+per call instead. `queue_add` and `queue_start` re-read the bound lane's posture
+themselves, and the same call therefore succeeds on the simulator's lane and is
+refused with `writes_disabled` on the live one. Report which machine refused it.
+Do not re-send it to the other lane unless the operator asked for that machine.
+
 Everything short of the queue still works: `list_plans`, `write_plan`,
 `validate_plan`, the three draft tools, and every read. So a plan can still be
 chosen, authored, validated and staged where a human can see it — it simply
-cannot be queued or started until writes are on. Offer that, rather than
-stopping at "I can't".
+cannot be queued or started until writes are armed for the machine that lane
+drives. Offer that, rather than stopping at "I can't".
 
 **Both halts stay available.** The kill switch selects the arming pair by name,
 so `queue_stop` and `stop_run` are never denied by it — halting must not depend
 on the same switch that disables motion.
 
-(The tools re-read `writes_enabled` themselves too — a backstop for a consumer
-running without the hooks above, not the layer doing the work here. It is not
-uniform: `queue_start` and `queue_stop(cancel=True)` refuse outright with
+(That per-call re-read is also the backstop for a consumer running without the
+hooks above. It is not uniform: `queue_start` refuses outright with
 `writes_disabled` before the bridge is contacted at all, while `queue_add`
-withholds the launch token and lets the bridge decide.)
+withholds the launch token and lets the bridge decide.
+`queue_stop(cancel=True)` is addressed to whichever lane is draining, which is
+not known until the bridges answer, so its own check asks whether *any* rendered
+lane is armed and leaves the per-lane half to the launch token.)
 
 ### Layer 2: the bridge, on the calls that do reach it
 
@@ -430,7 +446,7 @@ the moment someone is asking for one. Name the one you are using.
 **`queue_stop()`** requests a stop. It is ungated in every layer — no
 `writes_enabled` check, no launch token, at this tool and at the bridge —
 because halting is the safe direction and must never have a failure mode; it
-stays reachable even when the kill switch has writes disabled. It is still
+stays reachable on a machine no persona here may write to. It is still
 approval-gated so a human sees every stop.
 
 Know its limit before you offer it. **It stops the queue *after* the currently
@@ -478,8 +494,11 @@ never present an unconfirmed halt as done.
 **`queue_stop(cancel=True)`** is the opposite operation: it withdraws a stop
 that a human (or you) already requested, and lets the queue keep draining
 toward hardware. Reversing someone's halt is an arming action, so it carries
-the same gates as `queue_start` — `writes_enabled` re-read fresh, plus the
-launch token — here and again at the bridge. Only withdraw a stop when you
+gates of its own — here and again at the bridge. They are not `queue_start`'s:
+the posture is asked as *"is any rendered lane armed"* rather than one lane's,
+because a withdrawal is addressed to whichever lane is draining and that is not
+known until the bridges answer, and this tool checks the launch token locally,
+which `queue_start` leaves entirely to the bridge. Only withdraw a stop when you
 know why it was requested.
 
 ---
@@ -523,8 +542,10 @@ know why it was requested.
 - **Never** answer `interrupted_item_in_queue` by starting again — the item has
   to be removed first, and only then can the plan be re-staged and added.
 - **Never** treat a denied `queue_add`/`queue_start` as a bridge refusal — a
-  deployment with writes disabled denies the call before it is sent, so there
-  is nothing to branch on and nothing to retry. Say that writes are off.
+  deployment that may write to no machine at all denies the call before it is
+  sent, so there is nothing to branch on and nothing to retry. Say that writes
+  are off. A `writes_disabled` refusal that does come back is the other case:
+  that lane's machine is unarmed while another one here may not be.
 - **Never** reword a bridge refusal — branch on `detail.code` and relay the
   bridge's own sentence, so you and the human's panel describe the same event
   the same way.

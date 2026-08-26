@@ -48,7 +48,17 @@ Two tools do this:
 Ask the OSPREY agent for these in plain language — *"what am I pointed at?"*,
 *"switch to the virtual accelerator"*. A session on the simulator looks like a
 session on the machine: reads, writes and the python executor all follow the
-switch. The archive does not — archive reads keep the deployment's one
+switch.
+
+Whether writes are *allowed* follows it too. Write posture is per control
+target, so a deployment can be armed on the simulator and read-only on the
+machine — the same tool call that moved a setpoint before the switch is refused
+after it, naming the target that refused. That is a property of the deployment's
+config, not of the switch, and it is set up in
+:doc:`use-virtual-accelerator`. Ask ``control_target`` if you want to know
+before you move: every row carries its own ``writes_permitted``.
+
+The archive does not follow the switch — archive reads keep the deployment's one
 configured archiver, and are stamped with the session target and the archiver
 that served them, so which machine a set of history is about is never
 ambiguous.
@@ -186,8 +196,10 @@ has actually measured it — whether its gateway answered.
        it. A row older than three probe intervals is marked ``stale`` rather
        than presented as current.
    * - ``writes_permitted``, ``real_machine``, ``probe_channel``
-     - Whether writes are possible at all on this deployment, whether this
-       target is the real machine, and the channel a switch would prove it with.
+     - Whether writes are permitted on **this target**, whether this target is
+       the real machine, and the channel a switch would prove it with. Two rows
+       of the same deployment can disagree about the first one: write posture is
+       per target, so a simulator may be armed beside a live machine that is not.
 
 Two things the roster is careful about are worth knowing, because they are the
 difference between a report you can act on and one that flatters you:

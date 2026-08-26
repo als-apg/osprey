@@ -67,9 +67,24 @@ Compatibility is documented in release notes, not encoded in the version string.
   product still runs on `main`, on the nightly schedule and on manual dispatch.
   The lean connectors wheel and the Tier 0 config-key guard now run as steps of
   the package and lint jobs.
+- Only a literal boolean `true` now arms writes. `writes_enabled: 'true'` (quoted)
+  and `writes_enabled: 1` were treated as on before and are refused now, at both
+  the deployment-wide key and the per-connector-type one. A config that spells the
+  value either way must change it to `true` or its writes stop. (#713)
 
 ### Added
 
+- Write posture is now per control target. `control_system.connector.<type>.writes_enabled`
+  arms or disarms writes for one connector type; a type that does not set it keeps
+  the deployment-wide `control_system.writes_enabled`. So a deployment pointed at a
+  live machine can arm writes on its virtual accelerator alone, and the same tool
+  call that runs there is refused when the session is switched to the machine. Every
+  write surface reads the same answer. A server-level
+  `writes_check` matcher (`mcp__<server>__.*`) now gates every tool on that
+  server, including its read tools, where before it matched nothing. (#713)
+- New shipped persona preset `control-assistant-va-readwrite`: a tier that writes to
+  the virtual accelerator and reads the live machine, sitting between
+  `control-assistant-readonly` and `control-assistant-readwrite`. (#713)
 - Build interview: an upstream fit watch — places where OSPREY cannot express what a
   facility needs are recorded as candidates in `INTERVIEW.md`, verified against the
   installed framework by a scout, and offered to the user as a GitHub issue or email
