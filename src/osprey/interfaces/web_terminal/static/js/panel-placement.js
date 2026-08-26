@@ -1,11 +1,15 @@
 // @ts-check
 /* OSPREY Web Terminal — Panel Placement
  *
- * WHERE a panel lands in the workspace. panel-manager.js owns the panel state
- * machine (health, membership, iframes, SSE dispatch); this module owns the
- * tile geometry those states are applied onto — the open-beside verb behind the
- * rail's ⊞ corner and drag-and-drop, the polite agent switch, and the
- * whole-workspace rebuild a `panel_arrange` frame requests.
+ * WHERE a panel lands in the workspace. The panel state machine now splits
+ * three ways: panel-manager.js owns the core (tile occupancy, iframe
+ * lifecycle, the active-panel policy), panel-lifecycle.js owns how a panel
+ * comes to exist and stay alive, and panel-sse.js owns the server→client
+ * frame dispatcher that drives this module's applyAgentSwitch and
+ * applyArrange. This module owns the tile geometry those states are applied
+ * onto — the open-beside verb behind the rail's ⊞ corner and drag-and-drop,
+ * the polite agent switch, and the whole-workspace rebuild a `panel_arrange`
+ * frame requests.
  *
  * It reaches the dock only through the existing seams: dock-sync's placement
  * verbs (dockPanelAt / dockPanelBesideActive) and echo guard, dock-iframe's
@@ -13,7 +17,7 @@
  * panel-manager's private state arrives as injected effects registered once at
  * init ({@link initPanelPlacement}), the same seam pattern the iframe adapter
  * and the tile-close handler use — so this module holds no panel state of its
- * own and stays unit-testable through panel-manager's own SSE surface.
+ * own and stays unit-testable through panel-sse's own frame-dispatch surface.
  *
  * TWO MUTATION CHANNELS (precedence)
  * ----------------------------------

@@ -2,9 +2,10 @@
 /* OSPREY Web Terminal — Shipped Service Panel Catalog
  *
  * The static registry of built-in service panels plus the terminal rail
- * constants — pure data, extracted from panel-manager.js (its only consumer,
- * which filters/extends the array in place against /api/panels at init) to
- * keep that module under the max-lines cap.
+ * constants — pure data, extracted from panel-manager.js to keep that module
+ * under the max-lines cap. panel-manager.js filters the array in place against
+ * /api/panels at init; panel-lifecycle.js appends runtime-registered panels;
+ * panel-sse.js reads it for the close fallback.
  */
 
 /**
