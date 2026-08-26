@@ -762,11 +762,21 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
     # browser attaches the operator's proof to a panel request because the
     # panel shares the terminal's origin, and the backend on the other side of
     # this hop is not entitled to it.
+    #
+    # ``Origin`` stops here as well. It names the page that made the request —
+    # the terminal — and the terminal's own gate has already held it against
+    # the terminal's origin before this route ran. Relayed onward it reaches a
+    # backend whose gate compares it against *that backend's* address
+    # (``localhost:8095`` for the bluesky sidecar), which the terminal's origin
+    # never equals: every write from a proxied panel would be refused as
+    # cross-origin while every read succeeds. On this hop the proxy is a new
+    # client, and a client that sends no ``Origin`` is what a gated backend
+    # admits on the operator secret injected below.
     fwd_headers = {
         k: v
         for k, v in request.headers.items()
         if k.lower() not in HOP_BY_HOP
-        and k.lower() not in ("host", "accept-encoding")
+        and k.lower() not in ("host", "accept-encoding", "origin")
         and not _is_stripped_header(k)
     }
     fwd_headers["x-forwarded-prefix"] = f"{outer_prefix}/panel/{panel_id}"

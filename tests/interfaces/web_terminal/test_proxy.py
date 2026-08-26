@@ -312,6 +312,70 @@ class TestInboundCredentialStrip:
         assert "underscore-secret" not in " ".join(captured.values())
 
 
+class TestBrowserOriginIsNotRelayed:
+    """The browser's ``Origin`` stops at the terminal; the hop carries none.
+
+    ``Origin`` names the page that made the request — the terminal — and the
+    terminal's own gate has already held it against the terminal's origin
+    before this route runs. Relayed onward it reaches a backend whose gate
+    compares it against *that backend's* address (``localhost:8095`` for the
+    bluesky sidecar), which the terminal's origin never equals: every write
+    from a proxied panel is then refused as cross-origin while every read
+    succeeds. On this hop the proxy is a new client, and a client that sends
+    no ``Origin`` is what a gated backend admits on the operator secret (see
+    ``test_operator_header_with_no_origin_is_allowed`` in the gate's tests).
+    """
+
+    #: What the terminal's own gate demands on a write from this TestClient:
+    #: its Host is ``testserver``, so this is the terminal's origin.
+    TERMINAL_ORIGIN = "http://testserver"
+
+    def test_write_from_a_cookie_session_carries_no_origin(self, panels_app):
+        """Single-user shape: cookie-authenticated POST, Origin dropped."""
+        app, _ = panels_app
+        client = _cookie_client(app)
+        captured = _capture_request(app)
+
+        resp = client.post(
+            "/panel/trusted/queue/items",
+            json={"draft_revision": 1},
+            headers={"Origin": self.TERMINAL_ORIGIN},
+        )
+
+        assert resp.status_code == 200
+        assert "origin" not in _lower(captured)
+
+    def test_write_in_the_multi_user_shape_carries_no_origin(self, panels_app):
+        """Multi-user shape: nginx-stamped operator header, Origin dropped."""
+        app, client = panels_app
+        captured = _capture_request(app)
+
+        resp = client.post(
+            "/panel/trusted/queue/start",
+            headers={**OPERATOR_HEADERS, "Origin": self.TERMINAL_ORIGIN},
+        )
+
+        assert resp.status_code == 200
+        assert "origin" not in _lower(captured)
+
+    def test_sse_path_carries_no_origin(self, panels_app):
+        """The streaming branch builds its own request and must drop it too."""
+        app, client = panels_app
+        captured = _capture_sse(app, _FakeStreamResponse())
+
+        resp = client.get(
+            "/panel/trusted/queue/events",
+            headers={
+                **OPERATOR_HEADERS,
+                "accept": "text/event-stream",
+                "Origin": self.TERMINAL_ORIGIN,
+            },
+        )
+
+        assert resp.status_code == 200
+        assert "origin" not in _lower(captured)
+
+
 class TestStripPredicate:
     """``_is_stripped_header`` folds ``_``→``-`` before matching."""
 
