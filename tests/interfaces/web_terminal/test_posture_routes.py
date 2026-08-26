@@ -12,8 +12,10 @@ and back out to ``writes``. Three properties matter and each has tests here:
   revert a sandboxed session to writes, so the store is write-through
   persisted beside the other agent-data stores and re-read by a fresh app.
 * **It cannot grant what the render withholds.** Stepping *out* to ``writes``
-  is refused when the rendered config has ``control_system.writes_enabled``
-  off — the toggle narrows privilege, it never widens it.
+  is refused when the render arms no control target for writes — neither a
+  per-type ``control_system.connector.<type>.writes_enabled`` nor the
+  deployment-wide ``control_system.writes_enabled`` they inherit from. The
+  toggle narrows privilege, it never widens it.
 
 Harness mirrors ``test_logout_route.py``: each test file builds its own app
 through ``create_app`` under a patched ``_load_web_config``, entered as a
@@ -134,6 +136,13 @@ def _write_config(tmp_path, *, writes_enabled: bool):
         yaml.safe_dump({"control_system": {"writes_enabled": writes_enabled}}),
         encoding="utf-8",
     )
+    return path
+
+
+def _write_shaped_config(tmp_path, section):
+    """Write a config.yml carrying a whole ``control_system:`` section."""
+    path = tmp_path / "config.yml"
+    path.write_text(yaml.safe_dump({"control_system": section}), encoding="utf-8")
     return path
 
 
@@ -485,8 +494,8 @@ class TestGetPosture:
     * ``posture`` is what the *store* holds for this session, defaulting to
       ``writes`` when nothing is stored — the untoggled session spawns without
       the sandbox marker, so ``writes`` is the honest report of the posture.
-    * ``rendered_writes_enabled`` is what the *render* permits, read from
-      ``control_system.writes_enabled``. It is what makes the default reading
+    * ``rendered_writes_enabled`` is what the *render* permits: whether writes
+      are armed for *some* control target. It is what makes the default reading
       honest on a writes-off deployment: the posture is ``writes`` and the
       effective write capability is still nil, and the badge is the surface
       that has to say so instead of implying the session can write.
@@ -664,6 +673,159 @@ class TestGetPosture:
             body = client.get("/api/terminal/posture", params={"session_id": SESSION_B}).json()
 
         assert body["posture"] == "sandbox"
+
+
+class TestPerTargetRenderPosture:
+    """``rendered_writes_enabled`` means "some target may write", not one flag.
+
+    Write posture is per connector type —
+    ``control_system.connector.<type>.writes_enabled``, inheriting the
+    deployment-wide ``control_system.writes_enabled`` where it is absent — so a
+    deployment whose baseline is a live machine can arm its virtual accelerator
+    alone. The render permits stepping out of the sandbox as soon as ONE target
+    a session here can be pointed at is armed; *which* machine the session may
+    then write to is the connector layer's refusal to make, not this gate's.
+
+    Both the badge payload and the 403 gate read the same predicate, so the
+    button an operator is offered and the answer they get on pressing it can
+    never disagree. These tests pin that pair together.
+    """
+
+    def test_mock_render_arms_no_target(self, client, tmp_path):
+        """A mock deployment that arms nothing is unchanged: writes off."""
+        client.app.state.config_path = _write_shaped_config(tmp_path, {"type": "mock"})
+
+        body = client.get("/api/terminal/posture", params={"session_id": SESSION_A}).json()
+
+        assert body["rendered_writes_enabled"] is False
+
+    def test_va_armed_alone_reports_and_permits_writes(self, client, tmp_path):
+        """Global off, VA block on: the badge says writes and the gate agrees.
+
+        The motivating shape of the whole feature — a deployment built for a
+        live machine that arms writes on its simulator only. The session may
+        step out of the sandbox because there is a target it can write to.
+        """
+        client.app.state.config_path = _write_shaped_config(
+            tmp_path,
+            {
+                "type": "epics",
+                "writes_enabled": False,
+                "connector": {
+                    "epics": {"timeout": 5.0},
+                    "virtual_accelerator": {"writes_enabled": True},
+                },
+            },
+        )
+
+        body = client.get("/api/terminal/posture", params={"session_id": SESSION_A}).json()
+        with known_sessions(SESSION_A):
+            resp = client.post(
+                "/api/terminal/posture",
+                json={"session_id": SESSION_A, "posture": "writes"},
+            )
+
+        assert body["rendered_writes_enabled"] is True
+        assert resp.status_code == 200
+
+    def test_live_disarmed_leaves_the_inheriting_va_armed(self, client, tmp_path):
+        """Global on with the live block off is still an armed deployment.
+
+        The disarm-mixed shape: the facility has said "not this machine" under
+        its live block, which does *not* fall back to the global key. The VA
+        block says nothing and so keeps inheriting the global ``true``, and one
+        armed target is all the render needs to permit ``writes``.
+        """
+        client.app.state.config_path = _write_shaped_config(
+            tmp_path,
+            {
+                "type": "epics",
+                "writes_enabled": True,
+                "connector": {
+                    "epics": {"writes_enabled": False},
+                    "virtual_accelerator": {"simulation_file": "data/simulation/machine.json"},
+                },
+            },
+        )
+
+        body = client.get("/api/terminal/posture", params={"session_id": SESSION_A}).json()
+
+        assert body["rendered_writes_enabled"] is True
+
+    def test_va_baseline_with_its_only_target_disarmed_is_writes_off(self, client, tmp_path):
+        """An unreachable ``live`` must not vote, or the global key over-permits.
+
+        A virtual-accelerator deployment with no live block has exactly one
+        target a session can be pointed at, and it is explicitly disarmed. The
+        global ``true`` still answers for ``live`` — ``target_writes_enabled``
+        falls back to it when the target does not resolve — so a union over both
+        named targets would offer the operator a ``writes`` posture that arms
+        nothing at all. The union runs over the *reachable* targets instead.
+        """
+        client.app.state.config_path = _write_shaped_config(
+            tmp_path,
+            {
+                "type": "virtual_accelerator",
+                "writes_enabled": True,
+                "connector": {"virtual_accelerator": {"writes_enabled": False}},
+            },
+        )
+
+        body = client.get("/api/terminal/posture", params={"session_id": SESSION_A}).json()
+        with known_sessions(SESSION_A):
+            resp = client.post(
+                "/api/terminal/posture",
+                json={"session_id": SESSION_A, "posture": "writes"},
+            )
+
+        assert body["rendered_writes_enabled"] is False
+        assert resp.status_code == 403
+
+    def test_malformed_config_arms_no_target(self, client, tmp_path):
+        """A config that will not parse is a writes-off render, not a crash.
+
+        The predicate answers ``False`` for everything it cannot read — an
+        unparseable file, a section the resolver cannot make sense of — because
+        the badge and the gate must fail towards "no target may write".
+        """
+        path = tmp_path / "config.yml"
+        path.write_text("control_system: [unclosed\n", encoding="utf-8")
+        client.app.state.config_path = path
+
+        body = client.get("/api/terminal/posture", params={"session_id": SESSION_A}).json()
+
+        assert body["rendered_writes_enabled"] is False
+
+    def test_no_armed_target_refuses_naming_the_per_type_key(self, client, tmp_path):
+        """The 403 names the keys an operator would actually have to edit.
+
+        Saying only "``control_system.writes_enabled`` is off" would be a lie on
+        a config that sets it ``true`` and disarms every type beneath it, and it
+        would send the operator to the one key that cannot fix this.
+        """
+        client.app.state.config_path = _write_shaped_config(
+            tmp_path,
+            {
+                "type": "epics",
+                "writes_enabled": False,
+                "connector": {
+                    "epics": {"writes_enabled": False},
+                    "virtual_accelerator": {"writes_enabled": False},
+                },
+            },
+        )
+
+        with known_sessions(SESSION_A):
+            resp = client.post(
+                "/api/terminal/posture",
+                json={"session_id": SESSION_A, "posture": "writes"},
+            )
+
+        assert resp.status_code == 403
+        detail = json.dumps(resp.json()["detail"])
+        assert "no control target" in detail.lower()
+        assert "control_system.connector.<type>.writes_enabled" in detail
+        assert "control_system.writes_enabled" in detail
 
 
 # ── SDK-topology parity ──────────────────────────────────────────────────────

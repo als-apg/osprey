@@ -19,8 +19,9 @@
 # agent's user (Dockerfile.j2). No other tier's image does, so no other tier can
 # write the file that says what it may do.
 #
-# The control-system tiers are `control-assistant-readonly` and
-# `control-assistant-readwrite`; the standalone one is `control-assistant-ariel`.
+# The control-system tiers are `control-assistant-readonly`,
+# `control-assistant-va-readwrite` and `control-assistant-readwrite`; the
+# standalone one is `control-assistant-ariel`.
 
 name: Control Assistant (Admin)
 
@@ -42,9 +43,12 @@ skills:
 # Dotted keys ONLY — see the base profile's block.
 config:
   # The admin tier sits above readwrite: it keeps the write-armed control
-  # posture and adds deployment editing on top. Pinned here, like the two
-  # tiers beneath it pin their own side, so the boundary cannot drift if the
-  # base's default ever changes.
+  # posture and adds deployment editing on top. This is the posture every
+  # connector type inherits when its own
+  # `control_system.connector.<type>.writes_enabled` block says nothing, and
+  # none is written here, so it is the answer for every machine the session can
+  # be pointed at. Pinned like the tiers beneath it pin their own side, so the
+  # boundary cannot drift if the base's default ever changes.
   control_system.writes_enabled: true
   # The axis this tier is defined by: the three privileges the base floors, all
   # lifted here and nowhere else.

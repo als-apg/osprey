@@ -43,9 +43,11 @@ import { getCurrentSessionId, onSessionChange, startTerminal, stopTerminal } fro
  * @typedef {object} PostureState
  * @property {string} session_id
  * @property {'sandbox'|'writes'} posture  what this session runs as now
- * @property {boolean} rendered_writes_enabled  whether the RENDER permits
- *   writes at all; false makes the `writes` direction unavailable, not merely
- *   refused (see renderBadge).
+ * @property {boolean} rendered_writes_enabled  whether the RENDER arms writes
+ *   for SOME control target — write posture is per connector type, so this is
+ *   true as soon as one target is armed and says nothing about which. False
+ *   means no target is armed, which makes the `writes` direction unavailable
+ *   rather than merely refused (see renderBadge).
  */
 
 /** @type {HTMLButtonElement|null} */

@@ -2,14 +2,19 @@
 # Read-only persona — the analysis tier of the control-assistant multi-user stack.
 #
 # This preset inherits everything from `control-assistant` and pins the write
-# switch off. `control_system.writes_enabled: false` is enforced at every
+# switch off for every machine the session can be pointed at. Write posture is
+# per connector type, so "off" is an answer the resolver gives per target and
+# not a single flag — which is why the block below pins the types as well as
+# the key they inherit from. The refusal that follows is enforced at every
 # write surface: channel-write tools land in the rendered settings.json deny
 # list, the writes-check hook refuses with a clean "writes disabled" message,
 # and the connector's reference monitor blocks any write that somehow reaches
 # it. Reads, the channel finder, the archiver, logbook search, and the bluesky
 # panels all work unchanged.
 #
-# The write-capable counterpart is `control-assistant-readwrite`.
+# The write-capable counterparts are `control-assistant-readwrite` (armed on
+# every machine) and `control-assistant-va-readwrite` (armed on the simulator
+# alone).
 
 name: Control Assistant (Read-Only)
 
@@ -24,10 +29,15 @@ deploy_services: false
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY — see the base profile's block.
 config:
-  # The single axis this persona hard-pins: this key is the tier boundary, so
-  # it must not drift if the base's default ever changes — it is what makes
-  # the read-only terminal read-only.
+  # The axis this persona hard-pins, and it takes three keys rather than one.
+  # The flat key is the posture a connector type inherits when its own block
+  # says nothing, so on its own it is not a floor: a per-type `true` anywhere
+  # in the chain — the base, an overlay, a facility's own edit — would arm that
+  # type over it. So the read-only tier pins every block off as well as the key
+  # they inherit from, and a type that arms writes here has to be added by name.
   control_system.writes_enabled: false
+  control_system.connector.epics.writes_enabled: false
+  control_system.connector.virtual_accelerator.writes_enabled: false
   # Pared-down operator layout: chat only, workspace hidden until the agent
   # puts something in it. Pinned on both sides of the tier boundary (readwrite
   # pins `expert`), same rationale as writes_enabled.

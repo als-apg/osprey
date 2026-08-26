@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 
 import pytest
+import yaml
 
 from osprey.deployment.web_terminals import lint
 from osprey.deployment.web_terminals.lint import (
@@ -2762,6 +2763,308 @@ def test_lint_profile_config_ignores_a_config_block_that_omits_the_module() -> N
 
     # Assert
     assert findings == []
+
+
+# --- write posture: a read-only-looking persona that inherits an armed block -
+
+_WRITE_HOLE_CODE = "web_terminals.persona_inherits_armed_connector"
+
+
+def _write_posture_config(tmp_path, delta_config: dict, **profile_keys: object) -> dict:
+    """A profile whose one referenced persona is a delta beside it, written with
+    *delta_config* as its own `config:` block. Extra `profile_keys` land in the
+    profile's own block — the layer the delta is merged over."""
+    (tmp_path / "personas").mkdir(exist_ok=True)
+    (tmp_path / "personas" / "tier.yml").write_text(
+        yaml.safe_dump({"name": "Tier", "config": delta_config})
+    )
+    config = _profile_config(
+        default_persona="tier",
+        users=[{"name": "alice", "index": 0, "persona": "tier"}],
+        personas={
+            "tier": {
+                "project": "ca-tier",
+                "project_path": "../ca-tier",
+                "build_profile": "personas/tier.yml",
+            }
+        },
+    )
+    config.update(profile_keys)
+    return config
+
+
+def test_lint_readonly_persona_inheriting_an_armed_connector_block_is_an_error(
+    tmp_path,
+) -> None:
+    """The write hole this check exists for: the delta pins the flat key off, so
+    it reads as a read-only tier, while the profile it is merged over arms one
+    connector type — and a per-type key never falls back to the flat one, so the
+    persona is armed. The message has to name the file that was written and the
+    inherited key, because those are the two things the author cannot see."""
+    # Arrange
+    config = _write_posture_config(
+        tmp_path,
+        {"control_system.writes_enabled": False},
+        **{"control_system.connector.epics.writes_enabled": True},
+    )
+
+    # Act
+    findings = lint_profile_config(config, profile_root=tmp_path)
+
+    # Assert
+    holes = [f for f in _errors(findings) if f.code == _WRITE_HOLE_CODE]
+    assert len(holes) == 1, findings
+    message = holes[0].message
+    assert "personas/tier.yml" in message
+    assert "control_system.connector.epics.writes_enabled" in message
+    assert "control_system.writes_enabled" in message
+
+
+def test_lint_persona_that_pins_the_inherited_block_itself_is_not_a_write_hole(
+    tmp_path,
+) -> None:
+    """Pinning the block off is the fix the message asks for, so the same
+    profile with that one line added must lint clean."""
+    # Arrange
+    config = _write_posture_config(
+        tmp_path,
+        {
+            "control_system.writes_enabled": False,
+            "control_system.connector.epics.writes_enabled": False,
+        },
+        **{"control_system.connector.epics.writes_enabled": True},
+    )
+
+    # Act
+    findings = lint_profile_config(config, profile_root=tmp_path)
+
+    # Assert
+    assert [f for f in findings if f.code == _WRITE_HOLE_CODE] == []
+
+
+def test_lint_persona_that_arms_the_block_itself_is_not_a_write_hole(tmp_path) -> None:
+    """The shape the shipped simulator tier has: the delta writes BOTH the flat
+    false and the one block it arms, so nothing about its posture is inherited.
+    Read off the merged document these two cases are the same keys with the same
+    values, which is why this check reads the authored file instead."""
+    # Arrange
+    config = _write_posture_config(
+        tmp_path,
+        {
+            "control_system.writes_enabled": False,
+            "control_system.connector.virtual_accelerator.writes_enabled": True,
+        },
+    )
+
+    # Act
+    findings = lint_profile_config(config, profile_root=tmp_path)
+
+    # Assert
+    assert [f for f in findings if f.code == _WRITE_HOLE_CODE] == []
+
+
+def test_lint_persona_that_arms_the_flat_key_is_not_a_write_hole(tmp_path) -> None:
+    """Nothing is hidden from an author who wrote `writes_enabled: true`: that
+    persona claims no read-only posture for an inherited block to contradict."""
+    # Arrange
+    config = _write_posture_config(
+        tmp_path,
+        {"control_system.writes_enabled": True},
+        **{"control_system.connector.epics.writes_enabled": True},
+    )
+
+    # Act
+    findings = lint_profile_config(config, profile_root=tmp_path)
+
+    # Assert
+    assert [f for f in findings if f.code == _WRITE_HOLE_CODE] == []
+
+
+def test_lint_persona_that_says_nothing_about_write_posture_is_not_a_write_hole(
+    tmp_path,
+) -> None:
+    """A delta with no posture of its own inherits both keys and claims
+    neither. There is no contradiction to report — the whole answer is the
+    profile's, and it is the profile's to fix."""
+    # Arrange
+    config = _write_posture_config(
+        tmp_path,
+        {"web.ui_mode": "simple"},
+        **{
+            "control_system.writes_enabled": False,
+            "control_system.connector.epics.writes_enabled": True,
+        },
+    )
+
+    # Act
+    findings = lint_profile_config(config, profile_root=tmp_path)
+
+    # Assert
+    assert [f for f in findings if f.code == _WRITE_HOLE_CODE] == []
+
+
+def test_lint_write_hole_is_found_through_a_nested_spelling(tmp_path) -> None:
+    """The inherited block may be written as a nested subtree rather than as one
+    dotted key. A guard that reads only one of two equivalent spellings is a
+    guard an author steps around without knowing there was one."""
+    # Arrange
+    config = _write_posture_config(
+        tmp_path,
+        {"control_system.writes_enabled": False},
+        control_system={"connector": {"epics": {"writes_enabled": True}}},
+    )
+
+    # Act
+    findings = lint_profile_config(config, profile_root=tmp_path)
+
+    # Assert
+    holes = [f for f in _errors(findings) if f.code == _WRITE_HOLE_CODE]
+    assert len(holes) == 1, findings
+    assert "control_system.connector.epics.writes_enabled" in holes[0].message
+
+
+def test_lint_rendered_project_reports_no_write_hole(tmp_path) -> None:
+    """A rendered config.yml is one composed document with no authored layer
+    left in it, so every key in it reads as written down and there is no
+    question to ask. The check runs at profile altitude only."""
+    # Arrange
+    project_dir = tmp_path / "als-assistant"
+    project_dir.mkdir()
+    (project_dir / "Dockerfile").write_text("FROM scratch\n")
+    (project_dir / "config.yml").write_text(
+        yaml.safe_dump(
+            {
+                "project_name": "als-assistant",
+                "control_system": {
+                    "writes_enabled": False,
+                    "connector": {"epics": {"writes_enabled": True}},
+                },
+            }
+        )
+    )
+    config = _persona_config(
+        web_terminals={
+            "image_source": "local",
+            "personas": {
+                "assistant": {
+                    "project": "als-assistant",
+                    "project_path": str(project_dir),
+                    "build_profile": "personas/assistant.yml",
+                }
+            },
+        }
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert [f for f in findings if f.code == _WRITE_HOLE_CODE] == []
+
+
+@pytest.mark.parametrize(
+    "preset",
+    [
+        "control-assistant-readonly",
+        "control-assistant-readwrite",
+        "control-assistant-admin",
+        "control-assistant-va-readwrite",
+    ],
+)
+def test_lint_shipped_write_posture_tiers_report_no_write_hole(preset: str) -> None:
+    """Every shipped tier writes its own posture down in full — the read-only
+    one pins each block off beside the flat key, the simulator one arms the one
+    block it means to arm, and the two armed ones set the flat key true. A
+    finding against any of them would refuse our own reference stack."""
+    # Arrange
+    config = _profile_config(
+        default_persona="tier",
+        users=[{"name": "alice", "index": 0, "persona": "tier"}],
+        personas={
+            "tier": {
+                "project": "ca-tier",
+                "project_path": "../ca-tier",
+                "build_profile": preset,
+            }
+        },
+    )
+
+    # Act
+    findings = lint_profile_config(config)
+
+    # Assert
+    assert [f.message for f in findings if f.code == _WRITE_HOLE_CODE] == []
+
+
+def test_lint_preset_persona_inheriting_an_armed_block_is_an_error(tmp_path, monkeypatch) -> None:
+    """The same hole on the other authoring path: a catalog entry naming a
+    bundled preset, whose posture is split between the preset and the parent it
+    extends. Read after `extends` resolution the two files are indistinguishable
+    from one, which is why the preset is read a second time unresolved."""
+    # Arrange
+    from osprey.cli import build_profile_presets
+
+    presets_dir = tmp_path / "presets"
+    presets_dir.mkdir()
+    (presets_dir / "facility-base.yml").write_text(
+        yaml.safe_dump(
+            {
+                "name": "Facility Base",
+                "config": {"control_system.connector.epics.writes_enabled": True},
+            }
+        )
+    )
+    (presets_dir / "facility-readonly.yml").write_text(
+        yaml.safe_dump(
+            {
+                "name": "Facility Read-Only",
+                "extends": "facility-base",
+                "config": {"control_system.writes_enabled": False},
+            }
+        )
+    )
+    monkeypatch.setattr(build_profile_presets, "_presets_dir", lambda: presets_dir)
+    config = _profile_config(
+        default_persona="tier",
+        users=[{"name": "alice", "index": 0, "persona": "tier"}],
+        personas={
+            "tier": {
+                "project": "ca-tier",
+                "project_path": "../ca-tier",
+                "build_profile": "facility-readonly",
+            }
+        },
+    )
+
+    # Act
+    findings = lint_profile_config(config)
+
+    # Assert
+    holes = [f for f in _errors(findings) if f.code == _WRITE_HOLE_CODE]
+    assert len(holes) == 1, findings
+    assert "facility-readonly" in holes[0].message
+    assert "control_system.connector.epics.writes_enabled" in holes[0].message
+
+
+def test_preset_authored_config_reads_the_layer_before_extends() -> None:
+    """The seam the preset half of the check is built on: the preset's own
+    `config:` block, not the one its `extends` chain resolves to. The shipped
+    simulator tier is the case that needs the distinction — it writes both of
+    its posture keys itself, and its parent writes the connector type."""
+    # Arrange
+    from osprey.cli.build_profile import resolve_build_profile
+    from osprey.cli.build_profile_resolve import preset_authored_config
+
+    # Act
+    authored = preset_authored_config("control-assistant-va-readwrite")
+    resolved, _root = resolve_build_profile(None, "control-assistant-va-readwrite")
+
+    # Assert
+    assert authored["control_system.writes_enabled"] is False
+    assert authored["control_system.connector.virtual_accelerator.writes_enabled"] is True
+    # The parent's key: in the resolved document, absent from the authored one.
+    assert "control_system.type" not in authored
+    assert resolved.config["control_system.type"] == "virtual_accelerator"
 
 
 def _shipped_preset_names() -> list[str]:

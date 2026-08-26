@@ -51,6 +51,11 @@ PINNED_PRESET_DEPENDENCIES: dict[str, list[str]] = {
     "control-assistant-ariel": [],
     "control-assistant-readonly": [],
     "control-assistant-readwrite": [],
+    # The simulator-write rung, added with per-target write posture. Empty like
+    # its siblings: it differs from `control-assistant-readwrite` only in which
+    # connector types its `config:` block arms, and a posture key needs no
+    # package at all — the resolver that reads it ships in the framework.
+    "control-assistant-va-readwrite": [],
     "hello-world": [],
 }
 

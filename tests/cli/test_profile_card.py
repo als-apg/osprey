@@ -89,6 +89,56 @@ def test_each_user_row_carries_rights_auth_and_port(exemplar_lines: list[str]) -
     assert bob.rstrip().endswith(":9092")
 
 
+def test_a_single_target_render_keeps_one_unqualified_write_right(
+    exemplar_lines: list[str],
+) -> None:
+    # The readwrite tier's render builds the simulator and nothing else, so a
+    # session on it reaches one machine. Naming that machine on the row would
+    # describe a target-by-target posture the render has no second half of.
+    alice = line_with(exemplar_lines, "alice")
+    assert "readwrite · rights approval-gated" in alice
+
+
+def test_a_switch_capable_render_answers_per_target(exemplar_lines: list[str]) -> None:
+    # The readonly tier pins BOTH connector types off by name, which is also
+    # what makes its render switch-capable: two machines a session could be
+    # pointed at, so the card answers for each rather than once for the login.
+    bob = line_with(exemplar_lines, "bob")
+    assert "readonly · live read-only · va read-only" in bob
+
+
+def test_a_mixed_persona_arms_only_the_target_its_own_block_names() -> None:
+    # Write posture is per connector type: `control_system.writes_enabled`
+    # answers only for a type whose own block says nothing. A persona that
+    # says `false` deployment-wide and `true` under the simulator's block is
+    # armed on the simulator and read-only on the live machine — and the card
+    # has to show both halves, because which one carries the write path is
+    # the whole point of saying it.
+    profile = BuildProfile(
+        name="mixed",
+        config={
+            "modules.web_terminals.enabled": True,
+            "modules.web_terminals.web_base_port": 9091,
+            "modules.web_terminals.users": [{"name": "dana", "index": 0, "persona": "va-write"}],
+            "control_system.type": "virtual_accelerator",
+            "control_system.connector.epics.gateways": ["gw.example:5064"],
+            "control_system.connector.virtual_accelerator.port": 5064,
+        },
+    )
+    deltas = {
+        "va-write": {
+            "config": {
+                "control_system.writes_enabled": False,
+                "control_system.connector.virtual_accelerator.writes_enabled": True,
+            }
+        }
+    }
+
+    dana = line_with(format_profile_card(profile, deltas), "dana")
+
+    assert "va-write · live read-only · va rights approval-gated" in dana
+
+
 def test_a_login_free_user_says_no_login(exemplar_lines: list[str]) -> None:
     ariel = line_with(exemplar_lines, "ariel", ":909")
     assert "no login" in ariel

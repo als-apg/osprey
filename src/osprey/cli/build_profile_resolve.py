@@ -468,6 +468,36 @@ def resolve_build_document(
     )
 
 
+def preset_authored_config(preset: str) -> dict[str, Any]:
+    """The ``config:`` block a bundled preset writes DOWN ITSELF.
+
+    The counterpart of what :func:`resolve_build_document` returns for the same
+    preset: this is the layer read straight off the preset file, before
+    ``extends`` folds its parents in, so a key here is one the preset's own
+    author typed rather than one it inherits.
+
+    A build never wants this — it wants the resolved answer, which is the only
+    thing that describes what will be deployed. A *guard* sometimes does: the
+    difference between "this file says read-only" and "this file resolves to
+    read-only" is the whole question a check about accidental inheritance asks,
+    and it cannot be recovered from the merged document.
+
+    Args:
+        preset: A bundled preset name, in either spelling
+            (``control-assistant`` / ``control_assistant``).
+
+    Returns:
+        The preset's own ``config:`` mapping, empty when it declares none.
+        Dotted keys, nested blocks, or both — exactly as written.
+
+    Raises:
+        BuildProfileError: If the preset is unknown or is not a YAML mapping.
+    """
+    raw, _base_anchor = _load_preset_raw(preset)
+    config = raw.get("config")
+    return config if isinstance(config, dict) else {}
+
+
 # ---------------------------------------------------------------------------
 # The profile a build reads
 # ---------------------------------------------------------------------------
