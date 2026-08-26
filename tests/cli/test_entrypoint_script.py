@@ -147,7 +147,14 @@ class TestScriptShape:
 # ── behaviour ────────────────────────────────────────────────────────────────
 
 
-def _stub_bin(tmp_path: Path, *, uid: int, with_gosu: bool, python_rc: int = 0) -> Path:
+def _stub_bin(
+    tmp_path: Path,
+    *,
+    uid: int,
+    with_gosu: bool,
+    python_rc: int = 0,
+    with_osprey_user: bool = True,
+) -> Path:
     """A PATH holding only stubs, so a run touches nothing on the host.
 
     ``date`` and ``dirname`` are stubbed too, not because the test cares about
@@ -171,7 +178,14 @@ def _stub_bin(tmp_path: Path, *, uid: int, with_gosu: bool, python_rc: int = 0) 
         '  *) printf ".\\n" ;;\n'
         "esac\n",
     )
-    write("id", f'if [ "$1" = "-u" ]; then printf "{uid}\\n"; fi\nexit 0\n')
+    # Two callers with two meanings: `id -u` answers who this process is, and
+    # `id osprey` answers whether the image HAS that account. Only the second
+    # one's exit status is a lookup, so the stub keeps them separate.
+    write(
+        "id",
+        f'if [ "$1" = "-u" ]; then printf "{uid}\\n"; exit 0; fi\n'
+        f"exit {0 if with_osprey_user else 1}\n",
+    )
     # Records the invocation and captures the program it was handed on stdin,
     # so the regen-before-restore order can be checked on what actually ran
     # rather than only on the script's source.
@@ -285,6 +299,23 @@ class TestBehaviour:
         assert "gosu" in result.stderr
         assert order == [], "maintenance ran for a container that cannot start"
 
+    def test_missing_osprey_user_is_fatal(self, script: Path, tmp_path: Path):
+        """The other half of the same refusal: gosu present, account absent.
+
+        ``gosu osprey`` on an image with no ``osprey`` account cannot drop
+        anywhere, so the two guards answer one question together — can this
+        container stop being root? Checked in the same place and for the same
+        reason, and the run must end before the maintenance step, which would
+        otherwise leave root-owned files behind for a container that never
+        starts.
+        """
+        bindir = _stub_bin(tmp_path, uid=0, with_gosu=True, with_osprey_user=False)
+        result, order, _ = _run(script, tmp_path, bindir, *self._cmd(tmp_path))
+
+        assert result.returncode != 0
+        assert "osprey" in result.stderr
+        assert order == [], "maintenance ran for a container that cannot start"
+
     def test_already_unprivileged_skips_maintenance(self, script: Path, tmp_path: Path):
         """Run with ``--user``: neither write can succeed against a root-owned
         render, so run the command and say what was skipped."""
@@ -309,12 +340,15 @@ class TestStateZoneHandBack:
     """Root writes into ``var/`` on the way through, and must not keep it.
 
     Both maintenance steps write there: the scaffold restore appends its
-    reserved-path refusals to ``var/audit/protected-writes.jsonl``, and on a
-    fresh deployment root is the FIRST writer, so the file is created root-owned
-    0644. The server then runs as ``osprey`` and cannot append to it — and the
-    refusal recorder never raises, so every refusal the running app makes after
-    that is dropped in silence. An audit log only root can write is worse than
-    no audit log, because it looks like one.
+    reserved-path refusals to the audit ledger — ``var/audit/<identity>/
+    maintenance.jsonl``, where the per-command ``OSPREY_AUDIT_WRITER`` marker
+    routes everything this phase records — and on a fresh deployment root is the
+    FIRST writer, so the file is created root-owned 0644. The server then runs
+    as ``osprey`` and records under the surface that decided; the marker is what
+    keeps the two out of one file, since the app user could not append to a
+    root-owned one and the refusal recorder never raises, so every refusal after
+    that would be dropped in silence. An audit log only root can write is worse
+    than no audit log, because it looks like one.
     """
 
     def _cmd(self, tmp_path: Path) -> list[str]:

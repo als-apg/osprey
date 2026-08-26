@@ -64,6 +64,167 @@ def as_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+# ---------------------------------------------------------------------------
+# Roster entry -> persona
+#
+# One answer to "which persona does this roster entry run as", shared by every
+# raw-roster read that needs a resolved persona: `resolve_personas` (and its
+# `_persona_ref_by_name` re-read), `_referenced_personas` below, lint's two
+# roster walks, per-persona env provisioning and the profile card. They used to
+# each spell `entry.get("persona") or default_persona` inline, which was fine
+# while a direct pin was the only way to name a persona; a `role:` that binds
+# one through `modules.web_terminals.authorization` is a second way, and six
+# independent readings of it is six chances for one surface to grant a
+# privilege set another never saw.
+# ---------------------------------------------------------------------------
+
+
+class UnresolvedRoleError(ValueError):
+    """A roster entry's persona binding does not resolve to exactly one persona.
+
+    Raised by :func:`effective_persona` for the two roster shapes that would
+    otherwise hand the entry a privilege set nobody chose: a ``role:`` naming no
+    declared role, and an entry carrying both ``role:`` and ``persona:``.
+
+    A ``ValueError`` subclass, so the lenient paths that already catch
+    ``ValueError`` around persona resolution keep behaving as they do; named, so
+    a caller that wants to tell an unresolvable binding apart from every other
+    config refusal can.
+    """
+
+
+def resolve_authorization_roles(web_terminals: Any) -> dict[str, str]:
+    """The parsed ``{role: persona}`` table for a ``modules.web_terminals`` block.
+
+    A thin accessor over the single ``authorization`` parser
+    (:func:`osprey.deployment.web_terminals.render._authorization_context`), so
+    every :func:`effective_persona` caller reads the same table rather than
+    re-deriving one. The parse is deliberately NOT repeated here: a second
+    reading of the stanza is exactly the drift a single parser exists to
+    prevent. ``render`` imports this module at module scope, so the import runs
+    inside the function.
+
+    Raises:
+        ValueError: propagated from the parser for an incoherent stanza (see
+            :func:`~osprey.deployment.web_terminals.render._authorization_context`).
+            Reporting surfaces — lint, the profile card — catch it and carry on
+            with an empty table and ``strict=False``, because a stanza that does
+            not parse is already its own reported finding
+            (``web_terminals.invalid_authorization``) and a report that raised
+            would replace every other finding with a traceback.
+    """
+    from osprey.deployment.web_terminals.render import _authorization_context
+
+    return _authorization_context(as_dict(web_terminals))["authorization_roles"]
+
+
+def effective_persona(
+    entry: Any,
+    authorization: Any,
+    default_persona: Any,
+    *,
+    strict: bool = True,
+) -> str | None:
+    """Which persona a raw roster entry runs as, or ``None`` for no persona at all.
+
+    Resolution, in order:
+
+    * The entry's ``role:``, through *authorization* — a role names the catalog
+      persona every entry carrying it runs as.
+    * Else the entry's own ``persona:`` pin.
+    * Else *default_persona*.
+    * Else ``None`` — no persona system in effect for this entry, which is how
+      every roster written before persona catalogs resolves.
+
+    An entry carrying no ``role:`` therefore resolves exactly as it did before
+    roles existed, which is what keeps every pre-roles deployment rendering
+    byte-identically. (:func:`normalize_users` drops an empty-string ``role``
+    for the same reason it drops an empty ``oidc_subject``, so "carries a role"
+    and "named a role" are the same question by the time anything reads one.)
+
+    Two shapes raise :class:`UnresolvedRoleError` instead of resolving, because
+    each would otherwise bind a privilege set nobody wrote:
+
+    * **A ``role`` absent from** *authorization*. Falling back to
+      *default_persona* here would let ``--no-lint`` silently swap a binding: the
+      operator wrote a role, the deploy ran a different privilege set, and
+      nothing said so. Lint reports the friendlier half of this pair first
+      (``web_terminals.unknown_role_reference``).
+    * **Both ``role:`` and ``persona:`` on one entry.** A role binds the persona
+      and a direct ``persona:`` pin is the pre-authorization way to bind the same
+      slot; an entry naming both leaves which mechanism governs unwritten. It is
+      refused even when the two agree today, because the ambiguity is about
+      which one governs tomorrow: a later edit to the role's persona would
+      silently not reach this entry. Lint reports it as
+      ``web_terminals.conflicting_user_persona_and_role``.
+
+    Args:
+        entry: One RAW roster entry (``modules.web_terminals.users[i]``).
+            Anything that is not a mapping resolves to *default_persona*, the
+            same defensive read the rest of this module uses.
+        authorization: The ``{role: persona}`` table — the
+            ``authorization_roles`` key of the parsed context, via
+            :func:`resolve_authorization_roles`. Empty for a deployment that
+            declares no roles.
+        default_persona: ``modules.web_terminals.default_persona``. A
+            non-string or empty value reads as absent. Callers that want only
+            the entry's *own* reference (the default is added separately, or
+            applied downstream) pass ``None``.
+        strict: ``True`` — the binding surfaces — raises on the two shapes
+            above. ``False`` — the reporting surfaces (lint's roster walks, the
+            profile card), each of which pairs the degrade with an ERROR finding
+            — resolves them the way the entry would have resolved before roles
+            existed, so a report shows every finding rather than dying on the
+            first bad entry. It mirrors :func:`resolve_personas`' own ``strict``
+            split.
+
+    Raises:
+        UnresolvedRoleError: See above; only when *strict*.
+    """
+    source = entry if isinstance(entry, Mapping) else {}
+    roles = authorization if isinstance(authorization, Mapping) else {}
+
+    persona = source.get("persona")
+    persona = persona if isinstance(persona, str) and persona else None
+    role = source.get("role")
+    role = role if isinstance(role, str) and role else None
+    fallback = persona or (
+        default_persona if isinstance(default_persona, str) and default_persona else None
+    )
+
+    if role is None:
+        return fallback
+
+    name = source.get("name")
+    if persona is not None:
+        if strict:
+            raise UnresolvedRoleError(
+                f"modules.web_terminals.users entry {name!r} carries both persona "
+                f"{persona!r} and role {role!r}. A role binds the persona "
+                f"(modules.web_terminals.authorization.roles.{role}.persona) and a direct "
+                "'persona' pin binds the same slot, so an entry naming both leaves which "
+                "one governs unwritten — a later edit to the role's persona would silently "
+                "not reach this entry. Keep one: drop 'persona' to let the role bind it, "
+                "or drop 'role' to pin it directly"
+            )
+        return fallback
+
+    bound = roles.get(role)
+    if isinstance(bound, str) and bound:
+        return bound
+    if strict:
+        declared = ", ".join(repr(declared_role) for declared_role in roles) or "none"
+        raise UnresolvedRoleError(
+            f"modules.web_terminals.users entry {name!r} has role {role!r}, which is not "
+            "declared under modules.web_terminals.authorization.roles (declared: "
+            f"{declared}). The entry is deliberately NOT resolved to the deployment's "
+            "default persona: substituting a privilege set nobody chose is the failure a "
+            "static role binding exists to prevent, and a scaffold run with --no-lint "
+            "would be the only warning"
+        )
+    return fallback
+
+
 #: The in-terminal event-dispatcher dashboard's panel id. A persona that declares
 #: this panel is the one thing that entitles its containers to
 #: ``EVENT_DISPATCHER_TOKEN`` — the panel declaration IS the intent, so there is
@@ -286,21 +447,46 @@ def config_archiver_password_env(config: Any) -> str | None:
 def _referenced_personas(config: Any) -> tuple[dict[str, Any], set[str]]:
     """The persona catalog and the names some roster entry actually resolves to.
 
-    ``default_persona`` counts alongside every entry's explicit ``persona``: a
-    roster entry that names none runs the default, so the default's project is
-    as deployed as any other.
+    ``default_persona`` counts alongside every entry's own reference (its
+    ``role:`` binding or its ``persona:`` pin, via :func:`effective_persona`): a
+    roster entry that names neither runs the default, so the default's project
+    is as deployed as any other.
+
+    Resolved LENIENTLY (``strict=False``). This walk is a *query* — "which
+    personas does this roster run" — and it binds nothing on its own: it feeds
+    the entitlement predicates, lifecycle's post-removal privilege check, and
+    lint's privileged-exposure rules, the last of which must report every
+    finding rather than die on the first unresolvable entry. The surfaces that
+    actually bind an entry to a persona (:func:`resolve_personas` at render, the
+    per-persona env provisioning) refuse an unresolvable role loudly, and no
+    deployment reaches an artifact past them — so degrading here costs nothing
+    and keeps a broken roster reportable. Degrading is also the inclusive
+    direction, which is the same fail-closed reasoning
+    :func:`personas_not_denying_bash` documents: a persona named here is checked,
+    never skipped.
     """
     web_terminals = as_dict(as_dict(as_dict(config).get("modules")).get("web_terminals"))
     catalog = as_dict(web_terminals.get("personas"))
 
+    try:
+        roles = resolve_authorization_roles(web_terminals)
+    except ValueError:
+        # An `authorization` stanza that does not parse is lint's finding
+        # (`web_terminals.invalid_authorization`) and the render's refusal; this
+        # query carries on against an empty table.
+        roles = {}
     referenced: set[str] = set()
     default_persona = web_terminals.get("default_persona")
     if isinstance(default_persona, str) and default_persona:
         referenced.add(default_persona)
     users = web_terminals.get("users")
     for user in users if isinstance(users, list) else []:
-        if isinstance(user, dict) and isinstance(user.get("persona"), str) and user["persona"]:
-            referenced.add(user["persona"])
+        # `default_persona=None`: it is added above on its own terms, so this
+        # asks only what the entry itself names — its `role:` binding or its
+        # `persona:` pin.
+        persona = effective_persona(user, roles, None, strict=False)
+        if persona:
+            referenced.add(persona)
     return catalog, referenced
 
 
@@ -528,6 +714,15 @@ def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
     *non-secret* side of the mapping ever lives in config.yml; password hashes
     never do (they live in ``.env.auth``, keyed by :func:`env_var_suffix`).
 
+    An object entry's optional ``role`` (the name of a
+    ``modules.web_terminals.authorization.roles`` entry, which names the persona
+    this user runs as) is carried through on exactly the same terms as
+    ``oidc_subject``, empty-string drop included: it is an authorization mapping
+    too, and a carried ``""`` would leave the entry naming a role no table can
+    answer. Dropping it leaves the entry with no binding at all, which the shared
+    persona helper reads as "the deployment's default persona". A ``role`` that
+    names no declared role, and a non-string one, are reported by lint.
+
     An object entry's optional ``login`` (whether this entry sits behind the
     deployment's login wall when authentication is enabled) is carried through
     only when it is the literal boolean ``False`` — the one value that changes
@@ -553,8 +748,8 @@ def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
 
     Returns:
         New ``{"name": str, "index": int}`` dicts (plus optional
-        ``"display_name"``, ``"theme"`` and ``"oidc_subject"`` string keys and
-        a ``"login": False`` marker when the entry carried them) in
+        ``"display_name"``, ``"theme"``, ``"oidc_subject"`` and ``"role"`` string
+        keys and a ``"login": False`` marker when the entry carried them) in
         config-declaration order. Input dicts are never mutated or returned by
         reference.
     """
@@ -578,6 +773,14 @@ def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
                 oidc_subject = entry.get("oidc_subject")
                 if isinstance(oidc_subject, str) and oidc_subject:
                     normalized_entry["oidc_subject"] = oidc_subject
+                # Carried on the same terms as `oidc_subject`, and for the same
+                # reason: `role` is an authorization mapping, so an empty string is
+                # dropped rather than kept. A carried `""` would leave the entry
+                # claiming a role no table can answer; dropping it leaves no binding
+                # at all, which every consumer reads as "the default persona".
+                role = entry.get("role")
+                if isinstance(role, str) and role:
+                    normalized_entry["role"] = role
                 # Only the literal boolean False is carried: absent or True both
                 # mean "login required", and any other value is a config typo
                 # (reported by lint) whose safe reading is the same. Carrying
@@ -620,6 +823,15 @@ def freeze_user_indices(users_raw: Any) -> list[dict[str, Any]]:
     ``default_persona`` (see :func:`resolve_personas`, which reads ``persona``
     off the raw roster). For a user removal that is a silent privilege change,
     not a cosmetic one, whenever the default persona is the more privileged.
+
+    ``role:`` is the OTHER key whose loss is that same silent privilege change,
+    and it must reach the file for the same reason even though it reaches it by
+    a different route: :func:`normalize_users` carries ``role`` through, so it
+    survives the projection rather than being re-attached from the authored
+    entry. Both keys are inputs to :func:`effective_persona`, so a survivor
+    written back without either one drops onto ``default_persona`` on the next
+    render. Named here because the two are one contract to a reader, whichever
+    half of this function happens to deliver them.
 
     So this function starts from :func:`normalize_users`' output — survival and
     index-freezing stay entirely that function's contract, with no second copy
@@ -1322,6 +1534,46 @@ def roster_user_names(web_terminals: Any) -> list[str]:
     return [entry["name"] for entry in normalize_users(subtree.get("users"))]
 
 
+def roster_role_by_name(web_terminals: Any) -> dict[str, str]:
+    """The static role each roster entry declares, keyed by username.
+
+    A roster ``role:`` reaches the deployment twice, and the two readings are
+    deliberately kept apart. :func:`resolve_personas` *consumes* the role: it
+    resolves through :func:`effective_persona` into the persona a terminal is
+    built from, and its output carries no ``role`` key at all — which is what
+    makes a role-only roster resolve field for field like the ``persona:``-pinned
+    roster it stands for. This accessor is the other reading: the role NAME
+    itself, which the auth sidecar hands a password session as the privilege
+    that login was granted. A ``persona:`` pin conveys none of it, so the two
+    are separate facts and are read separately.
+
+    Keyed by name rather than returned in roster order because that is how the
+    render consumes it — one lookup per already-resolved entry — and because
+    :func:`_persona_ref_by_name` already keys the same roster the same way.
+
+    Unlike :func:`roster_user_names` this does *not* consult ``enabled``: it is
+    joined against :func:`resolve_personas`' output, which does not either, and
+    a table that emptied itself on a key its partner ignores would answer "no
+    role" for a roster that has one.
+
+    Args:
+        web_terminals: The ``modules.web_terminals`` subtree. Anything that is
+            not a mapping has no roster, so the table is empty.
+
+    Returns:
+        ``{username: role}`` for the entries declaring a non-empty ``role:``. An
+        entry declaring none is *absent*, never empty-string keyed, on the same
+        terms :func:`normalize_users` drops it: an empty role is "no privileges",
+        and storing it as a value would invite a reader to treat it as a role
+        named ``""``.
+    """
+    return {
+        entry["name"]: entry["role"]
+        for entry in normalize_users(as_dict(web_terminals).get("users"))
+        if entry.get("role")
+    }
+
+
 def effective_image_source(web_terminals: dict[str, Any]) -> str:
     """Coerce ``modules.web_terminals.image_source`` to one of the two real modes.
 
@@ -1356,22 +1608,30 @@ def resolve_image_tag(web_terminals: dict[str, Any]) -> str:
     return _ENV_REF_RE.sub(lambda m: os.environ.get(m.group(1) or m.group(2), ""), raw)
 
 
-def _persona_ref_by_name(raw_users: Any) -> dict[str, str]:
-    """Recover each roster entry's ``persona`` reference from the raw roster.
+def _persona_ref_by_name(
+    raw_users: Any, authorization: Mapping[str, str], *, strict: bool = True
+) -> dict[str, str]:
+    """Recover each roster entry's own persona reference from the raw roster.
 
-    normalize_users() drops any `persona` field off each surviving entry;
-    recover it here, keyed by name (the same key every other per-user artifact
-    in this module — compose service names, volume names — is keyed by), since
-    normalize_users()'s own index-freezing contract is orthogonal to persona
-    resolution.
+    normalize_users() drops both the `persona` and the `role` field off each
+    surviving entry; recover the persona they resolve to here, keyed by name
+    (the same key every other per-user artifact in this module — compose service
+    names, volume names — is keyed by), since normalize_users()'s own
+    index-freezing contract is orthogonal to persona resolution.
+
+    Routed through :func:`effective_persona`, so a `role:` binding and a
+    `persona:` pin arrive at the same answer. ``default_persona`` is deliberately
+    not applied here — :func:`resolve_personas` applies it to the entries this
+    map has nothing for, exactly as it did when this returned only explicit
+    pins.
     """
     refs: dict[str, str] = {}
     if isinstance(raw_users, list):
         for raw_entry in raw_users:
             if isinstance(raw_entry, dict):
                 name = raw_entry.get("name")
-                persona = raw_entry.get("persona")
-                if isinstance(name, str) and isinstance(persona, str) and persona:
+                persona = effective_persona(raw_entry, authorization, None, strict=strict)
+                if isinstance(name, str) and persona:
                     refs[name] = persona
     return refs
 
@@ -1390,10 +1650,14 @@ def resolve_personas(
     surviving entry's ``persona`` field (which :func:`normalize_users` discards)
     from the raw roster by matching on ``name``.
 
-    A ``persona`` reference resolves in this order: the entry's own ``persona:``
-    key, else ``modules.web_terminals.default_persona``, else ``None`` (no persona
-    system in effect for this entry at all — every config predating persona
-    catalogs resolves this way for every entry). Resolving against the catalog
+    A ``persona`` reference resolves through :func:`effective_persona`: the
+    entry's ``role:`` binding, else its own ``persona:`` key, else
+    ``modules.web_terminals.default_persona``, else ``None`` (no persona system
+    in effect for this entry at all — every config predating persona catalogs
+    resolves this way for every entry). Under ``strict`` an unresolvable
+    binding — a role naming no declared role, or an entry carrying both a role
+    and a persona — raises :class:`UnresolvedRoleError`; the lenient path
+    degrades it to the pre-roles answer, which lint pairs with its own ERROR. Resolving against the catalog
     (``modules.web_terminals.personas.<name>: {project, project_path,
     build_profile}``) then follows these naming rules. In registry mode every
     image carries the tag :func:`resolve_image_tag` resolves from
@@ -1492,7 +1756,21 @@ def resolve_personas(
         if isinstance(url, str):
             registry_url = url
 
-    persona_ref_by_name = _persona_ref_by_name(web_terminals.get("users"))
+    # The role table behind every entry's binding. Under `strict` an incoherent
+    # `authorization` stanza stops the render here rather than resolving a
+    # roster against a table that was never built; the lenient callers (lifecycle
+    # verbs, lint) carry on with an empty one, and lint reports the stanza
+    # itself as `web_terminals.invalid_authorization`.
+    try:
+        authorization_roles = resolve_authorization_roles(web_terminals)
+    except ValueError:
+        if strict:
+            raise
+        authorization_roles = {}
+
+    persona_ref_by_name = _persona_ref_by_name(
+        web_terminals.get("users"), authorization_roles, strict=strict
+    )
 
     if (
         strict

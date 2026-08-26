@@ -368,6 +368,12 @@ config:
       # Accepts login over plain HTTP, which fits 127.0.0.1 and nothing else.
       # For any reachable host, delete this line and configure tls instead.
       allow_insecure_http: true
+    # Which tier a user lands on is pinned per entry below. Single sign-on can
+    # pick it instead by mapping provider groups onto declared roles — see
+    # "Let single sign-on pick the tier" in the multi-user login guide.
+    #   authorization:
+    #     roles: {operator: {persona: readwrite}, viewer: {persona: readonly}}
+    #     claims: {claim: groups, map: {ca-operators: operator, ca-viewers: viewer}}
     # How the landing page is laid out. Omit this whole block and you get one
     # section holding every entry below, headed "Terminals".
     landing:

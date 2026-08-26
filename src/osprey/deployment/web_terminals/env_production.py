@@ -15,7 +15,11 @@ import yaml
 
 from osprey.cli.output import report_fact
 from osprey.deployment.errors import ComposeInterpolationError
-from osprey.deployment.web_terminals.personas import effective_image_source
+from osprey.deployment.web_terminals.personas import (
+    effective_image_source,
+    effective_persona,
+    resolve_authorization_roles,
+)
 from osprey.utils.dotenv import (
     ENV_CHAIN_FILENAMES,
     ENV_LOCAL_FILENAME,
@@ -257,19 +261,36 @@ def _telemetry_enabled(cfg: dict) -> bool:
 def _referenced_persona_names(config: dict) -> list[str]:
     """Every persona name this roster runs: the default plus each user's own.
 
+    "Each user's own" is
+    :func:`~osprey.deployment.web_terminals.personas.effective_persona`'s answer
+    — the entry's ``role:`` binding or its ``persona:`` pin — so a role-bound
+    persona is provisioned exactly as a pinned one is, out of the same table the
+    render binds from.
+
     Sorted, so everything derived from the roster reports in a stable order.
     Names are taken as written; whether the catalog knows one is a separate
     question (see :func:`_referenced_persona_entries`).
+
+    Raises:
+        ValueError: For an ``authorization`` stanza that does not parse, or a
+            roster entry whose binding does not resolve. This is a binding
+            surface — it decides which persona is handed which credential — so
+            it fails closed rather than provisioning the default persona's
+            secrets for an entry the operator bound elsewhere.
     """
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
+    roles = resolve_authorization_roles(web_terminals)
     referenced: set[str] = set()
     default_persona = web_terminals.get("default_persona")
     if isinstance(default_persona, str) and default_persona:
         referenced.add(default_persona)
     users = web_terminals.get("users")
     for user in users if isinstance(users, list) else []:
-        if isinstance(user, dict) and isinstance(user.get("persona"), str) and user["persona"]:
-            referenced.add(user["persona"])
+        # `default_persona=None`: added above on its own terms, so this asks
+        # only what the entry itself names.
+        persona = effective_persona(user, roles, None)
+        if persona:
+            referenced.add(persona)
     return sorted(referenced)
 
 

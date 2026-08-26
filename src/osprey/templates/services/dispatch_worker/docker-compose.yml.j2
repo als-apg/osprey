@@ -122,6 +122,27 @@ services:
       DISPATCH_TIMEOUT_SEC: "{{ services.dispatch_worker.timeout_sec | default(300) }}"
       DISPATCH_INACTIVITY_SEC: "{{ services.dispatch_worker.inactivity_sec | default(120) }}"
       OSPREY_PROJECT_DIR: /app/{{ osprey_labels.project_name }}
+      # WHO this worker's audit records are written as, and WHERE. The audit
+      # mount follows the MIDDLEWARE, not the interface app: this container
+      # launches the framework MCP servers through a CLI subprocess, so every
+      # tools/call it makes is recorded — and a worker that recorded as the
+      # generic container user would file its records under a name that
+      # identifies nobody.
+      #
+      # One identity per WORKER, not one for the service: each worker is its own
+      # container writing concurrently, and the identity is its compose service
+      # key, so a record can be traced back to the container that wrote it with
+      # no lookup table. The same derivation provisions the host directory
+      # (compose_generator.dispatch_worker_audit_identities), which is why the
+      # two are asserted against each other rather than kept in step by hand.
+      #
+      # OSPREY_AUDIT_DIR is also the contract this file offers the image's
+      # entrypoint: its root phase is to join the group of each directory the
+      # render names here before dropping privileges. This worker mounts no
+      # facility bundle, so it names no second directory and that step simply
+      # finds nothing else to do — no special case needed for it.
+      OSPREY_AUDIT_IDENTITY: dispatch-worker-{{ i }}
+      OSPREY_AUDIT_DIR: {{ osprey_container_audit_dir }}/dispatch-worker-{{ i }}
       # The worker process reads OSPREY config directly (e.g. get_facility_timezone
       # while building the agent's system prompt), and spawns a CLI subprocess with
       # its own MCP servers. Set CONFIG_FILE explicitly so the worker AND every
@@ -218,6 +239,18 @@ services:
 {% else %}
       - dispatch_workspace_{{ i }}:{{ osprey_container_agent_data_dir }}
 {% endif %}
+      # This worker's audit subdirectory, and only its own. A bind rather than a
+      # named volume, unlike the workspace above: the records are the operator's
+      # to read, grep and purge on the host, which a named volume would bury in
+      # the runtime's storage. The isolation is the MOUNT — this container holds
+      # a bind to `var/audit/dispatch-worker-<i>` and nothing else under
+      # `var/audit`, so a worker cannot read a terminal user's records or
+      # another worker's. Provisioned host-side before the mount is created
+      # (compose_generator.ensure_audit_dir, from `_ensure_agent_data_structure`
+      # on the build path): left to the container runtime, a rootful daemon
+      # creates the source root-owned and the dropped `osprey` process inside
+      # can write nothing to it.
+      - {{ osprey_audit_mount_source }}/dispatch-worker-{{ i }}:{{ osprey_container_audit_dir }}/dispatch-worker-{{ i }}
 {{- net.network(services.dispatch_worker) }}
 {#- The probe runs INSIDE this container, so `localhost` is right in both modes
     -- its own loopback on the compose bridge, the host's under `host` -- and

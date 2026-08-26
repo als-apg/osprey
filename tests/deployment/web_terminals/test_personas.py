@@ -9,12 +9,14 @@ import pytest
 
 from osprey.deployment.web_terminals.personas import (
     EVENTS_PANEL_ID,
+    UnresolvedRoleError,
     config_archiver_password_env,
     config_declares_panel,
     config_needs_ariel_password,
     config_needs_dispatcher_token,
     config_needs_graphdb_password,
     config_needs_launch_token,
+    effective_persona,
     entry_requires_login,
     env_var_suffix,
     env_var_suffix_collisions,
@@ -26,6 +28,7 @@ from osprey.deployment.web_terminals.personas import (
     personas_needing_graphdb_password,
     personas_needing_launch_token,
     personas_not_denying_bash,
+    resolve_authorization_roles,
     resolve_personas,
     settings_json_denies_bash,
 )
@@ -234,6 +237,32 @@ def test_freeze_user_indices_keeps_the_persona_normalize_users_drops() -> None:
     # Assert
     assert result == [{"name": "alice", "index": 0, "persona": "readonly"}]
     assert normalize_users(users_raw) == [{"name": "alice", "index": 0}]
+
+
+def test_freeze_user_indices_keeps_a_survivors_role() -> None:
+    """`role:` is the OTHER binding whose loss is a silent privilege change.
+
+    It reaches a persona through `modules.web_terminals.authorization` instead of
+    pinning one directly, but `effective_persona` resolves an entry through both,
+    so a survivor written back without its `role:` re-resolves onto
+    `default_persona` exactly as one written back without its `persona:` does.
+    The persona half has had its own test since this function existed; this is
+    the half that did not — and it reaches the write-back by the other route,
+    carried through the projection rather than re-attached from the authored
+    entry, so the persona test does not cover it.
+    """
+    # Arrange
+    users_raw = [
+        {"name": "alice", "index": 0, "role": "operator"},
+        {"name": "bob", "index": 1, "role": "expert"},
+    ]
+
+    # Act
+    result = freeze_user_indices(users_raw)
+
+    # Assert
+    assert [entry.get("role") for entry in result] == ["operator", "expert"]
+    assert result == users_raw
 
 
 def test_freeze_user_indices_freezes_bare_string_positions() -> None:
@@ -2134,3 +2163,249 @@ def test_personas_needing_archiver_password_skips_unrendered_persona_projects(tm
     )
 
     assert personas_needing_archiver_password(config, tmp_path) == {}
+
+
+# ---------------------------------------------------------------------------
+# effective_persona: the one roster-entry -> persona answer (Task 4.2)
+#
+# Every raw-roster read that needs a resolved persona routes through this
+# helper, so a `role:` binding and a `persona:` pin cannot be answered
+# differently by two surfaces. The cases below pin the helper itself; the
+# per-site wiring is pinned underneath them.
+# ---------------------------------------------------------------------------
+
+#: The role table as `resolve_authorization_roles` hands it over.
+_ROLES = {"operator": "console", "expert": "physicist"}
+
+
+def test_effective_persona_without_a_role_prefers_the_entrys_own_pin() -> None:
+    """An entry carrying no `role` resolves exactly as it did before roles
+    existed — which is what keeps every pre-roles deployment byte-identical."""
+    # Arrange
+    entry = {"name": "alice", "index": 0, "persona": "gui"}
+
+    # Act / Assert
+    assert effective_persona(entry, _ROLES, "cli") == "gui"
+
+
+def test_effective_persona_without_a_role_or_pin_falls_back_to_the_default() -> None:
+    """The pre-roles resolution order, unchanged."""
+    # Assert
+    assert effective_persona({"name": "alice"}, _ROLES, "cli") == "cli"
+
+
+def test_effective_persona_with_no_persona_system_in_effect_is_none() -> None:
+    """No pin, no role, no default: every config predating persona catalogs."""
+    # Assert
+    assert effective_persona({"name": "alice"}, {}, None) is None
+
+
+def test_effective_persona_resolves_a_role_through_the_authorization_table() -> None:
+    """The whole point: a role names the catalog persona its entries run as, and
+    it outranks the deployment default the entry would otherwise have taken."""
+    # Arrange
+    entry = {"name": "alice", "index": 0, "role": "expert"}
+
+    # Act / Assert
+    assert effective_persona(entry, _ROLES, "cli") == "physicist"
+
+
+def test_effective_persona_raises_on_a_role_that_is_not_declared() -> None:
+    """THE binding contract: never fall back to the default persona for a role
+    the table does not answer. Falling back would let `--no-lint` swap a
+    privilege set silently — the operator wrote a role, the deploy ran something
+    else, and nothing said so."""
+    # Act / Assert
+    with pytest.raises(UnresolvedRoleError) as excinfo:
+        effective_persona({"name": "alice", "role": "admin"}, _ROLES, "cli")
+
+    # Assert: the message names the offender AND what was declared, so the
+    # operator can see the typo without opening the config.
+    message = str(excinfo.value)
+    assert "'admin'" in message
+    assert "'operator'" in message and "'expert'" in message
+    assert "default persona" in message
+
+
+def test_effective_persona_raises_on_an_entry_carrying_both_a_persona_and_a_role() -> None:
+    """Both bind the same slot, so which one governs is unwritten. Refusing the
+    ambiguity beats inventing a precedence nobody wrote down."""
+    # Act / Assert
+    with pytest.raises(UnresolvedRoleError) as excinfo:
+        effective_persona({"name": "alice", "persona": "gui", "role": "operator"}, _ROLES, "cli")
+
+    # Assert
+    assert "'gui'" in str(excinfo.value) and "'operator'" in str(excinfo.value)
+
+
+def test_effective_persona_refuses_a_persona_and_role_pair_that_agree_today() -> None:
+    """Refused even when the two name the same persona: the ambiguity is about
+    which mechanism governs TOMORROW — a later edit to the role's persona would
+    silently not reach this entry."""
+    # Act / Assert
+    with pytest.raises(UnresolvedRoleError):
+        effective_persona(
+            {"name": "alice", "persona": "console", "role": "operator"}, _ROLES, "cli"
+        )
+
+
+def test_effective_persona_lenient_degrades_an_undeclared_role_to_the_pre_roles_answer() -> None:
+    """The reporting surfaces (lint's roster walks, the profile card) must show
+    every finding rather than die on the first bad entry; each pairs this
+    degrade with an ERROR of its own."""
+    # Assert
+    assert (
+        effective_persona({"name": "alice", "role": "admin"}, _ROLES, "cli", strict=False) == "cli"
+    )
+
+
+def test_effective_persona_lenient_degrades_a_conflicting_entry_to_its_pin() -> None:
+    """Same reason, and to the same answer the entry had before roles existed."""
+    # Assert
+    assert (
+        effective_persona(
+            {"name": "alice", "persona": "gui", "role": "operator"}, _ROLES, "cli", strict=False
+        )
+        == "gui"
+    )
+
+
+def test_effective_persona_reads_a_non_mapping_entry_defensively() -> None:
+    """A bare-string roster entry names no persona of its own, so it runs the
+    default — the same defensive read the rest of this module uses."""
+    # Assert
+    assert effective_persona("alice", _ROLES, "cli") == "cli"
+
+
+def test_effective_persona_ignores_an_empty_string_role() -> None:
+    """`normalize_users` drops an empty `role` before anything downstream reads
+    one; the helper agrees, so a raw-roster read cannot disagree with a
+    normalized one."""
+    # Assert
+    assert effective_persona({"name": "alice", "role": ""}, _ROLES, "cli") == "cli"
+
+
+def test_resolve_authorization_roles_reads_the_one_parser() -> None:
+    """The accessor is a view onto `_authorization_context`, not a second parse."""
+    # Arrange
+    web_terminals = {
+        "authorization": {"roles": {"operator": {"persona": "console"}}},
+    }
+
+    # Act / Assert
+    assert resolve_authorization_roles(web_terminals) == {"operator": "console"}
+    assert resolve_authorization_roles({}) == {}
+
+
+def test_resolve_authorization_roles_propagates_an_incoherent_stanza() -> None:
+    """A role naming no persona is the parser's refusal, not a second opinion."""
+    # Act / Assert
+    with pytest.raises(ValueError):
+        resolve_authorization_roles({"authorization": {"roles": {"operator": {}}}})
+
+
+# ---------------------------------------------------------------------------
+# Site wiring: resolve_personas
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_personas_role_only_entry_resolves_like_the_equivalent_pin() -> None:
+    """A role-only roster and the `persona:`-pinned roster it stands for resolve
+    to the same entry, field for field — the property every downstream artifact
+    (compose service, volume, image tag) inherits."""
+    # Arrange
+    catalog = {
+        "cli": {"project": "als-assistant", "project_path": "profiles/cli"},
+        "gui": {"project": "als-gui-assistant", "project_path": "profiles/gui"},
+    }
+    by_role = {
+        "users": [{"name": "gmartino", "index": 0, "role": "operator"}],
+        "default_persona": "cli",
+        "personas": catalog,
+        "authorization": {"roles": {"operator": {"persona": "gui"}}},
+    }
+    by_pin = {
+        "users": [{"name": "gmartino", "index": 0, "persona": "gui"}],
+        "default_persona": "cli",
+        "personas": catalog,
+    }
+
+    # Act / Assert
+    assert resolve_personas(by_role, _REGISTRY, "als") == resolve_personas(by_pin, _REGISTRY, "als")
+    assert resolve_personas(by_role, _REGISTRY, "als")[0]["persona"] == "gui"
+
+
+def test_resolve_personas_strict_refuses_an_undeclared_role() -> None:
+    """The render path fails closed rather than substituting `default_persona`."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "role": "admin"}],
+        "default_persona": "cli",
+        "personas": {"cli": {"project": "als-assistant", "project_path": "profiles/cli"}},
+        "authorization": {"roles": {"operator": {"persona": "cli"}}},
+    }
+
+    # Act / Assert
+    with pytest.raises(UnresolvedRoleError):
+        resolve_personas(web_terminals, _REGISTRY, "als")
+
+
+def test_resolve_personas_lenient_degrades_an_undeclared_role() -> None:
+    """Lifecycle verbs and lint resolve the same roster leniently: a stale role
+    never blocks `osprey down`, and lint reports it as its own finding."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "role": "admin"}],
+        "default_persona": "cli",
+        "personas": {"cli": {"project": "als-assistant", "project_path": "profiles/cli"}},
+        "authorization": {"roles": {"operator": {"persona": "cli"}}},
+    }
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als", strict=False)
+
+    # Assert
+    assert result[0]["persona"] == "cli"
+
+
+def test_resolve_personas_strict_refuses_an_incoherent_authorization_stanza() -> None:
+    """A roster is never resolved against a role table that was never built."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0}],
+        "default_persona": "cli",
+        "personas": {"cli": {"project": "als-assistant", "project_path": "profiles/cli"}},
+        "authorization": {"roles": {"operator": {}}},
+    }
+
+    # Act / Assert
+    with pytest.raises(ValueError):
+        resolve_personas(web_terminals, _REGISTRY, "als")
+
+
+# ---------------------------------------------------------------------------
+# Site wiring: _referenced_personas (the entitlement / post-removal walk)
+# ---------------------------------------------------------------------------
+
+
+def test_role_bound_persona_counts_as_referenced_for_entitlements(tmp_path) -> None:
+    """`_referenced_personas` stands behind every per-persona credential grant
+    and behind lifecycle's post-removal privilege check. A persona reached
+    through a role must count exactly as a pinned one does — otherwise a
+    role-only roster silently loses its credentials."""
+    # Arrange
+    catalog = {
+        "readwrite": {
+            "project": "rw",
+            "project_path": _write_persona_project_config(
+                tmp_path, "rw", {"ariel": {"search_modules": {"keyword": {"enabled": True}}}}
+            ),
+        },
+    }
+    config = _catalog_config(catalog, [{"name": "alice", "index": 0, "role": "expert"}])
+    config["modules"]["web_terminals"]["authorization"] = {
+        "roles": {"expert": {"persona": "readwrite"}}
+    }
+
+    # Act / Assert
+    assert personas_needing_ariel_password(config, tmp_path) == {"readwrite"}
