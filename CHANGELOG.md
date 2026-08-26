@@ -61,6 +61,12 @@ Compatibility is documented in release notes, not encoded in the version string.
 - `artifact_delete_all` reports one activity entry ("N artifacts (scope)") instead
   of one per deleted artifact, so clearing a large gallery no longer pushes
   everything else out of the activity history.
+- CI: pushing to a pull-request branch now cancels that branch's previous run
+  instead of leaving it queued. Pull requests run three unit-test cells rather
+  than four — Python 3.11 and 3.12 on Ubuntu, and 3.12 on macOS; the full
+  product still runs on `main`, on the nightly schedule and on manual dispatch.
+  The lean connectors wheel and the Tier 0 config-key guard now run as steps of
+  the package and lint jobs.
 
 ### Added
 
