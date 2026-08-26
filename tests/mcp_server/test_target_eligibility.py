@@ -9,8 +9,10 @@ enumerated with their expected outcome **written out per cell**, not computed:
 a test that re-derives the expectation from the same rule the code applies
 agrees with the code by construction and proves nothing about either.
 
-Every case injects ``writes_enabled`` and ``readonly_run`` rather than letting
-them default, so no test depends on the environment of the machine running it.
+Every case injects ``readonly_run`` rather than letting it default, so no test
+depends on the execution mode of the machine running it. ``writes_enabled`` is
+injected too, except in the per-target posture matrix below, where the value the
+config resolves to for each target is the thing being tested.
 """
 
 from __future__ import annotations
@@ -509,6 +511,152 @@ def test_readonly_run_defaults_to_the_processs_execution_mode(monkeypatch) -> No
     config = _config(writes_enabled=True)
 
     assert te.derive_endpoints(config, LIVE).selected_role == "read_only"
+
+
+# ---------------------------------------------------------------------------
+# Write posture, per target
+# ---------------------------------------------------------------------------
+
+#: A block carrying no ``writes_enabled`` leaf at all, which is the tri-state's
+#: "inherit the deployment-wide key" and is not any value the leaf could hold.
+ABSENT = object()
+
+
+def _posture_config(*, deployment: bool, live: Any = ABSENT, va: Any = ABSENT) -> dict[str, Any]:
+    """A two-target config where each block states its own posture, or doesn't."""
+    epics = _epics_block()
+    va_block = _va_block()
+    if live is not ABSENT:
+        epics["writes_enabled"] = live
+    if va is not ABSENT:
+        va_block["writes_enabled"] = va
+    return _config(
+        writes_enabled=deployment,
+        connector={EPICS_TYPE: epics, VA_TYPE: va_block},
+    )
+
+
+# {deployment-wide posture} x {each block's own posture} x {readonly run}, with
+# the role EACH target selects written out per cell. Neither target's expectation
+# is derived from the other's: the whole point of the per-type key is that one
+# deployment can arm one machine and not the other, and a matrix that computed
+# the second answer from the first could not tell the two apart.
+#
+# These cases deliberately do not inject ``writes_enabled`` — the default seam,
+# which is what resolves the target's posture, is what they are about.
+POSTURE_MATRIX = {
+    # deployment-wide, live leaf, va leaf, readonly run, live role, va role
+    "arm-the-simulator-alone": (False, ABSENT, True, False, "read_only", "write_access"),
+    "disarm-the-real-machine-alone": (True, False, ABSENT, False, "read_only", "write_access"),
+    "arm-the-real-machine-alone": (False, True, ABSENT, False, "write_access", "read_only"),
+    "silent-blocks-inherit-a-disarmed-deployment": (
+        False,
+        ABSENT,
+        ABSENT,
+        False,
+        "read_only",
+        "read_only",
+    ),
+    "silent-blocks-inherit-an-armed-deployment": (
+        True,
+        ABSENT,
+        ABSENT,
+        False,
+        "write_access",
+        "write_access",
+    ),
+    "both-blocks-disarm-an-armed-deployment": (True, False, False, False, "read_only", "read_only"),
+    "a-quoted-true-arms-nothing": (False, ABSENT, "true", False, "read_only", "read_only"),
+    "a-readonly-run-collapses-an-armed-simulator": (
+        False,
+        ABSENT,
+        True,
+        True,
+        "read_only",
+        "read_only",
+    ),
+    "a-readonly-run-collapses-an-armed-deployment": (
+        True,
+        ABSENT,
+        ABSENT,
+        True,
+        "read_only",
+        "read_only",
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("deployment", "live_leaf", "va_leaf", "readonly", "live_role", "va_role"),
+    POSTURE_MATRIX.values(),
+    ids=list(POSTURE_MATRIX),
+)
+def test_each_target_selects_the_gateway_its_own_posture_arms(
+    deployment: bool,
+    live_leaf: Any,
+    va_leaf: Any,
+    readonly: bool,
+    live_role: str,
+    va_role: str,
+) -> None:
+    config = _posture_config(deployment=deployment, live=live_leaf, va=va_leaf)
+
+    live = te.derive_endpoints(config, LIVE, readonly_run=readonly)
+    va = te.derive_endpoints(config, VA, readonly_run=readonly)
+
+    assert live.selected_role == live_role
+    assert va.selected_role == va_role
+
+
+def test_posture_decides_which_gateway_a_target_is_required_to_have() -> None:
+    """Check 3 is asked per target: a block with only a write gateway is eligible
+    exactly when its own posture arms the write role it has."""
+    config = _config(
+        writes_enabled=False,
+        connector={
+            EPICS_TYPE: _epics_block(
+                writes_enabled=True,
+                gateways={"write_access": {"address": "gw.example.org", "port": 5084}},
+            ),
+            VA_TYPE: _va_block(
+                gateways={"write_access": {"address": "localhost", "port": 5074}},
+            ),
+        },
+    )
+
+    live = te.evaluate_eligibility(config, LIVE, readonly_run=False)
+    va = te.evaluate_eligibility(config, VA, readonly_run=False)
+
+    assert live.eligible is True
+    assert va.eligible is False
+    assert va.reason == te.REASON_SELECTED_ROLE_MISSING
+
+
+def test_the_roster_reads_each_targets_own_posture() -> None:
+    config = _config(
+        writes_enabled=False,
+        connector={
+            EPICS_TYPE: _epics_block(
+                writes_enabled=True,
+                gateways={"write_access": {"address": "gw.example.org", "port": 5084}},
+            ),
+            VA_TYPE: _va_block(
+                gateways={"write_access": {"address": "localhost", "port": 5074}},
+            ),
+        },
+    )
+
+    live = te.target_availability(
+        config, LIVE, session_target=VA, baseline_target=LIVE, readonly_run=False
+    )
+    va = te.target_availability(
+        config, VA, session_target=VA, baseline_target=LIVE, readonly_run=False
+    )
+
+    assert live.available_now is True
+    assert va.eligible is False
+    assert va.reason == te.REASON_ALREADY_ACTIVE
+    assert va.eligible_from_baseline is False
 
 
 # ---------------------------------------------------------------------------

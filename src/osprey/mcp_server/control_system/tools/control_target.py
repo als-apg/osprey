@@ -104,7 +104,7 @@ from osprey.mcp_server.http import (
     notify_target_switch_async,
 )
 from osprey_connectors.control_system.base import is_readonly_run
-from osprey_connectors.types import CONTROL_TARGETS
+from osprey_connectors.types import CONTROL_TARGETS, target_writes_enabled
 
 logger = logging.getLogger("osprey.mcp_server.tools.control_target")
 
@@ -327,7 +327,6 @@ def target_rows(
     """
     metadata = target_display_metadata(config)
     snapshot = probe_snapshot or {}
-    writes_permitted = _writes_permitted(config)
 
     rows: dict[str, dict[str, Any]] = {}
     for target in CONTROL_TARGETS:
@@ -344,11 +343,12 @@ def target_rows(
             "detail": availability.detail,
             "eligible": availability.eligible,
             "eligible_from_baseline": availability.eligible_from_baseline,
-            # The deployment's write posture, carried on every row so a reader
-            # never has to pair a row with a flag from somewhere else. It is
-            # deployment-wide by construction — OSPREY has one writes_enabled —
-            # and the gateway those writes would leave by is `selected_role`.
-            "writes_permitted": writes_permitted,
+            # This target's own write posture, carried on every row so a reader
+            # never has to pair a row with a flag from somewhere else. Rows of
+            # one deployment may differ: posture is per connector type, so a
+            # simulator can be armed beside a live machine that is not. The
+            # gateway those writes would leave by is `selected_role`.
+            "writes_permitted": _writes_permitted(config, target),
         }
         probe_channel = display.get("probe_channel") or ""
         if probe_channel:
@@ -370,19 +370,19 @@ def target_rows(
     return rows
 
 
-def _writes_permitted(config: Any) -> bool:
-    """Whether a write would be permitted at all, from eligibility's own inputs.
+def _writes_permitted(config: Any, target: str) -> bool:
+    """Whether a write to *target* would be permitted at all.
 
-    The two things that decide it are the deployment posture
-    (``control_system.writes_enabled``) and this run's own claim
-    (``OSPREY_EXECUTION_MODE``) — exactly the pair
+    The two things that decide it are that target's own posture
+    (``control_system.connector.<type>.writes_enabled``, falling back to
+    ``control_system.writes_enabled`` where its type states none) and this run's
+    own claim (``OSPREY_EXECUTION_MODE``) — exactly the pair
     :func:`~osprey.mcp_server.control_system.target_eligibility.derive_endpoints`
-    takes, so the roster and the gateway selection cannot disagree about the
-    posture they are describing.
+    takes, resolved through the same helper it resolves it with, so the roster
+    and the gateway selection cannot disagree about the posture they describe.
     """
     section = config.get("control_system") if isinstance(config, dict) else None
-    enabled = bool(section.get("writes_enabled", False)) if isinstance(section, dict) else False
-    return enabled and not is_readonly_run()
+    return target_writes_enabled(section, target) and not is_readonly_run()
 
 
 @mcp.tool()
@@ -399,8 +399,9 @@ async def control_target() -> str:
     routing mode derived from config, plus the background prober's last
     reachability observation where it has one (``endpoint_tcp``, ``probed_at``,
     and ``stale`` once an observation is too old to stand); whether writes are
-    permitted; whether the target is the real machine; and the channel a switch
-    would read to prove the target is reachable.
+    permitted on that target, which is a per-target answer and not one flag for
+    the deployment; whether the target is the real machine; and the channel a
+    switch would read to prove the target is reachable.
 
     A target nobody has activated yet is described from configuration alone —
     that is what makes this answer correct before any switch has happened.

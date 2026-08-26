@@ -21,7 +21,12 @@ touches Channel Access.
 
 That variant serves two channels with behaviour the tests need and a mock
 cannot give them: :data:`REFUSE_CHANNEL` raises, and :data:`SLOW_CHANNEL`
-blocks for far longer than any drain deadline.
+blocks for far longer than any drain deadline. It also runs the EPICS gateway
+selection — the same rule, reading the same per-type write posture, installing
+the same environment variables — so a target whose block carries a ``gateways``
+table exercises the real role-selection path without any Channel Access. The
+same class is reached by dotted path for ``live``, which is how one config can
+give the two targets different postures and have both children act on them.
 """
 
 import asyncio
@@ -35,6 +40,7 @@ import time
 from pathlib import Path
 
 import pytest
+import yaml
 
 from osprey.mcp_server.control_system import connector_host_manager, target_state
 from osprey.mcp_server.control_system.connector_host_manager import (
@@ -62,6 +68,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
 from osprey_connectors.control_system.base import ChannelValue
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
 from osprey_connectors.ipc.proxy import ConnectorHostProxy
+from osprey_connectors.types import VIRTUAL_ACCELERATOR
 from tests.fixtures.control_context import context_for
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -78,91 +85,89 @@ SLOW_CHANNEL = "FIXTURE:SLOW"
 SPAWN_TIMEOUT_S = 30.0
 SETTLE_TIMEOUT_S = 15.0
 
-FIXTURE_MODULE = '''\
-"""A mock variant with two channels the switch tests need."""
-
-import asyncio
-
-from osprey_connectors.control_system.mock_connector import MockConnector
-
-REFUSE_CHANNEL = "FIXTURE:REFUSE"
-SLOW_CHANNEL = "FIXTURE:SLOW"
-SLOW_SECONDS = 120.0
-
-
-class FixtureConnector(MockConnector):
-    async def read_channel(self, channel_address, timeout=None):
-        if channel_address == REFUSE_CHANNEL:
-            raise ConnectionError(f"the fixture connector refuses {channel_address}")
-        if channel_address == SLOW_CHANNEL:
-            await asyncio.sleep(SLOW_SECONDS)
-        return await super().read_channel(channel_address, timeout=timeout)
-'''
-
-#: The gateway fixture by dotted path, so ``live`` selects and installs a CA
+#: The fixture connector by dotted path, so ``live`` selects and installs a CA
 #: gateway exactly the way the EPICS connector does — without any EPICS.
-GATEWAY_TYPE = "switch_fixture_gateway.GatewayFixtureConnector"
+GATEWAY_TYPE = "switch_fixture_connectors.FixtureConnector"
 GATEWAY_HOST = "127.0.0.1"
 READ_GATEWAY_PORT = 5064
 #: Configured on the ``write_access`` row and served by nothing: the fixture
 #: refuses every read while this port is the one installed in the environment.
 DEAD_WRITE_PORT = 5555
+#: The simulator's own gateway pair, for a deployment that arms writes on 'va'
+#: alone. Nothing serves these either, but no probe treats them as dead — a
+#: target armed on its own block has to be reachable through the write-capable
+#: gateway it selects, or there would be nothing to verify.
+VA_READ_GATEWAY_PORT = 5065
+VA_WRITE_GATEWAY_PORT = 5066
 
-GATEWAY_FIXTURE_MODULE = '''\
-"""A mock that runs the EPICS gateway selection, against a dead write gateway.
+FIXTURE_MODULE = '''\
+"""A mock variant with the channels and the gateway selection the tests need.
 
 ``connect()`` selects a gateway role by exactly the rule EPICSConnector
-applies and installs the same environment variables, so the child's
-post-connect report — and the parent's verification of it — exercise the real
-role-selection path. Reads then answer only while the installed port is not
-the dead write-gateway port, which is what a configured-but-unserved
-``write_access`` endpoint does to a probe; and writes are refused whenever the
-read-only gateway is the one installed, which is what a real read-only CA
+applies — this connector's own per-type write posture, and a configured
+``write_access`` row — and installs the same environment variables, so the
+child's post-connect report and the parent's verification of it exercise the
+real role-selection path.
+
+Reads answer only while the installed port is not the dead write-gateway port,
+which is what a configured-but-unserved ``write_access`` endpoint does to a
+probe; :data:`REFUSE_CHANNEL` raises and :data:`SLOW_CHANNEL` blocks for far
+longer than any drain deadline. Writes are refused unless the write-capable
+gateway is the one this connector installed, which is what a real read-only CA
 gateway does to a put.
 """
 
+import asyncio
 import os
 
-from osprey_connectors.control_system.base import ChannelWriteResult, is_readonly_run
+from osprey_connectors.control_system.base import ChannelWriteResult
 from osprey_connectors.control_system.mock_connector import MockConnector
 
+REFUSE_CHANNEL = "FIXTURE:REFUSE"
+SLOW_CHANNEL = "FIXTURE:SLOW"
+SLOW_SECONDS = 120.0
 DEAD_WRITE_PORT = "5555"
+WRITE_ROLE = "write_access"
 
 
-class GatewayFixtureConnector(MockConnector):
+class FixtureConnector(MockConnector):
+    #: The role connect() actually installed, or None when it configured no
+    #: gateway at all.
+    _gateway_role = None
+
     async def connect(self, config):
         await super().connect(config)
         gateways = config.get("gateways") or {}
+        write_gateway = gateways.get(WRITE_ROLE) or {}
         try:
-            from osprey_connectors.config import get_config_value
-
-            writes_enabled = bool(get_config_value("control_system.writes_enabled", False))
-        except Exception:
-            writes_enabled = False
-        write_gateway = gateways.get("write_access") or {}
-        if writes_enabled and write_gateway and not is_readonly_run():
+            armed = self._writes_enabled
+        except Exception:  # a child with no project config is simply unarmed
+            armed = False
+        if armed and write_gateway:
+            self._gateway_role = WRITE_ROLE
             selected = write_gateway
         else:
             selected = gateways.get("read_only") or {}
+            self._gateway_role = "read_only" if selected else None
         if selected:
             os.environ["EPICS_CA_ADDR_LIST"] = str(selected.get("address", ""))
             os.environ["EPICS_CA_SERVER_PORT"] = str(selected.get("port", 5064))
             os.environ.pop("EPICS_CA_NAME_SERVERS", None)
             self._epics_configured = True
 
-    @staticmethod
-    def _installed_port():
-        return os.environ.get("EPICS_CA_SERVER_PORT")
-
     async def read_channel(self, channel_address, timeout=None):
-        if self._installed_port() == DEAD_WRITE_PORT:
+        if os.environ.get("EPICS_CA_SERVER_PORT") == DEAD_WRITE_PORT:
             raise TimeoutError(
                 f"probe read of {channel_address!r} timed out: nothing serves this gateway"
             )
+        if channel_address == REFUSE_CHANNEL:
+            raise ConnectionError(f"the fixture connector refuses {channel_address}")
+        if channel_address == SLOW_CHANNEL:
+            await asyncio.sleep(SLOW_SECONDS)
         return await super().read_channel(channel_address, timeout=timeout)
 
     async def write_channel(self, channel_address, value, timeout=None, **kwargs):
-        if self._installed_port() != DEAD_WRITE_PORT:
+        if self._gateway_role != WRITE_ROLE:
             return ChannelWriteResult(
                 channel_address=channel_address,
                 value_written=value,
@@ -218,12 +223,27 @@ def raw_config(
     return {"control_system": control_system, "archiver": {"type": "mongodb_archiver"}}
 
 
-def gateway_config(*, writes_enabled=True, read_gateway=True, read_port=READ_GATEWAY_PORT):
+def gateway_config(
+    *,
+    writes_enabled=True,
+    read_gateway=True,
+    read_port=READ_GATEWAY_PORT,
+    live_writes_enabled=None,
+    va_writes_enabled=None,
+    va_gateways=False,
+):
     """A config whose ``live`` target routes through configured CA gateways.
 
     The ``write_access`` row always points at :data:`DEAD_WRITE_PORT`, which
     nothing serves — the posture issue #718 is about: a write-capable gateway
     that is configured (so the role is selected) but not actually running.
+
+    Write posture is per connector type, so each target's own block can carry
+    it: *live_writes_enabled* and *va_writes_enabled* write ``writes_enabled``
+    into that block, and ``None`` leaves the key out — which is what makes the
+    target inherit the deployment-wide *writes_enabled*. *va_gateways* gives
+    the simulator a gateway pair of its own, so a ``va`` armed on its own block
+    has a write-capable gateway to select.
     """
     gateways = {"write_access": {"address": GATEWAY_HOST, "port": DEAD_WRITE_PORT}}
     if read_gateway:
@@ -235,6 +255,15 @@ def gateway_config(*, writes_enabled=True, read_gateway=True, read_port=READ_GAT
         "gateways": gateways,
     }
     va_block = {"response_delay_ms": 1, "noise_level": 0.0, "probe_channel": VA_PROBE}
+    if va_gateways:
+        va_block["gateways"] = {
+            "read_only": {"address": GATEWAY_HOST, "port": VA_READ_GATEWAY_PORT},
+            "write_access": {"address": GATEWAY_HOST, "port": VA_WRITE_GATEWAY_PORT},
+        }
+    if live_writes_enabled is not None:
+        live_block["writes_enabled"] = live_writes_enabled
+    if va_writes_enabled is not None:
+        va_block["writes_enabled"] = va_writes_enabled
     return {
         "control_system": {
             "type": GATEWAY_TYPE,
@@ -253,7 +282,6 @@ def fixture_dir(tmp_path_factory):
     """A scratch directory the children import their VA connector from."""
     directory = tmp_path_factory.mktemp("switch_fixture")
     (directory / "switch_fixture_connectors.py").write_text(FIXTURE_MODULE, encoding="utf-8")
-    (directory / "switch_fixture_gateway.py").write_text(GATEWAY_FIXTURE_MODULE, encoding="utf-8")
     (directory / "sitecustomize.py").write_text(SITECUSTOMIZE, encoding="utf-8")
     return directory
 
@@ -599,17 +627,49 @@ class TestFailedSwitchLeavesThePreviousTargetActive:
 # ------------------------------------------ the dead-write-gateway fallback
 
 
-@pytest.fixture
-def write_armed_project(tmp_path):
-    """A project config file that arms writes, for the child's own lookup.
+def project_config(tmp_path, control_system):
+    """Write the ``config.yml`` a child reads its own write posture from.
 
-    The child reads ``control_system.writes_enabled`` from the ``CONFIG_FILE``
-    the parent hands it, not from the init payload — so a write-armed child
-    needs a real file saying so, matching the parent's raw config.
+    The child reads posture from the ``CONFIG_FILE`` the parent hands it, not
+    from the init payload — so a write-armed child needs a real file saying so,
+    saying it the same way the parent's raw config does.
     """
     path = tmp_path / "config.yml"
-    path.write_text("control_system:\n  writes_enabled: true\n", encoding="utf-8")
+    path.write_text(yaml.safe_dump({"control_system": control_system}), encoding="utf-8")
     return path
+
+
+@pytest.fixture
+def write_armed_project(tmp_path):
+    """A project config file that arms writes deployment-wide."""
+    return project_config(tmp_path, {"writes_enabled": True})
+
+
+@pytest.fixture
+def live_armed_project(tmp_path):
+    """A project config that arms writes on the live type's block alone.
+
+    The deployment-wide key is false, so a child resolving posture from it
+    would stay on the read gateway — and the write role whose failure the
+    fallback answers would never be selected in the first place.
+    """
+    return project_config(
+        tmp_path,
+        {"writes_enabled": False, "connector": {GATEWAY_TYPE: {"writes_enabled": True}}},
+    )
+
+
+@pytest.fixture
+def va_armed_project(tmp_path):
+    """A project config that arms the simulator and leaves the machine unarmed.
+
+    The shape this feature exists for: a deployment whose baseline is a real
+    machine, arming writes on its virtual accelerator only.
+    """
+    return project_config(
+        tmp_path,
+        {"writes_enabled": False, "connector": {VIRTUAL_ACCELERATOR: {"writes_enabled": True}}},
+    )
 
 
 class TestDeadWriteGatewayFallback:
@@ -622,9 +682,9 @@ class TestDeadWriteGatewayFallback:
     ``read_only`` gateway rather than stranding the session off-baseline.
     """
 
-    async def _stranded_session(self, make_manager, write_armed_project, **config_kwargs):
+    async def _stranded_session(self, make_manager, project, **config_kwargs):
         """A write-armed session on 'va', whose baseline write gateway is dead."""
-        manager = make_manager(raw=gateway_config(**config_kwargs), config_path=write_armed_project)
+        manager = make_manager(raw=gateway_config(**config_kwargs), config_path=project)
         await manager.ensure_started()
         assert manager.active_target() == "live"
         await manager.switch("va")
@@ -674,6 +734,33 @@ class TestDeadWriteGatewayFallback:
 
         assert result.blocked is True
         assert result.refusal_reason == "CONTROL_SYSTEM_REFUSED"
+
+    async def test_a_block_that_arms_only_the_live_type_still_gets_the_fallback(
+        self, make_manager, live_armed_project
+    ):
+        """The fallback answers the posture that selected the dead gateway.
+
+        Nothing here says ``control_system.writes_enabled: true``: the live
+        type's own block is what arms the write role, and therefore what makes
+        the dead ``write_access`` row the one probed. A parent that read one
+        posture for the whole deployment would send this session to the read
+        gateway from the start and never reach the fallback at all.
+        """
+        manager = await self._stranded_session(
+            make_manager,
+            live_armed_project,
+            writes_enabled=False,
+            live_writes_enabled=True,
+        )
+
+        result = await manager.switch("live")
+
+        assert result["selected_role"] == "read_only"
+        assert result["write_gateway_fallback"]["port"] == DEAD_WRITE_PORT
+        assert manager.active_target() == "live"
+        assert isinstance(
+            await manager.active_proxy().read_channel(LIVE_PROBE, timeout=10.0), ChannelValue
+        )
 
     async def test_a_deployment_without_write_arming_never_needs_the_fallback(self, make_manager):
         """Read-only selection is untouched: no dead gateway is ever probed."""
@@ -750,6 +837,75 @@ class TestProbeFailureNamesTheGateway:
         # Nothing about the failed pair of launches moved the session.
         value = await manager.active_proxy().read_channel(VA_PROBE, timeout=10.0)
         assert isinstance(value, ChannelValue)
+
+
+# --------------------------------------------------- per-target write posture
+
+
+class TestPerTargetPosture:
+    """One deployment, two postures: the simulator armed, the machine not.
+
+    ``control_system.connector.<type>.writes_enabled`` is per connector type,
+    so a facility whose baseline is a real machine can arm writes on its
+    virtual accelerator alone. Three readings of that have to agree at once —
+    the parent deriving where a target lands, the child selecting its gateway,
+    and the reference monitor in that child deciding whether a write may be
+    attempted — and they agree only because each reads the posture of the type
+    it is actually serving.
+    """
+
+    async def _mixed_session(self, make_manager, va_armed_project):
+        """A session whose 'va' block arms writes and whose 'live' does not."""
+        manager = make_manager(
+            raw=gateway_config(writes_enabled=False, va_writes_enabled=True, va_gateways=True),
+            config_path=va_armed_project,
+        )
+        await manager.ensure_started()
+        assert manager.active_target() == "live"
+        return manager
+
+    async def test_each_target_lands_on_the_gateway_its_own_block_arms(
+        self, make_manager, va_armed_project
+    ):
+        """Both switches verify, and they verify against different roles.
+
+        A switch that returns a result at all has passed ``verify_child_report``:
+        the role and endpoint the child reported were compared against the
+        parent's derivation for that target. Here the two derivations disagree —
+        'va' is armed on its own block and selects the write-capable gateway,
+        'live' inherits the deployment-wide off and stays read-only — so a
+        posture read once for the whole deployment would fail one of them.
+        """
+        manager = await self._mixed_session(make_manager, va_armed_project)
+
+        armed = await manager.switch("va")
+        unarmed = await manager.switch("live")
+
+        assert armed["selected_role"] == "write_access"
+        assert armed["endpoint"]["port"] == VA_WRITE_GATEWAY_PORT
+        assert unarmed["selected_role"] == "read_only"
+        assert unarmed["endpoint"]["port"] == READ_GATEWAY_PORT
+        assert "write_gateway_fallback" not in unarmed
+
+    async def test_the_write_gate_moves_with_the_session(self, make_manager, va_armed_project):
+        """The same write, permitted on one target and refused on the other.
+
+        The refusal names the block an operator would have to edit — the live
+        type's own key rather than the deployment-wide one — because that is
+        the posture the connector serving this target actually read.
+        """
+        manager = await self._mixed_session(make_manager, va_armed_project)
+        await manager.switch("va")
+
+        armed = await manager.active_proxy().write_channel("VA:CORR:1:SP", 0.5, timeout=10.0)
+        await manager.switch("live")
+        refused = await manager.active_proxy().write_channel("SR:CORR:1:SP", 0.5, timeout=10.0)
+
+        assert armed.blocked is False
+        assert armed.success is True
+        assert refused.blocked is True
+        assert refused.refusal_reason == "WRITES_DISABLED"
+        assert f"control_system.connector.{GATEWAY_TYPE}.writes_enabled" in refused.error_message
 
 
 # ----------------------------------------------------------------- draining
