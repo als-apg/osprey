@@ -456,6 +456,35 @@ class TestWriteToleranceResolution:
         assert result.success is True
         assert result.verification.verified is True
 
+    async def test_explicit_none_never_consults_limits_db(self):
+        """An explicit fast-path write has no tolerance to resolve.
+
+        The lookup only exists to supply a level and/or a tolerance; a
+        ``verification_level="none"`` write uses neither, so it must not reach
+        ``_get_verification_config`` at all — the guard shape Mock and EPICS
+        already use. Before the alignment, DOOCS ran the lookup for every write
+        with no explicit tolerance, teaching the opposite shape to whoever
+        copies this connector next.
+        """
+        validator = _make_limits_validator(level="readback", tolerance=0.5)
+
+        result = await self._write(validator, verification_level="none")
+
+        assert result.success is True
+        assert result.verification.level == "none"
+        validator.get_verification_config.assert_not_called()
+
+    async def test_explicit_callback_still_resolves_limits_db_tolerance(self):
+        """DOOCS performs readback verification for "callback" (the protocol has
+        no callback confirmation), so unlike Mock/EPICS an explicit "callback"
+        write still needs the channel's configured tolerance."""
+        validator = _make_limits_validator(level="none", tolerance=0.5)
+
+        result = await self._write(validator, verification_level="callback")
+
+        assert result.verification.tolerance_used == 0.5
+        validator.get_verification_config.assert_called_once_with("FAC/DEV/LOC/PROP", 10.0)
+
 
 # --------------------------------------------------------------------------------------
 # read_multiple_channels

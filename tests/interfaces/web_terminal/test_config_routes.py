@@ -842,17 +842,21 @@ class TestPutProtectedDocumentDiff:
         A pattern is *descent-safe* when a hypothetical child of it is protected
         too -- true for every ``family.*`` pattern, and for ``artifacts.hooks``
         because ``artifacts.*`` sits beside it. The ones that are not are the
-        ones whose subtree the flatten can lose, and both of today's name a path
-        value that cannot be made to point anywhere by planting a block there --
-        one because its reader treats a block as unset, the other because its
-        reader chokes on it and leaves the store off. A new pattern gets neither
-        guarantee for free, so if this fails the PUT gate's note needs
-        re-deciding, not extending.
+        ones whose subtree the flatten can lose, and each of today's names a
+        path value that cannot be made to point anywhere by planting a block
+        there -- ``simulation.state_dir`` and ``services.*.devices_file``
+        because their readers treat a block as unset (the devices reader is
+        ``isinstance(str)``-gated and the worker's own path is baked into its
+        environment at build), the feedback store because its reader chokes on
+        it and leaves the store off. A new pattern gets neither guarantee for
+        free, so if this fails the PUT gate's note needs re-deciding, not
+        extending.
         """
         probe = "\x00-not-a-real-key"
         known_inert = {
             "simulation.state_dir",
             "services.channel_finder.pipelines.hierarchical.feedback.store_path",
+            "services.*.devices_file",
         }
 
         leaky = {

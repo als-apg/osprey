@@ -613,6 +613,113 @@ def test_each_bundled_preset_builds_clean(preset: str, runner: CliRunner, tmp_pa
     )
 
 
+def _attached_presets() -> list[str]:
+    """Every bundled preset that builds attached (``deploy_services: false``)."""
+    return [
+        name
+        for name in list_presets()
+        if not resolve_build_profile(None, preset=name)[0].deploy_services
+    ]
+
+
+@pytest.mark.parametrize("preset", _attached_presets())
+def test_attached_preset_built_alone_is_told_its_templates_defaults(
+    preset: str, runner: CliRunner, tmp_path: Path
+) -> None:
+    """A persona preset materialized on its own — no hosting deployment in the
+    repo — still builds, and is told what its app template deploys.
+
+    Built beside its host, an attached render is told the host's client-facing
+    facts from the host's render (``osprey.deployment.reach``). Built alone
+    there is no such render, but the persona extends a deployment of the SAME
+    app template, so the template rendered as a deployment is what the host
+    would say at the shipped defaults. Every consumer the preset switches on
+    must then resolve, and the sidecar port must be the one the template
+    deploys — read from a real render of the parent preset rather than spelled
+    here, so a moved default moves both.
+    """
+    from osprey.cli.build_profile_presets import _load_preset_raw
+    from osprey.deployment.reach import reach_errors
+
+    result = _materialize(runner, str(tmp_path), "alone", preset)
+    assert result.exit_code == 0, result.output
+    config = _config_yaml(_project(tmp_path, "alone"))
+    assert reach_errors(config) == []
+
+    parent = _load_preset_raw(preset)[0].get("extends")
+    assert parent, f"{preset} extends nothing — which deployment is its host?"
+    assert _materialize(runner, str(tmp_path), "host", Path(parent).stem).exit_code == 0
+    host = _config_yaml(_project(tmp_path, "host"))
+    assert config["services"]["qmd"]["port"] == host["services"]["qmd"]["port"]
+    # The tabs the preset selects are told their address too — what a
+    # deployment of the template derives when it injects the sidecars, read
+    # by running the same injectors over the template-as-deployment.
+    from osprey.cli.build_profile import resolve_build_profile
+
+    selected = resolve_build_profile(None, preset=preset)[0].web_panels
+    for panel in ("events", "bluesky"):
+        if panel in selected:
+            assert config["web"]["panels"][panel] == host["web"]["panels"][panel], panel
+
+
+def test_deploying_profile_may_pin_only_the_events_path(runner: CliRunner, tmp_path: Path) -> None:
+    """The reach refusal reads the config the injectors have FINISHED writing.
+
+    A deploying profile that pins ``web.panels.events.path`` and nothing else
+    — the documented way to move the dashboard's route — has its ``url``
+    written by the dispatch injector moments later; refusing before that
+    would name the very key the build was about to supply. The injector also
+    fills the label and the health endpoint, so the tab health-gates itself
+    and every persona told this entry gets the whole of it.
+    """
+    repo = tmp_path / "pathpin"
+    created = runner.invoke(init, [str(repo), "--preset", "control-assistant", "--no-git"])
+    assert created.exit_code == 0, created.output
+    profile = _profile_yaml(repo)
+    profile.setdefault("config", {})["web.panels.events.path"] = "/custom-route"
+    (repo / "profile.yml").write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
+
+    result = _render_from(runner, repo / "profile.yml")
+    assert result.exit_code == 0, result.output
+    events = _config_yaml(_project(tmp_path, "pathpin"))["web"]["panels"]["events"]
+    assert events["path"] == "/custom-route"
+    assert events["url"].startswith("http://localhost:")
+    assert events["label"] == "EVENTS"
+    assert events["health_endpoint"] == "/health"
+    # Every persona inherited the pin. The one that selects the tab is told
+    # the whole entry from this render; the ones that do not drop the
+    # url-less fragment instead of rendering an empty-url tab.
+    personas = {
+        path.name.rsplit("-", 1)[1]: yaml.safe_load((path / "config.yml").read_text())
+        for path in _project(tmp_path, "pathpin").glob("pathpin-*")
+    }
+    assert set(personas) >= {"readonly", "readwrite"}
+    assert personas["readwrite"]["web"]["panels"]["events"] == events
+    assert "events" not in personas["readonly"]["web"]["panels"]
+
+
+def test_attached_profile_built_alone_may_name_its_host_by_hand(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """Built alone, the profile's ``config:`` is where a host that differs from
+    the template's defaults is named, and it wins over those defaults.
+
+    Beside a host the same spelling is refused as a second home for one fact;
+    alone there is no first home, so the hand-spelled value IS the projection.
+    """
+    preset = "control-assistant-ariel"
+    repo = tmp_path / "alone"
+    created = runner.invoke(init, [str(repo), "--preset", preset, "--no-git"])
+    assert created.exit_code == 0, created.output
+    profile = _profile_yaml(repo)
+    profile["config"]["services.qmd.port"] = 9180
+    (repo / "profile.yml").write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
+
+    result = _render_from(runner, repo / "profile.yml")
+    assert result.exit_code == 0, result.output
+    assert _config_yaml(_project(tmp_path, "alone"))["services"]["qmd"]["port"] == 9180
+
+
 def test_control_assistant_preset_ships_simulation_model(runner: CliRunner, tmp_path: Path) -> None:
     """The control-assistant preset bundles the simulation machine model.
 
@@ -814,16 +921,23 @@ class TestDeployServicesKnob:
         assert "postgresql" in cfg["services"]
 
     def test_false_scaffolds_nothing(self, runner: CliRunner, tmp_path: Path) -> None:
-        """An attached project writes no services/ tree, no services.* blocks,
-        and an explicit empty deployed_services list."""
+        """An attached project writes no services/ tree, scaffolds no service,
+        and lists an explicit empty deployed_services.
+
+        Its ``services:`` map is not empty: the build tells an attached render
+        the client-facing facts of the services it reaches (``osprey.deployment.reach``
+        — here, built alone, what the app template deploys). Those are ports
+        and names to dial, never a service to run: no block carries the
+        ``path`` a scaffolded service is declared by.
+        """
         project = self._build(runner, tmp_path, extra="deploy_services: false\n")
         cfg = _config_yaml(project)
         # Explicit empty list — present so `osprey up` reads [] not None.
         assert cfg["deployed_services"] == []
-        # None of the would-be-scaffolded services leak into services.*.
-        assert cfg.get("services") in ({}, None)
-        for name in ("postgresql", "openobserve", "bluesky"):
-            assert name not in (cfg.get("services") or {})
+        # Client facts only: nothing here is a service this render would run.
+        services = cfg.get("services") or {}
+        assert services, "an attached render is told where its host's services are"
+        assert all("path" not in block for block in services.values()), services
         # No services/ directory at all.
         assert not (project / "services").exists()
 
@@ -1066,3 +1180,52 @@ class TestGraphModeRequiresAGraphStore:
         )
         assert result.exit_code == 0, result.output
         assert _profile_yaml(repo)["channel_finder_mode"] == "graph"
+
+
+class TestRenderConfigReading:
+    """`TemplateManager.render_config` — the config-only reading `osprey build`
+    takes of an app template when a standalone attached profile has no hosting
+    deployment to be told by."""
+
+    def test_unknown_bundle_is_refused_by_name(self, tmp_path: Path) -> None:
+        from osprey.cli.templates.manager import TemplateManager
+
+        with pytest.raises(ValueError, match="no-such-bundle"):
+            TemplateManager().render_config(
+                "probe", tmp_path, tmp_path / "config.yml", data_bundle="no-such-bundle"
+            )
+
+    def test_a_bundle_without_a_config_template_is_refused(self, tmp_path: Path) -> None:
+        """`project_template_for` finds neither an app copy nor the shared
+        `project/` default, and the reading names the bundle instead of
+        rendering nothing."""
+        from osprey.cli.templates import scaffolding
+        from osprey.cli.templates.manager import TemplateManager
+
+        manager = TemplateManager()
+        assert (
+            scaffolding.project_template_for(
+                manager.template_root, "control_assistant", "no-such-file.txt"
+            )
+            is None
+        )
+        # An empty template root ships the file for no bundle at all.
+        with pytest.raises(ValueError, match="renders no config.yml"):
+            scaffolding.render_project_config(
+                tmp_path,
+                manager.jinja_env,
+                tmp_path / "config.yml",
+                "bare-bundle",
+                {},
+            )
+
+    def test_effective_artifacts_without_a_manifest_stays_none(self, tmp_path: Path) -> None:
+        """A bundle that ships no manifest widens nothing: the caller's `None`
+        stays `None`, so downstream output filtering stays off exactly as for
+        a programmatic render before the fallback existed."""
+        from osprey.cli.templates.manager import TemplateManager
+
+        manager = TemplateManager()
+        manager.template_root = tmp_path  # no apps/, no manifests
+        assert manager._effective_artifacts("anything", None) is None
+        assert manager._effective_artifacts("anything", {"agents": []}) == {"agents": []}

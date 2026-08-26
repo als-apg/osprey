@@ -174,7 +174,7 @@ project you build. Its durable home comes later — see the note below.
          # Google
          export GOOGLE_API_KEY="..."
 
-      See :doc:`/how-to/configure-providers` for the full list.
+      See :doc:`/how-to/llm-providers/configure-providers` for the full list.
 
 .. note::
    Using ``bash`` instead of ``zsh``? Replace ``~/.zshrc`` with ``~/.bashrc``.
@@ -315,7 +315,7 @@ OSPREY is installed and ready to use. Here's what to do next:
 
    **Detailed Configuration**
 
-   See :doc:`/how-to/configure-providers` for provider setup and
+   See :doc:`/how-to/llm-providers/configure-providers` for provider setup and
    :doc:`/how-to/build-profiles` for the full build profile YAML reference.
 
 

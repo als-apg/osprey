@@ -186,6 +186,7 @@ def lint_web_terminals(
     findings.extend(_check_image_tag_empty(web_terminals))
     findings.extend(_check_registry_url_coherence(root, web_terminals))
     findings.extend(_check_local_mode_requires_catalog(web_terminals))
+    findings.extend(_check_persona_project_collisions(root, web_terminals, users))
     if rendered_project:
         findings.extend(
             _check_persona_project_paths(web_terminals, users, project_root=project_root)
@@ -196,6 +197,11 @@ def lint_web_terminals(
             _check_persona_bundle_path_agreement(
                 root, web_terminals, users, project_root=project_root
             )
+        )
+        # Same split, for the ARIEL mirror: entitlement from the persona's
+        # config, the bind's source and target from the deploy's.
+        findings.extend(
+            _check_persona_mirror_agreement(root, web_terminals, users, project_root=project_root)
         )
         # Resolves notice paths against the project directory, so it rides the
         # same gate: a profile has no rendered project to look in yet.
@@ -1793,6 +1799,179 @@ def _check_persona_bundle_path_agreement(
                 ),
             )
         )
+    return findings
+
+
+def _read_config(config_yml_path: Path) -> dict[str, Any]:
+    """Best-effort parse of a rendered ``config.yml``; ``{}`` on any failure,
+    like :func:`_read_bundle_path` (an unreadable project is already its own
+    finding)."""
+    try:
+        with config_yml_path.open("r", encoding="utf-8") as fh:
+            return as_dict(yaml.safe_load(fh))
+    except (OSError, yaml.YAMLError):
+        return {}
+
+
+def _check_persona_mirror_agreement(
+    root: dict[str, Any],
+    web_terminals: dict[str, Any],
+    users: list[Any],
+    *,
+    project_root: Path | None = None,
+) -> list[Finding]:
+    """Every persona that writes the ARIEL mirror must write the deployment's.
+
+    The mirror counterpart of :func:`_check_persona_bundle_path_agreement`.
+    **Entitlement** to the mirror bind is decided by each persona's own
+    rendered ``config.yml`` (does it run a qmd export with a ``mirror_path``?),
+    while the bind's SOURCE and its in-container TARGET both come from the
+    deploy config's ``ariel.enhancement_modules.qmd_export.mirror_path``. Two
+    ways for those to disagree, both silent:
+
+    * The deployment writes no mirror at all. The persona is entitled but the
+      overlay emits no bind (there is no source), so its exporter writes the
+      mirror into the container's writable layer — indexed by nothing,
+      discarded at the next recreate — while every layer reports success.
+    * The deployment writes one somewhere else. The deployment's directory is
+      bound at the deployment's path; the persona's exporter writes its own
+      path, which nothing mounted.
+
+    An ERROR: nothing at run time resolves either, and a search that returns
+    nothing looks exactly like a logbook with nothing in it.
+    """
+    from osprey.deployment.compose_generator import configured_ariel_mirror_path
+
+    deploy_mirror = configured_ariel_mirror_path(root)
+
+    catalog = _persona_catalog(web_terminals)
+    findings: list[Finding] = []
+    for persona_name in sorted(_referenced_persona_names(web_terminals, users)):
+        entry = catalog.get(persona_name)
+        if not isinstance(entry, dict):
+            continue
+        project_path_raw = entry.get("project_path")
+        if not isinstance(project_path_raw, str) or not project_path_raw:
+            continue
+        config_yml = (project_root or Path(".")) / project_path_raw / "config.yml"
+        if not config_yml.is_file():
+            continue
+        persona_mirror = configured_ariel_mirror_path(_read_config(config_yml))
+        if persona_mirror is None or persona_mirror == deploy_mirror:
+            continue
+        if deploy_mirror is None:
+            message = (
+                f"persona {persona_name!r} runs an ARIEL qmd export writing "
+                f"{persona_mirror!r}, but this deployment runs none, so no mirror "
+                "directory is bound into that container: its exporter would write into "
+                "the container's writable layer, which the qmd sidecar never indexes and "
+                "the next recreate discards. Enable the export on the hosting profile "
+                "(one shared mirror, indexed by the sidecar) or switch it off in the "
+                "persona"
+            )
+        else:
+            message = (
+                f"persona {persona_name!r} sets ariel.enhancement_modules.qmd_export."
+                f"mirror_path to {persona_mirror!r}, but this deployment sets "
+                f"{deploy_mirror!r}. The mirror is bind-mounted at the DEPLOYMENT's path "
+                "while the persona's exporter writes its own, so its entries would land "
+                "in the writable layer and never reach the sidecar. Make the two agree"
+            )
+        findings.append(
+            Finding(
+                severity="error",
+                code="web_terminals.persona_mirror_path_divergence",
+                message=message,
+            )
+        )
+    return findings
+
+
+def _check_persona_project_collisions(
+    root: dict[str, Any], web_terminals: dict[str, Any], users: list[Any]
+) -> list[Finding]:
+    """Local mode: every persona image tag must name exactly one image.
+
+    A persona image is tagged by its render alone
+    (``<project>:local`` — see
+    :func:`osprey.deployment.web_terminals.personas.resolve_personas`), so tag
+    uniqueness is exactly ``project`` uniqueness, and that is enforced here
+    rather than by a tag suffix. Config-only, so it runs at both altitudes —
+    no filesystem is consulted. Two invariants:
+
+    * **Persona vs persona.** Two referenced personas may share a ``project``
+      only when they also share the same ``project_path`` — one render, one
+      image, deliberately serving both. The same ``project`` over DIFFERENT
+      renders would race both builds onto one tag: the last build wins, and
+      every user of the losing persona silently runs the winning persona's
+      image — an entitlement bleed, not just a naming wart.
+    * **Persona vs worker.** No persona ``project`` may equal the deployment's
+      own project name: the dispatch worker's image already owns that
+      ``<project>:local`` tag, and a persona build would overwrite it (or be
+      overwritten) with entirely different content. Checked only when the
+      config declares an explicit ``project_name`` — the resolver's
+      path-derived fallbacks are unknowable at profile altitude, and every
+      rendered project carries the key.
+
+    A catalog entry with no ``project`` of its own resolves to the legacy
+    suffixed tag (``<default>-<persona>:local``) and cannot collide with
+    either, so it is skipped.
+    """
+    if effective_image_source(web_terminals) != "local":
+        return []
+    catalog = _persona_catalog(web_terminals)
+    by_project: dict[str, list[tuple[str, str]]] = {}
+    for persona_name in sorted(_referenced_persona_names(web_terminals, users)):
+        entry = catalog.get(persona_name)
+        if not isinstance(entry, dict):
+            continue  # unresolvable reference — reported elsewhere
+        project = entry.get("project")
+        if not isinstance(project, str) or not project:
+            continue  # legacy suffixed fallback; no collision possible
+        project_path = entry.get("project_path")
+        by_project.setdefault(project, []).append(
+            (persona_name, project_path if isinstance(project_path, str) else "")
+        )
+
+    deployment_project = root.get("project_name")
+    if isinstance(deployment_project, str) and deployment_project:
+        from osprey.deployment.compose_generator import resolve_project_name
+
+        deployment_project = resolve_project_name(root)
+
+    findings: list[Finding] = []
+    for project, members in sorted(by_project.items()):
+        if len(members) > 1 and len({path for _, path in members}) > 1:
+            names = ", ".join(repr(name) for name, _ in members)
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.persona_project_collision",
+                    message=(
+                        f"personas {names} share project {project!r} but point at "
+                        "different project_paths; their builds would race onto the "
+                        f"one image tag '{project}:local', and users of the losing "
+                        "persona would silently run the winning persona's image. "
+                        "Give each persona its own project (matching its render), "
+                        "or point them at the same project_path to share one image "
+                        "deliberately"
+                    ),
+                )
+            )
+        if project == deployment_project:
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.persona_project_shadows_worker_image",
+                    message=(
+                        f"personas {', '.join(repr(name) for name, _ in members)} use "
+                        f"project {project!r}, which is this deployment's own project "
+                        f"name; the persona image tag '{project}:local' would collide "
+                        "with the dispatch worker's image. Rename the persona's render "
+                        "(osprey build names each one <repo>-<persona>)"
+                    ),
+                )
+            )
     return findings
 
 

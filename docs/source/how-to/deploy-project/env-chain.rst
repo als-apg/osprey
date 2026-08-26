@@ -47,7 +47,8 @@ exported. Otherwise start from the example:
    cp .env.example .env
    # Edit .env with your actual values
 
-See :ref:`profile-secrets`.
+``osprey init`` can give a new repository a head start on this file, once, from
+your shell — see :ref:`profile-secrets`.
 
 The ``.env*`` family
 --------------------
@@ -74,7 +75,7 @@ worth editing because the next command overwrites them:
    * - ``.env.auth``
      - both — the web terminals' password hashes and cookie-signing secrets,
        minted by the deploy, but also where you put an OIDC client id and
-       secret by hand (multi-user deployments only; see :doc:`/how-to/multi-user/index`)
+       secret by hand (multi-user deployments only; see :doc:`/how-to/web-terminal/multi-user/index`)
    * - ``build/.env.merged``
      - machine — the chain collapsed into one file, for compose providers that
        accept only one
@@ -107,14 +108,23 @@ service tokens and passwords (for example ``EVENT_DISPATCHER_TOKEN``,
 ``ZO_ROOT_USER_PASSWORD``, or ``ARIEL_DB_PASSWORD``) so no service ever starts
 on a blank or publicly-known credential, appends them under a "Minted by
 deploy" heading, and restricts the file to owner-only permissions.
-``osprey build`` appends the pointers it derives from what it just rendered,
+``osprey build`` appends the pointers it derives from what it just rendered —
+currently two: ``VA_CHANNELS_FILE``, the name of the virtual accelerator's
+generated channel manifest (a name, not a path: the entrypoint resolves it
+against its data mount), and ``VA_LATTICE``, which states the lattice that
+manifest is backed by rather than letting the entrypoint default it away —
 under a "Derived by build" heading.
 
-Both writers are append-only, and a value already on file always wins. That is
-what makes the stack reproducible: a later start comes up on the same
-credentials the running containers were initialized with, instead of minting a
-second set they do not trust. There is no second copy anywhere — the ``.env``
-beside ``profile.yml`` is the deployment's whole secret store — so back it up.
+Both writers are append-only, and a value already on file always wins. A value
+that disagrees with what a writer would have put there is *reported*, by name
+and never by value, for you to resolve by hand. That is what makes the stack
+reproducible: a later start comes up on the same credentials the running
+containers were initialized with, instead of minting a second set they do not
+trust. The ``.env`` beside ``profile.yml`` is the deployment's whole secret
+store — the only copy you maintain. ``osprey build`` writes no secret into
+``build/`` and reads none out of it, so a value you set once survives every
+rebuild; ``build/.env.merged`` is a derived copy the deploy regenerates, so
+wiping ``build/`` loses nothing — so back ``.env`` up.
 
 Minted values only ever land in ``.env``, never in ``.env.shared``. A minted
 credential belongs to this host, and ``.env.shared`` is committed.
@@ -184,10 +194,9 @@ not come from. Three checks, one for each way that can happen:
 
 * **The declaration itself.** Pinning a name the deploy writes for you is
   refused — a service token or password it mints, a service default it records,
-  a Bluesky substrate variable, a credential ``--reuse-stores`` restores from a
-  surviving volume. A pin says the chain is the variable's only source, and
-  ``osprey up`` writing that same name into ``.env`` contradicts it by
-  construction. The message names each offender and its remedy:
+  a credential ``--reuse-stores`` restores from a surviving volume. A pin says
+  the chain is the variable's only source, and ``osprey up`` writing that same
+  name into ``.env`` contradicts it by construction. The message names each offender and its remedy:
   ``unpin <NAME>; it is machine-minted.`` The check covers every name any writer
   can produce, not only the services this deployment currently enables, so
   turning a service on later cannot make a profile that was fine start

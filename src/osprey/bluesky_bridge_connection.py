@@ -36,8 +36,56 @@ functions, only when a config fallback is actually needed.
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
+from typing import Any
 
-DEFAULT_BRIDGE_URL = "http://127.0.0.1:8090"
+#: The port the bridge publishes when nothing configures one — the schema
+#: default of the build profile's ``bluesky.port``.
+DEFAULT_BRIDGE_PORT = 8090
+
+DEFAULT_BRIDGE_URL = f"http://127.0.0.1:{DEFAULT_BRIDGE_PORT}"
+
+#: The variable that names lane 1's bridge outright — set per bridge instance
+#: by a compose service that reaches it by its in-network name, or by an
+#: operator. Every lane has one, spelled ``<PREFIX>_BRIDGE_URL`` for
+#: :func:`lane_env_prefix` of that lane; this is that spelling for
+#: :data:`LANE_ONE`, whose prefix is the pre-lane name unchanged.
+BRIDGE_URL_ENV_VAR = "BLUESKY_BRIDGE_URL"
+
+
+def bridge_url_from_config(config: Mapping[str, Any] | None) -> str:
+    """The bridge base URL a loaded ``config.yml`` implies, trailing slash stripped.
+
+    Resolution order, the config half of :func:`resolve_bridge_url` for
+    :data:`LANE_ONE`. A second lane has no ``bluesky.bridge_url`` of its own
+    and no default to fall back to, so it resolves its port directly there.
+
+    1. ``bluesky.bridge_url`` — a full URL, for a bridge that is not the one
+       this deployment publishes on loopback (a dev convenience).
+    2. ``services.bluesky.port`` — the port the deployment publishes its own
+       bridge on. Written by the build for a deploying project and projected
+       into every attached render (a web-terminal persona), so a bridge moved
+       on the hosting profile moves every client with it. Dialed on loopback:
+       a persona container shares the host network namespace, and the host's
+       own processes reach the published port there too.
+    3. :data:`DEFAULT_BRIDGE_URL`.
+
+    Duplicated, deliberately and knowingly, by the approval hook's
+    ``_resolve_bridge_url`` (``templates/claude_code/claude/hooks/osprey_approval.py``),
+    which runs standalone in a different venv and cannot import this module;
+    a change here is a change there.
+    """
+    bluesky = (config or {}).get("bluesky")
+    url = bluesky.get("bridge_url") if isinstance(bluesky, Mapping) else None
+    if url:
+        return str(url).rstrip("/")
+    services = (config or {}).get("services")
+    block = services.get("bluesky") if isinstance(services, Mapping) else None
+    port = block.get("port") if isinstance(block, Mapping) else None
+    if port:
+        return f"http://127.0.0.1:{port}"
+    return DEFAULT_BRIDGE_URL
+
 
 #: Service key of the plan lane every deployment has had since the bridge
 #: shipped. It stays the default everywhere here, so a caller that knows
@@ -96,12 +144,16 @@ def resolve_bridge_url(lane: str | None = None) -> str:
 
     1. ``<PREFIX>_BRIDGE_URL`` env var (full URL) -- set by the framework server
        definition per bridge instance; wins outright.
-    2. For lane 1, ``bluesky.bridge_url`` in config.yml. For a second lane, the
-       loopback URL of its own published port (``services.<lane>.port``), which
-       is where ``_inject_bluesky`` put it -- there is no second
-       ``bluesky.bridge_url`` to read, and inventing one would be a key an
-       operator has to keep in step with a port the build derives.
-    3. ``http://127.0.0.1:8090`` default (lane 1 only).
+    2. For lane 1, the loaded ``config.yml`` through
+       :func:`bridge_url_from_config` -- ``bluesky.bridge_url``, then the
+       loopback URL of the port the deployment publishes its own bridge on
+       (``services.bluesky.port``). For a second lane, the loopback URL of its
+       own published port (``services.<lane>.port``), which is where
+       ``_inject_bluesky`` put it -- there is no second ``bluesky.bridge_url``
+       to read, and inventing one would be a key an operator has to keep in
+       step with a port the build derives.
+    3. :data:`DEFAULT_BRIDGE_URL` (lane 1 only, and only when its config names
+       no port either).
 
     The returned URL has any trailing slash stripped so callers can append a
     path verbatim.
@@ -120,8 +172,7 @@ def resolve_bridge_url(lane: str | None = None) -> str:
 
     config = load_osprey_config()
     if lane_key == LANE_ONE:
-        url = config.get("bluesky", {}).get("bridge_url", DEFAULT_BRIDGE_URL)
-        return str(url).rstrip("/")
+        return bridge_url_from_config(config)
 
     port = (config.get("services", {}).get(lane_key) or {}).get("port")
     if not port:

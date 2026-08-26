@@ -156,9 +156,29 @@ class TestConstants:
     def test_default_ports_match_neo4j_container_ports(self) -> None:
         assert (DEFAULT_PORT, DEFAULT_HTTP_PORT) == (7687, 7474)
 
-    def test_image_is_pinned_to_the_last_release_neosemantics_builds_for(self) -> None:
-        """n10s publishes no build for 5.23+, and without n10s nothing seeds."""
-        assert DEFAULT_IMAGE == "neo4j:5.20-community"
+    #: Neo4j community lines the neosemantics plugin manifest actually covers —
+    #: the entries in https://neo4j-labs.github.io/neosemantics/versions.json,
+    #: which is what the image's plugin loader consults at container start
+    #: (verified 2026-08-25). 5.20 is covered by a single frozen exact-match
+    #: entry; the 5.26 LTS line is covered patch-by-patch (5.26.0–5.26.30 at
+    #: the time of checking); nothing newer has any entry at all. Re-verify the
+    #: manifest and extend this set BEFORE bumping :data:`DEFAULT_IMAGE` — a
+    #: server the plugin loader has no entry for comes up healthy and then
+    #: fails every import.
+    N10S_SUPPORTED_LINES = frozenset({"5.20", "5.26"})
+
+    def test_image_is_pinned_to_a_release_neosemantics_publishes_for(self) -> None:
+        """A default image outside the n10s manifest cannot seed; see the set above."""
+        line = DEFAULT_IMAGE.removeprefix("neo4j:").removesuffix("-community")
+        assert line in self.N10S_SUPPORTED_LINES, (
+            f"DEFAULT_IMAGE pins Neo4j {line}, which the neosemantics plugin "
+            f"manifest has no entry for. Check the versions.json above, extend "
+            f"N10S_SUPPORTED_LINES with evidence, then move the pin."
+        )
+
+    def test_image_is_pinned_to_the_supported_lts_line(self) -> None:
+        """5.26 is the last line with an actively regenerated manifest entry."""
+        assert DEFAULT_IMAGE == "neo4j:5.26-community"
 
     def test_service_name_matches_the_dotted_keys(self) -> None:
         assert GRAPHDB_SERVICE_NAME == "graphdb"

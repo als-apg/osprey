@@ -60,8 +60,8 @@ from any directory.
 
 Image-scoping boundary (applies only to :func:`nuke_stack`'s persona-image
 teardown): unlike containers and volumes, image tags are host-global — two
-OSPREY deployments that happen to use identically-named personas would build
-identically-named ``<persona.project>-<persona>:local`` tags. There is no
+OSPREY deployments that happen to use identically-named persona renders would
+build identically-named ``<persona.project>:local`` tags. There is no
 label-filtered *listing* equivalent to ``ps -a``/``volume ls`` for this (image
 tags aren't compose-project-scoped), so each candidate tag is instead
 individually verified with ``image inspect`` against its own
@@ -442,7 +442,7 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
     scoping boundary this relies on).
 
     Image removal is deliberately the least trusting step: image tags
-    (``<persona.project>-<persona>:local``) are host-global, not scoped to this
+    (``<persona.project>:local``) are host-global, not scoped to this
     project the way ``com.docker.compose.project``-labeled containers/volumes
     are, so a same-named tag could belong to an entirely different deployment.
     Every candidate tag is therefore ``image inspect``-verified against its own
@@ -1289,7 +1289,7 @@ def remove_image(
 
     Args:
         runtime: Runtime binary, e.g. ``"docker"`` or ``"podman"``.
-        tag: Exact image tag, e.g. ``"<persona.project>-<persona>:local"``.
+        tag: Exact image tag, e.g. ``"<persona.project>:local"``.
             Never a glob or label selector.
         env: Environment for the subprocess call. Defaults to inheriting the
             parent process environment.

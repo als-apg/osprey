@@ -109,9 +109,14 @@ def test_build_persona_images_builds_each_referenced_persona_once(
         },
     }
     resolved_users = [
-        {"name": "alice", "persona": "ops", "project": "ops-app"},
-        {"name": "bob", "persona": "ops", "project": "ops-app"},  # shares ops -- must not rebuild
-        {"name": "carol", "persona": "sci", "project": "sci-app"},
+        {"name": "alice", "persona": "ops", "project": "ops-app", "image": "ops-app:local"},
+        {
+            "name": "bob",
+            "persona": "ops",
+            "project": "ops-app",
+            "image": "ops-app:local",
+        },  # shares ops -- must not rebuild
+        {"name": "carol", "persona": "sci", "project": "sci-app", "image": "sci-app:local"},
     ]
 
     monkeypatch.setattr(persona_images, "get_runtime_command", lambda config: ["docker", "compose"])
@@ -122,8 +127,8 @@ def test_build_persona_images_builds_each_referenced_persona_once(
 
     assert len(calls) == 2  # one build per DISTINCT persona, not per user
 
-    ops_cmd = next(c for c in calls if "ops-app-ops:local" in c)
-    sci_cmd = next(c for c in calls if "sci-app-sci:local" in c)
+    ops_cmd = next(c for c in calls if "ops-app:local" in c)
+    sci_cmd = next(c for c in calls if "sci-app:local" in c)
 
     # The context is the persona's CONTAINER repo, not its flat host render:
     # the render records this machine's project_root, so an image built from it
@@ -140,6 +145,42 @@ def test_build_persona_images_builds_each_referenced_persona_once(
 
     assert "com.osprey.project=myfacility" in sci_cmd
     assert str(persona_images._persona_image_context(sci_path)) == sci_cmd[-1]
+
+
+def test_build_persona_images_builds_a_shared_render_once(
+    monkeypatch, tmp_path, _no_dev_wheel_staging
+):
+    """Two personas resolving to one image (same catalog `project` and
+    `project_path` — one render deliberately serving both) build that image
+    once, not once per persona: same tag, same content, second build wasted."""
+    shared_path = _make_persona_project(tmp_path, "shared-app")
+
+    config = {
+        "project_name": "myfacility",
+        "modules": {
+            "web_terminals": {
+                "image_source": "local",
+                "default_persona": "ops",
+                "personas": {
+                    "ops": {"project": "shared-app", "project_path": shared_path},
+                    "sci": {"project": "shared-app", "project_path": shared_path},
+                },
+            }
+        },
+    }
+    resolved_users = [
+        {"name": "alice", "persona": "ops", "project": "shared-app", "image": "shared-app:local"},
+        {"name": "bob", "persona": "sci", "project": "shared-app", "image": "shared-app:local"},
+    ]
+
+    monkeypatch.setattr(persona_images, "get_runtime_command", lambda config: ["docker"])
+    calls = []
+    monkeypatch.setattr(persona_images, "run_captured", lambda cmd, **k: calls.append(cmd))
+
+    persona_images.build_persona_images(config, resolved_users, False, {})
+
+    assert len(calls) == 1
+    assert "shared-app:local" in calls[0]
 
 
 def test_build_persona_images_never_builds_zero_migration_entries(
@@ -183,7 +224,9 @@ def test_build_persona_images_includes_cli_version_from_persona_config(
             }
         },
     }
-    resolved_users = [{"name": "alice", "persona": "ops", "project": "ops-app"}]
+    resolved_users = [
+        {"name": "alice", "persona": "ops", "project": "ops-app", "image": "ops-app:local"}
+    ]
 
     monkeypatch.setattr(persona_images, "get_runtime_command", lambda config: ["docker", "compose"])
     calls = []
@@ -212,7 +255,9 @@ def test_build_persona_images_omits_cli_version_when_unset_in_persona_config(
             }
         },
     }
-    resolved_users = [{"name": "alice", "persona": "ops", "project": "ops-app"}]
+    resolved_users = [
+        {"name": "alice", "persona": "ops", "project": "ops-app", "image": "ops-app:local"}
+    ]
 
     monkeypatch.setattr(persona_images, "get_runtime_command", lambda config: ["docker", "compose"])
     calls = []
@@ -246,7 +291,9 @@ def test_build_persona_images_never_reads_facility_cli_version(
             }
         },
     }
-    resolved_users = [{"name": "alice", "persona": "ops", "project": "ops-app"}]
+    resolved_users = [
+        {"name": "alice", "persona": "ops", "project": "ops-app", "image": "ops-app:local"}
+    ]
 
     monkeypatch.setattr(persona_images, "get_runtime_command", lambda config: ["docker", "compose"])
     calls = []
@@ -274,7 +321,9 @@ def test_build_persona_images_dev_mode_adds_osprey_dev_build_arg(
             }
         },
     }
-    resolved_users = [{"name": "alice", "persona": "ops", "project": "ops-app"}]
+    resolved_users = [
+        {"name": "alice", "persona": "ops", "project": "ops-app", "image": "ops-app:local"}
+    ]
 
     monkeypatch.setattr(persona_images, "get_runtime_command", lambda config: ["docker", "compose"])
     calls = []
@@ -302,7 +351,9 @@ def test_build_persona_images_dev_mode_omits_osprey_dev_when_staging_fails(monke
             }
         },
     }
-    resolved_users = [{"name": "alice", "persona": "ops", "project": "ops-app"}]
+    resolved_users = [
+        {"name": "alice", "persona": "ops", "project": "ops-app", "image": "ops-app:local"}
+    ]
 
     monkeypatch.setattr(
         persona_images, "_copy_local_framework_for_override", lambda project_root: False
@@ -331,7 +382,9 @@ def test_build_persona_images_non_dev_omits_osprey_dev_build_arg(
             }
         },
     }
-    resolved_users = [{"name": "alice", "persona": "ops", "project": "ops-app"}]
+    resolved_users = [
+        {"name": "alice", "persona": "ops", "project": "ops-app", "image": "ops-app:local"}
+    ]
 
     monkeypatch.setattr(persona_images, "get_runtime_command", lambda config: ["docker", "compose"])
     calls = []
@@ -355,7 +408,9 @@ def test_build_persona_images_dev_mode_stages_and_cleans_wheel(monkeypatch, tmp_
             }
         },
     }
-    resolved_users = [{"name": "alice", "persona": "ops", "project": "ops-app"}]
+    resolved_users = [
+        {"name": "alice", "persona": "ops", "project": "ops-app", "image": "ops-app:local"}
+    ]
 
     def _fake_stage(project_root):
         (Path(project_root) / "osprey_framework-0.0.0-py3-none-any.whl").write_text("wheel")
@@ -393,7 +448,9 @@ def test_build_persona_images_dev_mode_cleans_staged_artifacts_on_build_failure(
             }
         },
     }
-    resolved_users = [{"name": "alice", "persona": "ops", "project": "ops-app"}]
+    resolved_users = [
+        {"name": "alice", "persona": "ops", "project": "ops-app", "image": "ops-app:local"}
+    ]
 
     def _fake_stage(project_root):
         (Path(project_root) / "osprey_framework-0.0.0-py3-none-any.whl").write_text("wheel")
@@ -523,7 +580,9 @@ def _persona_config(repo: Path, deployed_services=("openobserve",), **persona_ov
     }
 
 
-_PERSONA_USERS = [{"name": "alice", "index": 0, "persona": "ops", "project": "ops-app"}]
+_PERSONA_USERS = [
+    {"name": "alice", "index": 0, "persona": "ops", "project": "ops-app", "image": "ops-app:local"}
+]
 
 
 @pytest.fixture

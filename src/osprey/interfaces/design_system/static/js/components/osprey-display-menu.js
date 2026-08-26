@@ -4,18 +4,15 @@
  * faders button that collapses every display preference behind a popover
  * card (Appearance, View, Theme), with an optional Settings entry.
  *
- * This is the canonical implementation of the popover the web-terminal hub
- * introduced in `web_terminal/static/js/display-menu.js`. The hub keeps its
- * own (id-bound, Jinja-rendered, session-footer-carrying) copy until the
- * hub-adoption follow-up named in DESIGN.md lands; this element is the one
- * every OTHER surface mounts — standalone ARIEL first, the remaining panels
- * after it. It is deliberately panel-agnostic: it carries no ARIEL-specific
- * markup, ids, or logic, and its only coupling points are the two shared
- * preference keys, theme-manager.js, the `osprey-mode-change` message it
- * posts to its own window, and the `settings-drawer` attribute.
+ * This is THE display popover of the fleet: the web-terminal hub, standalone
+ * ARIEL and every standalone panel mount this one element. It is deliberately
+ * page-agnostic: it carries no page-specific markup, ids, or logic, and its
+ * only coupling points are the two shared preference keys, theme-manager.js,
+ * the `osprey-mode-change` message it posts to its own window, the
+ * `settings-drawer` attribute, and the projected action slot below.
  *
  * Rows (FIXED — there is no row-configuration API, and none is added until
- * a second consumer actually needs one):
+ * a consumer actually needs one):
  *   - **Appearance** (Light/Dark) — flips light/dark WITHIN the active theme
  *     family via theme-manager.js's `toggleTheme()`. Like the hub's popover
  *     it never hand-resolves a concrete theme id: theme-manager.js is the
@@ -50,11 +47,24 @@
  * (matching `<osprey-drawer>`'s own once-at-connect `resizable` precedent),
  * not observed.
  *
- * Only the Settings row closes the card. Appearance, View, and Theme picks
- * all leave it open: every row renders identically either way, so the card an
- * operator is looking at survives the pick and they can compare (or go
- * straight back) without re-opening the menu. Opening a drawer, by contrast,
- * moves them to a different surface entirely.
+ * The action row is also where a page projects its own chrome. Any element
+ * children the tag carries in the page's markup are moved, in order, into the
+ * card's `.display-menu-actions` row after the three rows — after the
+ * built-in Settings entry when both are present. This is the light-DOM
+ * equivalent of a slot, and it is the whole of the page-specific surface: the
+ * web-terminal hub projects its own Settings button (which must keep the
+ * `data-drawer-trigger` contract settings.js's warning gate binds to, not
+ * the component's `data-drawer`) and its Log out button this way, and keeps
+ * their ids, handlers and skins where they always were. Projected children
+ * get no behavior from this element — it neither closes the card on their
+ * click nor styles anything beyond the shared `.display-menu-settings` look;
+ * a page that wants the card closed calls `closeMenu()` on the element.
+ *
+ * Only the built-in Settings row closes the card. Appearance, View, and Theme
+ * picks all leave it open: every row renders identically either way, so the
+ * card an operator is looking at survives the pick and they can compare (or
+ * go straight back) without re-opening the menu. Opening a drawer, by
+ * contrast, moves them to a different surface entirely.
  *
  * Component conventions followed (D13, locked by `<osprey-drawer>`):
  *   - `osprey-` tag prefix; one custom element per file; filename == tag name
@@ -91,42 +101,17 @@ import { onModeChange, stripQueryMode } from '/design-system/js/frame-params.js'
 import {
   getFamily,
   getTheme,
+  modeOf,
   setFamily,
   subscribe,
   themeFamilies,
   toggleTheme,
 } from '/design-system/js/theme-manager.js';
-import { THEMES } from '/design-system/js/tokens.js';
-
-/** @typedef {{id: string, label: string, mode: string, family: string}} ThemeEntry */
 
 const STYLE_ID = 'osprey-display-menu-style';
 
 /** Shared, origin-scoped Expert/Simple key — the one mode-boot.js resolves from. */
 const MODE_STORAGE_KEY = 'osprey-ui-mode';
-
-// tokens.js is plain (unchecked) generated JS — cast to the documented shape
-// rather than relying on tsc's inference of the literal it emits (same
-// rationale as theme-manager.js's own `_themes` cast).
-const _themes = /** @type {ThemeEntry[]} */ (THEMES);
-
-/**
- * The `mode` ('dark'|'light') of a concrete theme id, or null when `id` is
- * not a recognized theme (including `null` before initTheme() resolves one).
- *
- * Same derivation as `<osprey-theme-switcher>`'s and the hub popover's:
- * theme-manager.js exposes the active family and id but no mode getter, so
- * each theme control reads it off the THEMES registry. Consolidating the
- * three is tracked with the hub-adoption follow-up, not done here.
- *
- * @param {string|null} id
- * @returns {string|null}
- */
-function _modeOfId(id) {
-  if (id === null) return null;
-  const theme = _themes.find((entry) => entry.id === id);
-  return theme ? theme.mode : null;
-}
 
 /**
  * The UI mode currently stamped on `<html>` by mode-boot.js (pre-paint) or by
@@ -195,9 +180,8 @@ function _renderTemplate() {
  * already exists.
  *
  * Every rule past the embedded-hidden one is scoped under the tag name, so a
- * page that also loads the hub's own `.display-menu-*` stylesheet (they share
- * the class vocabulary deliberately, to keep the eventual hub adoption a
- * markup swap rather than a rename) cannot have the two collide.
+ * page's own stylesheet can style what it projects into the action row (the
+ * hub's Log out button) under the same scope without the two colliding.
  */
 function _ensureStyleInjected() {
   if (document.getElementById(STYLE_ID)) return;
@@ -370,7 +354,8 @@ function _ensureStyleInjected() {
         border-color var(--duration-fast) ease,
         background var(--duration-fast) ease;
     }
-    osprey-display-menu .display-menu-settings:hover {
+    osprey-display-menu .display-menu-settings:hover,
+    osprey-display-menu .display-menu-settings.active {
       color: var(--text-primary);
       border-color: var(--border-accent);
       background: var(--bg-elevated);
@@ -426,6 +411,9 @@ export class OspreyDisplayMenu extends HTMLElement {
       return;
     }
     this._rendered = true;
+    // The page's own action chrome, declared as this tag's children. Captured
+    // before the template replaces them; re-homed into the action row below.
+    const projected = Array.from(this.children);
     this.innerHTML = _renderTemplate();
 
     this._trigger = /** @type {HTMLButtonElement} */ (
@@ -441,7 +429,7 @@ export class OspreyDisplayMenu extends HTMLElement {
     );
 
     this._buildFamilyPills();
-    this._buildSettingsEntry();
+    this._buildActions(projected);
 
     this._trigger.addEventListener('click', (event) => {
       event.stopPropagation();
@@ -528,20 +516,36 @@ export class OspreyDisplayMenu extends HTMLElement {
   }
 
   /**
-   * Add the Settings entry, and only when `settings-drawer` names a drawer.
-   * The button carries `data-drawer`, `<osprey-drawer>`'s own delegated
-   * trigger contract, so the drawer component owns the open — this element
-   * dismisses the card and parks focus on the persistent trigger, since
-   * opening a drawer is a move to another surface. Built with DOM calls so
-   * the attribute value is never interpolated into markup.
+   * Build the card's action row: the optional built-in Settings entry (only
+   * when `settings-drawer` names a drawer) followed by the page's projected
+   * children, in their markup order. No row at all when there is nothing to
+   * put in it, so a page with neither gets no stray hairline.
+   *
+   * The Settings button carries `data-drawer`, `<osprey-drawer>`'s own
+   * delegated trigger contract, so the drawer component owns the open — this
+   * element dismisses the card and parks focus on the persistent trigger,
+   * since opening a drawer is a move to another surface. Built with DOM calls
+   * so the attribute value is never interpolated into markup.
+   *
+   * @param {Element[]} projected The tag's original element children.
    */
-  _buildSettingsEntry() {
+  _buildActions(projected) {
     const drawerId = this.getAttribute('settings-drawer');
-    if (!drawerId || !this._card) return;
+    if ((!drawerId && projected.length === 0) || !this._card) return;
 
     const actions = document.createElement('div');
     actions.className = 'display-menu-actions';
+    if (drawerId) actions.appendChild(this._buildSettingsEntry(drawerId));
+    for (const child of projected) actions.appendChild(child);
+    this._card.appendChild(actions);
+  }
 
+  /**
+   * The built-in Settings entry for `drawerId` — see `_buildActions`.
+   * @param {string} drawerId
+   * @returns {HTMLButtonElement}
+   */
+  _buildSettingsEntry(drawerId) {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'display-menu-settings';
@@ -564,9 +568,7 @@ export class OspreyDisplayMenu extends HTMLElement {
       this.closeMenu();
       this._trigger?.focus();
     });
-
-    actions.appendChild(button);
-    this._card.appendChild(actions);
+    return button;
   }
 
   /**
@@ -581,7 +583,7 @@ export class OspreyDisplayMenu extends HTMLElement {
     if (!(target instanceof HTMLElement)) return;
     const want = target.dataset.appearance;
     if (want !== 'light' && want !== 'dark') return;
-    if (want !== _modeOfId(getTheme())) toggleTheme();
+    if (want !== modeOf(getTheme())) toggleTheme();
   }
 
   /**
@@ -637,7 +639,7 @@ export class OspreyDisplayMenu extends HTMLElement {
    * this element upgraded) and on every subsequent theme apply.
    */
   _syncUI() {
-    const mode = _modeOfId(getTheme());
+    const mode = modeOf(getTheme());
     if (this._appearanceSeg && mode !== null) {
       this._appearanceSeg.setAttribute('data-active', mode);
       for (const option of this._appearanceSeg.querySelectorAll('.display-seg-option')) {

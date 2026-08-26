@@ -112,21 +112,28 @@ class DocShot:
 
 REGISTRY: list[DocShot] = [
     # Default (container-free) target of ``make screenshots``: an element crop of
-    # the design-system theme switcher, light + dark, for the theming how-to.
-    # ``channel_finder`` is the lightest interface that still mounts the switcher
-    # in its own standalone header — its ``create_app()`` takes no required
-    # argument and needs no workspace or backend, unlike ``artifacts``/``lattice``
-    # which need a workspace_root to show anything useful. (ARIEL is no longer a
-    # candidate: its header
-    # delegates theming to the hub and no longer mounts the switcher itself.)
+    # the design-system display menu's open popover card, light + dark, for the
+    # theming how-to. ``channel_finder`` is the lightest interface that mounts
+    # the menu in its own standalone header — its ``create_app()`` takes no
+    # required argument and needs no workspace or backend, unlike
+    # ``artifacts``/``lattice`` which need a workspace_root to show anything
+    # useful. The card only exists open, so the single sub-view's anchor is the
+    # trigger to click before the crop.
     DocShot(
-        name="theme_switcher",
+        name="display_menu",
         environment="standalone_interface",
         kind="static",
         app_factory="osprey.interfaces.channel_finder.app:create_app",
         capture_mode="element",
-        element_selector="osprey-theme-switcher",
-        wait_selector="osprey-theme-switcher",
+        element_selector="osprey-display-menu .display-menu-card.open",
+        wait_selector="osprey-display-menu .display-menu-trigger",
+        subviews=(
+            SubView(
+                anchor="osprey-display-menu .display-menu-trigger",
+                out="display_menu",
+                wait_selector="osprey-display-menu .display-menu-card.open",
+            ),
+        ),
         themes=("light", "dark"),
     ),
     # Architecture diagrams: hand-authored SVG in a committed HTML page, one

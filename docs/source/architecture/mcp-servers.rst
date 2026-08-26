@@ -8,6 +8,14 @@ tools via stdio JSON-RPC. The **10 core in-tree servers** below are the ones a
 deployment normally renders; build profiles can inject additional servers beyond
 them.
 
+.. raw:: html
+   :file: ../_diagrams/mcp-server-map.html
+
+The four channel-finder variants count as four of the ten, but a deployment
+serves exactly one of them — whichever ``channel_finder.pipeline_mode`` names —
+under the single ``channel-finder`` name, which is why the map shows seven
+running processes.
+
 
 Control System
 --------------
@@ -110,7 +118,7 @@ here under the ``channel-finder`` name: the same read transaction, the same
 refusal of extension procedures and ``LOAD CSV``, the same row and time bounds.
 The examples catalogue is this package's own, written around the questions
 operators ask about channels rather than around general graph exploration. See
-:doc:`/how-to/use-facility-graph`.
+:doc:`/how-to/facility-knowledge/use-facility-graph`.
 
 **Tools:**
 
@@ -211,8 +219,9 @@ Python Executor
 
 Package: ``osprey.mcp_server.python_executor``
 
-Executes Python code in a sandboxed environment with process isolation,
-limits enforcement, and timeout protection.
+Runs agent-authored Python as a separate process on the host --- a process
+boundary with limits enforcement and timeout protection, not a sandbox; see
+:doc:`/architecture/python-executor`.
 
 **Tools:**
 
@@ -281,7 +290,7 @@ NARAD-convention RDF corpus held by the ``graphdb`` store. Rendered only where
 **facility-knowledge-graph subagent**: the main agent's route to the graph is
 delegation, mirroring the channel finder. Every query runs in a read
 transaction, and extension procedures, extension functions and ``LOAD CSV`` are
-refused before the store is dialed. See :doc:`/how-to/use-facility-graph`.
+refused before the store is dialed. See :doc:`/how-to/facility-knowledge/use-facility-graph`.
 
 **Tools:**
 

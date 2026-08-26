@@ -17,14 +17,16 @@ services:
     # services.graphdb.image in config.yml, to point at a mirror or a pinned
     # digest (e.g. for air-gapped registries).
     #
-    # The 5.20 default is a pin, not a snapshot of "current". neosemantics —
+    # The 5.26 default is a pin, not a snapshot of "current". neosemantics —
     # the plugin that imports RDF, without which this store has no way to load
-    # the corpus at all — publishes no build for Neo4j 5.23 or later as of May
-    # 2026. So the pin tracks the PLUGIN's release cadence, not the server's:
-    # check https://github.com/neo4j-labs/neosemantics/releases for a build
+    # the corpus at all — is installed at container start from its plugin
+    # manifest, and the 5.26 LTS line is the newest server line that manifest
+    # covers as of August 2026. So the pin tracks the PLUGIN's release
+    # cadence, not the server's: check
+    # https://neo4j-labs.github.io/neosemantics/versions.json for an entry
     # matching the newer server before bumping this, because a server the
     # plugin has no jar for comes up healthy and then fails every import.
-    image: ${OSPREY_GRAPHDB_IMAGE:-neo4j:5.20-community}
+    image: ${OSPREY_GRAPHDB_IMAGE:-neo4j:5.26-community}
     # container_name is a HOST-GLOBAL docker identifier: a bare `graphdb`
     # collides when two OSPREY projects deploy a graph store on one host,
     # forcing them to serialize. Namespace it per-project so concurrent deploys
@@ -125,7 +127,12 @@ services:
       # becoming a second place the minted password has to be spelled. A pass
       # means the server is up and serving, which is the condition the seeder
       # waits on before it bootstraps the graph config and imports the corpus.
-      test: ["CMD-SHELL", "curl -fsS -o /dev/null --max-time 5 http://127.0.0.1:7474/"]
+      #
+      # wget, not curl: the neo4j community image ships wget (its own
+      # entrypoint fetches the n10s jar with it) and no curl at all — a curl
+      # probe fails on every attempt and parks the container at `unhealthy`
+      # while the store serves normally.
+      test: ["CMD-SHELL", "wget -q -O /dev/null -T 5 http://127.0.0.1:7474/"]
       interval: 10s
       timeout: 5s
       retries: 5

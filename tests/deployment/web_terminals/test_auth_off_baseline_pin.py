@@ -20,7 +20,12 @@ byte-for-byte what it rendered before this feature, with exactly two exceptions:
      container, which reads that header to learn who is on the other end.
 
 Everything else — every port, volume, header, ``location`` block, comment and
-blank line — must be untouched.
+blank line — must be untouched, with one REPLACEMENT the feature makes rather
+than an addition: the interim per-user audit bind the baseline already carries
+(``./var/audit/<user>`` mounted at the container's audit ROOT, shipped for the
+executor's old refusal ledger) becomes the identity-addressed bind above. The
+old line and its two comment lines are the only pre-feature lines that may
+disappear, and they are allowlisted below by exact spelling.
 
 **The baseline is frozen, not regenerated.** ``golden/pre_audit_roles/`` holds
 the three artifacts as ``render_web_terminals(EXAMPLE_CONFIG)`` produced them
@@ -87,6 +92,19 @@ _ALLOWED_COMPOSE_LINES = Counter(
     }
 )
 
+#: The interim per-user audit bind the pre-feature render carried — mounted at
+#: the container's audit ROOT, for the executor's old refusal ledger — which the
+#: identity-addressed bind above replaces. These, and ONLY these, may vanish
+#: from the auth-off render; anything else that disappears is still a failure.
+_REPLACED_COMPOSE_LINES = frozenset(
+    {
+        "      # This user's refusal audit log (`var/audit/<user>/` on the host), bound",
+        "      # so the record survives a recreate and is readable from the host.",
+        "      - ./var/audit/alice:/app/dls-assistant/var/audit",
+        "      - ./var/audit/bob:/app/dls-assistant/var/audit",
+    }
+)
+
 #: Task 4.7 (nginx-identity-headers), ungated arm. Two clears per `/u/<user>/`
 #: location, and NOTHING else: no `auth_request_set`, no forward, no `/auth/`
 #: location — those render only with authentication on.
@@ -143,7 +161,15 @@ def test_the_frozen_baseline_really_predates_the_feature() -> None:
     compose = (_BASELINE_DIR / "docker-compose.web.yml").read_text()
     assert "OSPREY_AUDIT_IDENTITY" not in compose
     assert "OSPREY_AUDIT_DIR" not in compose
-    assert "/var/audit/" not in compose
+    # The identity-addressed target is the feature's marker; the baseline may
+    # carry the interim root-of-`var/audit` bind it replaces (see the module
+    # docstring), so the bare `/var/audit/` substring is not the test.
+    assert "/app/dls-assistant/var/audit/alice" not in compose
+    assert "/app/dls-assistant/var/audit/bob" not in compose
+    for line in _REPLACED_COMPOSE_LINES:
+        assert line in compose, (
+            f"the frozen baseline lacks the interim bind it is said to carry: {line!r}"
+        )
 
     nginx = (_BASELINE_DIR / "nginx.conf").read_text()
     assert "X-Osprey-Auth-Subject" not in nginx
@@ -169,10 +195,11 @@ def test_no_pre_feature_line_is_removed_or_reworded() -> None:
     insertions only)."""
     for name in _ARTIFACTS:
         old, new, opcodes = _opcodes(name)
+        replaceable = _REPLACED_COMPOSE_LINES if name == "docker-compose.web.yml" else frozenset()
         lost = [
             (tag, old[i1:i2], new[j1:j2])
             for tag, i1, i2, j1, j2 in opcodes
-            if tag in ("delete", "replace")
+            if tag in ("delete", "replace") and not set(old[i1:i2]) <= replaceable
         ]
         assert not lost, (
             f"{name}: the auth-off render no longer contains lines the pre-feature "

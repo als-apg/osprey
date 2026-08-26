@@ -546,8 +546,9 @@ class ARIELConfig:
                 ``ariel.database.uri`` unset, the DSN is derived from it — see
                 :func:`resolve_ariel_dsn`.
             config_dir: Directory holding the config.yml this dictionary came
-                from. A relative ``ariel.vocabulary.path`` resolves against it,
-                so every process reading the same config finds the same file.
+                from. A relative ``ariel.vocabulary.path`` resolves against the
+                project root derived from it, so every process reading the
+                same config finds the same file.
                 Keyword-only with a None default: callers that never name a
                 config-relative path are unaffected, and None falls back to the
                 shared helper's own rule.
@@ -773,10 +774,10 @@ class ARIELConfig:
                         f"module: {mode}. Enabled modules: {enabled_text}"
                     )
 
-        # The keyword module's own knobs. The resolver that the search path uses
+        # Each search module's own knobs. The resolver that the search path uses
         # is the one consulted here, so a malformed knob surfaces at startup and
         # in `ariel vocab-check` / `ariel status` rather than on the first search
-        # that happens to carry a pattern. Imported lazily: the search package
+        # that happens to read it. Imported lazily: the search package
         # reaches back into this module, and a module-level import would close
         # that loop. A disabled module is not consulted at all — its settings
         # block reaches no reader, so refusing it would be refusing dead config.
@@ -785,6 +786,22 @@ class ARIELConfig:
 
             try:
                 KeywordSearchSettings.from_ariel_config(self)
+            except ValueError as exc:
+                errors.append(str(exc))
+
+        if self.is_search_module_enabled("hybrid"):
+            from osprey.services.ariel_search.search.qmd import HybridSearchSettings
+
+            try:
+                HybridSearchSettings.from_ariel_config(self)
+            except ValueError as exc:
+                errors.append(str(exc))
+
+        if self.is_search_module_enabled("semantic"):
+            from osprey.services.ariel_search.search.semantic import SemanticSearchSettings
+
+            try:
+                SemanticSearchSettings.from_ariel_config(self)
             except ValueError as exc:
                 errors.append(str(exc))
 

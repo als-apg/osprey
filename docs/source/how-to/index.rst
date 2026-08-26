@@ -3,12 +3,11 @@ How-To Guides
 
 Task-oriented guides that walk you through common OSPREY operations step by step.
 Each guide focuses on a single goal and assumes you already have a working OSPREY installation.
-The sections follow the natural journey: build and deploy a project, run and
-operate the agent, extend it for your facility, then explore the bundled
-services and tutorials.
+The sections follow the natural journey: build and deploy a project, operate the
+agent day to day, then work with the bundled facility services.
 
-Build & Deploy a Project
-------------------------
+Build & deploy
+--------------
 
 .. grid:: 1 1 2 3
    :gutter: 3
@@ -27,36 +26,23 @@ Build & Deploy a Project
       The end-to-end walkthrough: one deployment repo from ``osprey init``
       through the CI scaffolding to a running three-service stack.
 
-   .. grid-item-card:: Configure LLM Providers
-      :link: configure-providers
-      :link-type: doc
-
-      Set up and switch between supported LLM providers — Anthropic, OpenAI, Google,
-      CBORG, AMSC i2, Ollama, and others — via the build profile (``profile.yml``).
-
-   .. grid-item-card:: Run Open & Local Models
-      :link: run-open-models
-      :link-type: doc
-
-      Drive the Osprey agent with open-weight or self-hosted models via the
-      translation proxy, and benchmark their capability with ``scripts/benchmark/``.
-
-   .. grid-item-card:: Deploy a Project
+   .. grid-item-card:: Container Deployment
       :link: deploy-project/index
       :link-type: doc
 
-      Create, configure, and deploy an OSPREY project from ``osprey build`` through
-      ``osprey up`` to a running instance.
+      The service stack behind a running project — compose templates, networking,
+      the environment chain, and the agent's own container image.
 
-   .. grid-item-card:: Containerize a Project
-      :link: containerize-project
+   .. grid-item-card:: LLM Providers
+      :link: llm-providers/index
       :link-type: doc
 
-      Build and run the container image generated for every project — build args,
-      path relocation, air-gapped mode, and Kubernetes notes.
+      Pick the provider that drives the Osprey agent and map the model tiers
+      each one serves, including open-weight and self-hosted models behind the
+      translation proxy.
 
-Run & Operate the Agent
------------------------
+Operate
+-------
 
 .. grid:: 1 1 2 3
    :gutter: 3
@@ -65,119 +51,33 @@ Run & Operate the Agent
       :link: web-terminal/index
       :link-type: doc
 
-      The browser cockpit for the Osprey agent — launching it, theming every
-      OSPREY interface at once, and adding your own themed side panels.
+      The browser cockpit for the Osprey agent — launching and theming it,
+      adding your own side panels, reporting problems from inside it, and
+      serving a whole team from one host.
 
-   .. grid-item-card:: Multi-User Support
-      :link: multi-user/index
+   .. grid-item-card:: Agent Interfaces
+      :link: agent-interfaces/index
       :link-type: doc
 
-      Serve a whole team from one host — a landing page plus a private
-      containerized Web Terminal per user, in read-only and write-capable
-      capability tiers.
+      The CLI agent, event-driven dispatch, external MCP servers, and chat
+      bridges — the four ways to reach the agent.
 
-   .. grid-item-card:: Send and Retrieve Feedback
-      :link: send-feedback
+   .. grid-item-card:: Health and Monitoring
+      :link: health-and-monitoring/index
       :link-type: doc
 
-      Let operators report problems from the Web Terminal itself — three
-      channels, what each attaches, and the ``osprey feedback`` verbs that read
-      the results back.
+      Is it up, and what is it doing — facility health checks you can extend,
+      plus the agent's own logs and metrics over OTLP.
 
-   .. grid-item-card:: Command-Line Agent
-      :link: cli-agent
+   .. grid-item-card:: Control Systems
+      :link: control-systems/index
       :link-type: doc
 
-      Run the Osprey agent from your terminal — interactively with ``osprey
-      chat``, or headlessly with ``osprey query`` for CI pipelines: read-only,
-      structured JSON output, and clear exit codes.
+      Connectors for your control system, the virtual accelerator to rehearse
+      on, switching to the live machine, and what the agent may not touch.
 
-   .. grid-item-card:: Event Dispatch
-      :link: event-dispatch
-      :link-type: doc
-
-      Turn external events — webhooks and cron ticks — into headless Osprey agent
-      runs, deployed as containers or run locally.
-
-   .. grid-item-card:: Chat Bridges
-      :link: chat-bridges/index
-      :link-type: doc
-
-      Let your team ask the Osprey agent questions from Nextcloud Talk or Google
-      Chat and get answers, plots, and files back in the same conversation.
-
-   .. grid-item-card:: The Protected Set
-      :link: protected-set
-      :link-type: doc
-
-      The files and config keys the agent may not rewrite, which surfaces
-      refuse them, and where a refused attempt is recorded.
-
-   .. grid-item-card:: Monitor the Agent
-      :link: monitor-agent
-      :link-type: doc
-
-      Emit the agent's logs and metrics over OTLP to any backend, or deploy the
-      opt-in local OpenObserve store alongside your project.
-
-   .. grid-item-card:: Configure Health Checks
-      :link: configure-health-checks
-      :link-type: doc
-
-      Extend ``osprey health`` with facility probe checks and plugins, and tune
-      the suite's cost classes and timeouts via the ``health:`` config block.
-
-   .. grid-item-card:: The ``osprey health --json`` Contract
-      :link: health-json-contract
-      :link-type: doc
-
-      The report envelope, the per-check row shape, the exit codes, and the
-      ``jq`` patterns for consuming all of it from a CI job.
-
-   .. grid-item-card:: Switch the Control Target
-      :link: switch-control-target
-      :link-type: doc
-
-      Rehearse work on the virtual accelerator and then run it on the real
-      machine, in one session — the roster, the live gate, and what refuses.
-
-Extend & Integrate
-------------------
-
-.. grid:: 1 1 2 3
-   :gutter: 3
-
-   .. grid-item-card:: Add a Control System Connector
-      :link: add-connector
-      :link-type: doc
-
-      Create a custom connector to integrate a new control system protocol (beyond EPICS
-      and Mock) with OSPREY's protocol-agnostic architecture.
-
-   .. grid-item-card:: Add an MCP Server
-      :link: add-mcp-server
-      :link-type: doc
-
-      Build and register a new FastMCP server to expose domain-specific tools that
-      the Osprey agent can discover and call.
-
-   .. grid-item-card:: Use the Python Executor
-      :link: use-python-executor
-      :link-type: doc
-
-      Run agent-generated Python scripts safely in a containerized environment with
-      access to the OSPREY runtime API.
-
-   .. grid-item-card:: Facility Knowledge
-      :link: use-facility-knowledge
-      :link-type: doc
-
-      What the Open Knowledge Format is and why OSPREY stores facility knowledge
-      as cross-linked markdown, plus how to structure, author, and serve a
-      bundle to the agent on demand.
-
-Bundled Services & Tutorials
-----------------------------
+Facility services
+-----------------
 
 .. grid:: 1 1 2 3
    :gutter: 3
@@ -189,13 +89,12 @@ Bundled Services & Tutorials
       Search, filter, and explore control system channels using the Channel Finder
       service and its web interface.
 
-   .. grid-item-card:: Search the Facility Graph
-      :link: use-facility-graph
+   .. grid-item-card:: Facility Knowledge
+      :link: facility-knowledge/index
       :link-type: doc
 
-      Let the Osprey agent answer structure questions — device rollups, section
-      walks, which PVs a device exposes — with read-only Cypher over the
-      facility knowledge graph.
+      The Open Knowledge Format bundle, the facility graph, facility rules, and
+      the search sidecar that serves all of it to the agent on demand.
 
    .. grid-item-card:: ARIEL Logbook Search
       :link: ariel/index
@@ -205,13 +104,6 @@ Bundled Services & Tutorials
       semantic retrieval modes, plus multi-step reasoning delegated to the
       Osprey agent.
 
-   .. grid-item-card:: Use the Virtual Accelerator
-      :link: use-virtual-accelerator
-      :link-type: doc
-
-      Run the Control Assistant tutorial against a containerized PyAT soft-IOC that
-      serves real EPICS Channel Access with live storage-ring physics.
-
    .. grid-item-card:: Bluesky Plans
       :link: bluesky/index
       :link-type: doc
@@ -220,38 +112,18 @@ Bundled Services & Tutorials
       agent, review, start and stop in the BLUESKY panel, and add plans
       of your own.
 
-.. seealso::
-
-   :doc:`CLI Reference </cli-reference/index>` — complete reference for all
-   ``osprey`` commands: build, deploy, config, health, claude, web, and more.
-
 .. toctree::
    :hidden:
 
    build-profiles
    deploy-a-facility
-   configure-providers
-   run-open-models
    deploy-project/index
-   containerize-project
+   llm-providers/index
    web-terminal/index
-   multi-user/index
-   send-feedback
-   cli-agent
-   event-dispatch
-   chat-bridges/index
-   protected-set
-   monitor-agent
-   configure-health-checks
-   health-json-contract
-   switch-control-target
-   add-connector
-   add-mcp-server
-   use-python-executor
-   use-facility-knowledge
+   agent-interfaces/index
+   health-and-monitoring/index
+   control-systems/index
    use-channel-finder
-   use-facility-graph
+   facility-knowledge/index
    ariel/index
-   use-virtual-accelerator
    bluesky/index
-   /cli-reference/index

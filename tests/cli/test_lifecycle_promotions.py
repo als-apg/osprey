@@ -219,8 +219,6 @@ def assert_sub_step(printed: Printed, name: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-BLUESKY_VA = {"deployed_services": ["bluesky", "virtual_accelerator"]}
-
 #: A project that runs ARIEL's own store, which is what makes the staged
 #: bring-up do anything at all (see ``_ariel_store_deployed``).
 ARIEL_PROJECT = {"deployed_services": ["postgresql"], "ariel": {"database": "ariel"}}
@@ -318,16 +316,6 @@ class TestMintedSecretsAreReported:
 class TestDegradationsAreReported:
     """A deployment that will not do what it looks like it does says so."""
 
-    def test_a_mock_control_system_reports_the_browse_only_deployment(
-        self, default_altitude, printed, project
-    ):
-        container_lifecycle._ensure_bluesky_substrate_env(
-            {**BLUESKY_VA, "control_system": {"type": "mock"}}, project
-        )
-
-        assert_promoted(default_altitude, printed, "this deployment is browse-only")
-        assert "osprey set connector=virtual_accelerator" in printed.flowed
-
     def test_a_pinned_worker_image_reports_the_build_it_skipped(
         self, default_altitude, printed, monkeypatch
     ):
@@ -358,23 +346,6 @@ class TestDegradationsAreReported:
 
 class TestAutonomousHostChangesAreReported:
     """What the deploy wrote, or decided, without being asked to."""
-
-    def test_derived_plan_devices_name_the_file_they_came_from(
-        self, default_altitude, printed, project, monkeypatch
-    ):
-        monkeypatch.setattr(
-            "osprey.services.bluesky_bridge.substrate_devices.derive_substrate_env",
-            lambda project_dir: {"BLUESKY_EPICS_SETPOINTS": "SR:C01:COR"},
-        )
-
-        container_lifecycle._ensure_bluesky_substrate_env(
-            {**BLUESKY_VA, "control_system": {"type": "virtual_accelerator"}}, project
-        )
-
-        assert_promoted(default_altitude, printed, "bluesky plan devices auto-configured")
-        output.flush_ledger()
-        assert "channel_limits.json" in printed.flowed
-        assert "BLUESKY_EPICS_SETPOINTS" in printed.flowed
 
     def test_a_local_env_override_is_reported_by_name(self, default_altitude, printed, tmp_path):
         from osprey.utils.dotenv import ENV_SHARED_FILENAME
@@ -587,19 +558,22 @@ class TestVerboseKeepsThePrimaryOutput:
     """Criterion 3, for this module: ``-v`` adds the transcript, loses nothing."""
 
     def test_a_promoted_fact_is_printed_under_verbose_too(
-        self, terminal_probe, printed, project, monkeypatch
+        self, terminal_probe, printed, tmp_path, monkeypatch
     ):
+        from osprey.utils.dotenv import ENV_SHARED_FILENAME
+
         monkeypatch.setattr("osprey.utils.config.load_project_dotenv", lambda *a, **k: None)
         assert CliRunner().invoke(cli, ["-v"]).exit_code == 0
 
-        container_lifecycle._ensure_bluesky_substrate_env(
-            {**BLUESKY_VA, "control_system": {"type": "mock"}}, project
-        )
+        (tmp_path / ENV_SHARED_FILENAME).write_text("ARIEL_DB_PASSWORD=shared\n", encoding="utf-8")
+        (tmp_path / ".env").write_text("ARIEL_DB_PASSWORD=mine\n", encoding="utf-8")
+
+        container_lifecycle._report_chain_overrides(tmp_path)
 
         # Printed by the renderer, AND painted from the record: under -v the
         # transcript is what was asked for, so the fact appears in both.
-        assert "this deployment is browse-only" in printed.flowed
-        assert "browse-only" in terminal_probe.rendered_text
+        assert "ARIEL_DB_PASSWORD" in printed.flowed
+        assert "ARIEL_DB_PASSWORD" in terminal_probe.rendered_text
 
 
 class TestPromotedCopyStyle:
@@ -678,7 +652,6 @@ def _stub_start_stack_preflights(monkeypatch: pytest.MonkeyPatch) -> None:
         "_preflight_host_ports",
         "_preflight_archiver_pymongo",
         "_preflight_stale_store_volumes",
-        "_ensure_bluesky_substrate_env",
         "_ensure_bluesky_control_plane_keys",
         "_ensure_bluesky_document_plane_certs",
         "_preflight_env_chain_drift",

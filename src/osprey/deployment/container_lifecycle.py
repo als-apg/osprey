@@ -34,6 +34,7 @@ from osprey.deployment.compose_generator import (
     clean_deployment,
     compose_base_cmd,
     compose_provider_env,
+    configured_ariel_mirror_path,
     prepare_compose_files,
     repo_identity,
     resolve_image_defaults,
@@ -102,7 +103,7 @@ from osprey.utils.dotenv import (
     write_env_merged,
 )
 from osprey.utils.logger import get_logger
-from osprey.utils.workspace import container_image_context
+from osprey.utils.workspace import RUNTIME_DATA_DIR_NAME, container_image_context
 
 logger = get_logger("deployment.lifecycle")
 
@@ -483,10 +484,18 @@ def _bluesky_curve_dir(lane_key: str = _BLUESKY_LANE_ONE) -> Path:
     """Document-plane CURVE certificate directory for one lane.
 
     Relative to the project directory, and fixed by the read-only mounts the
-    bluesky compose template declares (``./data/<lane>_curve/<side>`` ->
-    ``/app/curve``) together with the certificate paths it hardcodes into each
-    container's environment, so this function and that template are one
-    contract: change either and the bridge refuses to bind its proxy.
+    bluesky compose template declares
+    (``./data/.runtime/<lane>_curve/<side>`` -> ``/app/curve``) together with
+    the certificate paths it hardcodes into each container's environment, so
+    this function and that template are one contract: change either and the
+    bridge refuses to bind its proxy.
+
+    Under ``data/.runtime/`` — the reserved runtime-output subpath
+    (:data:`~osprey_connectors.workspace.RUNTIME_DATA_DIR_NAME`) that the
+    build-drift fold never hashes and the build never stages. Certificates are
+    minted by ``osprey up`` itself, so anywhere else in ``data/`` every
+    successful start would mark its own build OUT OF DATE and the scaffolded
+    ``osprey up -d`` boot unit would refuse to start after a reboot (#716).
 
     Per lane rather than shared, and that is the point: a single keypair would
     authenticate either lane's publisher to either lane's proxy, so a plan
@@ -498,6 +507,21 @@ def _bluesky_curve_dir(lane_key: str = _BLUESKY_LANE_ONE) -> Path:
 
     Returns:
         The lane's certificate directory, relative to the project directory.
+    """
+    return Path("data") / RUNTIME_DATA_DIR_NAME / f"{lane_key}_curve"
+
+
+def _legacy_bluesky_curve_dir(lane_key: str = _BLUESKY_LANE_ONE) -> Path:
+    """Where releases before the ``data/.runtime/`` carve-out minted a lane's set.
+
+    Kept only so :func:`_migrate_legacy_curve_dir` can find and relocate
+    existing material; nothing reads or writes this path otherwise.
+
+    Args:
+        lane_key: A lane's ``services.<lane>`` key.
+
+    Returns:
+        The pre-#716 certificate directory, relative to the project directory.
     """
     return Path("data") / f"{lane_key}_curve"
 
@@ -1275,11 +1299,10 @@ def _refuse_invented_history(config: dict) -> None:
     deploy is where the pairing becomes a running stack other people trust.
 
     Keyed on ``control_system.type`` alone, exactly as the other two sites are,
-    rather than on ``deployed_services`` like ``_ensure_bluesky_substrate_env``
-    below: that function is auto-configuring a service and so only cares whether
-    the service is here, while this one is asking what the deployment claims
-    about itself. An attached project deploying no VA container of its own still
-    points its agent at one.
+    rather than on ``deployed_services``: a step that provisions a service only
+    cares whether the service is here, while this one is asking what the
+    deployment claims about itself. An attached project deploying no VA
+    container of its own still points its agent at one.
 
     Both keys are resolved through nested sections only, the way ``ConfigBuilder``
     reads a rendered ``config.yml`` — see
@@ -1306,139 +1329,6 @@ def _refuse_invented_history(config: dict) -> None:
         f"`va_archiver:` block — the control-assistant preset ships one, and "
         f"`osprey up` then brings up the store and its recorder beside the "
         f"virtual accelerator."
-    )
-
-
-def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) -> None:
-    """Auto-configure the bluesky bridge's EPICS-substrate plan devices for a
-    VA-backed Bluesky stack, making ``osprey up`` turn-key.
-
-    Additive and non-breaking, mirroring ``_ensure_service_tokens``'s
-    "existing value wins, append what's missing" convention: when the
-    deployed project is a VA-backed Bluesky stack (BOTH ``"bluesky"`` and
-    ``"virtual_accelerator"`` present in ``deployed_services``), derive
-    ``BLUESKY_EPICS_SUBSTRATE``/``BLUESKY_EPICS_SETPOINTS``/``_READBACKS`` from
-    the built project's own ``data/channel_limits.json`` (the canonical
-    derivation lives in
-    ``osprey.services.bluesky_bridge.substrate_devices.derive_substrate_env``,
-    shared with ``tests/e2e/_orm_stack.py``) and append any of those keys not
-    already present in the project ``.env``. Any value already set — in the
-    process env or an existing ``.env`` — is left untouched, so an
-    operator-configured or e2e-harness-configured substrate env is always
-    preserved.
-
-    A no-op for any deploy that is not both bluesky- and
-    virtual-accelerator-backed (e.g. a plain agent deploy, or bluesky without
-    the VA): nothing is read or written. This makes the bridge substrate-mode
-    with real channel names available regardless of
-    ``control_system.type`` -- the bridge's own connector backend follows
-    that setting separately.
-
-    Never raises into a deploy: a missing/unreadable ``channel_limits.json``
-    or a derivation that yields no correctors/BPMs logs a warning and is
-    skipped, leaving the bridge and the queueserver worker with an empty
-    device namespace — browse-only, exactly as if no substrate env had ever
-    been set — unless an operator supplies one by hand.
-
-    Deliberately *not* written back to the profile ``.env``, unlike the service
-    secrets ``_ensure_service_tokens`` syncs there. These vars are derived
-    configuration, not state only a deploy can produce: their source is the
-    project's own ``channel_limits.json``. The write-back exists to preserve
-    what nothing else can reproduce, so the profile is the wrong place to pin a
-    device list this function derives.
-
-    :param config: Raw deploy config (``deployed_services`` membership).
-    :param env_path: Project ``.env`` path; defaults to ``Path(".env")``
-        (matching ``_ensure_service_tokens``), i.e. resolved against the
-        current working directory -- ``osprey up`` always chdirs into the
-        repo root first. Overridable for tests.
-    """
-    deployed_services = config.get("deployed_services")
-    services = {str(s) for s in (deployed_services or [])}
-    lane_keys = _bluesky_lane_keys(config)
-    if not lane_keys or "virtual_accelerator" not in services:
-        return
-
-    # The substrate devices are ophyd-async Channel Access devices, which only
-    # exist behind a real or virtual IOC. A ``mock`` control system speaks no
-    # CA, so there is nothing to point them at -- the documented "mock =
-    # browse-only, virtual_accelerator = real run" contract. Deriving a
-    # substrate here would hand the queueserver worker device names it can
-    # never connect to, turning a clean browse-only deployment into one whose
-    # environment fails to open. Only auto-configure substrate for a control
-    # system that actually speaks CA.
-    control_system_type = str(config.get("control_system", {}).get("type", "mock")).strip().lower()
-    if control_system_type == "mock":
-        _report_fact(
-            "control_system.type is 'mock': this deployment is browse-only -- plans can "
-            "be listed and composed but never executed. Skipping "
-            "BLUESKY_EPICS_SUBSTRATE auto-configuration (plan devices need an "
-            "EPICS-like connector to speak Channel Access to). Flip it with "
-            "`osprey set connector=virtual_accelerator` -- that pairing needs the "
-            "archiver pointed at a real store, and on a mock-archiver profile the "
-            "next `osprey build` refuses and names the fix."
-        )
-        return
-
-    if env_path is None:
-        env_path = Path(".env")
-    project_dir = env_path.resolve().parent
-
-    from osprey.services.bluesky_bridge.substrate_devices import derive_substrate_env
-
-    try:
-        derived = derive_substrate_env(project_dir)
-    except Exception:
-        logger.warning(
-            "Could not auto-configure bluesky bridge plan devices from %s "
-            "(derivation raised unexpectedly). Skipping BLUESKY_EPICS_SUBSTRATE "
-            "auto-configuration -- set BLUESKY_EPICS_SETPOINTS/_READBACKS manually "
-            "if you want the bridge to run in EPICS-substrate mode.",
-            project_dir / "data" / "channel_limits.json",
-            exc_info=True,
-        )
-        return
-    if not derived:
-        logger.warning(
-            "Could not auto-configure bluesky bridge plan devices from %s "
-            "(missing, unreadable, or yields no SR correctors/BPMs). Skipping "
-            "BLUESKY_EPICS_SUBSTRATE auto-configuration -- set "
-            "BLUESKY_EPICS_SETPOINTS/_READBACKS manually if you want the bridge "
-            "to run in EPICS-substrate mode.",
-            project_dir / "data" / "channel_limits.json",
-        )
-        return
-
-    # One set of variables PER LANE. The device NAMES are a property of the
-    # facility and come out the same for both — the two lanes address the same
-    # PVs through different gateways — but the variables are per lane all the
-    # same, because that is what lets an operator narrow one lane's substrate
-    # without silently narrowing the other's. Lane 1's names are unchanged, so
-    # a single-lane project's ``.env`` gains nothing new here.
-    derived_by_lane: dict[str, str] = {}
-    for lane_key in lane_keys:
-        prefix = _bluesky_lane_env_prefix(lane_key)
-        for name, value in derived.items():
-            derived_by_lane[f"{prefix}{name.removeprefix(_BLUESKY_LANE_ONE.upper())}"] = value
-
-    existing = parse_dotenv_file(env_path) if env_path.is_file() else {}
-    generated = {
-        k: v for k, v in derived_by_lane.items() if k not in os.environ and k not in existing
-    }
-    if not generated:
-        return
-
-    _append_env_block(
-        env_path,
-        "Auto-configured bluesky bridge plan devices (osprey deploy up)",
-        generated,
-    )
-    _report_fact(
-        "bluesky plan devices auto-configured → .env",
-        wrote=(
-            ".env",
-            f"{', '.join(generated)} from the project's channel_limits.json",
-        ),
     )
 
 
@@ -1471,6 +1361,61 @@ def _bluesky_curve_paths(project_dir: Path, lane_key: str = _BLUESKY_LANE_ONE) -
         "proxy_public": queueserver / "proxy.key",
         "publisher_public": clients / "publisher.key",
     }
+
+
+def _ensure_runtime_output_dir(project_dir: Path) -> None:
+    """Create ``data/.runtime/`` with a self-ignoring ``.gitignore`` inside it.
+
+    The scaffolded project ``.gitignore`` carries ``/data/.runtime/``, but a
+    repo scaffolded before the carve-out only ignores the legacy certificate
+    spelling — after migration its key material would sit untracked, one
+    ``git add -A`` away from being committed. A ``.gitignore`` of ``*`` inside
+    the directory itself covers every repo without editing any file the
+    operator owns. It never touches the build fingerprint: the whole subtree
+    is what the fold skips.
+
+    Args:
+        project_dir: Project directory (the parent of the project ``.env``).
+    """
+    runtime_dir = project_dir / "data" / RUNTIME_DATA_DIR_NAME
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    gitignore = runtime_dir / ".gitignore"
+    if not gitignore.is_file():
+        gitignore.write_text("*\n", encoding="utf-8")
+
+
+def _migrate_legacy_curve_dir(project_dir: Path, lane_key: str) -> None:
+    """Relocate a lane's pre-#716 certificate set into ``data/.runtime/``.
+
+    A move, never a re-mint: the existing keys are what a running stack's
+    bridge and queueserver have pinned, and rotation is exactly what
+    :func:`_ensure_bluesky_document_plane_certs` promises never to do. After
+    the move the normal presence check finds the set complete and keeps it.
+
+    No-op when there is nothing at the legacy path, and — deliberately — when
+    material already exists at BOTH paths: existing material at the new
+    location wins, and deleting the legacy copy is not provisioning's call.
+    That half-state cannot arise from this code (the move is atomic on one
+    filesystem); reaching it takes a hand-copy, and a hand-copy is a human's
+    to clean up. The stale legacy directory keeps reading as data drift until
+    they do, which is the honest report.
+
+    Args:
+        project_dir: Project directory (the parent of the project ``.env``).
+        lane_key: The lane's ``services.<lane>`` key.
+    """
+    legacy = project_dir / _legacy_bluesky_curve_dir(lane_key)
+    target = project_dir / _bluesky_curve_dir(lane_key)
+    if not legacy.is_dir() or target.exists():
+        return
+
+    os.replace(legacy, target)
+    logger.key_info(
+        f"Relocated the bluesky document-plane CURVE certificates from {legacy} to "
+        f"{target}: runtime-minted material lives under data/{RUNTIME_DATA_DIR_NAME}/, "
+        "which the build-drift check does not treat as build input. The keys "
+        "themselves are unchanged."
+    )
 
 
 def _ensure_bluesky_document_plane_certs(config: dict, env_path: Path | None = None) -> None:
@@ -1543,6 +1488,22 @@ def _ensure_bluesky_lane_document_plane_certs(lane_key: str, project_dir: Path) 
     """
     paths = _bluesky_curve_paths(project_dir, lane_key)
     curve_dir = _bluesky_curve_dir(lane_key)
+
+    try:
+        _ensure_runtime_output_dir(project_dir)
+        _migrate_legacy_curve_dir(project_dir, lane_key)
+    except OSError:
+        logger.warning(
+            "Could not relocate the pre-existing bluesky CURVE certificates for lane "
+            "%s into %s. Leaving the existing material where it is rather than minting "
+            "a replacement set beside it — rotating keys under a running stack is the "
+            "one thing provisioning must never do. Move the directory by hand and "
+            "rerun `osprey up`.",
+            lane_key,
+            curve_dir,
+            exc_info=True,
+        )
+        return
 
     certs = ("proxy_secret", "publisher_secret", "proxy_public", "publisher_public")
     present = [name for name in certs if paths[name].is_file()]
@@ -3055,14 +3016,12 @@ def _deploy_written_env_vars() -> set[str]:
     must not depend on which services happen to be enabled today — otherwise
     the contradiction stays invisible until the deploy that first turns one on.
 
-    Six writers, all of them appending to (or rewriting) the local file on the
+    Five writers, all of them appending to (or rewriting) the local file on the
     ordinary start path:
 
     * :data:`_SERVICE_TOKEN_VARS` — the minted secrets;
     * :data:`_SERVICE_DEFAULT_VARS` — the non-secret settings written down for
       discoverability;
-    * the bluesky substrate devices, derived from the built project's channel
-      limits (:func:`_ensure_bluesky_substrate_env`);
     * the RE manager's control-socket keypair
       (:func:`_ensure_bluesky_control_plane_keys`);
     * the credentials ``--reuse-stores`` restores from surviving data volumes
@@ -3085,22 +3044,6 @@ def _deploy_written_env_vars() -> set[str]:
         written |= set(_qserver_zmq_key_vars(_lane_key))
     written |= set(_VOLUME_INITIALIZED_VARS)
     written |= set(_STORE_ISSUED_VARS)
-
-    # Imported rather than spelled again, from the module that defines them for
-    # the bridge. Guarded because this runs on every deploy while the writer
-    # that uses these names runs only on a bluesky one: an environment where the
-    # import fails is an environment where that writer cannot run either, so the
-    # census loses nothing it could have enforced.
-    try:
-        from osprey.services.bluesky_bridge.devices._specs_from_env import (
-            READBACKS_ENV,
-            SETPOINTS_ENV,
-            SUBSTRATE_ENV,
-        )
-    except ImportError:  # pragma: no cover - the bridge package is always present
-        logger.debug("Bluesky substrate env names unavailable; omitted from the writer census")
-    else:
-        written |= {SUBSTRATE_ENV, SETPOINTS_ENV, READBACKS_ENV}
     return written
 
 
@@ -4752,10 +4695,11 @@ def _graphdb_config_dir(project_dir: Path) -> Path:
 
     What a relative ``services.graphdb.ttl_path`` resolves against — see
     :func:`_graphdb_ttl_text`. Derived from the project root the deploy was
-    handed rather than from :func:`osprey_connectors.workspace.resolve_config_path`,
-    which falls back to the process working directory: a deploy driven with
-    ``--repo`` from somewhere else would otherwise resolve the corpus against
-    whatever directory the operator happened to be standing in.
+    handed rather than from
+    :func:`osprey_connectors.workspace.resolve_config_path`, which falls back
+    to the process working directory: a deploy driven with ``--repo`` from
+    somewhere else would otherwise resolve the corpus against whatever
+    directory the operator happened to be standing in.
 
     Both project shapes are covered by one rule, the same one
     ``resolve_config_path`` applies to a working directory: the render one zone
@@ -4771,12 +4715,17 @@ def _graphdb_config_dir(project_dir: Path) -> Path:
 def _graphdb_ttl_text(ttl_path: str, project_dir: Path) -> tuple[Path, str]:
     """Read the configured TTL corpus, resolving its path the documented way.
 
-    ``ttl_path`` follows the ``facility_knowledge.bundle_path`` rule — ``~``
-    expanded, an absolute value used as written, a relative one resolved against
-    the ``config.yml`` directory — because ``osprey knowledge seed-graph`` reads
-    the same key by the same rule. Two resolutions of one key would mean the
-    deploy and the verb could seed a store from different files while both
-    reporting success.
+    ``ttl_path`` is render-relative: ``~`` expanded, an absolute value used as
+    written, a relative one resolved against the ``config.yml`` directory
+    (:func:`osprey.utils.config_paths.resolve_render_relative_path`) — the
+    one config-relative key that is, because the corpus it names is an
+    artifact of the render: the documented default,
+    ``./data/demo_machine.ttl``, is read from the ``data/`` tree the build
+    assembled for this project, so a corpus regenerated into the profile's
+    data tree reaches the store on the next build like every other rendered
+    artifact. ``osprey knowledge seed-graph`` reads the same key by the same
+    rule; two resolutions of one key would mean the deploy and the verb could
+    seed a store from different files while both reporting success.
 
     :param ttl_path: The configured ``services.graphdb.ttl_path`` value.
     :param project_dir: Root of the built project.
@@ -4784,9 +4733,9 @@ def _graphdb_ttl_text(ttl_path: str, project_dir: Path) -> tuple[Path, str]:
     :raises OSError: If the corpus is not on disk or cannot be read — reported
         by the caller's envelope, never fatal.
     """
-    from osprey.services.facility_knowledge.bundle_path import resolve_bundle_path
+    from osprey.utils.config_paths import resolve_render_relative_path
 
-    resolved = resolve_bundle_path(ttl_path, _graphdb_config_dir(project_dir))
+    resolved = resolve_render_relative_path(ttl_path, _graphdb_config_dir(project_dir))
     return resolved, resolved.read_text(encoding="utf-8")
 
 
@@ -5290,6 +5239,42 @@ def _collect_unmet_preconditions(
         raise UnmetPreconditionsError(findings)
 
 
+def _preflight_legacy_ariel_mirror(config: dict, repo_root: Path) -> None:
+    """Warn when the logbook mirror still sits where an earlier release wrote it.
+
+    ``ariel.enhancement_modules.qmd_export.mirror_path`` used to resolve
+    against the directory holding ``config.yml`` — ``build/`` — while the qmd
+    sidecar bind-mounted the same relative path from the repo root, so the
+    exporter filled ``build/var/ariel_mirror`` and the sidecar indexed an
+    empty ``var/ariel_mirror``. Config-relative paths now anchor on the
+    project root (:func:`osprey.utils.config_paths.resolve_config_relative_path`),
+    which puts writer and reader in one place — and leaves a deployment
+    upgraded in place with its corpus in the old one. Files there are not
+    moved: the mirror is a derived artifact and ``osprey ariel qmd-resync``
+    regenerates it in seconds, which is what this names.
+    """
+    relpath = configured_ariel_mirror_path(config)
+    if not relpath or Path(relpath).is_absolute():
+        return
+    legacy = repo_root / "build" / relpath
+    current = repo_root / relpath
+    if not legacy.is_dir() or legacy.resolve() == current.resolve():
+        return
+    count = sum(1 for entry in legacy.rglob("*") if entry.is_file())
+    if not count:
+        return
+    logger.warning(
+        "%d file(s) under %s were written by an earlier release, which resolved "
+        "ariel.enhancement_modules.qmd_export.mirror_path against build/; the qmd "
+        "sidecar indexes %s. Run `osprey ariel qmd-resync` to regenerate the mirror "
+        "there, then remove %s.",
+        count,
+        legacy,
+        current,
+        legacy,
+    )
+
+
 def _start_stack(
     config: dict,
     compose_files: list[str],
@@ -5373,6 +5358,7 @@ def _start_stack(
     # on a host that was configured this way because it has no route out. Checked
     # here, before the build the setting is meant to shorten.
     preflight_qmd_models_dir(config)
+    _preflight_legacy_ariel_mirror(config, Path(repo_root))
 
     # And the same shape once more for the graph store: a `graphdb` in
     # deployed_services with no `services.graphdb` block describes no store at
@@ -5444,14 +5430,9 @@ def _start_stack(
         config, minted_store_vars or set(), env_path or Path(".env"), reuse_stores=reuse_stores
     )
 
-    # Auto-configure the bluesky bridge's EPICS-substrate plan devices for a
-    # VA-backed Bluesky stack (additive; no-op unless both bluesky and
-    # virtual_accelerator are deployed) -- see _ensure_bluesky_substrate_env.
-    _ensure_bluesky_substrate_env(config, env_path)
-
     # Provision the bluesky plan stack's 0MQ key material before compose mounts
     # it: the RE manager's control-socket keypair into .env, and the document
-    # plane's CURVE certificates into data/bluesky_curve/. Both are no-ops
+    # plane's CURVE certificates into data/.runtime/<lane>_curve/. Both are no-ops
     # without the bluesky service, and both are additive (existing material
     # always wins) so a redeploy never rotates keys under a running stack.
     # Neither is gated on the connector -- see

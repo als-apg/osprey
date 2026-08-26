@@ -134,12 +134,11 @@ services:
       # own fallback sees a container and would reach for the service name.
       # Inert unless claude_code.telemetry is enabled with backend: openobserve.
       #
-      # The variable carries a HOST, and the endpoint the emitter derives from
-      # it pins the store's port at 5080 (build/claude_code_telemetry.py) —
-      # which is what `services.openobserve.port` publishes by default. A
-      # deployment that republishes the store on some other host port must set
-      # `claude_code.telemetry.endpoint` outright; there is no port half of this
-      # variable to carry it.
+      # The variable carries a HOST only. The port half needs no declaration
+      # here: from the host's loopback the store answers on the port it
+      # PUBLISHES, and the emitter reads that from `services.openobserve.port`
+      # in the config this worker already mounts — so moving the store moves
+      # the exporter with it.
       OSPREY_OTEL_OPENOBSERVE_HOST: localhost
 
     # Bind-mount sources are relative to the pinned compose project directory,
@@ -310,12 +309,11 @@ services:
       # own fallback sees a container and would reach for the service name.
       # Inert unless claude_code.telemetry is enabled with backend: openobserve.
       #
-      # The variable carries a HOST, and the endpoint the emitter derives from
-      # it pins the store's port at 5080 (build/claude_code_telemetry.py) —
-      # which is what `services.openobserve.port` publishes by default. A
-      # deployment that republishes the store on some other host port must set
-      # `claude_code.telemetry.endpoint` outright; there is no port half of this
-      # variable to carry it.
+      # The variable carries a HOST only. The port half needs no declaration
+      # here: from the host's loopback the store answers on the port it
+      # PUBLISHES, and the emitter reads that from `services.openobserve.port`
+      # in the config this worker already mounts — so moving the store moves
+      # the exporter with it.
       OSPREY_OTEL_OPENOBSERVE_HOST: localhost
 
     # Bind-mount sources are relative to the pinned compose project directory,

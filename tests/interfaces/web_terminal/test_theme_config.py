@@ -190,20 +190,21 @@ class TestRenderedDataTheme:
             assert 'data-theme="dark"' in body
 
     def test_display_menu_mounted(self, workspace_dir):
-        """The hub header mounts the display menu (dot + popover card).
+        """The hub header mounts the shared ``<osprey-display-menu>``.
 
         The always-visible ``<osprey-theme-switcher>`` and the old binary
         ``#theme-toggle`` button are both gone from the hub page — theme
-        controls live inside the display-menu card (standalone fleet pages
-        such as session.html keep the shared switcher component).
+        controls live inside the component's popover card (session.html keeps
+        the shared switcher component). The hub projects its own Settings row
+        into the card, so that id is still rendered.
         """
         gen = _make_client(workspace_dir, "main")
         client = next(gen)
         try:
             body = client.get("/").text
-            assert 'id="display-menu-btn"' in body
-            assert 'id="display-menu-card"' in body
-            assert 'id="mode-toggle"' in body
+            assert '<osprey-display-menu id="display-menu">' in body
+            assert 'id="display-menu-settings"' in body
+            assert 'id="display-menu-btn"' not in body
             assert "<osprey-theme-switcher>" not in body
             assert 'id="theme-toggle"' not in body
         finally:

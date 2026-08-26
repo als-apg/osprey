@@ -713,6 +713,12 @@ config:
   claude_code.servers.bluesky.enabled: false
   claude_code.servers.health.enabled: false
   claude_code.servers.osprey_facility_knowledge.enabled: false
+  # The graph store is a control-room surface too, and this tier's exclusion
+  # of it has to be said: the build tells every attached render where the
+  # hosting deployment's services are (the Reach Contract), and a
+  # `services.graphdb` block is what makes the graph server render. Only a
+  # server switched off is told nothing about the store.
+  claude_code.servers.graph.enabled: false
   # Pinned even though the server that would honour it is gone, for the same
   # reason the other two tiers pin it: this key is the write boundary, and it
   # must not drift if the base's default ever changes.
@@ -728,6 +734,16 @@ config:
   # containers). Without this override the inherited roster would make this
   # render try to host a second web tier on the same host ports.
   modules.web_terminals.enabled: false
+  # Nothing here says where the hosting deployment's services are — the qmd
+  # sidecar hybrid logbook search dials (the point of this tier), the Postgres
+  # the logbook lives in, the telemetry store. This persona is an attached
+  # render (`services: {}` of its own) built beside that deployment, and the
+  # build copies every such fact from the deployment's own render into it
+  # (the Reach Contract, `osprey.deployment.reach`). Per-user web-terminal
+  # containers run `network_mode: host`, so container `localhost` IS the
+  # deployment host and the copied ports are dialed there. Built alone, with
+  # no hosting deployment in the repo, the build copies what the app template
+  # deploys at its defaults instead — and a host that differs is named here.
 """
 
 PERSONA_READONLY_YML = """\
@@ -770,15 +786,18 @@ config:
   # per-user containers). Without this override the inherited roster would
   # make this render try to host a second web tier on the same host ports.
   modules.web_terminals.enabled: false
-  # This persona is an attached render (`services: {}` — no graphdb block of
-  # its own), so the agent's graph tools need to be told which host-published
-  # bolt port the hosting deployment's `graphdb` store listens on. Per-user
-  # web-terminal containers run `network_mode: host`, so container
-  # `localhost` IS the deployment host. If an operator moves
-  # `services.graphdb.port_host` on the hosting deployment, this number must
-  # move with it here AND in control-assistant-readwrite and
-  # control-assistant-admin.
-  services.graphdb.port_host: 7687
+  # Nothing here says where the hosting deployment's services are — the graph
+  # store's bolt port, the qmd sidecar's port, the Postgres the logbook lives
+  # in, the telemetry store, the bluesky bridge. This persona is an attached
+  # render (`services: {}` of its own) built beside that deployment, and the
+  # build copies every such fact from the deployment's own render into it
+  # (the Reach Contract, `osprey.deployment.reach`). Per-user web-terminal
+  # containers run `network_mode: host`, so container `localhost` IS the
+  # deployment host and the copied ports are dialed there. Move a port on the
+  # hosting profile and every persona follows; spell a different one here and
+  # the build refuses the contradiction. Built alone, with no hosting
+  # deployment in the repo, the build copies what the app template deploys
+  # at its defaults instead — and a host that differs IS named here.
 """
 
 PERSONA_READWRITE_YML = """\
@@ -800,9 +819,12 @@ name: Als Exemplar (readwrite)
 # connects to the shared web tier the hosting deployment runs on the same host.
 deploy_services: false
 
-# The write-oriented panels, listed beside their web.panels.<id>.url overrides
-# below (a panel id and its URL declaration travel together). Persona lists
-# UNION over the base, so these are added to the inherited builtin set.
+# The write-oriented panels. Persona lists UNION over the base, so these are
+# added to the inherited builtin set. Each tab's URL, path and label are not
+# spelled here: the hosting deployment's build derives them when it injects
+# the event dispatcher and the bluesky-web sidecar, and this attached render
+# is told them from that render (the Reach Contract, `osprey.deployment.reach`)
+# — so a sidecar moved on the hosting profile moves the tab with it.
 web_panels:
   - events          # EVENTS dashboard tab (event dispatcher)
   - bluesky         # Plan authoring, the plan queue, and the run's live results
@@ -821,32 +843,19 @@ config:
   # per-user containers). Without this override the inherited roster would
   # make this render try to host a second web tier on the same host ports.
   modules.web_terminals.enabled: false
-  # This persona is an attached render (`services: {}` — no graphdb block of
-  # its own), so the agent's graph tools need to be told which host-published
-  # bolt port the hosting deployment's `graphdb` store listens on. Per-user
-  # web-terminal containers run `network_mode: host`, so container
-  # `localhost` IS the deployment host. If an operator moves
-  # `services.graphdb.port_host` on the hosting deployment, this number must
-  # move with it here AND in control-assistant-readonly and
-  # control-assistant-admin.
-  services.graphdb.port_host: 7687
-  # EVENTS + BLUESKY: the write-oriented panels, declared HERE and not in the
-  # base so the readonly persona is built without them (a persona can only add
-  # config keys, never subtract inherited ones — see the note in the base's
-  # config: block).
-  # EVENTS — the event-dispatcher dashboard as an in-terminal tab. URL defaults
-  # to the host-run dispatcher; override EVENT_DISPATCHER_URL for
-  # containerized/remote web terminals.
-  web.panels.events.label: EVENTS
-  web.panels.events.url: "${EVENT_DISPATCHER_URL:-http://localhost:8020}"
-  web.panels.events.path: /dashboard
-  web.panels.events.health_endpoint: /health
-  # BLUESKY — operator UI for the mediated Bluesky stack, served by the
-  # bluesky-web sidecar. Override BLUESKY_WEB_URL for containerized/
-  # remote web terminals (same pattern as EVENTS above).
-  web.panels.bluesky.label: BLUESKY
-  web.panels.bluesky.url: "${BLUESKY_WEB_URL:-http://localhost:8095}"
-  web.panels.bluesky.path: /bluesky/
+  # Nothing here says where the hosting deployment's services are — the graph
+  # store's bolt port, the qmd sidecar's port, the Postgres the logbook lives
+  # in, the telemetry store, the bluesky bridge, the EVENTS and BLUESKY tabs'
+  # URLs. This persona is an attached render (`services: {}` of its own) built
+  # beside that deployment, and the build copies every such fact from the
+  # deployment's own render into it (the Reach Contract,
+  # `osprey.deployment.reach`). Per-user web-terminal containers run
+  # `network_mode: host`, so container `localhost` IS the deployment host and
+  # the copied ports are dialed there. Move a port on the hosting profile and
+  # every persona follows; spell a different one here and the build refuses
+  # the contradiction. Built alone, with no hosting deployment in the repo,
+  # the build copies what the app template deploys at its defaults instead
+  # — and a host that differs IS named here.
 """
 
 PERSONA_ADMIN_YML = """\
@@ -908,15 +917,18 @@ config:
   # containers). Without this override the inherited roster would make this
   # render try to host a second web tier on the same host ports.
   modules.web_terminals.enabled: false
-  # This persona is an attached render (`services: {}` — no graphdb block of
-  # its own), so the agent's graph tools need to be told which host-published
-  # bolt port the hosting deployment's `graphdb` store listens on. Per-user
-  # web-terminal containers run `network_mode: host`, so container
-  # `localhost` IS the deployment host. If an operator moves
-  # `services.graphdb.port_host` on the hosting deployment, this number must
-  # move with it here AND in control-assistant-readonly and
-  # control-assistant-readwrite.
-  services.graphdb.port_host: 7687
+  # Nothing here says where the hosting deployment's services are — the graph
+  # store's bolt port, the qmd sidecar's port, the Postgres the logbook lives
+  # in, the telemetry store, the bluesky bridge. This persona is an attached
+  # render (`services: {}` of its own) built beside that deployment, and the
+  # build copies every such fact from the deployment's own render into it
+  # (the Reach Contract, `osprey.deployment.reach`). Per-user web-terminal
+  # containers run `network_mode: host`, so container `localhost` IS the
+  # deployment host and the copied ports are dialed there. Move a port on the
+  # hosting profile and every persona follows; spell a different one here and
+  # the build refuses the contradiction. Built alone, with no hosting
+  # deployment in the repo, the build copies what the app template deploys
+  # at its defaults instead — and a host that differs IS named here.
 """
 
 

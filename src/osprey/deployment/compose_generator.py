@@ -18,6 +18,7 @@ import os
 import re
 import shutil
 import stat
+import tempfile
 from pathlib import Path, PurePosixPath
 
 import yaml
@@ -26,6 +27,7 @@ from jinja2 import Environment, FileSystemLoader
 from osprey.cli import output
 from osprey.cli.phase_reporter import report_step
 from osprey.deployment.channel_snapshot import compute_channel_snapshot
+from osprey.deployment.errors import DeploymentPreconditionError
 from osprey.deployment.runtime_helper import ComposeProvider, get_runtime_command, runtime_env
 from osprey.deployment.subprocess_capture import run_captured
 
@@ -120,6 +122,22 @@ QMD_OKF_COLLECTION = "okf"
 #: qmd collection ARIEL's markdown mirror is indexed under. Same contract: the
 #: ARIEL search module filters on this name.
 QMD_ARIEL_COLLECTION = "ariel"
+
+#: Where a SERVICE image holds the deployment project's mounted files. Distinct
+#: from ``_CONTAINER_APP_ROOT``/``<project_name>``, which is where a *project*
+#: image holds the repo it was built from: the bluesky, bluesky_web and
+#: archiver_recorder images instead take the project's files as bind mounts
+#: under this one fixed root, and read their config from
+#: ``/app/project/config.yml``. Spelled here because a mount target computed
+#: host-side has to agree with the directory the container's own config lookup
+#: resolves relative paths against.
+_CONTAINER_PROJECT_ROOT = "/app/project"
+
+#: The single config key naming the channel-limits database. One value, one
+#: file, everywhere it is spoken about — the bind source on the host, the mount
+#: target in the container, the connector's own lookup, and every refusal that
+#: names the key back to the operator.
+LIMITS_DATABASE_CONFIG_KEY = "control_system.limits_checking.database_path"
 
 
 def resolve_repo_root(config=None, config_path=None):
@@ -620,6 +638,136 @@ def repo_relative_mount_source(raw, repo_root=None):
     return f"./{PurePosixPath(relative)}"
 
 
+def resolve_limits_mount(config, config_dir, deployed_config_dir):
+    """Spell the channel-limits database as a finished compose bind mount.
+
+    One configured value — ``control_system.limits_checking.database_path`` —
+    names one file, and three parties have to agree about which file that is:
+    the operator who authors it, the compose bind source that resolves on the
+    host, and the connector that opens it in the container after reading the
+    same key out of the mounted config. Deriving all of it here, once per
+    render, is the point: the template consumes finished strings and makes no
+    path decision of its own, so no second spelling of the same path exists to
+    drift from this one.
+
+    The two halves are anchored differently, which is why both directories are
+    parameters rather than one:
+
+    * ``source`` resolves against the pinned compose project directory — the
+      deployment repo root (see :func:`compose_base_cmd`) — so a repo-relative
+      path is prefixed with wherever the deployed config will be READ from:
+      ``build`` for a rendered build, nothing at all for a config that already
+      sits at the repo root.
+    * ``target`` resolves against the container's project root, which is where
+      the mounted config sits, so it takes the configured path unprefixed. The
+      connector resolves the same relative path against the same directory and
+      lands on the mount.
+
+    An absolute path is operator-owned: it names a file outside the repo, is
+    mounted at the identical path inside the container, and is never rewritten
+    (hence ``repo_root=None``) — rewriting it repo-relative would silently
+    re-point the mount at a file that is not there.
+
+    Refusals are gated on ``control_system.writes_enabled`` because that is what
+    gates the mount itself. A read-only deployment never enforces limits against
+    this file, so an unset or not-yet-staged path is a posture there, not a
+    fault. A writable deployment without a limits database is the one unsafe
+    combination — the same one
+    ``bluesky_bridge.validation._assert_limits_readable_if_writable`` refuses to
+    start on — and catching it here turns an unhealthy container an hour into a
+    deploy into a refusal while the operator still has the config in front of
+    them.
+
+    :param config: The loaded project config
+    :type config: dict
+    :param config_dir: Absolute directory the loaded config sits in. A relative
+        ``database_path`` is authored against the config, so this is also where
+        the file's existence is probed. For a build that is the staging tree,
+        which is precisely the tree that BECOMES the deploy-time build zone.
+    :type config_dir: str
+    :param deployed_config_dir: Repo-root-relative prefix the deployed config
+        will be read under; ``""`` for the repo root itself
+    :type deployed_config_dir: str
+    :return: ``{"source": ..., "target": ...}``, or ``None`` when the key names
+        no path at all and writes are disabled
+    :rtype: dict[str, str] or None
+    :raises DeploymentPreconditionError: Writes are enabled and the key is
+        unset, is not a string, or names a file that is not on this host
+    """
+    control_system = config.get("control_system") or {}
+    limits_checking = control_system.get("limits_checking") or {}
+    raw = limits_checking.get("database_path")
+    writes_enabled = bool(control_system.get("writes_enabled", False))
+
+    if not isinstance(raw, str) or not raw.strip():
+        if writes_enabled:
+            raise DeploymentPreconditionError(
+                reason=(
+                    f"control_system.writes_enabled is true, so the "
+                    f"channel-limits database is mounted into the services that "
+                    f"write — but {LIMITS_DATABASE_CONFIG_KEY} names no path "
+                    f"(found: {raw!r}). There is nothing to mount, so those "
+                    f"services would come up with no limits to enforce."
+                ),
+                remedy=(
+                    f"Set {LIMITS_DATABASE_CONFIG_KEY} to the limits file, "
+                    "relative to the deployment repo root, and rebuild:\n"
+                    "    control_system:\n"
+                    "      limits_checking:\n"
+                    "        database_path: data/channel_limits.json\n"
+                    "Or set control_system.writes_enabled: false to deploy "
+                    "read-only, which needs no limits database."
+                ),
+            )
+        # Read-only and unconfigured: nothing to spell, and nothing that would
+        # consume the strings if they were spelled.
+        return None
+
+    configured = Path(raw).expanduser()
+    if configured.is_absolute():
+        source = repo_relative_mount_source(raw, repo_root=None)
+        target = source
+        on_host = configured
+    else:
+        relative = PurePosixPath(configured)
+        # The prefix is joined for the SOURCE only. ``deployed_config_dir`` is
+        # empty for a config at the repo root, and joining an empty prefix would
+        # insert a ``.`` segment, so the two cases are spelled apart rather than
+        # normalised afterwards.
+        deployed = (
+            PurePosixPath(deployed_config_dir) / relative if deployed_config_dir else relative
+        )
+        source = repo_relative_mount_source(str(deployed), repo_root=None)
+        target = str(PurePosixPath(_CONTAINER_PROJECT_ROOT) / relative)
+        on_host = Path(config_dir) / configured
+
+    if writes_enabled and not on_host.is_file():
+        raise DeploymentPreconditionError(
+            reason=(
+                f"control_system.writes_enabled is true, so the channel-limits "
+                f"database is mounted into the services that write — but "
+                f"{LIMITS_DATABASE_CONFIG_KEY} is {raw!r} and there is no file "
+                f"at {on_host}. A bind source that does not exist is created by "
+                f"the container runtime as an empty directory, so the deployment "
+                f"would come up enforcing an unreadable limits database."
+            ),
+            remedy=(
+                f"Put the limits database at {on_host}, or point "
+                f"{LIMITS_DATABASE_CONFIG_KEY} at where it already is, and "
+                "rebuild. The limits database is authored in the build "
+                "profile's `data/` tree and copied into the deployment by "
+                "`osprey build`, so a path that is right in the profile and "
+                "absent here usually means the build has not been re-run."
+            ),
+        )
+
+    # Returned even when the file is absent and writes are disabled: the
+    # strings are still the right answer for that configured path, the mount
+    # they describe is writes-gated in the template, and an operator staging
+    # the file later changes nothing about how it is spelled.
+    return {"source": source, "target": target}
+
+
 def _resolve_qmd_corpora(config, repo_root):
     """List the corpora the qmd sidecar indexes, one entry per collection.
 
@@ -662,22 +810,75 @@ def _resolve_qmd_corpora(config, repo_root):
     if isinstance(bundle_path, str) and bundle_path.strip():
         corpora.append(corpus(QMD_OKF_COLLECTION, bundle_path.strip()))
 
-    ariel = config.get("ariel")
-    modules = ariel.get("enhancement_modules") if isinstance(ariel, dict) else None
-    export = modules.get("qmd_export") if isinstance(modules, dict) else None
-    if isinstance(export, dict) and export.get("enabled"):
-        # `mirror_path` may be written directly on the module block or inside
-        # its `settings:` mapping — ARIEL's own loader merges the two with
-        # `settings` winning, and the mount must follow whichever the exporter
-        # will actually write to.
-        settings = export.get("settings")
-        mirror_path = export.get("mirror_path")
-        if isinstance(settings, dict) and settings.get("mirror_path"):
-            mirror_path = settings["mirror_path"]
-        if isinstance(mirror_path, str) and mirror_path.strip():
-            corpora.append(corpus(QMD_ARIEL_COLLECTION, mirror_path.strip()))
+    mirror_path = configured_ariel_mirror_path(config)
+    if mirror_path is not None:
+        corpora.append(corpus(QMD_ARIEL_COLLECTION, mirror_path))
 
     return corpora
+
+
+def configured_ariel_mirror_path(config):
+    """The ``mirror_path`` an enabled ARIEL qmd export writes to, or ``None``.
+
+    One reader for the key, shared by the sidecar's corpus list, the host
+    directory the deploy provisions and the per-user mount the web-terminal
+    overlay emits — so the directory the exporter fills, the one the sidecar
+    indexes and the one a persona container writes into are provably the same
+    configured string.
+
+    ``mirror_path`` may be written directly on the module block or inside its
+    ``settings:`` mapping — ARIEL's own loader merges the two with ``settings``
+    winning, and every consumer must follow whichever the exporter will
+    actually write to. A disabled export names nothing: there is then no
+    writer, so nothing to mount or index. An enabled export with no path is a
+    config error the exporter itself refuses at runtime; ``None`` here too.
+
+    :param config: Configuration dictionary
+    :type config: dict
+    :return: The configured path as written (relative or absolute), stripped,
+        or ``None``
+    :rtype: str | None
+    """
+    ariel = (config or {}).get("ariel")
+    modules = ariel.get("enhancement_modules") if isinstance(ariel, dict) else None
+    export = modules.get("qmd_export") if isinstance(modules, dict) else None
+    if not isinstance(export, dict) or not export.get("enabled"):
+        return None
+    settings = export.get("settings")
+    mirror_path = export.get("mirror_path")
+    if isinstance(settings, dict) and settings.get("mirror_path"):
+        mirror_path = settings["mirror_path"]
+    if isinstance(mirror_path, str) and mirror_path.strip():
+        return mirror_path.strip()
+    return None
+
+
+def resolve_ariel_mirror_dir(config, repo_root=None):
+    """The ARIEL qmd mirror on the host, or ``None`` when no export writes one.
+
+    The mirror counterpart of :func:`resolve_facility_bundle_dir`, anchored the
+    same way and for the same reason: a relative value resolves against the
+    deployment repo root, which is what every bind source in a rendered
+    compose file resolves against — and, since the exporter's own resolver
+    anchors on the project root too
+    (:func:`osprey.services.ariel_search.enhancement.qmd_export.exporter.resolve_mirror_path`),
+    the directory provisioned here is the directory the exporter fills.
+
+    :param config: Configuration dictionary
+    :type config: dict
+    :param repo_root: Deployment repo root; ``None`` resolves it from *config*
+    :type repo_root: str | pathlib.Path | None
+    :return: Absolute path to the mirror root, or ``None``
+    :rtype: pathlib.Path | None
+    """
+    raw = configured_ariel_mirror_path(config)
+    if raw is None:
+        return None
+    path = Path(raw).expanduser()
+    if path.is_absolute():
+        return path
+    root = Path(repo_root) if repo_root is not None else Path(resolve_repo_root(config))
+    return root / path
 
 
 def _resolve_qmd_render_context(config, repo_root):
@@ -1822,6 +2023,14 @@ def _ensure_agent_data_structure(config):
     # deploy runs through.
     for identity in (*dispatch_worker_audit_identities(config), *service_audit_identities(config)):
         ensure_audit_dir(project_root, identity, relative_to=project_root)
+    # The ARIEL qmd mirror, for the same reasons: the sidecar binds it
+    # read-only, so a missing directory would be created root-owned by the
+    # runtime and the host exporter could never write it; and in a multi-user
+    # deployment every entitled web terminal's exporter writes into it too, so
+    # it needs the shared-group mode the bundle has.
+    mirror_dir = resolve_ariel_mirror_dir(config, project_root)
+    if mirror_dir is not None:
+        ensure_shared_corpus_dir(mirror_dir, relative_to=project_root)
 
     logger.debug(f"Ensured agent data structure exists at: {agent_data_path}")
 
@@ -1876,6 +2085,401 @@ def _stage_channel_snapshot(config, source_dir, out_dir):
         return False
     logger.debug(f"Wrote channel snapshot ({decision.count} channels) to {snapshot_path}")
     return True
+
+
+#: The one service whose compose environment lists the roster's per-user
+#: operator secrets: the bluesky_web sidecar, which each per-user web terminal
+#: proxies its BLUESKY tab into with the secret ITS container holds.
+_ROSTER_SECRET_SERVICE = "bluesky_web"
+
+
+def _bluesky_panel_secret_env_vars(config, source_dir):
+    """The per-user secret variables the bluesky_web sidecar's compose lists.
+
+    Empty for every other service render, and for a deployment with no
+    web-terminal roster. Resolved here, in the services render, because the
+    sidecar is part of the SERVICES compose project — the web-terminal overlay
+    is brought up by its own single-file invocation
+    (:func:`osprey.deployment.web_terminals.provision.web_stack_compose_cmd`),
+    so a ``bluesky-web:`` fragment there would never merge into this service
+    and would instead fail that stack as an image-less service.
+
+    :param config: Full project configuration dictionary
+    :type config: dict
+    :param source_dir: Service source directory being rendered
+    :type source_dir: str
+    :return: ``OSPREY_TERMINAL_SECRET_<SUFFIX>`` names, roster order
+    :rtype: list[str]
+    """
+    if os.path.basename(os.path.normpath(source_dir)) != _ROSTER_SECRET_SERVICE:
+        return []
+    from osprey.deployment.web_terminals.personas import bluesky_panel_secret_env_vars
+
+    return bluesky_panel_secret_env_vars(config, resolve_repo_root(config))
+
+
+#: Basename of the one service directory the Bluesky plan-device file is staged
+#: into. Every plan lane a deployment runs renders from this same packaged
+#: template directory — ``_inject_bluesky`` gives each lane the same ``path`` —
+#: so a two-lane deploy renders it TWICE, into one build context, and the
+#: staging below has to be idempotent for that reason rather than by luck.
+_BLUESKY_DEVICES_SERVICE = "bluesky"
+
+#: The plan-lane service keys, in the order the authored device file is looked
+#: up under ``services:``. A fixed order rather than "whichever lane is being
+#: rendered": the device file is a property of the FACILITY and every lane
+#: carries the same value (``_facility_plan_keys``), so reading it in one order
+#: makes the double render land on one answer even for a hand-edited config
+#: whose lanes disagree.
+_BLUESKY_LANE_KEYS = ("bluesky", "bluesky_live", "bluesky_va")
+
+#: Name the device file carries INSIDE the build context. The compose template
+#: mounts this literal source (``./build/services/bluesky/bluesky_devices.yml``),
+#: so the staged name is part of the contract and is never derived from whatever
+#: the authored file happened to be called.
+BLUESKY_DEVICES_FILENAME = "bluesky_devices.yml"
+
+#: Mode the staged device file carries, matching
+#: ``substrate_devices.write_devices_file``: the queueserver worker reads it
+#: bind-mounted read-only, as a container user that is not the host user who
+#: rendered it, so the 0600 a temp file is created with would be unreadable.
+_STAGED_DEVICES_MODE = 0o644
+
+#: Profile key the device file is authored under. Every refusal below names
+#: THIS — not "the build" — because it is the one thing an operator edits to
+#: make the refusal go away.
+BLUESKY_DEVICES_CONFIG_KEY = "bluesky.devices_file"
+
+
+def _render_anchor_dir(config):
+    """Directory a relative render-time path is authored against.
+
+    ``config_dir`` is what :func:`prepare_compose_files` records: the directory
+    the LOADED config sits in, which is what a relative path written in that
+    config means — the same anchor :func:`resolve_limits_mount` probes the
+    limits database against. The fallbacks cover a config assembled in-process
+    rather than loaded from disk: ``project_root``, then the working directory
+    the render helpers resolve every other relative path against by contract.
+
+    :param config: The render config
+    :type config: dict
+    :return: Directory to join relative render-time paths onto
+    :rtype: Path
+    """
+    for key in ("config_dir", "project_root"):
+        value = config.get(key)
+        if isinstance(value, str) and value.strip():
+            return Path(value)
+    return Path(os.getcwd())
+
+
+def _configured_devices_file(config):
+    """The device file the profile authored, as written, or ``None``.
+
+    Read out of the plan lanes' own service blocks rather than from a
+    ``bluesky:`` block, because ``services.<lane>.devices_file`` is where the
+    build injector puts it — on EVERY lane of every deploy, authored or
+    defaulted, so a lane block is always the authority for what to stage.
+
+    :param config: The render config
+    :type config: dict
+    :return: The configured path, stripped, or ``None`` when no lane names one
+    :rtype: str or None
+    """
+    services = config.get("services") or {}
+    if not isinstance(services, dict):
+        return None
+    for lane in _BLUESKY_LANE_KEYS:
+        block = services.get(lane)
+        if not isinstance(block, dict):
+            continue
+        raw = block.get("devices_file")
+        if isinstance(raw, str) and raw.strip():
+            return raw.strip()
+    return None
+
+
+def _discard_staged_devices(staged_path):
+    """Remove a device file an earlier build left in this context.
+
+    The incremental path reuses the directory, so a deployment that stops having
+    a device set — the VA dropped, the control system switched to mock, the
+    authored file deleted — would otherwise keep mounting the previous render's
+    devices into a worker that is now supposed to be browse-only.
+
+    :param staged_path: Where the device file would have been staged
+    :type staged_path: str
+    """
+    try:
+        os.remove(staged_path)
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        logger.warning(f"Could not remove the stale bluesky device file {staged_path}: {e}")
+
+
+def _document_counts(document):
+    """Entry counts ``(settables, readables)`` for a parsed device document.
+
+    Tolerates every shape :func:`validate_device_document` calls valid,
+    including the empty document and one carrying only a single section.
+
+    :param document: Parsed device document
+    :return: Settable and readable entry counts
+    :rtype: tuple[int, int]
+    """
+    from osprey.services.bluesky_bridge.devices._specs_from_file import (
+        READABLES_KEY,
+        SETTABLES_KEY,
+    )
+
+    if not isinstance(document, dict):
+        return 0, 0
+
+    def count(key):
+        section = document.get(key)
+        return len(section) if isinstance(section, list) else 0
+
+    return count(SETTABLES_KEY), count(READABLES_KEY)
+
+
+def _write_staged_devices(source, staged_path):
+    """Copy ``source`` onto ``staged_path`` atomically, world-readable.
+
+    The same discipline as
+    :func:`osprey.services.bluesky_bridge.substrate_devices.write_devices_file`,
+    for the same reason: a running deployment may have this exact file
+    bind-mounted while a re-render replaces it, so a reader must never observe a
+    half-written device set. The mode is set explicitly because the worker reads
+    the file as a container user that is not the host user who rendered it.
+
+    :param source: The authored device file
+    :type source: Path
+    :param staged_path: Destination inside the build context
+    :type staged_path: str
+    """
+    destination = Path(staged_path)
+    fd, tmp_name = tempfile.mkstemp(dir=destination.parent, prefix=destination.name, suffix=".tmp")
+    os.close(fd)
+    try:
+        shutil.copyfile(source, tmp_name)
+        os.chmod(tmp_name, _STAGED_DEVICES_MODE)
+        os.replace(tmp_name, destination)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
+
+
+def _limits_database_for_devices(config):
+    """Host path of the channel-limits database the derivation reads, or ``None``.
+
+    Resolved exactly as :func:`resolve_limits_mount` resolves the same key's
+    existence probe — relative against the loaded config's own directory,
+    absolute as written — so the file the derivation reads and the file the
+    deployment mounts can never be two different files.
+
+    :param config: The render config
+    :type config: dict
+    :return: Where the limits database would be, or ``None`` if unconfigured
+    :rtype: Path or None
+    """
+    control_system = config.get("control_system") or {}
+    limits_checking = control_system.get("limits_checking") or {}
+    raw = limits_checking.get("database_path")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    configured = Path(raw.strip()).expanduser()
+    if configured.is_absolute():
+        return configured
+    return _render_anchor_dir(config) / configured
+
+
+def _derive_staged_devices(config, staged_path):
+    """Derive the device set from the deployment's own channel-limits database.
+
+    The turn-key half of the feature: a VA-backed stack that has authored no
+    device file still gets a worker holding real channel names, because the
+    project already ships the file that says which channels exist. Never a
+    hardcoded preset — the derivation reads the deployed project's own data (see
+    :mod:`osprey.services.bluesky_bridge.substrate_devices`, the single producer
+    this shares with the e2e harness).
+
+    Fail-soft, deliberately: an unreadable or unparseable limits database is not
+    refused here. The one unsafe combination — writes enabled with no readable
+    limits file — is already a refusal in :func:`resolve_limits_mount`, so what
+    reaches this point is a read-only deployment whose derivation simply has no
+    input, and the honest outcome there is a browse-only worker with a fact
+    saying so rather than a failed build.
+
+    :param config: The render config
+    :type config: dict
+    :param staged_path: Destination inside the build context
+    :type staged_path: str
+    :return: The written document, or ``None`` when there was nothing to derive
+    :rtype: dict or None
+    """
+    from osprey.services.bluesky_bridge.substrate_devices import write_devices_file
+
+    limits_path = _limits_database_for_devices(config)
+    if limits_path is None or not limits_path.is_file():
+        return None
+
+    try:
+        limits = json.loads(limits_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError) as e:
+        logger.warning(
+            f"Could not read the channel-limits database {limits_path} ({e}); the "
+            f"bluesky plan lane gets no derived device file."
+        )
+        return None
+    if not isinstance(limits, dict):
+        logger.warning(
+            f"The channel-limits database {limits_path} is not a mapping of channels; "
+            f"the bluesky plan lane gets no derived device file."
+        )
+        return None
+
+    return write_devices_file(Path(staged_path), limits)
+
+
+def _stage_bluesky_devices(config, source_dir, out_dir):
+    """Put the queueserver worker's plan-device file into the bluesky build
+    context; report whether one landed.
+
+    The boolean return is the value the render context's ``bluesky_devices`` key
+    carries, gated fail-closed exactly like ``channel_snapshot`` and dev_mode's
+    wheel: the compose template may only mount a file that was actually
+    written. When the decision is not to stage, a file left in ``out_dir`` by an
+    earlier build is removed, so neither an incremental rebuild nor a re-render
+    can go on mounting a device set the deployment no longer has.
+
+    The ORDER of the decision carries more of the meaning than any single branch:
+
+    1. A **mock** control system has no channels to drive, so its lanes are
+       browse-only whatever file is lying around. Decided first, so an authored
+       file cannot make a mock deployment look like it can steer anything.
+    2. An **authored** file wins over everything else, and is validated with
+       ``validate_device_document``. A document with problems REFUSES the
+       render, because the worker's own loader is fail-soft by design: it skips
+       a malformed entry with a warning, so a deployment built from a bad file
+       comes up healthy and silently missing exactly those devices.
+    3. Otherwise the set is **derived** from the project's own channel-limits
+       database — but only for a co-deployed virtual accelerator, and only when
+       the configured path is RELATIVE. An absolute path names a file outside
+       the repo, which is the deployment saying an operator supplies it; its
+       absence means it is not staged yet, not that OSPREY should choose the
+       device set on their behalf and mount it in its place.
+    4. Otherwise there is no device file, and the fact says so: the worker comes
+       up able to browse plans and run none.
+
+    Called once per plan lane, and a two-lane deploy renders this one directory
+    twice (both lanes declare the same service ``path``). That second call is
+    what the idempotence is for: it re-derives the same decision from the same
+    config — the lookup order in ``_configured_devices_file`` is fixed for this
+    reason — and rewrites identical bytes atomically, so a running deployment
+    holding this file as a bind mount never sees it half-written or briefly
+    absent.
+
+    :param config: Full project configuration dictionary
+    :type config: dict
+    :param source_dir: Service source directory being rendered
+    :type source_dir: str
+    :param out_dir: The service's build context directory
+    :type out_dir: str
+    :return: True iff a device file is staged in ``out_dir``
+    :rtype: bool
+    :raises DeploymentPreconditionError: An authored device file exists and is
+        not one the worker can load in full
+    """
+    if os.path.basename(source_dir) != _BLUESKY_DEVICES_SERVICE:
+        return False
+
+    from osprey.connectors.types import MOCK, VIRTUAL_ACCELERATOR, resolve_control_system_type
+    from osprey.services.bluesky_bridge.devices._specs_from_file import validate_device_document
+
+    staged_path = os.path.join(out_dir, BLUESKY_DEVICES_FILENAME)
+
+    if resolve_control_system_type(config.get("control_system")) == MOCK:
+        _discard_staged_devices(staged_path)
+        _report_fact("bluesky plans browse-only: a mock control system drives no channels")
+        return False
+
+    raw = _configured_devices_file(config)
+    configured = Path(raw).expanduser() if raw is not None else None
+    if configured is None:
+        authored = None
+    elif configured.is_absolute():
+        authored = configured
+    else:
+        authored = _render_anchor_dir(config) / configured
+
+    if authored is not None and authored.is_file():
+        try:
+            document = yaml.safe_load(authored.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, yaml.YAMLError) as e:
+            document = None
+            problems = [f"the file could not be read as YAML/JSON ({e})"]
+        else:
+            problems = validate_device_document(document)
+        if problems:
+            listed = "\n".join(f"  - {problem}" for problem in problems)
+            raise DeploymentPreconditionError(
+                reason=(
+                    f"{BLUESKY_DEVICES_CONFIG_KEY} is {raw!r}, and the device file "
+                    f"at {authored} is not one the queueserver worker can load in "
+                    f"full:\n{listed}\n"
+                    f"The worker skips a malformed entry with a warning rather than "
+                    f"failing, so a deployment built from this file would come up "
+                    f"healthy while missing exactly the devices listed above."
+                ),
+                remedy=(
+                    f"Fix the entries named above in {authored}, or point "
+                    f"{BLUESKY_DEVICES_CONFIG_KEY} at a different file, and rebuild. "
+                    f"Every entry is a mapping: a settable carries 'name' and "
+                    f"'setpoint' (and optionally 'readback'), a readable carries "
+                    f"'name' and 'pv', and a device name may appear only once across "
+                    f"both sections."
+                ),
+            )
+        _write_staged_devices(authored, staged_path)
+        settables, readables = _document_counts(document)
+        # The fact names the CONFIGURED spelling, never the resolved path: a
+        # relative one resolves against the build's staging tree, so spelling it
+        # out puts a `build/.tmp/...` path nobody can retype in the default view
+        # (the same reason `_stage_channel_snapshot` keeps its path at DEBUG).
+        _report_fact(
+            f"bluesky plan devices: {settables} settable / {readables} readable from {raw}"
+        )
+        logger.debug(f"Staged the bluesky plan device file from {authored} to {staged_path}")
+        return True
+
+    va_deployed = VIRTUAL_ACCELERATOR in {
+        str(name) for name in config.get("deployed_services") or []
+    }
+    if va_deployed and configured is not None and not configured.is_absolute():
+        document = _derive_staged_devices(config, staged_path)
+        if document is not None:
+            settables, readables = _document_counts(document)
+            _report_fact(
+                f"bluesky plan devices: {settables} settable / {readables} readable "
+                "derived from the channel-limits database"
+            )
+            logger.debug(
+                f"Derived the bluesky plan device set from "
+                f"{_limits_database_for_devices(config)} to {staged_path}"
+            )
+            return True
+
+    _discard_staged_devices(staged_path)
+    if authored is None:
+        _report_fact(f"bluesky plans browse-only: no {BLUESKY_DEVICES_CONFIG_KEY} is configured")
+    else:
+        _report_fact(
+            f"bluesky plans browse-only: {BLUESKY_DEVICES_CONFIG_KEY} is {raw!r} and no "
+            "file is there"
+        )
+        logger.debug(f"No bluesky plan device file at {authored}")
+    return False
 
 
 def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
@@ -2025,12 +2629,16 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
     # (e.g. OSPREY_DEV) exactly when `osprey up --dev` runs AND the
     # local wheel actually landed in this context — never when staging failed
     # (fail-closed: the Dockerfile then keeps its fail-loud pinned install).
-    # channel_snapshot is gated the same way: True only when the snapshot file
-    # actually landed in this context, so the mount and the file cannot disagree.
+    # channel_snapshot and bluesky_devices are gated the same way: True only
+    # when the staged file actually landed in this context, so a mount the
+    # compose fragment declares and the file it points at cannot disagree.
     render_config = {
         **config,
         "dev_mode": dev_mode and wheel_staged,
         "channel_snapshot": _stage_channel_snapshot(config, source_dir, out_dir),
+        # The bluesky_web sidecar's roster grant (see the helper); [] elsewhere.
+        "bluesky_panel_secret_env_vars": _bluesky_panel_secret_env_vars(config, source_dir),
+        "bluesky_devices": _stage_bluesky_devices(config, source_dir, out_dir),
     }
     compose_filepath = render_template(template_path, render_config, out_dir)
 
@@ -2210,12 +2818,16 @@ def _incremental_setup_build_dir(template_path, config, service_config, out_dir,
 
         wheel_staged = _stage_dev_wheel_for_context(out_dir, dev_mode)
 
-    # Create/update the docker compose file from the template (dev_mode and
-    # channel_snapshot gated on staging success, exactly as in setup_build_dir).
+    # Create/update the docker compose file from the template (dev_mode,
+    # channel_snapshot and bluesky_devices gated on staging success, exactly as
+    # in setup_build_dir).
     render_config = {
         **config,
         "dev_mode": dev_mode and wheel_staged,
         "channel_snapshot": _stage_channel_snapshot(config, source_dir, out_dir),
+        # The bluesky_web sidecar's roster grant (see the helper); [] elsewhere.
+        "bluesky_panel_secret_env_vars": _bluesky_panel_secret_env_vars(config, source_dir),
+        "bluesky_devices": _stage_bluesky_devices(config, source_dir, out_dir),
     }
     compose_filepath = render_template(template_path, render_config, out_dir)
 
@@ -2382,7 +2994,9 @@ def clean_deployment(compose_files, config=None, repo_root=None):
     logger.debug("Cleanup completed")
 
 
-def prepare_compose_files(config_path, dev_mode=False, expose_network=False, output_root=None):
+def prepare_compose_files(
+    config_path, dev_mode=False, expose_network=False, output_root=None, deployed_config_dir=None
+):
     """Prepare compose files from configuration.
 
     Loads configuration and generates all necessary compose files for deployment.
@@ -2414,9 +3028,28 @@ def prepare_compose_files(config_path, dev_mode=False, expose_network=False, out
         absolutized only at invocation time (TR-3), so nothing about the pinned
         compose contract moves.
     :type output_root: str or None
+    :param deployed_config_dir: Path PREFIX, relative to the deployment repo
+        root, under which the DEPLOYED config will be read — the directory a
+        rendered path must be spelled against so it resolves at deploy time.
+
+        ``""`` means the config is read from the repo root itself. ``"build"``
+        means it is read from the build zone.
+
+        ``osprey build`` passes it explicitly, because the render cannot see
+        the answer: it renders from a staging tree whose config sits at the
+        staging ROOT, while the config that render produces will be read from
+        ``build/`` once the atomic swap lands.
+
+        ``None`` — the deploy-time case — derives it from where the config
+        being loaded actually sits, which is then also where it will be read.
+    :type deployed_config_dir: str or None
     :return: Tuple of (config dict, list of compose file paths)
     :rtype: tuple[dict, list[str]]
     :raises RuntimeError: If configuration loading fails
+    :raises DeploymentPreconditionError: Writes are enabled and
+        ``control_system.limits_checking.database_path`` names no path, or names
+        a file that is not on this host. Nothing has been rendered when this
+        raises.
     """
     # Fail before any work when --dev cannot be honored: every precondition is
     # a path check away, so there is no reason to surface it seven services in.
@@ -2424,6 +3057,42 @@ def prepare_compose_files(config_path, dev_mode=False, expose_network=False, out
         preflight_dev_mode()
 
     config = load_project_config(config_path, wrap_errors=True)
+
+    # Where the config sits, and where the config this render produces will be
+    # READ from. Both are recorded before the ``build_dir`` override below,
+    # because neither is derivable from ``output_root``: that names where this
+    # run WRITES, which for a build is the staging root and for a deploy is the
+    # build zone — a different question with a coincidentally similar answer.
+    config["config_dir"] = str(Path(config_path).expanduser().absolute().parent)
+    if deployed_config_dir is None:
+        # ``resolve_repo_root(config_path=...)`` — the PATH-based answer,
+        # deliberately, and unlike the ``resolve_repo_root(config)`` call
+        # further down. That one is about env-chain identity, where a build's
+        # staging tree is the wrong repo. This one is about the build-zone
+        # question itself: ``repo_root_for_config`` returns the parent for a
+        # config in ``build/`` and the config's own directory otherwise, which
+        # is exactly the distinction being measured.
+        #
+        # ``relpath`` rather than the module's usual absolutize-at-invocation
+        # idiom: what is wanted here is a PREFIX to spell other paths against,
+        # not a mount source. ``.`` — a config at the repo root — collapses to
+        # the empty prefix, so joining it never inserts a ``./`` segment.
+        relative = os.path.relpath(config["config_dir"], resolve_repo_root(config_path=config_path))
+        deployed_config_dir = "" if relative == "." else relative
+    config["deployed_config_dir"] = deployed_config_dir
+
+    # The channel-limits mount, spelled here rather than in the template that
+    # consumes it. Both halves need the two directories recorded just above,
+    # which a Jinja context can hold but cannot derive, and a template that
+    # built the strings itself would have to be re-taught the rule every time
+    # another service mounted the same file. Recorded only when the key names a
+    # path: a read-only deployment with no limits database has nothing to spell,
+    # and the template's mount is writes-gated anyway. When writes ARE enabled,
+    # `resolve_limits_mount` either sets this key or refuses the render, so a
+    # writable deployment can never reach the template without it.
+    limits_mount = resolve_limits_mount(config, config["config_dir"], deployed_config_dir)
+    if limits_mount is not None:
+        config["limits_mount"] = limits_mount
 
     # Where THIS render writes, when that differs from where the finished
     # deployment will read. Applied to the in-memory config only — the config on

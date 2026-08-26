@@ -458,10 +458,24 @@ jobs:
     - name: Install dependencies
       run: uv sync --extra docs
 
+    # Warnings are errors: an orphaned page, a duplicate label, a missing
+    # :file: include, or a broken :doc:/:ref: target fails this job.
     - name: Build documentation
       run: |
         cd docs
-        uv run make html
+        uv run make html SPHINXOPTS="-W --keep-going"
+
+    # sphinx_reredirects writes one stub page per `redirects` key. A stub that
+    # never got written means a moved page's old URL 404s for every reader who
+    # bookmarked it.
+    - name: Check redirect stubs were emitted
+      run: |
+        keys=$(uv run python -c "import os, runpy; os.chdir('docs/source'); print(' '.join(runpy.run_path('conf.py')['redirects']))")
+        missing=""
+        for key in $keys; do
+          [ -f "docs/build/html/$key.html" ] || missing="$missing $key"
+        done
+        [ -z "$missing" ] || { echo "redirect stubs missing from the build:$missing"; exit 1; }
 
     - name: Check for broken links
       run: |
@@ -928,18 +942,19 @@ jobs:
       uses: actions/setup-node@v7
       with:
         node-version: '22'
+        cache: 'npm'
 
     - name: Install JS dependencies
-      # `npm install --no-package-lock`, not `npm ci`: the committed
-      # package-lock.json records a resolved entry only for the host platform's
-      # rollup binary (the lock is authored on macOS), and both `npm ci` AND a
-      # plain `npm install` honor that incomplete tree, so the Linux runner
-      # never installs @rollup/rollup-linux-x64-gnu that vitest needs (npm
-      # optional-deps bug, npm/cli#4828 — its own error message says to ignore
-      # the lockfile). `--no-package-lock` resolves fresh from package.json and
-      # installs the correct platform binary. This is a dev/CI-only
-      # typecheck+test job, so strict lock reproduction is not required here.
-      run: npm install --no-package-lock
+      # `npm ci`, so this lane tests exactly the lockfile-pinned versions that
+      # Dependabot's cooldown vetted — a fresh resolve would silently pull
+      # newer releases. The lockfile is complete for every platform (all
+      # optional native bindings carry os/cpu fields); the old macOS-authored
+      # lock that omitted the Linux binding (npm/cli#4828) no longer
+      # reproduces on current npm. If an incomplete lock ever lands again,
+      # `npm ci` fails loudly here rather than drifting. Regenerate the lock
+      # by hand with `npm install --package-lock-only`, which resolves from
+      # registry metadata and is platform-neutral by construction.
+      run: npm ci
 
     - name: Typecheck (tsc --noEmit)
       run: npm run typecheck

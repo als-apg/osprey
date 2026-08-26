@@ -99,6 +99,81 @@ class FixtureConnector(MockConnector):
         return await super().read_channel(channel_address, timeout=timeout)
 '''
 
+#: The gateway fixture by dotted path, so ``live`` selects and installs a CA
+#: gateway exactly the way the EPICS connector does — without any EPICS.
+GATEWAY_TYPE = "switch_fixture_gateway.GatewayFixtureConnector"
+GATEWAY_HOST = "127.0.0.1"
+READ_GATEWAY_PORT = 5064
+#: Configured on the ``write_access`` row and served by nothing: the fixture
+#: refuses every read while this port is the one installed in the environment.
+DEAD_WRITE_PORT = 5555
+
+GATEWAY_FIXTURE_MODULE = '''\
+"""A mock that runs the EPICS gateway selection, against a dead write gateway.
+
+``connect()`` selects a gateway role by exactly the rule EPICSConnector
+applies and installs the same environment variables, so the child's
+post-connect report — and the parent's verification of it — exercise the real
+role-selection path. Reads then answer only while the installed port is not
+the dead write-gateway port, which is what a configured-but-unserved
+``write_access`` endpoint does to a probe; and writes are refused whenever the
+read-only gateway is the one installed, which is what a real read-only CA
+gateway does to a put.
+"""
+
+import os
+
+from osprey_connectors.control_system.base import ChannelWriteResult, is_readonly_run
+from osprey_connectors.control_system.mock_connector import MockConnector
+
+DEAD_WRITE_PORT = "5555"
+
+
+class GatewayFixtureConnector(MockConnector):
+    async def connect(self, config):
+        await super().connect(config)
+        gateways = config.get("gateways") or {}
+        try:
+            from osprey_connectors.config import get_config_value
+
+            writes_enabled = bool(get_config_value("control_system.writes_enabled", False))
+        except Exception:
+            writes_enabled = False
+        write_gateway = gateways.get("write_access") or {}
+        if writes_enabled and write_gateway and not is_readonly_run():
+            selected = write_gateway
+        else:
+            selected = gateways.get("read_only") or {}
+        if selected:
+            os.environ["EPICS_CA_ADDR_LIST"] = str(selected.get("address", ""))
+            os.environ["EPICS_CA_SERVER_PORT"] = str(selected.get("port", 5064))
+            os.environ.pop("EPICS_CA_NAME_SERVERS", None)
+            self._epics_configured = True
+
+    @staticmethod
+    def _installed_port():
+        return os.environ.get("EPICS_CA_SERVER_PORT")
+
+    async def read_channel(self, channel_address, timeout=None):
+        if self._installed_port() == DEAD_WRITE_PORT:
+            raise TimeoutError(
+                f"probe read of {channel_address!r} timed out: nothing serves this gateway"
+            )
+        return await super().read_channel(channel_address, timeout=timeout)
+
+    async def write_channel(self, channel_address, value, timeout=None, **kwargs):
+        if self._installed_port() != DEAD_WRITE_PORT:
+            return ChannelWriteResult(
+                channel_address=channel_address,
+                value_written=value,
+                success=False,
+                blocked=True,
+                refusal_reason="CONTROL_SYSTEM_REFUSED",
+                error_message="the read-only gateway refused the write",
+            )
+        return await super().write_channel(channel_address, value, timeout=timeout, **kwargs)
+'''
+
 SITECUSTOMIZE = '''\
 """Register the fixture connector as this deployment's virtual accelerator.
 
@@ -143,6 +218,33 @@ def raw_config(
     return {"control_system": control_system, "archiver": {"type": "mongodb_archiver"}}
 
 
+def gateway_config(*, writes_enabled=True, read_gateway=True, read_port=READ_GATEWAY_PORT):
+    """A config whose ``live`` target routes through configured CA gateways.
+
+    The ``write_access`` row always points at :data:`DEAD_WRITE_PORT`, which
+    nothing serves — the posture issue #718 is about: a write-capable gateway
+    that is configured (so the role is selected) but not actually running.
+    """
+    gateways = {"write_access": {"address": GATEWAY_HOST, "port": DEAD_WRITE_PORT}}
+    if read_gateway:
+        gateways["read_only"] = {"address": GATEWAY_HOST, "port": read_port}
+    live_block = {
+        "response_delay_ms": 1,
+        "noise_level": 0.0,
+        "probe_channel": LIVE_PROBE,
+        "gateways": gateways,
+    }
+    va_block = {"response_delay_ms": 1, "noise_level": 0.0, "probe_channel": VA_PROBE}
+    return {
+        "control_system": {
+            "type": GATEWAY_TYPE,
+            "writes_enabled": writes_enabled,
+            "connector": {GATEWAY_TYPE: live_block, "virtual_accelerator": va_block},
+        },
+        "archiver": {"type": "mongodb_archiver"},
+    }
+
+
 # ------------------------------------------------------------------ fixtures
 
 
@@ -151,6 +253,7 @@ def fixture_dir(tmp_path_factory):
     """A scratch directory the children import their VA connector from."""
     directory = tmp_path_factory.mktemp("switch_fixture")
     (directory / "switch_fixture_connectors.py").write_text(FIXTURE_MODULE, encoding="utf-8")
+    (directory / "switch_fixture_gateway.py").write_text(GATEWAY_FIXTURE_MODULE, encoding="utf-8")
     (directory / "sitecustomize.py").write_text(SITECUSTOMIZE, encoding="utf-8")
     return directory
 
@@ -174,7 +277,7 @@ async def make_manager(state_root):
     """Managers whose children are all reaped when the test ends."""
     created = []
 
-    def factory(raw=None, **overrides):
+    def factory(raw=None, config_path=None, **overrides):
         options = {
             "drain_timeout_s": 1.0,
             "probe_timeout_s": 10.0,
@@ -183,7 +286,7 @@ async def make_manager(state_root):
         }
         options.update(overrides)
         manager = ConnectorHostManager(
-            MCPServerConfig(raw=raw if raw is not None else raw_config(), config_path=None),
+            MCPServerConfig(raw=raw if raw is not None else raw_config(), config_path=config_path),
             **options,
         )
         manager.spawned = []
@@ -491,6 +594,162 @@ class TestFailedSwitchLeavesThePreviousTargetActive:
         assert raised.value.reason == REASON_TARGET_UNRESOLVABLE
         assert "elsewhere" in raised.value.detail
         assert manager.spawned == []
+
+
+# ------------------------------------------ the dead-write-gateway fallback
+
+
+@pytest.fixture
+def write_armed_project(tmp_path):
+    """A project config file that arms writes, for the child's own lookup.
+
+    The child reads ``control_system.writes_enabled`` from the ``CONFIG_FILE``
+    the parent hands it, not from the init payload — so a write-armed child
+    needs a real file saying so, matching the parent's raw config.
+    """
+    path = tmp_path / "config.yml"
+    path.write_text("control_system:\n  writes_enabled: true\n", encoding="utf-8")
+    return path
+
+
+class TestDeadWriteGatewayFallback:
+    """Issue #718: a configured-but-unserved ``write_access`` gateway.
+
+    The deployment is write-armed and both gateway roles are configured, but
+    nothing serves the write port. The session starts on the baseline unprobed
+    (the shipped first-start posture), leaves for the VA, and must be able to
+    come home: the write-role probe fails, and the switch falls back to the
+    ``read_only`` gateway rather than stranding the session off-baseline.
+    """
+
+    async def _stranded_session(self, make_manager, write_armed_project, **config_kwargs):
+        """A write-armed session on 'va', whose baseline write gateway is dead."""
+        manager = make_manager(raw=gateway_config(**config_kwargs), config_path=write_armed_project)
+        await manager.ensure_started()
+        assert manager.active_target() == "live"
+        await manager.switch("va")
+        assert manager.active_target() == "va"
+        return manager
+
+    async def test_a_return_to_baseline_falls_back_to_the_read_gateway(
+        self, make_manager, write_armed_project
+    ):
+        manager = await self._stranded_session(make_manager, write_armed_project)
+
+        result = await manager.switch("live")
+
+        assert result["target"] == "live"
+        assert result["selected_role"] == "read_only"
+        assert result["endpoint"]["port"] == READ_GATEWAY_PORT
+        assert manager.active_target() == "live"
+        # The landing is announced, not silent: the result names the dead
+        # write gateway the session could not route through.
+        fallback = result["write_gateway_fallback"]
+        assert fallback["host"] == GATEWAY_HOST
+        assert fallback["port"] == DEAD_WRITE_PORT
+        assert "read_only" in fallback["detail"]
+        # The write-role candidate did not survive its failed probe.
+        write_candidate = manager.spawned[-2]
+        assert await wait_for(lambda: write_candidate.returncode is not None), (
+            "the write-role candidate outlived the probe that failed it"
+        )
+        # And the child that landed really serves reads on the read gateway.
+        value = await manager.active_proxy().read_channel(LIVE_PROBE, timeout=10.0)
+        assert isinstance(value, ChannelValue)
+
+    async def test_a_write_after_a_fallback_landing_is_still_refused(
+        self, make_manager, write_armed_project
+    ):
+        """The fallback moves reachability, never the write gate.
+
+        The session is write-armed, so the monitor lets the write through to
+        the control system — where the read-only gateway refuses it, exactly
+        as it would for the documented absent-row fallback. Nothing about the
+        landing may weaken that refusal.
+        """
+        manager = await self._stranded_session(make_manager, write_armed_project)
+        await manager.switch("live")
+
+        result = await manager.active_proxy().write_channel("SR:CORR:1:SP", 0.5, timeout=10.0)
+
+        assert result.blocked is True
+        assert result.refusal_reason == "CONTROL_SYSTEM_REFUSED"
+
+    async def test_a_deployment_without_write_arming_never_needs_the_fallback(self, make_manager):
+        """Read-only selection is untouched: no dead gateway is ever probed."""
+        manager = make_manager(raw=gateway_config(writes_enabled=False))
+        await manager.ensure_started()
+        await manager.switch("va")
+
+        result = await manager.switch("live")
+
+        assert result["target"] == "live"
+        assert result["selected_role"] == "read_only"
+        assert "write_gateway_fallback" not in result
+        assert manager.active_target() == "live"
+
+
+class TestProbeFailureNamesTheGateway:
+    """Issue #718, part two: a probe refusal must name the endpoint it probed.
+
+    Both gateway roles usually share a hostname and differ only by port, so a
+    refusal that names just the probe channel reads as "the control system is
+    down" when only one gateway beside a healthy one is unserved. The failure
+    carries the role, host and port it actually probed — structured, and in
+    the detail sentence.
+    """
+
+    async def test_a_probe_failure_names_the_role_host_and_port_it_probed(
+        self, make_manager, write_armed_project
+    ):
+        # A write-only gateways table: no read row, so no fallback is possible
+        # and the original write-role failure is the one that surfaces.
+        manager = make_manager(
+            raw=gateway_config(read_gateway=False), config_path=write_armed_project
+        )
+        await manager.ensure_started()
+        await manager.switch("va")
+
+        with pytest.raises(SwitchError) as raised:
+            await manager.switch("live")
+
+        error = raised.value
+        assert error.stage == "probe"
+        assert error.gateway == {
+            "role": "write_access",
+            "host": GATEWAY_HOST,
+            "port": DEAD_WRITE_PORT,
+        }
+        assert error.as_dict()["gateway"] == error.gateway
+        assert "write_access" in error.detail
+        assert f"{GATEWAY_HOST}:{DEAD_WRITE_PORT}" in error.detail
+        assert manager.active_target() == "va"
+
+    async def test_a_fallback_that_also_fails_names_both_gateways(
+        self, make_manager, write_armed_project
+    ):
+        # The read row points at the dead port too, so the fallback probe
+        # fails as well. The surfaced error is the read-role failure — the
+        # last thing actually probed — and it still names the write gateway
+        # that failed first, so the operator sees the whole story.
+        manager = make_manager(
+            raw=gateway_config(read_port=DEAD_WRITE_PORT), config_path=write_armed_project
+        )
+        await manager.ensure_started()
+        await manager.switch("va")
+
+        with pytest.raises(SwitchError) as raised:
+            await manager.switch("live")
+
+        error = raised.value
+        assert error.stage == "probe"
+        assert error.gateway["role"] == "read_only"
+        assert error.gateway["port"] == DEAD_WRITE_PORT
+        assert "write_access" in error.detail
+        assert manager.active_target() == "va"
+        # Nothing about the failed pair of launches moved the session.
+        value = await manager.active_proxy().read_channel(VA_PROBE, timeout=10.0)
+        assert isinstance(value, ChannelValue)
 
 
 # ----------------------------------------------------------------- draining

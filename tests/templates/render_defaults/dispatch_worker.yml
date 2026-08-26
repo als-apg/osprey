@@ -125,7 +125,14 @@ services:
       # DNS name, not localhost. Declaring the host here — rather than sniffing
       # the container runtime — is what makes emit work under docker AND podman.
       # Inert unless claude_code.telemetry is enabled with backend: openobserve.
+      #
+      # The port is declared beside it because on this network it is NOT the
+      # published one: the DNS name answers on the port the store LISTENS on
+      # inside its container, which `services.openobserve.port` says nothing
+      # about. Without this line the emitter would derive the published port,
+      # which is right from the host and wrong from here.
       OSPREY_OTEL_OPENOBSERVE_HOST: openobserve
+      OSPREY_OTEL_OPENOBSERVE_PORT: "5080"
 
     # Bind-mount sources are relative to the pinned compose project directory,
     # which is the deployment REPO ROOT — hence the build/services/ prefix on

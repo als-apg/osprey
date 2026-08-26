@@ -193,16 +193,6 @@ services:
       # operator override stays consistent between the two services.
       EPICS_CA_NAME_SERVERS: "virtual-accelerator:5064"
       EPICS_CA_AUTO_ADDR_LIST: "NO"
-      # EPICS-substrate device selection. Passthrough only — the operator or
-      # deploy env chooses the actual PVs, never hardcoded here. The devices
-      # themselves are built by the queueserver worker, which is where these
-      # same three variables are read (qserver_startup.py); the bridge no
-      # longer branches on them. The :- empty default keeps an unset value
-      # harmless: no substrate means an empty device namespace, i.e.
-      # browse-only.
-      BLUESKY_EPICS_SUBSTRATE: "${BLUESKY_EPICS_SUBSTRATE:-}"
-      BLUESKY_EPICS_SETPOINTS: "${BLUESKY_EPICS_SETPOINTS:-}"
-      BLUESKY_EPICS_READBACKS: "${BLUESKY_EPICS_READBACKS:-}"
 
 
       # Tiled persistence: the bridge READS the durable catalog here to serve
@@ -228,7 +218,7 @@ services:
       # holds the proxy's secret certificate plus a `clients/` directory of the
       # publisher public keys it will accept — and never the publisher's
       # secret, which lives only in the queueserver's own mount.
-      - ./data/bluesky_curve/bridge:/app/curve:ro
+      - ./data/.runtime/bluesky_curve/bridge:/app/curve:ro
 
       # Facility plan directory: operator-supplied host path via
       # services.bluesky.plan_dir in config.yml, mounted read-only — the
@@ -249,9 +239,20 @@ services:
       # directory (/app/project, set above) exactly as the connector/startup
       # guard expect (limits_validator.py, app.py's
       # _assert_limits_readable_if_writable) — the mounted config.yml lives
-      # there, not at the host build's project_root. Source path mirrors the
-      # Virtual Accelerator's data mount convention: the repo's own data/ tree,
-      # named relative to the pinned project directory.
+      # there, not at the host build's project_root.
+      #
+      # Both halves of the bind are computed HOST-side by
+      # `resolve_limits_mount` (compose_generator.py) and consumed here as
+      # finished strings. One configured value —
+      # control_system.limits_checking.database_path — has to name one file for
+      # the operator, for this bind source and for the connector that reopens it
+      # in the container, and the two halves anchor differently: the source
+      # against the pinned compose project directory, the target against the
+      # container's project root, with an absolute operator-owned path mounted
+      # verbatim on both sides. This Jinja context holds those anchors but
+      # cannot derive them, so a template that spelled the path itself would be
+      # a second spelling of the same rule, free to drift from the one the
+      # connector follows. The writes gate above still decides WHETHER to mount.
       - ./data/channel_limits.json:/app/project/data/channel_limits.json:ro
 
     networks:
@@ -409,14 +410,7 @@ services:
       BLUESKY_ZMQ_PUBLISH_ADDR: "tcp://bluesky-bridge:5567"
       BLUESKY_ZMQ_CURVE_SECRET_KEY: /app/curve/publisher.key_secret
       BLUESKY_ZMQ_CURVE_SERVER_PUBLIC_KEY: /app/curve/proxy.key
-      # Substrate wiring for the devices the startup module builds. Unlike the
-      # bridge's copy above this is NOT gated on the VA being co-deployed: a
-      # facility pointing at real EPICS has no VA container but still needs
-      # its substrate. The `:-` empty defaults keep an unset substrate
-      # harmless — the module then yields an empty namespace (browse-only).
-      BLUESKY_EPICS_SUBSTRATE: "${BLUESKY_EPICS_SUBSTRATE:-}"
-      BLUESKY_EPICS_SETPOINTS: "${BLUESKY_EPICS_SETPOINTS:-}"
-      BLUESKY_EPICS_READBACKS: "${BLUESKY_EPICS_READBACKS:-}"
+
 
       # Same in-container path as the bridge's mount target below: the
       # startup module builds the plan namespace with the same plan_loader,
@@ -457,8 +451,11 @@ services:
       # Split per container by directory rather than by file so each side can
       # only read the secret it is supposed to hold: this one carries the
       # publisher's secret certificate and the bridge proxy's PUBLIC one, and
-      # never the proxy's secret. Same ./data/ convention as the limits DB.
-      - ./data/bluesky_curve/queueserver:/app/curve:ro
+      # never the proxy's secret. Minted by `osprey up` itself, so it lives
+      # under data/.runtime/ — the runtime-output subpath the build-drift
+      # fingerprint reserves for exactly this material (#716).
+      - ./data/.runtime/bluesky_curve/queueserver:/app/curve:ro
+
 
       - /facility/plans:/app/project/plans:ro
 
@@ -468,7 +465,9 @@ services:
       # empty-DB failsafe blocks every write and no plan can move anything.
       # Same /app/project root as config.yml so a relative
       # control_system.limits_checking.database_path resolves identically on
-      # both sides.
+      # both sides. Same host-computed strings as the bridge's copy — see the
+      # note there for why the path is resolved once by `resolve_limits_mount`
+      # and never spelled in this template.
       - ./data/channel_limits.json:/app/project/data/channel_limits.json:ro
 
     networks:

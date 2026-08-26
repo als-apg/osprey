@@ -165,13 +165,18 @@ def _stub_persona_builds(monkeypatch, tmp_path, units, build_cmd=None):
 
 
 def _unit(project: str, persona: str, tmp_path) -> dict:
-    return {"project": project, "persona": persona, "project_path": str(tmp_path / persona)}
+    return {
+        "project": project,
+        "persona": persona,
+        "project_path": str(tmp_path / persona),
+        "image": f"{project}:local",
+    }
 
 
 def test_persona_build_captures_per_image_with_its_own_spool(monkeypatch, tmp_path, reporter):
     """Each persona image is its own captured run, named for the image it
     builds, so a failed build names a spool holding only that build's output."""
-    units = [_unit("demo", "ops", tmp_path), _unit("demo", "physics", tmp_path)]
+    units = [_unit("demo-ops", "ops", tmp_path), _unit("demo-physics", "physics", tmp_path)]
     _stub_persona_builds(monkeypatch, tmp_path, units)
     recorder = RunRecorder()
     monkeypatch.setattr(persona_images, "run_captured", recorder)
@@ -189,7 +194,7 @@ def test_persona_build_captures_per_image_with_its_own_spool(monkeypatch, tmp_pa
 def test_persona_build_reports_one_step_per_image(monkeypatch, tmp_path, reporter):
     """One sub-step per persona image, naming that image: the only progress an
     operator sees while a run of multi-minute builds goes by."""
-    units = [_unit("demo", "ops", tmp_path), _unit("demo", "physics", tmp_path)]
+    units = [_unit("demo-ops", "ops", tmp_path), _unit("demo-physics", "physics", tmp_path)]
     _stub_persona_builds(monkeypatch, tmp_path, units)
     monkeypatch.setattr(persona_images, "run_captured", RunRecorder())
 
@@ -205,7 +210,7 @@ def test_default_view_hides_buildkit_lines_but_the_spool_keeps_them(
     progress, the real reporter, the real capture helper. The operator's
     terminal shows the step line and nothing of the build; the spool file
     exists and holds every line."""
-    units = [_unit("demo", "ops", tmp_path)]
+    units = [_unit("demo-ops", "ops", tmp_path)]
     _stub_persona_builds(monkeypatch, tmp_path, units, build_cmd=_echo_cmd(BUILDKIT_OUTPUT))
 
     persona_images.build_persona_images(_persona_config(), [], False, None)
@@ -229,7 +234,7 @@ def test_persona_build_is_watched_under_its_own_image_tag(monkeypatch, tmp_path,
     so the watcher carries the image tag as its label. Without it the whole
     build parses into nothing — silently, with no error — so the assertion is
     behavioural: a nameless header must come back attributed to the tag."""
-    _stub_persona_builds(monkeypatch, tmp_path, [_unit("demo", "ops", tmp_path)])
+    _stub_persona_builds(monkeypatch, tmp_path, [_unit("demo-ops", "ops", tmp_path)])
     recorder = RunRecorder()
     monkeypatch.setattr(persona_images, "run_captured", recorder)
 

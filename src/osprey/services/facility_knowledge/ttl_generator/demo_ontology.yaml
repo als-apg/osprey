@@ -1,0 +1,315 @@
+id: https://narad.example.org/schema/shared_semantics/demo_ontology
+name: demo_ontology
+title: Demo machine facility ontology
+description: >-
+  Ontology table for the demo machine's generated knowledge graph.
+
+  In this LinkML source the `DeviceFamily` enum is the family map and each class's
+  `is_a` is its parent: 'family_to_class' maps every FAMILY token of the
+  control_assistant tier-3 channel database to a class in the NARAD shared-semantics
+  vocabulary; 'classes' declares those classes and their rdfs:subClassOf parents,
+  closed up to the root 'AcceleratorDevice'. The hierarchy is copied edge-for-edge
+  from the NARAD shared-semantics vocabulary the als-ontology project defines, so a
+  class-rollup query written against any NARAD graph returns the analogous answer on
+  the demo graph.
+
+  Every class name here exists in that vocabulary, and each one's skos:altLabel list
+  is the vocabulary's list verbatim. Three classes carry additional demo-only
+  synonyms, because the demo machine names devices the vocabulary has no word for --
+  see the comments on BeamCurrentMonitor, BeamLossMonitor and Modulator.
+
+prefixes:
+  narad_sem: https://narad.example.org/schema/shared_semantics/
+  linkml: https://w3id.org/linkml/
+
+default_prefix: narad_sem
+default_range: string
+
+imports:
+  - linkml:types
+
+classes:
+
+  AcceleratorDevice:
+    class_uri: narad_sem:AcceleratorDevice
+    description: Root of the demo machine device hierarchy.
+
+  AcceleratingCavity:
+    class_uri: narad_sem:AcceleratingCavity
+    is_a: RadioFrequency
+    aliases:
+      - accelerating cavity
+      - cavity
+      - rf cavity
+
+  BeamCurrentMonitor:
+    class_uri: narad_sem:BeamCurrentMonitor
+    is_a: Instrumentation
+    aliases:
+      - bc
+      - bcm
+      - beam current monitor
+      - current monitor
+      - dcct
+    comments:
+      - >-
+        BeamCurrentMonitor gains 'dcct' (the demo's DCCT family).
+
+  BeamLossMonitor:
+    class_uri: narad_sem:BeamLossMonitor
+    is_a: Instrumentation
+    aliases:
+      - beam loss monitor
+      - blm
+      - gamma monitor
+      - lm
+      - loss monitor
+      - neutron monitor
+      - radiation monitor
+    comments:
+      - >-
+        BeamLossMonitor gains 'gamma monitor', 'neutron monitor', 'radiation monitor'.
+      - >-
+        APPROXIMATION: the demo machine's GAMMA and NEUTRON families are radiation
+        monitors, and the NARAD vocabulary has no radiation-monitor class.
+      - >-
+        Both map to BeamLossMonitor, the nearest existing class -- a diagnostic that
+        counts particles lost from the beam.
+      - >-
+        This is deliberate: the demo corpus stays inside the shipped vocabulary rather
+        than inventing a class the ALS graph would not recognise.
+      - >-
+        A facility whose real ontology has a better class should ship its own table.
+
+  BeamPositionMonitor:
+    class_uri: narad_sem:BeamPositionMonitor
+    is_a: Instrumentation
+    aliases:
+      - beam position monitor
+      - bpm
+      - drbpm
+      - pm
+      - position monitor
+      - position pickup
+
+  Corrector:
+    class_uri: narad_sem:Corrector
+    is_a: Magnet
+    aliases:
+      - corrector
+      - orbit corrector
+      - steerer
+      - steering magnet
+
+  Dipole:
+    class_uri: narad_sem:Dipole
+    is_a: Magnet
+    aliases:
+      - bend
+      - bend magnet
+      - bending magnet
+      - dipole
+      - dipole magnet
+
+  Gauge:
+    class_uri: narad_sem:Gauge
+    is_a: Vacuum
+    aliases:
+      - cold cathode
+      - cold cathode gauge
+      - coldcathode
+      - gauge
+      - pressure gauge
+      - quattro
+      - quattro gauge
+      - quattrogauge
+      - vacuum gauge
+
+  HCorrector:
+    class_uri: narad_sem:HCorrector
+    is_a: Corrector
+    aliases:
+      - hcor
+      - hcorrector
+      - horizontal corrector
+      - horizontal orbit corrector
+      - horizontal steering magnet
+
+  Instrumentation:
+    class_uri: narad_sem:Instrumentation
+    is_a: AcceleratorDevice
+    aliases:
+      - diagnostics
+      - instrumentation
+
+  Magnet:
+    class_uri: narad_sem:Magnet
+    is_a: AcceleratorDevice
+    aliases:
+      - electromagnet
+      - magnet
+
+  Modulator:
+    class_uri: narad_sem:Modulator
+    is_a: RadioFrequency
+    aliases:
+      - klystron
+      - modulator
+      - rf modulator
+    comments:
+      - >-
+        Modulator gains 'klystron', 'modulator', 'rf modulator'.
+
+  Pump:
+    class_uri: narad_sem:Pump
+    is_a: Vacuum
+    aliases:
+      - ion pump
+      - neg pump
+      - negpump
+      - pump
+      - uhv pump
+      - uhvpump
+      - vacuum pump
+
+  Quadrupole:
+    class_uri: narad_sem:Quadrupole
+    is_a: Magnet
+    aliases:
+      - defocusing magnet
+      - focusing magnet
+      - qj
+      - quad
+      - quadrupole
+      - quadrupole magnet
+      - qw
+
+  RadioFrequency:
+    class_uri: narad_sem:RadioFrequency
+    is_a: AcceleratorDevice
+    aliases:
+      - radio frequency
+      - radiofrequency
+      - rf
+
+  Sextupole:
+    class_uri: narad_sem:Sextupole
+    is_a: Magnet
+    aliases:
+      - sext
+      - sextupole
+
+  VCorrector:
+    class_uri: narad_sem:VCorrector
+    is_a: Corrector
+    aliases:
+      - vcor
+      - vcorrector
+      - vertical corrector
+      - vertical orbit corrector
+      - vertical steering magnet
+
+  Vacuum:
+    class_uri: narad_sem:Vacuum
+    is_a: AcceleratorDevice
+    aliases:
+      - vacuum
+
+  Valve:
+    class_uri: narad_sem:Valve
+    is_a: Vacuum
+    aliases:
+      - beamline gate valve
+      - beamline valve
+      - beamlinevalve
+      - bv
+      - fast valve
+      - fastvalve
+      - fv
+      - gate valve
+      - isolation valve
+      - valve
+
+enums:
+
+  DeviceFamily:
+    description: >-
+      Every FAMILY token of the control_assistant tier-3 channel database, mapped by
+      `meaning` to the NARAD shared-semantics class that devices of that family are
+      typed as. The tokens are the channel database's own spelling and are carried
+      verbatim, hyphens included.
+    permissible_values:
+
+      BPM:
+        meaning: narad_sem:BeamPositionMonitor
+
+      CAVITY:
+        meaning: narad_sem:AcceleratingCavity
+        comments:
+          - >-
+            The CAVITY family maps to AcceleratingCavity rather than to one of its
+            subclasses (NormalConducting / Superconducting), because the demo machine's
+            channel database does not say which technology the cavities use.
+
+      DCCT:
+        meaning: narad_sem:BeamCurrentMonitor
+
+      DIPOLE:
+        meaning: narad_sem:Dipole
+
+      GAMMA:
+        meaning: narad_sem:BeamLossMonitor
+        comments:
+          - >-
+            APPROXIMATION: the demo machine's GAMMA and NEUTRON families are radiation
+            monitors, and the NARAD vocabulary has no radiation-monitor class. Both map
+            to BeamLossMonitor, the nearest existing class -- a diagnostic that counts
+            particles lost from the beam.
+
+      GAUGE:
+        meaning: narad_sem:Gauge
+
+      HCM:
+        meaning: narad_sem:HCorrector
+
+      ION-PUMP:
+        meaning: narad_sem:Pump
+
+      KLYSTRON:
+        meaning: narad_sem:Modulator
+
+      NEUTRON:
+        meaning: narad_sem:BeamLossMonitor
+        comments:
+          - >-
+            APPROXIMATION: the demo machine's GAMMA and NEUTRON families are radiation
+            monitors, and the NARAD vocabulary has no radiation-monitor class. Both map
+            to BeamLossMonitor, the nearest existing class -- a diagnostic that counts
+            particles lost from the beam.
+
+      QD:
+        meaning: narad_sem:Quadrupole
+
+      QF:
+        meaning: narad_sem:Quadrupole
+
+      QFA:
+        meaning: narad_sem:Quadrupole
+
+      SD:
+        meaning: narad_sem:Sextupole
+
+      SF:
+        meaning: narad_sem:Sextupole
+
+      SHD:
+        meaning: narad_sem:Sextupole
+
+      SHF:
+        meaning: narad_sem:Sextupole
+
+      VALVE:
+        meaning: narad_sem:Valve
+
+      VCM:
+        meaning: narad_sem:VCorrector

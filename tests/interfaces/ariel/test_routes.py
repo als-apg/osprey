@@ -43,13 +43,46 @@ def _build_mock_registry():
     )
     semantic_mod.get_parameter_descriptors = None  # type: ignore[attr-defined]
 
-    registry.list_ariel_search_modules.return_value = ["keyword", "semantic"]
+    # Registered but left disabled by the shared fixture config, so it stays out
+    # of every existing test's capabilities; the hybrid tests enable it locally.
+    hybrid_mod = types.ModuleType("hybrid")
+    hybrid_mod.get_tool_descriptor = lambda: SearchToolDescriptor(  # type: ignore[attr-defined]
+        name="hybrid_search",
+        description="Hybrid retrieval with optional reranking",
+        search_mode="hybrid",
+        args_schema=MagicMock(),
+        execute=AsyncMock(),
+        format_result=MagicMock(),
+    )
+    hybrid_mod.get_parameter_descriptors = None  # type: ignore[attr-defined]
+
+    registry.list_ariel_search_modules.return_value = ["keyword", "semantic", "hybrid"]
     registry.get_ariel_search_module.side_effect = lambda n: {
         "keyword": keyword_mod,
         "semantic": semantic_mod,
+        "hybrid": hybrid_mod,
     }.get(n)
 
     return registry
+
+
+def _enable_hybrid(service) -> None:
+    """Give the mock service a config in which the hybrid module is enabled.
+
+    Applied per test rather than in the shared ``mock_ariel_service`` fixture,
+    whose config several other tests assert against verbatim.
+    """
+    service.config = ARIELConfig.from_dict(
+        {
+            "database": {"uri": "postgresql://localhost:5432/test"},
+            "search_modules": {
+                "keyword": {"enabled": True},
+                "semantic": {"enabled": True, "model": "test-model"},
+                "hybrid": {"enabled": True},
+            },
+            "default_search_mode": "keyword",
+        }
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -698,6 +731,157 @@ def test_search_honors_configured_default_mode(client, mock_ariel_service):
 
     assert response.status_code == 200
     assert mock_ariel_service.search.call_args.kwargs["mode"] == "semantic"
+
+
+@pytest.mark.parametrize("value", ["yes", "false", 1, 0, 1.0, []])
+def test_search_hybrid_rejects_non_boolean_rerank(client, mock_ariel_service, value):
+    """A non-boolean ``rerank`` override is a 400, not a truthiness accident.
+
+    The panel sends the toggle's boolean, but a hand-written caller can send
+    ``"false"`` -- which is truthy everywhere downstream and would silently run
+    the slow reranked path the caller asked to skip.
+    """
+    _enable_hybrid(mock_ariel_service)
+
+    response = client.post(
+        "/api/search",
+        json={
+            "query": "test",
+            "mode": "hybrid",
+            "max_results": 10,
+            "advanced_params": {"rerank": value},
+        },
+    )
+
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert "rerank must be a boolean" in detail
+    assert repr(value) in detail
+    mock_ariel_service.search.assert_not_called()
+
+
+@pytest.mark.parametrize("value", [0, -1, "40", 12.5, True])
+def test_search_hybrid_rejects_bad_candidate_limit(client, mock_ariel_service, value):
+    """``candidate_limit`` must be a positive int -- booleans and zero included."""
+    _enable_hybrid(mock_ariel_service)
+
+    response = client.post(
+        "/api/search",
+        json={
+            "query": "test",
+            "mode": "hybrid",
+            "max_results": 10,
+            "advanced_params": {"candidate_limit": value},
+        },
+    )
+
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert "candidate_limit must be a positive integer" in detail
+    assert repr(value) in detail
+    mock_ariel_service.search.assert_not_called()
+
+
+def test_search_hybrid_forwards_valid_overrides_verbatim(client, mock_ariel_service):
+    """Well-formed overrides reach the service untouched -- ``False`` included.
+
+    ``rerank: false`` is the whole point of the override, so it must survive as
+    the boolean ``False`` rather than being dropped as falsy.
+    """
+    _enable_hybrid(mock_ariel_service)
+
+    response = client.post(
+        "/api/search",
+        json={
+            "query": "test",
+            "mode": "hybrid",
+            "max_results": 10,
+            "advanced_params": {"rerank": False, "candidate_limit": 12},
+        },
+    )
+
+    assert response.status_code == 200
+    call_kwargs = mock_ariel_service.search.call_args.kwargs
+    assert call_kwargs["mode"] == "hybrid"
+    assert call_kwargs["advanced_params"]["rerank"] is False
+    assert call_kwargs["advanced_params"]["candidate_limit"] == 12
+
+
+def test_search_hybrid_without_overrides_is_accepted(client, mock_ariel_service):
+    """Absent keys mean "use the configured default" and are not rejected."""
+    _enable_hybrid(mock_ariel_service)
+
+    response = client.post(
+        "/api/search",
+        json={"query": "test", "mode": "hybrid", "max_results": 10},
+    )
+
+    assert response.status_code == 200
+    assert mock_ariel_service.search.call_args.kwargs["mode"] == "hybrid"
+
+
+def test_search_hybrid_accepts_explicit_null_overrides(client, mock_ariel_service):
+    """An explicit ``null`` says "no override" just as an absent key does."""
+    _enable_hybrid(mock_ariel_service)
+
+    response = client.post(
+        "/api/search",
+        json={
+            "query": "test",
+            "mode": "hybrid",
+            "max_results": 10,
+            "advanced_params": {"rerank": None, "candidate_limit": None},
+        },
+    )
+
+    assert response.status_code == 200
+    call_kwargs = mock_ariel_service.search.call_args.kwargs
+    assert call_kwargs["advanced_params"]["rerank"] is None
+    assert call_kwargs["advanced_params"]["candidate_limit"] is None
+
+
+@pytest.mark.parametrize("mode", ["keyword", "semantic"])
+def test_search_non_hybrid_modes_ignore_hybrid_overrides(client, mock_ariel_service, mode):
+    """The check is hybrid-only: other modes never see these keys as theirs.
+
+    ``rerank`` and ``candidate_limit`` are hybrid's parameter names. Another
+    module is free to give them any meaning, so validating them everywhere
+    would reject requests this route has no business judging.
+    """
+    _enable_hybrid(mock_ariel_service)
+
+    response = client.post(
+        "/api/search",
+        json={
+            "query": "test",
+            "mode": mode,
+            "max_results": 10,
+            "advanced_params": {"rerank": "yes", "candidate_limit": 0},
+        },
+    )
+
+    assert response.status_code == 200
+    call_kwargs = mock_ariel_service.search.call_args.kwargs
+    assert call_kwargs["advanced_params"]["rerank"] == "yes"
+    assert call_kwargs["advanced_params"]["candidate_limit"] == 0
+
+
+def test_search_hybrid_leaves_expand_query_alone(client, mock_ariel_service):
+    """Only the two hybrid keys are judged; ``expand_query`` passes through."""
+    _enable_hybrid(mock_ariel_service)
+
+    response = client.post(
+        "/api/search",
+        json={
+            "query": "test",
+            "mode": "hybrid",
+            "max_results": 10,
+            "advanced_params": {"expand_query": "yes", "rerank": True},
+        },
+    )
+
+    assert response.status_code == 200
+    assert mock_ariel_service.search.call_args.kwargs["advanced_params"]["expand_query"] == "yes"
 
 
 def test_capabilities_advertises_default_mode(client, mock_ariel_service):

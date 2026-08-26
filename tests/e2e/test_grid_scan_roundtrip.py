@@ -143,24 +143,41 @@ def deployed_grid_scan_stack(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> Iterator[DeployedGridScanStack]:
     base = tmp_path_factory.mktemp("grid_scan_roundtrip_build")
+
+    # The plan devices are authored BETWEEN `init` and `build`: the build copies
+    # <repo>/data into the build zone and stages the device file it finds there
+    # for the queueserver worker, so a set written after the build would never
+    # reach a container. Selected from the repo's own data/channel_limits.json —
+    # the same bytes the build copies to build/data, and the only copy that
+    # exists this early.
+    correctors: dict[str, tuple[str, str]] = {}
+    bpms: dict[str, str] = {}
+
+    def author_devices(repo: Path) -> None:
+        nonlocal correctors, bpms
+        limits = _orm_stack.channel_limits(repo)
+        # A single corrector/BPM pair is all a 1-axis grid_scan needs -- unlike
+        # the orm plan, grid_scan doesn't sweep every named corrector against
+        # every named detector, so there is no benefit to _orm_stack's usual
+        # DEFAULT_CORRECTOR_COUNT/DEFAULT_BPM_COUNT of 4.
+        correctors = _orm_stack.select_correctors(limits, count=1)
+        bpms = _orm_stack.select_bpms(limits, count=1)
+        _orm_stack.write_devices_file(repo, correctors=correctors, bpms=bpms)
+
     # The deployment REPO: `osprey up` runs here, `.env` lives here, and the
     # render `osprey build` produced is `<repo>/build`.
     repo = _orm_stack.build_project_subprocess(
-        PROJECT_NAME, output_dir=base, bridge_port=BRIDGE_PORT, timeout=BUILD_TIMEOUT_SEC
+        PROJECT_NAME,
+        output_dir=base,
+        bridge_port=BRIDGE_PORT,
+        timeout=BUILD_TIMEOUT_SEC,
+        pre_build=author_devices,
     )
+    _orm_stack.assert_devices_authored(correctors, bpms)
 
-    # The render's copy, not the operator-owned source under <repo>/data/ —
-    # build/data is the file the deployed containers actually read.
-    limits = _orm_stack.channel_limits(repo / "build")
-    # A single corrector/BPM pair is all a 1-axis grid_scan needs -- unlike
-    # the orm plan, grid_scan doesn't sweep every named corrector against
-    # every named detector, so there is no benefit to _orm_stack's usual
-    # DEFAULT_CORRECTOR_COUNT/DEFAULT_BPM_COUNT of 4.
-    correctors = _orm_stack.select_correctors(limits, count=1)
-    bpms = _orm_stack.select_bpms(limits, count=1)
-    # Writes the repo root's `.env` — the deployment's whole secret store, and
-    # the file `osprey up` refuses to start without.
-    _orm_stack.write_substrate_env(repo, correctors=correctors, bpms=bpms)
+    # The repo root's `.env` — the deployment's whole secret store, and the file
+    # `osprey up` refuses to start without.
+    _orm_stack.seed_repo_env(repo)
 
     osprey_bin = _orm_stack.find_osprey_console_script()
 

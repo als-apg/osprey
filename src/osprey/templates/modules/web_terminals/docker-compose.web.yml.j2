@@ -61,6 +61,24 @@
                                         #   Joined in Python for the same reason as
                                         #   container_agent_data_dir above.
                                         #   Pairs with the file-level `facility_bundle_source`.
+          "container_mirror_dir": str | None,
+                                        # where the DEPLOYMENT's ARIEL qmd mirror mounts for
+                                        #   this user, or None when the user is not entitled
+                                        #   (its persona's project runs no qmd export) or the
+                                        #   deployment writes no mirror. Built by
+                                        #   render._container_mirror_dir() from
+                                        #   `qmd_export.mirror_path` anchored on
+                                        #   container_project_dir — the path this persona's own
+                                        #   exporter writes. Pairs with the file-level
+                                        #   `ariel_mirror_source`.
+          "audit_identity": str,        # WHO this container's audit records are written as —
+                                        #   the roster user name (OSPREY_AUDIT_IDENTITY).
+          "container_audit_dir": str,   # where those records are written inside the container
+                                        #   (`<container_project_dir>/var/audit/<identity>`,
+                                        #   render._container_audit_dir()).
+          "audit_mount_source": str,    # the host directory backing it, spelled as a compose
+                                        #   bind source (`./var/audit/<identity>`,
+                                        #   render._audit_mount_source()).
           "extra_mounts": [str, ...],   # resolved by resolve_personas() from the persona's
                                         #   `extra_mounts` -> extra per-user `volumes:` lines
                                         #   (compose volume strings, e.g. "/opt/data:/app/data:ro").
@@ -97,6 +115,17 @@
       deployment configures no `facility_knowledge.bundle_path`, which emits no
       mount for anyone. Note this mount SHADOWS whatever the persona image baked
       at that path; the reasoning is at the mount line itself.
+
+    ariel_mirror_source: str, required (may be "")
+      The deployment's ARIEL qmd mirror on the HOST, spelled as a compose bind
+      source the same way as `facility_bundle_source`, and paired with each
+      service's own `container_mirror_dir` target. ONE directory for every user
+      and for the host's own exporter — the sidecar indexes the union. `""` when
+      the deployment runs no qmd export, which emits no mount for anyone.
+
+    ariel_mirror_gid: str, required (may be "")
+      Group id of that host directory, for the same `group_add:` reason as
+      `facility_bundle_gid` below.
 
     facility_bundle_gid: str, required (may be "")
       Group id of that host directory, read off disk by the deploy and emitted as
@@ -155,10 +184,11 @@
     auth_image: str | None
       Registry-mode image for the sidecar. When unset, the local-build tag
       `<facility_prefix>-assistant-auth:local` is referenced instead — the
-      persona-image pattern (`<project>-<persona>:local`, personas.py) applied
-      to the sidecar, whose `<project>` is resolve_personas()'s default
-      `<facility_prefix>-assistant`. Producing that image is the runtime build's
-      job; this template only names the tag.
+      suffixed local-tag pattern personas.py keeps for entries without their
+      own render (`<project>-<suffix>:local`) applied to the sidecar, whose
+      `<project>` is resolve_personas()'s default `<facility_prefix>-assistant`.
+      Producing that image is the runtime build's job; this template only
+      names the tag.
     auth_oidc_issuer: str | None, auth_oidc_client_id_env / auth_oidc_client_secret_env: str
       Emitted only in `oidc` mode. The two `*_env` values are env-var NAMES, not
       credentials: the sidecar reads the named variable out of its `.env.auth`
@@ -749,6 +779,20 @@ services:
       - OSPREY_TERMINAL_BIND_HOST={{ bind_host }}
       - OSPREY_TERMINAL_WEB_PORT={{ svc.web }}
       - OSPREY_WEB_PORT={{ svc.web }}
+      {#- Where the telemetry store is from inside this container. The agent's
+         launch derives its OTLP endpoint from `claude_code.telemetry` with the
+         host chosen for the running context, and the context it would sniff
+         here is wrong: `/.dockerenv` says "container", which selects the
+         compose DNS name `openobserve` — a name that resolves to nothing under
+         `network_mode: host`, so every metric and log would be dropped with no
+         error anywhere. Under host networking this container's loopback IS
+         the deployment host's, and the store answers there on the port it
+         PUBLISHES — which the emitter reads from `services.openobserve.port`
+         in this persona's own config (inherited from the hosting profile), so
+         no port is declared here. Same convention, same reason, as the
+         dispatch worker's compose. Inert unless telemetry is enabled with
+         backend: openobserve. #}
+      - OSPREY_OTEL_OPENOBSERVE_HOST={{ bind_host }}
       {#- This user's operator secret, in the container-shape variable the app
          pops at construction (web_auth.OPERATOR_SECRET_ENV). The per-user
          variable it is interpolated FROM is the same one nginx exports and this
@@ -894,7 +938,16 @@ services:
          from warning, and an empty value is falsy to `resolve_launch_token`,
          which then resolves no token and refuses the launch client-side — the
          same fail-closed outcome as never emitting this line at all. #}
-      - BLUESKY_LAUNCH_TOKEN=${BLUESKY_LAUNCH_TOKEN:-}
+{%- for var in launch_token_env_vars %}
+      {#- One token PER PLAN LANE the deployment renders (`BLUESKY_LAUNCH_TOKEN`
+         for lane 1; `BLUESKY_VA_LAUNCH_TOKEN` / `BLUESKY_LIVE_LAUNCH_TOKEN`
+         for a second lane), because each lane is a whole bridge stack armed by
+         its own token — one shared token would let a launch approved against
+         one machine be replayed against the other. The persona is told both
+         lanes' addresses by the build for the same reason it is handed both
+         tokens here: its session may be switched to either target. #}
+      - {{ var }}={{ '${' ~ var ~ ':-}' }}
+{%- endfor %}
 {%- endif %}
 {%- if svc.wants_graphdb %}
       {#- The graph store's Neo4j password, for a persona that configures one.
@@ -1030,20 +1083,61 @@ services:
       # it, but not for one container to overwrite another's file in place.
       - {{ facility_bundle_source }}:{{ svc.container_bundle_dir }}
 {%- endif %}
+{%- if ariel_mirror_source and svc.container_mirror_dir %}
+      {#- THE DEPLOYMENT'S ARIEL MIRROR, at the path THIS persona's exporter
+         writes. The `qmd_export` enhancement module runs inside every persona
+         container that enables it — an entry enhanced from a terminal is
+         mirrored by that terminal's own process — and it resolves `mirror_path`
+         against the project root, which in here is this persona's
+         container_project_dir (render._container_mirror_dir, the same
+         derivation as the bundle target above). Without this bind the mirror
+         it writes is a directory in the container's writable layer: the qmd
+         sidecar, which indexes the HOST's mirror, never sees those entries, and
+         the next recreate discards them.
+
+         Source is the ONE deployment mirror for every user and for the host's
+         own exporter, so the sidecar's corpus is the union of everything any
+         process enhanced. Read-write, like the bundle and unlike the sidecar's
+         `:ro` mount of the same directory; shared through the same setgid group
+         (see `group_add` below). #}
+      # The DEPLOYMENT's ARIEL qmd mirror, written by this container's own
+      # qmd_export module and indexed by the qmd sidecar. Bound here so an entry
+      # enhanced from this terminal reaches the sidecar's corpus instead of a
+      # directory in the container's writable layer that nothing indexes and
+      # the next recreate discards.
+      - {{ ariel_mirror_source }}:{{ svc.container_mirror_dir }}
+{%- endif %}
 {%- for mount in svc.extra_mounts %}
       - {{ mount }}
 {%- endfor %}
-{%- if facility_bundle_gid and svc.container_bundle_dir %}
-    # Supplementary group for the shared bundle mounted above, granted to this
-    # container's INITIAL process: a process is a MEMBER of only the groups
-    # its image or its runtime gives it, and this is the runtime half of that
-    # grant. On a framework-built image started the normal way that half is
-    # NOT what carries access: the initial process is root, which bypasses
-    # group checks anyway, and the grant the process actually SERVING requests
-    # keeps is the entrypoint's own root-phase `/etc/group` join for
-    # OSPREY_FACILITY_BUNDLE_DIR (above) -- `gosu` re-derives supplementary
-    # groups from that file for the target user and discards whatever this
-    # line granted the initial process.
+{#- Every shared host directory bound above, and the group each was provisioned
+    with: the bundle and the mirror, where this service is entitled to them.
+    Collected into one list so one `group_add:` is emitted per service, with
+    each gid once — the deploy creates both as the same user, so they usually
+    share a group, and compose rejects nothing for a repeat, but a list that
+    says the same thing twice reads like two groups. This user's audit
+    subdirectory is deliberately NOT in the list: its membership is granted
+    inside the container by the entrypoint, which stats the mounted directory
+    itself, so no gid is read back for it at render time. #}
+{%- set shared_gids = [] %}
+{%- if facility_bundle_gid and svc.container_bundle_dir and facility_bundle_gid not in shared_gids %}
+{%- set _ = shared_gids.append(facility_bundle_gid) %}
+{%- endif %}
+{%- if ariel_mirror_gid and svc.container_mirror_dir and ariel_mirror_gid not in shared_gids %}
+{%- set _ = shared_gids.append(ariel_mirror_gid) %}
+{%- endif %}
+{%- if shared_gids %}
+    # Supplementary group(s) for the shared host directories mounted above (the
+    # knowledge bundle, the ARIEL mirror -- whichever this service binds),
+    # granted to this container's INITIAL process: a process is a MEMBER of
+    # only the groups its image or its runtime gives it, and this is the
+    # runtime half of that grant. On a framework-built image started the normal
+    # way that half is NOT what carries access: the initial process is root,
+    # which bypasses group checks anyway, and the grant the process actually
+    # SERVING requests keeps is the entrypoint's own root-phase `/etc/group`
+    # join for the mounted directories (above) -- `gosu` re-derives
+    # supplementary groups from that file for the target user and discards
+    # whatever this line granted the initial process.
     #
     # This line is what is left when that join never runs. A container started
     # with `--user` takes the entrypoint's non-root branch (`if [ "$(id -u)"
@@ -1051,14 +1145,16 @@ services:
     # groups the runtime granted are the only membership the serving process
     # has. The same holds for any image started without this framework's
     # entrypoint at all. Dropping this line would silently take the bundle
-    # away from both.
+    # and the mirror away from both.
     #
-    # The value is the bundle directory's OWN group id, read off the host at
-    # render time -- never a hardcoded id, which would be wrong on every host
-    # but the one it was chosen on. Retarget it by chgrp'ing the bundle and
+    # Each value is the directory's OWN group id, read off the host at render
+    # time -- never a hardcoded id, which would be wrong on every host but the
+    # one it was chosen on. Retarget it by chgrp'ing the directory and
     # re-running `osprey up`.
     group_add:
-      - "{{ facility_bundle_gid }}"
+{%- for gid in shared_gids %}
+      - "{{ gid }}"
+{%- endfor %}
 {%- endif %}
     healthcheck:
       # osprey web's own default listen port is the fixed constant 8087

@@ -558,6 +558,95 @@ def test_host_override_none_falls_through_to_derivation():
     assert env["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://localhost:5080/api/default"
 
 
+def test_resolved_port_is_the_endpoints_port():
+    """The endpoint dials the port handed in — never a literal.
+
+    The store is reached on the port it PUBLISHES from the host and from a
+    host-networked container, and a project moves that port freely; the 5080
+    the image listens on is right only inside the store's own compose network.
+    """
+    env = _build_telemetry_env(_OO_CFG, in_container=False, openobserve_port=15080)
+    assert env["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://localhost:15080/api/default"
+    env2 = _build_telemetry_env(
+        _OO_CFG, in_container=True, openobserve_host="127.0.0.1", openobserve_port=15080
+    )
+    assert env2["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://127.0.0.1:15080/api/default"
+
+
+def test_no_port_falls_back_to_the_listen_port():
+    """Omitted, the port is the one the image listens on (5080)."""
+    from osprey.build.claude_code_telemetry import OPENOBSERVE_LISTEN_PORT
+
+    env = _build_telemetry_env(_OO_CFG, in_container=True, openobserve_port=None)
+    assert env["OTEL_EXPORTER_OTLP_ENDPOINT"] == (
+        f"http://openobserve:{OPENOBSERVE_LISTEN_PORT}/api/default"
+    )
+
+
+def test_published_port_reads_the_services_block():
+    """``openobserve_published_port`` follows ``services.openobserve.port``."""
+    from osprey.build.claude_code_telemetry import (
+        OPENOBSERVE_LISTEN_PORT,
+        openobserve_published_port,
+    )
+
+    assert openobserve_published_port({"services": {"openobserve": {"port": 15080}}}) == 15080
+    assert openobserve_published_port({"services": {"openobserve": {"port": "15080"}}}) == 15080
+    assert openobserve_published_port({"services": {}}) == OPENOBSERVE_LISTEN_PORT
+    assert openobserve_published_port({}) == OPENOBSERVE_LISTEN_PORT
+    assert openobserve_published_port(None) == OPENOBSERVE_LISTEN_PORT
+    with pytest.raises(TelemetryConfigError, match="services.openobserve.port"):
+        openobserve_published_port({"services": {"openobserve": {"port": "five"}}})
+
+
+def test_port_override_helper(monkeypatch):
+    """``OSPREY_OTEL_OPENOBSERVE_PORT`` is the port half of the host override."""
+    from osprey.build.claude_code_telemetry import (
+        OPENOBSERVE_PORT_ENV_VAR,
+        _openobserve_port_override,
+        resolve_openobserve_port,
+    )
+
+    published = {"services": {"openobserve": {"port": 15080}}}
+    monkeypatch.delenv(OPENOBSERVE_PORT_ENV_VAR, raising=False)
+    assert _openobserve_port_override() is None
+    assert resolve_openobserve_port(published) == 15080
+    monkeypatch.setenv(OPENOBSERVE_PORT_ENV_VAR, "")
+    assert _openobserve_port_override() is None
+    monkeypatch.setenv(OPENOBSERVE_PORT_ENV_VAR, "5080")
+    assert _openobserve_port_override() == 5080
+    # The bridge case: the compose author declared the listen port, and it
+    # wins over the published port the config names.
+    assert resolve_openobserve_port(published) == 5080
+    monkeypatch.setenv(OPENOBSERVE_PORT_ENV_VAR, "x")
+    with pytest.raises(TelemetryConfigError, match=OPENOBSERVE_PORT_ENV_VAR):
+        _openobserve_port_override()
+
+
+def test_load_provider_spec_dials_the_published_port(tmp_path, monkeypatch):
+    """The runtime launch path threads ``services.openobserve.port`` through."""
+    import yaml
+
+    from osprey.build.claude_code_resolver import load_provider_spec
+    from osprey.build.claude_code_telemetry import OPENOBSERVE_PORT_ENV_VAR
+
+    monkeypatch.delenv(OPENOBSERVE_PORT_ENV_VAR, raising=False)
+    monkeypatch.delenv("OSPREY_OTEL_OPENOBSERVE_HOST", raising=False)
+    monkeypatch.setattr(resolver, "_running_in_container", lambda: False)
+    (tmp_path / "config.yml").write_text(
+        yaml.safe_dump(
+            {
+                "claude_code": {"provider": "anthropic", "telemetry": _OO_CFG},
+                "services": {"openobserve": {"port": 15080}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    spec = load_provider_spec(tmp_path)
+    assert spec is not None
+    assert spec.env_block["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://localhost:15080/api/default"
+
+
 def test_host_override_helper_empty_string_is_none(monkeypatch):
     monkeypatch.delenv("OSPREY_OTEL_OPENOBSERVE_HOST", raising=False)
     assert _openobserve_host_override() is None
@@ -829,3 +918,48 @@ def test_deferred_var_credential_warns_not_raises_through_resolve(monkeypatch, r
     assert "OTEL_EXPORTER_OTLP_HEADERS" not in spec.env_block
     assert spec.env_block["CLAUDE_CODE_ENABLE_TELEMETRY"] == "1"
     assert any("unresolved" in str(w.message) for w in recwarn)
+
+
+class TestTelemetryPortIsATelemetryInput:
+    """A malformed ``services.openobserve.port`` is a telemetry fault, and a
+    caller that asked for no telemetry must not see it: the dispatch worker's
+    degrade-and-retry re-resolves with ``include_telemetry=False`` precisely
+    to keep the provider's auth when telemetry is misconfigured."""
+
+    _CONFIG = (
+        "api:\n"
+        "  providers:\n"
+        "    anthropic:\n"
+        "      api_key: ${ANTHROPIC_API_KEY}\n"
+        "claude_code:\n"
+        "  provider: anthropic\n"
+        "  telemetry:\n"
+        "    enabled: true\n"
+        "    backend: openobserve\n"
+        "services:\n"
+        "  openobserve:\n"
+        "    port: not-a-port\n"
+    )
+
+    def test_without_telemetry_the_port_is_never_resolved(self, tmp_path, monkeypatch):
+        from osprey.build.claude_code_resolver import load_provider_spec
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        (tmp_path / "config.yml").write_text(self._CONFIG)
+
+        spec = load_provider_spec(tmp_path, include_telemetry=False)
+
+        assert spec.provider == "anthropic"
+        assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in spec.env_block
+
+    def test_with_telemetry_the_port_fault_is_loud(self, tmp_path, monkeypatch):
+        import pytest
+
+        from osprey.build.claude_code_resolver import load_provider_spec
+        from osprey.build.claude_code_telemetry import TelemetryConfigError
+
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        (tmp_path / "config.yml").write_text(self._CONFIG)
+
+        with pytest.raises(TelemetryConfigError, match="services.openobserve.port"):
+            load_provider_spec(tmp_path, include_telemetry=True)

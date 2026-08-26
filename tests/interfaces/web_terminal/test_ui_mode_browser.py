@@ -197,13 +197,15 @@ def _open_display_menu(page: Page) -> None:
     state -- pair it with ``_close_display_menu`` when the card is not dismissed
     by the interaction itself.
     """
-    page.locator("#display-menu-btn").click()
-    expect(page.locator("#display-menu-card")).to_have_class(re.compile(r"\bopen\b"))
+    page.locator("#display-menu .display-menu-trigger").click()
+    expect(page.locator("#display-menu .display-menu-card")).to_have_class(re.compile(r"\bopen\b"))
 
 
 def _close_display_menu(page: Page) -> None:
-    page.locator("#display-menu-btn").click()
-    expect(page.locator("#display-menu-card")).not_to_have_class(re.compile(r"\bopen\b"))
+    page.locator("#display-menu .display-menu-trigger").click()
+    expect(page.locator("#display-menu .display-menu-card")).not_to_have_class(
+        re.compile(r"\bopen\b")
+    )
 
 
 def _click_segment(page: Page, mode: str) -> None:
@@ -211,7 +213,9 @@ def _click_segment(page: Page, mode: str) -> None:
     # button); open it first. A mode pick deliberately LEAVES the card open, so
     # dismiss it here to return callers to the collapsed state.
     _open_display_menu(page)
-    page.locator(f'#mode-toggle .mode-segment[data-mode="{mode}"]').click()
+    page.locator(
+        f'#display-menu .display-menu-view .display-seg-option[data-mode="{mode}"]'
+    ).click()
     _close_display_menu(page)
 
 
@@ -399,7 +403,7 @@ def test_header_action_cluster_is_mode_invariant(tmp_path, chromium_browser):
     with _hub_with_artifacts(tmp_path, ui_mode="expert") as (base_url, _app):
         page = _open_hub_page(chromium_browser, base_url)
         search = page.locator("#command-palette-btn")
-        menu_btn = page.locator("#display-menu-btn")
+        menu_btn = page.locator("#display-menu .display-menu-trigger")
         settings_row = page.locator("#display-menu-settings")
 
         expect(search).to_be_visible()
@@ -418,8 +422,8 @@ def test_header_action_cluster_is_mode_invariant(tmp_path, chromium_browser):
         expect(menu_btn).to_be_visible()
         _open_display_menu(page)
         expect(settings_row).to_be_visible()
-        expect(page.locator("#appearance-toggle")).to_be_visible()
-        expect(page.locator("#mode-toggle")).to_be_visible()
+        expect(page.locator("#display-menu .display-menu-appearance")).to_be_visible()
+        expect(page.locator("#display-menu .display-menu-view")).to_be_visible()
         _close_display_menu(page)
 
         # Flip back: unchanged again (no DOM was torn down either way).
@@ -441,16 +445,20 @@ def test_display_menu_survives_a_mode_flip(tmp_path, chromium_browser):
     """
     with _hub_with_artifacts(tmp_path, ui_mode="expert") as (base_url, _app):
         page = _open_hub_page(chromium_browser, base_url)
-        card = page.locator("#display-menu-card")
+        card = page.locator("#display-menu .display-menu-card")
         open_re = re.compile(r"\bopen\b")
 
         _open_display_menu(page)
-        page.locator('#mode-toggle .mode-segment[data-mode="simple"]').click()
+        page.locator(
+            '#display-menu .display-menu-view .display-seg-option[data-mode="simple"]'
+        ).click()
         expect(page.locator("html")).to_have_attribute("data-ui-mode", "simple")
         expect(card).to_have_class(open_re)
 
         # ...and straight back, without ever re-opening the menu.
-        page.locator('#mode-toggle .mode-segment[data-mode="expert"]').click()
+        page.locator(
+            '#display-menu .display-menu-view .display-seg-option[data-mode="expert"]'
+        ).click()
         expect(page.locator("html")).to_have_attribute("data-ui-mode", "expert")
         expect(card).to_have_class(open_re)
 

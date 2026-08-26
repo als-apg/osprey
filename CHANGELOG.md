@@ -11,8 +11,61 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+### Fixed
+
+- The build-drift gate no longer counts material `osprey up` mints itself: the
+  per-lane Bluesky CURVE certificates now live under `data/.runtime/`, a
+  reserved runtime-output subpath the fingerprint never hashes and the build
+  never stages, so a started deployment stays CLEAN and the scaffolded systemd
+  unit's bare `osprey up -d` comes back after a reboot (#716). Existing key
+  material at the old `data/<lane>_curve/` path is relocated — not re-minted —
+  on the next `osprey up`.
+- Target switch: a configured-but-unserved `write_access` gateway no longer strands a
+  write-armed session off the baseline. When the write-role readiness probe fails, the
+  switch retries through the `read_only` gateway and lands with a warning; writes on
+  such a session still go through the unchanged write path and are refused at the
+  read-only gateway. (#718)
+- Target switch: a readiness-probe failure now names the gateway role, host and port
+  it probed — in the error detail, the structured `details.gateway`, and an
+  actionable suggestion — instead of only the probe channel, which misread as "the
+  control system is down" when a single gateway beside a healthy one was unserved.
+  (#718)
+- The `Unknown Claude Code provider` error now lists every provider the deployment
+  actually accepts — the built-ins and the ones declared under `api.providers` in
+  `config.yml`, marked as such — and suggests the closest name for a typo, instead
+  of naming only the three built-ins. (#725)
+- DOOCS connector: an explicit `verification_level="none"` write no longer consults
+  the limits database for a tolerance it will not use, matching the Mock and EPICS
+  connectors. An explicit `"callback"` write still resolves the channel's tolerance,
+  since DOOCS verifies it by readback.
+
+### Changed
+
+- Web Terminal and every standalone panel (workspace, Channel Finder, lattice
+  dashboard, knowledge panel) now use the same display menu as ARIEL: the sliders
+  button opens one popover with the light/dark switch, the Expert/Simple view and
+  the theme family picker. A pick made on any of these pages is remembered by the
+  browser and shared with the others. The inline light/dark button and family
+  dropdown the panels used to show in their header are gone; the terminal's
+  Settings and Log out entries stay at the bottom of the card.
+- `artifact_delete_all` reports one activity entry ("N artifacts (scope)") instead
+  of one per deleted artifact, so clearing a large gallery no longer pushes
+  everything else out of the activity history.
+
+### Added
+
+- Build interview: an upstream fit watch — places where OSPREY cannot express what a
+  facility needs are recorded as candidates in `INTERVIEW.md`, verified against the
+  installed framework by a scout, and offered to the user as a GitHub issue or email
+  to the maintainers. Nothing is sent without the user approving the full text.
+
 ### Security
 
+- Multi-user deploy: the Bash/launch-token guard now also covers roster entries that
+  run no persona (the deploy project itself). A deployment whose own config grants
+  writes and runs the Bluesky server, but whose `.claude/settings.json` does not
+  deny `Bash`, is refused at `osprey up` like a persona in the same state, and the
+  refusal names it as `(no persona: the deploy project)`.
 - Every OSPREY interface — the Web Terminal, ARIEL, Channel Finder, the artifact
   gallery, the Theme Lab and the rest — now authenticates every HTTP and
   WebSocket request, and every launcher that serves one prints a login URL
@@ -102,8 +155,8 @@ Compatibility is documented in release notes, not encoded in the version string.
   is shown in the terminal's activity feed and recorded under
   `var/audit/<identity>/`, in a file named for the surface that refused it.
   Executed Python is held to the same line by zone: it cannot write into
-  `build/`, the profile sources, or the audit ledger. See the "Protected Set"
-  how-to.
+  `build/`, the profile sources, or the audit ledger. See the audit-trail
+  contract in the Reference section.
 - A terminal session can now be sandboxed without changing the deployment. A
   **Writes** / **Sandbox** badge in the card header switches the session's
   posture after a confirmation, restarting its agent and keeping the
@@ -176,6 +229,19 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- The graphdb container's healthcheck now probes with `wget`, which the Neo4j
+  community image ships, instead of `curl`, which it does not — the container
+  no longer sits at `unhealthy` forever while the store is serving.
+- The documented removal spelling for the graph store works: a bare
+  `services.graphdb:` in a profile's `config:` block now renders a project with
+  no graphdb container, no `graphdb` in `deployed_services`, and no `graph` MCP
+  server, instead of crashing the build. The ambiguous `services.graphdb: {}`
+  is refused at validation with a message naming both working spellings.
+- `osprey knowledge seed-graph` can succeed out of the box again: the graphdb
+  service's default image moved to `neo4j:5.26-community`, the newest server
+  line the neosemantics (n10s) plugin manifest covers. A store whose plugin
+  never installed is now reported as "no compatible n10s plugin installed for
+  Neo4j <version>" with the remedy, instead of a missing stored procedure.
 - Dependabot pull requests no longer fail CI: the Deploy E2E lane now skips on
   Dependabot runs (which get no Actions secrets) like every other secret-gated
   lane, and the run summary names it among the lanes to revalidate. Dependency
@@ -225,6 +291,63 @@ Compatibility is documented in release notes, not encoded in the version string.
   theme outside the main family fell back to the dark palette. HTML and table
   artifacts without styling of their own now take the theme's colors too, and
   the print view is always light.
+- Web-terminal personas now reach every service the hosting deployment runs.
+  `osprey build` copies each client-facing fact — the qmd sidecar's port, the
+  graph store's bolt port, the Postgres the logbook lives in, the telemetry
+  store's port, the Bluesky bridge, the EVENTS and BLUESKY tab URLs — from the
+  deployment's own render into every persona built beside it, so a service
+  moved on the hosting profile moves every persona with it and the persona
+  presets pin nothing. A persona whose `config:` contradicts one of these
+  facts is refused, naming both values; one built alone is told what its app
+  template deploys. Fixes hybrid logbook search failing in every persona with "no qmd
+  sidecar is configured", and `osprey build` now refuses any consumer switched
+  on with nothing to dial instead of rendering it. **Upgrading:** persona files
+  written by an earlier `osprey init` (`personas/*.yml`) pin these facts
+  themselves (`services.graphdb.port_host`, `web.panels.events.*`,
+  `web.panels.bluesky.*`); `osprey build` refuses each such line by name —
+  delete them, the build supplies the values.
+- The qmd sidecar indexes the logbook mirror again: `qmd_export` wrote the
+  mirror under `build/var/ariel_mirror` while the sidecar mounted
+  `var/ariel_mirror`, so a live deployment searched an empty corpus.
+  Config-relative paths (`mirror_path`, `facility_knowledge.bundle_path`,
+  `ariel.vocabulary.path`) now resolve against the project root, the one
+  anchor the compose mounts already use; `services.graphdb.ttl_path` alone
+  stays relative to the render, because the corpus it names is read from the
+  `data/` tree the build assembles for the project. A deployment
+  with files under the legacy `build/var/ariel_mirror` regenerates the mirror
+  with `osprey ariel qmd-resync`.
+- Agent telemetry from per-user web-terminal containers is delivered again:
+  the exporter posted to `http://openobserve:5080`, a name a host-networked
+  container cannot resolve, and to the store's listen port rather than the
+  port the deployment publishes. Per-user containers now post to the loopback
+  address on `services.openobserve.port`.
+- `osprey health`'s ARIEL rows probe the port the interface actually listens
+  on (`OSPREY_ARIEL_PORT` in multi-user deployments), as the panel rows already
+  did.
+- Persona containers mount the hosting deployment's logbook mirror, so an
+  entry created from a persona is indexed by the sidecar rather than written
+  into the container's writable layer; each user's Python-executor refusal
+  audit is kept on the host under `var/audit/<user>/` instead of being lost on
+  recreate.
+- The Bluesky MCP server and the virtual-accelerator connector follow a
+  bridge or CA port moved on the hosting profile (`services.bluesky.port`,
+  `services.virtual_accelerator.port`) instead of dialing compiled-in defaults.
+- The BLUESKY tab works in web-terminal personas: the bluesky-web sidecar now
+  accepts each user's own operator secret (the one their terminal proxies
+  with) beside the deployment-wide one, for every user whose persona shows the
+  tab — no user's container is handed the deployment secret, and no other
+  process (the host's own `osprey web` included) accepts roster secrets.
+- The EVENTS tab's label and health endpoint are written by the build where
+  its URL is derived, so the tab health-gates itself on the host and in every
+  persona; a web-terminal persona is told exactly the tabs it selects, and is
+  refused rather than rendered tabless when the deployment it was told about
+  runs no such sidecar.
+- The graph channel finder follows the graph store like the graph MCP server
+  does: a persona that switches that server off but keeps the channel finder
+  is still told the store's address.
+- `osprey up` refuses a persona that runs a logbook mirror export the
+  deployment does not write (or writes elsewhere), instead of letting that
+  persona's mirror land in its container's writable layer.
 - The graph channel finder no longer mistakes its own row limit for the whole
   answer: `read_cypher` now warns when a result exactly fills the query's own
   `LIMIT`, the example catalogue gained a census query (count before listing
@@ -361,6 +484,10 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- `osprey health` gained a `reach` category, also shown in the system-health
+  tab inside each user's container: one row per shared service a client is
+  switched on for, knocked on at the address the client itself resolves. A
+  closed port or a client with nothing to dial warns and names the config key.
 - `osprey init` now prints a composition card under its report: who can sign
   in (each user's persona, rights, login method and port), what the agent runs
   on (model, MCP servers, bundled toolkit), what machine it talks to
@@ -548,7 +675,46 @@ Compatibility is documented in release notes, not encoded in the version string.
   and refuses to queue or start plans while the session is pointed at a target
   that lane does not serve.
 
+- The Virtual Accelerator serves its physics model's own variables over
+  pvAccess as well as Channel Access. A write arriving on either transport
+  moves both views and a refused write moves neither, with one difference:
+  a PVA put comes back carrying the model's own reason for refusing, where
+  Channel Access can only signal an alarm and the absence of movement.
+  Channel Access remains the authoritative view of the facility's whole
+  channel namespace, and the only transport the container publishes; PVA is
+  reachable only from inside the container.
+- The Virtual Accelerator's physics is now pluggable. The ring is reached
+  through a `LUMEModel`, so a surrogate or a different tracking code can be
+  supplied without touching the layer that serves the channels, and the
+  generic pyAT tracking behind the shipped ring model now comes from an
+  upstream, facility-agnostic package, `lume-pyat`, rather than living
+  inside OSPREY.
+- The facility ontology is now authored as a LinkML schema (`demo_ontology.yaml`)
+  and compiled to the JSON table format with `osprey knowledge compile-ontology`;
+  `--check` fails if the compiled output would differ from what's checked in,
+  guarding against drift. The shipped `demo_ontology.json` is now a generated
+  artifact. `linkml-runtime` joins the `knowledge` extra.
+
 ### Changed
+
+- Local-mode persona images are now tagged by their rendered project alone
+  (`my-assistant-readwrite:local` instead of
+  `my-assistant-readwrite-readwrite:local`). Lint newly rejects two personas
+  sharing a `project` across different renders, and a persona `project` equal
+  to the deployment's own name. Images under the old doubled tags are not
+  removed automatically — prune them by hand after the next `osprey up`.
+- The ARIEL search panel now follows the deployment's configuration for every
+  knob you have not touched — Reset returns it to that state — and shows the
+  fast results of a reranked search before the reranking finishes, replacing
+  them when it does. When the reranker is unavailable the fast ranking stays on
+  screen with a note instead of the search failing. The `hybrid_search` tool
+  takes a per-query `rerank` argument; panel and tool share the one
+  `ariel.search_modules.hybrid.settings.rerank` key.
+
+- A malformed ARIEL `hybrid` or `semantic` search setting is now named at
+  startup validation instead of passing silently, and a malformed per-query
+  `rerank` or `candidate_limit` sent over HTTP is refused with a 400 rather
+  than coerced.
 
 - CI: the unit lane's step summary now tabulates the slowest tests of the run
   and the uploaded diagnostics artifact carries the full pytest log.
@@ -628,6 +794,16 @@ Compatibility is documented in release notes, not encoded in the version string.
 - On rebuild, a `control-assistant` deployment's `readonly` and `readwrite`
   terminals lose the Config panel and the gallery editors; only the `admin`
   tier keeps them. Put a roster entry on `admin` to keep an editing terminal.
+
+- The documentation is reorganized around what you are doing: the how-to
+  guides are grouped into task sections (deploy, LLM providers, web
+  terminal, agent interfaces, health and monitoring, control systems,
+  facility knowledge), and everything that is a lookup rather than a task
+  moved into a new Reference section — the CLI (`reference/cli`),
+  configuration, and the connector, ARIEL, Channel Finder, facility-graph
+  and health-JSON contracts. The contributing guide splits into setup,
+  workflow, docs and a new map of the framework's extension seams. Every
+  old URL redirects, so existing links and bookmarks keep working.
 
 ### Changed
 
@@ -991,13 +1167,16 @@ Compatibility is documented in release notes, not encoded in the version string.
   `.claude/skills/`. The "Run your first scan" how-to is now "Run your first
   plan" at a new URL.
 
-- The bluesky bridge's plan-device env vars are now named for what a control
-  room calls them: `BLUESKY_EPICS_MOTORS` is `BLUESKY_EPICS_SETPOINTS` and
-  `BLUESKY_EPICS_DETECTORS` is `BLUESKY_EPICS_READBACKS`. Their values and format
-  are unchanged. `osprey up` writes the new names; a project whose `.env` still
-  holds the old ones will find them ignored, so remove those two lines (or run
-  `osprey reset` then `osprey up`, which rewrites the block) to get plan devices
-  back.
+- A Bluesky deployment declares the devices its plans may drive in one device
+  file — `data/bluesky_devices.yml` by default, or wherever
+  `bluesky.devices_file` points. `osprey build` validates it and refuses to
+  build on an entry it cannot use, and the file travels with the built
+  deployment. A project that co-deploys the virtual accelerator and has no file
+  of its own gets one derived from its channel-limits database. With no file at
+  all the queue server can browse and describe plans but run none of them. The
+  bluesky lane mounts the limits database named by
+  `control_system.limits_checking.database_path`, and an edit to it takes
+  effect at the next `osprey build`.
 
 - The two shipped plans now name their read side `readbacks` instead of
   `detectors`, in the plan form, the queue summary, the approval prompt and the

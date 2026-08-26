@@ -80,7 +80,7 @@ pytestmark = [pytest.mark.browser, pytest.mark.slow]
 # Settings row inside the header display-menu popover, so reaching it means
 # opening the display menu first.
 TRIGGER_SELECTOR = '[data-drawer-trigger="settings-drawer"]'
-DISPLAY_MENU_BTN_SELECTOR = "#display-menu-btn"
+DISPLAY_MENU_BTN_SELECTOR = "#display-menu .display-menu-trigger"
 DRAWER_SELECTOR = "#settings-drawer"
 BACKDROP_SELECTOR = "#drawer-backdrop"
 WARNING_PROCEED_SELECTOR = ".settings-warning-proceed"

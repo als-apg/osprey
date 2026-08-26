@@ -1,7 +1,7 @@
 """Agentic e2e acceptance gate for the graph MCP server.
 
 This is the feature's acceptance test: a deployment built from the
-``control_assistant`` preset, pointed at a *real* Neo4j 5.20 + neosemantics
+``control_assistant`` preset, pointed at a *real* Neo4j 5.26 + neosemantics
 store seeded with the shipped demo-machine corpus, driven by a real agent
 session with an operator-style question about the machine's structure. The
 claim under test is the whole chain at once — the preset renders ``graph`` into
@@ -11,8 +11,8 @@ read-only Cypher path answers, and the answer is right about the corpus.
 
 What the fixture stands up, and why each piece is shaped the way it is:
 
-* **A store of its own.** ``neo4j:5.20-community`` with the pinned neosemantics
-  5.20.0 jar bind-mounted at ``/plugins`` and APOC copied out of the image —
+* **A store of its own.** ``neo4j:5.26-community`` with the pinned neosemantics
+  5.26.0 jar bind-mounted at ``/plugins`` and APOC copied out of the image —
   the recipe ``tests/integration/test_graphdb_store.py`` established; see that
   module's docstring for why ``NEO4J_PLUGINS`` is deliberately unset. The
   container takes a **random published port and testcontainers' own generated

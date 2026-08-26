@@ -14,7 +14,7 @@ must not pull the driver into the runtime read path's ``sys.modules``, which is
 guarded by ``tests/services/facility_knowledge/test_import_isolation.py``.
 
 Driver-API constraint: the repo's ``neo4j>=5.20`` floor resolves to the 6.x
-driver line while the server it dials is pinned to ``neo4j:5.20-community``.
+driver line while the server it dials is pinned to ``neo4j:5.26-community``.
 Only APIs present in *both* lines are used — ``session.run()`` and
 ``result.consume()``/``result.single()``, never ``Session.read_transaction`` /
 ``Session.write_transaction`` (removed in 6.0).
@@ -143,6 +143,43 @@ _IMPORT_CYPHER = (
 )
 
 _WIPE_CYPHER = "MATCH (n) DETACH DELETE n"
+
+#: Server identity, read only to name the version in the missing-plugin error.
+_COMPONENTS_CYPHER = "CALL dbms.components() YIELD name, versions, edition"
+
+#: Driver error code for a Cypher ``CALL`` naming a procedure the server does
+#: not have. Matched by attribute rather than by exception type so this module
+#: keeps its no-driver-import property (see :func:`open_session`).
+_PROCEDURE_NOT_FOUND_CODE = "Neo.ClientError.Procedure.ProcedureNotFound"
+
+
+class MissingN10sPluginError(RuntimeError):
+    """The store answered, but the neosemantics (n10s) plugin is not loaded.
+
+    The default image installs n10s at container start from the plugin
+    manifest; on a Neo4j version the manifest has no entry for — or on a host
+    whose egress mangles the manifest fetch — the jar is silently absent, the
+    server comes up healthy, and the first ``n10s.*`` call dies with
+    ``ProcedureNotFound``. Surfaced raw, that reads like a corrupt database;
+    this error says what actually happened and which server version has no
+    plugin, so the remedy (a Neo4j version n10s publishes for, or a pre-baked
+    jar) is findable.
+    """
+
+
+def _server_identity(session: Session) -> str:
+    """Best-effort ``<version> <edition>`` of the server, for error text only.
+
+    Never raises: an error message that dies producing itself reports the
+    wrong fault, so any failure here degrades to a placeholder.
+    """
+    try:
+        for record in session.run(_COMPONENTS_CYPHER):
+            if record["name"] == "Neo4j Kernel":
+                return f"{record['versions'][0]} {record['edition']}"
+    except Exception:  # noqa: BLE001 — see docstring
+        pass
+    return "<unknown version>"
 
 
 # ---------------------------------------------------------------------------
@@ -351,10 +388,28 @@ def bootstrap(session: Session) -> BootstrapResult:
         Callers should treat :attr:`BootstrapStatus.DIFFERS` as "do not import;
         tell the operator to re-seed with ``--force``" — see
         :attr:`BootstrapResult.message`.
+
+    Raises:
+        MissingN10sPluginError: If the store has no ``n10s.*`` procedures —
+            the plugin never installed. Detected on the first n10s call, which
+            is what any later one would die on too, and named as the plugin
+            gap it is rather than surfacing as a missing stored procedure.
     """
     session.run(_CONSTRAINT_CYPHER).consume()
 
-    live = _live_graph_config(session)
+    try:
+        live = _live_graph_config(session)
+    except Exception as exc:
+        if getattr(exc, "code", None) != _PROCEDURE_NOT_FOUND_CODE:
+            raise
+        raise MissingN10sPluginError(
+            f"no compatible n10s plugin installed for Neo4j {_server_identity(session)} — "
+            f"the server is up and answering, but the neosemantics plugin that imports "
+            f"RDF never loaded (the container log carries the matching 'No compatible "
+            f"n10s plugin found' line from startup). Point services.graphdb.image at a "
+            f"Neo4j version neosemantics publishes a build for, or bake the n10s jar "
+            f"into the image, then recreate the store."
+        ) from exc
     if not live:
         session.run(_GRAPHCONFIG_INIT_CYPHER, params=dict(N10S_GRAPH_CONFIG)).consume()
         result = BootstrapResult(status=BootstrapStatus.INITIALIZED)

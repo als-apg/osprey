@@ -214,6 +214,7 @@ docs = [
     "sphinx-copybutton",
     "sphinx-autobuild",
     "sphinx-design",
+    "sphinx-reredirects==1.1.0",
     "sphinxcontrib-jsmath>=1.0.1",
     "graphviz",
 ]
@@ -241,6 +242,7 @@ dev = [
     "psycopg-pool>=3.3.1,<4.0.0",  # ARIEL search integration tests
     "pillow>=12.3.0",  # Perceptual diffing for the design-system visual regression suite
     "rdflib>=7.0",  # TTL generator tests (semantic round-trip); runtime use stays in the knowledge extra
+    "linkml-runtime>=1.11.1,<2",  # Ontology compiler + its tests; runtime use stays in the knowledge extra
 ]
 
 # ARIEL (Agentic Retrieval Interface for Electronic Logbooks)
@@ -280,6 +282,9 @@ gchat = [
 # Facility knowledge / ontology support (OKF markdown bundles, RDF reasoning)
 knowledge = [
     "rdflib>=7.0",
+    # LinkML schema loading for the ontology compiler. Known transitive baggage:
+    # prefixcommons -> pytest-logging (2015) -> pytest lands in this extra; inert, accepted.
+    "linkml-runtime>=1.11.1,<2",
 ]
 
 # Screen capture on Linux (X11) — not needed on macOS

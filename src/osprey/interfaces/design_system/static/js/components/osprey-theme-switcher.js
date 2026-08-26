@@ -72,38 +72,14 @@
 import {
   getFamily,
   getTheme,
+  modeOf,
   setFamily,
   subscribe,
   themeFamilies,
   toggleTheme,
 } from '/design-system/js/theme-manager.js';
-import { THEMES } from '/design-system/js/tokens.js';
-
-/** @typedef {{id: string, label: string, mode: string, family: string}} ThemeEntry */
 
 const STYLE_ID = 'osprey-theme-switcher-style';
-
-// tokens.js is plain (unchecked) generated JS -- cast to the documented
-// shape rather than relying on tsc's inference of the literal it emits
-// (same rationale as theme-manager.js's own `_themes` cast).
-const _themes = /** @type {ThemeEntry[]} */ (THEMES);
-
-/**
- * The `mode` ('dark'|'light') of a concrete theme id, or null if `id` is
- * not a recognized theme (including `null` itself, e.g. before
- * theme-manager.js's `initTheme()` has resolved an initial theme).
- *
- * Consolidating the three copies of this helper into theme-manager.js is
- * tracked with the hub-adoption follow-up (see DESIGN.md).
- *
- * @param {string|null} id
- * @returns {string|null}
- */
-function _modeOfId(id) {
-  if (id === null) return null;
-  const theme = _themes.find((entry) => entry.id === id);
-  return theme ? theme.mode : null;
-}
 
 /**
  * This instance's markup: a family `<select>` (one `<option>` per family, in
@@ -280,7 +256,7 @@ export class OspreyThemeSwitcher extends HTMLElement {
       this._familySelect.value = family;
     }
 
-    const mode = _modeOfId(getTheme());
+    const mode = modeOf(getTheme());
     const isLight = mode === 'light';
     if (this._sunIcon) this._sunIcon.style.display = isLight ? 'none' : 'block';
     if (this._moonIcon) this._moonIcon.style.display = isLight ? 'block' : 'none';

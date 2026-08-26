@@ -84,244 +84,41 @@
 
 /* ---- Display menu (the header sliders button) ----
 
-   Every display preference — Appearance (light/dark), View (Expert/Simple),
-   Theme family — plus the System Settings row collapses behind one round
-   button; clicking it opens a popover card (display-menu.js). It carries
-   FADERS, deliberately not a gear: in this shell the gear is the settings
-   drawer's own glyph (drawer header + the System Settings row that opens it),
-   so reusing it here would make one icon mean two things. The stroke is the
-   active theme's accent token, so the control still quietly reflects
-   whatever skin is on — the job the old filled dot used to do. */
-.display-menu {
-  position: relative;
-  display: flex;
-  flex-shrink: 0;
-}
+   The popover itself is the shared <osprey-display-menu> component
+   (design_system/static/js/components/osprey-display-menu.js), which injects
+   its own token-only skin for the trigger, the card, the three preference
+   rows and the Settings entry. What is left here is the hub's own projected
+   chrome: the Log out button the hub declares inside the tag and the
+   component moves into the card's action row. Scoped under the tag name,
+   like the component's own rules, so nothing here can reach another
+   popover's `.display-menu-*` vocabulary. */
 
-.display-menu-trigger {
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  color: var(--color-accent);
-  background: var(--bg-panel);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-full);
-  cursor: pointer;
-  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast),
-    background var(--wt-transition-fast);
-}
-
-/* `currentColor` on the SVG, so the stroke follows the button's own color
-   transition rather than needing a second rule per state. */
-.display-menu-trigger-icon {
-  display: block;
-}
-
-.display-menu-trigger:hover,
-.display-menu-trigger[aria-expanded="true"] {
-  color: var(--color-accent-light);
-  border-color: var(--border-accent);
-  background: var(--bg-elevated);
-}
-
-/* The popover card: drops below the dot, right-aligned to it. */
-.display-menu-card {
-  display: none;
-  position: absolute;
-  top: calc(100% + var(--space-2));
-  right: 0;
-  min-width: 230px;
-  padding: var(--space-3);
-  flex-direction: column;
-  gap: var(--space-3);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-dropdown);
-  z-index: var(--z-dropdown);
-}
-
-.display-menu-card.open {
-  display: flex;
-  animation: display-menu-in var(--wt-transition-fast);
-}
-
-@keyframes display-menu-in {
-  from { opacity: 0; transform: translateY(-4px); }
-  to { opacity: 1; transform: none; }
-}
-
-.display-menu-row {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-.display-menu-heading {
-  font-family: var(--font-display);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
-}
-
-/* Two-option segmented control with a sliding thumb (the ::before). The
-   thumb spans one cell of the 2-column grid; the active side is expressed as
-   a translateX so a pick glides rather than jumps. */
-.display-menu-seg {
-  position: relative;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  padding: 3px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-}
-
-.display-menu-seg::before {
-  content: '';
-  position: absolute;
-  top: 3px;
-  bottom: 3px;
-  left: 3px;
-  width: calc(50% - 3px);
-  background: var(--bg-elevated);
-  border-radius: var(--radius-md);
-  transition: transform var(--wt-transition-normal);
-}
-
-/* View thumb: CSS-driven off html[data-ui-mode], so it is correct pre-paint
-   and tracks live flips with no JS sync (segments are expert, then simple). */
-html[data-ui-mode="simple"] #mode-toggle::before {
-  transform: translateX(100%);
-}
-
-/* Appearance thumb: display-menu.js mirrors the resolved light/dark mode
-   into data-active (options are light, then dark). */
-.display-menu-appearance[data-active="dark"]::before {
-  transform: translateX(100%);
-}
-
-.display-seg-option {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-1);
-  padding: 5px 10px;
-  font-family: var(--font-display);
-  font-size: var(--text-base);
-  font-weight: var(--weight-regular);
-  color: var(--text-secondary);
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: color var(--wt-transition-fast);
-}
-
-.display-seg-option:hover {
-  color: var(--text-primary);
-}
-
-html[data-ui-mode="expert"] .mode-segment[data-mode="expert"],
-html[data-ui-mode="simple"] .mode-segment[data-mode="simple"],
-.display-menu-appearance[data-active="light"] .display-seg-option[data-appearance="light"],
-.display-menu-appearance[data-active="dark"] .display-seg-option[data-appearance="dark"] {
-  color: var(--text-primary);
-  font-weight: var(--weight-medium);
-}
-
-.display-seg-icon,
-.mode-segment-icon {
-  font-size: var(--text-md);
-  line-height: var(--leading-none);
-}
-
-/* Theme family pills (one per THEMES family, built by display-menu.js). */
-.display-menu-families {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-}
-
-.display-family-pill {
-  padding: 4px 10px;
-  font-family: var(--font-display);
-  font-size: var(--text-base);
-  color: var(--text-secondary);
-  background: transparent;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-full);
-  cursor: pointer;
-  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast),
-    background var(--wt-transition-fast);
-}
-
-.display-family-pill:hover {
-  color: var(--text-primary);
-  border-color: var(--border-accent);
-}
-
-.display-family-pill.active {
-  color: var(--text-primary);
-  border-color: var(--color-accent);
-  background: var(--accent-tint-06);
-}
-
-/* ---- Session footer (the two actions) ----
-
-   The card's last block: Settings and Log out side by side (the identity line
-   lives in the header chip's menu). A hairline splits it from the preference
-   rows so it reads as action rather than a fourth preference. Both actions are
-   present in BOTH ui modes — the settings drawer's own warning gate, not the
-   ui mode, is what guards expert configuration. */
-/* The hairline opens the card's footer row. */
-.display-menu-actions {
-  display: flex;
-  gap: var(--space-2);
-  padding-top: var(--space-2);
-  border-top: 1px solid var(--border-default);
-}
-
-/* `flex: 1` rather than a 2-column grid: with logout absent — a single-user
-   deployment, or one with no landing_url to return to — Settings fills the row
-   by itself instead of sitting in half of it. */
-.display-menu-settings,
-.display-menu-logout {
+/* Same box as the component's Settings entry (flex: 1 rather than a 2-column
+   grid, so with logout absent — a single-user deployment, or one with no
+   landing_url to return to — Settings fills the row by itself). */
+osprey-display-menu .display-menu-logout {
   display: flex;
   flex: 1;
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
   min-width: 0;
-  padding: 7px 10px;
+  padding: 6px 10px;
   font-family: var(--font-display);
   font-size: var(--text-base);
   color: var(--text-secondary);
   background: var(--bg-panel);
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   cursor: pointer;
   white-space: nowrap;
   transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast),
     background var(--wt-transition-fast);
 }
 
-.display-menu-settings:hover,
-.display-menu-settings.active {
-  color: var(--text-primary);
-  border-color: var(--border-accent);
-  background: var(--bg-elevated);
-}
-
 /* Logout hovers to the error colour, not the accent: it is the one control in
    this card that ends the session rather than adjusting it. */
-.display-menu-logout:hover {
+osprey-display-menu .display-menu-logout:hover {
   color: var(--color-error);
   border-color: var(--color-error);
   background: var(--bg-elevated);
@@ -329,20 +126,20 @@ html[data-ui-mode="simple"] .mode-segment[data-mode="simple"],
 
 /* app.js locks the button (`disabled` + `aria-busy`) for the whole in-flight
    logout and never resets it — every path out of that handler navigates away. */
-.display-menu-logout[aria-busy="true"] {
+osprey-display-menu .display-menu-logout[aria-busy="true"] {
   cursor: progress;
   opacity: 0.6;
 }
 
-.display-menu-settings-icon,
-.display-menu-logout-icon {
+osprey-display-menu .display-menu-settings-icon,
+osprey-display-menu .display-menu-logout-icon {
   font-size: var(--text-md);
   line-height: var(--leading-none);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .display-menu-card.open { animation: none; }
-  .display-menu-seg::before { transition: none; }
+@keyframes header-identity-menu-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
 }
 
 /* ---- Header identity menu ----
@@ -418,7 +215,7 @@ html[data-ui-mode="simple"] .mode-segment[data-mode="simple"],
 
 .header-identity-menu.open {
   display: flex;
-  animation: display-menu-in var(--wt-transition-fast);
+  animation: header-identity-menu-in var(--wt-transition-fast);
 }
 
 .header-identity-who {

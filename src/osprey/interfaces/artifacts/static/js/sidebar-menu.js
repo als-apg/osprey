@@ -32,7 +32,9 @@ export function initSidebarMenu({ button, menu }) {
 
   const close = () => setOpen(false);
 
-  button.addEventListener("click", () => setOpen(menu.hidden));
+  // `hidden` reflects as boolean | "until-found", so coerce before handing
+  // it to the boolean-only setter.
+  button.addEventListener("click", () => setOpen(Boolean(menu.hidden)));
 
   // Any item click performs its action (via the item's own listener) and
   // dismisses the menu — the scope pill / spinner give the lasting feedback.

@@ -79,7 +79,9 @@ services:
       # a non-browser client sends it as `X-Osprey-Terminal-Secret`. No
       # :-default for the same reason as the launch token above; `osprey up`
       # mints it into the project .env (container_lifecycle's per-service
-      # token-mint map).
+      # token-mint map). In a multi-user deployment each per-user terminal
+      # proxies its BLUESKY tab here with ITS OWN secret, never this one —
+      # see the roster grant just below.
       OSPREY_TERMINAL_SECRET: ${OSPREY_TERMINAL_SECRET}
       # Marks the container shape for web_auth: an empty secret then refuses
       # startup naming the variable, instead of minting a value that is

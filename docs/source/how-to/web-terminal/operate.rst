@@ -53,7 +53,7 @@ The window has three working areas plus a header:
 - **Utility controls** — pinned to the far end of the same rail, a
   **Documentation** link and a **Feedback** button that lets whoever is at the
   terminal report a problem without leaving it. See
-  :doc:`/how-to/send-feedback`.
+  :doc:`send-feedback`.
 - **Header** — the display menu (a small dot holding the light/dark,
   Expert/Simple, and theme controls — see :doc:`theming`), a settings drawer,
   and an optional name badge to tell one deployment from another.
@@ -192,62 +192,14 @@ writes off says so in its own words and says nothing about postures.
    Every audit record such a session emits is labelled
    ``posture_source=spawn``, which is the trail's way of saying the posture was
    fixed when the session started rather than read from a live setting --- see
-   the record fields on the :ref:`protected set <how-to-protected-set>` page.
+   the record fields in :ref:`the audit trail contract <audit-trail-record>`.
 
 Documentation and feedback settings
 -----------------------------------
 
-Four ``web`` keys aim the rail's two utility controls and bound the feedback
-store:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 30 34 36
-
-   * - Key
-     - Default
-     - What it does
-   * - ``web.docs_url``
-     - ``https://als-apg.github.io/osprey``
-     - Where the **Documentation** control — in the rail and in the status bar
-       — points. Set it to your own hosted copy of the docs.
-   * - ``web.feedback.github_repo``
-     - ``als-apg/osprey``
-     - ``owner/repo`` the feedback dialog's GitHub channel opens a prefilled
-       new issue against.
-   * - ``web.feedback.email``
-     - ``thellert@lbl.gov``
-     - Recipient of the prefilled mail draft the dialog's Email channel opens.
-   * - ``web.feedback.max_store_bytes``
-     - ``268435456`` (256 MB)
-     - Ceiling on the on-disk feedback store. Over it, the oldest saved session
-       contexts are dropped; the submissions themselves are always kept.
-
-.. code-block:: yaml
-
-   web:
-     docs_url: https://docs.example-facility.org/osprey
-     feedback:
-       github_repo: example-facility/controls
-       email: controls-support@example.org
-       max_store_bytes: 268435456
-
-Three ways of writing one of the three string keys mean three different things:
-
-- **Leave the key out** and the deployment uses the shipped default above.
-- **Set it to an explicitly blank value** (``docs_url: ""``) and the deployment
-  declares it has no such target: the Documentation link is not rendered at all,
-  or the matching feedback channel is refused with an explanation rather than
-  aimed at the upstream maintainers. This is the air-gapped posture — blanking
-  ``web.docs_url`` is how you avoid shipping a link that opens a dead tab.
-- **Write the key with no value at all** (``docs_url:`` and nothing after it)
-  and it reads as *absent*, not blank — "I have not decided yet" rather than
-  "there is none" — so you get the default. Write ``""`` when you mean none.
-
-``max_store_bytes`` takes a positive byte count; anything else is reported in
-the log and the default is used. A build profile overrides all four keys from
-its ``config:`` block in the dotted form, e.g.
-``web.feedback.max_store_bytes: 536870912``.
+Four ``web`` keys aim the rail's **Documentation** link and **Feedback** button
+and bound the feedback store. The table, the shipped defaults, and what a blank
+value means are in :ref:`config-web`.
 
 .. dropdown:: Under the hood
    :icon: gear
@@ -256,21 +208,13 @@ its ``config:`` block in the dotted form, e.g.
 
       .. tab-item:: Settings
 
-         A few options live under the ``web_terminal`` key in ``config.yml`` —
-         which shell to launch, which directory to watch for live files, and how
-         many background conversations to keep alive — and command-line flags
-         override them for a single run. Give a deployment a name badge in the
-         header with ``web.app_name`` (or the ``OSPREY_WEB_APP_NAME`` environment
-         variable, handy when several containers share one config image).
-
-         Three ``web`` keys bound the Simple-mode operator-chat pool:
-
-         .. code-block:: yaml
-
-            web:
-              chat_turn_timeout_s: 600    # max seconds for one chat turn
-              chat_idle_timeout_s: 1800   # idle sessions reaped after this
-              chat_max_sessions: 5        # concurrent chat sessions cap
+         Two sections in ``config.yml`` are easy to confuse. ``web_terminal:``
+         is the terminal **process** — which shell to launch, which directory to
+         watch for live files, how many background conversations to keep alive —
+         and command-line flags override those for a single run. ``web:`` is the
+         browser **UI** the process renders, including the header name badge and
+         the bounds on the Simple-mode chat pool; those keys are catalogued in
+         :ref:`config-web`.
 
       .. tab-item:: Companion servers
 
@@ -293,6 +237,9 @@ its ``config:`` block in the dotted form, e.g.
    :doc:`panels`
       Add your own tools as side panels.
 
-   :doc:`/how-to/send-feedback`
-      The feedback dialog these keys configure, and the ``osprey feedback``
+   :doc:`send-feedback`
+      The feedback dialog these settings configure, and the ``osprey feedback``
       verbs that read the results back.
+
+   :ref:`config-web`
+      Every ``web`` key, with its default and what a blank value means.

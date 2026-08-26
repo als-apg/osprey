@@ -231,6 +231,12 @@ def effective_persona(
 #: no separate config key to set (and to forget to set) alongside it.
 EVENTS_PANEL_ID = "events"
 
+#: The bluesky-web sidecar's tab. A persona that declares it proxies into the
+#: sidecar with its own operator secret, so the sidecar is handed that user's
+#: secret variable (the web overlay's ``bluesky-web`` fragment) — the panel
+#: declaration IS the entitlement, exactly as for :data:`EVENTS_PANEL_ID`.
+BLUESKY_PANEL_ID = "bluesky"
+
 
 def config_declares_panel(config: Any, panel_id: str) -> bool:
     """True if ``config`` declares ``web.panels.<panel_id>`` and hasn't disabled it.
@@ -297,6 +303,25 @@ def config_needs_facility_bundle(config: Any) -> bool:
     """
     bundle_path = as_dict(as_dict(config).get("facility_knowledge")).get("bundle_path")
     return isinstance(bundle_path, str) and bool(bundle_path.strip())
+
+
+def config_needs_ariel_mirror(config: Any) -> bool:
+    """True if ``config`` runs an ARIEL qmd export that writes a mirror.
+
+    The entitlement to have the deployment's ARIEL markdown mirror bound into
+    this project's container, and the mirror counterpart of
+    :func:`config_needs_facility_bundle`. Read through the same reader the
+    sidecar's corpus list and the deploy's provisioning use
+    (:func:`osprey.deployment.compose_generator.configured_ariel_mirror_path`),
+    because the key IS the entitlement: an enabled export with a path is a
+    writer, and a writer inside a container that mounts nothing fills the
+    container's writable layer — a tree the sidecar never indexes and the next
+    recreate discards. A disabled export, or one naming no path, writes
+    nothing and so entitles nothing.
+    """
+    from osprey.deployment.compose_generator import configured_ariel_mirror_path
+
+    return configured_ariel_mirror_path(as_dict(config)) is not None
 
 
 def config_needs_launch_token(config: Any) -> bool:
@@ -573,6 +598,83 @@ def personas_needing_dispatcher_token(config: Any, project_root: Any) -> set[str
     return _personas_whose_config(config, project_root, config_needs_dispatcher_token)
 
 
+def config_declares_bluesky_panel(config: Any) -> bool:
+    """Whether this project shows the BLUESKY tab, and so proxies into the
+    bluesky-web sidecar with its own operator secret."""
+    return config_declares_panel(config, BLUESKY_PANEL_ID)
+
+
+def personas_declaring_bluesky_panel(config: Any, project_root: Any) -> set[str]:
+    """Names of catalog personas whose rendered project declares the BLUESKY tab.
+
+    :param config: The parsed deploy config.
+    :param project_root: Deploy project root; relative ``project_path`` values
+        resolve against it.
+    :return: The subset of referenced persona names whose users' operator
+        secrets the bluesky-web sidecar is handed (see
+        :func:`config_declares_bluesky_panel`).
+    """
+    return _personas_whose_config(config, project_root, config_declares_bluesky_panel)
+
+
+def bluesky_panel_secret_env_vars(config: Any, project_root: Any) -> list[str]:
+    """The per-user secret variables the bluesky-web sidecar is handed.
+
+    One name per roster user whose terminal shows the BLUESKY tab — and so
+    proxies into the sidecar with the operator secret ITS container holds,
+    under the fixed ``OSPREY_TERMINAL_SECRET`` name. The sidecar's own compose
+    file (``services/bluesky_web``) lists each of these variables so its web
+    gate accepts every entitled user's secret beside the deployment-wide one,
+    and no user's container is ever handed the deployment secret.
+
+    Entitlement is decided the way the web-terminal render decides every
+    per-user grant: a user with a persona (their own, else
+    ``default_persona``) by that persona's rendered ``config.yml``
+    (:func:`personas_declaring_bluesky_panel`); a persona-less user runs the
+    deployment's own project, so the deploy config answers for them. Roster
+    order, so the rendered compose is stable across runs.
+
+    Read off the personas' rendered ``config.yml`` files, like every other
+    per-persona grant — so the render that carries it is the deploy's:
+    ``osprey up`` re-renders every services compose file from the repo root
+    with the persona projects in place, while ``osprey build`` renders the
+    services compose before its persona renders and so lists nothing (or what
+    the previous build's personas declared).
+
+    :param config: The parsed deploy config.
+    :param project_root: Deploy project root; relative ``project_path`` values
+        resolve against it.
+    :return: Variable names (``OSPREY_TERMINAL_SECRET_<SUFFIX>``), one per
+        entitled user; empty when no user shows the tab.
+    """
+    from osprey.deployment.web_terminals.auth_credentials import terminal_secret_var
+
+    web_terminals = as_dict(as_dict(as_dict(config).get("modules")).get("web_terminals"))
+    raw_users = web_terminals.get("users")
+    # A read, not a gate: an authorization block that does not parse binds no
+    # role here and is lint's finding to raise, so the roster is resolved
+    # non-strictly and a role-only entry is answered by the persona its role
+    # binds it to, exactly as the web-terminal render answers it.
+    try:
+        authorization_roles = resolve_authorization_roles(web_terminals)
+    except ValueError:
+        authorization_roles = {}
+    refs = _persona_ref_by_name(raw_users, authorization_roles, strict=False)
+    default_persona = web_terminals.get("default_persona")
+    if not isinstance(default_persona, str) or not default_persona:
+        default_persona = None
+    entitled_personas = personas_declaring_bluesky_panel(config, project_root)
+    deploy_declares = config_declares_bluesky_panel(config)
+
+    names: list[str] = []
+    for entry in normalize_users(raw_users):
+        persona = refs.get(entry["name"]) or default_persona
+        entitled = persona in entitled_personas if persona else deploy_declares
+        if entitled:
+            names.append(terminal_secret_var(entry["name"]))
+    return names
+
+
 def personas_needing_ariel_password(config: Any, project_root: Any) -> set[str]:
     """Names of catalog personas whose rendered project configures ARIEL.
 
@@ -595,6 +697,18 @@ def personas_needing_facility_bundle(config: Any, project_root: Any) -> set[str]
         deployment bundle bind-mounted (see :func:`config_needs_facility_bundle`).
     """
     return _personas_whose_config(config, project_root, config_needs_facility_bundle)
+
+
+def personas_needing_ariel_mirror(config: Any, project_root: Any) -> set[str]:
+    """Names of catalog personas whose rendered project writes the ARIEL mirror.
+
+    :param config: The parsed deploy config.
+    :param project_root: Deploy project root; relative ``project_path`` values
+        resolve against it.
+    :return: The subset of referenced persona names whose container gets the
+        deployment's mirror bind-mounted (see :func:`config_needs_ariel_mirror`).
+    """
+    return _personas_whose_config(config, project_root, config_needs_ariel_mirror)
 
 
 def personas_needing_launch_token(config: Any, project_root: Any) -> set[str]:
@@ -1675,7 +1789,7 @@ def resolve_personas(
       a catalog entry exists for it): registry mode keeps the same un-suffixed
       ``<registry_url>/web-terminal:<tag>`` image (so the default persona's
       *image* never changes when a catalog is introduced); local mode still
-      builds ``<persona.project>-<persona>:local`` like every other persona.
+      builds ``<persona.project>:local`` like every other persona.
       ``container_project_dir`` is ``/app/<project>`` from the catalog entry,
       exactly as for any other persona: the image is built FROM that project, so
       pinning the directory to the facility default would name a path that
@@ -1686,7 +1800,12 @@ def resolve_personas(
       reads.
     * **Non-default persona**: registry mode uses
       ``<registry_url>/web-terminal-<persona>:<tag>``; local mode uses
-      ``<persona.project>-<persona>:local`` (same rule as the default persona);
+      ``<persona.project>:local`` (same rule as the default persona) — the
+      persona image is tagged by its render alone, since the persona name
+      contributes nothing to the image beyond the tag; a catalog entry with
+      no ``project`` of its own falls back to the legacy
+      ``<facility_prefix>-assistant-<persona>:local``, whose suffix keeps it
+      clear of the dispatch worker's ``<project>:local`` tag;
       ``container_project_dir`` is derived from the persona's own
       ``/app/<project>``.
 
@@ -1852,7 +1971,8 @@ def resolve_personas(
             continue
 
         project = catalog_entry.get("project")
-        if not isinstance(project, str) or not project:
+        has_own_project = isinstance(project, str) and bool(project)
+        if not has_own_project:
             project = default_project
 
         # Persona-level host mounts, applied to every user of this persona. A
@@ -1888,7 +2008,22 @@ def resolve_personas(
         is_default = persona_ref == default_persona_name
 
         if image_source == "local":
-            image = f"{project}-{persona_ref}:local"
+            # A persona image IS its render — the persona name never reaches
+            # the build beyond the tag — so a catalog entry with its own
+            # `project` tags the image by that render alone. Lint enforces the
+            # distinctness this relies on (`persona_project_collision` /
+            # `persona_project_shadows_worker_image`): no two personas may
+            # share a `project` across different renders, and none may take
+            # the deployment's own name, which the dispatch worker's
+            # `<project>:local` tag occupies. Only the legacy entry WITHOUT
+            # its own `project` (resolved to the facility default above)
+            # keeps the `-<persona>` suffix: it has no render name of its own
+            # to be distinct by, so the suffix is what keeps it clear of the
+            # worker tag.
+            if has_own_project:
+                image = f"{project}:local"
+            else:
+                image = f"{project}-{persona_ref}:local"
         elif is_default:
             image = default_image
         else:

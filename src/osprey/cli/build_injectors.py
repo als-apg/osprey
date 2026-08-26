@@ -552,20 +552,25 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
             anchored_append(deployed, name)
     config["deployed_services"] = deployed
 
-    # Derive web.panels.events.url from dispatcher_port so the port is a single
-    # source of truth.  Write only if the profile has not already set an explicit
-    # ``web.panels.events.url`` via a config override (merged earlier in the
-    # build); explicit overrides take precedence.
+    # Derive the whole web.panels.events entry from dispatcher_port so the port
+    # is a single source of truth — url, the `/dashboard` path, the tab's label
+    # and the `/health` endpoint the tab health-gates on. Written here, in the
+    # deployment's own render, because every web-terminal persona built beside
+    # it is TOLD this entry from this render (osprey.deployment.reach): a key
+    # left out here is a key no persona ever sees. Filled only where the
+    # profile has not already set an explicit value via a config override
+    # (merged earlier in the build); explicit overrides take precedence, and
+    # an explicit ``url`` leaves the whole entry alone.
     #
     # Emit a bare-host ``url`` plus a ``/dashboard`` ``path`` (rather than baking
     # ``/dashboard`` into ``url``) to match the custom-panel proxy convention:
     # the web terminal composes ``url.rstrip('/') + '/' + path``, so a path baked
-    # into ``url`` double-prefixes sub-routes. ``setdefault`` on ``path`` honors a
-    # facility that pinned its own ``web.panels.events.path``.
+    # into ``url`` double-prefixes sub-routes.
     existing_events_url = config.get("web", {}).get("panels", {}).get("events", {}).get("url", "")
     if not existing_events_url:
         panels = config.setdefault("web", {}).setdefault("panels", {})
         events_panel = panels.get("events")
+        events_url = f"http://localhost:{dispatch.dispatcher_port}"
         if events_panel is None:
             # Put the complete panel in one shot: anchored_put re-anchors a
             # section comment beneath the new entry, which needs the entry's
@@ -573,12 +578,17 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
             anchored_put(
                 panels,
                 "events",
-                {"url": f"http://localhost:{dispatch.dispatcher_port}", "path": "/dashboard"},
+                {
+                    "url": events_url,
+                    "path": "/dashboard",
+                    "label": "EVENTS",
+                    "health_endpoint": "/health",
+                },
             )
         else:
-            anchored_put(events_panel, "url", f"http://localhost:{dispatch.dispatcher_port}")
-            if "path" not in events_panel:
-                anchored_put(events_panel, "path", "/dashboard")
+            _fill_panel_defaults(
+                events_panel, events_url, "/dashboard", "EVENTS", health_endpoint="/health"
+            )
 
     with open(config_path, "w") as fh:
         yaml.dump(config, fh)
@@ -702,17 +712,26 @@ def _baseline_lane_target(config: Any, virtual_accelerator: VAConfig | None) -> 
 def _facility_plan_keys(bluesky: BlueskyConfig) -> dict[str, Any]:
     """The facility plan keys every lane's service block carries.
 
-    Each is written ONLY when configured, and the absence is what the compose
-    template's ``{% if %}`` guards read: an unset ``plan_dir`` means no mount
-    and no ``BLUESKY_PLAN_DIRS`` env var at all, and empty ``excluded_plans``
-    means no ``BLUESKY_EXCLUDED_PLANS``. The ``os.pathsep`` join is done
-    Python-side because the Jinja render context has no ``os`` module.
+    The contract here is MIXED, and the split is deliberate.
 
-    Shared by both lanes, because plans are a property of the facility rather
-    than of a target — a per-lane restatement is how the two lanes would end up
-    loading different plans from one profile.
+    ``devices_file`` is written ALWAYS, on every lane of every deploy, authored
+    or defaulted. A deployment always addresses devices, so its absence would
+    not mean "no device file" — it would mean the staging step has to re-derive
+    this default for itself, which is how the build and the bridge end up
+    disagreeing about which file is authoritative.
+
+    ``plan_dir`` and ``excluded_plans`` stay omit-when-unset, because for them
+    the ABSENCE is the signal the compose template's ``{% if %}`` guards read:
+    an unset ``plan_dir`` means no mount and no ``BLUESKY_PLAN_DIRS`` env var at
+    all, and empty ``excluded_plans`` means no ``BLUESKY_EXCLUDED_PLANS``. The
+    ``os.pathsep`` join is done Python-side because the Jinja render context has
+    no ``os`` module.
+
+    Shared by both lanes, because plans and devices are properties of the
+    facility rather than of a target — a per-lane restatement is how the two
+    lanes would end up loading different plans from one profile.
     """
-    keys: dict[str, Any] = {}
+    keys: dict[str, Any] = {"devices_file": bluesky.devices_file}
     if bluesky.plan_dir:
         keys["plan_dir"] = bluesky.plan_dir
     if bluesky.excluded_plans:
@@ -811,9 +830,12 @@ def _inject_bluesky(
         # Two lanes: lane 1 serves the deployment baseline, lane 2 the other
         # target. Both carry `target` — a lane's identity is fixed here, at
         # render time, and the bridge reads it rather than inferring a session
-        # target it is never told about. The keys below are written ONLY on a
-        # two-lane deploy, which is what keeps a single-lane block byte-for-byte
-        # what it has always been.
+        # target it is never told about. `target` and the live lane's
+        # `ca_name_servers` are the LANE-SCOPED keys: they are written ONLY on a
+        # two-lane deploy, so a single-lane block still carries neither. That is
+        # a narrower claim than it used to be — the facility plan keys are NOT
+        # lane-scoped, and `_facility_plan_keys` now writes `devices_file` on
+        # every lane of every deploy, single-lane deploys included.
         baseline = _baseline_lane_target(config, virtual_accelerator)
         second = "va" if baseline == "live" else "live"
         second_config: dict[str, Any] = {
@@ -1073,13 +1095,17 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
     )
 
 
-def _fill_panel_defaults(panel_cfg: Any, url: str, path: str, label: str) -> None:
+def _fill_panel_defaults(
+    panel_cfg: Any, url: str, path: str, label: str, health_endpoint: str | None = None
+) -> None:
     """Fill a partially-specified ``web.panels.<id>`` entry in place.
 
     Explicit values win: a facility override merged earlier in the build keeps
     whatever it set, and only the keys it left out are derived. ``url`` is
     additionally treated as unset when empty, so a blank override cannot leave
-    the panel pointing nowhere.
+    the panel pointing nowhere. ``health_endpoint`` is filled only for a
+    service that serves one (the dispatcher's ``/health``): it is what lets
+    the tab health-gate itself instead of treating any answer as healthy.
     """
     if not panel_cfg.get("url"):
         anchored_put(panel_cfg, "url", url)
@@ -1087,6 +1113,8 @@ def _fill_panel_defaults(panel_cfg: Any, url: str, path: str, label: str) -> Non
         anchored_put(panel_cfg, "path", path)
     if "label" not in panel_cfg:
         anchored_put(panel_cfg, "label", label)
+    if health_endpoint is not None and "health_endpoint" not in panel_cfg:
+        anchored_put(panel_cfg, "health_endpoint", health_endpoint)
 
 
 def _inject_bluesky_web(bluesky_web: BlueskyWebConfig, project_path: Path) -> None:

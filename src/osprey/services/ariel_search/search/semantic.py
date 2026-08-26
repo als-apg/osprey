@@ -5,6 +5,7 @@ This module provides embedding-based similarity search using pgvector.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -28,6 +29,62 @@ if TYPE_CHECKING:
 logger = get_logger("ariel")
 
 DEFAULT_SIMILARITY_THRESHOLD = 0.5
+
+#: Config block the semantic knobs are read from.
+_SETTINGS_PREFIX = "search_modules.semantic.settings"
+
+
+@dataclass(frozen=True)
+class SemanticSearchSettings:
+    """Query knobs read from ``search_modules.semantic.settings``.
+
+    Attributes:
+        similarity_threshold: Minimum cosine similarity a row must reach to be
+            returned. Defaults to :data:`DEFAULT_SIMILARITY_THRESHOLD`.
+    """
+
+    similarity_threshold: float = DEFAULT_SIMILARITY_THRESHOLD
+
+    @classmethod
+    def from_ariel_config(cls, config: ARIELConfig | None) -> SemanticSearchSettings:
+        """Read the module's ``settings`` block, defaults filled in.
+
+        An absent block is the normal case and yields the defaults. A *present*
+        key of the wrong type is refused rather than defaulted, for the same
+        reason the keyword and hybrid modules refuse one: a threshold written
+        as ``"0.8"`` used to travel unexamined into the query and into the
+        capabilities slider, where it reads as an empty box rather than as the
+        configuration error it is. Naming the key is the cheaper diagnosis.
+
+        Args:
+            config: The loaded ARIEL configuration, or ``None``.
+
+        Returns:
+            The resolved settings.
+
+        Raises:
+            ValueError: If ``similarity_threshold`` is present but not a number
+                within ``[0, 1]``.
+        """
+        module = config.search_modules.get("semantic") if config is not None else None
+        settings = module.settings if module is not None else None
+        if not isinstance(settings, dict):
+            return cls()
+
+        threshold = settings.get("similarity_threshold", cls.similarity_threshold)
+        # ``bool`` is a subclass of ``int``, so ``True`` would otherwise pass as
+        # the number 1 — a spelling that means nothing here and is refused.
+        if (
+            not isinstance(threshold, (int, float))
+            or isinstance(threshold, bool)
+            or not 0 <= threshold <= 1
+        ):
+            raise ValueError(
+                f"{_SETTINGS_PREFIX}.similarity_threshold must be a float in [0, 1], "
+                f"got {threshold!r}"
+            )
+
+        return cls(similarity_threshold=float(threshold))
 
 
 async def semantic_search(
@@ -90,13 +147,7 @@ async def semantic_search(
 
     threshold = similarity_threshold
     if threshold is None:
-        if semantic_config and semantic_config.settings:
-            threshold = semantic_config.settings.get(
-                "similarity_threshold",
-                DEFAULT_SIMILARITY_THRESHOLD,
-            )
-        else:
-            threshold = DEFAULT_SIMILARITY_THRESHOLD
+        threshold = SemanticSearchSettings.from_ariel_config(config).similarity_threshold
 
     model_name = config.get_search_model()
     if not model_name:
@@ -228,15 +279,43 @@ def format_semantic_result(
     return {**_format_entry_base(entry), "similarity": similarity}
 
 
-def get_parameter_descriptors() -> list[ParameterDescriptor]:
-    """Return tunable parameter descriptors for the capabilities API."""
+def get_parameter_descriptors(config: ARIELConfig | None = None) -> list[ParameterDescriptor]:
+    """Return tunable parameter descriptors for the capabilities API.
+
+    The default reported here is the deployment's, not the shipped one: a panel
+    that opened its slider on ``0.5`` while the deployment searched at ``0.8``
+    would invite an operator to "leave the default alone" and get a looser
+    search than the deployment's own. Reading it from the same
+    ``search_modules.semantic.settings`` block the query path reads keeps the
+    two in step.
+
+    Describing the module never fails on bad config. ``/api/capabilities``, the
+    search page and the MCP capabilities tool all walk this function, and a
+    deployment with one malformed key should still see a described, usable
+    module — a refusal propagating from here would leave the panel with a
+    slider that has no default at all. The key itself is reported by startup
+    validation, which is the surface that can explain it. So a refusal from the
+    settings parser falls back to the shipped defaults here.
+
+    Args:
+        config: The loaded ARIEL configuration. ``None`` — the case for a
+            caller that has no config in hand — yields the shipped defaults.
+
+    Returns:
+        One descriptor per tunable knob, in panel order.
+    """
+    try:
+        settings = SemanticSearchSettings.from_ariel_config(config)
+    except ValueError:
+        settings = SemanticSearchSettings()
+
     return [
         ParameterDescriptor(
             name="similarity_threshold",
             label="Similarity Threshold",
             description="Minimum cosine similarity score for results (0-1)",
             param_type="float",
-            default=0.5,
+            default=settings.similarity_threshold,
             min_value=0.0,
             max_value=1.0,
             step=0.01,

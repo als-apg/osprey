@@ -62,13 +62,14 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import copy
 import logging
 import os
 import signal
 import subprocess
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -77,6 +78,8 @@ from osprey.mcp_server.control_system.target_eligibility import (
     PROBE_CHANNEL_KEY,
     REASON_PROBE_CHANNEL_MISSING,
     REASON_TARGET_UNRESOLVABLE,
+    ROLE_READ_ONLY,
+    ROLE_WRITE_ACCESS,
     TargetDerivation,
     Verification,
     connector_block,
@@ -184,6 +187,7 @@ class SwitchError(RuntimeError):
         detail: str,
         *,
         verification: Verification | None = None,
+        gateway: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(detail)
         self.target = target
@@ -191,6 +195,12 @@ class SwitchError(RuntimeError):
         self.reason = reason
         self.detail = detail
         self.verification = verification
+        #: ``{"role", "host", "port"}`` of the gateway a failed probe ran
+        #: through. Both roles usually share a hostname and differ only by
+        #: port, so a refusal that named only the probe channel would read as
+        #: "the control system is down" when one gateway beside a healthy one
+        #: is unserved.
+        self.gateway = gateway
 
     def as_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -201,6 +211,8 @@ class SwitchError(RuntimeError):
         }
         if self.verification is not None:
             payload["verification"] = self.verification.as_dict()
+        if self.gateway is not None:
+            payload["gateway"] = self.gateway
         return payload
 
 
@@ -808,7 +820,58 @@ class ConnectorHostManager:
         # there is no working session to protect — see ensure_started().
         probe_channel = self._probe_channel(target, derivation) if probe else ""
 
-        candidate = await self._launch(target, derivation, probe_channel)
+        fallback: dict[str, Any] | None = None
+        try:
+            candidate = await self._launch(target, derivation, probe_channel)
+        except SwitchError as exc:
+            read_derivation = self._read_role_fallback(derivation, exc)
+            if read_derivation is None:
+                raise
+            dead = derivation.selected_endpoint()
+            logger.warning(
+                "The %r gateway for target %r at %s:%s failed its readiness probe; "
+                "retrying through the %r gateway so the session can reach the target. "
+                "A write on this session routes to the read-only gateway, which is "
+                "expected to refuse it, until the write gateway is served again.",
+                ROLE_WRITE_ACCESS,
+                target,
+                dead.host,
+                dead.port,
+                ROLE_READ_ONLY,
+            )
+            derivation = read_derivation
+            try:
+                candidate = await self._launch(
+                    target, derivation, probe_channel, without_write_gateway=True
+                )
+            except SwitchError as retry_error:
+                if retry_error.stage != STAGE_PROBE:
+                    raise
+                # Both probes failed. The surfaced error is the read-role one —
+                # the last thing actually probed — but the operator gets the
+                # whole story: the write gateway failed first, so this is not
+                # one flaky endpoint but a target with no reachable gateway.
+                raise SwitchError(
+                    retry_error.target,
+                    retry_error.stage,
+                    retry_error.reason,
+                    f"{retry_error.detail} The {ROLE_WRITE_ACCESS!r} gateway at "
+                    f"{dead.host}:{dead.port} was probed first and also failed, so no "
+                    f"configured gateway for target {target!r} is answering.",
+                    verification=retry_error.verification,
+                    gateway=retry_error.gateway,
+                ) from None
+            fallback = {
+                "host": dead.host,
+                "port": dead.port,
+                "detail": (
+                    f"The {ROLE_WRITE_ACCESS!r} gateway at {dead.host}:{dead.port} failed "
+                    f"its readiness probe, so the session reached target {target!r} through "
+                    f"the {ROLE_READ_ONLY!r} gateway instead. Reads are unaffected; a write "
+                    "routes to the read-only gateway and is expected to be refused there "
+                    "until the write gateway is served again."
+                ),
+            }
 
         # The active child stays active right through the retirement: a tool
         # that calls in while A is draining is refused *by A*, with the switch
@@ -836,7 +899,7 @@ class ConnectorHostManager:
             candidate.pid,
             derivation.connector_type,
         )
-        return {
+        result: dict[str, Any] = {
             "target": target,
             "generation": self._generation,
             "previous_target": previous_target,
@@ -849,6 +912,9 @@ class ConnectorHostManager:
             "previous_drained": drained,
             "drain_timeout_s": self._drain_timeout(),
         }
+        if fallback is not None:
+            result["write_gateway_fallback"] = fallback
+        return result
 
     def _publish(self, target: str, child_pid: int) -> bool:
         """Record the completed switch in the state file. Never raises.
@@ -889,6 +955,38 @@ class ConnectorHostManager:
         except ValueError as exc:
             raise SwitchError(target, STAGE_TARGET, REASON_TARGET_UNRESOLVABLE, str(exc)) from exc
 
+    def _read_role_fallback(
+        self, derivation: TargetDerivation, error: SwitchError
+    ) -> TargetDerivation | None:
+        """The read-role derivation a failed write-role probe falls back to.
+
+        Reaching a target at all is a stronger requirement than reaching it
+        write-capable: a ``write_access`` row that is configured but served by
+        nothing must not make the target unreachable — least of all the
+        deployment baseline, whose return leg exists so a session can always
+        come home (issue #718). The fallback therefore applies to every probed
+        switch, not only the return leg, and it mirrors the ``connect()``
+        fallback that already lands a write-armed deployment *without* a write
+        gateway on ``read_only`` with a warning.
+
+        Only a **probe**-stage failure qualifies: the probe is the reachability
+        check, so its failure is evidence about the gateway. A spawn or
+        verification failure says the child or the config is wrong, and
+        retrying those through another gateway would paper over a different
+        disease.
+
+        Returns:
+            The same derivation with ``read_only`` selected, or ``None`` when
+            the failure is not one a read-role retry could answer.
+        """
+        if error.stage != STAGE_PROBE:
+            return None
+        if derivation.selected_role != ROLE_WRITE_ACCESS:
+            return None
+        if ROLE_READ_ONLY not in derivation.endpoints:
+            return None
+        return replace(derivation, selected_role=ROLE_READ_ONLY)
+
     def _probe_channel(self, target: str, derivation: TargetDerivation) -> str:
         """The channel the destination proves itself with, or a refusal.
 
@@ -911,14 +1009,33 @@ class ConnectorHostManager:
         return channel.strip()
 
     async def _launch(
-        self, target: str, derivation: TargetDerivation, probe_channel: str
+        self,
+        target: str,
+        derivation: TargetDerivation,
+        probe_channel: str,
+        *,
+        without_write_gateway: bool = False,
     ) -> _Child:
-        """Spawn, verify and probe a child — or leave nothing behind."""
+        """Spawn, verify and probe a child — or leave nothing behind.
+
+        With ``without_write_gateway`` the child's init payload omits the
+        connector's ``write_access`` gateway row, so the child runs
+        ``connect()``'s documented absent-row fallback — ``read_only`` with a
+        warning — and never even learns where the write gateway is. The caller
+        passes a derivation whose selected role is ``read_only`` to match.
+        """
         process = await self._spawn(target)
         channel = _LaunchChannel(target, process)
         try:
             report = await channel.request(
-                "init", self._init_kwargs(target), self._spawn_timeout_s, STAGE_SPAWN
+                "init",
+                self._init_kwargs(
+                    target,
+                    derivation.connector_type,
+                    without_write_gateway=without_write_gateway,
+                ),
+                self._spawn_timeout_s,
+                STAGE_SPAWN,
             )
             if not isinstance(report, dict):
                 raise SwitchError(
@@ -938,12 +1055,19 @@ class ConnectorHostManager:
                     verification=verification,
                 )
             if probe_channel:
-                await channel.request(
-                    "spawn_probe",
-                    {"channel": probe_channel, "timeout": self._probe_timeout_s},
-                    self._probe_timeout_s + 1.0,
-                    STAGE_PROBE,
-                )
+                try:
+                    await channel.request(
+                        "spawn_probe",
+                        {"channel": probe_channel, "timeout": self._probe_timeout_s},
+                        self._probe_timeout_s + 1.0,
+                        STAGE_PROBE,
+                    )
+                except SwitchError as exc:
+                    # The probe channel alone does not say which endpoint would
+                    # not answer; the derivation this child was launched from
+                    # does. Raised richer, not merely logged, because the
+                    # refusal is the only thing the operator sees.
+                    raise _name_probed_gateway(exc, derivation) from None
             else:
                 logger.info(
                     "Connector host for target %r started without a readiness probe: "
@@ -992,10 +1116,15 @@ class ConnectorHostManager:
                 f"Could not spawn a connector-host child for target {target!r}: {exc}",
             ) from exc
 
-    def _init_kwargs(self, target: str) -> dict[str, Any]:
+    def _init_kwargs(
+        self, target: str, connector_type: str, *, without_write_gateway: bool = False
+    ) -> dict[str, Any]:
         """The init payload: the section as resolved here, plus this run's posture."""
+        control_system = self._config.control_system
+        if without_write_gateway:
+            control_system = _without_write_gateway(control_system, connector_type)
         kwargs: dict[str, Any] = {
-            "control_system": self._config.control_system,
+            "control_system": control_system,
             "target": target,
         }
         config_path = getattr(self._config, "config_path", None)
@@ -1094,6 +1223,46 @@ class ConnectorHostManager:
                 DEFAULT_DRAIN_TIMEOUT_S,
             )
             return DEFAULT_DRAIN_TIMEOUT_S
+
+
+def _name_probed_gateway(error: SwitchError, derivation: TargetDerivation) -> SwitchError:
+    """The same probe failure, naming the gateway the probe ran through.
+
+    A target that derives no endpoint (the mock, a gatewayless deployment) has
+    nothing to add, and the error passes through unchanged.
+    """
+    endpoint = derivation.selected_endpoint()
+    if endpoint is None:
+        return error
+    role = derivation.selected_role
+    return SwitchError(
+        error.target,
+        error.stage,
+        error.reason,
+        f"{error.detail} The probe ran through the {role!r} gateway at "
+        f"{endpoint.host}:{endpoint.port}.",
+        verification=error.verification,
+        gateway={"role": role, "host": endpoint.host, "port": endpoint.port},
+    )
+
+
+def _without_write_gateway(section: dict[str, Any], connector_type: str) -> dict[str, Any]:
+    """A deep copy of the ``control_system`` section, minus one write gateway.
+
+    A child launched with this payload sees a deployment whose write gateway
+    was never configured, which is the case ``connect()`` already handles by
+    routing through ``read_only`` with a warning. Stripping the row — rather
+    than teaching the child a role override — keeps the fallback on that
+    single documented path, and means the fallback child cannot route anything
+    to the write gateway even by accident: it never learns the endpoint.
+    """
+    stripped = copy.deepcopy(section)
+    connector = stripped.get("connector")
+    block = connector.get(connector_type) if isinstance(connector, dict) else None
+    gateways = block.get("gateways") if isinstance(block, dict) else None
+    if isinstance(gateways, dict):
+        gateways.pop(ROLE_WRITE_ACCESS, None)
+    return stripped
 
 
 def _verify(derivation: TargetDerivation, report: dict[str, Any]) -> Verification:

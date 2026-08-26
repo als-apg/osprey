@@ -107,7 +107,12 @@ class TestFullReplacement:
 
     def test_bundle_files_absent_from_build(self, tmp_path: Path) -> None:
         profile_dir = tmp_path / "profile"
-        profile_path = _write_profile(profile_dir)
+        # One of the two artifacts dropped below is the channel-limits
+        # database, and a deployment holding none has to be read-only: writes
+        # ON with no limits file to enforce is its own refusal at render time
+        # (`resolve_limits_mount`), and letting it fire here would decide this
+        # test on a fact it is not about.
+        profile_path = _write_profile(profile_dir, config={"control_system.writes_enabled": False})
 
         # Drop two distinctive bundle artifacts from the profile's copy: if the
         # bundle tree were layered under (or merged into) the profile tree,
@@ -174,6 +179,42 @@ class TestFullReplacement:
         )
         assert not (project_dir / "data" / "from_bundle.txt").exists(), (
             "bundle data leaked past the data_root bypass"
+        )
+
+    def test_runtime_subpath_is_never_copied_into_the_project(self, tmp_path: Path) -> None:
+        """#716: ``data/.runtime/`` is runtime output, so the build must not stage it.
+
+        ``osprey up`` mints CURVE secrets there; copying them into the render
+        would put private keys into ``build/`` and from there into every image
+        built from the staged project. The fold already refuses to hash the
+        subpath, and the copy refuses to carry it — the two halves of the same
+        contract.
+        """
+        template_root = tmp_path / "templates"
+        (template_root / "apps" / "demo").mkdir(parents=True)
+
+        data_root = tmp_path / "facility_data"
+        (data_root / ".runtime" / "bluesky_curve" / "bridge").mkdir(parents=True)
+        (data_root / ".runtime" / "bluesky_curve" / "bridge" / "proxy.key_secret").write_text(
+            "secret\n"
+        )
+        (data_root / "authored.txt").write_text("authored\n")
+
+        project_dir = tmp_path / "project"
+
+        copy_template_data(
+            template_root,
+            project_dir,
+            "demo_pkg",
+            "demo",
+            {},
+            jinja_env=Environment(loader=FileSystemLoader(str(template_root))),
+            data_root=data_root,
+        )
+
+        assert (project_dir / "data" / "authored.txt").read_text() == "authored\n"
+        assert not (project_dir / "data" / ".runtime").exists(), (
+            "runtime-minted secrets were staged into the build"
         )
 
 

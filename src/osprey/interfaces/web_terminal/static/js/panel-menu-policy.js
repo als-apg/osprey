@@ -1,11 +1,13 @@
 // @ts-check
 /* OSPREY Web Terminal — Panel Menu Policy
  *
- * WHAT a gesture on a panel surface does. panel-manager.js owns the panel state
- * machine (health, membership, iframes, SSE dispatch) and panel-placement.js
- * owns tile geometry; this module owns the policy layer in between — the
- * closures a rail entry is rendered with, and the context menus a rail entry or
- * a tile header opens.
+ * WHAT a gesture on a panel surface does. The panel state machine now splits
+ * three ways — panel-manager.js owns the core (tile occupancy, iframe
+ * lifecycle, the active-panel policy), panel-lifecycle.js owns how a panel
+ * comes to exist and stay alive, and panel-sse.js owns the server→client
+ * frame dispatcher — and panel-placement.js owns tile geometry; this module
+ * owns the policy layer in between — the closures a rail entry is rendered
+ * with, and the context menus a rail entry or a tile header opens.
  *
  * It is the counterpart of panel-context-menu.js, which is purely
  * presentational (popover DOM, dismissal, focus bookkeeping) and never knows

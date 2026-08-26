@@ -3167,17 +3167,17 @@ def test_the_auth_grace_sits_between_the_healthcheck_and_the_reachability_budget
 
 
 # ---------------------------------------------------------------------------
-# The shared half of the env chain, at the deploy path's other two read sites
+# The shared half of the env chain, at the store preflight's read site
 # ---------------------------------------------------------------------------
 # The deployment's environment is a two-file chain at the repo root —
 # ``.env.shared`` (committed defaults) below ``.env`` (host-local secrets).
-# Neither of the two provisioners below opens the first of those files: both
-# call ``parse_dotenv_file(env_path)``, which names the LOCAL one, and read
+# The preflight below never opens the first of those files: it calls
+# ``parse_dotenv_file(env_path)``, which names the LOCAL one, and reads
 # ``os.environ`` for everything else. So a value living only in the shared half
-# reaches them by one indirect route — the CLI entry point loads the whole chain
+# reaches it by one indirect route — the CLI entry point loads the whole chain
 # over ``os.environ`` before any deploy code runs.
 #
-# Each site gets both cells: the value in the shared file alone, and the same
+# The site gets both cells: the value in the shared file alone, and the same
 # value once that entry-point load has happened. The pair is the measurement.
 # What it records is pinned as observed, including where the observation is that
 # the shared half is not seen at all.
@@ -3310,77 +3310,6 @@ def test_the_same_shared_only_credential_is_refused_after_the_entry_point_chain_
     # The report names the store and the file, never either credential.
     assert SHARED_HALF_CREDENTIAL not in message
     assert VOLUME_BORN_WITH not in message
-
-
-#: A minimal machine whose channel names yield one corrector pair and one BPM —
-#: the least the substrate derivation accepts.
-_SUBSTRATE_LIMITS = {
-    "SR:MAG:HCM:01:CURRENT:SP": {"min": -10, "max": 10},
-    "SR:MAG:HCM:01:CURRENT:RB": {"min": -10, "max": 10},
-    "SR:DIAG:BPM:01:POSITION:X": {"min": -5, "max": 5},
-    "SR:DIAG:BPM:01:POSITION:Y": {"min": -5, "max": 5},
-}
-
-_SUBSTRATE_CONFIG = {
-    "deployed_services": ["bluesky", "virtual_accelerator"],
-    "control_system": {"type": "virtual_accelerator"},
-}
-
-
-@pytest.fixture
-def substrate_project(monkeypatch, tmp_path):
-    """A built project the substrate derivation can read devices out of."""
-    for var in ("BLUESKY_EPICS_SUBSTRATE", "BLUESKY_EPICS_SETPOINTS", "BLUESKY_EPICS_READBACKS"):
-        monkeypatch.delenv(var, raising=False)
-    (tmp_path / "data").mkdir()
-    (tmp_path / "data" / "channel_limits.json").write_text(
-        json.dumps(_SUBSTRATE_LIMITS), encoding="utf-8"
-    )
-    return tmp_path / ".env"
-
-
-def _dotenv(path: Path) -> dict:
-    from osprey.utils.dotenv import parse_dotenv_file
-
-    return parse_dotenv_file(path) if path.is_file() else {}
-
-
-def test_a_substrate_var_only_the_shared_half_sets_is_derived_over(substrate_project, tmp_path):
-    """The "already set is left untouched" promise is scoped to the local file.
-
-    The docstring's promise is "in the process env or an existing ``.env``",
-    and that is literally what the code checks — so a device list an operator
-    committed to ``.env.shared`` is not seen, a derived one is appended to
-    ``.env``, and the appended line outranks the committed one in the chain.
-    The operator's setting is still in the file they put it in, and no longer
-    the value the bridge resolves.
-    """
-    _write_shared_half(tmp_path, "BLUESKY_EPICS_SETPOINTS=shared-half-device-list\n")
-
-    container_lifecycle._ensure_bluesky_substrate_env(_SUBSTRATE_CONFIG, env_path=substrate_project)
-
-    local = _dotenv(substrate_project)
-    assert local["BLUESKY_EPICS_SETPOINTS"], "the shared-only value did not reach the predicate"
-    assert local["BLUESKY_EPICS_SETPOINTS"] != "shared-half-device-list"
-
-
-def test_the_same_substrate_var_is_left_alone_after_the_entry_point_chain_load(
-    substrate_project, monkeypatch, tmp_path
-):
-    """The route again: the process-env mirror is what preserves the setting.
-
-    With the chain loaded, the committed device list is in ``os.environ``, the
-    ``k not in os.environ`` guard holds, and only the keys the operator did not
-    set are appended.
-    """
-    _write_shared_half(tmp_path, "BLUESKY_EPICS_SETPOINTS=shared-half-device-list\n")
-
-    _load_the_entry_point_chain(monkeypatch, tmp_path)
-    container_lifecycle._ensure_bluesky_substrate_env(_SUBSTRATE_CONFIG, env_path=substrate_project)
-
-    local = _dotenv(substrate_project)
-    assert "BLUESKY_EPICS_SETPOINTS" not in local
-    assert local.get("BLUESKY_EPICS_READBACKS")
 
 
 # ---------------------------------------------------------------------------

@@ -28,7 +28,8 @@ spelled once in ``tests/e2e/_queue_drive.py``). That is transport only — what
 these proofs assert about the substrate is unchanged.
 
 No preset channel names are hardcoded: every address used below is derived
-from the DEPLOYED render's own ``build/data/channel_limits.json`` (writable ⟺ a
+from the deployment repo's own ``data/channel_limits.json`` — the same bytes
+the build copies into the build zone for the deployed containers (writable ⟺ a
 ``:SP`` address) restricted to sp-echo pairs (``classify_partition`` — a
 write to a pyat-coupled ``:SP`` has ring-wide physics side effects, wrong for
 an isolated fault/equivalence probe; sp-echo is a pure software echo, exactly
@@ -71,6 +72,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from osprey.deployment.compose_generator import resolve_project_name
 from tests.e2e import _orm_stack, _queue_drive
@@ -110,9 +112,11 @@ BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
 BRIDGE_CONTAINER = f"{PROJECT_NAME}-bluesky-bridge"
 BRIDGE_IMAGE = f"{resolve_project_name({'project_name': PROJECT_NAME})}-bluesky-bridge:local"
 
-# Device names wired into the bridge via BLUESKY_EPICS_SETPOINTS/_DETECTORS —
-# arbitrary, resolved against explicit PV addresses (see _write_substrate_env
-# below), never a preset naming convention.
+# Device names this suite authors into the worker's device file — arbitrary,
+# resolved against explicit PV addresses (see _write_devices_file below), never
+# a preset naming convention. Synthetic on purpose: this is the one lane that
+# proves a device name need not BE its address, which is exactly what the
+# ``settables``/``readables`` entries' ``setpoint``/``pv`` fields are for.
 SCAN_MOTOR = "scan_motor"
 P3_DETECTOR = "p3_det"
 P4_DETECTOR = "p4_det"
@@ -191,13 +195,14 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess
 
 
 def _channel_limits(repo: Path) -> dict[str, Any]:
-    """The RENDER's channel limits — the file the deployed containers get.
+    """The deployment repo's own channel limits.
 
-    ``build/data/`` rather than the repo root's ``data/``: the latter is the
-    source an operator edits, the former is what this build produced and what
-    the bridge and the VA both read.
+    ``osprey build`` copies ``<repo>/data`` into the build zone verbatim, so
+    this file and the ``build/data/`` copy the bridge and the VA both read are
+    the same bytes and name the same channels — but only this one exists before
+    the build, which is when the plan devices have to be chosen and authored.
     """
-    return json.loads((repo / "build" / "data" / "channel_limits.json").read_text(encoding="utf-8"))
+    return json.loads((repo / "data" / "channel_limits.json").read_text(encoding="utf-8"))
 
 
 def _select_sp_echo_pairs(channel_limits: dict[str, Any], count: int) -> list[tuple[str, str]]:
@@ -247,29 +252,71 @@ def _select_sp_echo_pairs(channel_limits: dict[str, Any], count: int) -> list[tu
     return pairs[:count]
 
 
-def _write_substrate_env(repo: Path, pairs: dict[str, tuple[str, str]]) -> None:
-    """Append task 4.2's contract env vars to the repo's ``.env`` -- BEFORE
+def _write_devices_file(repo: Path, pairs: dict[str, tuple[str, str]]) -> None:
+    """Author this suite's plan devices at ``<repo>/data/bluesky_devices.yml``
+    -- BETWEEN ``osprey init`` and ``osprey build``.
+
+    The build copies ``<repo>/data`` into the build zone and stages the device
+    file it finds there into ``build/services/bluesky/bluesky_devices.yml``,
+    which the queueserver worker mounts. Written after the build, this file
+    would be picked up by nothing; written before ``init``, it would break
+    init's own copy of the preset's ``data/``.
+
+    Assembled here rather than through
+    ``osprey.services.bluesky_bridge.substrate_devices`` (which
+    ``_orm_stack.write_devices_file`` delegates to) because THIS suite's whole
+    point is synthetic device names: that producer names every device after its
+    own address, and P3/P4/P5 have to stay addressable under names the
+    equivalence assertions choose. The document SHAPE is still the product's --
+    its key names are imported, not restated -- so a schema change breaks this
+    lane rather than silently producing a file the worker skips.
+    """
+    from osprey.services.bluesky_bridge.devices._specs_from_file import (
+        READABLES_KEY,
+        SETTABLES_KEY,
+    )
+
+    p3_sp, p3_rb = pairs["p3"]
+    p4_sp, p4_rb = pairs["p4"]
+    p5_sp, p5_rb = pairs["p5"]
+
+    document = {
+        SETTABLES_KEY: [{"name": SCAN_MOTOR, "setpoint": p4_sp, "readback": p4_rb}],
+        READABLES_KEY: [
+            {"name": P3_DETECTOR, "pv": p3_rb},
+            {"name": P4_DETECTOR, "pv": p4_rb},
+            {"name": P5_DETECTOR, "pv": p5_rb},
+        ],
+    }
+
+    devices_path = repo / "data" / "bluesky_devices.yml"
+    devices_path.parent.mkdir(parents=True, exist_ok=True)
+    devices_path.write_text(
+        yaml.safe_dump(document, sort_keys=False, default_flow_style=False),
+        encoding="utf-8",
+    )
+
+
+def _write_env(repo: Path, pairs: dict[str, tuple[str, str]]) -> None:
+    """Append this suite's contract env vars to the repo's ``.env`` -- BEFORE
     ``osprey up`` (the bridge/VA compose templates pass these through from the
-    repo root's ``.env``, same mechanism as ``BLUESKY_LAUNCH_TOKEN``).
+    repo root's ``.env``).
 
     Creating that file is also what lets ``up`` run at all: the repo root's
     ``.env`` is the deployment's whole secret store, and ``up`` aborts when it
     is missing.
+
+    Only two values, and neither is a device: the plan devices moved out of the
+    environment and into the mounted device file (``_write_devices_file``), so
+    what is left here is the launch token and the VA's stuck-channel fault.
     """
-    p3_sp, p3_rb = pairs["p3"]
-    p4_sp, p4_rb = pairs["p4"]
-    p5_sp, p5_rb = pairs["p5"]
+    _p5_sp, _p5_rb = pairs["p5"]
 
     values = {
         # Supply the launch token ourselves — the preset's local-exec+writes
         # config gates auto-minting off (see LAUNCH_TOKEN above).
         "BLUESKY_LAUNCH_TOKEN": LAUNCH_TOKEN,
-        "BLUESKY_EPICS_SUBSTRATE": "1",
-        "BLUESKY_EPICS_SETPOINTS": f"{SCAN_MOTOR}={p4_sp}|{p4_rb}",
-        "BLUESKY_EPICS_READBACKS": (
-            f"{P3_DETECTOR}={p3_rb},{P4_DETECTOR}={p4_rb},{P5_DETECTOR}={p5_rb}"
-        ),
-        "VA_STUCK_SETPOINTS": p5_sp,
+        "VA_STUCK_SETPOINTS": _p5_sp,
     }
 
     env_path = repo / ".env"
@@ -356,6 +403,14 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             f"--- stdout ---\n{init.stdout}\n--- stderr ---\n{init.stderr}"
         )
 
+    # STRICTLY between the two verbs -- see _write_devices_file. The pairs come
+    # from the repo's own channel limits, the same bytes the build is about to
+    # copy into the build zone.
+    limits = _channel_limits(repo)
+    sp3, sp4, sp5 = _select_sp_echo_pairs(limits, count=3)
+    pairs = {"p3": sp3, "p4": sp4, "p5": sp5}
+    _write_devices_file(repo, pairs)
+
     build = _run(
         [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],
         cwd=base,
@@ -367,10 +422,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
         )
 
-    limits = _channel_limits(repo)
-    sp3, sp4, sp5 = _select_sp_echo_pairs(limits, count=3)
-    pairs = {"p3": sp3, "p4": sp4, "p5": sp5}
-    _write_substrate_env(repo, pairs)
+    _write_env(repo, pairs)
 
     # Force fresh --dev builds so the deployed containers run CURRENT source
     # (osprey up does not pass --build to compose, so it would otherwise reuse a

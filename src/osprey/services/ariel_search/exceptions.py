@@ -289,6 +289,36 @@ class ConfigurationError(ARIELException, _FrameworkConfigurationError):
         self.config_key = config_key
 
 
+class SearchConfigurationError(ARIELException):
+    """A search module's own ``settings`` block holds a knob it must refuse.
+
+    Raised on the query path, while the module is executing, when it resolves
+    ``search_modules.<mode>.settings`` and finds a malformed value. The message
+    is the module's own, verbatim, so it still names the offending config key.
+
+    Deliberately *not* a subclass of :class:`ConfigurationError`. That one is
+    raised by the service *before* a module runs -- an unknown or disabled mode
+    -- and propagates out to become an HTTP 400 or a hard tool error. This one
+    is caught by the service and turned into an ERROR diagnostic carrying
+    category ``configuration``, which is the only machine-readable signal an
+    agent-side caller has to offer configuration help rather than advice about
+    a sidecar that is in fact perfectly healthy.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        technical_details: dict | None = None,
+    ) -> None:
+        """Initialize SearchConfigurationError.
+
+        Args:
+            message: The module's own error text, naming the offending key.
+            technical_details: Additional debugging information
+        """
+        super().__init__(message, ErrorCategory.CONFIGURATION, technical_details)
+
+
 class ModuleNotEnabledError(ARIELException):
     """Module not enabled in configuration.
 

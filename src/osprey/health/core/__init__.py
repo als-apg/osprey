@@ -32,7 +32,7 @@ core, YAML and plugin categories.
 
 Lazy resolution
 ----------------
-``CORE_CATEGORIES`` is a lazy mapping: iterating it yields the thirteen canonical
+``CORE_CATEGORIES`` is a lazy mapping: iterating it yields the fourteen canonical
 names without importing anything, and indexing a name imports only that one
 sibling module on demand. Sibling category modules are authored independently
 and must never edit this file; a not-yet-written or import-failing module
@@ -55,7 +55,7 @@ CategoryCallable = Callable[[], "list[CheckResult] | Awaitable[list[CheckResult]
 CategoryFactory = Callable[..., CategoryCallable]
 
 # Canonical category name -> (sibling module name, factory attribute) within
-# this package. Static so the thirteen valid names are known without importing any
+# this package. Static so the fourteen valid names are known without importing any
 # sibling module; resolution imports the module lazily on first access.
 _CORE_CATEGORY_SPECS: dict[str, tuple[str, str]] = {
     "configuration": ("configuration", "configuration"),
@@ -71,6 +71,7 @@ _CORE_CATEGORY_SPECS: dict[str, tuple[str, str]] = {
     "channel_finder": ("channel_finder", "channel_finder"),
     "graphdb": ("graphdb", "graphdb"),
     "web_panels": ("web_panels", "web_panels"),
+    "reach": ("reach", "reach"),
 }
 
 
@@ -102,7 +103,7 @@ class _LazyCoreCategoryRegistry(Mapping[str, CategoryFactory]):
 
 CORE_CATEGORIES: Mapping[str, CategoryFactory] = _LazyCoreCategoryRegistry()
 
-# The thirteen canonical core category names, without importing any sibling module.
+# The fourteen canonical core category names, without importing any sibling module.
 CORE_CATEGORY_NAMES: tuple[str, ...] = tuple(_CORE_CATEGORY_SPECS)
 
 

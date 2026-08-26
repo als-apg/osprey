@@ -6,10 +6,9 @@
  * and inline timeseries rendering.
  */
 import { getTheme, initTheme, subscribe } from "/design-system/js/theme-manager.js";
-import { onModeChange } from "/design-system/js/frame-params.js";
-import { applyEmbedded } from "/design-system/js/frame-params.js";
+import { applyEmbedded, isEmbedded, onModeChange } from "/design-system/js/frame-params.js";
 import { contributeHeader, isSimpleMode, onHeaderAction } from "/design-system/js/header-contrib.js";
-import "/design-system/js/components/osprey-theme-switcher.js";
+import "/design-system/js/components/osprey-display-menu.js";
 import {
   getArtifacts,
   setArtifacts,
@@ -520,25 +519,31 @@ function doRefresh() {
   connectSSE();
 }
 
-// ---- Theme: follower role; forward to nested previews + re-style plots ----
+// ---- Theme: forward to nested previews + re-style plots ----
 //
-// initTheme({role:'follower'}) replaces the old hand-rolled
-// 'osprey-theme-change' listener and data-theme MutationObserver: the
-// theme-manager runtime already applies broadcasts from the hub and
-// whatever ?theme=/localStorage/data-theme theme-boot.js resolved
-// pre-paint. subscribe() below is the one thing still gallery-specific:
-// re-forwarding to nested preview iframes (Plotly HTML artifacts) and
-// re-styling the visible timeseries chart. It fires on every apply, even
-// one that re-applies an unchanged id (the hidden-iframe repair path),
-// which is exactly what a hidden preview iframe needs on tab activation.
-
-initTheme({ role: "follower" });
+// initTheme() replaces the old hand-rolled 'osprey-theme-change' listener
+// and data-theme MutationObserver: the theme-manager runtime already applies
+// broadcasts from the hub and whatever ?theme=/localStorage/data-theme
+// theme-boot.js resolved pre-paint. subscribe() below is the one thing still
+// gallery-specific: re-forwarding to nested preview iframes (Plotly HTML
+// artifacts) and re-styling the visible timeseries chart. It fires on every
+// apply, even one that re-applies an unchanged id (the hidden-iframe repair
+// path), which is exactly what a hidden preview iframe needs on tab
+// activation.
+// Standalone, this page owns its own theme chrome (the header
+// <osprey-display-menu>), so it runs theme-manager.js in the hub role:
+// persistence, OS auto-follow and ?theme= handling all come with it, and
+// broadcast is a structural no-op on a page with no iframes. Embedded in the
+// Web Terminal hub it is a follower instead: theme-boot.js already applied
+// data-theme pre-paint, and this attaches the postMessage listener for the
+// hub's live broadcasts.
+initTheme({ role: isEmbedded() ? "follower" : "hub" });
 
 // Embedded mode (contract-version 1, see frame-params.js): hides the
 // logo (via gallery.css's `body.embedded .logo` rule) and, via the
-// theme-switcher component's own
-// injected rule, the <osprey-theme-switcher> in the header -- both defer
-// to the hub's chrome when this page is loaded inside a web_terminal panel.
+// component's own injected rule, the <osprey-display-menu> in the header --
+// both defer to the hub's chrome when this page is loaded inside a
+// web_terminal panel.
 applyEmbedded();
 
 /**

@@ -11,9 +11,10 @@
  *
  * TWO DIRECTIONS
  * --------------
- *  - Server → dock: the SSE handler in panel-manager already drives the dock
+ *  - Server → dock: panel-sse's frame dispatcher already drives the dock
  *    (activateTab → focusPanel, the visibility fallback → hidePanel, register →
- *    addPanel, all via the dock-iframe adapter). This module does NOT duplicate
+ *    panel-lifecycle's addPanel, all via the dock-iframe adapter). This module
+ *    does NOT duplicate
  *    that; it only guarantees those applied changes never POST back.
  *  - Dock → server: a human focusing a dock tab POSTs setPanelFocus — the only
  *    new POST source the docked model introduces. A human CLOSING a dock tab is

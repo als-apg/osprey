@@ -1561,6 +1561,127 @@ def test_lint_registry_mode_does_not_run_project_path_name_invariant(tmp_path) -
     assert not any(f.code == "web_terminals.persona_project_path_name_mismatch" for f in findings)
 
 
+def test_lint_two_personas_sharing_a_project_across_renders_is_an_error() -> None:
+    """Two referenced personas with one `project` over DIFFERENT renders would
+    race both builds onto the single `<project>:local` tag — the losing
+    persona's users silently run the winning persona's image."""
+    # Arrange
+    config = _persona_config(
+        web_terminals={
+            "image_source": "local",
+            "users": [
+                {"name": "alice", "index": 0, "persona": "assistant"},
+                {"name": "bob", "index": 1, "persona": "analysis"},
+            ],
+            "personas": {
+                "assistant": {"project": "shared", "project_path": "build/shared"},
+                "analysis": {"project": "shared", "project_path": "elsewhere/shared"},
+            },
+        }
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    collisions = [f for f in errors if f.code == "web_terminals.persona_project_collision"]
+    assert collisions
+    assert any(
+        "'assistant'" in f.message and "'analysis'" in f.message and "shared:local" in f.message
+        for f in collisions
+    )
+
+
+def test_lint_two_personas_sharing_one_render_is_not_a_collision() -> None:
+    """The same `project` AND the same `project_path` is one render deliberately
+    serving both personas — one image, no race, no finding."""
+    # Arrange
+    config = _persona_config(
+        web_terminals={
+            "image_source": "local",
+            "users": [
+                {"name": "alice", "index": 0, "persona": "assistant"},
+                {"name": "bob", "index": 1, "persona": "analysis"},
+            ],
+            "personas": {
+                "assistant": {"project": "shared", "project_path": "build/shared"},
+                "analysis": {"project": "shared", "project_path": "build/shared"},
+            },
+        }
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.persona_project_collision" for f in findings)
+
+
+def test_lint_persona_project_equal_to_deployment_project_name_is_an_error() -> None:
+    """The dispatch worker already owns `<deployment project>:local`; a persona
+    render with the same name would overwrite it (or be overwritten) with
+    entirely different content."""
+    # Arrange
+    config = _persona_config(
+        web_terminals={
+            "image_source": "local",
+            "personas": {
+                "assistant": {"project": "my-deploy", "project_path": "build/my-deploy"},
+            },
+        }
+    )
+    config["project_name"] = "my-deploy"
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    shadows = [f for f in errors if f.code == "web_terminals.persona_project_shadows_worker_image"]
+    assert shadows
+    assert any("my-deploy:local" in f.message for f in shadows)
+
+
+def test_lint_registry_mode_skips_persona_project_collision_checks() -> None:
+    """Registry mode pulls per-persona images; no local tags exist to collide."""
+    # Arrange (both collisions present, but image_source is registry)
+    config = _persona_config(
+        web_terminals={
+            "users": [
+                {"name": "alice", "index": 0, "persona": "assistant"},
+                {"name": "bob", "index": 1, "persona": "analysis"},
+            ],
+            "personas": {
+                "assistant": {
+                    "project": "shared",
+                    "build_profile": "profiles/assistant.yml",
+                },
+                "analysis": {
+                    "project": "shared",
+                    "project_path": "elsewhere/shared",
+                    "build_profile": "profiles/analysis.yml",
+                },
+            },
+        },
+        registry={"url": "registry.example.org:5050"},
+    )
+    config["project_name"] = "shared"
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(
+        f.code
+        in (
+            "web_terminals.persona_project_collision",
+            "web_terminals.persona_project_shadows_worker_image",
+        )
+        for f in findings
+    )
+
+
 def test_lint_registry_mode_non_default_persona_without_build_profile_is_an_error() -> None:
     """In registry mode, a non-default persona has no local project_path to
     build from — `build_profile` is its only route to a CI build job."""

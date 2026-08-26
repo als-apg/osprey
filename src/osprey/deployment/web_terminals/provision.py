@@ -32,6 +32,7 @@ from osprey.deployment.compose_generator import (
     compose_provider_env,
     ensure_audit_dir,
     ensure_shared_corpus_dir,
+    resolve_ariel_mirror_dir,
     resolve_facility_bundle_dir,
     resolve_project_name,
     resolve_repo_root,
@@ -1234,7 +1235,7 @@ def deploy_up_web_terminals(
       then the web stack runs ``pull`` before ``up -d``.
     - **local**: :func:`ensure_env_production` generates ``.env.users``
       from ``.env`` when absent. Then :func:`build_persona_images` builds
-      every referenced persona's ``<project>-<persona>:local`` image —
+      every referenced persona's ``<project>:local`` image —
       called with :func:`osprey.deployment.web_terminals.personas.resolve_personas`'s
       ``strict=True`` output, so an unresolvable persona reference (unknown
       catalog entry, or ``local`` mode with no catalog/``default_persona``
@@ -1373,6 +1374,18 @@ def deploy_up_web_terminals(
             logger.info(
                 f"Facility-knowledge bundle shared via group {bundle_gid} "
                 "(every web terminal joins it; the sidecar indexes it read-only)."
+            )
+
+    # The ARIEL qmd mirror, for exactly the reasons above: every entitled
+    # terminal's own qmd_export module writes into it, the sidecar indexes it
+    # read-only, and the render can only emit the group it can read off disk.
+    mirror_dir = resolve_ariel_mirror_dir(config, repo_root)
+    if mirror_dir is not None:
+        mirror_gid = ensure_shared_corpus_dir(mirror_dir, relative_to=repo_root)
+        if mirror_gid is not None:
+            logger.info(
+                f"ARIEL qmd mirror shared via group {mirror_gid} "
+                "(every entitled web terminal writes it; the sidecar indexes it read-only)."
             )
 
     # Every audit subdirectory this stack is about to bind: one per roster user,

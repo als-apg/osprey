@@ -31,14 +31,18 @@ from osprey.deployment.web_terminals.auth_credentials import (
     terminal_secret_var,
 )
 from osprey.deployment.web_terminals.personas import (
+    as_dict,
+    config_needs_launch_token,
     normalize_users,
     personas_needing_archiver_password,
+    personas_needing_ariel_mirror,
     personas_needing_ariel_password,
     personas_needing_dispatcher_token,
     personas_needing_facility_bundle,
     personas_needing_graphdb_password,
     personas_needing_launch_token,
     personas_not_denying_bash,
+    settings_json_denies_bash,
 )
 from osprey.deployment.web_terminals.render import (
     clear_nginx_templates_dir,
@@ -50,6 +54,13 @@ from osprey.utils.workspace import BUILD_DIR_NAME
 #: Filename of the rendered web-stack compose file, as
 #: :func:`~osprey.deployment.web_terminals.render.render_web_terminals` keys it.
 WEB_COMPOSE_FILENAME = "docker-compose.web.yml"
+
+#: The offender :class:`BashLaunchTokenConflictError` names for the roster
+#: entries that run no persona (the zero-migration path). Those entries share
+#: the deploy project's own image, config and ``.claude/settings.json``, so
+#: they are one offender however many of them there are — and a spelling no
+#: persona catalog key can collide with.
+ZERO_MIGRATION_OFFENDER = "(no persona: the deploy project)"
 
 
 class BashLaunchTokenConflictError(DeploymentError):
@@ -74,19 +85,19 @@ class BashLaunchTokenConflictError(DeploymentError):
     to a warning; a safety refusal that a credential rotation could swallow is
     not a refusal.
 
-    Three boundaries this guard does **not** cover, none of them accidental:
+    Persona-less roster entries are bound too. Both sides of the persona
+    intersection are keyed on persona names, so an entry naming no persona —
+    the zero-migration path, where the web image *is* the deploy project —
+    appears in neither set; :func:`bash_launch_token_offenders` therefore asks
+    the same two questions of the deploy project itself (entitlement via
+    :func:`~osprey.deployment.web_terminals.personas.config_needs_launch_token`
+    on the deploy config, exactly as
+    :func:`~osprey.deployment.web_terminals.render.render_web_terminals` grants
+    it, and the deny via ``<project_root>/.claude/settings.json``) and reports
+    a conflict there under :data:`ZERO_MIGRATION_OFFENDER`.
 
-    * **Persona-less roster entries are out of reach.** Both sides of the
-      intersection are keyed on persona names, so a roster entry naming no
-      persona — the zero-migration path, where the web image *is* the deploy
-      project — appears in neither set and is not bound by this check.
-      :func:`~osprey.deployment.web_terminals.render.render_web_terminals`
-      answers that entry's entitlement independently, via
-      :func:`~osprey.deployment.web_terminals.personas.config_needs_launch_token`
-      on the deploy config itself. This is consistent with the feature's scope:
-      the single-user path already resolves this token today, so it is not new
-      exposure — but a reader who assumes the guard covers every entitled
-      container will be wrong.
+    Two boundaries this guard does **not** cover, neither of them accidental:
+
     * **The check is render-scoped, not image-scoped.** It reads the rendered
       project directory, which equals the image's ``.claude/settings.json`` only
       as of that image's last build: ``COPY . /app/<project>/`` bakes the
@@ -104,14 +115,26 @@ class BashLaunchTokenConflictError(DeploymentError):
     Args:
         personas: The offending persona names — every persona that is both
             entitled to the launch token and shipping a settings artifact that
-            does not deny ``Bash``. All of them are named in the message; an
-            operator fixing one at a time would otherwise redeploy once per
-            offender to discover the next.
+            does not deny ``Bash`` — plus :data:`ZERO_MIGRATION_OFFENDER` when
+            the persona-less entries are in conflict. All of them are named in
+            the message; an operator fixing one at a time would otherwise
+            redeploy once per offender to discover the next.
     """
 
     def __init__(self, personas: Iterable[str]) -> None:
         self.personas = sorted(personas)
         named = ", ".join(repr(name) for name in self.personas)
+        zero_migration_note = (
+            (
+                f" {ZERO_MIGRATION_OFFENDER!r} stands for the roster entries that run "
+                f"no persona at all: they run the deploy project itself, so the "
+                f"entitlement is the deploy config's own control_system.writes_enabled "
+                f"and bluesky server, and the settings.json read is the deploy "
+                f"project's .claude/settings.json."
+            )
+            if ZERO_MIGRATION_OFFENDER in self.personas
+            else ""
+        )
         super().__init__(
             f"Refusing to deploy: {named} would be granted BLUESKY_LAUNCH_TOKEN "
             f"while also permitted to run a shell. Each named persona is entitled to "
@@ -130,7 +153,7 @@ class BashLaunchTokenConflictError(DeploymentError):
             f"`image:`, so nothing rebuilds at start. Or withdraw the entitlement by "
             f"moving that persona off the bluesky server "
             f"(claude_code.servers.bluesky.enabled: false) or off writes "
-            f"(control_system.writes_enabled: false)."
+            f"(control_system.writes_enabled: false).{zero_migration_note}"
         )
 
 
@@ -205,13 +228,64 @@ def bash_launch_token_offenders(config: Any, project_root: Path | str) -> set[st
         project_root: Deploy project root; relative ``project_path`` values
             resolve against it.
 
+    The persona intersection cannot see roster entries that run no persona (the
+    zero-migration path — no ``default_persona`` and no explicit ``persona`` on
+    the entry — where the web image *is* the deploy project). Those entries are
+    entitled exactly the way :func:`~osprey.deployment.web_terminals.render.render_web_terminals`
+    grants them the token: :func:`config_needs_launch_token` on the deploy
+    config itself. Their shipped settings artifact is the deploy project's own
+    ``.claude/settings.json``, so the same two questions are asked of
+    ``project_root`` and a conflict there is reported under
+    :data:`ZERO_MIGRATION_OFFENDER`.
+
     Returns:
         Every persona both entitled to ``BLUESKY_LAUNCH_TOKEN`` and shipping
-        settings that do not deny ``Bash``. Empty when there is no conflict.
+        settings that do not deny ``Bash``, plus :data:`ZERO_MIGRATION_OFFENDER`
+        when the persona-less entries are in that state. Empty when there is no
+        conflict.
     """
-    return personas_needing_launch_token(config, project_root) & personas_not_denying_bash(
+    offenders = personas_needing_launch_token(config, project_root) & personas_not_denying_bash(
         config, project_root
     )
+    if (
+        _roster_has_personaless_entries(config)
+        and config_needs_launch_token(config)
+        and not settings_json_denies_bash(project_root)
+    ):
+        offenders.add(ZERO_MIGRATION_OFFENDER)
+    return offenders
+
+
+def _roster_has_personaless_entries(config: Any) -> bool:
+    """True if some roster entry runs no persona and so runs the deploy project.
+
+    Mirrors the resolution ``render_web_terminals`` applies, through the same
+    :func:`~osprey.deployment.web_terminals.personas.effective_persona` it
+    uses: a ``default_persona`` covers every entry that names none, a ``role:``
+    resolves to the persona the ``authorization`` block binds it to, and a
+    bare-string entry or an object entry carrying neither a ``persona`` nor a
+    resolvable ``role`` is persona-less. Well-formedness of the roster and of
+    the authorization block is lint's job — a malformed entry is simply not
+    counted here, matching ``normalize_users`` dropping it, and an
+    unparseable ``authorization`` block binds no role.
+    """
+    from .personas import effective_persona, resolve_authorization_roles
+
+    web_terminals = as_dict(as_dict(as_dict(config).get("modules")).get("web_terminals"))
+    default_persona = web_terminals.get("default_persona")
+    try:
+        roles = resolve_authorization_roles(web_terminals)
+    except ValueError:
+        roles = {}
+    users = web_terminals.get("users")
+    for user in users if isinstance(users, list) else []:
+        if isinstance(user, str):
+            return True
+        if isinstance(user, dict) and not effective_persona(
+            user, roles, default_persona, strict=False
+        ):
+            return True
+    return False
 
 
 def web_artifacts_dir(repo_root: Path | str) -> Path:
@@ -315,6 +389,83 @@ def _terminal_secrets(config: Any, root: Path) -> dict[str, str] | None:
     return secrets or None
 
 
+def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
+    """Every disk-derived input the deploy hands :func:`render_web_terminals`.
+
+    Resolved HERE and passed down, because ``render_web_terminals()`` reads no
+    filesystem of its own (see its docstring): the ``.env.auth`` digest; which
+    personas declare the EVENTS panel and so need the dispatcher's bearer,
+    which configure ARIEL and so need its Postgres password, which both allow
+    writes and run the bluesky server and so may arm a queue start, which
+    configure a graph store and so need its Neo4j password — each in their own
+    per-user environment block; which name a facility-knowledge bundle or run
+    a qmd export and so get the deployment's bundle or mirror bind-mounted,
+    and the groups those shared directories (and every user's audit zone)
+    were provisioned with; and the roster's operator secrets.
+
+    The one seam between "what is on disk" and "what the render is told", so a
+    test that wants the render the deploy actually produces asks this rather
+    than restating a subset of the inputs — a subset is exactly how a mount the
+    deploy emits can be invisible to a test that never passed its entitlement.
+
+    Fails closed BEFORE any render, so a refused deploy leaves no half-written
+    artifacts behind: a persona holding ``BLUESKY_LAUNCH_TOKEN`` whose shipped
+    settings still permit ``Bash`` can arm a queue start from a shell, with none
+    of the chat approval the token exists to make sufficient. ``osprey up`` and
+    ``decommission_user`` each already refused this earlier, where refusing is
+    cheaper and cannot half-apply; ``force_recreate_auth_sidecar``'s
+    pre-recreate re-render reaches here having passed neither, which is why the
+    seam checks for itself. The entitled set comes back from the guard so the
+    render is handed exactly the set that was cleared.
+
+    Args:
+        config: The parsed facility config.
+        repo_root: The deployment repo root.
+
+    Returns:
+        Keyword arguments for :func:`render_web_terminals`.
+
+    Raises:
+        BashLaunchTokenConflictError: See :func:`check_bash_launch_token_conflict`.
+    """
+    from osprey.deployment.compose_generator import (
+        resolve_ariel_mirror_dir,
+        resolve_facility_bundle_dir,
+        shared_corpus_gid,
+    )
+
+    root = Path(repo_root)
+    launch_token_personas = check_bash_launch_token_conflict(config, root)
+    return {
+        "auth_env_digest": auth_env_digest(root),
+        "dispatcher_personas": personas_needing_dispatcher_token(config, root),
+        "ariel_personas": personas_needing_ariel_password(config, root),
+        "launch_token_personas": launch_token_personas,
+        "graphdb_personas": personas_needing_graphdb_password(config, root),
+        "archiver_password_personas": personas_needing_archiver_password(config, root),
+        "facility_bundle_personas": personas_needing_facility_bundle(config, root),
+        # A pure read, like every other disk-derived input here: the deploy path
+        # provisions the bundle directory before this render (see
+        # deploy_up_web_terminals), and this asks what group it ended up with so
+        # each entitled service can join it. An unprovisioned directory answers
+        # None and emits no `group_add` — the honest render, since joining a
+        # group that was never established would be a guess.
+        "facility_bundle_gid": shared_corpus_gid(resolve_facility_bundle_dir(config, root)),
+        # The ARIEL mirror: the same pure read, for the same reason, of a
+        # directory the deploy provisioned before this render. The per-user
+        # audit subdirectories read back no gid here — their group is joined
+        # inside the container by the entrypoint, off the mounted directory.
+        "ariel_mirror_personas": personas_needing_ariel_mirror(config, root),
+        "ariel_mirror_gid": shared_corpus_gid(resolve_ariel_mirror_dir(config, root)),
+        # The roster's operator secrets, read back off the deploy .env (see
+        # _terminal_secrets for the None case and why it is not an open door).
+        # Without this the render emits no per-user snippet at all, while
+        # nginx.conf.j2 still emits the `include` that reads one — an nginx that
+        # refuses to start, pointing at a path nothing ever wrote.
+        "terminal_secrets": _terminal_secrets(config, root),
+    }
+
+
 def write_web_terminal_artifacts(config: Any, repo_root: Path | str | None = None) -> list[Path]:
     """Render the web-terminal artifacts into the repo's ``build/`` zone.
 
@@ -382,55 +533,10 @@ def write_web_terminal_artifacts(config: Any, repo_root: Path | str | None = Non
             its own (see :func:`_terminal_secrets`). Raised before any file is
             written or cleared.
     """
-    from osprey.deployment.compose_generator import (
-        resolve_facility_bundle_dir,
-        resolve_repo_root,
-        shared_corpus_gid,
-    )
+    from osprey.deployment.compose_generator import resolve_repo_root
 
     root = Path(repo_root) if repo_root is not None else resolve_repo_root(config)
-    # Every disk-derived input is resolved HERE and passed down, because
-    # render_web_terminals() reads no filesystem of its own (see its docstring):
-    # the .env.auth digest, which personas declare the EVENTS panel and so need
-    # the dispatcher's bearer, which configure ARIEL and so need its Postgres
-    # password, which both allow writes and run the bluesky server and so may
-    # arm a queue start, which configure a graph store and so need its Neo4j
-    # password — each in their own per-user environment block — and which name a
-    # facility-knowledge bundle and so get it bind-mounted.
-    # Fail closed BEFORE the render, so a refused deploy leaves no half-written
-    # artifacts behind: a persona holding BLUESKY_LAUNCH_TOKEN whose shipped
-    # settings still permit `Bash` can arm a queue start from a shell, with none
-    # of the chat approval the token exists to make sufficient. `osprey up` and
-    # `decommission_user` each already refused this earlier, where refusing is
-    # cheaper and cannot half-apply; force_recreate_auth_sidecar's pre-recreate
-    # re-render reaches here having passed neither, which is why the seam checks
-    # for itself. The entitled set comes back from the guard so the render is
-    # handed exactly the set that was cleared.
-    launch_token_personas = check_bash_launch_token_conflict(config, root)
-
-    artifacts = render_web_terminals(
-        config,
-        auth_env_digest=auth_env_digest(root),
-        dispatcher_personas=personas_needing_dispatcher_token(config, root),
-        ariel_personas=personas_needing_ariel_password(config, root),
-        launch_token_personas=launch_token_personas,
-        graphdb_personas=personas_needing_graphdb_password(config, root),
-        archiver_password_personas=personas_needing_archiver_password(config, root),
-        facility_bundle_personas=personas_needing_facility_bundle(config, root),
-        # A pure read, like every other disk-derived input here: the deploy path
-        # provisions the bundle directory before this render (see
-        # deploy_up_web_terminals), and this asks what group it ended up with so
-        # each entitled service can join it. An unprovisioned directory answers
-        # None and emits no `group_add` — the honest render, since joining a
-        # group that was never established would be a guess.
-        facility_bundle_gid=shared_corpus_gid(resolve_facility_bundle_dir(config, root)),
-        # The roster's operator secrets, read back off the deploy .env (see
-        # _terminal_secrets for the None case and why it is not an open door).
-        # Without this the render emits no per-user snippet at all, while
-        # nginx.conf.j2 still emits the `include` that reads one — an nginx that
-        # refuses to start, pointing at a path nothing ever wrote.
-        terminal_secrets=_terminal_secrets(config, root),
-    )
+    artifacts = render_web_terminals(config, **resolve_render_inputs(config, root))
     dest = web_artifacts_dir(root)
     # Before the first write, never after: a render that raised above must not
     # have removed the snippets the currently-deployed stack is still reading,

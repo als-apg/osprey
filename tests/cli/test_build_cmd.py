@@ -182,7 +182,7 @@ class TestProfileLoading:
     def test_deploy_services_explicit_false_parses(self, tmp_path: Path):
         """An explicit false marks the project as attached."""
         p = tmp_path / "a.yml"
-        p.write_text("name: Attached\ndeploy_services: false\n")
+        p.write_text("name: Attached\ndeploy_services: false\nconfig:\n  services.qmd.port: 8180\n")
         assert load_profile(p).deploy_services is False
 
     def test_deploy_services_inherited_child_wins(self, tmp_path: Path):
@@ -195,7 +195,10 @@ class TestProfileLoading:
         base = tmp_path / "base.yml"
         base.write_text("name: Base\ndeploy_services: true\n")
         child = tmp_path / "child.yml"
-        child.write_text("name: Child\nextends: base.yml\ndeploy_services: false\n")
+        child.write_text(
+            "name: Child\nextends: base.yml\ndeploy_services: false\n"
+            "config:\n  services.qmd.port: 8180\n"
+        )
         assert load_profile(child).deploy_services is False
 
     def test_load_profile_lifecycle_parsed(self, tmp_path: Path):

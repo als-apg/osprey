@@ -9,8 +9,10 @@ contributes no rows (a silent skip), so a minimal build shows no ARIEL tile at
 all.
 
 When configured the category issues a single ``GET /api/status`` request against
-``deployment.bind_address`` + ``ariel.web.port`` and derives every row from that
-one response:
+the address the panel actually binds —
+:func:`osprey.registry.web.resolve_web_server_address` for ``"ariel"``, the one
+derivation the panel launcher itself is bound to — and derives every row from
+that one response:
 
 * ``ariel_status`` — the interface is reachable (``ok`` with ``latency_ms``);
   ``warning`` when the store reports itself unhealthy, and — as the sole row —
@@ -29,6 +31,13 @@ one response:
 
 Every row is advisory (``ok``/``warning``); the interface's absence is never an
 error, and a single unreachable probe never crashes the suite.
+
+The address is never re-derived here from ``ariel.web.port`` alone. Multi-user
+compose renders export ``OSPREY_ARIEL_PORT`` per user because the per-user
+containers share the host network namespace, and the registry resolver is
+what honours that override; a config-only reading probed the default port
+inside every multi-user terminal while the panel listened elsewhere, and
+reported ARIEL unreachable in exactly the deployments that run it.
 """
 
 from __future__ import annotations
@@ -40,6 +49,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 from osprey.health.models import CheckResult, Status
+from osprey.registry.web import WebServerConfigDepthError, resolve_web_server_address
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -49,9 +59,11 @@ if TYPE_CHECKING:
 
 CATEGORY = "ariel"
 
+#: Registry key of the ARIEL panel — the address this category probes is the
+#: one the launcher binds for it.
+_REGISTRY_KEY = "ariel"
+
 _STATUS_TIMEOUT_S = 5.0
-_DEFAULT_PORT = 8085  # mirrors registry.web ariel port_default
-_DEFAULT_BIND = "127.0.0.1"
 
 
 def ariel(
@@ -64,8 +76,8 @@ def ariel(
 
     Args:
         config: Parsed config mapping (``None`` when config is unavailable). Read
-            for the top-level ``ariel`` block (presence gate + ``ariel.web.port``)
-            and ``deployment.bind_address``.
+            for the top-level ``ariel`` block (the presence gate) and, through
+            the registry resolver, the panel's ``ariel.web`` address.
         context: Health runtime. Unused — ARIEL is probed over HTTP, no
             control-system connector is needed.
         transport: Optional httpx transport for dependency injection in tests
@@ -81,10 +93,22 @@ def ariel(
         if not isinstance(ariel_block, dict) or not ariel_block:
             return []
 
-        ariel_cfg = ariel_block.get("web") or {}
-        port = ariel_cfg.get("port", _DEFAULT_PORT)
-        bind = (cfg.get("deployment", {}) or {}).get("bind_address", _DEFAULT_BIND)
-        url = f"http://{bind}:{port}/api/status"
+        try:
+            host, port = resolve_web_server_address(_REGISTRY_KEY, cfg)
+        except WebServerConfigDepthError as exc:
+            # The panel's own launch pre-flight refuses this config; what the
+            # advisory row owes the operator is the key to fix, not a probe of
+            # an address nothing can derive.
+            return [
+                CheckResult(
+                    "ariel_status",
+                    CATEGORY,
+                    Status.WARNING,
+                    "ARIEL panel address is misconfigured",
+                    details=str(exc),
+                )
+            ]
+        url = f"http://{host}:{port}/api/status"
 
         status_row, payload = await _fetch_status(url, transport)
         if payload is None:

@@ -25,11 +25,13 @@ import sys
 import pytest
 
 # The modules whose import must stay free of the run-time stack. Extending the
-# guard to another module -- e.g. the CLI's plan-index builder, which imports
-# from both of these and carries the same requirement -- is one entry here.
+# guard to another module carrying the same requirement is one entry here.
+# ``plan_index`` is the CLI's plan-index builder: it imports from both bridge
+# modules and runs in deploy tooling that must not drag the RunEngine stack in.
 GUARDED_MODULES = (
     "osprey.services.bluesky_bridge.plan_metadata",
     "osprey.services.bluesky_bridge.plan_loader",
+    "osprey.cli.templates.plan_index",
 )
 
 # The run-time stack: importing any of these means the module under test grew a

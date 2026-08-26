@@ -150,19 +150,33 @@ def test_preset_web_panels_against_registry(preset_path: Path) -> None:
     if it is in the shared ``osprey.profiles.web_panels`` registry *or* it is
     backed by a ``web.panels.<id>.url`` config override (rendered as an iframe
     tab). A drifted entry that is neither would render a broken UI tab at runtime.
+
+    Plus the third case the Reach Contract introduced, which is why this check
+    reads the registry rather than a hardcoded pair: a panel whose URL the
+    build DERIVES is legitimately url-less in the preset. The deploying profile
+    derives it from its own sidecar block, and an attached persona is told it
+    by projection from the hosting render — so a persona preset that spelled
+    the URL would be stating a fact it cannot keep true. Each preset is loaded
+    unresolved here, without its ``extends:`` chain, so the sidecar block that
+    satisfies the real validator is not visible at this level either way; the
+    build-time refusal for a selected panel the deployment cannot back is
+    ``reach.selected_panel_errors``, not this static scan.
     """
+    from osprey.deployment.reach import REACH_CONTRACTS
     from osprey.profiles.web_panels import BUILTIN_PANELS
 
+    derived = {p.panel for c in REACH_CONTRACTS.values() for p in c.projected if p.panel}
     profile = load_profile(preset_path)
     config = getattr(profile, "config", {}) or {}
     unknown = [
         p
         for p in profile.web_panels
-        if p not in BUILTIN_PANELS and f"web.panels.{p}.url" not in config
+        if p not in BUILTIN_PANELS and p not in derived and f"web.panels.{p}.url" not in config
     ]
     assert not unknown, (
         f"{preset_path.name} declares unknown web_panels: {unknown} "
-        f"(valid: built-in {sorted(BUILTIN_PANELS)} or a web.panels.<id>.url override)"
+        f"(valid: built-in {sorted(BUILTIN_PANELS)}, a panel the Reach Contract "
+        f"projects a URL for {sorted(derived)}, or a web.panels.<id>.url override)"
     )
 
 
