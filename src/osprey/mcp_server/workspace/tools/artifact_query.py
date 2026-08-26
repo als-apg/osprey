@@ -28,6 +28,7 @@ async def artifact_list(
     category: str | None = None,
     last_n: int | None = None,
     source_agent: str | None = None,
+    artifact_type: str | None = None,
 ) -> str:
     """List the artifacts currently available in the OSPREY workspace.
 
@@ -37,7 +38,10 @@ async def artifact_list(
     ``artifact_id``.
 
     Narrow to a data namespace with ``category`` (e.g. "archiver_data")
-    rather than reaching for a different tool.
+    rather than reaching for a different tool. A category holds whatever form
+    its subject took — prose, a table, a dataset — so add ``artifact_type``
+    when only one form is useful (e.g. ``artifact_type="json"`` for data you
+    intend to load, ``"markdown"`` for an answer to read).
 
     Args:
         tool: Only show artifacts from this tool (e.g. "archiver_read").
@@ -45,6 +49,8 @@ async def artifact_list(
         last_n: Show only the most recent N artifacts.
         source_agent: Only show artifacts from this agent
             (e.g. "logbook-search").
+        artifact_type: Only show artifacts stored in this form
+            (e.g. "json", "markdown", "plot_png").
 
     Returns:
         JSON with the list of artifacts.
@@ -58,6 +64,7 @@ async def artifact_list(
             category_filter=category,
             last_n=last_n,
             source_agent_filter=source_agent,
+            type_filter=artifact_type,
         )
 
         return json.dumps(
@@ -68,6 +75,7 @@ async def artifact_list(
                     "category": category,
                     "last_n": last_n,
                     "source_agent": source_agent,
+                    "artifact_type": artifact_type,
                 },
                 "entries": [e.to_dict() for e in entries],
             },

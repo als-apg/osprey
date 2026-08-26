@@ -281,6 +281,38 @@ class TestSubmitResponse:
         assert entry.category == "agent_response"
 
     @pytest.mark.asyncio
+    async def test_description_carries_the_label_not_the_key(self, workspace):
+        """The description is operator-facing, so it reads as words.
+
+        Storing the raw key put plumbing in front of the user
+        ("channel_addresses from channel-finder").
+        """
+        raw = await _fn(
+            title="BPM Channel Addresses",
+            content="Found 12 BPM channels.",
+            data_type="channel_addresses",
+            source_agent="channel-finder",
+        )
+        data = extract_response_dict(raw)
+
+        entry = get_artifact_store().get_entry(data["artifact_id"])
+        assert entry is not None
+        assert entry.description == "Channel Addresses — channel-finder"
+
+    @pytest.mark.asyncio
+    async def test_description_without_an_agent_is_the_bare_label(self, workspace):
+        raw = await _fn(
+            title="Ad-hoc note",
+            content="Some prose.",
+            data_type="document",
+        )
+        data = extract_response_dict(raw)
+
+        entry = get_artifact_store().get_entry(data["artifact_id"])
+        assert entry is not None
+        assert entry.description == "Document"
+
+    @pytest.mark.asyncio
     async def test_explicit_data_type_drives_the_category(self, workspace):
         """An explicit data_type is the category — the agent name never overrides it."""
         raw = await _fn(

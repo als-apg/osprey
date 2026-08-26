@@ -51,6 +51,13 @@ Compatibility is documented in release notes, not encoded in the version string.
 - `artifact_delete_all` reports one activity entry ("N artifacts (scope)") instead
   of one per deleted artifact, so clearing a large gallery no longer pushes
   everything else out of the activity history.
+- The facility knowledge graph agent files its answers under **Facility Knowledge**
+  in the gallery, alongside the documented-knowledge agent, instead of the generic
+  **Agent Response** group. That fallback group is now labelled **Uncategorized**,
+  which is what it means: an agent that named no category. Facility Knowledge and
+  Lattice Analysis have gallery icons of their own, and an artifact's description
+  now reads as words ("Channel Addresses — channel-finder") rather than the
+  internal key.
 
 ### Added
 
@@ -58,6 +65,8 @@ Compatibility is documented in release notes, not encoded in the version string.
   facility needs are recorded as candidates in `INTERVIEW.md`, verified against the
   installed framework by a scout, and offered to the user as a GitHub issue or email
   to the maintainers. Nothing is sent without the user approving the full text.
+- `artifact_list` takes `artifact_type=` to narrow a category to one form —
+  `artifact_type="json"` for data to load, `"markdown"` for an answer to read.
 
 ### Security
 

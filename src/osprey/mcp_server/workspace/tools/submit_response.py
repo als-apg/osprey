@@ -26,6 +26,20 @@ from osprey.utils.workspace import resolve_config_path
 logger = logging.getLogger("osprey.mcp_server.tools.submit_response")
 
 
+def _describe(category: str, agent: str) -> str:
+    """The artifact's human-facing description line.
+
+    Uses the category's display label, not its key: the description is shown to
+    the operator, and a raw key ("agent_response from facility-knowledge-graph")
+    reads as leaked plumbing.
+    """
+    from osprey.stores.type_registry import get_categories
+
+    typedef = get_categories().get(category)
+    label = typedef.label if typedef else category
+    return f"{label} — {agent}" if agent else label
+
+
 def _declared_results_category(agent: str) -> str | None:
     """The category *agent* owes a data artifact to, per its rendered definition."""
     if not agent:
@@ -180,7 +194,7 @@ async def submit_response(
             filename=f"{tool_name}.md",
             artifact_type="markdown",
             title=title,
-            description=f"{category} from {agent}" if agent else category,
+            description=_describe(category, agent),
             mime_type="text/markdown",
             tool_source="submit_response",
             metadata={

@@ -55,6 +55,7 @@ async def test_list_returns_entries_and_echoes_filters(store, list_tool):
         "category": None,
         "last_n": None,
         "source_agent": None,
+        "artifact_type": None,
     }
 
     filtered = json.loads(await list_tool(tool="archiver_read", last_n=5))
@@ -75,6 +76,36 @@ async def test_list_narrows_to_a_data_category(store, list_tool):
     assert result["total_entries"] == 1
     assert result["entries"][0]["id"] == dataset.id
     assert result["filters_applied"]["category"] == "archiver_data"
+
+
+@pytest.mark.asyncio
+async def test_list_narrows_to_one_form_within_a_category(store, list_tool):
+    """``artifact_type`` separates the forms a category holds.
+
+    A category is a subject, not a format: an agent's prose answer and the
+    dataset it discusses can share one. A caller that intends to *load* the
+    data asks for the form it can load.
+    """
+    dataset = _save_entry(store, tool="pyat-specialist", category="lattice_analysis")
+    prose = store.save_file(
+        file_content=b"# AR optics\n\nTunes computed from the design lattice.",
+        filename="pyat-specialist.md",
+        artifact_type="markdown",
+        title="AR optics",
+        description="Lattice Analysis — pyat-specialist",
+        mime_type="text/markdown",
+        tool_source="submit_response",
+    )
+    # save_file takes no category; submit_response sets it the same way.
+    store.update_entry_metadata(prose.id, category="lattice_analysis")
+
+    both = json.loads(await list_tool(category="lattice_analysis"))
+    assert both["total_entries"] == 2
+
+    just_data = json.loads(await list_tool(category="lattice_analysis", artifact_type="json"))
+    assert just_data["total_entries"] == 1
+    assert just_data["entries"][0]["id"] == dataset.id
+    assert just_data["filters_applied"]["artifact_type"] == "json"
 
 
 @pytest.mark.asyncio
