@@ -137,21 +137,25 @@ def use_process_web_credentials(app: Any) -> None:
 
 
 # Both seams below restore by hand in a ``finally`` rather than taking the
-# ``monkeypatch`` fixture, and that is load-bearing rather than stylistic.
+# ``monkeypatch`` fixture. That was once load-bearing: an autouse fixture that
+# requests ``monkeypatch`` pulls it into EVERY test's fixture closure, and
+# autouse fixtures are set up first — so ``monkeypatch`` is created before the
+# test's own fixtures and torn down AFTER them. That inversion breaks any
+# fixture that wraps a ``mock.patch`` around a target the test body then
+# re-points with ``monkeypatch.setattr``: the patch's ``__exit__`` puts the real
+# object back first, and ``monkeypatch.undo()`` then restores the value it
+# captured — the mock — leaving it installed for the rest of the worker.
+# ``tests/interfaces/channel_finder`` was exactly that shape, and the leaked
+# ``MagicMock`` answered every later config read in the worker — which is how
+# an unrelated store suite ended up resolving its repo root one directory short.
 #
-# An autouse fixture that requests ``monkeypatch`` pulls it into EVERY test's
-# fixture closure, and autouse fixtures are set up first — so ``monkeypatch``
-# ends up created before the test's own fixtures and therefore torn down AFTER
-# them. That inversion breaks any fixture that wraps a ``mock.patch`` around a
-# target the test body then re-points with ``monkeypatch.setattr``: the patch's
-# ``__exit__`` puts the real object back first, and ``monkeypatch.undo()`` then
-# restores the value it captured — the mock — leaving it installed for the rest
-# of the worker. ``tests/interfaces/channel_finder/test_pending_review_api.py``
-# is exactly that shape (its ``pending_review_client`` fixture patches
-# ``osprey.utils.workspace.load_osprey_config``, and ``_artifact_store_dir``
-# monkeypatches the same name), and the leaked ``MagicMock`` then answered every
-# later config read in the worker — which is how an unrelated store suite ended
-# up resolving its repo root one directory short.
+# ``_isolate_audit_zone`` below does request ``monkeypatch``, so that early
+# creation is now the normal order under this tree. What keeps it harmless is
+# the invariant on the other side: a fixture and a test body that repoint the
+# SAME seam must both go through ``monkeypatch`` (see ``_patch_config`` in
+# ``channel_finder/conftest.py``), so their undos stack in one list and unwind
+# LIFO. Never wrap a fixture-level ``mock.patch`` around a target a test body
+# monkeypatches.
 
 
 @pytest.fixture(autouse=True)
