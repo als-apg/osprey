@@ -1522,12 +1522,29 @@ textarea.form-input {
   margin: 0 auto;
 }
 
-.fb-disabled-hint code {
-  font-family: var(--font-mono);
-  font-size: var(--cf-text-xs);
-  background: var(--bg-elevated);
-  padding: 1px 4px;
-  border-radius: 2px;
+/* Informational posture, matching .explore-unknown--info: the graph paradigm
+   keeps no feedback store by design, so the pane that says so must not be
+   tinted like a failure. Sized to sit above the capture queue rather than
+   alone on the view, which is what separates it from .fb-disabled. */
+.fb-paradigm-note {
+  background: var(--accent-tint-08);
+  border: 1px solid var(--accent-tint-30);
+  border-left: 3px solid var(--color-accent);
+  border-radius: var(--cf-radius-md);
+  padding: var(--cf-space-3) var(--cf-space-4);
+}
+
+.fb-paradigm-note-title {
+  color: var(--text-accent);
+  font-size: var(--cf-text-base);
+  font-weight: 600;
+}
+
+.fb-paradigm-note-body {
+  margin-top: var(--cf-space-2);
+  color: var(--text-secondary);
+  font-size: var(--cf-text-sm);
+  line-height: 1.5;
 }
 
 .fb-table-row {

@@ -186,3 +186,80 @@ export function _formatTime(isoStr) {
     return isoStr;
   }
 }
+
+/**
+ * Render the "Pending Reviews" section: the searches the agent ran, captured
+ * by the PostToolUse hook and waiting for an operator to look at them.
+ *
+ * Shared by both feedback views, and `canPromote` is the entire difference
+ * between them. Approving promotes a captured search into the navigation
+ * hints a pipeline reads back on its next search; a deployment with no
+ * feedback store has nowhere to put one, and the server refuses the call
+ * (`pending_review_api._get_feedback_store`). So the button is not drawn
+ * there rather than drawn and answered with an error. Dismiss stays in both:
+ * it only deletes from the capture queue and needs no feedback store.
+ *
+ * @param {any[]} items - pending review items, newest first.
+ * @param {{canPromote?: boolean}} [options]
+ * @returns {string}
+ */
+export function _renderPendingSection(items, options = {}) {
+  const canPromote = options.canPromote !== false;
+  const pendingItems = items || [];
+
+  if (pendingItems.length === 0) {
+    return `
+      <div class="fb-pending-section">
+        <div class="fb-pending-header">
+          <span>Pending Reviews</span>
+          <span class="fb-pending-subtitle">Agent-captured searches awaiting review</span>
+        </div>
+        <div class="fb-pending-empty">No pending reviews</div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="fb-pending-section">
+      <div class="fb-pending-header">
+        <span>Pending Reviews <span class="fb-pending-badge">${pendingItems.length}</span></span>
+        <span class="fb-pending-subtitle">Agent-captured searches awaiting review</span>
+      </div>
+      ${pendingItems.map((/** @type {any} */ item) => {
+        const summary = _buildCardSummary(item);
+        const label = _toolLabel(item.tool_name);
+        const channels = _parseChannelsFromResponse(item.tool_response);
+        const selHtml = item.selections && Object.keys(item.selections).length > 0
+          ? `<div class="fb-selections">${_renderSelections(item.selections)}</div>` : '';
+        const chHtml = _renderChannelList(channels);
+        const taskHtml = item.agent_task && item.agent_task !== summary
+          ? `<div class="fb-pending-agent-task">${esc(item.agent_task)}</div>` : '';
+        const artifactHtml = item.artifact && item.artifact.filename
+          ? `<a class="fb-pending-artifact-link" href="/api/artifacts/${esc(item.artifact.filename)}" target="_blank">View Result</a>` : '';
+        const approveHtml = canPromote
+          ? `<button class="btn btn-sm btn-primary fb-pending-approve" data-id="${esc(item.id)}">Approve &amp; Update Prompt</button>` : '';
+        return `
+        <div class="fb-pending-card" data-id="${esc(item.id)}">
+          ${taskHtml}
+          <div class="fb-pending-header">
+            <div class="fb-pending-summary">${esc(summary)}</div>
+            ${label ? `<span class="fb-pending-tool-badge">${esc(label)}</span>` : ''}
+          </div>
+          ${selHtml}
+          ${chHtml}
+          <div class="fb-pending-footer">
+            <div class="fb-pending-meta">
+              <span>${item.channel_count || 0} channels</span>
+              <span>${_formatTime(item.captured_at)}</span>
+            </div>
+            ${artifactHtml}
+            <div class="fb-pending-actions">
+              ${approveHtml}
+              <button class="btn btn-sm btn-danger fb-pending-dismiss" data-id="${esc(item.id)}">Dismiss</button>
+            </div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  `;
+}

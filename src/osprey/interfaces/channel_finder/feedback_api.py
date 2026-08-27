@@ -82,12 +82,28 @@ class DeleteRecordRequest(BaseModel):
 
 @router.get("/feedback/status")
 async def feedback_status(request: Request):
-    """Check feedback store availability. Always returns 200."""
+    """Check feedback store availability. Always returns 200.
+
+    ``paradigm`` names the pipeline being served, and it is what makes
+    ``available: false`` actionable. There are two unrelated reasons for that
+    answer — the operator has not switched feedback on for a pipeline that
+    supports it, and the served paradigm keeps no feedback store at all — and
+    a bare boolean cannot tell them apart. The UI that had only the boolean
+    answered both with the same lock screen quoting a hierarchical-only config
+    key, which is wrong advice for an operator running the graph paradigm.
+    """
+    paradigm = getattr(request.app.state, "pipeline_type", None)
     store = getattr(request.app.state, "feedback_store", None)
     if store is None:
-        return {"available": False, "entry_count": 0, "store_path": None}
+        return {
+            "available": False,
+            "paradigm": paradigm,
+            "entry_count": 0,
+            "store_path": None,
+        }
     return {
         "available": True,
+        "paradigm": paradigm,
         "entry_count": len(store.list_keys()),
         "store_path": str(store._path),
     }

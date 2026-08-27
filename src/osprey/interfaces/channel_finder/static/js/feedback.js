@@ -15,13 +15,9 @@ import { showToast } from './app.js';
 import { getContainer, setContainer, getCurrentKey, setCurrentKey, setRerender, setRenderList } from './feedback-state.js';
 import { _renderDetail } from './feedback-detail.js';
 import {
-  _toolLabel,
-  _buildCardSummary,
-  _parseChannelsFromResponse,
-  _renderChannelList,
-  _renderSelections,
   _parseSelections,
   _formatTime,
+  _renderPendingSection,
 } from './feedback-render.js';
 
 // ---- Public API ----
@@ -50,7 +46,16 @@ async function _render() {
   try {
     const status = await fetchJSON('/api/feedback/status');
     if (!status.available) {
-      _renderDisabled();
+      // Two different "no feedback store" answers, and only the paradigm tells
+      // them apart. The graph paradigm keeps no hint store by design, yet the
+      // capture hook fills the pending queue there like anywhere else — so
+      // showing the lock screen hid real captured searches behind advice to
+      // switch on a setting that paradigm does not have.
+      if (status.paradigm === 'graph') {
+        await _renderGraphReviews();
+      } else {
+        _renderDisabled();
+      }
       return;
     }
     if (getCurrentKey()) {
@@ -63,19 +68,58 @@ async function _render() {
   }
 }
 
+/**
+ * Feedback is switched off for a paradigm that supports it. Operator language,
+ * and deliberately no dotted config key: the pane names the setting the way
+ * the Explore view's panes do, because the key that was printed here is
+ * hierarchical-only and this pane is reached from several paradigms.
+ */
 function _renderDisabled() {
   const container = getContainer();
   if (!container) return;
   container.innerHTML = `
     <div class="fb-disabled">
       <div class="fb-disabled-icon">&#128274;</div>
-      <div class="fb-disabled-title">Feedback Store Not Available</div>
+      <div class="fb-disabled-title">Feedback is switched off for this deployment</div>
       <div class="fb-disabled-hint">
-        Enable feedback in your config to start recording navigation hints:<br>
-        <code>channel_finder.pipelines.hierarchical.feedback.enabled: true</code>
+        Feedback records the paths that answered a channel search so the agent
+        can reuse them. Check the channel finder feedback setting in your
+        configuration, then reload this panel.
       </div>
     </div>
   `;
+}
+
+/**
+ * The graph paradigm's feedback view: the capture queue on its own.
+ *
+ * Nothing is hidden here and nothing is broken — there is simply no hint
+ * store to browse, because the graph agent answers each question by querying
+ * the facility graph rather than by replaying a saved path. What the hook
+ * captures is still worth an operator's eye, so the queue is rendered with
+ * Dismiss only; approving would write a hint nothing reads back.
+ */
+async function _renderGraphReviews() {
+  const container = getContainer();
+  if (!container) return;
+
+  const pendingData = await fetchJSON('/api/pending-reviews/status')
+    .then((/** @type {any} */ s) => s.available ? fetchJSON('/api/pending-reviews') : { items: [] })
+    .catch(() => ({ items: [] }));
+
+  container.innerHTML = `
+    <div class="fb-paradigm-note">
+      <div class="fb-paradigm-note-title">Reviewing graph answers</div>
+      <div class="fb-paradigm-note-body">
+        This deployment answers channel searches by querying the facility graph,
+        so there are no saved navigation hints to browse or edit. The searches
+        the agent ran are still captured below for review &mdash; look them over,
+        then dismiss the ones you are done with.
+      </div>
+    </div>
+    ${_renderPendingSection(pendingData.items || [], { canPromote: false })}
+  `;
+  _bindPendingEvents();
 }
 
 // ---- List View ----
@@ -159,59 +203,9 @@ async function _renderList() {
   }
 
   // ---- Pending Reviews Section ----
-  if (pendingItems.length > 0) {
-    html += `
-      <div class="fb-pending-section">
-        <div class="fb-pending-header">
-          <span>Pending Reviews <span class="fb-pending-badge">${pendingItems.length}</span></span>
-          <span class="fb-pending-subtitle">Agent-captured searches awaiting review</span>
-        </div>
-        ${pendingItems.map((/** @type {any} */ item) => {
-          const summary = _buildCardSummary(item);
-          const label = _toolLabel(item.tool_name);
-          const channels = _parseChannelsFromResponse(item.tool_response);
-          const selHtml = item.selections && Object.keys(item.selections).length > 0
-            ? `<div class="fb-selections">${_renderSelections(item.selections)}</div>` : '';
-          const chHtml = _renderChannelList(channels);
-          const taskHtml = item.agent_task && item.agent_task !== summary
-            ? `<div class="fb-pending-agent-task">${esc(item.agent_task)}</div>` : '';
-          const artifactHtml = item.artifact && item.artifact.filename
-            ? `<a class="fb-pending-artifact-link" href="/api/artifacts/${esc(item.artifact.filename)}" target="_blank">View Result</a>` : '';
-          return `
-          <div class="fb-pending-card" data-id="${esc(item.id)}">
-            ${taskHtml}
-            <div class="fb-pending-header">
-              <div class="fb-pending-summary">${esc(summary)}</div>
-              ${label ? `<span class="fb-pending-tool-badge">${esc(label)}</span>` : ''}
-            </div>
-            ${selHtml}
-            ${chHtml}
-            <div class="fb-pending-footer">
-              <div class="fb-pending-meta">
-                <span>${item.channel_count || 0} channels</span>
-                <span>${_formatTime(item.captured_at)}</span>
-              </div>
-              ${artifactHtml}
-              <div class="fb-pending-actions">
-                <button class="btn btn-sm btn-primary fb-pending-approve" data-id="${esc(item.id)}">Approve &amp; Update Prompt</button>
-                <button class="btn btn-sm btn-danger fb-pending-dismiss" data-id="${esc(item.id)}">Dismiss</button>
-              </div>
-            </div>
-          </div>`;
-        }).join('')}
-      </div>
-    `;
-  } else {
-    html += `
-      <div class="fb-pending-section">
-        <div class="fb-pending-header">
-          <span>Pending Reviews</span>
-          <span class="fb-pending-subtitle">Agent-captured searches awaiting review</span>
-        </div>
-        <div class="fb-pending-empty">No pending reviews</div>
-      </div>
-    `;
-  }
+  // Shared with the graph view (see _renderGraphReviews); here the deployment
+  // has a feedback store, so promotion is on offer.
+  html += _renderPendingSection(pendingItems, { canPromote: true });
 
   container.innerHTML = html;
   _bindListEvents();
