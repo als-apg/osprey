@@ -522,8 +522,9 @@
 <span id="multi-user-require-a-login"></span><h1>Require a Login<a class="headerlink" href="#require-a-login" title="Link to this heading">#</a></h1>
 <p>The landing page lists the roster; a login decides who may open a card. This
 page covers the two ways to require one — passwords OSPREY manages, or the
-single sign-on your facility already runs — the HTTPS that either needs, where
-passwords live, and what to do when someone leaves.</p>
+single sign-on your facility already runs — the HTTPS that either needs, how a
+provider’s groups can pick which tier a login lands on, where passwords live,
+what a login leaves in the audit trail, and what to do when someone leaves.</p>
 <p>With no <code class="docutils literal notranslate"><span class="pre">auth</span></code> stanza nginx asks for no credentials and speaks plain HTTP —
 but the terminals behind it are not open. Each one authenticates every request
 against its own operator secret, which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> mints into the
@@ -649,6 +650,127 @@ that meant eight-hour sessions would quietly keep twelve-hour ones.</p>
 uses host networking), so nginx reaches it and nothing off-host does. It is not
 published as a container port, and anyone with a shell on the deploy host can
 reach it — the same as every per-user terminal.</p>
+</section>
+<section id="let-single-sign-on-pick-the-tier">
+<span id="multi-user-role-from-sso"></span><h2>Let single sign-on pick the tier<a class="headerlink" href="#let-single-sign-on-pick-the-tier" title="Link to this heading">#</a></h2>
+<p>Each roster entry names the persona it runs as, and pinning that per user is
+the simplest thing to do. Where your provider already knows who is an operator
+and who is a visitor, you can state that mapping once instead:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">authorization</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">roles</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">operator</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="nv">readwrite</span><span class="p p-Indicator">}</span>
+<span class="w">        </span><span class="nt">viewer</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="nv">readonly</span><span class="p p-Indicator">}</span>
+<span class="w">      </span><span class="nt">claims</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">claim</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">groups</span><span class="w">          </span><span class="c1"># the ID-token claim holding group membership</span>
+<span class="w">        </span><span class="nt">map</span><span class="p">:</span><span class="w">                   </span><span class="c1"># that claim&#39;s values, onto the roles above</span>
+<span class="w">          </span><span class="nt">ca-operators</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">operator</span>
+<span class="w">          </span><span class="nt">ca-viewers</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">viewer</span>
+<span class="w">    </span><span class="nt">users</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
+<span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+<span class="w">        </span><span class="nt">role</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">operator</span><span class="w">         </span><span class="c1"># in place of `persona: readwrite`</span>
+<span class="w">        </span><span class="nt">oidc_subject</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;8f4c1e02-...&quot;</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">roles</span></code> is the static half, and it applies in every login mode: a role names
+one persona from the catalog, and a roster entry carries <code class="docutils literal notranslate"><span class="pre">role:</span></code> <strong>or</strong>
+<code class="docutils literal notranslate"><span class="pre">persona:</span></code> — never both, which lint refuses. (With both written down, nothing
+says which one governs, and a later edit to the role’s persona would silently
+not reach that entry.) A role that names no persona, a map entry naming a role
+you never declared, and half a <code class="docutils literal notranslate"><span class="pre">claims</span></code> stanza each stop the build with the
+offender named, rather than rendering a deployment whose privileges are not
+what the file says.</p>
+<p><code class="docutils literal notranslate"><span class="pre">claims</span></code> is the single sign-on half: it names the ID-token claim your
+provider puts group membership in, and maps that claim’s <strong>values</strong> onto the
+same role names. Real providers send a list, so the values are what is matched,
+not the claim as a whole. A login arriving with</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="nt">&quot;groups&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;ca-operators&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;building-6&quot;</span><span class="p">]}</span>
+</pre></div>
+</div>
+<p>is granted <code class="docutils literal notranslate"><span class="pre">operator</span></code>: <code class="docutils literal notranslate"><span class="pre">ca-operators</span></code> is in the map and <code class="docutils literal notranslate"><span class="pre">building-6</span></code>
+matches nothing. Every value is matched rather than the first one that hits, so
+the role someone is granted never depends on the order the provider happened to
+list their groups in. Several values naming the <em>same</em> role are fine. The other
+two outcomes are refusals — a 403 at the front door, each recorded in the audit
+trail with its own reason:</p>
+<ul class="simple">
+<li><p><strong>No value matches the map.</strong> The account holds none of the groups this
+deployment maps, so there is no role to grant.</p></li>
+<li><p><strong>Values name more than one role.</strong> Somebody is in an operator group <em>and</em> a
+viewer group; picking either one would be a guess about which privilege they
+meant to use.</p></li>
+</ul>
+<p>Matching is exact: values are compared as written, with no case folding. The
+role a login resolves to travels with that session: it reaches the person’s
+terminal as an identity header, and is named on the login record in the
+audit trail.</p>
+<p><strong>The role a login carries has to be the role its terminal was built as.</strong> The
+roster’s <code class="docutils literal notranslate"><span class="pre">role:</span></code> does two jobs, and both are in force in every mode. It
+resolves to a persona at build time — that is what decides which project a
+card’s container is built from — and it is what the session carries. Under
+password login, that is the whole story.</p>
+<p>Under single sign-on it depends on whether you wrote a <code class="docutils literal notranslate"><span class="pre">claims</span></code> map:</p>
+<ul class="simple">
+<li><p><strong>No</strong> <code class="docutils literal notranslate"><span class="pre">claims</span></code> <strong>map.</strong> Nothing asked the provider about privilege, so the
+role is the roster’s, exactly as under a password.</p></li>
+<li><p><strong>A</strong> <code class="docutils literal notranslate"><span class="pre">claims</span></code> <strong>map.</strong> The validated ID token decides the role — and it has
+to be the one the roster named for the person whose card was clicked. If
+someone’s groups map to <code class="docutils literal notranslate"><span class="pre">operator</span></code> while their roster entry says
+<code class="docutils literal notranslate"><span class="pre">observer</span></code>, the login is refused: 403, recorded as <code class="docutils literal notranslate"><span class="pre">role_mismatch</span></code>, no
+session issued. Refusing grants nobody anything. It turns away a login whose
+asserted privilege describes a different terminal than the one behind the
+door, which is a roster and a provider that have drifted apart — fix it in
+whichever of the two is out of date.</p></li>
+</ul>
+<p>One case has nothing to cross-check: a roster entry that names no role at all,
+because it pins a <code class="docutils literal notranslate"><span class="pre">persona:</span></code> directly or just rides the default. Its container
+is not bound to a role, so there is nothing for the token to disagree with and
+the token’s role is what the session carries.</p>
+<p>The mirror does not hold: a <code class="docutils literal notranslate"><span class="pre">claims</span></code> stanza in a password deployment resolves
+nothing, because no ID token arrives to read it from. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> warns about
+that one rather than failing — it is what a facility writes while staging a move
+to single sign-on — but until the method is <code class="docutils literal notranslate"><span class="pre">oidc</span></code>, none of the roles in it is
+ever granted.</p>
+<p><strong>Every login is recorded.</strong> Successes and refusals alike land in
+<code class="docutils literal notranslate"><span class="pre">var/audit/sidecar/auth_sidecar.jsonl</span></code> on the deploy host: one line each,
+naming the user, the category (<code class="docutils literal notranslate"><span class="pre">password_login</span></code> and <code class="docutils literal notranslate"><span class="pre">oidc_login</span></code>, or a
+refusal such as <code class="docutils literal notranslate"><span class="pre">unmapped_role_claim</span></code> or <code class="docutils literal notranslate"><span class="pre">ambiguous_role_claim</span></code>), and the
+role granted. That file belongs to the authentication service — no terminal
+container mounts it, and only a shell on the host reads it. Three deliberate
+gaps in it: an attempt the rate limiter turned away records nothing, so an
+unauthenticated caller cannot make the trail grow at will; a failed password is
+one category whatever went wrong with it — a wrong password, a name not on
+the roster and an account with no password set are indistinguishable, so the
+trail cannot be read backwards to enumerate who exists; and a single sign-on
+refusal that an unauthenticated caller can reach for free (a user with no
+mapped provider identity, or one whose mapped identity cannot be carried) is
+filed once per window, with the ones it swallowed counted on the next record
+as <code class="docutils literal notranslate"><span class="pre">folded_refusals</span></code>.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><strong>Microsoft Entra ID: when the group claim goes missing.</strong> An account in
+more than a few dozen groups triggers <em>group overage</em> — Entra leaves
+<code class="docutils literal notranslate"><span class="pre">groups</span></code> out of the ID token altogether and puts a pointer to Microsoft
+Graph there instead (<code class="docutils literal notranslate"><span class="pre">_claim_names</span></code>, <code class="docutils literal notranslate"><span class="pre">_claim_sources</span></code>). That lands on
+a missing-claim refusal, which is the honest outcome: the authentication
+service reads identity only from the ID token it already validated, and
+following the pointer would not help anyway — it never calls the userinfo
+endpoint at all. The refusal is audited and names the claim it looked for,
+and the log line beside it lists the claim names that did arrive, which is
+how you recognize an overage.</p>
+<p>Two changes at the provider fix it, and both work by bounding the claim to
+this one application rather than to everything the account belongs to:</p>
+<ul class="simple">
+<li><p><strong>Emit fewer groups.</strong> In the app registration’s token configuration,
+emit the groups <em>assigned to this application</em> (or security groups only)
+rather than every group the account is in.</p></li>
+<li><p><strong>Map app roles instead.</strong> Define app roles on the registration, assign
+people to them, and point <code class="docutils literal notranslate"><span class="pre">claim</span></code> at <code class="docutils literal notranslate"><span class="pre">roles</span></code>. The map’s keys become
+your app-role values; nothing else about the block changes.</p></li>
+</ul>
+</div>
 </section>
 <section id="leave-one-entry-public">
 <h2>Leave one entry public<a class="headerlink" href="#leave-one-entry-public" title="Link to this heading">#</a></h2>
@@ -809,6 +931,21 @@ memory, so restarting that container forgets it. A cookie captured before a
 logout could be replayed until it expires on its own — within
 <code class="docutils literal notranslate"><span class="pre">auth.session_lifetime</span></code>.</p>
 </div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><strong>A role change takes effect at the next login.</strong> A session’s role is
+resolved when the session is minted and then travels inside the signed
+cookie, so editing a roster <code class="docutils literal notranslate"><span class="pre">role:</span></code> — or moving someone between groups at
+the provider — does not reach a session that is already open. It changes
+what their <em>next</em> login is granted. Where a role has to be withdrawn now,
+end the session rather than the role: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">decommission</span> <span class="pre">&lt;name&gt;</span></code>,
+or wait out <code class="docutils literal notranslate"><span class="pre">auth.session_lifetime</span></code>.</p>
+<p>Switching <code class="docutils literal notranslate"><span class="pre">auth.method</span></code> is the exception. Moving a deployment from
+passwords to single sign-on drops the role from every session minted under
+the old method straight away — that role was granted by a proof the
+deployment no longer accepts. Those sessions stay open until they expire;
+they just stop carrying a privilege.</p>
+</div>
 <p>Removing someone needs care, because a credential can outlive the person’s
 account in three different ways:</p>
 <p><strong>Use</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">remove</span> <span class="pre">alice</span></code> <strong>, not a hand-edit.</strong> Deleting a
@@ -886,6 +1023,7 @@ existing password.</p>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#choose-a-method">Choose a method</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#let-single-sign-on-pick-the-tier">Let single sign-on pick the tier</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#leave-one-entry-public">Leave one entry public</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#serve-it-over-https">Serve it over HTTPS</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#passwords-and-where-they-live">Passwords, and where they live</a></li>

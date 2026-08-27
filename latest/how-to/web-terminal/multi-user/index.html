@@ -533,6 +533,7 @@ personas as capability tiers, and one nginx front door</p></li>
 <li><p class="sd-card-text">Standing the preset’s full stack up — its read-only, read-write and admin
 logins plus a standalone ARIEL terminal</p></li>
 <li><p class="sd-card-text">Day-to-day operations: adding, reseeding, and removing users</p></li>
+<li><p class="sd-card-text">What each terminal records, and who can read it</p></li>
 </ul>
 <p class="sd-card-text">Two subjects have pages of their own: <a class="reference internal" href="tiers.html"><span class="doc">what each tier may do, and what
 holds it</span></a>, and <a class="reference internal" href="login.html"><span class="doc">how to require a login</span></a> — passwords
@@ -739,14 +740,18 @@ every auth mode, not only behind a login wall. A bare name (<code class="docutil
 resolves to <code class="docutils literal notranslate"><span class="pre">default_persona</span></code> —
 read-only, so a hastily added user lands on the safe side; an entry with
 an explicit <code class="docutils literal notranslate"><span class="pre">persona</span></code> picks its tier, and an optional <code class="docutils literal notranslate"><span class="pre">display_name</span></code>
-becomes that user’s browser tab title. Each user’s host ports are
+becomes that user’s browser tab title. An entry may name a <strong>role</strong>
+instead of a persona — one mapping written once rather than a persona
+pinned per user, and the half a single sign-on provider’s groups can
+decide; see <a class="reference internal" href="login.html#multi-user-role-from-sso"><span class="std std-ref">Let single sign-on pick the tier</span></a>. Each user’s host ports are
 <code class="docutils literal notranslate"><span class="pre">base</span> <span class="pre">+</span> <span class="pre">index</span></code> in every port family — one family per companion panel
 (artifact gallery, ARIEL, channel finder, lattice dashboard, …) plus the
 terminal itself — so alice (index 0) serves her terminal on <code class="docutils literal notranslate"><span class="pre">9091</span></code>,
 bob (index 1) on <code class="docutils literal notranslate"><span class="pre">9092</span></code>, ariel (index 2) on <code class="docutils literal notranslate"><span class="pre">9093</span></code> and carol
 (index 3) on <code class="docutils literal notranslate"><span class="pre">9094</span></code>. A panel
 whose <code class="docutils literal notranslate"><span class="pre">*_base_port</span></code> you don’t set falls back to its built-in default,
-so the block above lists them only to make the layout visible.</p>
+so that <code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code> block lists them only to make the
+layout visible.</p>
 <p>One optional key belongs beside these rather than in the roster:
 <code class="docutils literal notranslate"><span class="pre">external_origin</span></code>, the address browsers actually reach this deployment
 on. Leave it out and that address is derived from <code class="docutils literal notranslate"><span class="pre">deploy.fqdn</span></code> and
@@ -987,6 +992,19 @@ session for real — the terminal drops its running processes, so the next login
 starts <strong>fresh</strong>. Simply navigating away (without logout) keeps the session
 warm, and returning to the same user reconnects to it.</p>
 </section>
+<section id="what-the-stack-records">
+<h3>What the stack records<a class="headerlink" href="#what-the-stack-records" title="Link to this heading">#</a></h3>
+<p>Each terminal writes its own audit trail — refused writes, tool calls, hook
+decisions, config edits — into <code class="docutils literal notranslate"><span class="pre">var/audit/&lt;user&gt;/</span></code> in the project on the
+deploy host. A container is handed that one directory and nothing else under
+<code class="docutils literal notranslate"><span class="pre">var/audit/</span></code>, so no user’s terminal can read or rewrite another’s. The
+authentication service writes logins into <code class="docutils literal notranslate"><span class="pre">var/audit/sidecar/</span></code>, which it owns
+as root and no terminal mounts at all.</p>
+<p>That makes the deploy host the place a question spanning several people is
+answered: <code class="docutils literal notranslate"><span class="pre">grep</span> <span class="pre">-r</span> <span class="pre">alice</span> <span class="pre">var/audit/</span></code> there sees every subdirectory, while the
+admin login inside a container sees only its own. <a class="reference internal" href="../../../reference/contracts/audit-trail.html#audit-trail-record"><span class="std std-ref">The audit trail</span></a> has the record shape, and what append-only does and does
+not buy you.</p>
+</section>
 </section>
 <section id="going-further">
 <h2>Going further<a class="headerlink" href="#going-further" title="Link to this heading">#</a></h2>
@@ -1101,6 +1119,7 @@ and the service containers.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-landing-page">The landing page</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-your-operators-read-first">What your operators read first</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#logging-out-and-switching-users">Logging out and switching users</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-stack-records">What the stack records</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#going-further">Going further</a></li>

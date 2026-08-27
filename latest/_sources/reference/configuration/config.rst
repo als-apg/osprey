@@ -661,7 +661,8 @@ the key families that gate writes and approval (``control_system.*``,
 ``approval.*``, ``hooks.*``, ``claude_code.*``, among others). These artifacts
 are owned by the build profile: edit them in the profile and run
 ``osprey build``. Every refused attempt names the owning channel and is
-recorded in ``var/audit/protected-writes.jsonl``.
+recorded in :ref:`the audit trail <reference-audit-trail>`, under
+``var/audit/<identity>/``, in a file named for the surface that refused it.
 
 .. seealso::
 

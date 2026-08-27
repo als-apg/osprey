@@ -21,6 +21,7 @@ host, brought up with a single ``osprey up``.
    - Standing the preset's full stack up — its read-only, read-write and admin
      logins plus a standalone ARIEL terminal
    - Day-to-day operations: adding, reseeding, and removing users
+   - What each terminal records, and who can read it
 
    Two subjects have pages of their own: :doc:`what each tier may do, and what
    holds it <tiers>`, and :doc:`how to require a login <login>` — passwords
@@ -180,14 +181,18 @@ The config block
       resolves to ``default_persona`` —
       read-only, so a hastily added user lands on the safe side; an entry with
       an explicit ``persona`` picks its tier, and an optional ``display_name``
-      becomes that user's browser tab title. Each user's host ports are
+      becomes that user's browser tab title. An entry may name a **role**
+      instead of a persona — one mapping written once rather than a persona
+      pinned per user, and the half a single sign-on provider's groups can
+      decide; see :ref:`multi-user-role-from-sso`. Each user's host ports are
       ``base + index`` in every port family — one family per companion panel
       (artifact gallery, ARIEL, channel finder, lattice dashboard, …) plus the
       terminal itself — so alice (index 0) serves her terminal on ``9091``,
       bob (index 1) on ``9092``, ariel (index 2) on ``9093`` and carol
       (index 3) on ``9094``. A panel
       whose ``*_base_port`` you don't set falls back to its built-in default,
-      so the block above lists them only to make the layout visible.
+      so that ``modules.web_terminals`` block lists them only to make the
+      layout visible.
 
       One optional key belongs beside these rather than in the roster:
       ``external_origin``, the address browsers actually reach this deployment
@@ -435,6 +440,22 @@ session for real — the terminal drops its running processes, so the next login
 starts **fresh**. Simply navigating away (without logout) keeps the session
 warm, and returning to the same user reconnects to it.
 
+
+What the stack records
+----------------------
+
+Each terminal writes its own audit trail — refused writes, tool calls, hook
+decisions, config edits — into ``var/audit/<user>/`` in the project on the
+deploy host. A container is handed that one directory and nothing else under
+``var/audit/``, so no user's terminal can read or rewrite another's. The
+authentication service writes logins into ``var/audit/sidecar/``, which it owns
+as root and no terminal mounts at all.
+
+That makes the deploy host the place a question spanning several people is
+answered: ``grep -r alice var/audit/`` there sees every subdirectory, while the
+admin login inside a container sees only its own. :ref:`The audit trail
+<audit-trail-record>` has the record shape, and what append-only does and does
+not buy you.
 
 Going further
 =============

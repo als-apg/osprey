@@ -869,6 +869,15 @@ that there are three of them, belong to the preset. Rename a persona and
 nothing in the framework notices; add a fourth and it inherits the floor and
 the read-only default until its file says otherwise. <a class="reference internal" href="../../build-profiles.html"><span class="doc">Build Profiles</span></a> covers what a persona file may contain and how the floor
 is written so that a delta can lift it.</p>
+<p>A roster entry can also name a <strong>role</strong> instead of a persona, and let the role
+carry the mapping — <code class="docutils literal notranslate"><span class="pre">operator:</span> <span class="pre">{persona:</span> <span class="pre">readwrite}</span></code> written once, rather than
+a persona pinned on every entry. That changes nothing about that mechanism:
+a role resolves to a persona before anything is built, so which persona a card
+runs and which container it opens are the same either way. What the role adds is that
+it survives the login: it travels with the session, reaches the terminal as an
+identity header, and is named on the login record in the audit trail. Where a
+facility runs single sign-on, the provider’s own groups can be what decides it —
+see <a class="reference internal" href="login.html#multi-user-role-from-sso"><span class="std std-ref">Let single sign-on pick the tier</span></a>.</p>
 </section>
 <section id="what-makes-it-hold">
 <h2>What makes it hold<a class="headerlink" href="#what-makes-it-hold" title="Link to this heading">#</a></h2>
@@ -1013,8 +1022,18 @@ record the edit is the copy every config write takes before it writes
 anything, kept in the state zone at <code class="docutils literal notranslate"><span class="pre">var/agent_data/config-backups/</span></code>: a copy
 of the file as it stood immediately before the last write, one slot per file,
 overwritten on each save — so it is a way back from the last change rather
-than a history of them. Carry a change you want to keep back into
+than a history of them. The <em>history</em> is in <a class="reference internal" href="../../../reference/contracts/audit-trail.html#reference-audit-trail"><span class="std std-ref">the audit trail</span></a>: every request that changes something through a web API
+leaves a line naming the route and who was acting, and a refused protected key
+leaves one of its own. Neither carries the values that were written — that is
+what the backup copy is for. Between them: the trail says an edit happened and
+who made it, the backup says what the file looked like just before, and the
+drift check says nothing at all. Carry a change you want to keep back into
 <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and rebuild, or the next build renders it away.</p>
+<p><strong>It is also the tier that can read the audit trail from inside a container.</strong>
+<code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/audit/recent</span></code> sits behind the same switch as the Config panel, and
+returns the newest safety records from <em>that container’s own</em> subdirectory —
+never another user’s, which no container can reach. A view across the whole
+deployment is the deploy host’s shell, not a tier.</p>
 <p>So the admin tier’s real distinction is not a wider set of live knobs. It is
 having the deployment-editing surfaces at all — <code class="docutils literal notranslate"><span class="pre">setup-mode</span></code>, <code class="docutils literal notranslate"><span class="pre">setup_patch</span></code>
 and the Config panel — and being the login that drives the rebuild and restart
@@ -1096,6 +1115,8 @@ tree that is about to be served.</p>
 <li><p><a class="reference internal" href="../../../reference/configuration/config.html#config-protected-set"><span class="std std-ref">The protected set</span></a> — the files and config keys
 no agent-side writer may rewrite, on any tier, and where a refusal is
 recorded.</p></li>
+<li><p><a class="reference internal" href="../../../reference/contracts/audit-trail.html#reference-audit-trail"><span class="std std-ref">The audit trail</span></a> — what every tier’s sessions
+leave behind, who can read it, and what it does not promise.</p></li>
 <li><p><a class="reference internal" href="../../deploy-project/project-image.html#containerize-privilege-split"><span class="std std-ref">The privilege split</span></a> — what the
 container does with file ownership, and what a bare host does not.</p></li>
 <li><p><a class="reference internal" href="../../../architecture/python-executor.html#python-executor-protected-paths"><span class="std std-ref">What executed code may not change</span></a>

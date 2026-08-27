@@ -397,6 +397,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../contracts/ariel.html">ARIEL Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/channel-finder.html">Channel Finder Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/facility-graph.html">Facility Graph Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/audit-trail.html">Audit Trail Contract</a></li>
 </ul>
 </details></li>
 </ul>
@@ -1152,7 +1153,8 @@ the key families that gate writes and approval (<code class="docutils literal no
 <code class="docutils literal notranslate"><span class="pre">approval.*</span></code>, <code class="docutils literal notranslate"><span class="pre">hooks.*</span></code>, <code class="docutils literal notranslate"><span class="pre">claude_code.*</span></code>, among others). These artifacts
 are owned by the build profile: edit them in the profile and run
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>. Every refused attempt names the owning channel and is
-recorded in <code class="docutils literal notranslate"><span class="pre">var/audit/protected-writes.jsonl</span></code>.</p>
+recorded in <a class="reference internal" href="../contracts/audit-trail.html#reference-audit-trail"><span class="std std-ref">the audit trail</span></a>, under
+<code class="docutils literal notranslate"><span class="pre">var/audit/&lt;identity&gt;/</span></code>, in a file named for the surface that refused it.</p>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <dl class="simple">
