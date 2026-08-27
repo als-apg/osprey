@@ -28,6 +28,7 @@ import asyncio
 import json
 import uuid
 from contextlib import contextmanager
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -44,12 +45,37 @@ from osprey.interfaces.web_terminal.operator_session import (
 )
 from osprey.interfaces.web_terminal.routes import chat as chat_routes
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
+from osprey.mcp_server.control_system import target_banner, target_state
 
 SESSION_A = "aaaaaaaa-1111-2222-3333-444444444444"
 SESSION_B = "bbbbbbbb-1111-2222-3333-444444444444"
 # A chat-pool key, minted the way the shipped client mints one
 # (``crypto.randomUUID()`` in static/js/chat.js): a bare lowercase UUID.
 CHAT_A = "cccccccc-1111-2222-3333-444444444444"
+
+#: The PTY process a session's terminal card is attached to, and the Claude
+#: Code process inside it — a descendant when ``claude_code.cli_version`` pins
+#: the CLI and the PTY child is ``npx``.
+PTY_PID = 7000
+CLAUDE_PID = 7001
+
+#: A pid no kernel hands out: the largest a 32-bit ``pid_t`` holds.
+DEAD_PID = 2_147_483_646
+
+#: Synthetic process tree for the ancestor walk the target lookup runs.
+PARENT_MAP = {CLAUDE_PID: PTY_PID, PTY_PID: 6000, 6000: 1}
+
+#: A live deployment that arms writes on its virtual accelerator ONLY — the
+#: mixed render the badge used to describe wrongly. ``rendered_writes_enabled``
+#: is true here (one target is armed) while the ``live`` target is not.
+MIXED_RENDER = {
+    "type": "epics",
+    "writes_enabled": False,
+    "connector": {
+        "epics": {"timeout": 5.0},
+        "virtual_accelerator": {"writes_enabled": True},
+    },
+}
 
 
 @pytest.fixture
@@ -68,12 +94,20 @@ def shared_root(tmp_path):
     which appends ``sessions/<id>`` and would scope the store to a single
     session. Patching it here keeps the tests off the real repo tree and lets
     two app instances share one store directory.
+
+    The controls server's target-state directory hangs off the same root, and
+    ``target_state`` imported the resolver by name at module load, so its own
+    binding is rebound too — otherwise the route's target lookup would glob the
+    real deployment's ``var/agent_data`` from inside a test.
     """
     root = tmp_path / "shared_agent_data"
     root.mkdir()
-    with patch(
-        "osprey_connectors.workspace.resolve_shared_data_root",
-        return_value=root,
+    with (
+        patch(
+            "osprey_connectors.workspace.resolve_shared_data_root",
+            return_value=root,
+        ),
+        patch.object(target_state, "resolve_shared_data_root", return_value=root),
     ):
         yield root
 
@@ -150,6 +184,63 @@ def _write_shaped_config(tmp_path, section):
     """Write a config.yml carrying a whole ``control_system:`` section."""
     path = tmp_path / "config.yml"
     path.write_text(yaml.safe_dump({"control_system": section}), encoding="utf-8")
+    return path
+
+
+@contextmanager
+def attached_pty(client, session_id, pid=PTY_PID):
+    """Make the registry report a running PTY with *pid* for *session_id*.
+
+    The route asks the registry for the session's PTY and takes its ``pid`` —
+    the one handle it has on the process tree the controls server was started
+    inside. A real PTY is never spawned here.
+    """
+    registry = client.app.state.pty_registry
+    with patch.object(
+        registry,
+        "get_session",
+        side_effect=lambda sid: SimpleNamespace(pid=pid) if sid == session_id else None,
+    ):
+        yield
+
+
+@contextmanager
+def synthetic_process_tree(parent_map=None):
+    """Replace the ancestor walk's one syscall seam with a fixed parent map."""
+    tree = PARENT_MAP if parent_map is None else parent_map
+    with patch.object(target_banner, "_parent_pid", side_effect=lambda pid: tree.get(int(pid))):
+        yield
+
+
+@contextmanager
+def only_alive(*pids):
+    """Report exactly *pids* as running processes."""
+    wanted = {int(p) for p in pids}
+    with patch.object(target_state, "is_process_alive", side_effect=lambda pid: int(pid) in wanted):
+        yield
+
+
+def write_target_state(shared_root, *, target, owner_ppid, server_pid):
+    """Publish one controls-server target-state record under *shared_root*."""
+    directory = shared_root / target_state.STATE_DIR_NAME
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{target_state.STATE_FILE_PREFIX}{server_pid}.json"
+    path.write_text(
+        json.dumps(
+            {
+                "target": target,
+                "generation": 1,
+                "server_pid": server_pid,
+                "owner_ppid": owner_ppid,
+                "targets": {
+                    "live": {"label": "live machine", "endpoint": "gw:5064", "real_machine": True},
+                    "va": {"label": "virtual accelerator", "endpoint": "localhost:5074"},
+                },
+                "children": [],
+            }
+        ),
+        encoding="utf-8",
+    )
     return path
 
 
@@ -525,6 +616,9 @@ class TestGetPosture:
             "session_id": SESSION_A,
             "posture": "sandbox",
             "rendered_writes_enabled": True,
+            "session_target": "live",
+            "target_writes_enabled": True,
+            "target_source": "baseline",
         }
 
     def test_get_posture_defaults_to_writes_when_nothing_is_stored(self, client, tmp_path):
@@ -543,6 +637,9 @@ class TestGetPosture:
             "session_id": SESSION_B,
             "posture": "writes",
             "rendered_writes_enabled": True,
+            "session_target": "live",
+            "target_writes_enabled": True,
+            "target_source": "baseline",
         }
 
     def test_get_posture_does_not_disturb_a_second_session(self, client, tmp_path):
@@ -833,6 +930,279 @@ class TestPerTargetRenderPosture:
         assert "no control target" in detail.lower()
         assert "control_system.connector.<type>.writes_enabled" in detail
         assert "control_system.writes_enabled" in detail
+
+
+class TestSessionTargetPosture:
+    """The badge's second fact: which target this session is on, and is it armed.
+
+    ``rendered_writes_enabled`` is a union — true as soon as ONE target is
+    armed — so on a mixed render (live read-only, VA armed) it says nothing
+    about the machine the operator is actually pointed at. The route therefore
+    also reports:
+
+    * ``session_target`` — the target the controls server published for this
+      session's process tree, or the deployment baseline when there is none;
+    * ``target_writes_enabled`` — whether writes are armed for *that* target;
+    * ``target_source`` — ``session`` when a live record matched, ``baseline``
+      when the answer is the fallback, so the badge can say which it is showing.
+
+    Every unknowable case falls back to the baseline rather than guessing: no
+    record, a record another session owns, two ambiguous records, a dead
+    server. That is the direction the hook reader and ``target_banner`` already
+    take, and it keeps a broken read from inventing a target nobody is on.
+    """
+
+    def test_no_state_file_falls_back_to_the_baseline_target(self, client, tmp_path, shared_root):
+        """Before any controls server exists, the badge shows the baseline."""
+        client.app.state.config_path = _write_shaped_config(tmp_path, MIXED_RENDER)
+
+        with attached_pty(client, SESSION_A), synthetic_process_tree(), only_alive():
+            body = client.get("/api/terminal/posture", params={"session_id": SESSION_A}).json()
+
+        assert body["session_target"] == "live"
+        assert body["target_source"] == "baseline"
+        assert body["target_writes_enabled"] is False
+        # The union still says "some target is armed" — that is the whole
+        # discrepancy this field exists to resolve.
+        assert body["rendered_writes_enabled"] is True
+
+    def test_a_va_record_reports_the_va_targets_posture(self, client, tmp_path, shared_root):
+        """Switched to the armed VA: the badge says so and says it is armed."""
+        client.app.state.config_path = _write_shaped_config(tmp_path, MIXED_RENDER)
+        write_target_state(shared_root, target="va", owner_ppid=PTY_PID, server_pid=5150)
+
+        with attached_pty(client, SESSION_A), synthetic_process_tree(), only_alive(5150):
+            body = client.get("/api/terminal/posture", params={"session_id": SESSION_A}).json()
+
+        assert body["session_target"] == "va"
+        assert body["target_source"] == "session"
+        assert body["target_writes_enabled"] is True
+
+    def test_a_live_record_on_a_mixed_render_reports_writes_off(
+        self, client, tmp_path, shared_root
+    ):
+        """The bug: on the read-only live target the badge must not offer writes.
+
+        ``rendered_writes_enabled`` is true because the VA is armed. An
+        operator sitting on ``live`` would have read that as "this session can
+        write", and every write would have been refused per call.
+        """
+        client.app.state.config_path = _write_shaped_config(tmp_path, MIXED_RENDER)
+        write_target_state(shared_root, target="live", owner_ppid=PTY_PID, server_pid=5150)
+
+        with attached_pty(client, SESSION_A), synthetic_process_tree(), only_alive(5150):
+            body = client.get("/api/terminal/posture", params={"session_id": SESSION_A}).json()
+
+        assert body["session_target"] == "live"
+        assert body["target_source"] == "session"
+        assert body["target_writes_enabled"] is False
+        assert body["rendered_writes_enabled"] is True
+
+    def test_a_pinned_cli_pty_still_finds_its_record(self, client, tmp_path, shared_root):
+        """``claude_code.cli_version`` pinned: the PTY child is ``npx``.
+
+        The controls server's ``owner_ppid`` is then a *descendant* of the PTY
+        pid, not equal to it. Equality-only matching would report the baseline
+        on every pinned deployment and leave the bug in place there.
+        """
+        client.app.state.config_path = _write_shaped_config(tmp_path, MIXED_RENDER)
+        write_target_state(shared_root, target="va", owner_ppid=CLAUDE_PID, server_pid=5150)
+
+        with attached_pty(client, SESSION_A), synthetic_process_tree(), only_alive(5150):
+            body = client.get("/api/terminal/posture", params={"session_id": SESSION_A}).json()
+
+        assert body["session_target"] == "va"
+        assert body["target_source"] == "session"
+
+    def test_two_ambiguous_records_fall_back_to_the_baseline(self, client, tmp_path, shared_root):
+        client.app.state.config_path = _write_shaped_config(tmp_path, MIXED_RENDER)
+        write_target_state(shared_root, target="va", owner_ppid=PTY_PID, server_pid=5150)
+        write_target_state(shared_root, target="va", owner_ppid=CLAUDE_PID, server_pid=5151)
+
+        with attached_pty(client, SESSION_A), synthetic_process_tree(), only_alive(5150, 5151):
+            body = client.get("/api/terminal/posture", params={"session_id": SESSION_A}).json()
+
+        assert body["session_target"] == "live"
+        assert body["target_source"] == "baseline"
+
+    def test_a_dead_servers_record_falls_back_to_the_baseline(self, client, tmp_path, shared_root):
+        """A killed controls server leaves its file behind; it stops speaking."""
+        client.app.state.config_path = _write_shaped_config(tmp_path, MIXED_RENDER)
+        write_target_state(shared_root, target="va", owner_ppid=PTY_PID, server_pid=DEAD_PID)
+
+        with attached_pty(client, SESSION_A), synthetic_process_tree(), only_alive():
+            body = client.get("/api/terminal/posture", params={"session_id": SESSION_A}).json()
+
+        assert body["session_target"] == "live"
+        assert body["target_source"] == "baseline"
+
+    def test_a_session_with_no_pty_yet_reports_the_baseline(self, client, tmp_path, shared_root):
+        """The badge renders with the card, before any PTY exists. No crash."""
+        client.app.state.config_path = _write_shaped_config(tmp_path, MIXED_RENDER)
+        write_target_state(shared_root, target="va", owner_ppid=PTY_PID, server_pid=5150)
+
+        with synthetic_process_tree(), only_alive(5150):
+            body = client.get("/api/terminal/posture", params={"session_id": SESSION_A}).json()
+
+        assert body["session_target"] == "live"
+        assert body["target_source"] == "baseline"
+
+    def test_a_va_baseline_deployment_reports_its_own_baseline(self, client, tmp_path, shared_root):
+        """The fallback is the deployment's baseline, never a hard-coded ``live``."""
+        client.app.state.config_path = _write_shaped_config(
+            tmp_path,
+            {
+                "type": "virtual_accelerator",
+                "writes_enabled": True,
+                "connector": {"virtual_accelerator": {"simulation_file": "data/sim.json"}},
+            },
+        )
+
+        with attached_pty(client, SESSION_A), synthetic_process_tree(), only_alive():
+            body = client.get("/api/terminal/posture", params={"session_id": SESSION_A}).json()
+
+        assert body["session_target"] == "va"
+        assert body["target_source"] == "baseline"
+        assert body["target_writes_enabled"] is True
+
+    def test_an_absent_config_reports_a_disarmed_baseline(self, client, shared_root):
+        """No render to read: the baseline, and no target may write."""
+        with attached_pty(client, SESSION_A), synthetic_process_tree(), only_alive():
+            body = client.get("/api/terminal/posture", params={"session_id": SESSION_A}).json()
+
+        assert body["session_target"] == "live"
+        assert body["target_source"] == "baseline"
+        assert body["target_writes_enabled"] is False
+
+    def test_a_broken_target_lookup_reports_the_baseline(self, client, tmp_path):
+        """The lookup touches the process table; a failure must not 500 the badge."""
+        client.app.state.config_path = _write_shaped_config(tmp_path, MIXED_RENDER)
+
+        with (
+            attached_pty(client, SESSION_A),
+            patch.object(
+                target_banner,
+                "session_target_for_pid",
+                side_effect=RuntimeError("process table unreadable"),
+            ),
+        ):
+            resp = client.get("/api/terminal/posture", params={"session_id": SESSION_A})
+
+        assert resp.status_code == 200
+        assert resp.json()["session_target"] == "live"
+        assert resp.json()["target_source"] == "baseline"
+
+    def test_the_process_table_walk_runs_off_the_event_loop(self, client, tmp_path, shared_root):
+        """The walk forks ``ps`` where there is no ``/proc``; not on the loop.
+
+        A wedged process table would otherwise stall every other request this
+        server is serving, the terminal websocket included — and the badge polls
+        this route every few seconds per open card. ``run_in_threadpool`` runs
+        the lookup on a worker thread, which has no running event loop; that
+        absence is what this asserts, because it is the property that matters
+        rather than any particular thread identity.
+        """
+        client.app.state.config_path = _write_shaped_config(tmp_path, MIXED_RENDER)
+        # CLAUDE_PID, not PTY_PID: an owner_ppid that IS the PTY pid short-
+        # circuits the walk before the first lookup, which would make the
+        # assertion below vacuous.
+        write_target_state(shared_root, target="va", owner_ppid=CLAUDE_PID, server_pid=5150)
+        saw_running_loop = []
+
+        def _parent(pid):
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                saw_running_loop.append(False)
+            else:
+                saw_running_loop.append(True)
+            return PARENT_MAP.get(int(pid))
+
+        with (
+            attached_pty(client, SESSION_A),
+            patch.object(target_banner, "_parent_pid", side_effect=_parent),
+            only_alive(5150),
+        ):
+            body = client.get("/api/terminal/posture", params={"session_id": SESSION_A}).json()
+
+        assert body["session_target"] == "va"
+        assert saw_running_loop, "the walk never ran — the assertion below would be vacuous"
+        assert not any(saw_running_loop), "the process-table walk ran on the event loop"
+
+    def test_the_render_is_read_once_per_request(self, client, tmp_path, shared_root):
+        """Both render answers come off ONE read of config.yml.
+
+        The route asks the render two questions — "does any target permit
+        writes" and "does this target permit writes". Parsing the same YAML
+        twice to answer them was wasted work on a route that is now polled.
+        """
+        config_path = _write_shaped_config(tmp_path, MIXED_RENDER)
+        client.app.state.config_path = config_path
+        reads = []
+        real_read_text = Path.read_text
+
+        def _counting_read_text(self, *args, **kwargs):
+            if self == config_path:
+                reads.append(str(self))
+            return real_read_text(self, *args, **kwargs)
+
+        with (
+            attached_pty(client, SESSION_A),
+            synthetic_process_tree(),
+            only_alive(),
+            patch.object(Path, "read_text", _counting_read_text),
+        ):
+            body = client.get("/api/terminal/posture", params={"session_id": SESSION_A}).json()
+
+        assert body["rendered_writes_enabled"] is True
+        assert body["session_target"] == "live"
+        assert len(reads) == 1, f"config.yml was read {len(reads)} times"
+
+    def test_the_post_gate_still_reads_the_render_for_itself(self, client, tmp_path):
+        """Splitting the predicate must not unwire the 403 gate from it."""
+        client.app.state.config_path = _write_shaped_config(
+            tmp_path,
+            {
+                "type": "epics",
+                "writes_enabled": False,
+                "connector": {
+                    "epics": {"writes_enabled": False},
+                    "virtual_accelerator": {"writes_enabled": False},
+                },
+            },
+        )
+
+        with known_sessions(SESSION_A):
+            resp = client.post(
+                "/api/terminal/posture",
+                json={"session_id": SESSION_A, "posture": "writes"},
+            )
+
+        assert resp.status_code == 403
+
+    def test_the_post_contract_is_unchanged(self, client, tmp_path, shared_root):
+        """No new keys, and no gate on the session target: ruling and issue both.
+
+        Stepping out of the sandbox stays keyed on the render's union. Narrowing
+        it to the session's target would refuse a toggle the operator makes
+        *before* switching to the target they intend to write on.
+        """
+        client.app.state.config_path = _write_shaped_config(tmp_path, MIXED_RENDER)
+        write_target_state(shared_root, target="live", owner_ppid=PTY_PID, server_pid=5150)
+
+        with (
+            attached_pty(client, SESSION_A),
+            synthetic_process_tree(),
+            only_alive(5150),
+            known_sessions(SESSION_A),
+        ):
+            resp = client.post(
+                "/api/terminal/posture",
+                json={"session_id": SESSION_A, "posture": "writes"},
+            )
+
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ok", "session_id": SESSION_A, "posture": "writes"}
 
 
 # ── SDK-topology parity ──────────────────────────────────────────────────────
@@ -1377,6 +1747,11 @@ class TestGetPostureForChatKeys:
             "session_id": CHAT_A,
             "posture": "writes",
             "rendered_writes_enabled": True,
+            # A chat key holds no PTY, so there is no process tree to find a
+            # control-target record against: the badge gets the baseline.
+            "session_target": "live",
+            "target_writes_enabled": True,
+            "target_source": "baseline",
         }
         assert CHAT_A not in getattr(client.app.state, "session_postures", {})
 

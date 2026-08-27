@@ -316,7 +316,13 @@ The switch would be a hazard if it were quiet. It is not:
   target and the archiver that served them, so a saved plot still says what it
   is about a week later.
 - **The session's target is visible in the Web Terminal** activity stream as
-  work happens.
+  work happens, and on the posture badge in the terminal card's header, which
+  names the current target beside the session's posture and says whether writes
+  are armed for *that* target --- ``va · armed``, ``live · not armed``. Write
+  posture is per target, so a deployment can arm its simulator and leave the
+  live machine read-only; the badge is where that shows. It catches up with a
+  switch a few seconds after you make one, and when no target can be resolved for
+  the session it shows the deployment's default, marked ``(baseline)``.
 - **Nothing survives the session.** Every controls-server start returns to the
   deployment baseline. There is no saved preference that could quietly point a
   later session at the real machine.

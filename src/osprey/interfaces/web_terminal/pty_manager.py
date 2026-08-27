@@ -321,6 +321,20 @@ class PtySession:
                         )
 
     @property
+    def pid(self) -> int | None:
+        """The PTY child's process id, or ``None`` before it is started.
+
+        Read-only and public because one thing outside this class legitimately
+        needs it: the posture badge asks which control-system target the session
+        is on, and the controls MCP server publishes that against the pid chain
+        of the Claude Code process running inside this PTY. That pid is the only
+        handle the web server has on the session's process tree.
+        """
+        if self._process is None:
+            return None
+        return self._process.pid
+
+    @property
     def is_alive(self) -> bool:
         """Check if the subprocess is still running."""
         if self._process is None:

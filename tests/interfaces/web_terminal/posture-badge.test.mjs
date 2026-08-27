@@ -18,6 +18,12 @@
  * - the "writes" direction is not offered at all on a render whose config has
  *   writes off (`rendered_writes_enabled: false`), and the badge says why
  *   rather than failing at the server;
+ * - the target line names the session's control target and whether THAT target
+ *   is armed — `rendered_writes_enabled` is a union over every target, so on a
+ *   mixed render it says nothing about the machine the operator is on — and it
+ *   marks the value as the deployment baseline when no session target exists;
+ * - the badge re-reads on a timer, so a target switch made mid-session (which
+ *   fires no session change and no toggle) does not leave the line stale;
  * - a refused POST (403 writes-on-readonly-render, 409 unknown session id)
  *   surfaces the server's own detail in the still-open modal, and does NOT
  *   reconnect the terminal;
@@ -63,10 +69,16 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js', () 
 let postureBadge;
 
 /** What GET /api/terminal/posture answers; mutated by a successful POST. */
+/** @type {{session_id: string, posture: string, rendered_writes_enabled: boolean,
+ *           session_target: string|null, target_writes_enabled: boolean,
+ *           target_source: string}} */
 let served = {
   session_id: SESSION,
   posture: 'writes',
   rendered_writes_enabled: true,
+  session_target: 'live',
+  target_writes_enabled: true,
+  target_source: 'session',
 };
 
 /**
@@ -90,8 +102,19 @@ async function flush() {
   for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0));
 }
 
+/**
+ * When true, the NEXT GET is parked in `heldGets` instead of resolving. Its
+ * payload is snapshotted at call time — that is the whole point: a held read
+ * carries the answer the server gave BEFORE whatever happened next.
+ */
+let holdNextGet = false;
+/** @type {(() => void)[]} Release functions for parked GETs, in order. */
+let heldGets = [];
+
 function stubFetch() {
   fetchCalls = [];
+  holdNextGet = false;
+  heldGets = [];
   vi.stubGlobal(
     'fetch',
     vi.fn(async (/** @type {any} */ url, /** @type {any} */ init) => {
@@ -99,6 +122,15 @@ function stubFetch() {
       const body = init?.body ? JSON.parse(init.body) : null;
       fetchCalls.push({ url: String(url), method, body });
       if (method === 'GET') {
+        if (holdNextGet) {
+          holdNextGet = false;
+          const parked = { ...served };
+          return new Promise((resolve) => {
+            heldGets.push(() =>
+              resolve({ ok: true, status: 200, statusText: 'OK', json: async () => parked })
+            );
+          });
+        }
         return { ok: true, status: 200, statusText: 'OK', json: async () => ({ ...served }) };
       }
       if (postOutcome.ok) {
@@ -159,18 +191,26 @@ async function confirmModal() {
 
 /**
  * Boot the badge for a given server state.
- * @param {{posture?: string, rendered_writes_enabled?: boolean, sessionId?: string|null}} [opts]
+ * @param {{posture?: string, rendered_writes_enabled?: boolean, sessionId?: string|null,
+ *          session_target?: string|null, target_writes_enabled?: boolean,
+ *          target_source?: string}} [opts]
  */
 async function boot(opts = {}) {
   served = {
     session_id: SESSION,
     posture: opts.posture ?? 'writes',
     rendered_writes_enabled: opts.rendered_writes_enabled ?? true,
+    session_target: opts.session_target === undefined ? 'live' : opts.session_target,
+    target_writes_enabled: opts.target_writes_enabled ?? true,
+    target_source: opts.target_source ?? 'session',
   };
   term.sessionId = opts.sessionId === undefined ? SESSION : opts.sessionId;
   postureBadge.initPostureBadge();
   await flush();
 }
+
+const targetEl = () =>
+  /** @type {HTMLElement|null} */ (document.querySelector('.posture-badge-target'));
 
 beforeEach(async () => {
   vi.resetModules();
@@ -317,6 +357,220 @@ describe('a render with writes off', () => {
 
     expect(badgeEl()?.disabled).toBe(false);
     expect(badgeEl()?.dataset.writesAvailable).toBe('true');
+  });
+});
+
+describe('the control-target line', () => {
+  test('names the session target and says it is armed', async () => {
+    await boot({ session_target: 'va', target_writes_enabled: true, target_source: 'session' });
+
+    const line = targetEl();
+    expect(line).not.toBeNull();
+    expect(line?.hidden).toBe(false);
+    expect(line?.textContent).toContain('va');
+    expect(line?.textContent?.toLowerCase()).toMatch(/\barmed\b/);
+    expect(line?.textContent?.toLowerCase()).not.toMatch(/not armed/);
+    expect(badgeEl()?.dataset.targetArmed).toBe('true');
+  });
+
+  test('makes an unarmed target unmistakable on a mixed render', async () => {
+    // The motivating bug: the render arms SOME target (the VA), so
+    // `rendered_writes_enabled` is true, while the target this session is on
+    // refuses every write.
+    await boot({
+      rendered_writes_enabled: true,
+      session_target: 'live',
+      target_writes_enabled: false,
+      target_source: 'session',
+    });
+
+    const line = targetEl();
+    expect(line?.textContent).toContain('live');
+    expect(line?.textContent?.toLowerCase()).toContain('not armed');
+    expect(badgeEl()?.dataset.targetArmed).toBe('false');
+    // …and the reason is spelled out where a screen reader reaches it.
+    expect(badgeEl()?.getAttribute('aria-label')?.toLowerCase()).toContain('live');
+  });
+
+  test('marks a baseline fallback as the deployment default', async () => {
+    await boot({ session_target: 'live', target_writes_enabled: false, target_source: 'baseline' });
+
+    expect(targetEl()?.textContent?.toLowerCase()).toContain('baseline');
+    expect(badgeEl()?.dataset.targetSource).toBe('baseline');
+  });
+
+  test('the baseline tooltip states what is known, not why', async () => {
+    // `baseline` also covers "a target WAS published but could not be
+    // resolved" — a foreign owner, two ambiguous records, a dead controls
+    // server, a process table that could not be read. Telling an operator who
+    // has actually switched that nothing has been published is the same
+    // confident-but-wrong reading this line exists to end.
+    await boot({ session_target: 'va', target_writes_enabled: true, target_source: 'baseline' });
+
+    const title = `${badgeEl()?.title} ${badgeEl()?.getAttribute('aria-label')}`.toLowerCase();
+    expect(title).toContain('no control target has been resolved');
+    expect(title).not.toContain('published');
+  });
+
+  test('does not call a session target a baseline', async () => {
+    await boot({ session_target: 'va', target_source: 'session' });
+
+    expect(targetEl()?.textContent?.toLowerCase()).not.toContain('baseline');
+    expect(badgeEl()?.dataset.targetSource).toBe('session');
+  });
+
+  test('stays out of the way when the server reports no target', async () => {
+    // An older server, or one that could not read the render at all: say
+    // nothing rather than inventing a target.
+    await boot({ session_target: null });
+
+    expect(targetEl()?.hidden).toBe(true);
+    expect(badgeEl()?.hidden).toBe(false);
+  });
+
+  test('the writes/sandbox direction stays keyed on the render, not the target', async () => {
+    // An unarmed CURRENT target does not disable the toggle: the operator may
+    // legitimately step out of the sandbox before switching to the target they
+    // intend to write on. Only `rendered_writes_enabled` gates the button.
+    await boot({
+      posture: 'sandbox',
+      rendered_writes_enabled: true,
+      session_target: 'live',
+      target_writes_enabled: false,
+    });
+
+    expect(badgeEl()?.disabled).toBe(false);
+    await clickBadge();
+    expect(overlayEl()).not.toBeNull();
+  });
+});
+
+describe('staying current through a mid-session target switch', () => {
+  test('re-reads on a timer and repaints the target line', async () => {
+    // A control-target switch fires neither a session change nor a toggle, so
+    // without this poll the line would show the old target until the operator
+    // happened to do something else.
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      await boot({ session_target: 'live', target_writes_enabled: false });
+      expect(targetEl()?.textContent).toContain('live');
+
+      served = { ...served, session_target: 'va', target_writes_enabled: true };
+      vi.advanceTimersByTime(30_000);
+      await flush();
+
+      expect(targetEl()?.textContent).toContain('va');
+      expect(badgeEl()?.dataset.targetArmed).toBe('true');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('polls nothing while no session is attached', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      await boot({ sessionId: null });
+      vi.advanceTimersByTime(30_000);
+      await flush();
+
+      expect(fetchCalls.filter((c) => c.method === 'GET')).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('a slow tick cannot repaint the badge with the pre-toggle posture', async () => {
+    // The race the poll introduces: a tick's GET leaves at t0 carrying
+    // `writes`; the operator sandboxes the session at t1; the POST's own
+    // re-read lands at t2; the t0 GET resolves at t3 > t2. Without a read
+    // token it overwrites `state` and the badge reads `Writes` on a session
+    // that is sandboxed — a wrong SAFETY readout on the surface this whole
+    // change is making authoritative.
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      await boot({ posture: 'writes' });
+
+      // t0 — a tick fires and its GET is parked, holding `posture: writes`.
+      holdNextGet = true;
+      vi.advanceTimersByTime(30_000);
+      await flush();
+      expect(heldGets).toHaveLength(1);
+
+      // t1/t2 — the operator sandboxes the session; the POST and its re-read
+      // both complete while the tick's GET is still in flight.
+      await clickBadge();
+      await confirmModal();
+      expect(badgeEl()?.dataset.posture).toBe('sandbox');
+
+      // t3 — the stale answer finally arrives.
+      heldGets.shift()?.();
+      await flush();
+
+      expect(badgeEl()?.dataset.posture).toBe('sandbox');
+      expect(badgeEl()?.textContent?.toLowerCase()).toContain('sandbox');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('a stale target answer cannot overwrite a newer one either', async () => {
+    // Same guard, the other payload: the target line is the fact this task
+    // added, and it must not flip back to the target the operator left.
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      await boot({ session_target: 'live', target_writes_enabled: false });
+
+      holdNextGet = true;
+      vi.advanceTimersByTime(30_000);
+      await flush();
+
+      served = { ...served, session_target: 'va', target_writes_enabled: true };
+      vi.advanceTimersByTime(30_000);
+      await flush();
+      expect(targetEl()?.textContent).toContain('va');
+
+      heldGets.shift()?.();
+      await flush();
+
+      expect(targetEl()?.textContent).toContain('va');
+      expect(badgeEl()?.dataset.targetArmed).toBe('true');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('no tick fires while a confirm dialog is up', async () => {
+    // The operator is mid-decision; a read started now can only race the
+    // toggle's own re-read.
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      await boot({ posture: 'writes' });
+      await clickBadge();
+      expect(overlayEl()).not.toBeNull();
+
+      const before = fetchCalls.filter((c) => c.method === 'GET').length;
+      vi.advanceTimersByTime(30_000);
+      await flush();
+
+      expect(fetchCalls.filter((c) => c.method === 'GET').length).toBe(before);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('stops polling once the badge leaves the page', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      await boot();
+      document.body.innerHTML = '';
+      const before = fetchCalls.length;
+      vi.advanceTimersByTime(30_000);
+      await flush();
+
+      expect(fetchCalls.length).toBe(before);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

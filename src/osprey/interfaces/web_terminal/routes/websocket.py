@@ -17,6 +17,7 @@ from typing import Any, Literal
 import yaml
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from osprey.interfaces.web_auth import PANEL_TOKEN_ENV, get_web_credentials
 from osprey.interfaces.web_terminal.operator_session import (
@@ -476,6 +477,31 @@ def _persist_postures(app, store: dict[str, str]) -> None:
         )
 
 
+#: Sentinel telling "the render could not be read" apart from "the render has
+#: no ``control_system:`` block". Both answer writes-off, but only the first is
+#: a failure worth logging, and the connector helpers have their own opinion
+#: about a ``None`` section that the failure case must not borrow.
+_UNREADABLE_SECTION = object()
+
+
+def _control_system_section(config_path: Path | None) -> Any:
+    """The rendered ``control_system:`` section, or :data:`_UNREADABLE_SECTION`.
+
+    Reads and parses the file, so a caller that needs the section for more than
+    one question reads it ONCE and passes the result down —
+    :func:`_posture_render_facts` is the reason this is separate from the
+    predicates below. Blocking; never call it from the event loop.
+    """
+    try:
+        if not config_path or not Path(config_path).exists():
+            return _UNREADABLE_SECTION
+        config = yaml.safe_load(Path(config_path).read_text(encoding="utf-8")) or {}
+    except Exception:  # noqa: BLE001 — an unreadable config is not a writes-on render
+        logger.warning("Could not read the control-system section from %s", config_path)
+        return _UNREADABLE_SECTION
+    return config.get("control_system") if isinstance(config, dict) else None
+
+
 def _rendered_writes_enabled(config_path: Path | None) -> bool:
     """Whether the rendered config arms control-system writes for *any* target.
 
@@ -504,16 +530,114 @@ def _rendered_writes_enabled(config_path: Path | None) -> bool:
     ``permissions.deny`` and the ``osprey_writes_check`` hook applies per call,
     so an absent config stays a writes-off render here as everywhere else.
     """
+    return _any_target_writes_enabled(_control_system_section(config_path))
+
+
+def _any_target_writes_enabled(section: Any) -> bool:
+    """:func:`_rendered_writes_enabled` over an ALREADY-READ section.
+
+    Split out so the GET route can answer both of its render questions from a
+    single read of ``config.yml`` while the POST gate keeps its one-argument
+    predicate. Both paths end here, so the button an operator is offered and the
+    answer they get on pressing it still cannot disagree.
+    """
+    if section is _UNREADABLE_SECTION:
+        return False
     try:
         from osprey_connectors.types import any_target_writes_enabled
 
-        if not config_path or not Path(config_path).exists():
-            return False
-        config = yaml.safe_load(Path(config_path).read_text(encoding="utf-8")) or {}
-        return any_target_writes_enabled(config.get("control_system"))
+        return bool(any_target_writes_enabled(section))
     except Exception:  # noqa: BLE001 — an unreadable config is not a writes-on render
-        logger.warning("Could not read the control-system write posture from %s", config_path)
+        logger.warning("Could not read the control-system write posture")
         return False
+
+
+def _posture_render_facts(config_path: Path | None, pty_pid: int | None) -> dict[str, Any]:
+    """Everything the badge needs from the render and the process table.
+
+    **Blocking, and deliberately so**: it reads ``config.yml`` and — through
+    :func:`~osprey.mcp_server.control_system.target_banner.session_target_for_pid`
+    — walks the process table, which on a platform without ``/proc`` means
+    forking ``ps``. The GET route hands the whole thing to a worker thread
+    (``run_in_threadpool``) rather than doing any of it on the event loop, where
+    a wedged process table would stall every other request, the terminal
+    websocket included.
+
+    One read of the config serves both render questions. The route used to call
+    :func:`_rendered_writes_enabled` and the target lookup separately, which
+    parsed the same YAML twice per request — now twice per five seconds per
+    open card, thanks to the badge's refresh poll.
+    """
+    section = _control_system_section(config_path)
+    return {
+        "rendered_writes_enabled": _any_target_writes_enabled(section),
+        **_session_target_posture(section, pty_pid),
+    }
+
+
+def _session_target_posture(section: Any, pty_pid: int | None) -> dict[str, Any]:
+    """Which control target this session is on, and whether THAT target is armed.
+
+    ``rendered_writes_enabled`` is a union over every target a session here can
+    select — true as soon as one is armed — so on a mixed render (a live machine
+    read-only beside an armed virtual accelerator) it says nothing about the
+    machine the operator is actually pointed at. An operator on the live target
+    would read it as "this session can write" and have every write refused, per
+    call, by the connector layer. These three fields are what let the badge say
+    the honest thing instead:
+
+    * ``session_target`` — the target the controls MCP server published for this
+      PTY's process tree, or the deployment baseline when there is no answer;
+    * ``target_writes_enabled`` — the per-type posture for *that* target;
+    * ``target_source`` — ``session`` when a live record matched, ``baseline``
+      otherwise, so the badge can mark a fallback as one rather than presenting
+      a guess as fact.
+
+    Every unknowable case is the baseline: no controls server yet, a record
+    another session owns, two ambiguous records, a dead server, an unreadable
+    process table. That is the direction ``target_banner`` and the Claude Code
+    hooks already take, and it is the one that cannot invent a target nobody is
+    on. An absent or unreadable render answers "baseline, and no writes", the
+    same posture the rest of this module gives it.
+
+    Takes an already-read *section* (see :func:`_posture_render_facts`), not a
+    path. Blocking; never call it from the event loop.
+    """
+    readable = section is not _UNREADABLE_SECTION
+
+    baseline = "live"
+    if readable:
+        try:
+            from osprey_connectors.types import baseline_target
+
+            baseline = baseline_target(section)
+        except Exception:  # noqa: BLE001 — a render we cannot classify is `live`
+            logger.warning("Could not resolve the deployment's baseline control target")
+
+    resolved: str | None = None
+    if pty_pid:
+        try:
+            from osprey.mcp_server.control_system.target_banner import session_target_for_pid
+
+            resolved = session_target_for_pid(pty_pid)
+        except Exception:  # noqa: BLE001 — the badge must render, not 500
+            logger.warning("Could not resolve the session's control target", exc_info=True)
+
+    target = resolved or baseline
+    armed = False
+    if readable:
+        try:
+            from osprey_connectors.types import target_writes_enabled
+
+            armed = bool(target_writes_enabled(section, target))
+        except Exception:  # noqa: BLE001 — an unreadable posture is not an armed one
+            logger.warning("Could not read the write posture for control target %s", target)
+
+    return {
+        "session_target": target,
+        "target_writes_enabled": armed,
+        "target_source": "session" if resolved else "baseline",
+    }
 
 
 def _read_effort_level(config_path: Path | None) -> str | None:
@@ -1041,6 +1165,22 @@ async def get_terminal_posture(session_id: str, request: Request):
       posture is ``writes`` and the effective write capability is still nil,
       because the render, not the toggle, is the binding constraint there. The
       badge says so rather than implying the session can write.
+    * ``session_target`` / ``target_writes_enabled`` / ``target_source`` — the
+      control target this session is pointed at and whether *that* target is
+      armed (see :func:`_session_target_posture`). ``rendered_writes_enabled``
+      is a union and cannot answer this: on a render that arms the virtual
+      accelerator alone it is ``True`` for a session sitting on a live machine
+      every write to which is refused. The POST contract is unchanged — stepping
+      out of the sandbox stays keyed on the union, because an operator may
+      legitimately leave the sandbox before switching to the target they intend
+      to write on.
+
+    The last two answers cost a config read and a walk of the process table, so
+    they are computed in a worker thread (:func:`_posture_render_facts` via
+    ``run_in_threadpool``). On a platform without ``/proc`` the walk forks
+    ``ps``; doing that on the event loop would let one wedged process table
+    stall every other request this server is serving, and the badge polls this
+    route every few seconds per open card.
 
     Unlike POST, an id that names no session on disk is **not** a 409. The badge
     renders with the terminal card, which can be before the first prompt has
@@ -1054,11 +1194,14 @@ async def get_terminal_posture(session_id: str, request: Request):
     _require_session_uuid(session_id)
 
     posture = _session_postures(request.app).get(session_id, POSTURE_WRITES)
-    return {
-        "session_id": session_id,
-        "posture": posture,
-        "rendered_writes_enabled": _rendered_writes_enabled(request.app.state.config_path),
-    }
+    config_path = request.app.state.config_path
+    # The PTY is how the session is found in the process table; a card that has
+    # not started one yet (a chat key never does) simply gets the baseline.
+    session = request.app.state.pty_registry.get_session(session_id)
+    facts = await run_in_threadpool(
+        _posture_render_facts, config_path, session.pid if session else None
+    )
+    return {"session_id": session_id, "posture": posture, **facts}
 
 
 @router.post("/api/terminal/logout")

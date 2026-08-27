@@ -1383,6 +1383,32 @@ html[data-ui-mode="simple"] #terminal-container {
   background: var(--color-warning);
 }
 
+/* The control target this session is on, and whether THAT target is armed.
+   Secondary to the posture word beside it — it qualifies the posture rather
+   than competing with it — and set off by a hairline so the two facts do not
+   read as one phrase. */
+.posture-badge-target {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  padding-left: 7px;
+  border-left: 1px solid var(--border-default);
+  white-space: nowrap;
+}
+
+.posture-badge-target[hidden] {
+  display: none;
+}
+
+/* An unarmed current target is the case the whole line exists for: the render
+   may well permit writes SOMEWHERE, and this is the operator's cue that it is
+   not here. Carried by weight and colour on top of the words "not armed", so
+   the meaning survives a colour-blind reader and a monochrome screenshot
+   alike. */
+.posture-badge[data-target-armed="false"] .posture-badge-target {
+  color: var(--color-warning);
+  font-weight: var(--weight-medium);
+}
+
 /* The confirm dialog. Same geometry and motion as the settings drawer's
    warning dialog, in this feature's own neutral tone: a posture switch is a
    deliberate operator action, not an error. */
