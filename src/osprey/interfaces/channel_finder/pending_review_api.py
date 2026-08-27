@@ -57,11 +57,27 @@ def _get_pending_store(request: Request):
 
 
 def _get_feedback_store(request: Request):
-    """Get the feedback store from app state, or raise 404."""
+    """Get the feedback store from app state, or raise 404.
+
+    Approving and rejecting both *write* — they promote a captured search into
+    the navigation hints the hierarchical pipeline reads back. A deployment
+    with no feedback store has nowhere to put them, and the reason differs by
+    paradigm, so the refusal says which one it is rather than leaving the
+    operator with a bare "not available" against a queue that visibly has items
+    in it. Dismissing a captured item needs no feedback store and is not routed
+    through here.
+    """
     from osprey.services.channel_finder.feedback.store import FeedbackStore
 
     store: FeedbackStore | None = getattr(request.app.state, "feedback_store", None)
     if store is None:
+        if getattr(request.app.state, "pipeline_type", None) == "graph":
+            raise HTTPException(
+                404,
+                "Approving or rejecting records a navigation hint for a pipeline that "
+                "reads them back; this deployment answers channel searches by querying "
+                "the facility graph and keeps no hint store. Dismiss the item instead.",
+            )
         raise HTTPException(404, "Feedback store not available")
     return store
 
@@ -180,13 +196,22 @@ class RejectRequest(BaseModel):
 
 @router.get("/pending-reviews/status")
 async def pending_reviews_status(request: Request):
-    """Check pending review store availability. Always returns 200."""
+    """Check pending review store availability. Always returns 200.
+
+    ``can_promote`` is a second, independent axis: the capture queue is filled
+    by the agent hook for every pipeline, while approve/reject write into the
+    feedback store, which only some deployments have. Reporting the two
+    separately is what lets a client offer the queue without offering buttons
+    the server would refuse (see :func:`_get_feedback_store`).
+    """
     store = getattr(request.app.state, "pending_review_store", None)
+    can_promote = getattr(request.app.state, "feedback_store", None) is not None
     if store is None:
-        return {"available": False, "item_count": 0}
+        return {"available": False, "item_count": 0, "can_promote": can_promote}
     return {
         "available": True,
         "item_count": len(store.list_items()),
+        "can_promote": can_promote,
     }
 
 
