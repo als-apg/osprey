@@ -1026,8 +1026,8 @@ def _warn_about_a_network_home(
     console.print("    look again, so after every reboot the unit reads as not-found")
     console.print("    until someone runs 'systemctl --user daemon-reload' by hand.")
     console.print()
-    console.print("    When systemd manages the mount — an fstab entry, or a .mount or")
-    console.print("    .automount unit — ordering the manager after it needs root. Whoever")
+    console.print("    When systemd manages the mount, from an fstab entry or a .mount or")
+    console.print("    .automount unit, ordering the manager after it needs root. Whoever")
     console.print("    has it can write:")
     # markup=False for the whole drop-in: '[Unit]' is a systemd section header,
     # and Rich would read it as a style tag and swallow it. soft_wrap keeps a
@@ -1047,7 +1047,7 @@ def _warn_about_a_network_home(
     console.print("    A home served by the autofs daemon has no mount unit for that drop-in")
     console.print("    to order against, so there it changes nothing. For that host, and")
     if not hook_written:
-        console.print("    for one where nobody has root, this verb writes a boot hook — but")
+        console.print("    for one where nobody has root, this verb writes a boot hook, but")
         console.print("    this run did not (see above): a file it did not write is already at")
         console.print(f"      {hook}", soft_wrap=True)
         console.print("    Re-run with --force to replace it; that run prints the crontab lines")
@@ -1057,7 +1057,7 @@ def _warn_about_a_network_home(
     console.print(f"      {hook}", soft_wrap=True)
     console.print("    It waits for the home, this deployment and the user manager to show")
     console.print("    up, then reloads the unit files and starts the unit. Run it once per")
-    console.print("    boot from the account's own crontab — all of these lines, pasted whole:")
+    console.print("    boot from the account's own crontab, all of these lines pasted whole:")
     console.print("      crontab -e")
     # markup=False: the job holds `[ -x ... ]` tests that Rich would read as
     # style tags. soft_wrap keeps it one line for whoever pastes it.
