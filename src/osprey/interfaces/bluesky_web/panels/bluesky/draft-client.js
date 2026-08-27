@@ -563,7 +563,11 @@ export function classifyQueueAddResponse(status, body) {
   if (code === 'queue_request_rejected' || code === 'environment_unavailable') {
     return { type: 'queue_rejected', detail: sentence };
   }
-  return { type: 'error', detail: sentence || `HTTP ${status}` };
+  // A bare-string `detail` is not a refusal record, but it is still the
+  // answer's own sentence — the sidecar's web gate speaks that way
+  // ("cross-origin request refused") — and it beats a bare status code.
+  const bare = body && typeof body === 'object' && typeof body.detail === 'string' ? body.detail : '';
+  return { type: 'error', detail: sentence || bare || `HTTP ${status}` };
 }
 
 /**

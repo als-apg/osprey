@@ -25,6 +25,16 @@ Compatibility is documented in release notes, not encoded in the version string.
 - Graph-mode builds now write the channel-suggestions snapshot from the corpus
   named by `services.graphdb.ttl_path`, so the web-panel typeahead keeps
   working after a project moves to the graph pipeline instead of going quiet.
+- Web terminal: writes from a proxied panel (the BLUESKY tab's Add to queue,
+  Start, Stop, Abort, reorder and remove) no longer fail with `HTTP 403` /
+  `cross-origin request refused` while every read still works. The terminal
+  proxy relayed the browser's `Origin` — the terminal's own address — to the
+  panel's sidecar, whose gate compares it against the sidecar's address. The
+  proxy now drops `Origin` on that hop, as it already did the operator's
+  credentials; the terminal's own gate has checked it before the proxy runs.
+- Bluesky panel: a refusal whose `detail` is a plain sentence rather than a
+  refusal record now reaches the Add-to-queue banner as that sentence, instead
+  of being flattened to a bare `HTTP <status>` the operator cannot act on.
 - The build-drift gate no longer counts material `osprey up` mints itself: the
   per-lane Bluesky CURVE certificates now live under `data/.runtime/`, a
   reserved runtime-output subpath the fingerprint never hashes and the build
