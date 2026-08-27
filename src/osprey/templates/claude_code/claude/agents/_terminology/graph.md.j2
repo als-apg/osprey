@@ -45,6 +45,10 @@ Properties worth knowing:
   `fieldDescription`, `subfieldDescription`
 - **On a class:** `uri`, `altLabel`
 
+A facility corpus may also carry scalar properties of its own on devices and
+bindings — units, a crate identity, a serial number. `get_schema()` lists
+whatever this corpus holds; filter on them like any other property.
+
 `altLabel` is a **list**, always — even where a class has one synonym. Match it
 with `ANY(l IN c.altLabel WHERE toLower(l) CONTAINS $term)`, never with `=`.
 

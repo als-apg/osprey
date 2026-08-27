@@ -7,6 +7,7 @@ census of the real tier-3 channel database that the generator will run on.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import random
 from pathlib import Path
@@ -21,6 +22,7 @@ from osprey.services.facility_knowledge.ttl_generator.model import (
     NARAD_SEM_NS,
     PROTOCOL,
     Address,
+    ExtraPropertyError,
     HierarchyDescriptions,
     binding_id,
     binding_iri,
@@ -946,3 +948,184 @@ class TestFacilityToken:
         # Nothing was patched, so the module constant and the default are intact.
         assert FACILITY == "demo"
         assert build_model(synthetic_map).facility == "demo"
+
+
+# ---------------------------------------------------------------------------
+# Facility-supplied extra properties
+# ---------------------------------------------------------------------------
+
+#: One device address and one full channel address out of ``synthetic_map``.
+_DEVICE_ADDRESS = "SR:MAG:DIPOLE:01"
+_BINDING_ADDRESS = "SR:MAG:DIPOLE:01:CURRENT:SP"
+
+
+def _device(model, address: str):
+    """The device of *model* at *address*."""
+    return {device.address: device for device in model.devices}[address]
+
+
+def _binding(model, address: str):
+    """The binding of *model* at *address*."""
+    return {binding.full_pv: binding for binding in model.bindings}[address]
+
+
+class TestExtraPropertiesIngestion:
+    """A facility's own scalar attributes reach the nodes, by exact join."""
+
+    def test_a_model_built_without_them_carries_none(self, synthetic_map):
+        """The default is empty, so nothing about an existing corpus moves."""
+        model = build_model(synthetic_map)
+        assert all(device.extra_properties == () for device in model.devices)
+        assert all(binding.extra_properties == () for binding in model.bindings)
+
+    def test_device_properties_join_on_the_device_address(self, synthetic_map):
+        model = build_model(
+            synthetic_map,
+            device_properties={_DEVICE_ADDRESS: {"serialNumber": "SN-4711", "crate": "R1-C3"}},
+        )
+        assert _device(model, _DEVICE_ADDRESS).extra_properties == (
+            ("crate", "R1-C3"),
+            ("serialNumber", "SN-4711"),
+        )
+
+    def test_binding_properties_join_on_the_full_address(self, synthetic_map):
+        model = build_model(
+            synthetic_map,
+            binding_properties={_BINDING_ADDRESS: {"units": "A", "precision": 3}},
+        )
+        assert _binding(model, _BINDING_ADDRESS).extra_properties == (
+            ("precision", 3),
+            ("units", "A"),
+        )
+
+    def test_the_join_is_exact(self, synthetic_map):
+        """A neighbour borrows nothing, and an address nobody has values for stays bare."""
+        model = build_model(
+            synthetic_map,
+            device_properties={_DEVICE_ADDRESS: {"crate": "R1-C3"}},
+            binding_properties={_BINDING_ADDRESS: {"units": "A"}},
+        )
+        assert _device(model, "SR:MAG:DIPOLE:02").extra_properties == ()
+        assert _binding(model, "SR:MAG:DIPOLE:01:CURRENT:RB").extra_properties == ()
+
+    def test_a_key_naming_no_node_is_ignored(self, synthetic_map):
+        """Values for an address the map does not hold reach nothing, silently."""
+        model = build_model(
+            synthetic_map,
+            device_properties={"BR:MAG:SEXTUPOLE:99": {"crate": "nowhere"}},
+        )
+        assert all(device.extra_properties == () for device in model.devices)
+
+    def test_values_are_normalised_to_sorted_pairs(self, synthetic_map):
+        """Whatever order the mapping iterates in, the carrier is sorted by key."""
+        model = build_model(
+            synthetic_map,
+            device_properties={_DEVICE_ADDRESS: {"zone": "north", "crate": "R1-C3", "aisle": 2}},
+        )
+        pairs = _device(model, _DEVICE_ADDRESS).extra_properties
+        assert pairs == (("aisle", 2), ("crate", "R1-C3"), ("zone", "north"))
+        assert [key for key, _value in pairs] == sorted(key for key, _value in pairs)
+
+    def test_mapping_insertion_order_does_not_change_the_model(self, synthetic_map):
+        """Determinism is what the seed-marker checksum rests on."""
+        values = {"zone": "north", "crate": "R1-C3", "aisle": 2}
+        forward = build_model(synthetic_map, device_properties={_DEVICE_ADDRESS: values})
+        backward = build_model(
+            synthetic_map,
+            device_properties={_DEVICE_ADDRESS: dict(reversed(list(values.items())))},
+        )
+        assert forward == backward
+
+    def test_the_carrier_is_an_immutable_tuple_of_pairs(self, synthetic_map):
+        model = build_model(synthetic_map, device_properties={_DEVICE_ADDRESS: {"crate": "R1-C3"}})
+        device = _device(model, _DEVICE_ADDRESS)
+        assert isinstance(device.extra_properties, tuple)
+        assert all(isinstance(pair, tuple) and len(pair) == 2 for pair in device.extra_properties)
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            device.extra_properties = ()
+
+    def test_the_three_value_types_survive_the_join(self, synthetic_map):
+        model = build_model(
+            synthetic_map,
+            binding_properties={_BINDING_ADDRESS: {"units": "A", "bits": 16, "gain": 1.5}},
+        )
+        assert _binding(model, _BINDING_ADDRESS).extra_properties == (
+            ("bits", 16),
+            ("gain", 1.5),
+            ("units", "A"),
+        )
+
+
+class TestExtraPropertiesValidation:
+    """A property the corpus cannot carry is refused where it is constructed.
+
+    ``dataclasses.replace`` re-runs ``__post_init__``, so these also stand in
+    for a node a deployment builds by hand rather than through ``build_model``.
+    """
+
+    @pytest.fixture
+    def device(self, synthetic_map):
+        return _device(build_model(synthetic_map), _DEVICE_ADDRESS)
+
+    @pytest.fixture
+    def binding(self, synthetic_map):
+        return _binding(build_model(synthetic_map), _BINDING_ADDRESS)
+
+    def test_the_error_is_a_value_error(self):
+        """Callers that already catch ValueError keep working."""
+        assert issubclass(ExtraPropertyError, ValueError)
+
+    @pytest.mark.parametrize("key", ["full-pv", "9lives", "", "units mm", "narad_p:units"])
+    def test_a_key_the_turtle_side_cannot_spell_is_refused(self, device, key):
+        """Keys outside the prefixed-name shape would render as a full <iri>."""
+        with pytest.raises(ExtraPropertyError, match="key"):
+            dataclasses.replace(device, extra_properties=((key, "x"),))
+
+    def test_duplicate_keys_are_refused(self, device):
+        """The serialiser dedups by (kind, value), so two values would silently be one."""
+        with pytest.raises(ExtraPropertyError, match="units"):
+            dataclasses.replace(device, extra_properties=(("units", "A"), ("units", "mm")))
+
+    def test_unsorted_pairs_are_refused(self, device):
+        """Sorted order is part of the carrier, not something the emitter re-does."""
+        with pytest.raises(ExtraPropertyError, match="sorted"):
+            dataclasses.replace(device, extra_properties=(("units", "A"), ("bits", 16)))
+
+    def test_a_bool_is_refused(self, device):
+        """bool is an int subclass, so it would silently emit as 1 rather than fail."""
+        with pytest.raises(ExtraPropertyError, match="bool"):
+            dataclasses.replace(device, extra_properties=(("interlocked", True),))
+
+    @pytest.mark.parametrize("value", [None, ["a"], {"a": 1}, ("a",), b"a"])
+    def test_a_value_that_is_not_a_scalar_is_refused(self, device, value):
+        with pytest.raises(ExtraPropertyError, match="value"):
+            dataclasses.replace(device, extra_properties=(("thing", value),))
+
+    @pytest.mark.parametrize("value", [float("inf"), float("-inf"), float("nan")])
+    def test_a_non_finite_float_is_refused(self, device, value):
+        with pytest.raises(ExtraPropertyError, match="finite"):
+            dataclasses.replace(device, extra_properties=(("gain", value),))
+
+    @pytest.mark.parametrize("name", ["fullPv", "system", "sourceName", "description"])
+    def test_a_built_in_property_name_is_refused(self, device, name):
+        """Reusing a built-in name would put two meanings under one predicate."""
+        with pytest.raises(ExtraPropertyError, match=name):
+            dataclasses.replace(device, extra_properties=((name, "x"),))
+
+    def test_a_mapping_carrier_is_refused(self, device):
+        """The field is a sorted tuple of pairs; ``build_model`` does the normalising."""
+        with pytest.raises(ExtraPropertyError):
+            dataclasses.replace(device, extra_properties={"units": "A"})
+
+    def test_a_binding_is_validated_the_same_way(self, binding):
+        with pytest.raises(ExtraPropertyError, match="fullPv"):
+            dataclasses.replace(binding, extra_properties=(("fullPv", "x"),))
+        with pytest.raises(ExtraPropertyError, match="bool"):
+            dataclasses.replace(binding, extra_properties=(("interlocked", False),))
+
+    def test_build_model_refuses_a_bad_value_rather_than_dropping_it(self, synthetic_map):
+        with pytest.raises(ExtraPropertyError, match="bool"):
+            build_model(
+                synthetic_map,
+                binding_properties={_BINDING_ADDRESS: {"interlocked": True}},
+            )

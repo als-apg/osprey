@@ -24,6 +24,13 @@ the token itself, not the prose: ``narad_p:systemDescription`` carries the text.
 token the model's identifiers were minted with.  This module keeps no facility
 constant of its own, so the literal and the IRIs beside it cannot disagree.
 
+**Extra properties.** A device or binding may carry the facility's own scalar
+properties (``extra_properties`` on either node).  They are emitted after the
+node's fixed triples, in sorted key order, as ``narad_p:`` literals chosen from
+the Python type, and their names join :data:`PROPERTY_NAMES` in the vocabulary
+block through :func:`declared_property_names`.  A node without them emits
+exactly the bytes it did before extras existed.
+
 **Prose.** When the model carries description text, bindings also get
 ``narad_p:description`` / ``fieldDescription`` / ``subfieldDescription`` and
 devices get ``familyDescription`` / ``systemDescription`` / ``ringDescription``.
@@ -55,7 +62,6 @@ guards the discipline for the whole package.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
@@ -65,8 +71,10 @@ from .direction import DIRECTION_READ, DIRECTION_WRITE
 from .model import (
     NARAD_PROPERTY_NS,
     NARAD_SEM_NS,
+    PN_LOCAL,
     ChannelBinding,
     Device,
+    ExtraProperties,
     GraphModel,
     SignalGroup,
 )
@@ -83,6 +91,7 @@ __all__ = [
     "SEMANTIC_SIGNAL_CLASS_IRI",
     "UndirectedSignalError",
     "build_graph",
+    "declared_property_names",
     "serialize_turtle",
     "write_turtle",
 ]
@@ -168,7 +177,10 @@ _DEVICE_DESCRIPTION_FIELDS: tuple[tuple[str, str], ...] = (
 #: Properties declared ``a owl:ObjectProperty`` — they point at another node.
 OBJECT_PROPERTY_NAMES: tuple[str, ...] = (P_HAS_BINDING, P_READS_SIGNAL, P_WRITES_SIGNAL)
 
-#: Every ``narad_p:`` property the generated corpus uses, sorted.
+#: Every ``narad_p:`` property the generator itself mints, sorted.  It is the
+#: built-in floor: a corpus may carry more, when the model's nodes hold the
+#: facility's own extra properties, and :func:`declared_property_names` is what
+#: adds those on top.  An extra property may not reuse a name from this tuple.
 PROPERTY_NAMES: tuple[str, ...] = tuple(
     sorted(
         (
@@ -207,7 +219,6 @@ _DIRECTION_PREDICATE: dict[str, str] = {
 
 _INDENT = "    "
 _CONTINUATION = "        "
-_PN_LOCAL = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _STRING_ESCAPES = {
     "\\": "\\\\",
     '"': '\\"',
@@ -305,7 +316,7 @@ def _render_iri(iri: str) -> str:
     for prefix, namespace in PREFIXES.items():
         if iri.startswith(namespace):
             local = iri[len(namespace) :]
-            if _PN_LOCAL.fullmatch(local):
+            if PN_LOCAL.fullmatch(local):
                 return f"{prefix}:{local}"
     return f"<{iri}>"
 
@@ -379,6 +390,36 @@ def _description_triples(
     return triples
 
 
+def _extra_property_triples(subject: str, extras: ExtraProperties) -> list[tuple[str, str, _Term]]:
+    """The facility's own scalar properties for one node, in sorted key order.
+
+    Args:
+        subject: IRI of the node the properties hang on.
+        extras: The node's ``extra_properties`` carrier, already sorted and
+            already validated by the node's ``__post_init__`` — so the type
+            test below is a choice of literal spelling, not a guard.
+
+    Returns:
+        One triple per property.  An empty carrier contributes nothing at all,
+        which is what keeps a corpus without extras byte-identical to the one
+        the generator wrote before they existed.
+    """
+    return [(subject, _prop(name), _scalar_term(value)) for name, value in extras]
+
+
+def _scalar_term(value: str | int | float) -> _Term:
+    """The literal a facility-supplied scalar is written as.
+
+    ``bool`` never reaches here: it is an ``int`` subclass, so the model refuses
+    it at construction rather than let it serialise as ``1``.
+    """
+    if isinstance(value, str):
+        return _text(value)
+    if isinstance(value, int):
+        return _integer(value)
+    return _decimal(value)
+
+
 def _device_triples(
     device: Device, ontology: OntologyMap, facility: str
 ) -> list[tuple[str, str, _Term]]:
@@ -416,6 +457,7 @@ def _device_triples(
     triples.extend(
         (subject, _prop(P_HAS_BINDING), _iri(binding_iri)) for binding_iri in device.binding_iris
     )
+    triples.extend(_extra_property_triples(subject, device.extra_properties))
     return triples
 
 
@@ -441,6 +483,7 @@ def _binding_triples(binding: ChannelBinding, predicate: str) -> list[tuple[str,
         (subject, _prop(predicate), _iri(binding.signal_iri)),
     ]
     triples.extend(_description_triples(subject, binding, _BINDING_DESCRIPTION_FIELDS))
+    triples.extend(_extra_property_triples(subject, binding.extra_properties))
     return triples
 
 
@@ -471,23 +514,45 @@ def _class_triples(klass: ClassDef) -> list[tuple[str, str, _Term]]:
     return triples
 
 
-def _vocabulary_triples() -> list[tuple[str, str, _Term]]:
+def declared_property_names(model: GraphModel) -> tuple[str, ...]:
+    """Every ``narad_p:`` property *model* puts in the corpus, in declaration order.
+
+    :data:`PROPERTY_NAMES` is the built-in floor and comes first, unchanged.
+    After it come the facility's own extra property names, gathered from the
+    model's devices and bindings and sorted — so the vocabulary block describes
+    the corpus rather than only the part of it the generator invented.  The two
+    sets cannot overlap: a node refuses an extra property that reuses a built-in
+    name.
+
+    Args:
+        model: The derived graph.
+
+    Returns:
+        The built-in names followed by the sorted extra ones.
+    """
+    extras = {name for device in model.devices for name, _value in device.extra_properties}
+    extras.update(name for binding in model.bindings for name, _value in binding.extra_properties)
+    return PROPERTY_NAMES + tuple(sorted(extras))
+
+
+def _vocabulary_triples(model: GraphModel) -> list[tuple[str, str, _Term]]:
     """Triples for the fixed classes and the property declarations.
 
     ``narad_sem:SemanticSignal`` is a bare ``owl:Class`` and
     ``narad_sem:ChannelBinding`` is an ``owl:Class`` under ``owl:Thing``, exactly
     as the NARAD convention declares them.  Every ``narad_p:`` property the corpus
-    uses is declared too — :data:`PROPERTY_NAMES` is the single list, so the six
-    description properties are declared here as ``owl:DatatypeProperty`` by
-    being in it.  ``narad_p:hasBinding`` is declared as both a datatype and an
-    object property, again mirroring the shipped corpus.
+    uses is declared too — :func:`declared_property_names` is the single list, so
+    the six description properties and any facility-supplied extras are declared
+    here as ``owl:DatatypeProperty`` by being in it.  ``narad_p:hasBinding`` is
+    declared as both a datatype and an object property, again mirroring the
+    shipped corpus.
     """
     triples: list[tuple[str, str, _Term]] = [
         (SEMANTIC_SIGNAL_CLASS_IRI, RDF_TYPE, _iri(OWL_CLASS)),
         (CHANNEL_BINDING_CLASS_IRI, RDF_TYPE, _iri(OWL_CLASS)),
         (CHANNEL_BINDING_CLASS_IRI, RDFS_SUBCLASS_OF, _iri(OWL_THING)),
     ]
-    for name in PROPERTY_NAMES:
+    for name in declared_property_names(model):
         iri = _prop(name)
         if name == P_HAS_BINDING:
             triples.append((iri, RDF_TYPE, _iri(OWL_DATATYPE_PROPERTY)))
@@ -550,7 +615,7 @@ def _model_triples(model: GraphModel, ontology: OntologyMap) -> list[tuple[str, 
     families = {device.family for device in model.devices}
     for klass in ontology.used_classes(sorted(families)):
         triples.extend(_class_triples(klass))
-    triples.extend(_vocabulary_triples())
+    triples.extend(_vocabulary_triples(model))
     return triples
 
 

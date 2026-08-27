@@ -812,3 +812,148 @@ class TestFacilityLiteral:
         parsed = Graph()
         parsed.parse(data=custom_ttl, format="turtle")
         assert isomorphic(parsed, emitter.build_graph(custom_model, ontology))
+
+
+# ---------------------------------------------------------------------------
+# Facility-supplied extra properties
+# ---------------------------------------------------------------------------
+
+#: One device and one binding of the synthetic fixture, by address.
+_EXTRA_DEVICE = "SR:MAG:DIPOLE:01"
+_EXTRA_BINDING = "SR:MAG:DIPOLE:01:CURRENT:SP"
+
+#: One value of each type the carrier accepts, deliberately not in sorted order.
+_DEVICE_EXTRAS = {"serialNumber": "SN-4711", "rackHeightU": 4, "crateSlot": 1.5}
+_BINDING_EXTRAS = {"units": "A", "displayPrecision": 3}
+
+
+def _extras_model(**kwargs) -> model.GraphModel:
+    """The synthetic model, carrying the facility's own scalar properties."""
+    return _directed(model.build_model({address: {} for address in _SYNTHETIC_ADDRESSES}, **kwargs))
+
+
+def _with_extras() -> model.GraphModel:
+    return _extras_model(
+        device_properties={_EXTRA_DEVICE: _DEVICE_EXTRAS},
+        binding_properties={_EXTRA_BINDING: _BINDING_EXTRAS},
+    )
+
+
+class TestExtraProperties:
+    """A facility's own scalar attributes become first-class ``narad_p:`` properties."""
+
+    @pytest.fixture(scope="class")
+    def extras_model(self) -> model.GraphModel:
+        return _with_extras()
+
+    @pytest.fixture(scope="class")
+    def extras_ttl(self, extras_model: model.GraphModel, ontology: OntologyMap) -> str:
+        return emitter.serialize_turtle(extras_model, ontology)
+
+    @pytest.fixture(scope="class")
+    def extras_graph(self, extras_model: model.GraphModel, ontology: OntologyMap) -> Graph:
+        return emitter.build_graph(extras_model, ontology)
+
+    def test_device_extras_render_with_the_literal_form_of_their_type(
+        self, extras_ttl: str
+    ) -> None:
+        lines = _block(extras_ttl, f"<{model.device_iri('SR', 'DIPOLE01')}>")
+        assert "    narad_p:crateSlot 1.5 ;" in lines
+        assert "    narad_p:rackHeightU 4 ;" in lines
+        assert '    narad_p:serialNumber "SN-4711" ;' in lines
+
+    def test_binding_extras_render_with_the_literal_form_of_their_type(
+        self, extras_ttl: str
+    ) -> None:
+        lines = _block(extras_ttl, f"<{model.binding_iri('SR', 'DIPOLE01', 'CURRENT', 'SP')}>")
+        assert "    narad_p:displayPrecision 3 ;" in lines
+        assert '    narad_p:units "A" ;' in lines
+
+    def test_extras_appear_in_sorted_key_order(self, extras_ttl: str) -> None:
+        lines = _block(extras_ttl, f"<{model.device_iri('SR', 'DIPOLE01')}>")
+        positions = [
+            next(
+                index for index, line in enumerate(lines) if line.startswith(f"    narad_p:{key} ")
+            )
+            for key in sorted(_DEVICE_EXTRAS)
+        ]
+        assert positions == sorted(positions)
+
+    def test_the_graph_carries_one_typed_object_per_extra(self, extras_graph: Graph) -> None:
+        device = URIRef(model.device_iri("SR", "DIPOLE01"))
+        binding = URIRef(model.binding_iri("SR", "DIPOLE01", "CURRENT", "SP"))
+        assert list(extras_graph.objects(device, _prop("serialNumber"))) == [Literal("SN-4711")]
+        assert list(extras_graph.objects(device, _prop("rackHeightU"))) == [Literal(4)]
+        assert list(extras_graph.objects(binding, _prop("displayPrecision"))) == [Literal(3)]
+        assert list(extras_graph.objects(binding, _prop("units"))) == [Literal("A")]
+
+    def test_only_the_named_nodes_carry_them(
+        self, extras_graph: Graph, extras_model: model.GraphModel
+    ) -> None:
+        assert set(extras_graph.subjects(_prop("serialNumber"), None)) == {
+            URIRef(model.device_iri("SR", "DIPOLE01"))
+        }
+        assert set(extras_graph.subjects(_prop("units"), None)) == {
+            URIRef(model.binding_iri("SR", "DIPOLE01", "CURRENT", "SP"))
+        }
+        assert extras_model.devices  # the fixture really did build devices
+
+    def test_extras_are_declared_as_datatype_properties(self, extras_ttl: str) -> None:
+        for name in (*_DEVICE_EXTRAS, *_BINDING_EXTRAS):
+            assert f"narad_p:{name} a owl:DatatypeProperty ." in extras_ttl
+
+    def test_the_built_in_constant_is_the_floor_and_stays_untouched(
+        self, extras_model: model.GraphModel
+    ) -> None:
+        declared = emitter.declared_property_names(extras_model)
+        assert declared[: len(emitter.PROPERTY_NAMES)] == emitter.PROPERTY_NAMES
+        assert declared[len(emitter.PROPERTY_NAMES) :] == tuple(
+            sorted((*_DEVICE_EXTRAS, *_BINDING_EXTRAS))
+        )
+        for name in (*_DEVICE_EXTRAS, *_BINDING_EXTRAS):
+            assert name not in emitter.PROPERTY_NAMES
+
+    def test_a_model_without_extras_declares_exactly_the_built_ins(
+        self, synthetic_model: model.GraphModel
+    ) -> None:
+        assert emitter.declared_property_names(synthetic_model) == emitter.PROPERTY_NAMES
+
+    def test_an_empty_carrier_adds_no_bytes(self, ontology: OntologyMap) -> None:
+        """The seed marker is a checksum over these bytes, so empty must cost nothing."""
+        baseline = emitter.serialize_turtle(_extras_model(), ontology)
+        empty = emitter.serialize_turtle(
+            _extras_model(device_properties={}, binding_properties={}), ontology
+        )
+        unmatched = emitter.serialize_turtle(
+            _extras_model(device_properties={"BR:MAG:SEXTUPOLE:99": {"crate": "nowhere"}}),
+            ontology,
+        )
+        assert empty == baseline
+        assert unmatched == baseline
+
+    def test_extras_do_not_disturb_determinism(self, ontology: OntologyMap) -> None:
+        first = emitter.serialize_turtle(_with_extras(), ontology)
+        assert emitter.serialize_turtle(_with_extras(), ontology) == first
+        backward = _directed(
+            model.build_model(
+                {address: {} for address in reversed(_SYNTHETIC_ADDRESSES)},
+                device_properties={_EXTRA_DEVICE: dict(reversed(list(_DEVICE_EXTRAS.items())))},
+                binding_properties={_EXTRA_BINDING: dict(reversed(list(_BINDING_EXTRAS.items())))},
+            )
+        )
+        assert emitter.serialize_turtle(backward, ontology) == first
+
+    def test_extras_text_parses_back_to_the_built_graph(
+        self, extras_model: model.GraphModel, ontology: OntologyMap, extras_ttl: str
+    ) -> None:
+        parsed = Graph()
+        parsed.parse(data=extras_ttl, format="turtle")
+        built = emitter.build_graph(extras_model, ontology)
+        assert len(parsed) == len(built)
+        assert isomorphic(parsed, built), "serialised text and built graph disagree"
+
+    @pytest.mark.parametrize("name", ["fullPv", "system"])
+    def test_a_key_colliding_with_a_built_in_property_is_refused(self, name: str) -> None:
+        """A duplicate predicate with a different meaning is worse than a failure."""
+        with pytest.raises(model.ExtraPropertyError, match=name):
+            _extras_model(binding_properties={_EXTRA_BINDING: {name: "x"}})

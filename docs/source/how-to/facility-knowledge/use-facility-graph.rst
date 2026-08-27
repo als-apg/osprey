@@ -179,6 +179,13 @@ A corpus that is not the demo machine's wants its own facility token as well:
 ``--facility <token>`` decides the token every IRI, every identifier and every
 ``narad_p:facility`` value in the file carries, and it defaults to ``demo``.
 
+A facility whose device database carries attributes the convention has no slot
+for — engineering units on a channel, a crate or serial identity on a device —
+can attach them as first-class properties through the generator's library API
+(``build_model(..., device_properties=..., binding_properties=...)``), rather
+than folding them into description prose where only a substring match reaches
+them; ``get_schema()`` then lists them to the agent like any other property.
+
 Every flag, what it decides and what it falls back to — the two databases the
 corpus is built from, the file that tells a readback from a setpoint, the
 device-family table, the facility token, and the key to point at the corpus you

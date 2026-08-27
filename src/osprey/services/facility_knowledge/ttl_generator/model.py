@@ -10,9 +10,12 @@ database into the three node populations a NARAD-convention Turtle file needs:
 
 This module is **pure**: standard library plus the (stdlib-only) seeder package,
 for its NARAD prefix table — no ``rdflib``, no filesystem access, no
-configuration lookups.  Serialisation and the read/write direction of each
-signal group are decided elsewhere; :attr:`SignalGroup.direction` is
-the slot a later pass fills in (see :meth:`GraphModel.with_directions`).
+configuration lookups.  (Validating an extra property reads the emitter's list
+of built-in property names, lazily, because that list is the Turtle side's to
+own; the emitter is stdlib-only too.)  Serialisation and the read/write
+direction of each signal group are decided elsewhere;
+:attr:`SignalGroup.direction` is the slot a later pass fills in (see
+:meth:`GraphModel.with_directions`).
 
 Everything is deterministic.  The same channel map always produces the same
 model regardless of dict insertion order, because every collection is sorted by
@@ -29,6 +32,7 @@ The address grammar is the six-token colon form used by the demo machine::
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -63,6 +67,12 @@ CONFIDENCE = "high"
 
 #: Rings in facility order; anything else sorts after these, alphabetically.
 RING_ORDER: tuple[str, ...] = ("SR", "BR", "BTS")
+
+#: Turtle's prefixed-name local part.  A property key outside this shape would
+#: render as a full ``<iri>`` rather than as ``narad_p:key``, so extra-property
+#: keys are held to it; the emitter reuses the same pattern when it decides
+#: whether an IRI can be written prefixed.  One pattern, two readers.
+PN_LOCAL = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 _ADDRESS_FIELDS = ("ring", "system", "family", "device", "field", "subfield")
 _ADDRESS_TOKEN_COUNT = len(_ADDRESS_FIELDS)
@@ -376,6 +386,123 @@ def signal_iri(name: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Facility-supplied extra properties
+#
+# A facility device database routinely carries per-device or per-channel
+# attributes the NARAD convention has no slot for — engineering units, a crate
+# identity, a serial number.  They are scalars a query wants to filter on, so
+# they belong on the node as properties rather than folded into description
+# prose, where they would only be reachable by substring match.
+#
+# The carrier is a sorted tuple of pairs rather than a mapping, because the
+# nodes are frozen and the whole module's determinism contract is "every
+# collection is sorted by an explicit key".  Validation happens at construction
+# so a hand-built node is exactly as safe as one ``build_model`` assembled.
+# ---------------------------------------------------------------------------
+
+#: One extra property: a key the Turtle side can spell, and a scalar value.
+ExtraProperty = tuple[str, str | int | float]
+
+#: The carrier on :class:`Device` and :class:`ChannelBinding`, sorted by key.
+ExtraProperties = tuple[ExtraProperty, ...]
+
+
+class ExtraPropertyError(ValueError):
+    """Raised when an extra property is one the corpus cannot carry.
+
+    A :class:`ValueError`, so a caller that already catches malformed input
+    keeps catching this too.
+    """
+
+
+def normalize_extra_properties(values: Mapping[str, str | int | float] | None) -> ExtraProperties:
+    """Turn a caller's mapping into the sorted pair carrier the nodes hold.
+
+    Args:
+        values: Property name to scalar value, or ``None`` for no properties.
+
+    Returns:
+        The pairs sorted by key.  Neither keys nor values are checked here — the
+        node's own ``__post_init__`` does that, so the same rules apply however
+        the node was built.
+    """
+    if not values:
+        return ()
+    return tuple(sorted(values.items(), key=lambda pair: str(pair[0])))
+
+
+def _check_extra_properties(owner: str, pairs: object) -> None:
+    """Refuse anything the emitter could not write out faithfully.
+
+    Args:
+        owner: The node kind, for the message (``"Device"`` / ``"ChannelBinding"``).
+        pairs: The value of the node's ``extra_properties`` field.
+
+    Raises:
+        ExtraPropertyError: If the carrier is not a sorted tuple of unique
+            ``(key, scalar)`` pairs, if a key is not a Turtle prefixed-name
+            local part or collides with a built-in ``narad_p:`` property, or if
+            a value is not a finite ``str`` / ``int`` / ``float``.  ``bool`` is
+            refused by name: it is an ``int`` subclass, so it would silently
+            serialise as ``1`` rather than fail.
+    """
+    if pairs == ():
+        return
+    if not isinstance(pairs, tuple) or not all(
+        isinstance(pair, tuple) and len(pair) == 2 for pair in pairs
+    ):
+        raise ExtraPropertyError(
+            f"{owner}.extra_properties must be a tuple of (key, value) pairs sorted by key, "
+            f"not {type(pairs).__name__}; build_model() normalises a mapping into that shape"
+        )
+
+    # The Turtle-side property names are the emitter's to own, and it imports
+    # this module — so the built-in list is read here rather than at module
+    # scope.  Both modules are stdlib-only, so this costs the import graph
+    # nothing.
+    from .emitter import PROPERTY_NAMES
+
+    keys = [key for key, _value in pairs]
+    for key in keys:
+        if not isinstance(key, str) or not PN_LOCAL.fullmatch(key):
+            raise ExtraPropertyError(
+                f"{owner}.extra_properties has the key {key!r}, which is not a Turtle "
+                "prefixed-name local part ([A-Za-z_][A-Za-z0-9_]*) and would render as a "
+                "full <iri> instead of narad_p:"
+            )
+        if key in PROPERTY_NAMES:
+            raise ExtraPropertyError(
+                f"{owner}.extra_properties reuses the built-in property name {key!r}; "
+                "pick another name rather than putting two meanings under one predicate"
+            )
+
+    if keys != sorted(keys):
+        raise ExtraPropertyError(
+            f"{owner}.extra_properties must be sorted by key; got {keys}. "
+            "Emission order is part of the corpus, not something the emitter re-does."
+        )
+    duplicates = sorted({key for key in keys if keys.count(key) > 1})
+    if duplicates:
+        raise ExtraPropertyError(
+            f"{owner}.extra_properties repeats the key(s) {', '.join(duplicates)}; "
+            "one predicate carries one value per node, so a repeat would silently lose data"
+        )
+
+    for key, value in pairs:
+        if isinstance(value, bool) or not isinstance(value, str | int | float):
+            raise ExtraPropertyError(
+                f"{owner}.extra_properties has a {type(value).__name__} value for {key!r}; "
+                "an extra property is a str, int or float (bool included nowhere: it is an "
+                "int subclass and would serialise as 1)"
+            )
+        if isinstance(value, float) and not math.isfinite(value):
+            raise ExtraPropertyError(
+                f"{owner}.extra_properties has the non-finite value {value!r} for {key!r}; "
+                "Turtle has no decimal spelling for an infinity or a NaN"
+            )
+
+
+# ---------------------------------------------------------------------------
 # Node types
 # ---------------------------------------------------------------------------
 
@@ -406,6 +533,9 @@ class Device:
             the tree describes no such node.
         system_description: Prose for this device's ``(RING, SYSTEM)`` path.
         ring_description: Prose for this device's ring.
+        extra_properties: The facility's own scalar properties for this device,
+            as pairs sorted by key.  Empty by default, in which case the node
+            serialises exactly as it did before extras existed.
     """
 
     ring: str
@@ -425,6 +555,11 @@ class Device:
     family_description: str | None = None
     system_description: str | None = None
     ring_description: str | None = None
+    extra_properties: ExtraProperties = ()
+
+    def __post_init__(self) -> None:
+        """Refuse extra properties the corpus could not carry faithfully."""
+        _check_extra_properties("Device", self.extra_properties)
 
     @property
     def key(self) -> tuple[str, str, str, str]:
@@ -459,6 +594,9 @@ class ChannelBinding:
             FIELD)`` path, or ``None``.
         subfield_description: Prose for the address's full ``(RING, SYSTEM,
             FAMILY, FIELD, SUBFIELD)`` path, or ``None``.
+        extra_properties: The facility's own scalar properties for this channel,
+            as pairs sorted by key.  Empty by default, in which case the node
+            serialises exactly as it did before extras existed.
     """
 
     address: Address
@@ -475,6 +613,11 @@ class ChannelBinding:
     description: str | None = None
     field_description: str | None = None
     subfield_description: str | None = None
+    extra_properties: ExtraProperties = ()
+
+    def __post_init__(self) -> None:
+        """Refuse extra properties the corpus could not carry faithfully."""
+        _check_extra_properties("ChannelBinding", self.extra_properties)
 
 
 @dataclass(frozen=True)
@@ -578,6 +721,8 @@ def build_model(
     facility: str = FACILITY,
     hierarchy_descriptions: HierarchyDescriptions | None = None,
     binding_descriptions: Mapping[str, str] | None = None,
+    device_properties: Mapping[str, Mapping[str, str | int | float]] | None = None,
+    binding_properties: Mapping[str, Mapping[str, str | int | float]] | None = None,
 ) -> GraphModel:
     """Derive the graph model from an expanded channel map.
 
@@ -603,12 +748,22 @@ def build_model(
             the ring the text is qualified by.
         binding_descriptions: Per-channel prose keyed by full six-token address,
             for :attr:`ChannelBinding.description`.
+        device_properties: The facility's own scalar properties per device,
+            keyed by the four-token device address (``SR:MAG:DIPOLE:01``).  Each
+            value is a mapping of property name to ``str`` / ``int`` / ``float``,
+            normalised into :attr:`Device.extra_properties`.  The join is exact,
+            as the prose joins are: a device the caller has no values for keeps
+            an empty carrier, and a key naming no device reaches nothing.
+        binding_properties: The same, per channel, keyed by full six-token
+            address, for :attr:`ChannelBinding.extra_properties`.
 
     Returns:
         The derived :class:`GraphModel`.
 
     Raises:
         ValueError: If any key is not a valid six-token address.
+        ExtraPropertyError: If an extra property is one the corpus cannot carry
+            — see :func:`_check_extra_properties`.
     """
     addresses = [parse_address(addr) for addr in channel_map]
 
@@ -652,6 +807,7 @@ def build_model(
                 None if hierarchy_descriptions is None else hierarchy_descriptions.subfield,
                 (ring, address.system, address.family, address.field, address.subfield),
             ),
+            extra_properties=_lookup_extra_properties(binding_properties, address.text),
         )
         bindings_by_device[address.device_key].append(binding)
         groups.setdefault(address.signal_key, []).append(binding.full_pv)
@@ -664,6 +820,7 @@ def build_model(
             bindings_by_device[key],
             hierarchy_descriptions,
             facility=facility,
+            extra_properties=_lookup_extra_properties(device_properties, ":".join(key)),
         )
         for index, key in enumerate(device_keys)
     )
@@ -687,6 +844,19 @@ def build_model(
     )
 
 
+def _lookup_extra_properties(
+    source: Mapping[str, Mapping[str, str | int | float]] | None, key: str
+) -> ExtraProperties:
+    """Return the sorted extra properties *source* holds for *key*, or none.
+
+    The join is exact, matching :func:`_lookup_description`: a key the mapping
+    does not hold contributes nothing, and nothing is borrowed from a sibling.
+    """
+    if source is None:
+        return ()
+    return normalize_extra_properties(source.get(key))
+
+
 def _binding_sort_key(address: Address) -> tuple:
     """Order bindings by their device, then by FIELD and SUBFIELD."""
     return (_facility_sort_key(address.device_key), address.field, address.subfield)
@@ -700,6 +870,7 @@ def _build_device(
     descriptions: HierarchyDescriptions | None = None,
     *,
     facility: str = FACILITY,
+    extra_properties: ExtraProperties = (),
 ) -> Device:
     """Assemble one :class:`Device` from its identity tuple and ordinals.
 
@@ -732,4 +903,5 @@ def _build_device(
         ring_description=_lookup_description(
             None if descriptions is None else descriptions.ring, (ring,)
         ),
+        extra_properties=extra_properties,
     )
