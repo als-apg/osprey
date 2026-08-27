@@ -425,3 +425,112 @@ def test_summary_report_omits_the_section_without_a_log(tmp_path):
     report = _load_summary().render_report(tmp_path)
     assert "Slowest tests" not in report
     assert "durations report" not in report
+
+
+# ---------------------------------------------------------------------------
+# The unit lane's per-test timeout: the summary names what it killed (#743)
+# ---------------------------------------------------------------------------
+
+_WEDGED = "tests/interfaces/web_terminal/test_file_watcher.py::TestWatcher::test_start"
+
+#: A lane log with one timed-out test in it, in the shape pytest-timeout 2.4
+#: and xdist actually produce: the ``+++ Timeout +++`` banners around the stack
+#: dump while the test is still hung, the ``[gwN]`` progress line, and the
+#: short-summary line that carries the ``from pytest-timeout`` signature. The
+#: banner rules are colourised, which is why the reader strips ANSI first.
+_TIMEOUT_LOG = (
+    "tests/test_a.py::test_fast PASSED\n"
+    "\x1b[31m+++++++++++++++++++++++++++++++ Timeout ++++++++++++++++++++++++++++++++\x1b[0m\n"
+    "Stack of MainThread (4321):\n"
+    '  File "/usr/lib/python3.12/threading.py", line 359, in wait\n'
+    "\x1b[31m+++++++++++++++++++++++++++++++ Timeout ++++++++++++++++++++++++++++++++\x1b[0m\n"
+    f"[gw2] [ 45%] FAILED {_WEDGED}\n"
+    "=========================== short test summary info ============================\n"
+    f"\x1b[31mFAILED\x1b[0m {_WEDGED} - Failed: Timeout (>600.0s) from pytest-timeout.\n"
+)
+
+
+def test_summary_names_the_test_the_per_test_timeout_killed(tmp_path):
+    (tmp_path / "pytest.log").write_text(_TIMEOUT_LOG)
+    assert _load_summary().timed_out_tests(tmp_path) == [_WEDGED]
+
+
+def test_summary_names_a_timed_out_test_that_left_no_banner(tmp_path):
+    """The common case, and why the banner is only a fallback: pytest-timeout
+    writes it solely when ``len(threading.enumerate()) > 1``, and an xdist
+    worker's execnet receiver thread is started with ``_thread``, so it does
+    not count. A test that hung without threads of its own is killed with no
+    banner and must still be named."""
+    (tmp_path / "pytest.log").write_text(
+        "=========================== short test summary info ===========================\n"
+        f"FAILED {_WEDGED} - Failed: Timeout (>600.0s) from pytest-timeout.\n"
+    )
+    summary = _load_summary()
+    assert summary.timeout_banner_seen(tmp_path) is False
+    assert summary.timed_out_tests(tmp_path) == [_WEDGED]
+
+
+def test_summary_keeps_a_parametrised_node_id_whole(tmp_path):
+    """The id ends in ``]``, which is where a word-boundary match truncates."""
+    nodeid = "tests/connectors/test_x.py::test_reads[postgres-16]"
+    (tmp_path / "pytest.log").write_text(
+        f"FAILED {nodeid} - Failed: Timeout (>600.0s) from pytest-timeout.\n"
+    )
+    assert _load_summary().timed_out_tests(tmp_path) == [nodeid]
+
+
+def test_summary_finds_no_timeout_in_an_ordinary_log(tmp_path):
+    (tmp_path / "pytest.log").write_text(_DURATIONS_LOG)
+    summary = _load_summary()
+    assert summary.timed_out_tests(tmp_path) == []
+    assert summary.timeout_banner_seen(tmp_path) is False
+
+
+def test_summary_distinguishes_no_log_from_a_log_without_a_timeout(tmp_path):
+    summary = _load_summary()
+    assert summary.timed_out_tests(tmp_path) is None
+    assert summary.timeout_banner_seen(tmp_path) is False
+
+
+def test_summary_sees_the_banner_even_when_no_summary_line_names_the_test(tmp_path):
+    """The banner is written while the test is still hung; the line that names
+    it comes from the final summary, which a lane killed straight afterwards
+    never reaches. Reporting the banner alone still says *why* it stopped."""
+    (tmp_path / "pytest.log").write_text("+++ Timeout +++\nStack of MainThread (1):\n")
+    summary = _load_summary()
+    assert summary.timeout_banner_seen(tmp_path) is True
+    assert summary.timed_out_tests(tmp_path) == []
+
+
+def test_summary_report_names_the_timed_out_test(tmp_path):
+    _write_jsonl(tmp_path / "events-gw0.jsonl", _FINISHED_RUN)
+    (tmp_path / "pytest.log").write_text(_TIMEOUT_LOG)
+    report = _load_summary().render_report(tmp_path)
+    assert "Killed by the per-test timeout" in report
+    assert f"`{_WEDGED}`" in report
+
+
+def test_summary_report_reports_an_unnamed_timeout(tmp_path):
+    _write_jsonl(
+        tmp_path / "events-gw0.jsonl",
+        [{"event": "start", "nodeid": _WEDGED, "worker": "gw0"}],
+    )
+    (tmp_path / "pytest.log").write_text("+++ Timeout +++\nStack of MainThread (1):\n")
+    report = _load_summary().render_report(tmp_path)
+    assert "per-test timeout fired" in report
+
+
+def test_summary_does_not_mistake_the_bare_word_for_a_timeout(tmp_path):
+    """A test whose own name or assertion says "timeout" is not a timed-out
+    test. Only pytest-timeout's own signature counts."""
+    (tmp_path / "pytest.log").write_text(
+        "FAILED tests/test_a.py::test_timeout_is_honoured - AssertionError: timeout\n"
+    )
+    assert _load_summary().timed_out_tests(tmp_path) == []
+
+
+def test_summary_report_omits_the_timeout_section_on_a_clean_run(tmp_path):
+    _write_jsonl(tmp_path / "events-gw0.jsonl", _FINISHED_RUN)
+    (tmp_path / "pytest.log").write_text(_DURATIONS_LOG)
+    report = _load_summary().render_report(tmp_path)
+    assert "per-test timeout" not in report.lower()

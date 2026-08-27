@@ -71,6 +71,30 @@ is what turns a segfault in a C extension into something with a stack on it.
 The unit lane still passes no ``faulthandler_timeout`` — pytest's built-in is
 implemented with ``dump_traceback_later``, so arming it re-introduces exactly
 the crash described above, on a per-test timer.
+
+The per-test cap that does exist, and why it is ``signal``
+----------------------------------------------------------
+The lane passes ``--timeout=600 --timeout-method=signal`` (pytest-timeout), so
+a hung test ends in ten minutes with its own name on the failure instead of
+running out the 40-minute step cap and taking the log with it (#743). That is a
+kill, and it is not in tension with the paragraphs above: the objection there is
+to a *watchdog walking frames without the GIL*, which is a crash risk, not to
+bounding a test.
+
+``--timeout-method=thread`` would be. It ends the timed-out test with
+``os._exit`` of the xdist worker, which is precisely the ``node down: Not
+properly terminated`` case described above — the lane would go from one hung
+test to a scheduler ``KeyError`` or a controller parked forever. The ``signal``
+method raises inside the test and leaves the worker alive to report it, which is
+what keeps the failure readable.
+
+What ``signal`` gives up is the same thing this module's sampler gives up: a
+hang inside a C extension that holds the GIL never services the SIGALRM, so no
+timeout fires. In that case the step cap is again the only backstop, and the
+uploaded stacks are the only evidence — which is why they keep being written
+whether or not a timeout is armed. The value is 600 s rather than something
+tighter so that a cold container image pull in the ``xdist_group("docker")``
+files, which legitimately takes minutes, is never mistaken for a hang.
 """
 
 from __future__ import annotations
