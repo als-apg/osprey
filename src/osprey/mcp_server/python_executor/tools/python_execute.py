@@ -7,6 +7,8 @@ from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.mcp_server.python_executor.server import mcp
 from osprey.mcp_server.python_executor.tools._execution_gates import (
+    LAYER_IMPORT_DENYLIST,
+    LAYER_PATTERN_DETECTION,
     enforce_deployment_writes_gate,
     enforce_path_policy,
     enforce_posture_clamp,
@@ -16,10 +18,6 @@ from osprey.mcp_server.python_executor.tools._execution_gates import (
     session_control_target,
 )
 from osprey.mcp_server.python_executor.tools._package_inventory import with_live_packages
-from osprey.services.python_executor.refusal_audit import (
-    LAYER_IMPORT_DENYLIST,
-    LAYER_PATTERN_DETECTION,
-)
 
 logger = logging.getLogger("osprey.mcp_server.tools.execute")
 
@@ -100,7 +98,7 @@ async def execute(
     # With the clamp here, none can — under the sandbox posture the only mode
     # that ever reaches the spawn is readonly, so the overwrite can only ever
     # re-assert the posture it found.
-    enforce_posture_clamp(execution_mode)
+    enforce_posture_clamp(execution_mode, tool="execute")
 
     # Pre-execution safety checks (syntax, security, imports)
     try:
@@ -224,6 +222,7 @@ async def execute(
         stderr=exec_result.stderr,
         code=code,
         description=description,
+        execution_mode=execution_mode,
     )
 
     from osprey.mcp_server.python_executor.tools._response_builder import build_execution_response

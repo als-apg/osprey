@@ -15,7 +15,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from osprey import bluesky_tool_names as bsky
+from osprey.audit.posture import POSTURE_ENV_VAR
 from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
+from osprey.utils.identity import AUDIT_IDENTITY_ENV as AUDIT_IDENTITY_ENV  # re-exported
+from osprey.utils.identity import IDENTITY_ENV_LADDER
 from osprey.utils.workspace import RENDERED_CONFIG_RELPATH
 
 logger = logging.getLogger(__name__)
@@ -531,6 +534,150 @@ del _unregistered_pipelines
 
 
 # ---------------------------------------------------------------------------
+# Read/write-mixed tools (the writes kill switch's documented exception)
+# ---------------------------------------------------------------------------
+
+#: Framework templates whose ``_WRITES_CHECK``-gated tools are read/write
+#: MIXED rather than pure-write.
+#:
+#: ``python``'s ``execute`` is the one documented exception to the writes
+#: kill-switch's hard-deny default: it accepts both read-only and
+#: write-access kernels, so a readonly posture must keep it reachable and let
+#: the writes-check hook (and, server-side, the audit middleware) decide per
+#: call. Every other ``_WRITES_CHECK``-gated tool is presumed pure-write and
+#: is denied outright when writes are off.
+#:
+#: It lives in the registry rather than in a renderer because the registry is
+#: where ``_WRITES_CHECK`` and ``FRAMEWORK_SERVERS`` are: every consumer — the
+#: Claude Code kill switch, the rendered hook config, the MCP audit
+#: middleware's clamp set and its degraded-render floor — reads the same
+#: classification here instead of restating a set of template names.
+MIXED_READ_WRITE_TEMPLATES: frozenset[str] = frozenset({"python"})
+
+
+def writes_check_matchers(template: str, server_name: str | None = None) -> list[str]:
+    """Fully-qualified ``_WRITES_CHECK``-gated tool matchers of one framework template.
+
+    This is the canonical construction every write-gating consumer shares:
+    walk the template's ``hooks_pre`` and keep the rules whose hooks include
+    the :data:`_WRITES_CHECK` singleton. Identity on the shared ``HookEntry``,
+    not a substring search on its command line, so a moved hook path cannot
+    quietly stop matching.
+
+    Args:
+        template: Name of a :data:`FRAMEWORK_SERVERS` entry. A name the
+            registry does not know (a custom, profile-authored server) has no
+            template to read rules from and yields ``[]`` rather than raising:
+            callers walk mixed server lists that may legitimately contain one.
+        server_name: The rendered server's own name, when it is an ``extends``
+            clone. The matchers are re-anchored ``mcp__<template>__`` →
+            ``mcp__<server_name>__``, the same splice
+            :func:`build_extended_server` applies to the clone's hook rules, so
+            a clone's tools are named for the clone.
+
+    Returns:
+        Matchers in the template's own hook order.
+    """
+    template_def = FRAMEWORK_SERVERS.get(template)
+    if template_def is None:
+        return []
+    name = server_name or template
+    old_prefix, new_prefix = f"mcp__{template}__", f"mcp__{name}__"
+    matchers = []
+    for rule in template_def.hooks_pre:
+        if _WRITES_CHECK not in rule.hooks:
+            continue
+        matcher = rule.matcher
+        if name != template and matcher.startswith(old_prefix):
+            matcher = new_prefix + matcher[len(old_prefix) :]
+        matchers.append(matcher)
+    return matchers
+
+
+def framework_mixed_read_write_tools() -> list[str]:
+    """Every mixed read/write tool the framework itself ships, fully qualified.
+
+    The template-name floor: no project config, no ``extends`` clones. This is
+    what a consumer falls back to when it cannot read a render's own list (a
+    degraded or missing hook config) — a floor that is never *wider* than the
+    real render, because a clone can only add tools to it.
+
+    Sorted by template so the value is stable across interpreter runs
+    (``MIXED_READ_WRITE_TEMPLATES`` is a set); within a template, hook order.
+    """
+    return [
+        matcher
+        for template in sorted(MIXED_READ_WRITE_TEMPLATES)
+        for matcher in writes_check_matchers(template)
+    ]
+
+
+def framework_write_tools() -> list[str]:
+    """Every ``_WRITES_CHECK``-gated tool the framework itself ships, fully qualified.
+
+    The whole write-gated set, where :func:`framework_mixed_read_write_tools`
+    is its read/write-mixed subset: the matchers of *every*
+    :data:`FRAMEWORK_SERVERS` entry that gates a tool on :data:`_WRITES_CHECK`,
+    enabled-by-default or not. Template names only — no project config, no
+    ``extends`` clones — so it is never *wider* than a real render.
+
+    It exists because the degraded write floor is a drift seam. Two consumers
+    carry a hardcoded copy of this list, clamped when a render cannot be read:
+    the MCP audit middleware's ``_FALLBACK_WRITE_TOOLS`` and the same-named
+    literal in the ``osprey_writes_check.py`` hook. Neither may import the
+    registry — one is the running server, which should not import the
+    render/launch side to learn what it refuses; the other ships as a
+    copied-in template file run by a bare ``python3``. Pinning them only
+    against *each other* (which is all they had) makes two identical copies
+    agree while both drift away from the registry, which is exactly how
+    ``bluesky``'s arming pair came to be missing from the floor. This function
+    is the third, derived answer both are pinned against in
+    ``tests/registry/test_mixed_floor_driftguard.py``.
+
+    Sorted by template so the value is stable across interpreter runs; within
+    a template, hook order.
+    """
+    return [
+        matcher
+        for template in sorted(FRAMEWORK_SERVERS)
+        for matcher in writes_check_matchers(template)
+    ]
+
+
+def mixed_read_write_tools(servers: list[dict]) -> list[str]:
+    """The mixed read/write tools of one render, fully qualified.
+
+    Computed from resolved servers rather than from template names alone
+    because that is the only place both halves are known: which mixed servers
+    this project actually enables, and what an ``extends`` clone's tools are
+    called after the registry rewrote their prefixes. Consumers downstream
+    (the rendered hook config, and through it the audit middleware) therefore
+    receive a finished list and classify nothing themselves.
+
+    Args:
+        servers: Output of :func:`resolve_servers`. Disabled servers are
+            skipped — a server that does not render has no tools to exempt —
+            and so are custom servers, which name no framework template and
+            carry no framework write-gating.
+
+    Returns:
+        Deduplicated, in resolved-server order. Rendered into a JSON safety
+        file, so a stable order keeps every built project's diff quiet.
+    """
+    tools: list[str] = []
+    for server in servers:
+        if not server.get("enabled"):
+            continue
+        template = server.get("extends_of") or server["name"]
+        if template not in MIXED_READ_WRITE_TEMPLATES:
+            continue
+        for matcher in writes_check_matchers(template, server["name"]):
+            if matcher not in tools:
+                tools.append(matcher)
+    return tools
+
+
+# ---------------------------------------------------------------------------
 # Agent data model and catalog
 # ---------------------------------------------------------------------------
 
@@ -616,6 +763,161 @@ FRAMEWORK_AGENTS: dict[str, AgentDefinition] = {
 
 
 # ---------------------------------------------------------------------------
+# Framework-owned env markers
+# ---------------------------------------------------------------------------
+
+#: Env marker naming the server's own ``mcp__<name>__`` tool-prefix identity.
+#:
+#: An MCP server process cannot work out which server it *is*: fastmcp reports
+#: bare tool names (``phoebus_drive``), while every gate list, hook matcher and
+#: permission string in the render is spelled fully-qualified
+#: (``mcp__phoebus2__phoebus_drive``). In-process consumers — the audit
+#: middleware first — qualify what they see by reading this marker.
+#:
+#: Distinct from two identities it resembles, and deliberately so:
+#:
+#: * the ``.mcp.json`` server KEY, which is what Claude Code launches the
+#:   server under (equal in value here, but not the same contract: the key is
+#:   the launcher's, this is the process's);
+#: * ``OSPREY_SERVER_NAME``, the web-terminal panel id — which stays
+#:   facility-pinnable, because pointing a clone at an existing panel tab is a
+#:   legitimate deployment choice.
+#:
+#: **Unset is part of the contract, not a bug.** Two shapes of server never
+#: receive it: a URL-based server gets no rendered env at all (``mcp.json.j2``
+#: emits only ``{type, url}`` on its url branch — pinned by
+#: ``tests/registry/test_mcp.py::test_render_mcp_json_url_server``),
+#: and any server started outside a render (hand-run process, test harness,
+#: a facility's own launcher) inherits whatever the shell had. In-process
+#: consumers MUST therefore treat an unset marker as "leave tool names
+#: unqualified" rather than assume presence: qualifying against a guessed
+#: prefix would manufacture names that match no gate list, hook matcher or
+#: permission string in the render, which is worse than an unqualified name.
+TOOL_PREFIX_ENV = "OSPREY_MCP_TOOL_PREFIX"
+
+
+# ── Audit-critical markers: framework-REMOVED, never spec-set ─────────────
+#
+# These say WHO acted, WHICH POSTURE the process is under, and WHERE that
+# posture claim came from. Every one of them is assigned by a real assignment
+# site outside the MCP spec path, and none of them has any legitimate reason
+# to appear in a server spec's ``env:`` — a spec that could set one could make
+# its own records claim another service's identity, present a writes posture
+# inside a sandboxed session (lifting the middleware clamp AND filing a false
+# ``posture=writes`` record), or claim a posture provenance it was never
+# granted. So the spec path REMOVES them (post-merge, in
+# :func:`_server_to_dict`), the exact mirror of the tool prefix's post-merge
+# assignment.
+#
+# The set is spelled off its AUTHORITATIVE SOURCES, not off hand-picked
+# markers: the whole identity ladder (``osprey.utils.identity``, every rung —
+# stripping only the lower rung left the winning ``OSPREY_TERMINAL_USER``
+# pinnable, which misrouted a server's entire ledger into an unmounted
+# subdirectory) and the posture value itself (``osprey.audit.posture``). Both
+# owners are stdlib-only leaves that import nothing from ``osprey`` beyond the
+# envelope, so the registry can depend on them from anywhere without a cycle.
+# The remaining three are spelled locally rather than imported: their owners
+# live in ``osprey.interfaces.web_terminal`` and in the audit writer, and
+# importing an interfaces module from the registry would risk an import cycle.
+# The spellings are pinned against their owners by
+# ``tests/registry/test_marker_nonpinnability.py``, so a rename there fails
+# here instead of silently un-stripping a marker.
+
+#: Which spawn path decided this session's posture — ``live``, ``spawn``,
+#: ``process``, ``app``. Assigned at the three web-terminal spawn sites via
+#: ``osprey.interfaces.web_terminal.operator_session.POSTURE_SOURCE_ENV``.
+POSTURE_SOURCE_ENV = "OSPREY_POSTURE_SOURCE"
+
+#: The session key a record joins on, exported into the session's children.
+#: Assigned beside :data:`POSTURE_SOURCE_ENV` at the same spawn sites via
+#: ``operator_session.POSTURE_SESSION_ENV``.
+POSTURE_SESSION_ENV = "OSPREY_POSTURE_SESSION"
+
+#: Names the maintenance writer for records made by the root maintenance
+#: heredoc. Assigned ONLY as a per-command env prefix on that invocation, and
+#: must stay absent everywhere else — an inherited value would misroute every
+#: app-side record. Reserved here so the spec path already refuses it before
+#: the writer that assigns it exists.
+AUDIT_WRITER_ENV = "OSPREY_AUDIT_WRITER"
+
+#: The audit-critical markers, in one tuple so a drift check can assert
+#: membership rather than re-encode the list. This is the seam the gate-wiring
+#: drift test imports. Spelled off the identity ladder and the posture
+#: module's own name so a rung or a marker added THERE is stripped HERE without
+#: anyone remembering to extend this tuple; ``test_marker_nonpinnability.py``
+#: asserts both containments.
+#:
+#: ``OSPREY_EXECUTION_MODE`` is removed outright rather than narrowed: a
+#: deployment-wide readonly posture legitimately arrives through the
+#: container's ``environment:`` or a spawn site — never through a per-server
+#: ``.mcp.json`` env block, which the process environment the session set
+#: would otherwise be overridden by.
+NON_PINNABLE_AUDIT_MARKERS: tuple[str, ...] = (
+    *IDENTITY_ENV_LADDER,
+    POSTURE_ENV_VAR,
+    AUDIT_WRITER_ENV,
+    POSTURE_SOURCE_ENV,
+    POSTURE_SESSION_ENV,
+)
+
+#: Env markers a server spec's ``env:`` may not set — the framework owns them.
+#:
+#: Spec env otherwise WINS the env merge (both for extends clones and for
+#: custom servers, whose spec env is copied verbatim), which is the documented
+#: override contract and stays. These keys are the exception: they are settled
+#: AFTER the merge in :func:`_server_to_dict`, so a spec value never reaches
+#: the rendered ``.mcp.json``. :func:`_lint_framework_owned_env` warns rather
+#: than silently discarding, so a facility learns its pin does nothing.
+#:
+#: Two classes, settled the same way and reported differently, because the
+#: operator's next question differs: :data:`TOOL_PREFIX_ENV` is ASSIGNED after
+#: the merge (the pin is overwritten with the framework's value), while every
+#: entry of :data:`NON_PINNABLE_AUDIT_MARKERS` is REMOVED after it (the key is
+#: gone from the rendered env entirely, and only a real assignment site
+#: outside the spec path can put it back).
+_FRAMEWORK_OWNED_SPEC_ENV: tuple[str, ...] = (TOOL_PREFIX_ENV, *NON_PINNABLE_AUDIT_MARKERS)
+
+#: The subset of :data:`_FRAMEWORK_OWNED_SPEC_ENV` that is removed rather than
+#: reassigned — the lint's message variant is keyed on this membership.
+_REMOVED_SPEC_ENV: frozenset[str] = frozenset(NON_PINNABLE_AUDIT_MARKERS)
+
+
+def _lint_framework_owned_env(name: str, spec: dict) -> None:
+    """Warn when a server spec tries to pin a framework-owned env marker.
+
+    Runs on EVERY spec — framework override, extends clone and custom server
+    alike — because the post-merge settlement in :func:`_server_to_dict`
+    covers all three and the operator deserves to hear about a pin that will
+    be ignored on any of them.
+
+    Args:
+        name: The server name the spec is keyed under.
+        spec: The raw config spec (already known to be a dict).
+    """
+    spec_env = spec.get("env")
+    if not isinstance(spec_env, dict):
+        # A malformed ``env:`` (list, string, null) is not this lint's problem;
+        # it has nothing to pin.
+        return
+    for marker in _FRAMEWORK_OWNED_SPEC_ENV:
+        if marker in spec_env:
+            settlement = (
+                "removed after the spec env merge"
+                if marker in _REMOVED_SPEC_ENV
+                else "assigned after the spec env merge"
+            )
+            logger.warning(
+                "Server %r pins %s in its spec env — that marker is owned by the "
+                "framework and is %s, so the pinned value %r is ignored; remove it "
+                "from the spec",
+                name,
+                marker,
+                settlement,
+                spec_env[marker],
+            )
+
+
+# ---------------------------------------------------------------------------
 # Resolution functions
 # ---------------------------------------------------------------------------
 
@@ -667,6 +969,7 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
     for name, spec in server_overrides.items():
         if not isinstance(spec, dict):
             continue
+        _lint_framework_owned_env(name, spec)
         if name in servers:
             # Override existing framework server. Note: only 'enabled' applies
             # here — an 'extends' key on a framework name would silently shadow
@@ -924,10 +1227,24 @@ def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition | None:
         if resolved:
             hooks_pre = [HookRule(matcher=f"mcp__{name}__.*", hooks=resolved)]
 
+    spec_env = spec.get("env")
+    if spec_env is None:
+        spec_env = {}
+    elif not isinstance(spec_env, dict):
+        # ``env: null`` or a list/scalar used to reach ``_server_to_dict``'s
+        # ``.items()`` and crash the whole resolve. Fail closed on the SPEC
+        # (no env) rather than on every server in the deployment.
+        logger.warning(
+            "Server %r has a malformed env: (expected a mapping, got %s) — ignoring it",
+            name,
+            type(spec_env).__name__,
+        )
+        spec_env = {}
+
     return ServerDefinition(
         name=name,
         module="",
-        env=spec.get("env", {}),
+        env=spec_env,
         is_external=True,
         external_command=spec.get("command", ""),
         external_args=spec.get("args", []),
@@ -962,6 +1279,29 @@ def _server_to_dict(sdef: ServerDefinition, ctx: dict) -> dict:
     env = {}
     for k, v in sdef.env.items():
         env[k] = _resolve_placeholder(v, ctx)
+
+    # ── Framework-owned markers, settled POST-merge ───────────
+    # This is the ONE site every launch path funnels through — framework
+    # servers, extends clones, and custom specs alike — which is exactly why
+    # the settlement lives here: spec env wins the merge everywhere upstream
+    # (a clone merges it over the template, a custom server copies it
+    # verbatim), so anything assigned before this point is pinnable from a
+    # spec. Assigning after the resolution loop, unconditionally, is what
+    # makes the tool-prefix identity non-pinnable — see TOOL_PREFIX_ENV and
+    # the _lint_framework_owned_env warning that tells the operator so.
+    # Removal comes first: the audit-critical markers have no framework value
+    # to put here at all. Each one is assigned by a real site outside this path
+    # (compose environment:, a spawn site, the maintenance heredoc), so a value
+    # arriving through a spec could only ever be a spoof — a write-capable
+    # clone claiming a read-only service's identity, or a session's posture
+    # provenance it was never granted. Popping here rather than on the clone
+    # path is what covers CUSTOM servers too, whose spec env is copied verbatim.
+    for marker in NON_PINNABLE_AUDIT_MARKERS:
+        env.pop(marker, None)
+
+    # The value is the server's resolved name: the .mcp.json key it launches
+    # under, hence the mcp__<name>__ prefix its tools carry.
+    env[TOOL_PREFIX_ENV] = sdef.name
 
     # Convert hooks to plain dicts
     hooks_pre = [_hook_rule_to_dict(r) for r in sdef.hooks_pre]

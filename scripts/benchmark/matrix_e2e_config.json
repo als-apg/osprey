@@ -19,6 +19,14 @@
       "reason": "Builds two real container images and asserts stat-level file ownership inside them (the render-zone privilege split). Pure docker-infrastructure proof: no LLM round-trip, nothing about the model-under-test. Runs in its own CI job (privilege-split-e2e)."
     },
     {
+      "path": "tests/e2e/test_audit_two_container.py",
+      "reason": "Runs two real containers and asserts the audit mount's mechanism at stat level (post-gosu uid/gid, joined supplementary groups, setgid inheritance, host-side visibility and purge). Pure docker-infrastructure proof: no agent session, no LLM round-trip, nothing about the model-under-test. Linux-only by design."
+    },
+    {
+      "path": "tests/e2e/test_full_chain_auth.py",
+      "reason": "Stands up a real auth-sidecar image plus a role-resolved persona behind nginx and asserts forwarded identity headers, login refusals and audit-ledger placement. Pure deploy/auth-infrastructure proof: no agent session, no LLM round-trip, nothing about the model-under-test. Runs in its own CI job (full-chain-auth-e2e)."
+    },
+    {
       "path": "tests/e2e/test_claude_code_build_integration.py",
       "reason": "Own init_project hardcoded to als-apg; doesn't honor the model override."
     },

@@ -59,7 +59,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from osprey_hook_log import get_hook_input, log_hook
+from osprey_hook_log import AUDIT_DECISION_REFUSED, emit_audit, get_hook_input, log_hook
 
 
 def main():
@@ -116,6 +116,19 @@ def main():
 
     # Deny — limits violated
     log_hook("limits", hook_input, status="deny", detail=f"violations={len(violations)}")
+    try:
+        # Count only. The violation lines carry the offending channel VALUES,
+        # and a value is exactly what an audit record never holds.
+        emit_audit(
+            "limits",
+            hook_input,
+            decision=AUDIT_DECISION_REFUSED,
+            subject=tool_name,
+            reason="limits_violation",
+            detail=f"violations={len(violations)}",
+        )
+    except Exception:
+        pass  # the audit trail must never cost the deny
     violation_text = "\n".join(violations)
     output = {
         "hookSpecificOutput": {

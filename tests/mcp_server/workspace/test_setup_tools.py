@@ -27,6 +27,21 @@ def _get_setup_patch():
     return get_tool_fn(setup_patch)
 
 
+@pytest.fixture(autouse=True)
+def _audit_zone(tmp_path, monkeypatch):
+    """Keep this suite's refused patches out of the deployment's own ledger.
+
+    ``setup_patch`` records every protected-key refusal through
+    :mod:`osprey.audit.protected`, and ``writer.audit_dir`` resolves against
+    the real project root unless it is redirected — so a plain ``pytest`` run
+    would append refusals nobody caused to ``var/audit/<identity>/``, where an
+    operator cannot tell them from the real ones.
+    """
+    from osprey.audit import writer
+
+    monkeypatch.setattr(writer, "audit_dir", lambda: tmp_path / "audit-zone")
+
+
 @pytest.fixture
 def project_dir(tmp_path):
     """A minimal deployment repo, and the *render* the setup tools act on.

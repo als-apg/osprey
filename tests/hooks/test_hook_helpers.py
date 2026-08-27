@@ -177,13 +177,11 @@ def test_write_tools_returns_the_generated_list(hook_config_file):
 
 @pytest.mark.unit
 def test_write_tools_falls_back_when_the_key_is_absent(hook_config_file):
-    """A hook_config with no ``write_tools`` key gets the framework two."""
+    """A hook_config with no ``write_tools`` key gets the framework floor."""
     hook_config_file({"server_prefixes": ["mcp__controls__"]})
 
-    assert hook_log.write_tools() == [
-        "mcp__controls__channel_write",
-        "mcp__python__execute",
-    ]
+    assert hook_log.write_tools() == hook_log.FALLBACK_WRITE_TOOLS
+    assert "mcp__controls__channel_write" in hook_log.write_tools()
 
 
 @pytest.mark.unit

@@ -1329,3 +1329,53 @@ def test_env_production_no_telemetry_block_means_no_telemetry_advisory(tmp_path,
         env_production.ensure_env_production(config, tmp_path)
 
     assert "observability account" not in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Role-bound personas are provisioned like pinned ones (Task 4.2 wiring)
+# ---------------------------------------------------------------------------
+
+
+def _role_bound_config(role_persona: str) -> dict:
+    """A roster whose sole entry reaches its persona through a role."""
+    return {
+        "modules": {
+            "web_terminals": {
+                "enabled": True,
+                "default_persona": "cli",
+                "personas": {
+                    "cli": {"project": "cli"},
+                    role_persona: {"project": role_persona},
+                },
+                "users": [{"name": "alice", "index": 0, "role": "expert"}],
+                "authorization": {"roles": {"expert": {"persona": role_persona}}},
+            }
+        }
+    }
+
+
+def test_referenced_persona_names_resolves_a_role_bound_persona() -> None:
+    """Per-persona env provisioning reads the roster through the same
+    `effective_persona` helper the render binds with, so a role-only roster gets
+    the credentials its personas are entitled to instead of the default's."""
+    # Arrange
+    config = _role_bound_config("physicist")
+
+    # Act
+    names = env_production._referenced_persona_names(config)
+
+    # Assert: the default still counts, and the role's persona joins it.
+    assert names == ["cli", "physicist"]
+
+
+def test_referenced_persona_names_refuses_an_undeclared_role() -> None:
+    """Provisioning is a BINDING surface — it decides which persona is handed
+    which credential — so it fails closed rather than quietly provisioning the
+    default persona's secrets for an entry the operator bound elsewhere."""
+    # Arrange
+    config = _role_bound_config("physicist")
+    config["modules"]["web_terminals"]["users"][0]["role"] = "admin"
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="admin"):
+        env_production._referenced_persona_names(config)

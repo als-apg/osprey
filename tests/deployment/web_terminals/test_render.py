@@ -23,6 +23,7 @@ from osprey.deployment.web_terminals.render import (
     AUTH_ENV_DIGEST_LABEL,
     TERMINAL_SECRET_HEADER,
     _auth_tls_context,
+    _terminal_secret_artifacts,
     clear_nginx_templates_dir,
     deployment_external_origin,
     render_web_terminals,
@@ -385,10 +386,18 @@ def test_landing_single_user_renders_exactly_one_card() -> None:
     assert "No terminals or links are configured yet." not in landing_html
 
 
-def test_landing_escapes_html_special_characters_in_user_and_link_labels() -> None:
-    """Unsafe characters in a user name or link label must be escaped, never raw."""
+def test_landing_escapes_html_special_characters_in_link_labels() -> None:
+    """Unsafe characters in a landing label must be escaped, never raw.
+
+    Exercised through the LINK labels rather than a roster name: a group label
+    and a link label are free prose a facility authors, while a roster name can
+    no longer reach this template unescaped at all — it is the audit
+    subdirectory's name in every auth posture, so `_check_roster_audit_identities`
+    refuses anything outside the username charset before the landing page is
+    built (see the companion test below). Both halves run through the same `|e`
+    filter, so what is pinned here is the same escaping.
+    """
     # Arrange
-    unsafe_user = "<script>alert('u')</script>"
     groups = [
         {"type": "users"},
         {
@@ -397,18 +406,28 @@ def test_landing_escapes_html_special_characters_in_user_and_link_labels() -> No
             "links": [{"label": "Elog & Status", "url": "https://elog.example.org"}],
         },
     ]
-    config = copy.deepcopy(_config([unsafe_user], groups=groups))
+    config = copy.deepcopy(_config(["alice"], groups=groups))
 
     # Act
     artifacts = render_web_terminals(config)
     landing_html = artifacts["nginx/landing.html"]
 
     # Assert
-    assert unsafe_user not in landing_html
-    assert "&lt;script&gt;" in landing_html
     assert "Facility <Tools> & More" not in landing_html
     assert "Facility &lt;Tools&gt; &amp; More" in landing_html
     assert "Elog &amp; Status" in landing_html
+
+
+def test_a_roster_name_carrying_markup_never_reaches_the_landing_page() -> None:
+    """The stronger half of the escaping story: such a name is refused outright.
+
+    It would be a host directory name (`var/audit/<user>/`, bound read-write into
+    that user's container) before it were ever an HTML label, so the render stops
+    it rather than escaping it downstream.
+    """
+    # Act / Assert
+    with pytest.raises(ValueError, match="audit subdirectory"):
+        render_web_terminals(copy.deepcopy(_config(["<script>alert('u')</script>"])))
 
 
 def test_landing_transform_renders_links_group_items() -> None:
@@ -1422,22 +1441,23 @@ def test_persona_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
     assert bob_volumes == [
         "bob-claude-config:/data/claude-config",
         "bob-agent-data:/app/dls-gui/var/agent_data",
-        "./var/audit/bob:/app/dls-gui/var/audit",
+        "./var/audit/bob:/app/dls-gui/var/audit/bob",
         "/opt/site-data:/app/site-data:ro",
         "shared-cache:/app/cache",
     ]
-    # alice (default persona, no extra_mounts) keeps exactly the three default mounts
+    # alice (default persona, no extra_mounts) keeps exactly the framework's own
+    # three mounts — the persona's list adds to them, never reorders them.
     assert compose["services"]["web-alice"]["volumes"] == [
         "alice-claude-config:/data/claude-config",
         "alice-agent-data:/app/dls-assistant/var/agent_data",
-        "./var/audit/alice:/app/dls-assistant/var/audit",
+        "./var/audit/alice:/app/dls-assistant/var/audit/alice",
     ]
 
 
 def test_no_extra_mounts_leaves_only_the_default_volume_lines() -> None:
     """A no-personas config (the zero-migration default) emits exactly the three
-    default per-user volume lines (claude-config, agent-data, the per-user audit
-    zone) — the extra_mounts loop adds nothing."""
+    framework per-user volume lines — claude-config, agent-data and this user's
+    own audit subdirectory — and the extra_mounts loop adds nothing."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
 
@@ -1450,7 +1470,7 @@ def test_no_extra_mounts_leaves_only_the_default_volume_lines() -> None:
         assert compose["services"][f"web-{user}"]["volumes"] == [
             f"{user}-claude-config:/data/claude-config",
             f"{user}-agent-data:/app/dls-assistant/var/agent_data",
-            f"./var/audit/{user}:/app/dls-assistant/var/audit",
+            f"./var/audit/{user}:/app/dls-assistant/var/audit/{user}",
         ]
 
 
@@ -2954,6 +2974,11 @@ def test_auth_sidecar_service_environment_is_exactly_the_non_secret_settings() -
     # Assert
     assert _env_names(auth) == [
         "TZ",
+        # The sidecar's audit identity and the directory it writes its login and
+        # denial events to. Neither is a secret: one is the fixed name
+        # `sidecar`, the other a container path.
+        "OSPREY_AUDIT_IDENTITY",
+        "OSPREY_AUTH_AUDIT_DIR",
         ENV_METHOD,
         ENV_SESSION_LIFETIME,
         ENV_TLS_ENABLED,
@@ -3274,19 +3299,60 @@ def test_render_auth_on_refuses_a_roster_name_outside_the_username_charset() -> 
         render_web_terminals(uppercase)
 
 
-def test_render_auth_off_still_renders_a_roster_name_outside_the_charset() -> None:
-    """The gate is scoped to authentication being on. With `auth.method: none` the
-    username is a routing label rather than an authorization identity, and every
-    deployment rendering such a name today must keep rendering — lint still reports
-    it. Tightening this would be a silent breaking change for no security gain."""
-    # Arrange
-    config = _config(["alice", "bob.jones"])
+@pytest.mark.parametrize("name", ["../../etc", "..", ".", "a/b", "Alice", "bob.jones", "-dash"])
+def test_render_auth_off_refuses_a_roster_name_outside_the_charset(name: str) -> None:
+    """The charset now binds with `auth.method: none` too — on different grounds.
 
+    `_check_roster_charset` is still scoped to authentication, because ITS
+    reasoning (the name is an nginx location key and the auth subrequest's
+    `?user=` value) only applies behind a login wall. What applies in every
+    posture is that the name is a host DIRECTORY: the render emits
+    `./var/audit/<name>:<container>/var/audit/<name>`, so `../../etc` is a
+    read-write bind resolving outside the repo into a container that runs
+    agent-generated code, and `alice` beside `Alice` is two terminals sharing
+    one subdirectory on a case-insensitive host filesystem.
+
+    This inverts the earlier contract ("no security gain"), which the audit mount
+    invalidated: the renderer used to emit a bind the provisioning seam
+    (`compose_generator.audit_identity_dir`) refuses to create, and the renderer
+    wins — it is the artifact compose reads, and the runtime creates whatever
+    source is missing.
+    """
+    # Arrange
+    config = _config(["alice", name])
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="audit subdirectory") as exc_info:
+        render_web_terminals(config)
+    assert repr(name) in str(exc_info.value)
+
+
+def test_render_auth_off_still_renders_an_in_charset_roster_name() -> None:
+    """The new gate is the charset and nothing wider: hyphens, underscores and
+    digits are all still ordinary roster names with no authentication."""
     # Act
-    compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
+    compose = yaml.safe_load(
+        render_web_terminals(_config(["alice", "bob_2", "carol-x"]))["docker-compose.web.yml"]
+    )
 
     # Assert
-    assert "web-bob.jones" in compose["services"]
+    assert {"web-alice", "web-bob_2", "web-carol-x"} <= set(compose["services"])
+
+
+def test_with_authentication_on_the_charset_gate_is_the_one_that_answers() -> None:
+    """Both gates refuse an out-of-charset name and both are right about it, but
+    they explain it differently — and only the audit gate applies in both
+    postures, so it is the one that would shadow the other if the two ran in the
+    wrong order. With a login wall the name is the AUTHORIZATION identity (the
+    nginx location key, the auth subrequest's `?user=` value), which is the more
+    urgent thing to say, so that gate gets first refusal. Pinned because the
+    difference is only in the message: reversing the two calls leaves every
+    other test in this file green while `_check_roster_charset` becomes
+    unreachable."""
+    # Act / Assert
+    with pytest.raises(ValueError, match="nginx location key") as exc_info:
+        render_web_terminals(_auth_config(["alice", "bob.jones"]))
+    assert "audit subdirectory" not in str(exc_info.value)
 
 
 def test_render_auth_on_charset_gate_rejects_a_trailing_newline_in_a_roster_name() -> None:
@@ -4030,6 +4096,16 @@ def _secrets_for(users: list[str]) -> dict[str, str]:
     return {user: f"s3cr3t-value-for-{user}" for user in users}
 
 
+def _secret_service(user: str) -> dict:
+    """The two keys `_terminal_secret_artifacts` reads off a resolved entry.
+
+    Lets the carrier's own four refusals be exercised on names the render's
+    roster gates refuse earlier — the carrier still has to hold them on its own,
+    because it is also called with rosters those gates never saw.
+    """
+    return {"user": user, "login_exempt": False}
+
+
 def test_render_without_terminal_secrets_returns_exactly_the_three_artifacts() -> None:
     """The no-secrets render path emits no nginx template snippets at all."""
     # Act
@@ -4354,19 +4430,27 @@ def test_clear_nginx_templates_dir_tolerates_a_first_render(tmp_path: Path) -> N
     assert removed == []
 
 
-def test_render_refuses_a_roster_name_that_is_not_one_snippet_filename() -> None:
+def test_the_secret_carrier_refuses_a_roster_name_that_is_not_one_snippet_filename() -> None:
     """The name becomes a filename and an nginx `include` argument, so a name
     carrying a path separator would write outside the cleared templates
-    directory. Refused whatever the auth method: this carrier is rendered even
-    with `auth.method: none`, where the strict username charset is not enforced.
+    directory.
+
+    Driven at the carrier directly, not through `render_web_terminals`: the
+    roster gates now refuse this name earlier and on their own grounds (it is
+    also the audit subdirectory's name), so going through the front door would
+    pin THAT refusal and leave this one — the carrier's own last line of
+    defence, and the only one that runs when the carrier is called with a
+    roster the render did not build — unexercised.
     """
     # Arrange
-    config = _config(["alice", "../../etc/nginx/conf.d/evil"])
+    services = [_secret_service("alice"), _secret_service("../../etc/nginx/conf.d/evil")]
 
     # Act / Assert
     with pytest.raises(ValueError, match="cannot carry an operator secret"):
-        render_web_terminals(
-            config, terminal_secrets={"alice": "a", "../../etc/nginx/conf.d/evil": "b"}
+        _terminal_secret_artifacts(
+            services,
+            {"alice": "a", "../../etc/nginx/conf.d/evil": "b"},
+            auth_method="password",
         )
 
 
@@ -4386,27 +4470,33 @@ def test_terminal_secret_snippets_stay_inside_the_templates_directory() -> None:
         assert Path(path).parent.as_posix() == "nginx/templates"
 
 
-def test_render_refuses_a_dotted_roster_name_that_derives_an_illegal_variable() -> None:
+def test_the_secret_carrier_refuses_a_dotted_name_that_derives_an_illegal_variable() -> None:
     """`env_var_suffix` maps only '-' to '_', so a dot survives into the
     variable. envsubst does not recognize `${OSPREY_TERMINAL_SECRET_ALICE.B}`,
     leaves it verbatim, and nginx dies at start with `invalid variable name` —
-    an opaque crash loop the render can refuse instead."""
-    # Arrange
-    config = _config(["alice.b"])
+    an opaque crash loop the carrier refuses instead.
 
+    Driven at the carrier directly, for the same reason as the filename gate
+    above: `alice.b` is outside the username charset, so the roster gates refuse
+    it before this one is reached.
+    """
     # Act / Assert
     with pytest.raises(ValueError, match=r"OSPREY_TERMINAL_SECRET_ALICE\.B"):
-        render_web_terminals(config, terminal_secrets={"alice.b": "a-secret"})
+        _terminal_secret_artifacts(
+            [_secret_service("alice.b")], {"alice.b": "a-secret"}, auth_method="password"
+        )
 
 
-def test_a_dotted_roster_name_still_renders_without_terminal_secrets() -> None:
-    """The refusal is scoped to the carrier: a name that renders today must keep
-    rendering on the path that carries no secrets."""
-    # Act
-    artifacts = render_web_terminals(_config(["alice.b"]))
-
-    # Assert
-    assert "web-alice.b" in yaml.safe_load(artifacts["docker-compose.web.yml"])["services"]
+def test_render_refuses_a_dotted_roster_name_with_authentication_off() -> None:
+    """A dot is outside the username charset, and the charset now binds in every
+    auth posture: the name is the audit subdirectory's name whether or not the
+    deployment authenticates. This inverts an earlier contract, under which such
+    a name rendered as long as no operator secret was carried — the audit mount
+    is what invalidated it."""
+    # Act / Assert
+    with pytest.raises(ValueError, match="audit subdirectory") as exc_info:
+        render_web_terminals(_config(["alice.b"]))
+    assert "alice.b" in str(exc_info.value)
 
 
 def test_render_refuses_roster_names_that_collide_on_their_secret_variable() -> None:
@@ -4423,12 +4513,20 @@ def test_render_refuses_roster_names_that_collide_on_their_secret_variable() -> 
         render_web_terminals(config, terminal_secrets=secrets)
 
 
-def test_case_colliding_roster_names_are_refused_too() -> None:
-    """`Alice` and `alice` are two roster entries and one variable."""
+def test_the_secret_carrier_refuses_case_colliding_names_too() -> None:
+    """`Alice` and `alice` are two roster entries and one variable.
+
+    At the carrier directly: an uppercase name is outside the username charset,
+    so the roster gates refuse this pair first — on the neighbouring grounds
+    that the two would also share ONE audit subdirectory on a case-insensitive
+    host filesystem.
+    """
     # Act / Assert
     with pytest.raises(ValueError, match="OSPREY_TERMINAL_SECRET_ALICE"):
-        render_web_terminals(
-            _config(["Alice", "alice"]), terminal_secrets=_secrets_for(["Alice", "alice"])
+        _terminal_secret_artifacts(
+            [_secret_service("Alice"), _secret_service("alice")],
+            _secrets_for(["Alice", "alice"]),
+            auth_method="password",
         )
 
 

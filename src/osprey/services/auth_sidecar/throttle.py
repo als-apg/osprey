@@ -37,6 +37,14 @@ A refused attempt must not call :meth:`record_failure`; only attempts that were
 actually evaluated grow the window. Otherwise a flood of parallel requests would
 ratchet the window against a legitimate operator, which is the lockout this
 module exists to avoid.
+
+That rule is about the *login* window. A caller that wants this escalation shape
+for something other than deciding a login — the sidecar bounds how often its
+audit ledger repeats a refusal that way, growing the window on refusals that
+were never evaluated — must build its OWN instance rather than share the login
+one (:func:`~osprey.services.auth_sidecar.app.get_audit_throttle`). Sharing it
+would mean one object under two opposite rules, and an unauthenticated caller
+could then delay a named operator's real login just by asking for it.
 """
 
 from __future__ import annotations

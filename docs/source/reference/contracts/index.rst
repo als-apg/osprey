@@ -65,6 +65,15 @@ guides are the better starting point.
       What the facility graph stores, how its names are spelled, and what each
       of the four ``graph`` MCP tools returns.
 
+   .. grid-item-card:: Audit Trail Contract
+      :link: audit-trail
+      :link-type: doc
+      :shadow: md
+
+      Which file under ``var/audit/`` each safety decision lands in, the
+      fields of every record, who can read the files, and what the trail does
+      not promise.
+
 .. toctree::
    :hidden:
 
@@ -74,3 +83,4 @@ guides are the better starting point.
    ariel
    channel-finder
    facility-graph
+   audit-trail

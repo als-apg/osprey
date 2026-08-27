@@ -276,30 +276,33 @@ def test_persona_mirror_is_the_hosts_mirror(
 
 
 # ---------------------------------------------------------------------------
-# T4: the refusal audit log
+# T4: the audit records
 # ---------------------------------------------------------------------------
 
 
-def test_persona_refusal_audit_log_is_backed_by_a_volume(web_compose, resolved_entries):
-    """Every per-user container's audit zone (``<project>/var/audit``) must be
-    covered by a volume or bind mount, or the append-only refusal log the
-    python executor writes there is silently discarded on the next recreate.
+def test_persona_audit_records_are_backed_by_a_volume(web_compose, resolved_entries):
+    """Every per-user container's audit subdirectory
+    (``<project>/var/audit/<user>``) must be covered by a volume or bind mount,
+    or every record the unified writer files there — refused writes, tool
+    calls, hook decisions — is silently discarded on the next recreate.
 
-    ``tests/services/python_executor/test_refusal_audit.py::
-    test_audit_dir_sits_under_the_state_zone`` came closest: it pins the
-    host-side derivation of the path, but nothing asks whether the compose
-    service a persona actually runs in backs that path with any mount — the
-    agent-data volume beside it (``var/agent_data``) is a sibling, not an
-    ancestor.
+    ``tests/deployment/test_audit_mounts.py`` pins the render's derivation of
+    the target; this asks the question from the writer's side: the directory
+    :func:`osprey.audit.writer.audit_dir` resolves for this identity, inside
+    the compose service the persona actually runs in, is backed by some mount
+    — the agent-data volume beside it (``var/agent_data``) is a sibling, not
+    an ancestor.
     """
     for entry in resolved_entries:
         service = web_compose["services"][f"web-{entry['name']}"]
-        audit_dir = PurePosixPath(entry["container_project_dir"]) / AUDIT_DIR_RELPATH
+        audit_dir = (
+            PurePosixPath(entry["container_project_dir"]) / AUDIT_DIR_RELPATH / entry["name"]
+        )
         targets = [PurePosixPath(target) for target in _mount_targets(service)]
         covered = any(target == audit_dir or target in audit_dir.parents for target in targets)
         assert covered, (
-            f"web-{entry['name']} writes its refusal audit log under {audit_dir}, but no "
+            f"web-{entry['name']} writes its audit records under {audit_dir}, but no "
             f"volume or bind mount covers that path or an ancestor of it (mount targets: "
             f"{[str(t) for t in targets]}) — the log lands in the container's writable "
-            f"layer and is discarded on the next recreate"
+            f"layer and are discarded on the next recreate"
         )

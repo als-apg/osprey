@@ -616,6 +616,27 @@ def test_a_default_persona_roster_is_covered_by_the_persona_check_not_the_sentin
     assert excinfo.value.personas == ["readwrite"]
 
 
+def test_a_role_only_roster_is_covered_by_the_persona_check_not_the_sentinel(tmp_path):
+    """An entry that names a ``role:`` and no ``persona:`` still runs a persona —
+    the one the ``authorization`` block binds the role to — so the persona-keyed
+    intersection binds it and the persona-less sentinel must not fire. A guard
+    that read the raw ``persona`` key would call this roster persona-less and
+    judge the deploy project's own settings instead of the persona's."""
+    config = _tiered_roster_config(tmp_path, rw_denies_bash=False)
+    config["modules"]["web_terminals"]["authorization"] = {
+        "roles": {"operator": {"persona": "readwrite"}}
+    }
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "alice", "index": 0, "role": "operator"}
+    ]
+    config["control_system"] = {"writes_enabled": True}
+
+    with pytest.raises(BashLaunchTokenConflictError) as excinfo:
+        write_web_terminal_artifacts(config, tmp_path)
+
+    assert excinfo.value.personas == ["readwrite"]
+
+
 def test_a_read_only_persona_permitting_bash_is_not_a_conflict(tmp_path):
     """Permitting the shell is only a conflict for a persona that HOLDS the token.
     A read-only persona is never handed one, so there is nothing for a shell to

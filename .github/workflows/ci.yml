@@ -1277,6 +1277,7 @@ jobs:
             --ignore=tests/e2e/test_bluesky_queue_e2e.py \
             --ignore=tests/e2e/test_dockerfile_e2e.py \
             --ignore=tests/e2e/test_privilege_split.py \
+            --ignore=tests/e2e/test_audit_two_container.py \
             --ignore=tests/e2e/test_execution_environment_parity.py \
             --ignore=tests/e2e/test_tiled_roundtrip.py \
             --ignore=tests/e2e/test_va_substrate_equivalence.py \
@@ -1296,6 +1297,7 @@ jobs:
             --ignore=tests/e2e/fixtures/test_gchat_fixture_smoke.py \
             --ignore=tests/e2e/web_terminals/test_auth_perimeter.py \
             --ignore=tests/e2e/web_terminals/test_terminal_auth_multiuser_e2e.py \
+            --ignore=tests/e2e/test_full_chain_auth.py \
             --ignore=tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py
         fi
     # On failure only: container logs, exit codes, `OOMKilled`, and runner
@@ -2692,7 +2694,14 @@ jobs:
     # they share every layer up to the persona's own config, so the second is
     # mostly cache — but the first is the same cold EPICS-toolchain compile
     # dockerfile-e2e pays, hence the same order of budget plus the second image.
-    timeout-minutes: 90
+    # A THIRD image build lives here too: the audit two-container mechanism
+    # module (second pytest step below) builds the hello-world preset cold —
+    # nothing on an ephemeral runner shares a layer cache with dockerfile-e2e,
+    # which runs on its own runner. Hence 120 rather than 90: the two steps
+    # carry 85 + 35 of their own, and only a pathological run spends both.
+    # The job's `name:` is deliberately unchanged even though it now runs two
+    # modules — it is the check name a branch-protection rule matches on.
+    timeout-minutes: 120
     # Same PR scoping as dockerfile-e2e: same-repo PRs, any base. Unlike the
     # lifecycle lanes this touches nothing host-global — every image and
     # container it creates carries a per-run uuid under the
@@ -2722,7 +2731,77 @@ jobs:
       # image context itself (the `osprey up --dev` path), because everything
       # it proves — the render-zone ownership split, the entrypoint's
       # privilege drop, the reserved-record gate — is unreleased code.
-      run: uv run pytest tests/e2e/test_privilege_split.py -v --tb=short
+      run: |
+        uv run pytest tests/e2e/test_privilege_split.py -v --tb=short \
+          --junitxml=junit-privilege-split.xml
+
+    # Sequential second step rather than a job of its own: both modules build
+    # an OSPREY image with the staged dev wheel, need the same ubuntu-latest
+    # runner and the same same-repo-PR gating, and neither touches anything
+    # host-global — so a second job would buy a second cold `uv sync` and a
+    # second entry in `all-checks-passed`/`check_pr_lane` for nothing. Running
+    # them in one job also keeps the two image builds off the same runner at
+    # the same time, which is what a matrix would have done.
+    - name: Run audit two-container mechanism E2E
+      # Runs even when the step above went red, so a failing privilege-split
+      # module cannot hide this one's result: the default `success()` would skip
+      # it, and a skipped lane reads like a passing one in a run summary. Not a
+      # bare `always()` — that would keep building an image after a cancel.
+      if: success() || failure()
+      timeout-minutes: 35
+      # Same reasoning as above on the wheel: this module stages the local dev
+      # wheel into the image context itself, because the audit writer whose
+      # uid/gid it stats is unreleased. Linux-only by design (setgid
+      # propagation and bind-mount ownership), which is exactly what this
+      # runner is.
+      run: |
+        uv run pytest tests/e2e/test_audit_two_container.py -v --tb=short \
+          --junitxml=junit-audit-two-container.xml
+
+    - name: Fail the lane on a lane-wide skip
+      # Same reasoning as the step above: a red step ahead of this one must not
+      # skip the check that reads what the run actually proved.
+      if: success() || failure()
+      run: |
+        # Deliberately NOT the zero-skip gate the single-module lanes use.
+        # test_audit_two_container.py carries per-test guards for runtimes that
+        # remap ids or rewrite bind-mount ownership, each documenting the half
+        # of the property that still holds, and its own `_degraded_host` helper
+        # already FAILS rather than skips on a Linux CI runner for the class it
+        # considers a lane misconfiguration. What no in-test guard can catch is
+        # a module skipping WHOLE — no container runtime, an unusable mount
+        # source, a module-level skipif — because then nothing runs to fail, and
+        # pytest exits 0 over a job that built no image at all. So: a report
+        # that collected nothing, or in which every test skipped, fails the
+        # lane; a partial skip is surfaced as a warning rather than swallowed.
+        uv run python - <<'PY'
+        import os
+        import sys
+        import xml.etree.ElementTree as ET
+
+        failed = False
+        for report in ("junit-privilege-split.xml", "junit-audit-two-container.xml"):
+            if not os.path.exists(report):
+                print(f"::error::{report} was never written — the step that writes it did not finish")
+                failed = True
+                continue
+            total = skipped = 0
+            for suite in ET.parse(report).getroot().iter("testsuite"):
+                total += int(suite.get("tests", 0))
+                skipped += int(suite.get("skipped", 0))
+            print(f"{report}: {total} test(s), {skipped} skipped")
+            if total == 0:
+                print(f"::error::{report} collected no tests")
+                failed = True
+            elif skipped == total:
+                print(f"::error::{report} skipped every one of its {total} test(s)")
+                failed = True
+            elif skipped:
+                print(f"::warning::{report} skipped {skipped} of {total} test(s)")
+        if failed:
+            sys.exit(1)
+        print("✅ both privilege-split modules ran")
+        PY
 
     - name: Capture failure diagnostics
       if: failure()
@@ -2734,12 +2813,15 @@ jobs:
     # Belt-and-suspenders on top of the suite's own fixture teardown. Names are
     # per-run uuids, so the module's tag prefix is the only handle a stranded
     # resource has — scoped to that prefix, never a bare prune.
-    - name: Clean up any stranded privilege-split-e2e resources
+    - name: Clean up any stranded resources from either module
       if: always()
       run: |
         docker ps -aq --filter "name=^osprey-e2e-privsplit-" | xargs -r docker rm -f
         docker images -q "osprey-e2e-privsplit-*" | xargs -r docker rmi -f
         docker volume ls -q --filter "name=^osprey-e2e-privsplit-" | xargs -r docker volume rm -f
+        docker ps -aq --filter "name=^osprey-e2e-audit2c-" | xargs -r docker rm -f
+        docker images -q "osprey-e2e-audit2c*" | xargs -r docker rmi -f
+        docker volume ls -q --filter "name=^osprey-e2e-audit2c" | xargs -r docker volume rm -f
 
   dockerfile-e2e:
     name: Dockerfile E2E (generated container image)
@@ -3336,6 +3418,146 @@ jobs:
         docker rm -f authoff-nginx || true
         docker compose -p osprey-e2e-authoff-multiuser down || true
         docker rmi -f authoff-operator-operator:local || true
+
+  full-chain-auth-e2e:
+    name: Full-Chain Auth E2E (real sidecar + role-resolved persona + audit ledgers)
+    runs-on: ubuntu-latest
+    # Higher than the two single-build auth lanes (60/55) because this job does
+    # strictly more of the same work: BOTH real images, cold, in one job. Two
+    # builds at each neighbour's measured 7-11 minutes, plus the deploy, five
+    # container starts and the assertions, put a bad-but-legal run past a
+    # one-build lane's ceiling — so the lane would red on wall clock rather than
+    # on anything it asserts. `test_full_chain_auth_lane_outbudgets_the_single_
+    # build_lanes` pins the RELATION (strictly more than either sibling, at both
+    # caps), not these numbers; record the first cold wall clock in the PR body
+    # so the margin is sized from a measurement rather than from this estimate.
+    timeout-minutes: 85
+    # Same PR scoping as the two auth lanes above: same-repo PRs only, since
+    # this drives a real `osprey up` (container and volume lifecycle) against
+    # the runtime.
+    #
+    # DELIBERATELY ITS OWN LANE, and the most expensive of the three: it is the
+    # only job in the repo that builds BOTH real framework images in one
+    # deployment — the deployed auth-sidecar Dockerfile (as auth-perimeter-e2e
+    # does) AND the production project image running `osprey web` (as
+    # terminal-auth-multiuser-e2e does). Neighbouring lanes measure a single
+    # such build at roughly 7-11 minutes cold on a runner; the deploy, five
+    # container starts and the assertions add a handful more, so the expected
+    # wall time is ~30-35 minutes — but the WORST legal path is roughly twice
+    # that, which is why the step ceiling below is 75 rather than the 55 the
+    # one-build lanes carry. The four non-alice roster entries run an alpine
+    # stub, so the roster's size costs container starts rather than builds.
+    #
+    # Complement, not duplicate, of the two: auth-perimeter-e2e proves the
+    # perimeter in front of a stub, terminal-auth-multiuser-e2e proves the
+    # app-owned gate with auth OFF. This one proves what only both halves real
+    # at once can show — that the identity the sidecar established reaches the
+    # container it authorized, that the role decides which persona that
+    # container runs, and that each decision lands in its own identity's audit
+    # ledger and nowhere else.
+    # Base-ref clause matches the two lanes above, and for the same reason:
+    # this lane certifies the auth perimeter, which is built on epic phase
+    # branches whose PRs target an `epic/*` integration base. Scoped to main
+    # alone it would skip on every PR that changes what it covers, and a safety
+    # lane that only runs after the work is already merged is one that can go
+    # red inside a green gate.
+    if: >-
+      github.event_name == 'pull_request'
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && (github.event.pull_request.base.ref == 'main'
+      || startsWith(github.event.pull_request.base.ref, 'epic/'))
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Set up Docker Compose
+      uses: docker/setup-compose-action@v2
+
+    - name: Install osprey
+      run: uv sync --extra dev
+
+    # The fixture drives `osprey init`/`osprey build`/`osprey up --dev` itself;
+    # `--dev` stages this branch's locally-built wheel into both real images, so
+    # the sidecar whose identity matrix is under test and the terminal whose
+    # audit writer is under test both run THIS branch's code rather than a
+    # published release. No provider secret is needed: the fixture writes a fake
+    # ANTHROPIC_API_KEY and the PTY never contacts a model.
+    - name: Run full-chain auth E2E
+      timeout-minutes: 75
+      run: |
+        uv run pytest tests/e2e/test_full_chain_auth.py -v --tb=short \
+          --junitxml=junit-full-chain-auth.xml
+
+    - name: Fail the lane on any skipped test
+      run: |
+        # Every way this module can skip is a CI misconfiguration rather than a
+        # legitimate environment gap: its only skip paths are "no container
+        # runtime" and "daemon not responding", and this lane exists precisely
+        # to have both. Either turns the job into a green check that built
+        # nothing, and pytest — which exits 0 on an all-skipped run — cannot
+        # express the difference. So the junit report the run above wrote is
+        # read here: zero skips, and a non-zero test count so an empty
+        # selection cannot pass the same check trivially.
+        uv run python - <<'PY'
+        import sys
+        import xml.etree.ElementTree as ET
+
+        report = "junit-full-chain-auth.xml"
+        total = skipped = 0
+        for suite in ET.parse(report).getroot().iter("testsuite"):
+            total += int(suite.get("tests", 0))
+            skipped += int(suite.get("skipped", 0))
+        print(f"{report}: {total} test(s), {skipped} skipped")
+        if total == 0:
+            print(f"::error::{report} collected no tests")
+            sys.exit(1)
+        if skipped:
+            print(f"::error::{report} reports {skipped} skipped test(s)")
+            sys.exit(1)
+        print("✅ every full-chain auth test ran; none skipped")
+        PY
+
+    # Runs BEFORE the teardown below: the cleanup step deletes the very
+    # containers whose logs explain the failure. Read-only capture; the
+    # artifact is `ci-diag-<lane>` on the run's summary page.
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: full-chain-auth-e2e
+        engine: docker
+
+    # Belt-and-suspenders on top of the test's own try/finally teardown. Every
+    # resource named here is exact — never a prune, an -a/--all sweep, or a
+    # wildcard — matching the test module's container-ops safety guardrail. The
+    # volumes go by this lane's compose-project name prefix rather than an
+    # enumerated roster: the prefix is exact-scoped to this deployment and
+    # survives a roster edit, where a hardcoded user list would strand volumes.
+    - name: Clean up any stranded full-chain-auth resources
+      if: always()
+      run: |
+        docker compose -p osprey-e2e-full-chain-auth down || true
+        for user in alice bob carol kiosk dave; do
+          docker rm -f "fullchain-web-${user}" || true
+        done
+        docker rm -f fullchain-auth || true
+        docker rm -f fullchain-nginx || true
+        docker volume ls -q --filter "name=^osprey-e2e-full-chain-auth_" \
+          | xargs -r docker volume rm -f || true
+        docker rmi -f fullchain-assistant-auth:local || true
+        docker rmi -f fullchain-operator-operator:local || true
+        docker rmi -f fullchain-probe-probe:local || true
 
   multi-user-deploy-lifecycle-e2e-podman:
     name: Multi-User Deploy Lifecycle E2E (PRs into main, podman runtime)
@@ -4446,7 +4668,7 @@ jobs:
 
   all-checks-passed:
     name: All CI Checks Passed
-    needs: [test, dependency-floor, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-web-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, bluesky-queue-e2e, scan-agentic-e2e, archiver-world-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, dockerfile-e2e, privilege-split-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman, auth-perimeter-e2e, terminal-auth-multiuser-e2e, two-shape-boot-e2e, qmd-sidecar-e2e, target-switch-e2e, target-switch-agentic-e2e]
+    needs: [test, dependency-floor, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-web-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, bluesky-queue-e2e, scan-agentic-e2e, archiver-world-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, dockerfile-e2e, privilege-split-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman, auth-perimeter-e2e, terminal-auth-multiuser-e2e, full-chain-auth-e2e, two-shape-boot-e2e, qmd-sidecar-e2e, target-switch-e2e, target-switch-agentic-e2e]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     if: always()
@@ -4553,6 +4775,7 @@ jobs:
         check_pr_lane "Multi-user lifecycle E2E (podman)" "${{ needs.multi-user-deploy-lifecycle-e2e-podman.result }}"
         check_pr_lane "Auth perimeter E2E"           "${{ needs.auth-perimeter-e2e.result }}"
         check_pr_lane "Terminal auth multi-user E2E" "${{ needs.terminal-auth-multiuser-e2e.result }}"
+        check_pr_lane "Full-chain auth E2E"        "${{ needs.full-chain-auth-e2e.result }}"
         check_pr_lane "Two-shape boot E2E (podman-compose)" "${{ needs.two-shape-boot-e2e.result }}"
         check_pr_lane "qmd sidecar E2E"              "${{ needs.qmd-sidecar-e2e.result }}"
         check_pr_lane "Control-target switch E2E"    "${{ needs.target-switch-e2e.result }}"

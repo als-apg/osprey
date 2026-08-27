@@ -74,6 +74,14 @@ at a config key, because flipping one would not lift it. A stage-2 refusal names
 the key the posture was actually read from, which on a per-target deployment is
 the connector block rather than the deployment-wide flag.
 
+Which tools are writes is rendered data (`write_tools` in `hook_config.json`),
+read through the shared `write_tools()` accessor with its fail-closed floor. A
+facility-custom server that opts into `writes_check` arrives there as a
+whole-server matcher (`mcp__<name>__.*`), and `is_write_tool` honours it — so
+every tool on such a server is gated by BOTH stages, reads included: nothing in
+the render can tell a custom server's reads from its writes, and the server
+asked for the gate at server level.
+
 Lane-bound queue tools skip stage 2. A queue operation is addressed by *lane*,
 and the lane's own bridge refuses what it must; the session target says nothing
 about it. Which tools those are is rendered into `hook_config.json` off the tool
@@ -83,6 +91,13 @@ Stage 1 still applies to them in full.
 The rules themselves live in `osprey_target_state`, shared with
 `osprey_approval` so a deny here and a missing prompt there can never disagree
 about one deployment.
+
+Both refusals are also written to the audit trail (`emit_audit`, surface
+`hook_writes-check`): the posture refusal under the reason word `posture` — the
+same word the MCP audit middleware and the python executor's session clamp
+record for the same refusal, so one grep finds all three layers — and the
+stage-2 refusal under `writes_disabled`, because a different action lifts it.
+A record is written before the deny is emitted and can never cost it.
 """
 
 import json
@@ -91,6 +106,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from osprey_hook_log import (
+    AUDIT_DECISION_REFUSED,
+    emit_audit,
     get_hook_input,
     is_write_call,
     is_write_tool,
@@ -123,6 +140,28 @@ _GLOBAL_WRITES_KEY = "control_system.writes_enabled"
 #: Short names, so an `extends` clone of the server — which renames only the
 #: prefix — keeps the carve-out.
 _LANE_ADDRESSED_KEY = "lane_addressed_tools"
+
+#: The posture refusal, said once: it is lifted by one action, so it teaches the
+#: operator one dialect.
+_POSTURE_DENY_REASON = (
+    "\U0001f512 SANDBOX POSTURE — this terminal session refuses "
+    "control-system writes.\n\n"
+    "Switch the session to writes posture from the terminal card; "
+    "config.yml is not the gate here."
+)
+
+#: The machine-ish reason the posture refusal records. Deliberately the same
+#: word the MCP audit middleware and the python executor's in-tool session
+#: clamp record for the same refusal, so a sandboxed session's records join
+#: across all three layers on one spelling. A cross-layer test pins them
+#: together, reading this literal by AST — the hook imports nothing from
+#: osprey, so it cannot share the constant itself.
+_POSTURE_DENY_AUDIT_REASON = "posture"
+
+#: What the stage-2 refusal records. A different word from the posture one,
+#: because a different action lifts it — the same separation the two
+#: operator-facing messages keep.
+_WRITES_DISABLED_AUDIT_REASON = "writes_disabled"
 
 
 def _server_prefixes():
@@ -266,6 +305,53 @@ def _deployment_posture(hook_input):
         return False, [_GLOBAL_WRITES_KEY], None
 
 
+def _record_refusal(hook_input, tool_name, reason, detail=None):
+    """Write one refusal to the audit trail. Never raises.
+
+    Wrapped because this hook's stage 1 fails OPEN — an uncaught exception exits
+    non-zero with no JSON and the tool proceeds — and on a mixed read/write
+    render the deny it accompanies is the primary layer, since the renderer
+    re-grants those tools via ``allow`` and leans on the hard deny. An
+    unwritable audit zone costs a record, never the decision.
+    """
+    try:
+        emit_audit(
+            "writes-check",
+            hook_input,
+            decision=AUDIT_DECISION_REFUSED,
+            subject=tool_name,
+            reason=reason,
+            detail=detail,
+        )
+    except Exception:
+        pass  # the audit trail must never cost the deny
+
+
+def _deny_posture(hook_input, tool_name):
+    """Emit the sandbox-posture deny and exit 0. Does not return.
+
+    Nothing here may raise (see :func:`_record_refusal` for why). Both calls that
+    touch the filesystem — the debug logger, which reads config and appends to
+    a JSONL file, and the audit record — are wrapped, and both happen BEFORE
+    the exit: a broken config or an unwritable audit zone costs a line, never
+    the decision.
+    """
+    try:
+        log_hook("writes-check", hook_input, status="deny", detail="reason=posture")
+    except Exception:
+        pass  # logging must never cost the deny
+    _record_refusal(hook_input, tool_name, _POSTURE_DENY_AUDIT_REASON)
+    output = {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": _POSTURE_DENY_REASON,
+        }
+    }
+    json.dump(output, sys.stdout)
+    sys.exit(0)
+
+
 def main():
     hook_input = get_hook_input()
     if not hook_input:
@@ -307,29 +393,9 @@ def main():
     # exactly what a sandboxed session is for. It sits *before* the queue exit
     # below, so a sandboxed session cannot arm a Bluesky lane either.
     #
-    # Nothing here may raise. Stage 1 fails OPEN — an uncaught exception exits
-    # non-zero with no JSON and the tool proceeds — so the one call that touches
-    # the filesystem (the debug logger, which reads config and appends to a
-    # JSONL file) is wrapped: a broken config costs a log line, never the deny.
+    # `_deny_posture` states the fail-open rule this branch has to survive.
     if os.environ.get("OSPREY_EXECUTION_MODE") == "readonly":
-        try:
-            log_hook("writes-check", hook_input, status="deny", detail="reason=posture")
-        except Exception:
-            pass  # logging must never cost the deny
-        output = {
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": (
-                    "\U0001f512 SANDBOX POSTURE — this terminal session refuses "
-                    "control-system writes.\n\n"
-                    "Switch the session to writes posture from the terminal card; "
-                    "config.yml is not the gate here."
-                ),
-            }
-        }
-        json.dump(output, sys.stdout)
-        sys.exit(0)
+        _deny_posture(hook_input, tool_name)
 
     # -- Stage 2: deployment posture, for this session's target ----------
     if _is_lane_addressed(short_name):
@@ -352,6 +418,12 @@ def main():
     # tool through `permissions.deny` in
     # `src/osprey/cli/templates/claude_code.py`, this is defense-in-depth.
     log_hook("writes-check", hook_input, status="deny", detail=f"target={target}")
+    _record_refusal(
+        hook_input,
+        tool_name,
+        _WRITES_DISABLED_AUDIT_REASON,
+        detail=f"target={target}" if target else None,
+    )
     if target:
         scope = f"Control system writes are not armed for the active target ({target})."
     else:

@@ -81,6 +81,8 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from osprey_hook_log import (
+    AUDIT_DECISION_REFUSED,
+    emit_audit,
     get_hook_input,
     get_project_dir,
     get_repo_root,
@@ -304,6 +306,26 @@ def _deny(reason: str) -> dict:
     }
 
 
+def _record_deny(hook_input, subject, reason, detail=None):
+    """Put one refusal in the deployment's audit ledger, and never cost the deny.
+
+    Both refusal branches route through here so the two records carry one
+    vocabulary. The wrap is the hook's fail-open rule: an unwritable audit zone
+    downgrades the trail, it does not let the write through.
+    """
+    try:
+        emit_audit(
+            "memory-guard",
+            hook_input,
+            decision=AUDIT_DECISION_REFUSED,
+            subject=subject,
+            reason=reason,
+            detail=detail,
+        )
+    except Exception:
+        pass  # the audit trail must never cost the deny
+
+
 def _denied_header(tool_name: str) -> str:
     """Name the refusal after the tool the agent actually reached for."""
     if tool_name == _NOTEBOOK_TOOL:
@@ -324,6 +346,7 @@ def main():
 
     if not target_path:
         log_hook("memory-guard", hook_input, status="deny", detail=f"no-path tool={tool_name}")
+        _record_deny(hook_input, subject=tool_name, reason="no_path")
         json.dump(_deny(f"{_denied_header(tool_name)}\n\nNo file path provided."), sys.stdout)
         sys.exit(0)
 
@@ -362,6 +385,12 @@ def main():
     else:
         log_hook(
             "memory-guard", hook_input, status="deny", detail=f"tool={tool_name} path={target_path}"
+        )
+        _record_deny(
+            hook_input,
+            subject=target_path,
+            reason="path_not_allowed",
+            detail=f"tool={tool_name}",
         )
         output = _deny(reason)
 

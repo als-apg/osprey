@@ -36,9 +36,12 @@ import yaml
 
 from osprey import bluesky_tool_names as bsky
 from osprey.cli.templates import claude_code
-from osprey.cli.templates.claude_code import _MIXED_READ_WRITE_TEMPLATES
 from osprey.cli.templates.manager import TemplateManager
-from osprey.registry.mcp import _WRITES_CHECK, FRAMEWORK_SERVERS
+from osprey.registry.mcp import (
+    _WRITES_CHECK,
+    FRAMEWORK_SERVERS,
+    MIXED_READ_WRITE_TEMPLATES,
+)
 
 _PROJECT_COUNTER = 0
 
@@ -155,7 +158,7 @@ def test_every_write_gated_tool_is_covered_when_writes_off(tmp_path):
 
     for template_name, template_matchers in matchers.items():
         for matcher in template_matchers:
-            if template_name in _MIXED_READ_WRITE_TEMPLATES:
+            if template_name in MIXED_READ_WRITE_TEMPLATES:
                 assert matcher not in ask, (
                     f"{matcher!r} ({template_name}) is documented read/write-mixed and "
                     f"must be pulled from ask, but is still present"
@@ -284,7 +287,7 @@ def test_mixed_render_never_allows_a_pure_write_tool(tmp_path):
     allow = set(_rendered_permissions(project_dir)["allow"])
 
     for template_name, template_matchers in _write_gated_matchers().items():
-        if template_name in _MIXED_READ_WRITE_TEMPLATES:
+        if template_name in MIXED_READ_WRITE_TEMPLATES:
             continue
         for matcher in template_matchers:
             assert matcher not in allow, (

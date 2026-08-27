@@ -8,6 +8,8 @@ from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.mcp_server.python_executor.server import mcp
 from osprey.mcp_server.python_executor.tools._execution_gates import (
+    LAYER_IMPORT_DENYLIST,
+    LAYER_PATTERN_DETECTION,
     enforce_deployment_writes_gate,
     enforce_path_policy,
     enforce_posture_clamp,
@@ -15,10 +17,6 @@ from osprey.mcp_server.python_executor.tools._execution_gates import (
     report_runtime_refusal,
     require_known_execution_mode,
     session_control_target,
-)
-from osprey.services.python_executor.refusal_audit import (
-    LAYER_IMPORT_DENYLIST,
-    LAYER_PATTERN_DETECTION,
 )
 
 logger = logging.getLogger("osprey.mcp_server.tools.execute_file")
@@ -77,7 +75,7 @@ async def execute_file(
     # With the clamp here, none can — under the sandbox posture the only mode
     # that ever reaches the spawn is readonly, so the overwrite can only ever
     # re-assert the posture it found.
-    enforce_posture_clamp(execution_mode)
+    enforce_posture_clamp(execution_mode, tool="execute_file")
 
     # Resolve project root and file path
     from osprey.mcp_server.python_executor.executor import _resolve_project_root
@@ -253,6 +251,7 @@ async def execute_file(
         stderr=exec_result.stderr,
         code=code,
         description=description,
+        execution_mode=execution_mode,
     )
 
     # Build response using original code (not augmented) for metadata/notebook

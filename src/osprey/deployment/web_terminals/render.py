@@ -21,11 +21,12 @@ from jinja2 import Environment, FileSystemLoader
 
 from osprey.bluesky_bridge_connection import LANE_KEYS, lane_env_prefix
 from osprey.deployment.compose_generator import (
+    DISPATCH_WORKER_SERVICE_PREFIX,
+    FIXED_SERVICE_AUDIT_IDENTITIES,
     configured_ariel_mirror_path,
     repo_identity,
     repo_relative_mount_source,
     resolve_repo_root,
-    user_audit_relpath,
 )
 from osprey.deployment.web_terminals.auth_credentials import (
     TERMINAL_SECRET_VAR_PREFIX,
@@ -47,6 +48,7 @@ from osprey.deployment.web_terminals.personas import (
     env_var_suffix,
     env_var_suffix_collisions,
     resolve_personas,
+    roster_role_by_name,
 )
 from osprey.deployment.web_terminals.ports import (
     PANEL_ENV_VARS,
@@ -102,6 +104,25 @@ _DEFAULT_AUTH_PORT = 9070
 #: How long an unlocked-user entry stays valid when ``auth.session_lifetime``
 #: is unset, in seconds (12 hours — one operator shift plus slack).
 _DEFAULT_SESSION_LIFETIME = 12 * 60 * 60
+
+#: The auth sidecar's audit identity — the subdirectory of ``var/audit/`` it
+#: binds and writes its login and denial events to. A FIXED name, unlike every
+#: other identity in this file: the sidecar is one service, not a per-user one,
+#: and the users its records name are their SUBJECTS rather than their writers.
+#: Never a roster username, which is exactly why a user literally named
+#: ``sidecar`` collides with it — that user's terminal would bind the same host
+#: directory the sidecar writes its login events into, read-write. The render
+#: refuses the collision outright (:func:`_check_roster_audit_identities`), and
+#: lint reports the same collision earlier, at scaffold time
+#: (``web_terminals.reserved_audit_identity``).
+AUTH_SIDECAR_AUDIT_IDENTITY = "sidecar"
+
+#: The sidecar image's working directory (its Dockerfile's ``WORKDIR /app``),
+#: and so the root its audit subdirectory hangs under. It runs no OSPREY project
+#: — it is a single uvicorn app, with no ``container_project_dir`` to anchor on
+#: like a persona has — but its records still live at ``var/audit/<identity>``
+#: under its own root, so one shape describes every writer in the deployment.
+_AUTH_SIDECAR_CONTAINER_ROOT = "/app"
 
 #: Env-var *names* (never values) the sidecar reads its OIDC client credentials
 #: from when the config doesn't name its own. The credentials themselves live
@@ -545,20 +566,41 @@ def _container_mirror_dir(config: Any, container_project_dir: str) -> str | None
     return (PurePosixPath(container_project_dir) / base).as_posix()
 
 
-def _container_audit_dir(container_project_dir: str) -> str:
-    """Where a per-user container's audit zone mounts, as that container sees it.
+def _container_audit_dir(container_project_dir: str, identity: str) -> str:
+    """Where *identity* writes its audit records INSIDE its container.
 
-    The python executor appends its refusal log under
-    ``<project root>/<AUDIT_DIR_RELPATH>``
-    (:func:`osprey.services.python_executor.refusal_audit.audit_dir`), and the
-    project root in-container is *container_project_dir*. Derived from the
-    same constant the writer uses rather than spelled here, for the reason
-    :func:`_container_agent_data_dir` gives: a path the container does not
-    write to is a mount over an empty directory, while the log — the one
-    record of what the agent tried and was refused — accumulates in the
-    writable layer and vanishes at the next recreate.
+    The mount target half of the audit bind, and the value the service's
+    ``OSPREY_AUDIT_DIR`` carries. Anchored on the persona's own
+    ``container_project_dir`` for the same reason
+    :func:`_container_bundle_dir` is: the writer inside resolves its audit root
+    as ``<repo root>/var/audit``, and in-container that repo root is this
+    persona's project directory — two personas built from different projects
+    read it at two different paths, so one hardcoded target would mount the
+    directory where only one of them writes.
+
+    The ``var/audit`` half is :data:`AUDIT_DIR_RELPATH`, never a literal: the
+    writer, ``osprey reset --purge-audit`` and the hooks all resolve their audit
+    root through that constant, and a second spelling here would be a mount
+    that silently shadows nothing while the records accumulate in the
+    container's writable layer.
     """
-    return (PurePosixPath(container_project_dir) / AUDIT_DIR_RELPATH).as_posix()
+    return (PurePosixPath(container_project_dir) / AUDIT_DIR_RELPATH / identity).as_posix()
+
+
+def _audit_mount_source(identity: str) -> str:
+    """The HOST side of *identity*'s audit bind, as compose reads it.
+
+    ``./var/audit/<identity>`` — repo-relative, because every relative path in a
+    rendered compose file resolves against the pinned compose project directory,
+    which is the deployment repo root. Spelled through the shared bind-source
+    rule with no repo root to resolve against, like every other source this
+    module emits: :func:`render_web_terminals` reads no filesystem.
+
+    PER IDENTITY, which is the isolation: alice's container is handed a bind to
+    ``var/audit/alice`` and nothing else under ``var/audit``, so bob's records
+    are not merely unreadable to it — they are not in its filesystem at all.
+    """
+    return repo_relative_mount_source(f"{AUDIT_DIR_RELPATH}/{identity}")
 
 
 def _launch_token_env_vars(
@@ -609,7 +651,6 @@ def render_web_terminals(
     facility_bundle_gid: int | None = None,
     ariel_mirror_personas: set[str] | None = None,
     ariel_mirror_gid: int | None = None,
-    audit_gid: int | None = None,
     archiver_password_personas: dict[str, str] | None = None,
     terminal_secrets: dict[str, str] | None = None,
 ) -> dict[str, str]:
@@ -705,13 +746,19 @@ def render_web_terminals(
         facility_bundle_gid: Group id of the bundle directory on the host,
             resolved from disk by
             :func:`osprey.deployment.compose_generator.shared_corpus_gid` and
-            emitted as ``group_add:`` on every entitled service. This is the
-            half of the sharing story that setgid alone cannot supply: the
-            directory's setgid bit decides which group new files are OWNED by,
-            but a container's process is a MEMBER of only the groups its image
-            gives it, so without this the group bits grant nothing and access
-            holds only where the deploying user's uid happens to equal the
-            image's — an accident that breaks on any other host. ``None`` (the
+            emitted as ``group_add:`` on every entitled service. Setgid decides
+            which group new files are OWNED by, not which groups a process
+            belongs to, so membership has to be granted separately, and this
+            gid is the RUNTIME half of that grant — it reaches the container's
+            INITIAL process. In a framework-built image the membership the
+            serving process keeps comes from the entrypoint's own root-phase
+            ``/etc/group`` join for ``OSPREY_FACILITY_BUNDLE_DIR`` instead,
+            because ``gosu`` re-derives supplementary groups from that file for
+            the target user and discards whatever the runtime granted. The
+            runtime half is what carries access where that join never runs: a
+            container started with ``--user`` takes the entrypoint's non-root
+            branch, which skips both the join and the drop, as does any image
+            started without this framework's entrypoint at all. ``None`` (the
             directory does not exist yet, or a platform with no gids) emits no
             ``group_add``, which is the honest render rather than a guessed
             group.
@@ -728,12 +775,6 @@ def render_web_terminals(
         ariel_mirror_gid: Group id of the mirror directory on the host, for
             the same ``group_add:`` reason as ``facility_bundle_gid``. ``None``
             emits no group for it.
-        audit_gid: Group id of the deployment's audit zone on the host
-            (``var/audit``), under which the deploy provisions one directory
-            per roster user and this render binds it at the user's container
-            audit path. Every per-user service joins it, because every
-            container writes its refusal log there. ``None`` emits no group
-            for it.
         archiver_password_personas: ``{persona_name: env_var_name}`` for the
             personas whose archiver connector authenticates with a password,
             resolved from disk by
@@ -809,6 +850,12 @@ def render_web_terminals(
     _check_mcp_topology(web_terminals)
 
     resolved_users = resolve_personas(web_terminals, registry, facility_prefix, strict=True)
+    # The other half of what a roster `role:` says. `resolve_personas` above
+    # consumed it into each entry's persona (which image, which project); this
+    # is the role NAME, which the auth sidecar carries on that user's password
+    # session as the privilege the login was granted. Two readings of one key,
+    # kept apart on purpose — see `roster_role_by_name`.
+    roster_roles = roster_role_by_name(web_terminals)
 
     base_ports = base_ports_from_config(web_terminals)
     services = []
@@ -839,6 +886,19 @@ def render_web_terminals(
                     root, entry["container_project_dir"]
                 ),
                 "extra_mounts": entry["extra_mounts"],
+                # This user's audit identity, and the two ends of the bind that
+                # gives it somewhere to write. All three are derived from the
+                # SAME name — the roster username — so the identity a container
+                # stamps on its records, the subdirectory it writes them into
+                # and the host directory that subdirectory IS cannot name three
+                # different users. A writer whose path and whose stamped
+                # identity disagree is an audit trail that attributes one user's
+                # actions to another, which is worse than none.
+                "audit_identity": entry["name"],
+                "audit_mount_source": _audit_mount_source(entry["name"]),
+                "container_audit_dir": _container_audit_dir(
+                    entry["container_project_dir"], entry["name"]
+                ),
                 # Optional per-user window/tab title -> OSPREY_WEB_APP_NAME. None
                 # (the common case: resolve_personas omits the key unless a
                 # non-empty string was set) leaves the template's `{% if
@@ -857,6 +917,22 @@ def render_web_terminals(
                 # would render no subject mapping at all and every IdP identity
                 # would be unmappable.
                 "oidc_subject": entry.get("oidc_subject"),
+                # This user's static role -> the auth sidecar's
+                # OSPREY_AUTH_ROSTER_ROLE_<SUFFIX>, which is the privilege a
+                # PASSWORD login is minted with (under `oidc` the ID token
+                # decides the privilege and this is the cross-check it must
+                # agree with, so the template emits the family under both
+                # methods). Same
+                # absent-means-absent shape as `oidc_subject`: no role leaves
+                # the template's `{% if svc.role %}` guard false and the sidecar
+                # resolves "" — no privileges — for that user.
+                #
+                # Read off the ROSTER rather than off `entry`, because the
+                # resolved entry deliberately carries no role: `resolve_personas`
+                # turns `role:` into a persona and stops there, which is what
+                # keeps a role-only roster resolving field for field like the
+                # `persona:`-pinned roster it stands for.
+                "role": roster_roles.get(entry["name"]),
                 # Whether this entry opted out of the login wall (`login:
                 # false` on the roster entry). Read through the shared
                 # predicate rather than off the raw key so the template's gate
@@ -871,6 +947,27 @@ def render_web_terminals(
                 # which would be a second copy of the mapping free to drift from
                 # the one that keys the password hashes.
                 "oidc_subject_env": f"OSPREY_AUTH_OIDC_SUBJECT_{env_var_suffix(entry['name'])}",
+                # The env-var name that role travels under, resolved HERE for
+                # exactly the reason `oidc_subject_env` is: one definition of
+                # the username->env-var mapping, so this user's role, password
+                # hash and mapped IdP subject cannot be keyed three ways.
+                #
+                # The stem is spelled here rather than imported from the module
+                # that reads it back
+                # (:data:`osprey.services.auth_sidecar.routes.recheck.ENV_ROSTER_ROLE_PREFIX`):
+                # that module imports FastAPI, and dragging a running service's
+                # dependencies into the deployment renderer's import closure to
+                # share a string is the worse trade. The spelling is pinned
+                # instead by a round-trip test that imports the sidecar's
+                # constant (tests/deployment/web_terminals/test_sidecar_role_env.py),
+                # which is this repo's convention wherever an import would be a
+                # cycle or a weight.
+                #
+                # NOTE the `ROSTER_` infix: `OSPREY_AUTH_ROLE_CLAIM` and
+                # `OSPREY_AUTH_ROLE_MAP` already exist and mean the deployment's
+                # OIDC group binding, so a roster user named `claim` or `map`
+                # would otherwise have read that binding as their own role.
+                "role_env": f"OSPREY_AUTH_ROSTER_ROLE_{env_var_suffix(entry['name'])}",
                 # The env-var NAME this user's operator secret travels in — the
                 # credential nginx injects as a request header and the app
                 # authenticates every request against. A name, never a value:
@@ -981,14 +1078,6 @@ def render_web_terminals(
                     )
                     else None
                 ),
-                # Where this user's refusal audit log is written inside the
-                # container, and the host directory that backs it. Every user,
-                # unconditionally: the python executor runs in every persona
-                # and its audit zone is the one path here that the roster's
-                # tier does not gate. The source is per user so two containers
-                # writing the same fixed filename cannot clobber each other.
-                "container_audit_dir": _container_audit_dir(entry["container_project_dir"]),
-                "audit_source": repo_relative_mount_source(user_audit_relpath(entry["name"])),
             }
         )
 
@@ -1018,8 +1107,20 @@ def render_web_terminals(
             "tls, or set auth.allow_insecure_http: true to accept that risk (only "
             "sensible behind a TLS-terminating proxy or on an isolated network)"
         )
+    # Charset FIRST, then the audit gate. Both refuse an out-of-charset name and
+    # both are right about it, but they explain it differently and only one of
+    # them applies in both postures: with a login wall the name is the
+    # authorization identity (the nginx location key, the `?user=` value), which
+    # is the more urgent thing to say, so that gate gets first refusal; with
+    # `auth.method: none` it returns and the audit gate refuses the same name as
+    # a directory. Reversing these two would leave the charset gate unreachable.
     _check_roster_charset(services, auth_tls_ctx["auth_method"])
+    _check_roster_audit_identities(services)
     _check_roster_env_var_collisions(services, auth_tls_ctx["auth_method"])
+    # Parsed on every render, authenticated or not: `roles:` binds privileges
+    # through the roster in every posture, and an incoherent stanza must stop
+    # the deployment rather than render artifacts that bind the wrong ones.
+    authorization_ctx = _authorization_context(web_terminals)
 
     # Built (and refused) ahead of the Jinja pass so a roster user with no
     # operator secret stops the render before any artifact exists, rather than
@@ -1108,6 +1209,20 @@ def render_web_terminals(
         # `group_add` accepts group names as well as numeric ids, and quoting
         # keeps a numeric one from being read as anything else.
         "facility_bundle_gid": str(facility_bundle_gid) if facility_bundle_gid is not None else "",
+        # The sidecar's own audit subdir, both ends of it. Emitted
+        # unconditionally, like every other key here; the template uses them
+        # only inside the block it already gates on `auth_method != "none"`,
+        # because a deployment with no sidecar service has nothing to mount them
+        # into.
+        "auth_audit_identity": AUTH_SIDECAR_AUDIT_IDENTITY,
+        "auth_audit_mount_source": _audit_mount_source(AUTH_SIDECAR_AUDIT_IDENTITY),
+        "auth_audit_dir": _container_audit_dir(
+            _AUTH_SIDECAR_CONTAINER_ROOT, AUTH_SIDECAR_AUDIT_IDENTITY
+        ),
+        # The parsed authorization tables (see `_authorization_context`).
+        # Emitted unconditionally, like every other key here; a deployment
+        # that declares no roles carries the inert empty ones.
+        **authorization_ctx,
         # The ONE host directory every entitled user's mirror mount writes into
         # — the deployment's mirror, the same one the qmd sidecar indexes and
         # the host exporter fills — spelled through the same bind-source rule
@@ -1117,10 +1232,6 @@ def render_web_terminals(
             repo_relative_mount_source(mirror_path) if mirror_path is not None else ""
         ),
         "ariel_mirror_gid": str(ariel_mirror_gid) if ariel_mirror_gid is not None else "",
-        # The group of the deployment's audit zone, joined by every per-user
-        # service; its per-user subdirectories are provisioned by the deploy
-        # with the same inherited group.
-        "audit_gid": str(audit_gid) if audit_gid is not None else "",
         **auth_tls_ctx,
     }
 
@@ -1698,6 +1809,163 @@ def _auth_tls_context(web_terminals: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _authorization_context(web_terminals: dict[str, Any]) -> dict[str, Any]:
+    """Read the ``web_terminals.authorization`` stanza into the context keys every
+    role-aware consumer reads.
+
+    This is the single place ``modules.web_terminals.authorization`` is parsed,
+    exactly as :func:`_auth_tls_context` is for ``auth``/``tls``: persona
+    resolution, the auth sidecar's claim-to-role step and the lint rules all read
+    the keys returned here rather than the raw stanza, so there is one definition
+    of what an ``authorization`` block means. **This function resolves
+    nothing** — it derives two static tables; which persona a roster entry ends
+    up with, and which role a login is granted, belong to their own consumers.
+
+    The stanza has two halves, both optional::
+
+        authorization:
+          roles:
+            operator: {persona: operator}
+            expert:   {persona: physicist}
+          claims:
+            claim: groups
+            map:
+              dls-operators: operator
+              dls-experts:   expert
+
+    ``roles`` is the static half and applies in every auth posture: a roster
+    entry's ``role:`` (carried through by
+    :func:`~osprey.deployment.web_terminals.personas.normalize_users`) names one
+    of these, and the role names the catalog persona that entry runs as.
+    ``claims`` is the OIDC half: it names the ID-token claim carrying group
+    membership and maps that claim's VALUES onto the same role names.
+
+    An absent stanza — which is every deployment written before roles existed —
+    parses to the inert defaults (no roles, no claim, empty map). That is what
+    keeps ``none``/``password``/``oidc``-without-claims deployments rendering
+    exactly as they did.
+
+    Wrong-typed containers are read defensively (a non-mapping
+    ``authorization``, ``roles`` or ``claims`` becomes empty, as everywhere else
+    in this module — lint is the authoritative gate on schema well-formedness),
+    and a non-string role name is dropped rather than parsed, since no roster
+    entry or claim value can name it. Three inputs raise instead, because each
+    would bind a privilege SILENTLY WRONG rather than merely render an odd
+    artifact:
+
+    * **A role that names no persona.** Every entry carrying that role would
+      fall back to the deployment's default persona — a different privilege set
+      than the operator wrote, with nothing said about the substitution.
+    * **A claim map entry that cannot name a declared role** (an undeclared
+      name, or a key/value of a type no login can ever match). The mapping is
+      dead config: a login the operator believes carries that role does not.
+    * **Half a ``claims`` stanza** — a claim with no map, or a map with no
+      claim. Neither half resolves anything on its own.
+
+    What deliberately does NOT raise here: role-name charset and ``$``-bearing
+    values are lint's (``web_terminals.invalid_role_charset``,
+    ``web_terminals.authorization_unsafe_value``), and a role naming a persona
+    that is not in the catalog is reported by lint's existing unknown-persona
+    rule once the role resolves to one.
+
+    Args:
+        web_terminals: The already-unwrapped ``modules.web_terminals`` dict (as
+            passed to :func:`render_web_terminals`'s Jinja contexts).
+
+    Returns:
+        A dict with three keys, all present whether or not the stanza is:
+
+        ``authorization_roles``
+            ``{role name: persona name}``, in declaration order; empty when no
+            roles are declared. THE table the shared persona helper reads.
+        ``authorization_claim``
+            The ID-token claim name carrying group membership, or ``None`` when
+            the deployment maps no claim.
+        ``authorization_claim_map``
+            ``{claim value: role name}``, every value naming a key of
+            ``authorization_roles``; empty when no claim is mapped. Resolution
+            INTERSECTS a login's claim values with this table's keys and fails
+            closed on an empty or ambiguous intersection — never
+            first-match-wins — so this table's iteration order carries no
+            meaning.
+
+        The returned tables are always new objects: no consumer can edit the
+        deployment's config through the table it was handed.
+
+    Raises:
+        ValueError: On any of the three incoherent inputs above. The message
+            names every offender.
+    """
+    authorization = as_dict(web_terminals.get("authorization"))
+    roles_raw = as_dict(authorization.get("roles"))
+    claims_raw = as_dict(authorization.get("claims"))
+
+    roles: dict[str, str] = {}
+    personaless: list[str] = []
+    for role_name, entry in roles_raw.items():
+        if not isinstance(role_name, str):
+            # Unreferenceable rather than wrong: a roster `role:` and a claim
+            # value are both strings, so nothing can ever name this key. Lint
+            # reports it; parsing it would only invent a role no one can use.
+            continue
+        persona = as_dict(entry).get("persona")
+        if isinstance(persona, str) and persona.strip():
+            roles[role_name] = persona
+        else:
+            personaless.append(role_name)
+    if personaless:
+        raise ValueError(
+            "modules.web_terminals.authorization.roles "
+            f"{', '.join(repr(name) for name in personaless)} name no persona; each "
+            "role is written as `<role>: {persona: <persona>}`. Such a role is not "
+            "inert — every roster entry carrying it would fall back to the "
+            "deployment's default persona, which is a different privilege set than "
+            "the one written here"
+        )
+
+    claim = _non_empty_str(claims_raw.get("claim"), "") or None
+    claim_map: dict[str, str] = {}
+    unmappable: list[str] = []
+    for claim_value, role_name in as_dict(claims_raw.get("map")).items():
+        if isinstance(claim_value, str) and isinstance(role_name, str) and role_name in roles:
+            claim_map[claim_value] = role_name
+        else:
+            unmappable.append(f"{claim_value!r}: {role_name!r}")
+    if unmappable:
+        declared = ", ".join(repr(name) for name in roles) or "none"
+        raise ValueError(
+            f"modules.web_terminals.authorization.claims.map entries "
+            f"{'; '.join(unmappable)} do not map a claim value onto a declared role "
+            f"(declared roles: {declared}). Each entry reads `<claim value>: <role>`, "
+            "and the role must be a key of authorization.roles — an entry naming "
+            "anything else is dead config, so a login the operator believes carries "
+            "that role does not"
+        )
+
+    if claims_raw and not (claim and claim_map):
+        # Names what IS there and what is not, in that order: a message that
+        # merely names the missing half reads as a description of the stanza
+        # the operator wrote, which is the opposite of what they wrote.
+        if not claim and not claim_map:
+            present = "neither a claim nor a map"
+        elif not claim:
+            present = "a map but no claim"
+        else:
+            present = "a claim but no map"
+        raise ValueError(
+            "modules.web_terminals.authorization.claims needs both a 'claim' (the "
+            "ID-token claim carrying group membership) and a non-empty 'map' of that "
+            f"claim's values onto declared roles; this stanza has {present}. Neither "
+            "half resolves a login on its own — drop the stanza, or complete it"
+        )
+
+    return {
+        "authorization_roles": roles,
+        "authorization_claim": claim,
+        "authorization_claim_map": claim_map,
+    }
+
+
 def _check_tls_host_cert_dir(ctx: dict[str, Any]) -> None:
     """Refuse a ``tls.host_cert_dir`` that cannot deliver both files.
 
@@ -1772,6 +2040,109 @@ def _non_empty_str(value: Any, default: str) -> str:
     return value if isinstance(value, str) and value.strip() else default
 
 
+#: The audit identities that belong to a SERVICE rather than to a person: the
+#: auth sidecar's fixed one, one per dispatch worker (``dispatch-worker-1``,
+#: ``dispatch-worker-2``, ...), and the fixed identity of every other recording
+#: service (``compose_generator.FIXED_SERVICE_AUDIT_IDENTITIES`` — imported
+#: rather than re-listed, so a service that gains an identity gains this
+#: protection in the same edit). A roster user carrying one of these names is
+#: not a cosmetic clash — the user's terminal would bind, read-write, the very
+#: host directory that service writes its own records into, so the user could
+#: read and rewrite the trail of the component that audits them.
+_RESERVED_AUDIT_IDENTITY_RE = re.compile(
+    "^(?:"
+    + "|".join(
+        [
+            re.escape(AUTH_SIDECAR_AUDIT_IDENTITY),
+            rf"{re.escape(DISPATCH_WORKER_SERVICE_PREFIX)}-\d+",
+            *(re.escape(identity) for identity in sorted(FIXED_SERVICE_AUDIT_IDENTITIES.values())),
+        ]
+    )
+    + ")$"
+)
+
+
+def _check_roster_audit_identities(services: list[dict[str, Any]]) -> None:
+    """Fail-closed render gate: a roster name may not name a service's audit dir.
+
+    Unconditional on ``auth.method``, unlike :func:`_check_roster_charset`.
+    Every roster name is now a DIRECTORY name — the user's own
+    ``var/audit/<user>/`` subdirectory, bound into that user's container
+    read-write — and that is true whether or not the deployment authenticates.
+    Two ways a name breaks it, both refused here:
+
+    * **A reserved identity.** ``sidecar`` is the auth sidecar's own
+      subdirectory, ``dispatch-worker-<n>`` is a worker's, and each entry of
+      ``compose_generator.FIXED_SERVICE_AUDIT_IDENTITIES`` is some other
+      recording service's. A user with that name gets a read-write bind onto
+      the records of the component that audits them — the one place in the
+      deployment where "your own subdirectory" must not be honoured literally.
+    * **A name that is not one path segment.** The render emits
+      ``./var/audit/<name>:<container>/var/audit/<name>`` verbatim, so
+      ``../../etc`` is a bind whose host side resolves OUTSIDE the repo,
+      read-write, into a container that runs agent-generated code — and
+      ``alice`` beside ``Alice`` is two terminals sharing one subdirectory on a
+      case-insensitive host filesystem, each able to rewrite the other's trail.
+      The charset is the same
+      :data:`~osprey.deployment.web_terminals.personas.USERNAME_CHARSET_RE` the
+      provisioning seam (``compose_generator.audit_identity_dir``) refuses an
+      identity by, so the renderer and the provisioner agree about every name
+      rather than one skipping what the other emits.
+
+    Scope, stated because the neighbouring gate's is different: this one is
+    about the name as a PATH, in every auth posture. :func:`_check_roster_charset`
+    keeps owning the same charset as an *authorization identity* — the nginx
+    location key and the auth subrequest's ``?user=`` value — which is a
+    stricter-message concern that only applies with a login wall.
+
+    A render-time refusal rather than a lint finding because lint is skippable
+    (``--no-lint``) and the consequence is a mount, not a warning.
+
+    Args:
+        services: The resolved per-user service entries (each with a ``user``).
+
+    Raises:
+        ValueError: If any roster name is a service's own audit identity, or is
+            not usable as a single path segment. The message names every
+            offender.
+    """
+    reserved = [
+        service["user"]
+        for service in services
+        if _RESERVED_AUDIT_IDENTITY_RE.fullmatch(service["user"])
+    ]
+    if reserved:
+        raise ValueError(
+            f"modules.web_terminals.users {', '.join(repr(name) for name in reserved)} "
+            "collide with a service's own audit identity (the auth sidecar writes "
+            f"var/audit/{AUTH_SIDECAR_AUDIT_IDENTITY}/, worker <n> writes "
+            f"var/audit/{DISPATCH_WORKER_SERVICE_PREFIX}-<n>/). Each user's container "
+            "binds var/audit/<user>/ read-write, so such a user could read and "
+            "rewrite the audit trail of the component that records them. Rename the "
+            "roster entry."
+        )
+
+    # fullmatch, not match: `$` also matches *before* a trailing newline, so
+    # `match` would accept "alice\n" — which names a directory whose name ends
+    # mid-line.
+    unusable = [
+        service["user"]
+        for service in services
+        if not USERNAME_CHARSET_RE.fullmatch(service["user"])
+    ]
+    if unusable:
+        raise ValueError(
+            f"modules.web_terminals.users {', '.join(repr(name) for name in unusable)} "
+            f"must match {USERNAME_CHARSET_RE.pattern!r} because the name is the "
+            "audit subdirectory's name in EVERY auth mode: each user's container "
+            "binds var/audit/<user>/ read-write, so a name that is not one path "
+            "segment ('..', 'a/b') mounts a directory outside the audit zone, and "
+            "two names differing only in case ('alice', 'Alice') share one "
+            "subdirectory on a case-insensitive host filesystem. Rename the roster "
+            "entry."
+        )
+
+
 def _check_roster_charset(services: list[dict[str, Any]], auth_method: str) -> None:
     """Fail-closed render gate: with authentication on, every roster name must
     match the username charset.
@@ -1787,9 +2158,15 @@ def _check_roster_charset(services: list[dict[str, Any]], auth_method: str) -> N
     rather than produce a seam whose meaning depends on how the sidecar's query
     parser breaks a tie.
 
-    Scoped to authentication being on, deliberately: with ``auth.method: none``
-    the username is a routing label, not an identity, and raising here would
-    break an otherwise valid render. Lint still reports it in that case.
+    Scoped to authentication being on, deliberately — but no longer the only
+    gate on the charset. With ``auth.method: none`` the username is a routing
+    label rather than an authorization identity, so none of the reasoning above
+    applies and this function returns; what still applies in that posture is
+    that the name is a DIRECTORY, and
+    :func:`_check_roster_audit_identities` refuses it there on those grounds and
+    with that message. Two gates on one pattern because the *reason* to refuse
+    differs by posture, and a refusal an operator cannot act on is a refusal
+    they will work around.
 
     Args:
         services: The resolved per-user service entries (each with a ``user``).

@@ -30,6 +30,7 @@ source — route-safety style.
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import json
 from pathlib import Path
@@ -197,8 +198,13 @@ def test_write_tools_destructive_markers_is_shared_constant() -> None:
 # so they carry no literal. ``osprey_writes_check.py`` carries NO Bluesky
 # literal at all: its write-tool set is data-driven from ``hook_config.json``
 # (rendered from the registry HookRule), so the arming tools' kill-switch leg is
-# rename-safe without touching that source. Those are the load-bearing facts
-# this section pins.
+# rename-safe without touching that source. The one Bluesky literal on the
+# hooks' side is ``FALLBACK_WRITE_TOOLS`` in ``osprey_hook_log.py`` — the
+# degraded floor refused when ``hook_config.json`` cannot be read at all, which
+# is by definition the one set that cannot be data-driven — and the floor is
+# kept fresh by ``tests/registry/test_mixed_floor_driftguard.py``, which pins it
+# against ``registry.mcp.framework_write_tools()``. Those are the load-bearing
+# facts this section pins.
 # ---------------------------------------------------------------------------
 
 
@@ -243,6 +249,30 @@ def test_writes_check_template_carries_no_bluesky_tool_literal() -> None:
         f"hook_config.json rendered off the registry); keep the gate in the "
         f"registry HookRule, not this standalone hook source"
     )
+
+
+def test_hooks_write_floor_refuses_the_arming_pair_when_the_render_is_unreadable() -> None:
+    """The one literal that must be there.
+
+    A degraded render (missing/unreadable/malformed ``hook_config.json``) is
+    exactly when a deployment that enabled Bluesky has nothing left to refuse
+    ``queue_add``/``queue_start`` — arming and starting a plan queue, both
+    control-system writes. The floor lives in the hooks' shared
+    ``osprey_hook_log.py`` (both ``osprey_writes_check`` and ``osprey_approval``
+    read it through ``write_tools()``) and is kept in step with the registry by
+    ``tests/registry/test_mixed_floor_driftguard.py``, so this literal cannot
+    go stale on a rename the way an ungated one would.
+    """
+    src = _hook_source("osprey_hook_log.py")
+    tree = ast.parse(src)
+    floor = next(
+        ast.literal_eval(n.value)
+        for n in tree.body
+        if isinstance(n, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == "FALLBACK_WRITE_TOOLS" for t in n.targets)
+    )
+    for tool in (bsky.QUEUE_ADD, bsky.QUEUE_START):
+        assert f"mcp__{bsky.SERVER_NAME}__{tool}" in floor
 
 
 # ---------------------------------------------------------------------------

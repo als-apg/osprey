@@ -42,6 +42,8 @@ services:
       - HOME=/data/claude-config
       - TZ=America/Los_Angeles
       - OSPREY_TERMINAL_USER=alice
+      - OSPREY_AUDIT_IDENTITY=alice
+      - OSPREY_AUDIT_DIR=/app/dls-assistant/var/audit/alice
       - OSPREY_TERMINAL_LANDING_URL=http://dls-deploy.dls.example.org:9080
       - OSPREY_TERMINAL_BIND_HOST=127.0.0.1
       - OSPREY_TERMINAL_WEB_PORT=9091
@@ -59,9 +61,7 @@ services:
     volumes:
       - alice-claude-config:/data/claude-config
       - alice-agent-data:/app/dls-assistant/var/agent_data
-      # This user's refusal audit log (`var/audit/<user>/` on the host), bound
-      # so the record survives a recreate and is readable from the host.
-      - ./var/audit/alice:/app/dls-assistant/var/audit
+      - ./var/audit/alice:/app/dls-assistant/var/audit/alice
     healthcheck:
       # osprey web's own default listen port is the fixed constant 8087
       # (cli/web_cmd.py) — only relevant to a bare `osprey web` with no
@@ -91,6 +91,8 @@ services:
       - HOME=/data/claude-config
       - TZ=America/Los_Angeles
       - OSPREY_TERMINAL_USER=bob
+      - OSPREY_AUDIT_IDENTITY=bob
+      - OSPREY_AUDIT_DIR=/app/dls-assistant/var/audit/bob
       - OSPREY_TERMINAL_LANDING_URL=http://dls-deploy.dls.example.org:9080
       - OSPREY_TERMINAL_BIND_HOST=127.0.0.1
       - OSPREY_TERMINAL_WEB_PORT=9092
@@ -108,9 +110,7 @@ services:
     volumes:
       - bob-claude-config:/data/claude-config
       - bob-agent-data:/app/dls-assistant/var/agent_data
-      # This user's refusal audit log (`var/audit/<user>/` on the host), bound
-      # so the record survives a recreate and is readable from the host.
-      - ./var/audit/bob:/app/dls-assistant/var/audit
+      - ./var/audit/bob:/app/dls-assistant/var/audit/bob
     healthcheck:
       # osprey web's own default listen port is the fixed constant 8087
       # (cli/web_cmd.py) — only relevant to a bare `osprey web` with no

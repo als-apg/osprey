@@ -4,8 +4,14 @@ import logging
 import sys
 import time
 from contextlib import contextmanager
+from typing import Any
 
 logger = logging.getLogger("osprey.mcp_server.startup")
+
+#: The one transport the audit middleware is installed for. Everything else --
+#: today only the event dispatcher, which is multi-tenant and carries its own
+#: token auth -- is skipped, loudly.
+STDIO_TRANSPORT = "stdio"
 
 # ---------------------------------------------------------------------------
 # Startup timing instrumentation
@@ -104,12 +110,69 @@ def initialize_workspace_singletons() -> None:
         register_artifact_activity_listeners()
 
 
+def fastmcp_transport() -> str:
+    """The transport fastmcp itself will use, read from fastmcp's own settings.
+
+    The single seam the audit-middleware skip predicate reads. It is
+    deliberately NOT ``os.environ["FASTMCP_TRANSPORT"]``: ``fastmcp.settings``
+    snapshots the environment once, when fastmcp is first imported, and it is
+    that snapshot -- not the current environment -- that decides which transport
+    ``server.run()`` actually speaks. Reading the environment instead would let
+    a late write skip the audit layer on a server that is still talking stdio.
+
+    Callers must only reach this AFTER ``load_dotenv_from_project()``, so a
+    project ``.env`` has already landed in the environment fastmcp reads.
+    """
+    import fastmcp
+
+    return fastmcp.settings.transport
+
+
+def install_audit_middleware(server: Any, label: str) -> None:
+    """Install :class:`~osprey.mcp_server.audit_middleware.AuditMiddleware` on ``server``.
+
+    Skipped for any server fastmcp will not serve over stdio -- the event
+    dispatcher is the only one today -- and the skip is never silent: one
+    WARNING names the server that went without an audit layer.
+
+    The middleware import lives HERE, inside a function, not at module scope:
+    the middleware module imports fastmcp, and a module-scope import in
+    ``startup.py`` would run before ``run_mcp_server`` has loaded the project
+    ``.env``, freezing ``fastmcp.settings`` against the wrong environment. See
+    :func:`fastmcp_transport`.
+
+    Args:
+        server: The FastMCP instance a server module's ``create_server()`` built.
+        label: Human-readable server name, used in the skip warning.
+    """
+    transport = fastmcp_transport()
+    if transport != STDIO_TRANSPORT:
+        logger.warning(
+            "MCP audit middleware NOT installed on the %s server: fastmcp transport "
+            "is %r, not %r. Tool calls on this server are not written to the audit "
+            "ledger and the readonly clamp does not apply to them.",
+            label,
+            transport,
+            STDIO_TRANSPORT,
+        )
+        return
+
+    from osprey.mcp_server.audit_middleware import AuditMiddleware
+
+    server.add_middleware(AuditMiddleware())
+
+
 def run_mcp_server(server_module: str) -> None:
     """Shared entry point for all MCP servers.
 
-    Handles dotenv loading, logging setup, and server startup. MCP servers speak
-    JSON-RPC over stdio, so stdout must carry nothing but protocol frames;
-    ``configure_logging()`` routes every record to stderr.
+    Handles dotenv loading, logging setup, audit-middleware install, and server
+    startup. MCP servers speak JSON-RPC over stdio, so stdout must carry nothing
+    but protocol frames; ``configure_logging()`` routes every record to stderr.
+
+    Every framework MCP server reaches its ``create_server()`` through here --
+    the channel-finder variants included, via
+    :func:`~osprey.mcp_server.channel_finder_common.run_cf_main` -- so the audit
+    middleware has exactly one install site.
 
     Args:
         server_module: Dotted path to the module containing ``create_server()``.
@@ -138,6 +201,9 @@ def run_mcp_server(server_module: str) -> None:
 
     with startup_timer("create_server"):
         server = mod.create_server()
+
+    with startup_timer("audit_middleware"):
+        install_audit_middleware(server, _server_label)
 
     elapsed_total_ms = (time.perf_counter() - t_total) * 1000
     print(

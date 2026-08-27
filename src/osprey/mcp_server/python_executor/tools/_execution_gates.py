@@ -16,8 +16,21 @@ the tools must not each spell for themselves: the durable audit record, the
 operator alert, and the error handed back to the agent. Keeping them together
 is what makes "blocked" mean the same thing at every layer — a write stopped by
 the import denylist before launch and one stopped by the runtime guard mid-run
-produce the same audit record and the same alert, differing only in the
-``layer`` field.
+produce the same audit record and the same alert, differing only in the layer
+that refused — which the record carries as its ``reason``.
+
+Every refusal here files into the **unified** ledger
+(:mod:`osprey.audit.writer`), on the ``executor`` surface, and every one of
+them is an *inner* recorder: they run inside the MCP audit middleware, which
+wraps every ``tools/call``. So each marks the decision as its own
+(:mod:`osprey.audit.dedup`) and the middleware defers instead of filing a
+second record for the same refusal. That matters most for the runtime guard,
+which reports a refusal the subprocess made and then hands back a *successful*
+result: without the marker the middleware would see a clean call and stamp
+``allowed`` over a write it stopped. The mark is only visible to a layer that
+awaited this call on the same task, which is why both recorders below are
+reached inline from the ``async def`` tool bodies and never through a thread or
+a spawned task.
 """
 
 from __future__ import annotations
@@ -27,6 +40,7 @@ import os
 from pathlib import Path
 from typing import Any, NoReturn
 
+from osprey.audit import posture
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
 
@@ -36,13 +50,57 @@ logger = logging.getLogger("osprey.mcp_server.tools.execution_gates")
 #: equality against either member only because this set is enforced first.
 VALID_EXECUTION_MODES = frozenset({"readonly", "readwrite"})
 
-#: Environment variable carrying the *session* posture into every child of a
-#: Web Terminal session, MCP servers included. Read by value, never presence —
-#: see :func:`enforce_posture_clamp`.
-POSTURE_ENV_VAR = "OSPREY_EXECUTION_MODE"
+#: The session posture, its provenance and its posture-store key —
+#: :mod:`osprey.audit.posture`'s spellings, re-exported under this module's
+#: names because the tests and the gates' callers address them here.
+POSTURE_ENV_VAR = posture.POSTURE_ENV_VAR
+SANDBOX_POSTURE = posture.SANDBOX_MODE
+POSTURE_SOURCE_ENV_VAR = posture.POSTURE_SOURCE_ENV_VAR
+POSTURE_SESSION_ENV_VAR = posture.POSTURE_SESSION_ENV_VAR
 
-#: The one value of :data:`POSTURE_ENV_VAR` that clamps a session to reads.
-SANDBOX_POSTURE = "readonly"
+#: This server's rendered name, for composing the ``mcp__<name>__<tool>``
+#: subject the MCP middleware would have used for the same call — so the two
+#: layers name the same thing and a reader can join them.
+TOOL_PREFIX_ENV_VAR = "OSPREY_MCP_TOOL_PREFIX"
+
+# `TOOL_PREFIX_ENV_VAR` above is re-spelled rather than imported from
+# `osprey.mcp_server.audit_middleware`: this module is the *inner* recorder,
+# and importing the outer layer would invert the dependency and pull fastmcp's
+# middleware machinery into every executor tool.
+# `tests/audit/test_dedup_contract.py` pins it against the middleware's, the
+# way the middleware pins the registry's markers it cannot import.
+
+#: How the ledger spells the two postures — see :mod:`osprey.audit.posture`.
+POSTURE_SANDBOX = posture.POSTURE_SANDBOX
+POSTURE_WRITES = posture.POSTURE_WRITES
+
+#: The reason a session-posture refusal is filed under. The same spelling the
+#: MCP middleware and the client-side ``osprey_writes_check.py`` hook use for
+#: the same refusal: one refusal, three possible layers, and an operator
+#: querying the ledger for it should not have to know which. A cross-layer test
+#: pins all three (the hook by AST, since it imports nothing from ``osprey``).
+REASON_POSTURE = "posture"
+
+#: The layer that refused a control-system write, filed as the record's
+#: ``reason``. Static layers refuse before the script is launched;
+#: ``runtime_guard`` is the one that fires inside the subprocess, so it is the
+#: layer that catches the spellings the static ones cannot see. Spelled here,
+#: beside the recorder, because this module is where every one of them converges
+#: -- they used to live in the retired P1 ledger module, which was their only
+#: other shared home.
+LAYER_IMPORT_DENYLIST = "import_denylist"
+LAYER_PATTERN_DETECTION = "pattern_detection"
+LAYER_PATH_POLICY = "path_policy"
+LAYER_RUNTIME_GUARD = "runtime_guard"
+
+#: Characters of the matched trigger, and of the agent's own description, kept
+#: inside the record's ``detail``. Bounded here rather than left to the
+#: envelope's silent ``detail`` truncation so that the trigger -- what actually
+#: matched -- cannot be pushed out by a long description. The refused code
+#: itself rides in ``source``, whole up to the envelope's own bound: on this
+#: surface the code *is* the artifact under audit.
+MAX_TRIGGER_CHARS = 400
+MAX_DESCRIPTION_CHARS = 200
 
 
 def require_known_execution_mode(execution_mode: str) -> None:
@@ -143,7 +201,65 @@ def enforce_deployment_writes_gate(execution_mode: str, target: str | None) -> N
         )
 
 
-def enforce_posture_clamp(execution_mode: str) -> None:
+def _tool_subject(tool: str) -> str:
+    """The ``mcp__<prefix>__<tool>`` name this refusal is about.
+
+    Composed exactly as the MCP audit middleware composes it, so the record the
+    clamp files and the records the middleware files for neighbouring calls
+    name the same subject. With no prefix — a server not launched by ``osprey``
+    — the bare tool name, which is what the middleware falls back to too.
+    """
+    prefix = (os.environ.get(TOOL_PREFIX_ENV_VAR) or "").strip()
+    return f"mcp__{prefix}__{tool}" if prefix else tool
+
+
+def _refusal_detail(tool: str, execution_mode: str, trigger: Any, description: str | None) -> str:
+    """The supplementary context one refused write carries.
+
+    ``tool`` and ``mode`` first: they are the two an operator scans a ledger
+    for. The trigger and the agent's description follow, each bounded, because
+    both are as long as whatever produced them.
+    """
+    parts = [f"tool={tool}", f"mode={execution_mode}", f"trigger={trigger}"[:MAX_TRIGGER_CHARS]]
+    if description:
+        parts.append(f"description={description}"[:MAX_DESCRIPTION_CHARS])
+    return " ".join(parts)
+
+
+def _record_posture_clamp(tool: str) -> None:
+    """File the session-posture refusal, and claim it for this layer.
+
+    Goes through :func:`~osprey.audit.dedup.record_and_mark` rather than the
+    writer directly: this gate runs *inside* the MCP audit middleware, which
+    would otherwise file a second record for the same refusal when the
+    ``ToolError`` below reaches it. The marker carries the decision, so the
+    middleware defers to a specific answer instead of merely staying quiet.
+
+    No ``source``: the clamp fires before the code is read, so there is no
+    offending artifact yet — only a session that may not write at all. Never
+    raises; the writer swallows its own errors and the import is the only thing
+    left that could, so it is guarded too. A refusal that could not be recorded
+    is still a refusal.
+    """
+    try:
+        from osprey.audit.dedup import record_and_mark
+        from osprey.audit.envelope import DECISION_REFUSED, SURFACE_EXECUTOR
+
+        record_and_mark(
+            decision=DECISION_REFUSED,
+            reason=REASON_POSTURE,
+            surface=SURFACE_EXECUTOR,
+            posture=POSTURE_SANDBOX,
+            posture_source=posture.posture_source(),
+            session=posture.posture_session(),
+            subject=_tool_subject(tool),
+            detail=f"tool={tool}",
+        )
+    except Exception:  # noqa: BLE001 - the audit trail degrades; the refusal does not
+        logger.warning("Could not record the session-posture refusal", exc_info=True)
+
+
+def enforce_posture_clamp(execution_mode: str, *, tool: str) -> None:
     """Raise ``ToolError`` (safety_error) on readwrite runs in a sandboxed session.
 
     A Web Terminal session switched to the sandbox posture spawns its child
@@ -158,11 +274,26 @@ def enforce_posture_clamp(execution_mode: str) -> None:
     ``"readonly"`` clamps. A presence check would sandbox every session whose
     environment carries the variable for any other reason — including the
     writes posture itself, which sets it to ``"readwrite"``.
+
+    A refusal is recorded in the unified ledger on the ``executor`` surface and
+    marked as this layer's own — see :func:`_record_posture_clamp`. Nothing is
+    recorded when the gate does not fire: a readonly run and a session that was
+    never sandboxed are both ordinary, and a ledger that logged them would bury
+    the refusals it exists for.
+
+    Args:
+        execution_mode: The mode this call asked for.
+        tool: The tool name as the agent knows it, for the recorded subject.
+            Required and keyword-only: a default would let a new call site
+            record a refusal under another tool's name, and a positional would
+            let it swap the two strings silently.
     """
     if execution_mode != "readwrite":
         return
-    if os.environ.get(POSTURE_ENV_VAR) != SANDBOX_POSTURE:
+    if posture.posture() != POSTURE_SANDBOX:
         return
+
+    _record_posture_clamp(tool)
 
     make_error(
         "safety_error",
@@ -176,6 +307,51 @@ def enforce_posture_clamp(execution_mode: str) -> None:
     )
 
 
+def _record_write_refusal(
+    *,
+    tool: str,
+    layer: str,
+    trigger: Any,
+    code: str,
+    description: str | None,
+    execution_mode: str,
+) -> None:
+    """File one refused control-system write, and claim it for this layer.
+
+    Goes through :func:`~osprey.audit.dedup.record_and_mark` for the reason the
+    module docstring gives: this runs inside the MCP audit middleware, and the
+    runtime-guard case hands back a *successful* result, so without the mark
+    the middleware would file ``allowed`` on top of a refusal.
+
+    The refused code goes in ``source``, which the ledger keeps whole on this
+    surface -- a refusal whose source is not kept is an alert, not an audit
+    trail. The ``layer`` becomes the record's ``reason``, so the four layers
+    stay one query apart, exactly as they were when they shared a ``layer``
+    field in the retired ledger.
+
+    Never raises: the writer swallows its own errors, and the lazy import is
+    the only thing left that could, so it is guarded too. A refusal that could
+    not be recorded is still a refusal.
+    """
+    try:
+        from osprey.audit.dedup import record_and_mark
+        from osprey.audit.envelope import DECISION_REFUSED, SURFACE_EXECUTOR
+
+        record_and_mark(
+            decision=DECISION_REFUSED,
+            reason=layer,
+            surface=SURFACE_EXECUTOR,
+            posture=posture.posture(),
+            posture_source=posture.posture_source(),
+            session=posture.posture_session(),
+            subject=_tool_subject(tool),
+            source=code,
+            detail=_refusal_detail(tool, execution_mode, trigger, description),
+        )
+    except Exception:  # noqa: BLE001 - the audit trail degrades; the refusal does not
+        logger.warning("Could not record the refusal for audit", exc_info=True)
+
+
 async def record_and_alert_refusal(
     *,
     tool: str,
@@ -183,7 +359,7 @@ async def record_and_alert_refusal(
     trigger: Any,
     code: str,
     description: str | None = None,
-    execution_mode: str = "readonly",
+    execution_mode: str,
 ) -> None:
     """Write the audit record and alert the operator for one refused write.
 
@@ -192,24 +368,28 @@ async def record_and_alert_refusal(
     written first, so a Web Terminal that is not running (CLI-only mode, where
     the alert is a no-op) still leaves the refusal on disk.
 
+    The record is filed as this layer's own (:func:`_record_write_refusal`), so
+    the MCP audit middleware defers to it. Every caller reaches here awaited
+    inline from an ``async def`` tool body, which is what makes the mark
+    visible to the middleware at all.
+
+    ``execution_mode`` is required rather than defaulted: it is the mode the
+    record states and the mode the operator alert names, and a default would
+    make both an accident of which caller forgot to pass one. Every layer here
+    refuses in *both* modes, so "readonly" is never a safe guess.
+
     Never raises. The recorder swallows its own errors and
     ``notify_agent_activity_async`` is fire-and-forget by contract, so a
     refusal is never turned into a traceback by the act of reporting it.
     """
-    try:
-        from osprey.services.python_executor.refusal_audit import record_refusal
-
-        record_refusal(
-            layer=layer,
-            trigger=trigger,
-            source=code,
-            description=description,
-            tool=tool,
-            execution_mode=execution_mode,
-        )
-    except Exception:
-        # An import failure here must not mask the refusal itself.
-        logger.warning("Could not record the refusal for audit", exc_info=True)
+    _record_write_refusal(
+        tool=tool,
+        layer=layer,
+        trigger=trigger,
+        code=code,
+        description=description,
+        execution_mode=execution_mode,
+    )
 
     await notify_agent_activity_async(
         tool,
@@ -305,8 +485,6 @@ async def enforce_path_policy(
     if not path_issues:
         return
 
-    from osprey.services.python_executor.refusal_audit import LAYER_PATH_POLICY
-
     await refuse_readonly_write(
         tool=tool,
         layer=LAYER_PATH_POLICY,
@@ -340,6 +518,7 @@ async def report_runtime_refusal(
     stderr: str,
     code: str,
     description: str | None,
+    execution_mode: str,
 ) -> bool:
     """Report a write the *runtime* guard refused, mid-run. Returns whether it did.
 
@@ -359,9 +538,17 @@ async def report_runtime_refusal(
     The script's own result is left alone: its stderr already names the mode
     and the way forward, and converting it into a tool error here would
     discard whatever the run legitimately produced before the refusal.
+
+    ``execution_mode`` comes from the run rather than from a default. Today the
+    marker only reaches here out of a readonly run — the readwrite filesystem
+    refusal in
+    :mod:`~osprey.services.python_executor.execution.wrapper` deliberately does
+    not carry it — but that is a property of another module's message strings,
+    and a guard that ever emits the marker mid-``readwrite`` (the connector
+    reference monitor is the candidate) must not have the ledger and the
+    operator alert call that run readonly.
     """
     from osprey.services.python_executor.execution.wrapper import READONLY_REFUSAL_MARKER
-    from osprey.services.python_executor.refusal_audit import LAYER_RUNTIME_GUARD
 
     if READONLY_REFUSAL_MARKER not in (stderr or ""):
         return False
@@ -372,6 +559,7 @@ async def report_runtime_refusal(
         trigger=_refusal_lines(stderr),
         code=code,
         description=description,
+        execution_mode=execution_mode,
     )
     return True
 

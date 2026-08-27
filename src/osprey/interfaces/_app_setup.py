@@ -20,6 +20,7 @@ from starlette.staticfiles import StaticFiles
 
 from osprey.interfaces.common_middleware import (
     ExceptionLoggingMiddleware,
+    HttpAuditMiddleware,
     NoCacheStaticMiddleware,
     WebAuthMiddleware,
 )
@@ -58,9 +59,16 @@ def configure_interface_app(app: FastAPI, *, static_dir: Path | str) -> None:
     inner-to-outer, so the layer added **last** is the **outermost** one and
     runs **first** on each request.  In add-order:
 
-    1. :class:`~osprey.interfaces.common_middleware.NoCacheStaticMiddleware`.
-    2. :class:`~osprey.interfaces.common_middleware.ExceptionLoggingMiddleware`.
-    3. :class:`~osprey.interfaces.common_middleware.WebAuthMiddleware` — added
+    1. :class:`~osprey.interfaces.common_middleware.HttpAuditMiddleware` — added
+       first so it is **innermost**, sitting directly against the router.  That
+       position is its contract: it records only what the gate admitted (so a
+       refusal is never recorded twice), and the response status it files is
+       the one the route actually produced.  This is what makes every
+       state-changing request to *any* interface app show up in the audit
+       ledger, including routes written long after this helper.
+    2. :class:`~osprey.interfaces.common_middleware.NoCacheStaticMiddleware`.
+    3. :class:`~osprey.interfaces.common_middleware.ExceptionLoggingMiddleware`.
+    4. :class:`~osprey.interfaces.common_middleware.WebAuthMiddleware` — added
        last so it is outermost and authenticates every connection before
        anything downstream sees it.  It takes no constructor arguments: it
        resolves the session cookie name and external origin per request.
@@ -111,6 +119,10 @@ def configure_interface_app(app: FastAPI, *, static_dir: Path | str) -> None:
     # deployment-supplied secret.
     close_env_carriers()
 
+    # Added first => innermost => runs last, closest to the router: it sees a
+    # request only if the gate admitted it, and it sees the status the route
+    # itself produced.
+    app.add_middleware(HttpAuditMiddleware)
     app.add_middleware(NoCacheStaticMiddleware)
     app.add_middleware(ExceptionLoggingMiddleware)
     # Added last => outermost => runs first: authenticate before anything else.

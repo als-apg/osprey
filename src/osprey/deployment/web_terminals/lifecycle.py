@@ -178,7 +178,9 @@ def decommission_user(
        not as the render-facing projection: writing the projection would strip
        each survivor's ``persona:`` key, and a roster with no ``persona:`` keys
        re-resolves every survivor onto ``default_persona`` — a silent privilege
-       change on the next render, in the direction of the default.
+       change on the next render, in the direction of the default. ``role:``
+       is the other key with that consequence and is written back for the
+       same reason.
     4. Re-render the web-terminal artifacts from the updated config, so the
        deployed nginx route/compose service/landing card for the user disappear.
     5. Force-remove the user's exact-named container.

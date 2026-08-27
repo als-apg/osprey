@@ -10,11 +10,11 @@ look and one query to run.
 Three things are asserted across the whole set, and each is a proposal
 requirement rather than an implementation detail:
 
-* **FR2 -- the refusal is durable and singular.** One line in
-  ``protected-writes.jsonl`` per refused attempt, carrying the same six fields
-  on every surface. Not two lines (a retry counted twice would misreport how
-  hard something pushed), and not zero (a refusal nobody can find afterwards is
-  an error message, not an audit trail).
+* **FR2 -- the refusal is durable and singular.** One line per refused attempt
+  on that writer's ledger (``var/audit/<identity>/<surface>.jsonl``), carrying
+  the same envelope fields on every surface. Not two lines (a retry counted
+  twice would misreport how hard something pushed), and not zero (a refusal
+  nobody can find afterwards is an error message, not an audit trail).
 * **FR3 -- the refusal is visible while it happens.** The attempt reaches
   ``GET /api/agent-activity/recent``, which is what a browser reads on connect.
   Read back through the route rather than off ``app.state``: the ring is only
@@ -55,21 +55,35 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
+from osprey.audit import writer
+from osprey.audit.envelope import (
+    POSTURE_SOURCE_APP,
+    POSTURE_SOURCE_SPAWN,
+    AuditEnvelope,
+)
+from osprey.audit.protected import POSTURE_SOURCE_ENV_VAR, PROTECTED_SURFACES
 from osprey.cli.profile_conventions import RESERVED_PATH_CHANNELS, is_reserved_write
 from osprey.cli.templates.manager import TemplateManager
 from osprey.interfaces.web_auth import PANEL_TOKEN_ENV
 from osprey.interfaces.web_terminal.app import create_app
 from osprey.services.build_artifacts.ownership import update_config_add_user_owned
-from osprey.services.python_executor import refusal_audit
-from osprey.services.python_executor.refusal_audit import PROTECTED_WRITES_LOG_FILENAME
+from osprey.utils.identity import acting_identity
 
 SETUP_MOD = "osprey.mcp_server.workspace.tools.setup"
 
-#: Fields every ``protected-writes.jsonl`` record carries, whichever writer
-#: produced it. The point of the shared writer is that one ``jq`` expression
-#: reads a gallery refusal and a ``setup_patch`` refusal alike, which only holds
-#: while no surface omits a field or invents one of its own.
-AUDIT_RECORD_FIELDS = {"ts", "surface", "target_file", "key_or_path", "channel", "reason"}
+#: Fields every protected-write record carries, whichever writer produced it.
+#: The point of the shared writer is that one ``jq`` expression reads a gallery
+#: refusal and a ``setup_patch`` refusal alike, which only holds while no
+#: surface omits a field or invents one of its own. Derived from the envelope
+#: rather than restated, so a field added there arrives here as a failure to
+#: look at rather than as silence.
+AUDIT_RECORD_FIELDS = {"ts", *AuditEnvelope.REQUIRED_FIELDS, "detail"}
+
+#: The one field that is legitimately ``null`` here: these flows run outside a
+#: Web Terminal session, so nothing stamped a posture-store key. Exempt from
+#: the *non-empty string* loop only -- ``session`` is checked on its own terms
+#: below, because "may be null" is not "may be anything".
+NULLABLE_RECORD_FIELDS = {"session"}
 
 #: The phrase the two *config-key* surfaces share in the activity feed, so one
 #: search over the operator's feed finds a refused config write whether the
@@ -139,9 +153,9 @@ def project_dir(_baked_project, tmp_path) -> Path:
 
 @pytest.fixture
 def audit_zone(tmp_path, monkeypatch) -> Path:
-    """Redirect the audit zone. ``audit_dir`` is the module's one documented seam."""
+    """Redirect the audit zone. ``writer.audit_dir`` is the ledger's one seam."""
     zone = tmp_path / "audit-zone" / "var" / "audit"
-    monkeypatch.setattr(refusal_audit, "audit_dir", lambda: zone)
+    monkeypatch.setattr(writer, "audit_dir", lambda: zone)
     return zone
 
 
@@ -172,12 +186,24 @@ def client(project_dir, tmp_path, audit_zone):
 # ── Readers ──────────────────────────────────────────────────────────
 
 
-def audit_records(zone: Path) -> list[dict]:
-    """Every protected-write record currently on disk, oldest first."""
-    path = zone / PROTECTED_WRITES_LOG_FILENAME
-    if not path.is_file():
-        return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+def audit_records(zone: Path, surface: str | None = None) -> list[dict]:
+    """Protected-write records currently on disk, oldest first *within a surface*.
+
+    Each writer files into its own ledger now, so "every record" means reading
+    the five of them. Ordering holds inside one file, which is where the
+    append-per-attempt assertions live; across files the records are grouped by
+    surface, because a second-resolution timestamp cannot order two refusals
+    filed in the same second by different writers.
+    """
+    identity = zone / acting_identity()
+    wanted = (surface,) if surface is not None else PROTECTED_SURFACES
+    records: list[dict] = []
+    for name in wanted:
+        path = identity / f"{name}.jsonl"
+        if not path.is_file():
+            continue
+        records += [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    return records
 
 
 def recent_activity(client: TestClient) -> list[dict]:
@@ -460,11 +486,12 @@ class TestEveryHttpSurfaceRefusesAudibly:
         assert len(records) == 1, f"{case.surface}/{case.tool} wrote {len(records)} records"
         record = records[0]
         assert record["surface"] == case.surface
-        assert record["target_file"] == case.target_file
-        assert record["key_or_path"] == case.key_or_path
-        assert record["channel"] == case.channel, (
+        assert record["subject"] == case.key_or_path
+        assert f"target={case.target_file}" in record["detail"]
+        assert case.channel in record["detail"], (
             "the log and the refusal message must name the same way in"
         )
+        assert record["decision"] == "refused"
         assert record["reason"] == case.reason
 
     @pytest.mark.parametrize("case", REFUSALS)
@@ -476,7 +503,7 @@ class TestEveryHttpSurfaceRefusesAudibly:
 
         records = audit_records(audit_zone)
         assert len(records) == 2, f"{case.surface}/{case.tool} collapsed a retry"
-        assert records[0]["key_or_path"] == records[1]["key_or_path"] == case.key_or_path
+        assert records[0]["subject"] == records[1]["subject"] == case.key_or_path
 
     @pytest.mark.parametrize("case", REFUSALS)
     def test_refusal_reaches_the_activity_route(self, client, case):
@@ -561,11 +588,48 @@ class TestCrossSurfaceShape:
 
         records = audit_records(audit_zone)
         assert len(records) == len(REFUSALS)
-        for record, case in zip(records, (p.values[0] for p in REFUSALS), strict=True):
+        for record in records:
             assert set(record) == AUDIT_RECORD_FIELDS, (
-                f"{case.surface}/{case.tool} recorded {sorted(record)}"
+                f"{record['surface']} recorded {sorted(record)}"
             )
-            assert all(isinstance(record[field], str) and record[field] for field in record)
+            for field in set(record) - NULLABLE_RECORD_FIELDS:
+                assert isinstance(record[field], str) and record[field], (
+                    f"{record['surface']} left {field} empty"
+                )
+            session = record["session"]
+            assert session is None or (isinstance(session, str) and session), (
+                f"{record['surface']} recorded session={session!r}: the field is "
+                "nullable, not unchecked"
+            )
+
+    def test_every_http_surface_stamps_the_app_posture_source(
+        self, client, audit_zone, monkeypatch
+    ):
+        """A web request belongs to no session, whatever the server inherited.
+
+        ``HttpAuditMiddleware`` files ``app`` for the very request these
+        refusals answer, so a surface reading the environment ladder instead
+        would leave two records of one request disagreeing about where its
+        posture came from -- one of them calling a web request a bare CLI
+        process.
+
+        The ladder is pointed at a *different* answer first: with
+        ``OSPREY_POSTURE_SOURCE`` set, a call site that dropped its own stamp
+        would quietly inherit ``spawn`` and this test would say so.
+        """
+        monkeypatch.setenv(POSTURE_SOURCE_ENV_VAR, POSTURE_SOURCE_SPAWN)
+
+        for case in (p.values[0] for p in REFUSALS):
+            with no_panel_token():
+                assert case.drive(client).status_code == 403
+
+        records = audit_records(audit_zone)
+        assert len(records) == len(REFUSALS)
+        for record in records:
+            assert record["posture_source"] == POSTURE_SOURCE_APP, (
+                f"{record['surface']} filed posture_source={record['posture_source']!r} "
+                "for a web request"
+            )
 
     def test_the_recorded_surfaces_are_the_documented_ones(self, client, audit_zone):
         """The ``surface`` field is what an operator filters on; it is a closed set."""
@@ -573,11 +637,11 @@ class TestCrossSurfaceShape:
             with no_panel_token():
                 assert case.drive(client).status_code == 403
 
-        assert {r["surface"] for r in audit_records(audit_zone)} == {
-            "scaffold_gallery",
-            "claude_setup",
-            "http_config",
-        }
+        recorded = {r["surface"] for r in audit_records(audit_zone)}
+        assert recorded == {"scaffold_gallery", "claude_setup", "http_config"}
+        assert recorded <= set(PROTECTED_SURFACES), (
+            "a surface an operator filters on must be one the audit package names"
+        )
 
     def test_the_config_surfaces_spell_the_feed_phrase_identically(self, client):
         """``http_config`` and ``setup_patch`` share one searchable phrase.
@@ -669,7 +733,7 @@ def mcp_render(tmp_path, monkeypatch):
     (tmp_path / ".mcp.json").write_text(
         json.dumps({"mcpServers": {"demo": {"command": "python"}}}, indent=2) + "\n"
     )
-    monkeypatch.setattr(refusal_audit, "audit_dir", lambda: tmp_path / "var" / "audit")
+    monkeypatch.setattr(writer, "audit_dir", lambda: tmp_path / "var" / "audit")
     with patch(f"{SETUP_MOD}.resolve_config_path", return_value=tmp_path / "config.yml"):
         yield tmp_path
 
@@ -697,9 +761,9 @@ class TestSetupPatchSurface:
         (record,) = audit_records(mcp_render / "var" / "audit")
         assert set(record) == AUDIT_RECORD_FIELDS
         assert record["surface"] == "setup_patch"
-        assert record["target_file"] == "config.yml"
-        assert record["key_or_path"] == "control_system.writes_enabled"
-        assert record["channel"] == RESERVED_PATH_CHANNELS["config.yml"]
+        assert record["subject"] == "control_system.writes_enabled"
+        assert "target=config.yml" in record["detail"]
+        assert RESERVED_PATH_CHANNELS["config.yml"] in record["detail"]
         assert record["reason"] == "protected_key"
 
         notify.assert_called_once()
@@ -707,6 +771,29 @@ class TestSetupPatchSurface:
         detail = notify.call_args.kwargs["detail"]
         assert detail.startswith(CONFIG_FEED_PHRASE), detail
         assert "config.yml: control_system.writes_enabled" in detail
+
+    async def test_the_mcp_surface_keeps_the_posture_ladder(self, mcp_render, monkeypatch):
+        """The counterpart to the HTTP surfaces: this tool *is* a session child.
+
+        ``setup_patch`` runs in the MCP child a Web Terminal session spawned,
+        so the marker that session stamped is the true answer -- a per-surface
+        constant inside the funnel would have to overwrite it with something
+        this process cannot know.
+        """
+        from osprey.mcp_server.workspace.tools.setup import setup_patch
+        from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
+
+        monkeypatch.setenv(POSTURE_SOURCE_ENV_VAR, POSTURE_SOURCE_SPAWN)
+
+        fn = get_tool_fn(setup_patch)
+        with (
+            patch(f"{SETUP_MOD}.notify_agent_activity_async"),
+            assert_raises_error(error_type="protected_key"),
+        ):
+            await fn(file="config.yml", key_path="control_system.writes_enabled", value=True)
+
+        (record,) = audit_records(mcp_render / "var" / "audit")
+        assert record["posture_source"] == POSTURE_SOURCE_SPAWN
 
     async def test_a_blocked_detail_carries_no_safety_marker(self, mcp_render):
         """The honest version of a branch that reads as if it should fire here.

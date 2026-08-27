@@ -192,8 +192,16 @@ def _services(config: dict, **kwargs) -> dict[str, dict]:
 def test_entitled_services_join_the_bundles_group():
     """setgid decides which group OWNS a new file; it does not make any process
     a MEMBER of that group, and a container carries only the groups its image
-    gives it. Without this the shared mode reaches no container, and access
-    holds only where the deploying user's uid happens to equal the image's."""
+    or its runtime grants it. `group_add` is the runtime grant to this
+    container's INITIAL process -- the membership that carries access wherever
+    the entrypoint's own group join never runs: a container started with
+    `--user` takes the entrypoint's non-root branch, which skips both the join
+    and the privilege drop, as does any image started without this framework's
+    entrypoint at all. A framework-built image drops privileges with `gosu`,
+    which re-derives supplementary groups from `/etc/group` for the target user
+    and discards this grant; the membership that reaches the process actually
+    SERVING requests there comes from the entrypoint's own `/etc/group` join,
+    asserted separately in tests/deployment/test_entrypoint_script.py."""
     services = _services(_config(), facility_bundle_gid=20)
 
     assert services["web-alice"]["group_add"] == ["20"]

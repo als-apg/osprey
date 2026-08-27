@@ -24,10 +24,25 @@ const MAX_INPUT_HEIGHT = 120;
 const STICK_THRESHOLD = 40;
 
 /**
- * User-facing copy for the transport-level HTTP rejections the endpoint can
- * return before any turn streams. These are distinct from server `error`
- * events (which the renderer paints as red error blocks); a transport failure
- * renders as a centred system notice instead.
+ * User-facing copy keyed on the endpoint's machine-readable `detail.error`
+ * slug — the primary table, because the status alone cannot separate two
+ * rejections that share one. `POST /api/chat` answers 409 both when a turn is
+ * already streaming and when the chat was torn down mid-start by a posture
+ * flip; only the second one has a remedy, and it is the operator resending the
+ * prompt they just sent.
+ * @type {Record<string, string>}
+ */
+const TRANSPORT_NOTICES_BY_SLUG = {
+  chat_terminated: 'Session restarted with the new posture — send your message again.',
+  turn_in_progress: 'A turn is already running.',
+  chat_capacity: 'Server busy — please retry in a moment.',
+};
+
+/**
+ * Status-keyed fallback for a rejection that carries no slug — a proxy's own
+ * 503, say, or any error shape older than the slug contract. These are
+ * distinct from server `error` events (which the renderer paints as red error
+ * blocks); a transport failure renders as a centred system notice instead.
  * @type {Record<number, string>}
  */
 const TRANSPORT_NOTICES = {
@@ -36,7 +51,7 @@ const TRANSPORT_NOTICES = {
   503: 'Operator agent unavailable.',
 };
 
-/** Fallback copy for a transport failure with no recognised HTTP status. */
+/** Fallback copy for a transport failure with no recognised slug or status. */
 const TRANSPORT_FALLBACK = 'Connection to the operator agent failed.';
 
 /**
@@ -81,15 +96,36 @@ function buildConsole() {
 }
 
 /**
- * Extract an HTTP status from a transport error message (`HTTP 409: ...`), or 0
- * when the failure carries no status (a network or parse error).
+ * Extract an HTTP status from a transport error: the `status` the transport
+ * attaches, else parsed out of an `HTTP 409: ...` message, else 0 when the
+ * failure carries no status at all (a network or parse error).
  * @param {unknown} err
  * @returns {number}
  */
 function statusFromError(err) {
+  const status = /** @type {{ status?: unknown }} */ (err ?? {}).status;
+  if (typeof status === 'number' && Number.isFinite(status)) return status;
   const message = err instanceof Error ? err.message : String(err ?? '');
   const match = /^HTTP (\d+)/.exec(message);
   return match ? Number(match[1]) : 0;
+}
+
+/**
+ * The notice to show for a transport failure: its slug first, its status
+ * second, the generic line last.
+ *
+ * Slug before status is the whole point — keying on the status alone told an
+ * operator whose chat had just been restarted by their own posture flip that a
+ * turn was already running, which is both false and unactionable.
+ * @param {unknown} err
+ * @returns {string}
+ */
+export function transportNotice(err) {
+  const slug = /** @type {{ slug?: unknown }} */ (err ?? {}).slug;
+  if (typeof slug === 'string' && slug in TRANSPORT_NOTICES_BY_SLUG) {
+    return TRANSPORT_NOTICES_BY_SLUG[slug];
+  }
+  return TRANSPORT_NOTICES[statusFromError(err)] ?? TRANSPORT_FALLBACK;
 }
 
 /**
@@ -172,7 +208,7 @@ export function initChat(containerId = 'operator-container') {
         if (pinned) scrollToBottom();
       },
       onError: (err) => {
-        showNotice(TRANSPORT_NOTICES[statusFromError(err)] ?? TRANSPORT_FALLBACK);
+        showNotice(transportNotice(err));
       },
       onClose: () => {
         handle = null;

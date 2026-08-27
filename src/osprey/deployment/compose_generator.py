@@ -902,36 +902,6 @@ def resolve_ariel_mirror_dir(config, repo_root=None):
     return root / path
 
 
-def user_audit_relpath(user):
-    """Repo-relative host directory backing one web-terminal user's audit zone.
-
-    ``<var/audit>/<user>``: the deployment's own audit zone
-    (:data:`osprey.utils.workspace.AUDIT_DIR_RELPATH`, where the host's python
-    executor appends its refusal log) with one subdirectory per roster user, so
-    the per-user containers — each of which writes the same fixed filename
-    into what it sees as ``<project>/var/audit`` — cannot overwrite one
-    another's log, and an operator reading the host finds every user's records
-    under the one zone the audit already lives in.
-
-    Spelled here, and read from here by both the web-terminal render (the bind
-    source) and the deploy provisioning (the directory it pre-creates), so the
-    two cannot name different places.
-
-    :param user: Roster user name
-    :type user: str
-    :return: The repo-relative path, POSIX-spelled
-    :rtype: str
-    """
-    from osprey.utils.workspace import AUDIT_DIR_RELPATH
-
-    return f"{AUDIT_DIR_RELPATH}/{user}"
-
-
-def resolve_user_audit_dir(repo_root, user):
-    """Absolute host path of :func:`user_audit_relpath` under *repo_root*."""
-    return Path(repo_root) / user_audit_relpath(user)
-
-
 def _resolve_qmd_render_context(config, repo_root):
     """Build the ``osprey_qmd`` render context for the sidecar's templates.
 
@@ -1269,7 +1239,11 @@ def _inject_project_metadata(config):
     # with an explicit ``./`` — a bind source that is neither absolute nor
     # dot-prefixed is not reliably read as a path by every runtime. A state dir
     # outside the repo has no relative spelling and is emitted absolute.
-    from osprey.utils.workspace import agent_data_base_dir, resolve_simulation_state_dir
+    from osprey.utils.workspace import (
+        AUDIT_DIR_RELPATH,
+        agent_data_base_dir,
+        resolve_simulation_state_dir,
+    )
 
     state_dir = resolve_simulation_state_dir(config, repo_root).expanduser().absolute()
     try:
@@ -1305,6 +1279,37 @@ def _inject_project_metadata(config):
         agent_data_base
         if agent_data_base.is_absolute()
         else container_project_dir / agent_data_base
+    ).as_posix()
+
+    # The audit zone, in the two spellings a compose template needs: the
+    # container-side ROOT of it (absolute, under this project's in-container
+    # root) and the HOST-side bind source (repo-relative, resolved by compose
+    # against the pinned project directory). Each service appends its own
+    # IDENTITY to both — `<root>/<identity>` — which is what makes the mount
+    # per-service: a container holds a bind to its own subdirectory and has no
+    # mount through which it could read another identity's records.
+    #
+    # Both halves come from the one `var/audit` constant the writer inside the
+    # container, `osprey reset --purge-audit` and the hooks resolve their own
+    # audit root through, so the path a service is MOUNTED at and the path its
+    # writer resolves cannot be spelled apart.
+    config_with_labels["osprey_container_audit_dir"] = (
+        container_project_dir / AUDIT_DIR_RELPATH
+    ).as_posix()
+    config_with_labels["osprey_audit_mount_source"] = repo_relative_mount_source(AUDIT_DIR_RELPATH)
+
+    # The same container-side root for a STANDALONE service image — one that
+    # runs no OSPREY project, so it has no `/app/<project>` to hang its audit
+    # zone under. Its writer anchors on the working directory instead
+    # (`writer.audit_dir` -> `resolve_project_root`, whose last rung is
+    # `Path.cwd()` when no config file is found there), and every standalone
+    # service image's WORKDIR is `/app` — so `/app/var/audit` is where such a
+    # service actually writes, and mounting `osprey_container_audit_dir` into it
+    # would bind a directory nothing ever writes to while the records went to
+    # the container's writable layer. Same shape and same reason as the auth
+    # sidecar's own root (``render._AUTH_SIDECAR_CONTAINER_ROOT``).
+    config_with_labels["osprey_service_container_audit_dir"] = (
+        PurePosixPath(_CONTAINER_APP_ROOT) / AUDIT_DIR_RELPATH
     ).as_posix()
 
     # The qmd sidecar's resolved settings and its corpus list, derived here for
@@ -1706,6 +1711,43 @@ def ensure_shared_corpus_dir(path, relative_to=None):
         provisioned. This is the gid the mounting services join.
     :rtype: int | None
     """
+    return _ensure_group_shared_dir(
+        path,
+        relative_to=relative_to,
+        label="Shared corpus",
+        noun="shared corpus directory",
+        consequence=(
+            "Files written from one container may not be readable by another "
+            "or indexable by the qmd sidecar."
+        ),
+    )
+
+
+def _ensure_group_shared_dir(path, *, relative_to, label, noun, consequence):
+    """Create *path* setgid + group-writable, and report its GID.
+
+    The mechanism behind :func:`ensure_shared_corpus_dir` and
+    :func:`ensure_audit_dir`, which are the same act on two different
+    directories — one shared BETWEEN containers, one written by a single
+    container and read on the host — and differ only in what a log line calls
+    them. Sharing one body is what keeps the two from drifting into different
+    modes or different failure postures, which is the drift that would matter:
+    a directory the deploy left root-owned is unwritable by the process that
+    has to write it, whichever of the two it is.
+
+    :param path: The directory to provision
+    :type path: str | pathlib.Path
+    :param relative_to: Root to spell the directory against in the INFO line
+    :type relative_to: str | pathlib.Path | None
+    :param label: How the INFO line names this kind of directory
+    :type label: str
+    :param noun: How the failure WARNING names it
+    :type noun: str
+    :param consequence: What the operator loses when provisioning failed
+    :type consequence: str
+    :return: The directory's group id, or ``None`` when unavailable
+    :rtype: int | None
+    """
     target = Path(path).expanduser()
     existed = target.is_dir()
     try:
@@ -1731,7 +1773,7 @@ def ensure_shared_corpus_dir(path, relative_to=None):
                 # in this function's docstring, where someone investigating the
                 # change will look.
                 logger.info(
-                    f"Shared corpus {_display_path(target, relative_to)}: "
+                    f"{label} {_display_path(target, relative_to)}: "
                     f"{current:04o} -> {wanted:04o} (setgid, group-writable)"
                 )
     except OSError as e:
@@ -1739,15 +1781,196 @@ def ensure_shared_corpus_dir(path, relative_to=None):
         # network mounts) or a directory owned by someone else still deploys —
         # single-user sharing works regardless, and the multi-user case fails
         # visibly at read time rather than by refusing the whole deploy here.
-        logger.warning(
-            f"Could not provision shared corpus directory {target}: {e}. "
-            "Files written from one container may not be readable by another "
-            "or indexable by the qmd sidecar."
-        )
+        logger.warning(f"Could not provision {noun} {target}: {e}. {consequence}")
         return None
     gid = getattr(target.stat(), "st_gid", None)
-    logger.debug(f"Provisioned shared corpus directory {target} (gid {gid})")
+    logger.debug(f"Provisioned {noun} {target} (gid {gid})")
     return gid
+
+
+def audit_identity_dir(repo_root, identity):
+    """Where *identity* writes its audit records on the HOST.
+
+    One spelling of ``<repo>/var/audit/<identity>``, shared by the provisioning
+    helper below and by every renderer that emits the bind source for it, so a
+    container can never be handed a mount whose host side is a directory
+    nothing provisioned. The ``var/audit`` half comes from
+    :data:`~osprey_connectors.workspace.AUDIT_DIR_RELPATH` — the same constant
+    the writer inside the container, ``osprey reset --purge-audit`` and the
+    hooks resolve their own audit root through.
+
+    :param repo_root: The deployment repo root
+    :type repo_root: str | pathlib.Path
+    :param identity: The audit identity (a roster user, a service key, or
+        ``sidecar``) — the subdirectory name, which is also what the container
+        is told to call itself via ``OSPREY_AUDIT_IDENTITY``
+    :type identity: str
+    :return: The identity's audit subdirectory
+    :rtype: pathlib.Path
+    :raises ValueError: If *identity* is outside the username charset. The
+        identity is a path SEGMENT here, and this helper is the seam every
+        provisioning caller goes through — an unvalidated ``../../x`` would
+        drive ``mkdir`` outside the audit zone entirely, and it would do so on
+        the deploy path BEFORE the render's own roster gates get to refuse the
+        deployment. Validating at the seam rather than at each caller is what
+        makes that unreachable however the identity was obtained. Every fixed
+        identity the framework mints (``sidecar``, ``dispatch-worker-<n>``)
+        matches; a roster name that does not is a name lint and the render both
+        reject on their own account.
+    """
+    from osprey.deployment.web_terminals.personas import USERNAME_CHARSET_RE
+    from osprey.utils.workspace import AUDIT_DIR_RELPATH
+
+    if not isinstance(identity, str) or not USERNAME_CHARSET_RE.fullmatch(identity):
+        raise ValueError(
+            f"audit identity {identity!r} must match {USERNAME_CHARSET_RE.pattern!r}: "
+            "it names a subdirectory of the audit zone, so anything else provisions "
+            "or mounts a directory outside it"
+        )
+    return Path(repo_root) / AUDIT_DIR_RELPATH / identity
+
+
+def ensure_audit_dir(repo_root, identity, relative_to=None):
+    """Provision one identity's audit subdirectory before its bind mount exists.
+
+    Called on the render/up path for every containerized service that binds
+    ``./var/audit/<identity>/`` — every service that hosts an interface app or
+    launches framework MCP servers, one subdirectory per dispatch worker
+    included. Same two failures as :func:`ensure_shared_corpus_dir`, in the
+    same order:
+
+    1. **Root-owned mount source.** A missing bind source is created by the
+       container runtime instead, and a rootful daemon creates it owned by
+       root — after which the container's own dropped (uid 1000) process cannot
+       write the records it exists to write, and the operator cannot purge them.
+    2. **Group access across the privilege drop.** setgid makes every record
+       take the DIRECTORY's group whichever uid wrote it, which is what keeps
+       host-side ``osprey reset --purge-audit`` working on files a container
+       wrote. The membership half is granted inside the container by the
+       entrypoint's group step, which reads the gid off this directory —
+       so this call has to happen BEFORE the container starts.
+
+    PER-IDENTITY, never shared: root and ``osprey`` never share a file, and one
+    user's container has no mount through which it could read another's records.
+
+    :param repo_root: The deployment repo root
+    :type repo_root: str | pathlib.Path
+    :param identity: The audit identity owning this subdirectory
+    :type identity: str
+    :param relative_to: Root to spell the directory against in the INFO line
+        (see :func:`ensure_shared_corpus_dir`); ``None`` names it absolutely
+    :type relative_to: str | pathlib.Path | None
+    :return: The directory's group id, or ``None`` when it could not be
+        provisioned, the identity was refused, or the platform reports none
+    :rtype: int | None
+    """
+    try:
+        target = audit_identity_dir(repo_root, identity)
+    except ValueError as e:
+        # SKIPPED, not raised. This helper is never the thing that fails a
+        # deploy — the render's roster gates and lint are, with messages that
+        # can explain a bad username, which this one cannot. What matters here
+        # is that nothing outside the audit zone is created on the way there.
+        logger.warning(f"Skipping audit directory provisioning: {e}")
+        return None
+    return _ensure_group_shared_dir(
+        target,
+        relative_to=relative_to,
+        label="Audit dir",
+        noun="audit directory",
+        consequence=(
+            "Records written inside the container may be unwritable or "
+            "invisible to the operator on the host."
+        ),
+    )
+
+
+#: Compose service-key stem of a dispatch worker, and therefore the stem of its
+#: audit identity: worker ``i`` is the compose service ``dispatch-worker-<i>``,
+#: writes ``var/audit/dispatch-worker-<i>/`` and is told
+#: ``OSPREY_AUDIT_IDENTITY=dispatch-worker-<i>``. One derivation, spelled here
+#: because the compose template names the service key and this module has to
+#: provision the matching directory — a drift between the two is a bind mount
+#: whose host side nobody created (``tests/deployment/test_audit_mounts.py``
+#: asserts the two agree by rendering the template and reading its keys back).
+DISPATCH_WORKER_SERVICE_PREFIX = "dispatch-worker"
+
+
+def dispatch_worker_audit_identities(config):
+    """The audit identity of every dispatch worker this deployment renders.
+
+    One subdirectory per WORKER, not one for the service: the workers are
+    separate containers writing concurrently, and a shared subdirectory would
+    put two writers on one file for no gain — nothing reads the workers'
+    records as a single stream.
+
+    Empty when the deployment does not deploy the worker at all, so a stack
+    without it provisions nothing.
+
+    :param config: Configuration dictionary
+    :type config: dict
+    :return: Audit identities, in worker order
+    :rtype: list[str]
+    """
+    deployed = {str(name) for name in (config or {}).get("deployed_services") or []}
+    if "dispatch_worker" not in deployed:
+        return []
+    worker = ((config or {}).get("services") or {}).get("dispatch_worker")
+    raw = worker.get("worker_count") if isinstance(worker, dict) else None
+    try:
+        count = int(raw)
+    except (TypeError, ValueError):
+        # The template's own `| default(1)` for the same unset/unusable value.
+        count = 1
+    # `max(count, 1)` is deliberately CONSERVATIVE rather than an exact mirror of
+    # the template's `range(1, wc + 1)`, which renders no service at all for a
+    # count of 0 or less. Provisioning one directory too many costs an empty
+    # directory; provisioning one too few costs a bind source the container
+    # runtime creates root-owned, which the dropped process cannot write.
+    return [f"{DISPATCH_WORKER_SERVICE_PREFIX}-{i}" for i in range(1, max(count, 1) + 1)]
+
+
+#: Every service whose audit identity is FIXED — one subdirectory for the
+#: service itself rather than one per worker or per person — keyed by the
+#: ``deployed_services`` name it is enabled under, valued by its COMPOSE SERVICE
+#: KEY (the same rule a dispatch worker's identity follows, so a record traces
+#: back to the container that wrote it with no lookup table).
+#:
+#: Membership is decided by whether the service RECORDS, not by whether it is a
+#: container: ``bluesky_web`` runs an interface app of its own
+#: (``uvicorn osprey.interfaces.bluesky_web.app:app``), so it carries
+#: ``WebAuthMiddleware`` and ``HttpAuditMiddleware`` and records every refused
+#: request and every admitted queue mutation — starting and aborting scans
+#: included. A recording service missing from this mapping is told no identity,
+#: falls through to the container's process account, and writes into a path no
+#: bind covers, so its whole trail is discarded with the writable layer at the
+#: next ``osprey up``.
+#:
+#: The auth sidecar is deliberately NOT here: it is rendered by the web-terminal
+#: overlay rather than from ``services/``, and provisioned on that path
+#: (``web_terminals.provision``) alongside the roster's own identities.
+FIXED_SERVICE_AUDIT_IDENTITIES = {"bluesky_web": "bluesky-web"}
+
+
+def service_audit_identities(config):
+    """The fixed audit identity of every recording service this deployment renders.
+
+    The :data:`FIXED_SERVICE_AUDIT_IDENTITIES` half of the identity set, beside
+    :func:`dispatch_worker_audit_identities` (which derives one identity per
+    worker) and the web overlay's per-user identities. Empty when the deployment
+    deploys none of them, so a stack without them provisions nothing.
+
+    :param config: Configuration dictionary
+    :type config: dict
+    :return: Audit identities of the deployed services, in mapping order
+    :rtype: list[str]
+    """
+    deployed = {str(name) for name in (config or {}).get("deployed_services") or []}
+    return [
+        identity
+        for service, identity in FIXED_SERVICE_AUDIT_IDENTITIES.items()
+        if service in deployed
+    ]
 
 
 def render_service_templates(source_dir, config, out_dir):
@@ -1853,6 +2076,17 @@ def _ensure_agent_data_structure(config):
     if bundle_dir is not None:
         ensure_shared_corpus_dir(bundle_dir, relative_to=project_root)
 
+    # Each recording service's own audit subdirectory — one per dispatch worker,
+    # plus the fixed identity of every other service that records — for the same
+    # root-owned-mount-source reason as the two directories above and one more:
+    # the worker's container drops to `osprey` before it writes anything, so a
+    # runtime-created root-owned bind source would leave every record it tried
+    # to write failing inside a container nobody is watching. The gid the
+    # entrypoint's group step reads is read OFF this directory, so it has to
+    # exist before the container starts — which is here, on the build path every
+    # deploy runs through.
+    for identity in (*dispatch_worker_audit_identities(config), *service_audit_identities(config)):
+        ensure_audit_dir(project_root, identity, relative_to=project_root)
     # The ARIEL qmd mirror, for the same reasons: the sidecar binds it
     # read-only, so a missing directory would be created root-owned by the
     # runtime and the host exporter could never write it; and in a multi-user

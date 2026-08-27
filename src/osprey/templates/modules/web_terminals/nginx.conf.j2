@@ -102,6 +102,22 @@
       In neither case does the browser's whole jar — which names every other
       terminal it has unlocked, and the sidecar's origin-wide session — reach a
       container running agent-generated code.
+    * `X-Osprey-Auth-Subject` / `X-Osprey-Auth-Role` — who the request belongs
+      to and what privilege it holds — are written by EVERY proxying location:
+      a gated `/u/<user>/` SETS them from `auth_request_set` variables carrying
+      what the sidecar returned, and every other proxying location CLEARS them
+      — the ungated `/u/<user>/` branch, the internal `/_osprey_auth/<user>`
+      target (a subrequest inherits the parent's headers), and the public
+      `/auth/` prefix. Either way the name is claimed by a directive, which is
+      what stops nginx passing the client's own through, so no topology this
+      template renders — auth off included — lets a client name itself to a
+      terminal. Exactly one directive per name per location: a second entry for
+      the same name buys nothing and warns on every reload.
+
+      Never at `server` level. A location-level `proxy_set_header` REPLACES the
+      entire inherited set rather than adding to it, and every location here
+      sets `Host` at minimum, so a server-level clear would be silently
+      discarded by all of them while reading as though it covered them.
 
   ----------------------------------------------------------------------------
   WHY A REAL REVERSE PROXY
@@ -396,6 +412,26 @@ server {
         # user's container.
         auth_request /_osprey_auth/{{ svc.user }};
 
+        # Who the sidecar just said this is, lifted out of the subrequest's own
+        # response. `auth_request_set` is the only construct that can do this —
+        # a subrequest's response headers are otherwise invisible to the parent
+        # request — and it reads `$upstream_http_*`, nginx's spelling of the
+        # auth upstream's response header (lowercased, dashes to underscores).
+        #
+        # Both variables are LOCAL to this location and fed by this user's own
+        # `auth_request` above, so no user's identity can be observed here but
+        # the one this location authorizes. A denied subrequest never reaches
+        # the `proxy_pass` at all, so these can only ever hold a value the
+        # sidecar returned for an authorization it granted.
+        #
+        # Either may be empty: the sidecar omits a header it has no value for
+        # (an OIDC session with no mapped role, say). An empty value makes the
+        # `proxy_set_header` below send nothing at all, which is the deny-safe
+        # answer — a consumer reads an absent role as no privileges, never as a
+        # default one.
+        auth_request_set $osprey_auth_subject $upstream_http_x_osprey_auth_subject;
+        auth_request_set $osprey_auth_role $upstream_http_x_osprey_auth_role;
+
         # Who a denied subrequest should prompt for. Carried in a variable
         # because the handler below is shared by every user; the value is
         # still a render-time literal, so it names this location's user and
@@ -464,7 +500,46 @@ server {
         # and clearing the header costs it nothing. Unconditional, unlike the
         # two below: the header is never legitimate here in any auth mode.
         proxy_set_header Authorization "";
+        # The two identity headers — who the request belongs to and what
+        # privilege it holds. Both names are written into EVERY proxying
+        # location's own header set, by whichever arm of the branch below
+        # renders: gated, from the values the sidecar just returned; ungated, as
+        # an explicit clear.
+        #
+        # Naming them is what drops the client's own. nginx builds one
+        # proxy-headers table per location and copies the client's remaining
+        # headers around it, so a name in that table is answered by its
+        # directive and never by the request — including when the directive
+        # evaluates EMPTY, which sends nothing rather than falling back to what
+        # arrived. A location naming neither would hand a client's values
+        # straight to a container.
+        #
+        # Only this perimeter may name a user to a terminal: these headers are
+        # what a container reads to know who is on the other end of the session,
+        # so a client that simply types them would be choosing its own identity
+        # — and with authentication off there is no sidecar answer to contradict
+        # it. That is why the branch below is EXHAUSTIVE, unlike the cookie
+        # handling it shares: no topology this template can render accepts a
+        # client-supplied identity, and an auth-off deployment least of all.
+        #
+        # One directive per name per location, never two. A clear written
+        # alongside the forward would be harmless at request time — nginx skips
+        # an empty-valued `proxy_set_header` — but it enters the same name in
+        # this location's header table twice, which costs a `could not build
+        # optimal proxy_headers_hash` warning on every start and every reload,
+        # emitted by the security perimeter itself. That is where a recurring
+        # warning is most expensive: it is the one an operator learns to scroll
+        # past.
 {%- if auth_method != "none" and not svc.login_exempt %}
+        # Gated: the values this perimeter DID establish, from the
+        # `auth_request_set` variables above. Only a gated location has an
+        # authorization to speak for. Either value may be empty — the sidecar
+        # omits a header it has no value for — and an empty one is not sent at
+        # all, which is the deny-safe answer and still not the client's: the
+        # name is claimed by this directive either way.
+        proxy_set_header X-Osprey-Auth-Subject $osprey_auth_subject;
+        proxy_set_header X-Osprey-Auth-Role $osprey_auth_role;
+
         # The browser's cookie header stops here — gated on the SAME predicate
         # that included the secret above, and that is the point of writing it
         # twice: this location authenticates by the header nginx just set, so
@@ -485,6 +560,13 @@ server {
         # session cookie into a container.
         proxy_set_header Cookie "";
 {%- else %}
+        # Ungated — authentication is off, or this entry declared
+        # `login: false`. There is no authorization to speak for, so both
+        # identity names are CLEARED here rather than forwarded: forwarding
+        # would announce a subject the perimeter never checked, and leaving the
+        # names unwritten would let the client supply them itself.
+        proxy_set_header X-Osprey-Auth-Subject "";
+        proxy_set_header X-Osprey-Auth-Role "";
         # No operator secret is injected into this location — authentication is
         # off, or this entry declared `login: false` — so the two headers that
         # carry one are handled the other way round from the gated branch above.
@@ -549,6 +631,17 @@ server {
         # advertising a body it will not send.
         proxy_pass_request_body off;
         proxy_set_header Content-Length "";
+        # For the same reason, and it is easy to miss: a subrequest inherits the
+        # PARENT request's headers, so a client that sent its own identity
+        # headers would have them arrive at `/verify` looking like something
+        # this perimeter established. The sidecar decides who the user is from
+        # the session cookie and the render-time `?user=` above, and must never
+        # see a value the request supplied. The clear lives in this location
+        # rather than at server level because a location-level
+        # `proxy_set_header` — the four below, at minimum — replaces the whole
+        # inherited set, so a server-level clear would be discarded right here.
+        proxy_set_header X-Osprey-Auth-Subject "";
+        proxy_set_header X-Osprey-Auth-Role "";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -610,6 +703,13 @@ server {
 
     location /auth/ {
         proxy_pass http://{{ bind_host }}:{{ auth_port }}/auth/;
+        # This prefix is deliberately ungated — it is where a session comes
+        # from — which makes it the surface an unauthenticated client can
+        # always reach, and so the one it would forge an identity into. The
+        # login flow establishes identity from credentials it verifies;
+        # nothing it serves may read one out of the request.
+        proxy_set_header X-Osprey-Auth-Subject "";
+        proxy_set_header X-Osprey-Auth-Role "";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

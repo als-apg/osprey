@@ -7,6 +7,20 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+#: The config seam these fixtures and their tests BOTH repoint. It is patched
+#: through ``monkeypatch`` on purpose: a test body that repoints it again (see
+#: ``_artifact_store_dir`` in test_pending_review_api.py) must stack on the same
+#: mechanism. Mixing ``mock.patch`` here with ``monkeypatch`` there makes the net
+#: effect depend on which was entered first — unwound in the wrong order, the
+#: fixture's mock is restored *after* the real function and leaks into every
+#: later test in the process.
+_CONFIG_SEAM = "osprey.utils.workspace.load_osprey_config"
+
+
+def _patch_config(monkeypatch, mock_config):
+    """Point the shared config seam at *mock_config* for the whole test."""
+    monkeypatch.setattr(_CONFIG_SEAM, lambda: mock_config)
+
 
 @pytest.fixture()
 def mock_config():
@@ -38,16 +52,13 @@ def mock_registry():
 
 
 @pytest.fixture()
-def app(mock_config, mock_registry):
+def app(mock_config, mock_registry, monkeypatch):
     """Create a test Channel Finder FastAPI app with mocked dependencies."""
-    with patch(
-        "osprey.utils.workspace.load_osprey_config",
-        return_value=mock_config,
-    ):
-        from osprey.interfaces.channel_finder.app import create_app
+    _patch_config(monkeypatch, mock_config)
+    from osprey.interfaces.channel_finder.app import create_app
 
-        application = create_app(project_cwd="/tmp/test-project")
-        yield application
+    application = create_app(project_cwd="/tmp/test-project")
+    yield application
 
 
 @pytest.fixture()
@@ -58,38 +69,32 @@ def client(app):
 
 
 @pytest.fixture()
-def feedback_client(mock_config, mock_registry, tmp_path):
+def feedback_client(mock_config, mock_registry, tmp_path, monkeypatch):
     """Create a TestClient with a real FeedbackStore on tmp_path."""
     from osprey.services.channel_finder.feedback.store import FeedbackStore
 
-    with patch(
-        "osprey.utils.workspace.load_osprey_config",
-        return_value=mock_config,
-    ):
-        from osprey.interfaces.channel_finder.app import create_app
+    _patch_config(monkeypatch, mock_config)
+    from osprey.interfaces.channel_finder.app import create_app
 
-        application = create_app(project_cwd="/tmp/test-project")
-        with TestClient(application) as c:
-            # Set after lifespan runs (lifespan sets feedback_store=None)
-            application.state.feedback_store = FeedbackStore(tmp_path / "feedback.json")
-            yield c
+    application = create_app(project_cwd="/tmp/test-project")
+    with TestClient(application) as c:
+        # Set after lifespan runs (lifespan sets feedback_store=None)
+        application.state.feedback_store = FeedbackStore(tmp_path / "feedback.json")
+        yield c
 
 
 @pytest.fixture()
-def pending_review_client(mock_config, mock_registry, tmp_path):
+def pending_review_client(mock_config, mock_registry, tmp_path, monkeypatch):
     """Create a TestClient with real PendingReviewStore + FeedbackStore."""
     from osprey.services.channel_finder.feedback.pending_store import PendingReviewStore
     from osprey.services.channel_finder.feedback.store import FeedbackStore
 
-    with patch(
-        "osprey.utils.workspace.load_osprey_config",
-        return_value=mock_config,
-    ):
-        from osprey.interfaces.channel_finder.app import create_app
+    _patch_config(monkeypatch, mock_config)
+    from osprey.interfaces.channel_finder.app import create_app
 
-        application = create_app(project_cwd="/tmp/test-project")
-        with TestClient(application) as c:
-            # Set after lifespan runs (lifespan sets stores=None)
-            application.state.pending_review_store = PendingReviewStore(tmp_path / "pending.json")
-            application.state.feedback_store = FeedbackStore(tmp_path / "feedback.json")
-            yield c
+    application = create_app(project_cwd="/tmp/test-project")
+    with TestClient(application) as c:
+        # Set after lifespan runs (lifespan sets stores=None)
+        application.state.pending_review_store = PendingReviewStore(tmp_path / "pending.json")
+        application.state.feedback_store = FeedbackStore(tmp_path / "feedback.json")
+        yield c

@@ -52,7 +52,7 @@ from osprey.deployment.web_terminals.render import (
     render_web_terminals,
 )
 from osprey.utils.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
-from osprey.utils.workspace import AUDIT_DIR_RELPATH, BUILD_DIR_NAME
+from osprey.utils.workspace import BUILD_DIR_NAME
 from osprey_connectors.types import WRITES_ENABLED_KEY
 
 #: Filename of the rendered web-stack compose file, as
@@ -372,22 +372,30 @@ def _personaless_lanes(config: Any, project_root: Path | str) -> set[str]:
 def _roster_has_personaless_entries(config: Any) -> bool:
     """True if some roster entry runs no persona and so runs the deploy project.
 
-    Mirrors the resolution ``render_web_terminals`` applies: a ``default_persona``
-    covers every entry that names none, so with one set no entry is persona-less;
-    without one, a bare-string entry or an object entry lacking a string
-    ``persona`` is. Well-formedness of the roster is lint's job — a malformed
-    entry is simply not counted here, matching ``normalize_users`` dropping it.
+    Mirrors the resolution ``render_web_terminals`` applies, through the same
+    :func:`~osprey.deployment.web_terminals.personas.effective_persona` it
+    uses: a ``default_persona`` covers every entry that names none, a ``role:``
+    resolves to the persona the ``authorization`` block binds it to, and a
+    bare-string entry or an object entry carrying neither a ``persona`` nor a
+    resolvable ``role`` is persona-less. Well-formedness of the roster and of
+    the authorization block is lint's job — a malformed entry is simply not
+    counted here, matching ``normalize_users`` dropping it, and an
+    unparseable ``authorization`` block binds no role.
     """
+    from .personas import effective_persona, resolve_authorization_roles
+
     web_terminals = as_dict(as_dict(as_dict(config).get("modules")).get("web_terminals"))
     default_persona = web_terminals.get("default_persona")
-    if isinstance(default_persona, str) and default_persona:
-        return False
+    try:
+        roles = resolve_authorization_roles(web_terminals)
+    except ValueError:
+        roles = {}
     users = web_terminals.get("users")
     for user in users if isinstance(users, list) else []:
         if isinstance(user, str):
             return True
-        if isinstance(user, dict) and not (
-            isinstance(user.get("persona"), str) and user["persona"]
+        if isinstance(user, dict) and not effective_persona(
+            user, roles, default_persona, strict=False
         ):
             return True
     return False
@@ -559,13 +567,12 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
         # None and emits no `group_add` — the honest render, since joining a
         # group that was never established would be a guess.
         "facility_bundle_gid": shared_corpus_gid(resolve_facility_bundle_dir(config, root)),
-        # The ARIEL mirror and each user's audit zone: the same pure reads, for
-        # the same reason, of directories the deploy provisioned before this
-        # render. The audit zone's group is read off its root, which the
-        # per-user subdirectories inherit.
+        # The ARIEL mirror: the same pure read, for the same reason, of a
+        # directory the deploy provisioned before this render. The per-user
+        # audit subdirectories read back no gid here — their group is joined
+        # inside the container by the entrypoint, off the mounted directory.
         "ariel_mirror_personas": personas_needing_ariel_mirror(config, root),
         "ariel_mirror_gid": shared_corpus_gid(resolve_ariel_mirror_dir(config, root)),
-        "audit_gid": shared_corpus_gid(root / AUDIT_DIR_RELPATH),
         # The roster's operator secrets, read back off the deploy .env (see
         # _terminal_secrets for the None case and why it is not an open door).
         # Without this the render emits no per-user snippet at all, while

@@ -27,6 +27,7 @@ from typing import Any, Literal, cast
 
 import yaml
 
+from osprey.deployment.compose_generator import DISPATCH_WORKER_SERVICE_PREFIX
 from osprey.deployment.web_terminals.persona_images import persona_build_profile_shape_problem
 from osprey.deployment.web_terminals.personas import (
     ALL_PRIVILEGES,
@@ -36,6 +37,7 @@ from osprey.deployment.web_terminals.personas import (
     auth_is_enforced,
     deployment_wide_privileged_exposure_problems,
     effective_image_source,
+    effective_persona,
     entry_requires_login,
     env_var_suffix_collisions,
     persona_privileges,
@@ -53,8 +55,11 @@ from osprey.deployment.web_terminals.ports import (
     base_ports_from_config,
 )
 from osprey.deployment.web_terminals.render import (
+    _RESERVED_AUDIT_IDENTITY_RE,
+    AUTH_SIDECAR_AUDIT_IDENTITY,
     SUPPORTED_AUTH_METHODS,
     _auth_tls_context,
+    _authorization_context,
     _configured_external_origin,
     _external_origin,
 )
@@ -151,6 +156,7 @@ def lint_web_terminals(
     findings.extend(_check_empty_users(users))
     findings.extend(_check_duplicate_users(users))
     findings.extend(_check_username_charset(users))
+    findings.extend(_check_reserved_audit_identities(users))
     findings.extend(_check_display_name(users))
     findings.extend(_check_user_theme(users))
     findings.extend(_check_user_login(web_terminals, users))
@@ -222,6 +228,11 @@ def lint_web_terminals(
     findings.extend(_check_auth_transport(root, web_terminals))
     findings.extend(_check_auth_oidc(root, web_terminals))
     findings.extend(_check_auth_credential_collisions(web_terminals, users))
+    findings.extend(_check_authorization(web_terminals))
+    findings.extend(_check_claims_without_oidc(web_terminals))
+    findings.extend(_check_role_charset(web_terminals))
+    findings.extend(_check_authorization_unsafe_values(web_terminals))
+    findings.extend(_check_user_role(web_terminals, users))
     return findings
 
 
@@ -1669,8 +1680,14 @@ def _check_readonly_persona_inherits_writes(
 def _check_unknown_persona_reference(
     root: dict[str, Any], web_terminals: dict[str, Any], users: list[Any]
 ) -> list[Finding]:
-    """Every roster entry's effective persona reference (its own ``persona:``
-    key, else the inherited ``default_persona``) must name a catalog entry.
+    """Every roster entry's effective persona reference must name a catalog entry.
+
+    "Effective" is :func:`~osprey.deployment.web_terminals.personas.effective_persona`'s
+    answer — the entry's ``role:`` binding, else its own ``persona:`` key, else
+    the inherited ``default_persona`` — so this one rule covers a role naming a
+    persona the catalog has never heard of. That is why the ``authorization``
+    parser adds no separate "role's persona exists" rule: it would report the
+    same config twice.
 
     Resolves via :func:`resolve_personas`'s lenient path (``strict=False``) —
     the same function the render path calls with ``strict=True`` — so an
@@ -1855,19 +1872,29 @@ def _check_local_mode_requires_catalog(web_terminals: dict[str, Any]) -> list[Fi
 
 def _referenced_persona_names(web_terminals: dict[str, Any], users: list[Any]) -> set[str]:
     """Every persona name actually in play for this roster: ``default_persona``
-    plus each roster entry's own explicit ``persona:`` override. A catalog
+    plus each roster entry's own reference — its ``role:`` binding or its
+    ``persona:`` pin, resolved by
+    :func:`~osprey.deployment.web_terminals.personas.effective_persona` so a
+    role-bound persona is checked exactly as a pinned one is. A catalog
     entry nobody references sits outside every check below — an unused draft
     entry with a broken ``project_path`` never blocks a deploy, since only
-    referenced personas are ever built or pulled."""
+    referenced personas are ever built or pulled.
+
+    Lenient (``strict=False``): this is a reporting surface, and an entry whose
+    binding does not resolve already has its own ERROR
+    (``web_terminals.unknown_role_reference`` /
+    ``web_terminals.conflicting_user_persona_and_role``). Raising here would
+    replace every other finding in the report with a traceback."""
+    context = _authorization_ctx(web_terminals)
+    roles = context["authorization_roles"] if context else {}
     names: set[str] = set()
     default_persona = web_terminals.get("default_persona")
     if isinstance(default_persona, str) and default_persona:
         names.add(default_persona)
     for user in users:
-        if isinstance(user, dict):
-            persona = user.get("persona")
-            if isinstance(persona, str) and persona:
-                names.add(persona)
+        persona = effective_persona(user, roles, None, strict=False)
+        if persona:
+            names.add(persona)
     return names
 
 
@@ -2895,4 +2922,350 @@ def _check_notice_docs(root: dict[str, Any], web_terminals: dict[str, Any]) -> l
                     ),
                 )
             )
+    return findings
+
+
+# --- authorization (role) checks ---------------------------------------------
+#
+# Like the auth seam checks above, these are scaffold-time feedback over a
+# stanza whose authoritative gate lives on the render path: render.py's
+# `_authorization_context` refuses an incoherent block outright. The two rules
+# with no downstream mirror are the charset and the `$` scan — both describe
+# strings that render perfectly well and only misbehave later, at the HTTP
+# header or at compose interpolation.
+
+
+def _authorization_stanza(web_terminals: dict[str, Any]) -> dict[str, Any]:
+    """The raw ``authorization`` stanza, read defensively as a dict."""
+    return as_dict(web_terminals.get("authorization"))
+
+
+def _authorization_ctx(web_terminals: dict[str, Any]) -> dict[str, Any] | None:
+    """render.py's parsed view of the ``authorization`` stanza, or ``None``.
+
+    The same wrapper as :func:`_auth_context`, for the same reason: every check
+    keyed on the parsed tables is meaningless for a stanza that does not parse,
+    so they skip themselves rather than reporting confused follow-on findings.
+    :func:`_check_authorization` reports the parse failure itself.
+    """
+    try:
+        return _authorization_context(web_terminals)
+    except ValueError:
+        return None
+
+
+def _check_authorization(web_terminals: dict[str, Any]) -> list[Finding]:
+    """The ``authorization`` stanza must be a mapping that parses.
+
+    Two ERRORs:
+
+    * A **wrong-typed** ``authorization``, ``roles`` or ``claims`` (a string, a
+      list). The render reads a non-mapping as *no stanza at all*, so the
+      deployment would come up with none of the privilege bindings the operator
+      wrote — silently, since nothing downstream can tell a stanza that was
+      never written from one that was written wrongly.
+    * An **incoherent** stanza: a role naming no persona, a claim map naming an
+      undeclared role, half a ``claims`` block. The render raises on each of
+      these; reporting it as a finding is what lets a scaffold command name
+      every problem in one pass instead of dying on the first.
+    """
+    findings: list[Finding] = []
+    raw = web_terminals.get("authorization")
+    if raw is not None and not isinstance(raw, dict):
+        return [
+            Finding(
+                severity="error",
+                code="web_terminals.invalid_authorization_stanza",
+                message=(
+                    f"modules.web_terminals.authorization {raw!r} is not a mapping; it "
+                    "must be a block with 'roles' and (optionally) 'claims' keys. A "
+                    "non-mapping stanza is read as no authorization stanza at all, so "
+                    "the deployment would render with none of these role bindings"
+                ),
+            )
+        ]
+    authorization = as_dict(raw)
+    for key in ("roles", "claims"):
+        value = authorization.get(key)
+        if value is not None and not isinstance(value, dict):
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.invalid_authorization_stanza",
+                    message=(
+                        f"modules.web_terminals.authorization.{key} {value!r} is not a "
+                        "mapping; it is read as absent, so the deployment would render "
+                        "with none of the bindings written under it"
+                    ),
+                )
+            )
+    try:
+        _authorization_context(web_terminals)
+    except ValueError as exc:
+        findings.append(
+            Finding(
+                severity="error",
+                code="web_terminals.invalid_authorization",
+                message=str(exc),
+            )
+        )
+    return findings
+
+
+def _check_claims_without_oidc(web_terminals: dict[str, Any]) -> list[Finding]:
+    """A ``claims`` block only does anything under single sign-on. WARN.
+
+    The one inert source left in this stanza. Its sibling — a roster ``role:``
+    under ``oidc`` — is *not* inert: the render resolves that entry's persona
+    from it, and the sidecar cross-checks the ID token's role against it, so it
+    is emitted under both methods. ``claims`` has no such second job. It maps
+    the values of an ID-token claim, and under ``password`` or ``none`` no ID
+    token ever arrives, so nothing reads the map, the compose overlay renders
+    none of it, and every role the operator wrote there is simply never granted.
+
+    A WARN rather than an ERROR: the block is inert, not wrong, and it is what a
+    facility staging a move to single sign-on writes before flipping the method.
+    Saying so is the point — the alternative is a privilege table that looks
+    live in the config file and is dark in the deployment.
+    """
+    claims = as_dict(_authorization_stanza(web_terminals).get("claims"))
+    if not claims:
+        return []
+    context = _auth_context(web_terminals)
+    if context is None or context["auth_method"] == "oidc":
+        return []
+    return [
+        Finding(
+            severity="warn",
+            code="web_terminals.authorization_claims_without_oidc",
+            message=(
+                "modules.web_terminals.authorization.claims maps identity-provider "
+                f"claim values onto roles, but auth.method is {context['auth_method']!r} "
+                "so no ID token ever arrives to read them from; the block is not "
+                "rendered and none of the roles it names is ever granted. Set "
+                "auth.method: oidc, or bind these users with a roster 'role:' instead"
+            ),
+        )
+    ]
+
+
+def _check_role_charset(web_terminals: dict[str, Any]) -> list[Finding]:
+    """A role name is held to the same charset as a username.
+
+    It is carried on a roster entry's ``role:``, matched against an IdP claim's
+    values, and forwarded to every terminal in the ``X-Osprey-Auth-Role``
+    response header — which is latin-1 only, so a non-ASCII role name is not a
+    cosmetic problem but a header nginx cannot emit. Reusing
+    ``USERNAME_CHARSET_RE`` (see :func:`_check_username_charset`) keeps every
+    identity-shaped name in this stanza held to one rule.
+
+    A non-string key is reported by the same rule: the render drops it as
+    unreferenceable, so this is the only place the operator is told why the role
+    they wrote never applies.
+    """
+    findings: list[Finding] = []
+    for role_name in as_dict(_authorization_stanza(web_terminals).get("roles")):
+        if isinstance(role_name, str) and USERNAME_CHARSET_RE.fullmatch(role_name):
+            continue
+        findings.append(
+            Finding(
+                severity="error",
+                code="web_terminals.invalid_role_charset",
+                message=(
+                    f"modules.web_terminals.authorization.roles key {role_name!r} does "
+                    f"not match {USERNAME_CHARSET_RE.pattern!r} (a role name is named by "
+                    "a roster entry's 'role', matched against an IdP claim's values, and "
+                    "forwarded in the latin-1-only X-Osprey-Auth-Role header)"
+                ),
+            )
+        )
+    return findings
+
+
+def _authorization_strings(authorization: dict[str, Any]) -> list[tuple[str, str]]:
+    """Every string the ``authorization`` stanza contributes, with its config path.
+
+    One walk rather than five ad-hoc reads, so a value added to the stanza later
+    is covered by the ``$`` scan the moment it is listed here.
+    """
+    strings: list[tuple[str, str]] = []
+    for role_name, entry in as_dict(authorization.get("roles")).items():
+        if not isinstance(role_name, str):
+            continue
+        strings.append(("authorization.roles", role_name))
+        persona = as_dict(entry).get("persona")
+        if isinstance(persona, str):
+            strings.append((f"authorization.roles.{role_name}.persona", persona))
+    claims = as_dict(authorization.get("claims"))
+    claim = claims.get("claim")
+    if isinstance(claim, str):
+        strings.append(("authorization.claims.claim", claim))
+    for claim_value, role_name in as_dict(claims.get("map")).items():
+        if isinstance(claim_value, str):
+            strings.append(("authorization.claims.map", claim_value))
+        if isinstance(claim_value, str) and isinstance(role_name, str):
+            strings.append((f"authorization.claims.map.{claim_value}", role_name))
+    return strings
+
+
+def _check_authorization_unsafe_values(web_terminals: dict[str, Any]) -> list[Finding]:
+    """No string in the ``authorization`` stanza may contain ``$``.
+
+    The same hazard as a ``$``-bearing ``oidc_subject`` (see
+    :func:`_check_auth_oidc`), one layer up: these strings travel through the
+    compose *document* rather than an env_file, so the deploy-time ``$`` scan
+    over ``.env*`` never sees them and compose rewrites any ``$`` sequence on
+    the way through. A rewritten role name or claim value is compared against
+    the un-rewritten one the IdP and the roster carry, so the role is silently
+    never granted — a privilege that quietly fails to apply, which is exactly
+    the failure a static binding exists to prevent. Role names and claim values
+    are near-universally plain identifiers, so a ``$`` is far more likely a typo
+    than a real value; refusing it is the honest failure.
+    """
+    return [
+        Finding(
+            severity="error",
+            code="web_terminals.authorization_unsafe_value",
+            message=(
+                f"modules.web_terminals.{path} {value!r} contains '$'. Roles and claim "
+                "values are rendered into the compose document, where '$' sequences are "
+                "interpolated — the sidecar would compare against a rewritten string, so "
+                "this binding would silently never apply. Rename it, or map a claim "
+                "value that carries no '$'"
+            ),
+        )
+        for path, value in _authorization_strings(_authorization_stanza(web_terminals))
+        if "$" in value
+    ]
+
+
+def _check_user_role(web_terminals: dict[str, Any], users: list[Any]) -> list[Finding]:
+    """A roster entry's ``role`` must be a non-empty string naming a declared role.
+
+    Three ERRORs, each of which otherwise degrades to a silent outcome — the
+    entry renders with a privilege set nobody chose for it:
+
+    * A **wrong-typed** ``role`` (an int, a YAML boolean, an empty string).
+      :func:`~osprey.deployment.web_terminals.personas.normalize_users` drops it
+      defensively, so nothing downstream can see that a role was meant at all.
+    * A ``role`` **carried alongside a ``persona:`` pin**. Both bind the same
+      slot — the role through
+      ``modules.web_terminals.authorization.roles.<role>.persona``, the pin
+      directly — so which one governs is unwritten, and a later edit to the
+      role's persona would silently not reach this entry. Reported even when the
+      two agree today, and reported *instead of* the checks below for that entry:
+      the ambiguity is the finding.
+    * A ``role`` **naming no declared role**. The render does not yet refuse
+      this one: at the parse stage the roster's roles are unresolved, and
+      nothing has looked one up. It is not undetectable, though —
+      :func:`~osprey.deployment.web_terminals.personas.normalize_users` carries
+      every non-empty string ``role`` through, so a resolver can tell "named a
+      role that does not exist" apart from "named no role at all". The shared
+      persona helper (Task 4.2) is therefore expected to RAISE on a carried
+      role absent from ``authorization_roles`` rather than fall back to the
+      default persona, so that ``--no-lint`` cannot silently change a binding;
+      this finding is the earlier, friendlier half of that pair.
+
+    Skipped entirely when the stanza does not parse — :func:`_check_authorization`
+    reports that, and every role would look undeclared against a table that was
+    never built.
+    """
+    context = _authorization_ctx(web_terminals)
+    if context is None:
+        return []
+    roles = context["authorization_roles"]
+    findings: list[Finding] = []
+    for user in users:
+        if not isinstance(user, dict) or "role" not in user:
+            continue
+        role = user.get("role")
+        name = _user_name(user)
+        persona = user.get("persona")
+        if isinstance(role, str) and role and isinstance(persona, str) and persona:
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.conflicting_user_persona_and_role",
+                    message=(
+                        f"modules.web_terminals.users entry {name!r} has both persona "
+                        f"{persona!r} and role {role!r}; a role binds the persona "
+                        f"(modules.web_terminals.authorization.roles.{role}.persona) and a "
+                        "direct 'persona' pin binds the same slot, so which one governs is "
+                        "unwritten and a later edit to the role's persona would silently "
+                        "not reach this entry. Keep one: drop 'persona' to let the role "
+                        "bind it, or drop 'role' to pin it directly"
+                    ),
+                )
+            )
+        elif not isinstance(role, str) or not role:
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.invalid_user_role",
+                    message=(
+                        f"modules.web_terminals.users entry {name!r} has role {role!r}, "
+                        "which is not a non-empty string; it is dropped when the roster "
+                        "is normalized, so the entry would silently render with the "
+                        "deployment's default persona"
+                    ),
+                )
+            )
+        elif role not in roles:
+            declared = ", ".join(repr(declared_role) for declared_role in roles) or "none"
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.unknown_role_reference",
+                    message=(
+                        f"modules.web_terminals.users entry {name!r} has role {role!r}, "
+                        "which is not declared under "
+                        f"modules.web_terminals.authorization.roles (declared: "
+                        f"{declared}); the entry would silently render with the "
+                        "deployment's default persona"
+                    ),
+                )
+            )
+    return findings
+
+
+def _check_reserved_audit_identities(users: list[Any]) -> list[Finding]:
+    """A roster name may not be a service's own audit identity.
+
+    Every container writes its records under ``var/audit/<identity>/`` and binds
+    that one subdirectory read-write, so a user named ``sidecar`` (the auth
+    sidecar's fixed identity) or ``dispatch-worker-<n>`` (a worker's) would hold
+    a read-write mount onto the audit trail of the component that records them.
+
+    render.py refuses this outright
+    (:func:`~osprey.deployment.web_terminals.render._check_roster_audit_identities`,
+    unconditional on ``auth.method`` because the name is a directory in every
+    posture). This is the same rejection at scaffold time, where the render's
+    raise is still a deploy attempt away and a rename is cheap — and the pattern
+    is imported from there, so the two cannot drift.
+
+    The neighbouring half of the same concern — a roster name that is not a
+    usable path segment at all, which still names an audit bind source under
+    ``auth.method: none`` — is already reported unconditionally by
+    :func:`_check_username_charset`.
+    """
+    findings: list[Finding] = []
+    for user in users:
+        name = _user_name(user)
+        if name is None or not _RESERVED_AUDIT_IDENTITY_RE.fullmatch(name):
+            continue
+        findings.append(
+            Finding(
+                severity="error",
+                code="web_terminals.reserved_audit_identity",
+                message=(
+                    f"modules.web_terminals.users entry {name!r} collides with a "
+                    "service's own audit identity (the auth sidecar writes "
+                    f"var/audit/{AUTH_SIDECAR_AUDIT_IDENTITY}/, dispatch worker <n> "
+                    f"writes var/audit/{DISPATCH_WORKER_SERVICE_PREFIX}-<n>/). Each "
+                    "user's container binds var/audit/<user>/ read-write, so this user "
+                    "could read and rewrite the audit trail of the component that "
+                    "records them. Rename the roster entry"
+                ),
+            )
+        )
     return findings

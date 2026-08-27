@@ -314,17 +314,36 @@ Three things happen, at whichever layer catches it:
 1. The agent gets an error naming the mode and what to do instead.
 2. The operator is alerted --- the Web Terminal reports that a write was
    attempted and blocked, not merely that a script failed.
-3. The attempt is recorded in ``var/audit/readonly-refusals.jsonl`` with a
-   timestamp, the layer that refused, and the offending source. That
+3. The attempt is recorded in the audit trail, at
+   ``var/audit/<identity>/executor.jsonl`` --- one JSON object per line, with a
+   timestamp, who was acting, the session's posture, the layer that refused
+   (the record's ``reason``), and the offending source kept verbatim. That
    directory is durable: builds never touch it, and ``osprey reset`` keeps
    it unless you pass ``--purge-audit``.
 
-One case is deliberately not written to that ledger: a protected-path write
-refused at runtime inside a ``readwrite`` run. The ledger is keyed on runs that
-were readonly, and filing a readwrite refusal there would put "readonly
-execution mode" in front of an operator whose run was approved for writes. The
-refusal still holds and still reaches the agent and the operator; only the
-ledger entry is missing.
+The record is filed under the identity that was acting, so on a multi-user
+deployment each person's refusals sit in their own file. The pre-run pass
+records in both execution modes --- the path policy refuses a write into the
+protected set whether the run asked for ``readonly`` or ``readwrite``, and the
+record's ``detail`` says which mode the run was submitted under, so a readwrite
+refusal is never presented as a readonly one.
+
+One case is still deliberately unrecorded: a protected-path write the *runtime*
+guard catches mid-run inside a ``readwrite`` run. The audit path is reached
+through the readonly marker, and carrying that marker in a run approved for
+writes would put "readonly execution mode" in front of the wrong operator. The
+refusal still holds and still reaches the agent, in the run's stderr; the record
+and the operator alert are what is missing.
+
+.. note::
+
+   **This is the one ledger that holds a payload.** Everywhere else OSPREY
+   records identifiers and config keys only --- never a value, a prompt or an
+   agent message. Here the refused code *is* what the record is about, so it is
+   kept whole (up to 8000 characters, flagged as truncated beyond that). Give
+   ``executor.jsonl`` the same care you would give the code itself, and expect
+   it to be the file that grows. See :ref:`the audit trail <reference-audit-trail>`
+   for what the rest of it contains.
 
 .. admonition:: Control system operations in user code
 

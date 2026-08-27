@@ -102,6 +102,8 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from osprey_hook_log import (
+    AUDIT_DECISION_ASK,
+    emit_audit,
     get_hook_input,
     is_write_call,
     is_write_tool,
@@ -219,6 +221,7 @@ def build_approval_output(reason_detail: str, hook_input=None, read_record=None)
     """
     record = (read_record or _record_reader(hook_input))()
     _stamp_write_approval(hook_input, record)
+    _record_ask(hook_input)
     return {
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
@@ -231,6 +234,31 @@ def build_approval_output(reason_detail: str, hook_input=None, read_record=None)
             ),
         }
     }
+
+
+def _record_ask(hook_input):
+    """Put this ask in the deployment's audit ledger, and never cost the prompt.
+
+    Emitted from the ask *builder* for the same reason the target line is: an
+    audit record assembled per branch is one that eventually goes missing from
+    a branch. The three call sites differ only in the prompt text they compose,
+    and the record names the tool rather than the prose, so one call here
+    covers every ask this hook can emit.
+
+    The reason is the same for all of them — an approval policy asked a human.
+    Which policy did so is a debug fact and stays on the debug line; the ledger
+    answers who was asked to approve what.
+    """
+    try:
+        emit_audit(
+            "approval",
+            hook_input,
+            decision=AUDIT_DECISION_ASK,
+            subject=(hook_input or {}).get("tool_name", ""),
+            reason="approval_required",
+        )
+    except Exception:
+        pass  # the audit trail must never cost the prompt
 
 
 def _read_record_once(hook_input=None):

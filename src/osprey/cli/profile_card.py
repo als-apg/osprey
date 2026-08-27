@@ -204,11 +204,26 @@ def _web_terminal_group(
     profile: BuildProfile, persona_deltas: Mapping[str, Mapping[str, Any]]
 ) -> CardGroup | None:
     """Who gets in, with what rights, how, and where — plus what they see."""
+    from osprey.deployment.web_terminals.personas import (
+        effective_persona,
+        resolve_authorization_roles,
+    )
+
     from .build_profile_emit import effective_web_terminals
 
     web_tier = effective_web_terminals(profile.config)
     if not web_tier.get("enabled"):
         return None
+
+    # The card is a REPORT of a profile, not a gate on one: an `authorization`
+    # stanza that does not parse, or an entry whose binding does not resolve,
+    # is lint's finding to raise (the same lint belt runs at profile altitude).
+    # Both degrade here to the persona the entry would have shown before roles
+    # existed, so a bad binding costs one wrong cell rather than the whole card.
+    try:
+        roles = resolve_authorization_roles(web_tier)
+    except ValueError:
+        roles = {}
 
     rows: list[list[Cell]] = []
     auth = web_tier.get("auth")
@@ -222,7 +237,7 @@ def _web_terminal_group(
         name = str(user.get("name") or "")
         if not name:
             continue
-        persona = str(user.get("persona") or default_persona or "")
+        persona = effective_persona(user, roles, default_persona, strict=False) or ""
         rights: list[str] = []
         if persona:
             rights.append(persona)

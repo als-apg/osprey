@@ -124,7 +124,14 @@ def test_lint_container_internal_worker_port_is_not_in_the_collision_set() -> No
 
 def test_lint_username_matching_a_service_name_is_not_an_error() -> None:
     """A user's compose service key is `web-<user>`, so a name like 'nginx' has
-    no service key to collide with — rejecting it would be a false failure."""
+    no service key to collide with — rejecting it would be a false failure.
+
+    Carve-out: the two names that DO collide with something a user's container
+    actually holds — the audit subdirectories of the auth sidecar and of a
+    dispatch worker, which are bound read-write per identity — are refused by
+    `_check_reserved_audit_identities` (see the two tests below). This test is
+    about compose *service keys*, which a username never becomes.
+    """
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = ["nginx", "gmartino"]
@@ -134,6 +141,38 @@ def test_lint_username_matching_a_service_name_is_not_an_error() -> None:
 
     # Assert
     assert _errors(findings) == []
+
+
+@pytest.mark.parametrize("name", ["sidecar", "dispatch-worker-1"])
+def test_lint_username_matching_a_service_audit_identity_is_an_error(name: str) -> None:
+    """Each user's container binds `var/audit/<user>/` read-write, so a user
+    named after a service's audit identity would read and rewrite the trail of
+    the component that records them. The render refuses it outright; this is the
+    same rejection at scaffold time, before a deploy is attempted."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [name, "gmartino"]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert any(f.code == "web_terminals.reserved_audit_identity" for f in _errors(findings))
+
+
+def test_lint_username_resembling_a_service_audit_identity_is_not_an_error() -> None:
+    """The rule matches the identity exactly (`dispatch-worker-<digits>`), not
+    anything that starts like one: `dispatch-worker` and `dispatch-worker-a`
+    name no subdirectory any service writes."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = ["dispatch-worker", "dispatch-worker-a"]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.reserved_audit_identity" for f in findings)
 
 
 def test_lint_enabled_with_empty_users_is_a_single_warning_not_an_error() -> None:
@@ -3141,3 +3180,184 @@ def test_the_engine_is_not_wired_into_build_profile_validate() -> None:
     # Assert
     for entry_point in LINT_ENTRY_POINTS:
         assert entry_point not in source, f"{entry_point} reached BuildProfile.validate()"
+
+
+# ---------------------------------------------------------------------------
+# Roles resolved into personas (Task 4.2 wiring)
+#
+# Once `effective_persona` routes a roster `role:` into a persona at lint's two
+# roster walks, the EXISTING persona rules answer the role's persona too. That
+# is why the authorization parser deliberately added no "a role's persona is in
+# the catalog" rule of its own — it would report the same config twice.
+# ---------------------------------------------------------------------------
+
+
+def _role_config(role_persona: str, *, catalog: dict | None = None) -> dict:
+    """A clean config whose sole roster entry reaches its persona through a role."""
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    web = config["modules"]["web_terminals"]
+    web["users"] = [{"name": "thellert", "index": 0, "role": "operator"}]
+    web["authorization"] = {"roles": {"operator": {"persona": role_persona}}}
+    if catalog is not None:
+        web["personas"] = catalog
+        config["registry"] = {"url": "registry.example.org"}
+    return config
+
+
+def test_lint_role_naming_an_uncatalogued_persona_is_the_unknown_persona_finding() -> None:
+    """THE wiring proof: a role bound to a persona the catalog has never heard of
+    is caught by the existing unknown-persona rule, reached through
+    `effective_persona`. No new rule, and no duplicate report."""
+    # Arrange
+    config = _role_config("ghost", catalog={"cli": {"project": "cli", "build_profile": "p.yml"}})
+
+    # Act
+    codes = [f.code for f in _errors(lint_web_terminals(config))]
+
+    # Assert
+    assert "web_terminals.unknown_persona_reference" in codes
+    assert codes.count("web_terminals.unknown_persona_reference") == 1
+
+
+def test_lint_role_bound_persona_is_checked_like_a_pinned_one() -> None:
+    """lint's `_referenced_persona_names` walk reaches a role-bound persona, so
+    the per-persona rules (here: registry mode's `build_profile` requirement)
+    apply to it. A role must not be a way to skip a check a pin cannot skip."""
+    # Arrange
+    config = _role_config("gui", catalog={"gui": {"project": "als-gui"}})
+
+    # Act
+    codes = [f.code for f in _errors(lint_web_terminals(config))]
+
+    # Assert
+    assert "web_terminals.persona_missing_build_profile" in codes
+
+
+def test_lint_role_bound_persona_in_the_catalog_is_clean() -> None:
+    """The feature's working shape must not itself be a finding."""
+    # Arrange
+    config = _role_config(
+        "gui", catalog={"gui": {"project": "als-gui", "build_profile": "personas/gui.yml"}}
+    )
+
+    # Act / Assert
+    assert _errors(lint_web_terminals(config)) == []
+
+
+def test_lint_entry_carrying_both_a_persona_and_a_role_is_an_error() -> None:
+    """Both bind the same slot, so which one governs is unwritten — and a later
+    edit to the role's persona would silently not reach this entry. Lint is the
+    friendly half of the pair `effective_persona` raises on."""
+    # Arrange
+    config = _role_config(
+        "gui", catalog={"gui": {"project": "als-gui", "build_profile": "personas/gui.yml"}}
+    )
+    config["modules"]["web_terminals"]["users"][0]["persona"] = "cli"
+
+    # Act
+    codes = [f.code for f in _errors(lint_web_terminals(config))]
+
+    # Assert
+    assert "web_terminals.conflicting_user_persona_and_role" in codes
+    # The ambiguity IS the finding: the entry is not also reported for whichever
+    # of the two the lint pass might otherwise have preferred.
+    assert "web_terminals.unknown_role_reference" not in codes
+
+
+def test_lint_conflicting_persona_and_role_survives_an_undeclared_role() -> None:
+    """The conflict is a roster shape, so it is reported whether or not the role
+    itself is declared — and it replaces the undeclared-role finding."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "persona": "cli", "role": "nope"}
+    ]
+
+    # Act
+    codes = [f.code for f in _errors(lint_web_terminals(config))]
+
+    # Assert
+    assert "web_terminals.conflicting_user_persona_and_role" in codes
+    assert "web_terminals.unknown_role_reference" not in codes
+
+
+# ---------------------------------------------------------------------------
+# The one inert role source left in the stanza
+#
+# Its former sibling — a roster `role:` under `oidc` — is NOT inert any more:
+# the render resolves that entry's persona from it and the sidecar cross-checks
+# the ID token's role against it. `claims` has no such second job.
+# ---------------------------------------------------------------------------
+
+_CLAIMS_STANZA = {
+    "roles": {"operator": {"persona": "cli"}},
+    "claims": {"claim": "groups", "map": {"als-operators": "operator"}},
+}
+
+
+def _claims_config(method: str) -> dict:
+    """A clean auth config carrying a full `claims:` block under ``method``."""
+    config = _auth_config({"method": method} if method != "none" else {"method": "none"})
+    config["modules"]["web_terminals"]["authorization"] = copy.deepcopy(_CLAIMS_STANZA)
+    return config
+
+
+@pytest.mark.parametrize("method", ["password", "none"])
+def test_lint_a_claims_block_without_single_sign_on_is_a_warning(method: str) -> None:
+    """No ID token arrives under either method, so the map is never read: the
+    roles it names are silently never granted, and the config looks live."""
+    # Act
+    findings = lint_web_terminals(_claims_config(method))
+
+    # Assert
+    codes = [f.code for f in _warnings(findings)]
+    assert codes.count("web_terminals.authorization_claims_without_oidc") == 1
+    # Inert, not wrong — a facility staging a move to SSO writes exactly this.
+    assert "web_terminals.authorization_claims_without_oidc" not in [
+        f.code for f in _errors(findings)
+    ]
+
+
+def test_lint_a_claims_block_under_oidc_is_silent() -> None:
+    """The control: under single sign-on the block is exactly what it claims."""
+    # Act
+    findings = lint_web_terminals(_claims_config("oidc"))
+
+    # Assert
+    assert "web_terminals.authorization_claims_without_oidc" not in [f.code for f in findings]
+
+
+def test_lint_a_roster_role_under_oidc_is_not_reported_as_inert() -> None:
+    """The asymmetry, pinned. A roster `role:` under `oidc` binds the persona
+    the container is built from AND is the cross-check the sidecar refuses a
+    disagreeing ID token against, so it is emitted under both methods and is
+    never an inert source."""
+    # Arrange
+    config = _auth_config({"method": "oidc"})
+    web = config["modules"]["web_terminals"]
+    web["users"] = [{"name": "thellert", "index": 0, "role": "operator"}]
+    web["authorization"] = {"roles": {"operator": {"persona": "cli"}}}
+
+    # Act
+    codes = [f.code for f in lint_web_terminals(config)]
+
+    # Assert — nothing calls the roster role inert, under any spelling.
+    assert [code for code in codes if "inert" in code] == []
+    assert "web_terminals.authorization_claims_without_oidc" not in codes
+
+
+def test_lint_does_not_raise_on_an_incoherent_authorization_stanza_with_roles() -> None:
+    """A report must show every finding rather than die on the first bad entry:
+    lint's roster walks resolve leniently, and the stanza is its own finding."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "role": "operator"}
+    ]
+    config["modules"]["web_terminals"]["authorization"] = {"roles": {"operator": {}}}
+
+    # Act
+    codes = [f.code for f in _errors(lint_web_terminals(config))]
+
+    # Assert
+    assert "web_terminals.invalid_authorization" in codes

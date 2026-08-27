@@ -648,6 +648,7 @@ def test_hook_config_with_no_enabled_servers(tmp_path):
         "server_prefixes": [],
         "approval_prefixes": [],
         "write_tools": [],
+        "mixed_read_write_tools": [],
         # Not a per-server list: it names the tools the writes-check hook leaves
         # to their own lane gate, and renders whether or not any server is on.
         "lane_addressed_tools": list(QUEUE_CONTROL_TOOLS),

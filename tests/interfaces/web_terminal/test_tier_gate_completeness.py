@@ -63,7 +63,10 @@ MUTATING_ONLY_PREFIXES = ("/api/scaffold",)
 #: permission surface — so a tier that may not use the panel may not read
 #: through it either. ``/api/hooks`` is walked with them because it ships from
 #: the same module and belongs to the same panel; see DELIBERATELY_UNGATED.
-ALL_VERB_PREFIXES = ("/api/config", "/api/claude-setup", "/api/hooks")
+#: ``/api/audit`` is walked here for the same reason and is reads-only today:
+#: the ledger names every safety decision the deployment made, its subjects and
+#: its sessions, so it sits behind the same tier the panel does.
+ALL_VERB_PREFIXES = ("/api/config", "/api/claude-setup", "/api/hooks", "/api/audit")
 
 #: Routes inside the walked surface that are intentionally NOT gated, each with
 #: the reason it is safe for them to answer a disabled tier. Asserted to be
@@ -82,10 +85,11 @@ DELIBERATELY_UNGATED: dict[tuple[str, str], str] = {
 
 #: Floor on how many routes the walk must find, so an empty or truncated
 #: OpenAPI document cannot green this file by finding nothing to check.
-#: Twelve gated routes today: six scaffold write verbs, three on
-#: ``/api/config``, three on ``/api/claude-setup``. BUMP THIS DELIBERATELY when
-#: a route is added, as a second, human acknowledgement that the surface grew.
-MIN_GATED_ROUTES = 12
+#: Thirteen gated routes today: six scaffold write verbs, three on
+#: ``/api/config``, three on ``/api/claude-setup``, and ``GET
+#: /api/audit/recent``. BUMP THIS DELIBERATELY when a route is added, as a
+#: second, human acknowledgement that the surface grew.
+MIN_GATED_ROUTES = 13
 
 #: Stand-in for any ``{param}`` in a path. The gate runs ahead of the handler
 #: body, so nothing ever resolves it.

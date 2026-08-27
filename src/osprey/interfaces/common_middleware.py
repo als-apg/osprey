@@ -1,16 +1,40 @@
 """Shared middleware for OSPREY FastAPI applications.
 
-Two of the three classes here are about presentation — caching headers and
-turning an unhandled exception into structured JSON. The third,
-:class:`WebAuthMiddleware`, is the gate: it is what stands between a browser
-(or a process the agent spawned inside its own sandbox) and every OSPREY
-interface's HTTP and websocket surface.
+Two of the four classes here are about presentation — caching headers and
+turning an unhandled exception into structured JSON. The other two are the
+HTTP surface's safety layers, one at each end of the stack:
+
+* :class:`WebAuthMiddleware` is the gate, installed outermost. It is what
+  stands between a browser (or a process the agent spawned inside its own
+  sandbox) and every OSPREY interface's HTTP and websocket surface, and it
+  files every ``401``/``403`` it answers in the unified audit ledger.
+* :class:`HttpAuditMiddleware` is installed innermost, and files every
+  *admitted* state-changing request. Together they make the ledger able to
+  answer both halves of the operator's question: what was turned away, and
+  what got through.
+
+Neither emitter can cost the request it describes — see
+:func:`_emit_audit_record`.
+
+**The two halves are not symmetric about websockets, deliberately.** A
+*refused* handshake is filed by the gate on the ``web_auth`` surface (with
+method :data:`WEBSOCKET_METHOD`, which a websocket does not otherwise have).
+An *admitted* upgrade is not filed here at all: :class:`HttpAuditMiddleware`
+only wraps ``http`` scopes, because :data:`SAFE_METHODS` is an HTTP notion and
+a socket has no method to discriminate on. What flows through an accepted
+socket — terminal input, chat turns — is audited where it is understood, by
+the spawn and posture emitters in
+:mod:`osprey.interfaces.web_terminal.routes.websocket`, never on
+``http_mutation``. So: refused upgrades on ``web_auth``, admitted ones on the
+spawn/posture surfaces, and nothing websocket-shaped in between.
 """
 
 import html
 import json
 import logging
 import os
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, parse_qsl, urlencode
 
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -18,24 +42,44 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from osprey.audit.envelope import DECISION_ALLOWED, DECISION_REFUSED, POSTURE_SOURCE_APP
 from osprey.interfaces.web_auth import Tier, WebCredentials, classify, get_web_credentials
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from osprey.audit.dedup import RecordedDecision
 
 logger = logging.getLogger("osprey.interfaces.middleware")
 
 __all__ = [
+    "AUDITED_REFUSAL_STATUSES",
+    "AUDIT_ACCOUNT_KEY",
+    "AUDIT_EXPECTED_ACCOUNT_KEY",
+    "AUDIT_ROLE_HEADER",
+    "AUDIT_SUBJECT_HEADER",
     "EXEMPT_PATHS",
     "EXTERNAL_ORIGIN_ENV",
+    "HTTP_MUTATION_POSTURE",
+    "HTTP_MUTATION_SURFACE",
     "MAX_BODY_PEEK_BYTES",
+    "MAX_FORWARDED_VALUE_CHARS",
     "MAX_SESSION_COOKIE_CANDIDATES",
     "OPERATOR_SECRET_HEADER",
+    "REASON_MUTATION",
+    "REASON_MUTATION_UNANSWERED",
+    "REASON_ROUTE_REFUSED",
+    "REFUSAL_REASONS",
     "SAFE_METHODS",
     "SESSION_COOKIE_BASE",
     "STATIC_MOUNT_PREFIXES",
     "TERMINAL_USER_ENV",
     "TOKEN_EXCHANGE_PATHS",
+    "UNSAFE_FORWARDED_VALUE",
     "WEBSOCKET_REFUSAL_CODE",
+    "WEB_AUTH_POSTURE",
+    "WEB_AUTH_SURFACE",
     "WEB_PORT_ENV",
     "ExceptionLoggingMiddleware",
+    "HttpAuditMiddleware",
     "NoCacheStaticMiddleware",
     "WebAuthMiddleware",
     "apply_url_prefix",
@@ -194,6 +238,146 @@ _TIER_DETAIL = "this route requires operator credentials"
 _ORIGIN_DETAIL = "cross-origin request refused"
 _UNAVAILABLE_DETAIL = "authentication is not available; see the service log"
 
+# --------------------------------------------------------------------------- #
+# The audit vocabulary of the two HTTP emitters
+# --------------------------------------------------------------------------- #
+
+#: The surface :class:`WebAuthMiddleware` names on its own records: the gate,
+#: not the route behind it. One surface for the whole gate rather than one per
+#: refusal branch, so "who was turned away from this container, and why" is a
+#: single file rather than a join across four.
+WEB_AUTH_SURFACE: str = "web_auth"
+
+#: The posture the gate stamps on its records. The gate governs *entry*: it
+#: holds no posture store, spawns no session, and by the time it decides,
+#: nothing has been written. ``sandbox`` is the honest reading of "this surface
+#: changed nothing", and it is paired with
+#: :data:`~osprey.audit.envelope.POSTURE_SOURCE_APP` so no reader mistakes it
+#: for evidence about what the caller would have been allowed to do inside.
+#: Same reasoning, same value, as the auth sidecar's own stamp.
+WEB_AUTH_POSTURE: str = "sandbox"
+
+#: The surface :class:`HttpAuditMiddleware` names: an admitted state-changing
+#: HTTP request. Distinct from :data:`WEB_AUTH_SURFACE` because the two answer
+#: different questions and an operator reads them for different reasons — one
+#: file of things that were turned away, one of things that got through.
+HTTP_MUTATION_SURFACE: str = "http_mutation"
+
+#: The posture the mutation layer stamps. ``writes``, because that is what this
+#: surface *is*: a request reaching this layer has passed the gate and is about
+#: to change state, and stamping ``sandbox`` on it would describe the opposite
+#: of what happened. As above, ``posture_source=app`` says the value is the
+#: app's own stamp and not a session's posture — an interface app has none.
+HTTP_MUTATION_POSTURE: str = "writes"
+
+#: The statuses :meth:`WebAuthMiddleware._refuse` files a record for.
+#:
+#: ``401`` and ``403`` are decisions *about the caller* — a credential was
+#: evaluated, or an origin was compared, and the answer was no. ``503`` is the
+#: gate saying it cannot run at all: it names no decision about the request, it
+#: is already an ``ERROR`` on the service log, and filing it here would put a
+#: deployment fault in the column an operator reads for caller behaviour.
+AUDITED_REFUSAL_STATUSES: frozenset[int] = frozenset({401, 403})
+
+#: The machine-ish reason each refusal detail is filed under.
+#:
+#: Keyed on the detail constants rather than on the status, because the status
+#: is two values and the causes are four: an absent credential and an invalid
+#: one are both ``401`` and are not the same event to an operator watching a
+#: deployment. Keyed on the constants rather than re-spelled, so a reworded
+#: message cannot silently drop its records into the fallback.
+REFUSAL_REASONS: dict[str, str] = {
+    _MISSING_DETAIL: "missing_credential",
+    _INVALID_DETAIL: "invalid_credential",
+    _TIER_DETAIL: "tier_refused",
+    _ORIGIN_DETAIL: "origin_mismatch",
+}
+
+#: Where a refusal lands when its detail is not in :data:`REFUSAL_REASONS`.
+#: Unreachable today (the gate's whole audited vocabulary is mapped, and a test
+#: pins that); it exists so that a fifth refusal added without a mapping is
+#: recorded uselessly rather than not at all.
+REASON_UNCATEGORIZED: str = "refused"
+
+#: An admitted state-changing request that the route answered successfully.
+REASON_MUTATION: str = "mutation"
+
+#: An admitted state-changing request that the *route* then refused. The gate
+#: let it in; something further in did not. Recorded as a refusal rather than
+#: as an admission, because a layer that stamped everything it admitted
+#: ``allowed`` would overwrite the decision the inner layer actually made.
+REASON_ROUTE_REFUSED: str = "route_refused"
+
+#: An admitted state-changing request the route never answered — it raised
+#: before producing a status. The *decision* stays ``allowed``, which is the
+#: truth (the gate let it in and it ran), but the reason says on its own that
+#: no answer was produced. Given its own word rather than folded into
+#: :data:`REASON_MUTATION` because ``decision``/``reason`` is the pair an
+#: operator scans, and "admitted and succeeded" versus "admitted and blew up"
+#: should not require also parsing ``detail`` for ``status=none``.
+REASON_MUTATION_UNANSWERED: str = "mutation_unanswered"
+
+#: Names the account behind an authorized request, as nginx forwards it from
+#: the auth sidecar's ``auth_request`` answer.
+#:
+#: Spelled here rather than imported from
+#: :mod:`osprey.services.auth_sidecar.identity_headers`, which owns it: an
+#: interface app has no business pulling a service package into its import
+#: closure for two string constants. ``tests/interfaces/test_http_audit_emitters.py``
+#: pins the two spellings against each other, the same trade the rest of the
+#: audit work makes for a cross-package constant.
+AUDIT_SUBJECT_HEADER: str = "X-Osprey-Auth-Subject"
+
+#: Names the role that account holds. Absent means *no* role, never a default
+#: one — the deny-safe reading the sidecar documents.
+AUDIT_ROLE_HEADER: str = "X-Osprey-Auth-Role"
+
+#: The ``detail`` key naming the *account* a request arrived authorized as, as
+#: forwarded by nginx from the sidecar's answer.
+#:
+#: Spelled ``account`` and not ``subject`` on purpose. The envelope's top-level
+#: ``subject`` on these two surfaces is the **route** (``"POST /api/config"``),
+#: while the auth sidecar's own emitter puts the **account** in its top-level
+#: ``subject``. One word would therefore have meant two things across the
+#: epic's surfaces — and both of them inside a single HTTP record, one level
+#: apart. ``account`` collides with neither.
+AUDIT_ACCOUNT_KEY: str = "account"
+
+#: The ``detail`` key naming this container's own user, present **only** when
+#: the forwarded account is not it. Its presence *is* the mismatch signal.
+AUDIT_EXPECTED_ACCOUNT_KEY: str = "expected_account"
+
+#: The longest forwarded identity value that may be recorded verbatim.
+#:
+#: Comfortably above anything real — an OIDC ``sub`` is a short URL-safe
+#: identifier and a role is constrained to ``USERNAME_CHARSET_RE`` by the
+#: render-time lint — and far below
+#: :data:`~osprey.audit.envelope.MAX_DETAIL_CHARS`, which is the point. The
+#: envelope truncates ``detail`` silently, so an unbounded caller-chosen value
+#: could fill it and push :data:`AUDIT_EXPECTED_ACCOUNT_KEY` off the end,
+#: making a forged header read in the ledger as an ordinary admitted request.
+#: Bounding the value at the emitter means every conditional key the emitter
+#: appends survives, whatever a caller sends.
+MAX_FORWARDED_VALUE_CHARS: int = 128
+
+#: What a forwarded subject or role is recorded as when it could not have come
+#: from the sidecar. The headers arrive over the wire and nothing upstream of
+#: this gate is obliged to have produced them, so a value outside the sidecar's
+#: printable-ASCII contract is *named* as unusable rather than copied into a
+#: record an operator will read as an identifier.
+UNSAFE_FORWARDED_VALUE: str = "<unsafe>"
+
+#: The method an audit record names for a websocket, which has none. Matches
+#: the spelling :meth:`WebAuthMiddleware._log_origin_refusal` already uses, so
+#: a log line and a ledger line about the same refusal read the same.
+WEBSOCKET_METHOD: str = "WEBSOCKET"
+
+#: The detail value standing in for a status that never arrived — the route
+#: raised before it answered. Spelled rather than omitted: a record whose
+#: ``status`` key is missing reads like an older record, while one that says
+#: ``none`` says what happened.
+_STATUS_NONE = "none"
+
 #: ``scheme`` in a websocket scope is ``ws``/``wss``; the ``Origin`` a browser
 #: sends for that handshake is the *page's*, which is ``http``/``https``.
 _ORIGIN_SCHEME = {"ws": "http", "wss": "https"}
@@ -340,6 +524,163 @@ def _scope_headers(scope: Scope) -> dict[str, str]:
         elif name == "cookie":
             headers[name] = f"{headers[name]}; {value}"
     return headers
+
+
+# --------------------------------------------------------------------------- #
+# The audit emitters both HTTP layers share
+# --------------------------------------------------------------------------- #
+
+
+def _audit_subject(scope: Scope) -> str:
+    """What an audit record on this connection says was acted on.
+
+    ``"<METHOD> <path>"`` — the route, which is an identifier, never a body or
+    a query string, which are values. A websocket has no method, so it is
+    named :data:`WEBSOCKET_METHOD`, matching what the origin-refusal log line
+    has always called one.
+    """
+    if scope.get("type") == "websocket":
+        method = WEBSOCKET_METHOD
+    else:
+        method = (scope.get("method") or "?").upper()
+    return f"{method} {scope.get('path') or '?'}"
+
+
+def _recordable(value: str) -> bool:
+    """Whether a forwarded identity value may be recorded as an identifier.
+
+    Printable ASCII, no space anywhere, and at most
+    :data:`MAX_FORWARDED_VALUE_CHARS` characters. The first two are the
+    sidecar's own contract
+    for both identity headers (see
+    :mod:`osprey.services.auth_sidecar.identity_headers`, which refuses to mint
+    or emit anything outside printable ASCII, or anything space-padded); two
+    rules are added for this ledger. A value carrying an *interior* space
+    cannot be written into a space-separated ``key=value`` detail without
+    becoming two fields. And a value long enough to fill ``detail`` would push
+    the keys appended after it past the envelope's silent truncation — so the
+    one input a forger fully controls would be the one that erases the mismatch
+    marker from the record. Nothing real is lost by either: an OIDC ``sub`` is
+    a short URL-safe identifier and a role name is constrained to
+    ``USERNAME_CHARSET_RE`` by the render-time lint.
+
+    A value that fails this did not come from the sidecar, or cannot be written
+    down unambiguously; either way, copying it verbatim would put a forged or
+    unreadable string into the column an operator reads as an identifier.
+    """
+    return (
+        bool(value)
+        and len(value) <= MAX_FORWARDED_VALUE_CHARS
+        and all("\x20" < char <= "\x7e" for char in value)
+    )
+
+
+def _forwarded_identity(headers: dict[str, str]) -> tuple[str | None, str | None]:
+    """The ``(subject, role)`` nginx forwarded on this request, if any.
+
+    Each is ``None`` when the header is absent or empty — the sidecar omits a
+    header it has no value for, so absence is a state of its own and must not
+    be flattened into a blank string. A value that fails :func:`_recordable`
+    becomes :data:`UNSAFE_FORWARDED_VALUE`: present, and named as unusable.
+    """
+    resolved: list[str | None] = []
+    for header in (AUDIT_SUBJECT_HEADER, AUDIT_ROLE_HEADER):
+        raw = (headers.get(header.lower()) or "").strip()
+        if not raw:
+            resolved.append(None)
+        elif _recordable(raw):
+            resolved.append(raw)
+        else:
+            resolved.append(UNSAFE_FORWARDED_VALUE)
+    return resolved[0], resolved[1]
+
+
+def _container_user() -> str:
+    """The single user this container was rendered for, or ``""``.
+
+    Empty in every shape that is not the multi-user deployment — the laptop,
+    a framework service, the dispatch worker — where there is no per-user
+    container and so nothing for a forwarded subject to disagree with.
+    """
+    return os.environ.get(TERMINAL_USER_ENV, "").strip()
+
+
+def _audit_detail(scope: Scope, headers: dict[str, str], **extra: str) -> tuple[str, str | None]:
+    """The record's ``detail`` string and the role to put in its own field.
+
+    ``detail`` is a space-separated run of ``key=value`` identifiers, which is
+    what makes it greppable without being parsed. Two keys are conditional and
+    both say something by being there:
+
+    * :data:`AUDIT_ACCOUNT_KEY` — the forwarded account, present whenever nginx
+      named one. Not spelled ``subject``: on these surfaces the envelope's own
+      ``subject`` field is the route.
+    * :data:`AUDIT_EXPECTED_ACCOUNT_KEY` — this container's own user, present
+      **only** when the forwarded account is not it. Its presence *is* the
+      mismatch: one user's authorization arrived at another user's container.
+
+    The mismatch key is written *before* the account it disagrees with. The
+    account is bounded at :data:`MAX_FORWARDED_VALUE_CHARS`, so nothing a
+    caller sends can reach the envelope's ``detail`` truncation today; writing
+    the marker first means that stays true however the ``extra`` keys grow.
+
+    The mismatch is recorded and logged, never enforced. Refusing on it would
+    be a behaviour change smuggled in under an audit heading, and the gate has
+    never treated these headers as a credential.
+    """
+    subject, role = _forwarded_identity(headers)
+    parts = [f"{key}={value}" for key, value in extra.items()]
+    if subject is not None:
+        container_user = _container_user()
+        if container_user and subject != container_user:
+            parts.append(f"{AUDIT_EXPECTED_ACCOUNT_KEY}={container_user}")
+            logger.warning(
+                "Forwarded subject %r does not name this container's user %r on %s; "
+                "recorded, not refused",
+                subject,
+                container_user,
+                _audit_subject(scope),
+            )
+        parts.append(f"{AUDIT_ACCOUNT_KEY}={subject}")
+    return " ".join(parts), role
+
+
+def _emit_audit_record(build: Callable[[], dict[str, Any] | None]) -> None:
+    """File one record in the unified ledger. Never raises, never blocks.
+
+    Both HTTP emitters funnel through here for the same reason the writer has
+    its own never-raises boundary: an unwritable audit zone must degrade the
+    trail rather than turn a served request into a 500, and the gate in
+    particular must be able to refuse a caller even when it cannot say so in
+    the ledger.
+
+    **The fields are built by** ``build``, **not passed in**, so that the whole
+    of an emitter's work happens inside this boundary — header decoding, detail
+    assembly and the mismatch ``WARNING`` included, not just the write. A
+    builder run by its caller would leave those outside: on the gate a raise
+    there turns a ``401`` into a propagating exception, and on the mutation
+    layer, where the call is made from a ``finally``, it both masks the route's
+    own exception and turns an already-served ``200`` into a ``500``. Those are
+    the two outcomes the module docstring rules out, so the boundary has to
+    enclose everything, not the last step. Returning ``None`` from ``build``
+    means "nothing to file" and writes nothing.
+
+    The writer is imported *inside* the call rather than at module scope. This
+    module is in the import closure of every interface app and of the auth
+    sidecar's own harness, and both are held to what they may drag in; the
+    lookup is a ``sys.modules`` hit after the first request.
+    """
+    try:
+        fields = build()
+        if fields is None:
+            return
+        from osprey.audit.writer import record
+
+        # ``actor`` is the writer's to fill: it resolves the same ladder the
+        # ledger directory is keyed on, so the two cannot drift.
+        record(**fields)
+    except Exception:  # noqa: BLE001 - the audit trail degrades; the request does not.
+        logger.warning("Could not file an HTTP audit record", exc_info=True)
 
 
 def _read_cookies(header: str | None, name: str) -> list[str]:
@@ -865,7 +1206,7 @@ class WebAuthMiddleware:
             if origin is not None
             else f"absent (Sec-Fetch-Site: {headers.get('sec-fetch-site') or 'absent'})"
         )
-        method = "WEBSOCKET" if scope["type"] == "websocket" else (scope.get("method") or "?")
+        method = WEBSOCKET_METHOD if scope["type"] == "websocket" else (scope.get("method") or "?")
         logger.warning(
             "Refusing %s %s: Origin %s does not match this app's own origin %r. "
             "If the two differ only in how this deployment is addressed, %s is "
@@ -1030,6 +1371,47 @@ class WebAuthMiddleware:
         """
         return self._resolve_external_origin(scope, headers).strip().lower().startswith("https://")
 
+    def _audit_refusal(
+        self, scope: Scope, status: int, detail: str, headers: dict[str, str]
+    ) -> None:
+        """File one ``401``/``403`` in the unified ledger.
+
+        The record's *actor* is this container's own audit identity, filled in
+        by the writer from :func:`~osprey.utils.identity.acting_identity` (this
+        layer names none) — never the forwarded subject. The two are different questions: the actor says which
+        deployment identity's ledger this belongs in (and which file it can be
+        written to), while the subject is a claim that arrived on the request
+        and is recorded as such, inside ``detail``. Letting a header choose the
+        actor would let a caller file records under somebody else's name.
+
+        ``session`` is ``None`` and stays that way: no posture-store key exists
+        for a request that never reached a session, and inventing one would
+        join this record to a session that never existed.
+
+        Every line of this — the status filter, the header decode, the detail
+        assembly — runs inside :func:`_emit_audit_record`'s never-raises
+        boundary, because a refusal this method could not describe must still
+        be a refusal the caller receives.
+        """
+
+        def build() -> dict[str, Any] | None:
+            if status not in AUDITED_REFUSAL_STATUSES:
+                return None
+            record_detail, role = _audit_detail(scope, headers)
+            return {
+                "surface": WEB_AUTH_SURFACE,
+                "posture": WEB_AUTH_POSTURE,
+                "posture_source": POSTURE_SOURCE_APP,
+                "session": None,
+                "subject": _audit_subject(scope),
+                "decision": DECISION_REFUSED,
+                "reason": REFUSAL_REASONS.get(detail, REASON_UNCATEGORIZED),
+                "detail": record_detail or None,
+                "role": role,
+            }
+
+        _emit_audit_record(build)
+
     async def _refuse(
         self,
         scope: Scope,
@@ -1057,7 +1439,16 @@ class WebAuthMiddleware:
         way, and so is the meaning — only the rendering differs, and no
         machine-readable client sees the change (``fetch``/``XHR`` default to
         ``Accept: */*``).
+
+        **Every refusal is filed here**, before the answer is written, because
+        this is the one place all of them converge: eight call sites across the
+        credential ladder, the token exchange and the tier check reach it, and
+        an emitter at any of them would be one somebody forgets to add to the
+        ninth. Only :data:`AUDITED_REFUSAL_STATUSES` are filed — a ``503`` is
+        the gate reporting its own unavailability, not a decision about this
+        caller.
         """
+        self._audit_refusal(scope, status, detail, headers or {})
         wants_html = (
             scope["type"] == "http" and "text/html" in (headers or {}).get("accept", "").lower()
         )
@@ -1087,3 +1478,195 @@ class WebAuthMiddleware:
             return
         await send({"type": "http.response.start", "status": status, "headers": response_headers})
         await send({"type": "http.response.body", "body": payload})
+
+
+class HttpAuditMiddleware:
+    """Pure-ASGI layer recording every state-changing request that got through.
+
+    :class:`WebAuthMiddleware` records what the gate turned away. This records
+    the other half — what it let in — and it is the half an operator actually
+    reconstructs an incident from: a refused request changed nothing, while an
+    admitted ``POST /api/config`` changed the safety configuration of a running
+    terminal and leaves no other trace that it was this account which did it.
+
+    **Innermost, by installation order.** ``configure_interface_app`` adds this
+    first, which makes it the last layer before the router. Two consequences,
+    both wanted: it never sees a request the gate refused (so a refusal is
+    recorded once, by the gate, and never twice), and the status it records is
+    the one the route actually produced rather than one a later layer rewrote.
+
+    **The discriminator is** :data:`SAFE_METHODS`, and nothing else. Method is
+    the one property of a request that is knowable before the route is chosen
+    and that says whether state can change; a path allowlist would need an
+    entry per interface and would be wrong the day a route was added. ``GET``,
+    ``HEAD`` and ``OPTIONS`` pass through with no wrapper at all, which matters
+    because they are the whole static-asset path.
+
+    **Landing in every interface app is the point.** The terminal, ARIEL,
+    channel finder, health, artifacts and the lattice dashboard all call
+    ``configure_interface_app``, so a mutation route added to any of them is
+    audited the day it is written, without its author knowing this exists.
+
+    What it deliberately does not do is decide anything: it never refuses, and
+    it never inspects a body. It is an observer with a byte of state.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        """Wrap ``app``.
+
+        Args:
+            app: The next ASGI application in the stack — in practice the
+                router, since this layer is installed innermost.
+        """
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Pass one connection through, recording it if it can change state.
+
+        A safe method, a websocket and a lifespan message are handed straight
+        on: not wrapping them is what keeps this layer off the hot path that
+        serves every CSS file.
+
+        The record is written in a ``finally``, so a route that raises before
+        answering is still recorded — it was admitted, it ran, and whether it
+        finished is exactly what the ledger should be able to say. The
+        exception itself is not swallowed; ``ExceptionLoggingMiddleware`` sits
+        outside this layer and still turns it into the 500 it always did.
+
+        The mutation runs inside one :func:`~osprey.audit.dedup.decision_scope`,
+        and the marker is read *inside* it — in the same ``finally``, which sits
+        within the ``with`` block for exactly that reason. The scope resets the
+        marker on the way out, so a read one line later would always see
+        ``None`` and this layer would record over every inner decision. See
+        :meth:`_record` for what it does with the answer.
+        """
+        if scope.get("type") != "http" or (scope.get("method") or "").upper() in SAFE_METHODS:
+            await self.app(scope, receive, send)
+            return
+
+        # Imported here, not at module scope, for the reason `_emit_audit_record`
+        # gives: `osprey.audit.dedup` pulls the writer in with it, and this module
+        # sits in the import closure of every interface app and of the auth
+        # sidecar. A `sys.modules` hit per mutation, and none at all for the safe
+        # methods that returned above.
+        from osprey.audit.dedup import decision_scope, recorded_decision
+
+        status: list[int] = []
+
+        async def audited_send(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                status.append(message["status"])
+            await send(message)
+
+        with decision_scope():
+            try:
+                await self.app(scope, receive, audited_send)
+            finally:
+                self._record(
+                    scope,
+                    status[0] if status else None,
+                    inner=recorded_decision(),
+                )
+
+    def _record(
+        self, scope: Scope, status: int | None, *, inner: "RecordedDecision | None" = None
+    ) -> None:
+        """File one admitted mutation, under the decision the response implies.
+
+        A ``4xx``/``5xx`` is recorded as a refusal with
+        :data:`REASON_ROUTE_REFUSED`, not as an admission: the gate admitted
+        the request but something inside declined it, and a layer that stamped
+        everything it admitted ``allowed`` would overwrite the inner decision
+        with a less true one. That is the same invariant
+        :mod:`osprey.audit.dedup` generalises to the cases a status cannot
+        show — a guard that refuses *and* returns a successful response — via
+        a marker the inner recorder sets and the outer layer defers to.
+
+        **The pairing is wired, not merely described.** *inner* is the marker
+        an inner recorder left, read by :meth:`__call__` inside the scope it
+        opened. When it is set, this layer files nothing: the route decided,
+        and its record is the truer one. No route in any interface app writes
+        to the unified ledger *today* — so *inner* is always ``None`` on the
+        running path — but the mechanism is live rather than a recipe, because
+        the recipe's one plausible misreading (read the marker after the scope
+        closes) yields two records, the second of them ``allowed`` on a refused
+        request, and nothing would have failed to say so.
+
+        **An inner recorder must be on the task this layer awaits.** The
+        marker is a ``ContextVar``, and Starlette runs a request's middleware
+        chain and an ``async def`` route in one task, so a mark set there
+        carries back to here. A ``def`` route does not qualify: Starlette runs
+        it through ``run_in_threadpool``, which *copies* the context, and the
+        mark dies with the worker thread — this layer then sees ``None`` and
+        records over the route's decision. A sync route (and any recorder
+        behind ``asyncio.create_task`` or ``to_thread``) must become
+        ``async def``, or record through a seam outside this layer, before it
+        can be an inner recorder. Note that several protected-write refusal
+        helpers are sync functions; that is fine as long as every route calling
+        them is ``async def``, since a sync helper called inline stays on the
+        awaiting task.
+
+        **The marker is not re-asserted outward.** ``configure_interface_app``
+        installs this layer innermost, so nothing wraps it that could defer to
+        it. The MCP middleware, which *can* be wrapped, does re-assert.
+
+        A marker whose record did not land (``stored=False``) is still deferred
+        to on a ``2xx``: this layer's own record would say ``allowed``, and
+        ``allowed`` over a refusal is the outcome the marker exists to prevent.
+        On a ``4xx``/``5xx`` it is not, because this layer's record says
+        ``refused`` too — filing it turns a silence back into a duplicate-free
+        single line.
+
+        A missing status means the route raised before answering. It is
+        recorded as an admission — the request was let in and ran — under
+        :data:`REASON_MUTATION_UNANSWERED`, with ``status=none`` in ``detail``
+        saying the same thing a second way. It is not guessed into a refusal
+        the route never made, and it does not share a reason with the requests
+        that succeeded.
+
+        The whole body runs inside :func:`_emit_audit_record`'s never-raises
+        boundary. That matters more here than on the gate: this method is
+        called from a ``finally``, so a raise would both mask the route's own
+        exception and turn a response the client has already received into a
+        ``500``.
+        """
+        refused = status is not None and status >= 400
+        if inner is not None and (inner.stored or not refused):
+            # Deliberately plain ``scope`` lookups and lazy %-formatting: this
+            # branch runs outside `_emit_audit_record`'s never-raises boundary,
+            # from a `finally`, where anything that raised would mask the
+            # route's own exception.
+            logger.debug(
+                "Deferring the audit record for %s %s to the route (%s/%s)",
+                scope.get("method"),
+                scope.get("path"),
+                inner.decision,
+                inner.reason,
+            )
+            return
+
+        def build() -> dict[str, Any]:
+            record_detail, role = _audit_detail(
+                scope,
+                _scope_headers(scope),
+                status=str(status) if status is not None else _STATUS_NONE,
+            )
+            if refused:
+                reason = REASON_ROUTE_REFUSED
+            elif status is None:
+                reason = REASON_MUTATION_UNANSWERED
+            else:
+                reason = REASON_MUTATION
+            return {
+                "surface": HTTP_MUTATION_SURFACE,
+                "posture": HTTP_MUTATION_POSTURE,
+                "posture_source": POSTURE_SOURCE_APP,
+                "session": None,
+                "subject": _audit_subject(scope),
+                "decision": DECISION_REFUSED if refused else DECISION_ALLOWED,
+                "reason": reason,
+                "detail": record_detail or None,
+                "role": role,
+            }
+
+        _emit_audit_record(build)

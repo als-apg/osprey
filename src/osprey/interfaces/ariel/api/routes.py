@@ -953,7 +953,7 @@ async def update_config(request: Request, req: ConfigUpdateRequest) -> dict:
     every framework writer, so it is consulted here too, on exactly the terms
     the Web Terminal's ``PUT /api/config`` uses: the replacement must leave every
     protected key exactly as it found it, and one that does not is refused with
-    the same 403, the same wording and the same ``protected-writes.jsonl``
+    the same 403, the same wording and the same ``http_config`` audit
     record. Both surfaces share one implementation rather than two copies of it,
     so they cannot drift into telling an operator different stories about the
     same rule.

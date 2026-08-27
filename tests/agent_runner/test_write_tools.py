@@ -43,13 +43,11 @@ def _hook_config_dir(tmp_path: Path) -> Path:
 def test_load_write_tools_from_config(tmp_path: Path) -> None:
     """Returns the list verbatim when the config already contains the full floor."""
     hooks = _hook_config_dir(tmp_path)
-    # Includes both canonical floor tools, so nothing is injected and the
-    # configured list (custom tool included) is returned unchanged.
-    expected = [
-        "mcp__controls__channel_write",
-        "mcp__python__execute",
-        "mcp__custom__tool",
-    ]
+    # Includes the whole canonical floor, so nothing is injected and the
+    # configured list (custom tool included) is returned unchanged. Derived
+    # from the floor rather than re-spelled, so growing the floor cannot turn
+    # this into a test of the injection path by accident.
+    expected = [*_FALLBACK_WRITE_TOOLS, "mcp__custom__tool"]
     (hooks / "hook_config.json").write_text(json.dumps({"write_tools": expected}))
 
     result = load_write_tools(tmp_path)

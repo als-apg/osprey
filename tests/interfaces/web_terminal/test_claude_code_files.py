@@ -8,6 +8,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from osprey.audit.protected import SURFACE_CLAUDE_SETUP
 from osprey.cli.profile_conventions import is_reserved_write
 from osprey.interfaces.web_terminal.claude_code_files import (
     PROFILE_EDIT_NOTICE,
@@ -16,7 +17,7 @@ from osprey.interfaces.web_terminal.claude_code_files import (
 )
 from osprey.interfaces.web_terminal.ownership import reserved_write_channel
 from osprey.interfaces.web_terminal.routes.config import router as config_router
-from osprey.services.python_executor.refusal_audit import PROTECTED_WRITES_LOG_FILENAME
+from osprey.utils.identity import acting_identity
 
 
 @pytest.fixture
@@ -58,24 +59,28 @@ def service(project_dir):
     return ClaudeCodeFileService(project_dir)
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def audit_dir(tmp_path, monkeypatch):
-    """Redirect the protected-write audit log out of the real deployment.
+    """Redirect the audit zone out of the real deployment.
 
-    ``refusal_audit.audit_dir`` is the module's single test seam: both log
-    paths are derived from it, so patching it here catches the record without
+    ``writer.audit_dir`` is the ledger's single test seam: every surface's
+    path is derived from it, so patching it here catches the record without
     standing up a project root.
+
+    Autouse, because every refusal in this file records whether or not the
+    test reads the record back: a suite that appends refusals nobody caused to
+    the deployment's own ledger makes the ledger unusable as evidence.
     """
-    from osprey.services.python_executor import refusal_audit
+    from osprey.audit import writer
 
     target = tmp_path / "audit-zone"
-    monkeypatch.setattr(refusal_audit, "audit_dir", lambda: target)
+    monkeypatch.setattr(writer, "audit_dir", lambda: target)
     return target
 
 
 def _audit_records(audit_dir):
-    """Every protected-write record written under *audit_dir*, oldest first."""
-    log = audit_dir / PROTECTED_WRITES_LOG_FILENAME
+    """Every ``claude_setup`` record written under *audit_dir*, oldest first."""
+    log = audit_dir / acting_identity() / f"{SURFACE_CLAUDE_SETUP}.jsonl"
     if not log.exists():
         return []
     return [json.loads(line) for line in log.read_text().splitlines() if line.strip()]
@@ -264,9 +269,9 @@ class TestWriteFileProtectedSet:
         assert len(records) == 1
         record = records[0]
         assert record["surface"] == "claude_setup"
-        assert record["target_file"] == ".claude/settings.json"
-        assert record["key_or_path"] == ".claude/settings.json"
-        assert record["channel"] == is_reserved_write(".claude/settings.json")
+        assert record["subject"] == ".claude/settings.json"
+        assert "target=.claude/settings.json" in record["detail"]
+        assert is_reserved_write(".claude/settings.json") in record["detail"]
         assert record["reason"] == "reserved path"
 
     def test_write_file_success_is_not_audited(self, service, audit_dir):
@@ -473,9 +478,9 @@ class TestCreateFileProtectedSet:
         assert len(records) == 1
         record = records[0]
         assert record["surface"] == "claude_setup"
-        assert record["target_file"] == ".claude/skills/new/SKILL.md"
-        assert record["key_or_path"] == ".claude/skills/new/SKILL.md"
-        assert record["channel"] == is_reserved_write(".claude/skills/new/SKILL.md")
+        assert record["subject"] == ".claude/skills/new/SKILL.md"
+        assert "target=.claude/skills/new/SKILL.md" in record["detail"]
+        assert is_reserved_write(".claude/skills/new/SKILL.md") in record["detail"]
         assert record["reason"] == "reserved path"
 
     def test_create_file_success_is_not_audited(self, service, audit_dir):
@@ -611,8 +616,8 @@ class TestSymlinkedReservedTargets:
         assert record["surface"] == "claude_setup"
         # The record names the path the operator typed, and the channel that
         # owns the file it would have landed on.
-        assert record["target_file"] == link_rel
-        assert record["channel"] == reserved_write_channel(project_dir, link_rel)
+        assert f"target={link_rel}" in record["detail"]
+        assert reserved_write_channel(project_dir, link_rel) in record["detail"]
         assert record["reason"] == "reserved path"
 
     def test_create_file_refuses_a_dangling_link_into_a_reserved_subtree(

@@ -1,0 +1,400 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Demo Light Source Web Terminals</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg-primary: #111217;
+      --bg-panel: #181b1f;
+      --bg-elevated: #22252b;
+      --text-primary: #ccccdc;
+      --text-secondary: #8e8e9a;
+      --text-muted: #6e6e77;
+      --color-accent: #6e9fff;
+      --border-default: #2c3235;
+      --border-accent: rgba(110, 159, 255, 0.15);
+      --shadow-dropdown: 0 8px 24px rgba(0, 0, 0, 0.4);
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        color-scheme: light;
+        --bg-primary: #f4f5f5;
+        --bg-panel: #fafbfc;
+        --bg-elevated: #ecedef;
+        --text-primary: #24292e;
+        --text-secondary: #6e6e77;
+        --text-muted: #86878f;
+        --color-accent: #1f62c4;
+        --border-default: #d8d9da;
+        --border-accent: rgba(31, 98, 196, 0.25);
+        --shadow-dropdown: 0 4px 12px rgba(0, 0, 0, 0.1);
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .landing-header {
+      width: 100%;
+      max-width: 960px;
+      padding: 2.5rem 1.5rem 1rem;
+    }
+    .landing-title {
+      margin: 0;
+      font-size: 1rem;
+      font-weight: 400;
+      display: flex;
+      align-items: baseline;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+    .landing-logo {
+      font-weight: 700;
+      font-size: 1.35rem;
+      letter-spacing: 0.06em;
+      color: var(--color-accent);
+    }
+    .landing-subtitle {
+      font-size: 1.05rem;
+      color: var(--text-secondary);
+    }
+    .landing-main {
+      width: 100%;
+      max-width: 960px;
+      flex: 1;
+      padding: 0.5rem 1.5rem 3rem;
+    }
+    .landing-empty {
+      margin-top: 2rem;
+      color: var(--text-secondary);
+      font-size: 0.95rem;
+      text-align: center;
+    }
+    .landing-group {
+      margin-top: 2rem;
+    }
+    .landing-group-label {
+      margin: 0 0 0.75rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+    }
+    /* A `variant: "tray"` section: the same heading and card grid, enclosed in
+       an accent-edged panel so a standalone service reads as a different kind
+       of destination from a person's terminal.
+
+       Deliberately NO background fill. Every candidate surface token collides
+       with something in at least one shipped theme — --bg-elevated is the card
+       HOVER color, and --bg-secondary equals elevated in `light` (hovering a
+       card would dissolve it into the tray), equals --bg-panel in
+       `high-contrast-dark` (cards invisible against it) and sits ABOVE panel in
+       `retro-dark` (cards sunken into it, inverting every other card on the
+       page). Leaving the page's own --bg-primary showing through introduces no
+       new color at all, so the cards inside keep exactly the surface
+       relationship — and exactly the hover — that the cards above the tray
+       have, in all eight themes. The accent border carries the "this is
+       something else" signal instead, and it is theme-safe by construction:
+       every theme defines --border-accent as a composite of its own accent. */
+    .landing-tray {
+      margin-top: 2.25rem;
+      padding: 1.25rem 1.25rem 1.4rem;
+      border: 1px solid var(--border-accent);
+      border-radius: 14px;
+    }
+    /* The heading is already inside the tray's own padding, so it does not need
+       the extra top margin .landing-group carries to separate flat sections. */
+    .landing-tray > .landing-group-label {
+      margin-bottom: 0.9rem;
+    }
+    /* Accent mark. An empty `content` with a background, NOT a "◆" glyph:
+       generated content IS folded into the accessible name, so a character
+       here would have every card in the tray announce a stray "black diamond"
+       ahead of its actual label. A box has no text to announce, and it also
+       renders identically everywhere rather than depending on which font on
+       the viewer's machine happens to carry the codepoint. */
+    .landing-tray .landing-card-label::before {
+      content: "";
+      display: inline-block;
+      width: 0.4rem;
+      height: 0.4rem;
+      margin-right: 0.55rem;
+      vertical-align: 0.04rem;
+      background: var(--color-accent);
+      transform: rotate(45deg);
+    }
+    .landing-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 0.75rem;
+    }
+    .landing-card {
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+      padding: 1rem 1.1rem;
+      background: var(--bg-panel);
+      border: 1px solid var(--border-default);
+      border-radius: 10px;
+      box-shadow: var(--shadow-dropdown);
+      text-decoration: none;
+      color: inherit;
+      transition: border-color 120ms ease, transform 120ms ease, background 120ms ease;
+      min-width: 0;
+    }
+    .landing-card:hover,
+    .landing-card:focus-visible {
+      border-color: var(--border-accent);
+      background: var(--bg-elevated);
+      transform: translateY(-1px);
+    }
+    .landing-card:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 2px;
+    }
+    .landing-card-inert {
+      cursor: not-allowed;
+      opacity: 0.6;
+      border-style: dashed;
+    }
+    .landing-card-inert:hover {
+      border-color: var(--border-default);
+      background: var(--bg-panel);
+      transform: none;
+    }
+    .landing-card-label {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .landing-card-sublabel {
+      align-self: flex-start;
+      max-width: 100%;
+      margin: 0.05rem 0 0.1rem;
+      padding: 0.12rem 0.55rem;
+      border: 1px solid var(--border-accent);
+      border-radius: 999px;
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--color-accent);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .landing-card-url {
+      font-family: ui-monospace, "JetBrains Mono", monospace;
+      font-size: 0.78rem;
+      color: var(--text-secondary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    /* Facility notices, at the bottom of the page everyone passes through on
+       the way to a terminal. Collapsed, because a person who has read them is
+       opening a terminal rather than reading them again, and an expanded wall
+       of text above the fold would train exactly the skimming it is trying to
+       prevent. Native <details>: no script on this page. */
+    .landing-notices {
+      width: 100%;
+      max-width: 960px;
+      margin-top: 2.5rem;
+      padding: 0 1.5rem;
+    }
+    .landing-notice > summary {
+      cursor: pointer;
+      padding: 0.7rem 0;
+      border-top: 1px solid var(--border-default);
+      font-size: 0.82rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      color: var(--text-secondary);
+    }
+    .landing-notice > summary:hover {
+      color: var(--text-primary);
+    }
+    .landing-notice-body {
+      padding-bottom: 0.5rem;
+      font-size: 0.86rem;
+      line-height: 1.55;
+      color: var(--text-secondary);
+      max-width: 46rem;
+    }
+    .landing-notice-body h2,
+    .landing-notice-body h3 {
+      margin: 1.4rem 0 0.4rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--color-accent);
+    }
+    .landing-notice-body ul {
+      margin: 0.3rem 0;
+      padding-left: 1.1rem;
+    }
+    .landing-notice-body li {
+      margin: 0.25rem 0;
+    }
+    .landing-notice-body strong {
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+    .landing-footer {
+      width: 100%;
+      max-width: 960px;
+      padding: 1rem 1.5rem 2rem;
+      color: var(--text-secondary);
+      font-size: 0.78rem;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+  <header class="landing-header">
+    <h1 class="landing-title">
+      <span class="landing-logo">OSPREY</span>
+      <span class="landing-subtitle">Demo Light Source</span>
+    </h1>
+  </header>
+
+  <main class="landing-main">
+    
+    
+      
+    
+      
+    
+
+    
+
+    
+      
+      <section class="landing-group">
+        <h2 class="landing-group-label">Terminals</h2>
+        <div class="landing-cards">
+          
+          
+          
+          
+          
+          
+          <a class="landing-card" href="/u/alice/">
+            <span class="landing-card-label">alice</span>
+            <span class="landing-card-url">/u/alice/</span>
+          </a>
+          
+          
+          
+          
+          
+          
+          
+          <a class="landing-card" href="/u/bob/">
+            <span class="landing-card-label">bob</span>
+            <span class="landing-card-url">/u/bob/</span>
+          </a>
+          
+          
+        </div>
+      </section>
+      
+    
+      
+      <section class="landing-group">
+        <h2 class="landing-group-label">Facility Tools</h2>
+        <div class="landing-cards">
+          
+          
+          
+          
+          
+          
+          <a class="landing-card" href="https://elog.dls.example.org">
+            <span class="landing-card-label">Elog</span>
+            <span class="landing-card-url">https://elog.dls.example.org</span>
+          </a>
+          
+          
+          
+          
+          
+          
+          
+          <a class="landing-card" href="https://status.dls.example.org">
+            <span class="landing-card-label">Status Page</span>
+            <span class="landing-card-url">https://status.dls.example.org</span>
+          </a>
+          
+          
+        </div>
+      </section>
+      
+    
+  </main>
+  
+  <section class="landing-notices">
+    
+    <details class="landing-notice" id="working-safely">
+      <summary>Before you start: working safely with the agent</summary>
+      <div class="landing-notice-body"><p>OSPREY connects an AI agent to <strong>live control systems</strong>. Every action it proposes
+can affect real hardware. You are the operator and the agent is a tool: you are
+responsible for every action it takes.</p>
+<h2>Be mindful of what you approve</h2>
+<p>OSPREY asks for your approval before any hardware write. That gate is where you
+decide, and it is worth the moment it takes.</p>
+<ul>
+<li>Read the proposed command before approving it: the target channels, the values
+  and the units.</li>
+<li>If something looks unfamiliar or unexpected, find out why it was proposed
+  before you approve it.</li>
+<li>Go through a batch item by item. Approving a batch as one thing is how an
+  unread command slips through.</li>
+</ul>
+<h2>Follow what the agent is doing</h2>
+<p>The agent works on its own between approval gates. Following along is how you
+learn the workflow, the tool, and where its information came from, which is what
+lets you judge the next thing it proposes.</p>
+<ul>
+<li>Read its reasoning, not only the action at the end of it.</li>
+<li>Notice which channels and sources it drew on.</li>
+<li>Stop the session if it starts looping or heads somewhere you did not intend.</li>
+</ul>
+<h2>Know what this deployment covers</h2>
+<p>Every deployment is set up for a particular set of systems and channels.</p>
+<ul>
+<li>Know which subsystems and channels yours is configured for.</li>
+<li>Narrow open-ended asks ("fix everything", "optimize the beam") yourself before
+  handing them over.</li>
+</ul>
+<p>When in doubt, stop the session and talk to your control system team.</p></div>
+    </details>
+    
+  </section>
+  
+
+  
+  <footer class="landing-footer">
+    OSPREY multi-user web terminal stack. Experimental system. Proceed with caution.
+  </footer>
+  
+
+</body>
+</html>

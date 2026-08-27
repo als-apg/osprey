@@ -7,8 +7,9 @@ from pathlib import Path
 
 import yaml
 
+from osprey.audit.envelope import POSTURE_SOURCE_APP
+from osprey.audit.protected import SURFACE_CLAUDE_SETUP, record_protected_refusal
 from osprey.interfaces.web_terminal.ownership import reserved_write_channel
-from osprey.services.python_executor.refusal_audit import record_protected_refusal
 from osprey.utils.logger import get_logger
 
 logger = get_logger("claude_code_files")
@@ -75,11 +76,17 @@ def _refuse_if_reserved(project_dir: Path, rel_path: str) -> None:
     channel = reserved_write_channel(project_dir, rel_path)
     if channel is not None:
         record_protected_refusal(
-            surface="claude_setup",
+            surface=SURFACE_CLAUDE_SETUP,
             target_file=rel_path,
             key_or_path=rel_path,
             channel=channel,
             reason="reserved path",
+            # The panel is only ever reached over HTTP, and a web request
+            # belongs to no session: the server process carries no posture
+            # stamp of its own, so the env ladder would file this as a bare
+            # ``process`` next to the ``app`` ``HttpAuditMiddleware`` stamps
+            # for the same request.
+            posture_source=POSTURE_SOURCE_APP,
         )
         raise ProtectedWriteError(rel_path, channel)
 

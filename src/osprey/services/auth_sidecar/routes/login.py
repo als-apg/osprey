@@ -93,6 +93,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.datastructures import FormData
 
+from .. import audit
 from ..app import (
     AuthSettings,
     get_attempt_throttle,
@@ -106,6 +107,7 @@ from ..return_to import safe_return_to
 from ..revocation import RevocationStore
 from ..sessions import SESSION_COOKIE_NAME, SessionCodec, SessionState
 from ..throttle import AttemptThrottle
+from .recheck import RecheckRefused, recheck_login, roster_roles
 
 logger = logging.getLogger(__name__)
 
@@ -690,6 +692,11 @@ async def login_submit(
     if stored is None or not verify_password(password, stored):
         throttle.record_failure(shown)
         logger.warning("login refused for %r: the submitted credential did not verify", shown)
+        # `shown` for the same reason the log line and the throttle use it: the
+        # ledger is not the caller's to size either. One category for all three
+        # ways this branch is reached — see `audit.REASON_BAD_CREDENTIAL`; the
+        # record must not say which of them it was any more than the page does.
+        audit.record_login_refusal(user=shown, reason=audit.REASON_BAD_CREDENTIAL)
         return _page(request, user=shown, target=target, status_code=401, error=DENIAL_MESSAGE)
 
     # `shown` here too, not `username`: on this path they are the same string —
@@ -697,11 +704,49 @@ async def login_submit(
     # the same way is what makes "the window this attempt was checked against" and
     # "the window it clears" provably the same entry.
     throttle.record_success(shown)
+
+    # The credential is settled; what it is *worth* is the matrix's answer, and
+    # it is asked before anything is minted so a refusal cannot leave the
+    # browser holding a session the matrix rejected. `asserted_subject` and
+    # `claim_role` are deliberately not passed: a password login has no IdP
+    # behind it, and the re-check refuses a caller that claims otherwise.
+    try:
+        grant = recheck_login(
+            method=settings.method, user=username, roster_roles=roster_roles(request)
+        )
+    except RecheckRefused as refused:
+        # A configuration fault, not a credential outcome — re-showing the
+        # password form would invite the operator to retry something that
+        # cannot succeed — so this is the OIDC path's shape rather than the
+        # prompt's. The throttle window is deliberately left cleared above: the
+        # credential DID verify, and holding the window open would penalise the
+        # one person whose password was right.
+        logger.warning("login refused for %r: %s", username, refused.reason)
+        audit.record_login_refusal(user=username, reason=refused.reason)
+        raise HTTPException(
+            status_code=403, detail=refused.message, headers=_NO_STORE_HEADERS
+        ) from None
+
     now = codec.now()
+    # Named once and passed to both the session and the record below, so the
+    # role this login actually granted and the role the ledger reports cannot
+    # drift.
+    role = grant.role
     session = _current_session(request, codec, revocations).with_user(
-        username,
+        # The matrix's answer, not this route's own reading of it. On the
+        # password row the two are the same string — the row grants the roster
+        # username, which is what was passed in — and that is exactly why it is
+        # read from the grant: a future change to the row must reach the minted
+        # session here the way it already does on the OIDC path, rather than
+        # agreeing with the table by coincidence.
+        grant.subject,
         expires_at=now + settings.session_lifetime,
         generation_tag=generation_tag(stored),
+        # The roster entry's own `role:`, resolved by the re-check above. Empty
+        # is the deny-safe value: verify emits no role header for it and every
+        # consumer reads that as "no privileges", which is what every password
+        # deployment written before roles existed keeps getting.
+        role=role,
     )
 
     response = RedirectResponse(target, status_code=303, headers=_NO_STORE_HEADERS)
@@ -718,4 +763,8 @@ async def login_submit(
         path="/",
     )
     logger.info("password login succeeded for %r", username)
+    # Recorded after the cookie is set and before the response leaves: a ledger
+    # that holds only refusals cannot answer "who is in this deployment, and
+    # since when", which is the first question asked of a login trail.
+    audit.record_login_success(user=username, method=settings.method, role=role)
     return response

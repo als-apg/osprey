@@ -1,26 +1,20 @@
-"""The ARIEL mirror and the per-user audit zone, bound into web terminals.
+"""The ARIEL mirror, bound into web terminals.
 
-Two more host directories the per-user containers WRITE, each with the same
-shape as the knowledge bundle (``test_bundle_mount.py``) and asserted the same
-way:
+One more host directory the per-user containers WRITE, with the same shape as
+the knowledge bundle (``test_bundle_mount.py``) and asserted the same way: a
+persona whose render enables ``qmd_export`` runs that module inside its own
+container, and the module writes wherever ``mirror_path`` resolves — the
+persona's project root, in-container. Bound to the deployment's one mirror
+(the directory the host exporter fills and the sidecar indexes), the entry
+reaches the search corpus; unbound, it lands in the container's writable layer
+where nothing indexes it and the next recreate discards it. Entitlement is per
+persona, the source is shared, the target is per service.
 
-* **The ARIEL qmd mirror.** A persona whose render enables ``qmd_export``
-  runs that module inside its own container, and the module writes wherever
-  ``mirror_path`` resolves — the persona's project root, in-container. Bound
-  to the deployment's one mirror (the directory the host exporter fills and
-  the sidecar indexes), the entry reaches the search corpus; unbound, it lands
-  in the container's writable layer where nothing indexes it and the next
-  recreate discards it. Entitlement is per persona, the source is shared, the
-  target is per service.
-* **The refusal audit zone.** The python executor in every container appends
-  its refusal log under ``<project>/var/audit``. Nothing else backs that path
-  — the agent-data volume is a sibling — so it is bound to a per-user host
-  directory (``var/audit/<user>``): per user because every container writes
-  the same fixed filename, a host bind because an audit log has to be readable
-  without entering a container. Every user, no entitlement.
-
-Both join the same ``group_add`` story as the bundle, and the three are
-emitted as one list per service.
+The mirror joins the same ``group_add`` story as the bundle, and the two are
+emitted as one list per service. The per-user audit subdirectory is the third
+directory these containers write and is asserted in
+``tests/deployment/test_audit_mounts.py``: its group is joined inside the
+container by the entrypoint, so it appears in no ``group_add`` list.
 """
 
 from __future__ import annotations
@@ -31,7 +25,6 @@ import pytest
 import yaml
 
 from osprey.deployment.web_terminals.render import render_web_terminals
-from osprey.utils.workspace import AUDIT_DIR_RELPATH
 
 from .test_golden_render import EXAMPLE_CONFIG
 
@@ -74,13 +67,6 @@ def _volumes(config: dict, **kwargs) -> dict[str, list[str]]:
 def _mirror_mounts(config: dict, **kwargs) -> dict[str, list[str]]:
     return {
         name: [v for v in volumes if v.startswith(f"{MIRROR_SOURCE}:")]
-        for name, volumes in _volumes(config, **kwargs).items()
-    }
-
-
-def _audit_mounts(config: dict, **kwargs) -> dict[str, list[str]]:
-    return {
-        name: [v for v in volumes if v.startswith(f"./{AUDIT_DIR_RELPATH}/")]
         for name, volumes in _volumes(config, **kwargs).items()
     }
 
@@ -152,44 +138,6 @@ def test_mirror_mount_is_read_write():
 
 
 # ---------------------------------------------------------------------------
-# The audit mount
-# ---------------------------------------------------------------------------
-
-
-def test_every_user_gets_a_per_user_audit_bind():
-    assert _audit_mounts(_config(mirror=False)) == {
-        "web-alice": [f"./{AUDIT_DIR_RELPATH}/alice:/app/dls-assistant/{AUDIT_DIR_RELPATH}"],
-        "web-bob": [f"./{AUDIT_DIR_RELPATH}/bob:/app/dls-assistant/{AUDIT_DIR_RELPATH}"],
-    }
-
-
-def test_audit_target_follows_each_personas_project_dir():
-    assert _audit_mounts(_config(mirror=False, personas=True)) == {
-        "web-alice": [f"./{AUDIT_DIR_RELPATH}/alice:/app/dls-operator/{AUDIT_DIR_RELPATH}"],
-        "web-bob": [f"./{AUDIT_DIR_RELPATH}/bob:/app/dls-physicist/{AUDIT_DIR_RELPATH}"],
-    }
-
-
-def test_audit_sources_are_distinct_per_user():
-    """Two containers write the same filename; one shared directory would
-    have them clobber each other."""
-    sources = {
-        name: mount.split(":")[0] for name, (mount,) in _audit_mounts(_config(mirror=False)).items()
-    }
-    assert len(set(sources.values())) == len(sources)
-
-
-def test_audit_target_is_where_the_executor_writes():
-    """The target is the writer's own derivation — the project root plus
-    :data:`AUDIT_DIR_RELPATH` — never a literal that could drift from it."""
-    from osprey.deployment.web_terminals.render import _container_audit_dir
-
-    assert _container_audit_dir("/app/x") == f"/app/x/{AUDIT_DIR_RELPATH}"
-    (mount,) = _audit_mounts(_config(mirror=False))["web-alice"]
-    assert mount.endswith(f":{_container_audit_dir('/app/dls-assistant')}")
-
-
-# ---------------------------------------------------------------------------
 # group_add: one list per service, every shared directory's group once
 # ---------------------------------------------------------------------------
 
@@ -202,22 +150,15 @@ def test_no_gids_emits_no_group_add():
     assert _group_add(_config()) == {"web-alice": [], "web-bob": []}
 
 
-def test_audit_gid_is_joined_by_every_service():
-    assert _group_add(_config(mirror=False), audit_gid=1234) == {
-        "web-alice": ["1234"],
-        "web-bob": ["1234"],
-    }
-
-
 def test_each_distinct_gid_is_listed_once():
     """The deploy creates every shared directory as one user, so they usually
     share a group; a list that repeats it would read like two groups."""
     config = _config()
     config["facility_knowledge"] = {"bundle_path": "data/facility_knowledge"}
-    groups = _group_add(config, facility_bundle_gid=20, ariel_mirror_gid=20, audit_gid=20)
+    groups = _group_add(config, facility_bundle_gid=20, ariel_mirror_gid=20)
     assert groups == {"web-alice": ["20"], "web-bob": ["20"]}
-    groups = _group_add(config, facility_bundle_gid=20, ariel_mirror_gid=21, audit_gid=22)
-    assert groups == {"web-alice": ["20", "21", "22"], "web-bob": ["20", "21", "22"]}
+    groups = _group_add(config, facility_bundle_gid=20, ariel_mirror_gid=21)
+    assert groups == {"web-alice": ["20", "21"], "web-bob": ["20", "21"]}
 
 
 def test_mirror_gid_reaches_only_entitled_services():
@@ -323,15 +264,6 @@ def test_mirror_reader_is_shared_with_the_sidecar_corpus_list(tmp_path):
     assert resolve_ariel_mirror_dir(config, tmp_path) == tmp_path / MIRROR_PATH
     (mount,) = _mirror_mounts(config)["web-alice"]
     assert mount.split(":")[0] == corpora["ariel"]["source"]
-
-
-def test_user_audit_dir_is_the_bind_source(tmp_path):
-    from osprey.deployment.compose_generator import resolve_user_audit_dir, user_audit_relpath
-
-    assert user_audit_relpath("alice") == f"{AUDIT_DIR_RELPATH}/alice"
-    assert resolve_user_audit_dir(tmp_path, "alice") == tmp_path / AUDIT_DIR_RELPATH / "alice"
-    (mount,) = _audit_mounts(_config(mirror=False))["web-alice"]
-    assert mount.split(":")[0] == f"./{user_audit_relpath('alice')}"
 
 
 # ---------------------------------------------------------------------------

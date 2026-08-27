@@ -71,12 +71,14 @@
                                         #   container_project_dir — the path this persona's own
                                         #   exporter writes. Pairs with the file-level
                                         #   `ariel_mirror_source`.
-          "container_audit_dir": str,   # where this user's refusal audit log is written inside
-                                        #   the container (`<container_project_dir>/var/audit`,
+          "audit_identity": str,        # WHO this container's audit records are written as —
+                                        #   the roster user name (OSPREY_AUDIT_IDENTITY).
+          "container_audit_dir": str,   # where those records are written inside the container
+                                        #   (`<container_project_dir>/var/audit/<identity>`,
                                         #   render._container_audit_dir()).
-          "audit_source": str,          # the host directory backing it, spelled as a compose
-                                        #   bind source (`./var/audit/<user>`, from
-                                        #   compose_generator.user_audit_relpath()).
+          "audit_mount_source": str,    # the host directory backing it, spelled as a compose
+                                        #   bind source (`./var/audit/<identity>`,
+                                        #   render._audit_mount_source()).
           "extra_mounts": [str, ...],   # resolved by resolve_personas() from the persona's
                                         #   `extra_mounts` -> extra per-user `volumes:` lines
                                         #   (compose volume strings, e.g. "/opt/data:/app/data:ro").
@@ -125,17 +127,19 @@
       Group id of that host directory, for the same `group_add:` reason as
       `facility_bundle_gid` below.
 
-    audit_gid: str, required (may be "")
-      Group id of the deployment's audit zone (`var/audit`), whose per-user
-      subdirectories every service binds. Emitted in `group_add:` on every
-      service, since every container writes its refusal log there.
-
     facility_bundle_gid: str, required (may be "")
       Group id of that host directory, read off disk by the deploy and emitted as
-      `group_add:` on every entitled service. Without it the directory's shared
-      group bits reach no container: setgid decides which group OWNS a new file,
-      not which groups a process belongs to. `""` (directory not provisioned yet,
-      or a platform with no gids) emits no `group_add` rather than a guess.
+      `group_add:` on every entitled service. Setgid decides which group OWNS a
+      new file, not which groups a process belongs to, so membership has to be
+      granted separately: this gid is the RUNTIME half of that grant, reaching
+      the container's initial process. In a framework-built image the membership
+      the serving process keeps comes from the entrypoint's own `/etc/group` join
+      for OSPREY_FACILITY_BUNDLE_DIR instead, because `gosu` re-derives
+      supplementary groups from that file and discards the runtime grant; the
+      runtime half is what carries access when that join never runs (a container
+      started with `--user`, or an image with no OSPREY entrypoint). Reasoning at
+      the `group_add:` line itself. `""` (directory not provisioned yet, or a
+      platform with no gids) emits no `group_add` rather than a guess.
 
     nginx_port: int, required
       Host port nginx publishes for the landing page + per-user redirects.
@@ -195,6 +199,17 @@
       `None` (the common case) emits NO env line, leaving the sidecar's own
       documented default — so the default is defined once, in the sidecar,
       rather than restated here.
+    authorization_claim: str | None / authorization_claim_map: {claim value: role}
+      The group binding, from render.py's `_authorization_context()` (the single
+      parser of `modules.web_terminals.authorization`) -> OSPREY_AUTH_ROLE_CLAIM
+      and OSPREY_AUTH_ROLE_MAP. Emitted only in `oidc` mode: the claim is read
+      out of an ID token, and a password login has none — that posture's role
+      comes from the roster entry instead.
+      Both lines or neither, never one. The sidecar reads half a binding as a
+      broken deployment and refuses every login needing a role
+      (`RoleBinding.configured` is `claim OR claim_map`), which is the right
+      reading for a deployment that LOST a half and the wrong one to render for
+      a deployment that never declared either.
     services[].oidc_subject: str, optional — this user's expected IdP identity
       (the non-secret half of the roster->identity mapping; the credential half
       lives in `.env.auth`, keyed by the same suffix). Resolved from the roster
@@ -206,6 +221,24 @@
       the username->env-var mapping has exactly one definition, and a template
       that re-derived it could key a subject differently from the password hash
       keyed by the same user.
+    services[].role: str, optional — this user's static role, straight off the
+      roster entry's `role:` -> OSPREY_AUTH_ROSTER_ROLE_<SUFFIX>. Emitted under
+      BOTH login methods, unlike the group binding above, because it does two
+      jobs: under `password` it IS the session role, and under `oidc` it is the
+      cross-check the sidecar refuses a disagreeing ID token against — a `role:`
+      is what the render resolved this user's persona from, so it already
+      decided which container their login lands in.
+      Absent (no `role:` on the entry) emits no line at all, and the sidecar
+      resolves "" — no privileges — for that user. Note this is the role NAME,
+      not the persona it binds: the persona already reached this file as the
+      service's image and project.
+    services[].role_env: str — the env-var name the above is emitted under,
+      pre-resolved by render.py through personas.env_var_suffix(). Always
+      present; read only when `role` is set. Pre-resolved for the same reason
+      `oidc_subject_env` is. The `ROSTER_` infix is load-bearing:
+      OSPREY_AUTH_ROLE_CLAIM / OSPREY_AUTH_ROLE_MAP above are the deployment's
+      group binding, so a user named `claim` or `map` under a plain
+      OSPREY_AUTH_ROLE_ prefix would have read that binding as their own role.
     services[].terminal_secret_env: str, required
       The env-var NAME this user's operator secret travels in
       (`OSPREY_TERMINAL_SECRET_<SUFFIX>`), pre-resolved by render.py through
@@ -539,6 +572,24 @@ services:
 {%- endif %}
     environment:
       - TZ={{ facility_timezone | default("UTC") }}
+      {#- The sidecar's audit identity and the directory it writes to. It is one
+         service rather than one per user, so the identity is the FIXED name
+         `sidecar` (render.AUTH_SIDECAR_AUDIT_IDENTITY) — the users its login and
+         denial events name are their SUBJECTS, never their writers, and a
+         record filed under a username here would read as that user having
+         written it.
+
+         The directory arrives under the auth-specific name because this
+         container reads it that way: it is not an OSPREY project (WORKDIR
+         /app, one uvicorn app), it resolves no project root, and an unset
+         value degrades to a log line rather than a guess. It is also the one
+         service excluded from the entrypoint's group step — it runs as root
+         with no entrypoint and no `user:`, so it needs no supplementary group
+         and writes root-owned records. The generic OSPREY_AUDIT_DIR is
+         deliberately NOT emitted here: it is the variable that step is to
+         iterate, and this image has no root phase to read it. #}
+      - OSPREY_AUDIT_IDENTITY={{ auth_audit_identity }}
+      - OSPREY_AUTH_AUDIT_DIR={{ auth_audit_dir }}
       - OSPREY_AUTH_METHOD={{ auth_method }}
       - OSPREY_AUTH_SESSION_LIFETIME={{ auth_session_lifetime }}
       - OSPREY_AUTH_TLS_ENABLED={{ "true" if tls_enabled else "false" }}
@@ -567,6 +618,42 @@ services:
          one place instead of being restated by the renderer. #}
       - OSPREY_AUTH_OIDC_CLAIM={{ auth_oidc_claim }}
 {%- endif %}
+{%- set role_claim = authorization_claim | default("") %}
+{%- set role_map = authorization_claim_map | default({}) %}
+{%- if role_claim and role_map %}
+      {#- The group binding: which ID-token claim carries group membership, and
+         the table turning that claim's values into one of the roles
+         `authorization.roles` declared. Rendered as a PAIR or not at all —
+         `RoleBinding.configured` is `claim OR claim_map`, so the sidecar reads
+         either half alone as a deployment whose authorization block broke and
+         refuses every login that needs a role. That is the right reading for a
+         half that went missing and the wrong thing to render for a deployment
+         that declared neither, which is why the condition tests both.
+         render.py already refuses half a `claims:` stanza, so these two ctx
+         keys arrive both-or-neither; this is the second guard, so a later
+         change there cannot quietly emit one line on its own.
+
+         The map is COMPACT JSON — no space after the `:` — assembled pair by
+         pair rather than through `tojson`, whose object form spaces its
+         separators. Both parse, but the compact spelling is the wire format
+         the sidecar documents, and it is what keeps this a plain scalar rather
+         than something a reader has to check against the YAML flow-mapping
+         syntax it resembles.
+
+         Each key and value is JSON-quoted, and the whole `KEY=value` is quoted
+         again (the `oidc_subject` treatment above): group values belong to the
+         provider, and an LDAP-backed IdP emits DN-style names carrying `,`,
+         `=` and `": "` — the last of which would otherwise derail the YAML
+         parse of this list item. Jinja's `tojson` is HTML-safe, so `&`, `<`,
+         `>` and `'` come out as `\uXXXX` escapes rather than literally; that
+         is still one JSON object and still round-trips to the same string. #}
+      {%- set role_map_pairs = [] %}
+      {%- for claim_value, role_name in role_map.items() %}
+      {%- set _ = role_map_pairs.append((claim_value | tojson) ~ ":" ~ (role_name | tojson)) %}
+      {%- endfor %}
+      - {{ ("OSPREY_AUTH_ROLE_CLAIM=" ~ role_claim) | tojson }}
+      - {{ ("OSPREY_AUTH_ROLE_MAP={" ~ role_map_pairs | join(",") ~ "}") | tojson }}
+{%- endif %}
 {%- for svc in services %}
 {%- if svc.oidc_subject %}
       {#- This user's expected IdP identity — the non-secret half of the
@@ -581,6 +668,51 @@ services:
 {%- endif %}
 {%- endfor %}
 {%- endif %}
+{#- The roster's own roles, which do TWO jobs and are therefore emitted under
+   BOTH login methods (under `none` there is no sidecar at all, so this whole
+   service — and this family with it — is absent):
+
+     * password — the roster IS the session role. No third party is involved,
+       so the entry's `role:` is the whole answer.
+     * oidc — the roster is the CROSS-CHECK TARGET. A `role:` is what the render
+       resolved this user's persona from, so it already decided which container
+       the login lands in; the sidecar refuses a login whose validated ID token
+       maps to a different role, because that session would name one role while
+       sitting in another's container. Where the deployment binds no `claims:`
+       at all, nothing asked the provider about privilege and this stays the
+       session role, exactly as under password.
+
+   One line per entry that declares a role; an entry with none emits nothing and
+   the sidecar resolves "" for it, which is "no privileges" rather than a role
+   named "". Entries opted out of the login wall (`login: false`) are NOT
+   filtered out here: they are on OSPREY_AUTH_USERS above, which is the roster
+   this table is keyed from, and a role table that disagreed with that roster is
+   the drift worth avoiding. Nothing is granted by it — an exempt entry has no
+   password provisioned, so no login of theirs ever reaches the lookup.
+
+   The variable NAME arrives pre-resolved as `svc.role_env` (render.py, via
+   personas.env_var_suffix()) and is emitted verbatim, for the reason spelled
+   out on `oidc_subject_env` above. tojson quotes the WHOLE `KEY=value`, the
+   same treatment: a role name is config, and `": "` in one would otherwise
+   turn this list item into a YAML mapping and hand the sidecar a truncated
+   role.
+
+   Ungated on the method, unlike the `claims:` family above: the enclosing
+   `auth_method != "none"` around this whole service is what keeps it out of a
+   login-free deployment, and there is no method that mints a session without a
+   container behind it to have been rendered. #}
+{%- for svc in services %}
+{%- if svc.role %}
+      - {{ (svc.role_env ~ "=" ~ svc.role) | tojson }}
+{%- endif %}
+{%- endfor %}
+    volumes:
+      {#- The sidecar's own audit subdirectory, mount-isolated exactly like
+         every user's: it holds the LOGIN half of the trail (who authenticated,
+         who was refused), and no terminal container has a mount through which
+         it could read or edit it. Provisioned host-side before this mount
+         exists, for the usual root-owned-bind-source reason. #}
+      - {{ auth_audit_mount_source }}:{{ auth_audit_dir }}
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://{{ bind_host }}:{{ auth_port }}/health').status==200 else 1)\""]
       interval: 15s
@@ -612,6 +744,37 @@ services:
       - HOME=/data/claude-config
       - TZ={{ facility_timezone | default("UTC") }}
       - OSPREY_TERMINAL_USER={{ svc.user }}
+      {#- WHO this container's audit records are written as, and WHERE. Both
+         rendered from the same roster name that names the mount below
+         (render._audit_mount_source / _container_audit_dir), so the identity
+         stamped into a record and the directory the record lands in can never
+         name two different users — an audit trail that attributes alice's
+         actions to bob is worse than no trail at all.
+
+         Unconditional, and deliberately so: the audit mount follows the
+         MIDDLEWARE, not the login wall. This container hosts an interface app
+         and launches framework MCP servers whatever `auth.method` says, so it
+         records under its own identity on an unauthenticated deployment
+         exactly as it does behind a login.
+
+         OSPREY_AUDIT_DIR is also the CONTRACT this file offers the image's
+         entrypoint: the render names the directories, and the entrypoint's root
+         phase is to join their groups before dropping privileges — compose
+         `group_add:` alone does not survive `gosu`, and the script reads no
+         config, so a directory it is not told about is one it cannot join. The
+         value is the CONTAINER path, never the host one: the entrypoint stats
+         the directory it can actually see. #}
+      - OSPREY_AUDIT_IDENTITY={{ svc.audit_identity }}
+      - OSPREY_AUDIT_DIR={{ svc.container_audit_dir }}
+{%- if facility_bundle_source and svc.container_bundle_dir %}
+      {#- The bundle mount's target, named for the same entrypoint contract: the
+         root phase is to iterate exactly the directories these two variables
+         name, so the group the bundle is shared through is granted the same way
+         the audit group is, and neither is guessed. Gated on the same pair as
+         the mount itself — a service with no bundle bound has no second
+         directory to name, and the step skips what is unset. #}
+      - OSPREY_FACILITY_BUNDLE_DIR={{ svc.container_bundle_dir }}
+{%- endif %}
       - OSPREY_TERMINAL_LANDING_URL={{ landing_url }}
       - OSPREY_TERMINAL_BIND_HOST={{ bind_host }}
       - OSPREY_TERMINAL_WEB_PORT={{ svc.web }}
@@ -842,6 +1005,24 @@ services:
          mounted over an empty directory, while memory, sessions and artifacts
          accumulate in the writable layer and vanish at the next recreate. #}
       - {{ svc.user }}-agent-data:{{ svc.container_agent_data_dir }}
+      {#- This user's audit subdirectory, and ONLY this user's. A bind, not a
+         volume: the records are for the operator to read, grep and purge on the
+         host, which a named volume would bury inside the runtime's storage.
+
+         The isolation is the MOUNT, not a permission: alice's container is
+         handed `var/audit/alice` and nothing else under `var/audit`, so bob's
+         records are not merely unreadable to it — they are not in its
+         filesystem to read. Widening this to the audit root would hand every
+         terminal the whole deployment's trail.
+
+         Read-WRITE, and provisioned host-side before this mount is ever created
+         (compose_generator.ensure_audit_dir, called from the deploy path):
+         left to the container runtime, a rootful daemon creates the missing
+         source owned by root and the dropped `osprey` process inside can write
+         nothing. That helper also makes it setgid + group-writable, which is
+         what keeps the records the container writes purgeable on the host by
+         the operator who deployed it. #}
+      - {{ svc.audit_mount_source }}:{{ svc.container_audit_dir }}
 {%- if facility_bundle_source and svc.container_bundle_dir %}
       {#- THE DEPLOYMENT BUNDLE SHADOWS THE PERSONA'S BAKED COPY. BY DESIGN.
 
@@ -886,10 +1067,17 @@ services:
       #
       # SHARING: the deploy makes this directory setgid + group-writable, so
       # every file written into it is owned by the directory's group whichever
-      # container wrote it, and `group_add` below puts this container in that
-      # group. Both halves are needed -- setgid decides which group owns a new
-      # file, not which groups a process belongs to. If a concept drafted in one
-      # terminal is unreadable in another, check that pair first.
+      # container wrote it. Setgid decides which group OWNS a new file, not
+      # which groups a process belongs to, so membership still has to come
+      # from somewhere -- and this image gets it from TWO mechanisms that
+      # cover different processes. `group_add` below reaches this container's
+      # initial process; it does NOT survive this framework's own entrypoint
+      # dropping privileges with `gosu`, which re-derives the dropped
+      # process's supplementary groups from `/etc/group` and discards
+      # whatever `group_add` granted. The join that DOES survive is the
+      # entrypoint's own root-phase `/etc/group` entry for
+      # OSPREY_FACILITY_BUNDLE_DIR (below), which is why both are here. If a
+      # concept drafted in one terminal is unreadable in another, check both.
       # LIMIT: setgid does not change each file's permission BITS, which still
       # come from the writer's umask (usually 022 -> rw-r--r--). That is enough
       # for another container to READ a draft and for the qmd sidecar to index
@@ -920,31 +1108,18 @@ services:
       # the next recreate discards.
       - {{ ariel_mirror_source }}:{{ svc.container_mirror_dir }}
 {%- endif %}
-      {#- THIS USER'S AUDIT ZONE. The python executor appends its refusal log
-         under `<project>/var/audit` (services/python_executor/refusal_audit.py,
-         anchored on the project root exactly as the agent-data root is), and
-         nothing else in this service backs that path: the agent-data volume
-         beside it is a sibling, not an ancestor. Unbacked, the one record of
-         what the agent tried and was refused lands in the writable layer and
-         is gone at the next recreate — the opposite of what an audit log is
-         for. A host bind rather than a named volume, because the log has to be
-         readable from the host without entering a container. Per user
-         (`var/audit/<user>/`, see compose_generator.user_audit_relpath): every
-         container writes the same fixed filename, so one shared directory
-         would have them overwrite each other. The deploy provisions the
-         directory before this render, in the shared group joined below. #}
-      # This user's refusal audit log (`var/audit/<user>/` on the host), bound
-      # so the record survives a recreate and is readable from the host.
-      - {{ svc.audit_source }}:{{ svc.container_audit_dir }}
 {%- for mount in svc.extra_mounts %}
       - {{ mount }}
 {%- endfor %}
 {#- Every shared host directory bound above, and the group each was provisioned
-    with: the bundle and the mirror where this service is entitled to them, the
-    audit zone always. Collected into one list so one `group_add:` is emitted
-    per service, with each gid once — the deploy creates all of them as the same
-    user, so they usually share a group, and compose rejects nothing for a
-    repeat, but a list that says the same thing twice reads like two groups. #}
+    with: the bundle and the mirror, where this service is entitled to them.
+    Collected into one list so one `group_add:` is emitted per service, with
+    each gid once — the deploy creates both as the same user, so they usually
+    share a group, and compose rejects nothing for a repeat, but a list that
+    says the same thing twice reads like two groups. This user's audit
+    subdirectory is deliberately NOT in the list: its membership is granted
+    inside the container by the entrypoint, which stats the mounted directory
+    itself, so no gid is read back for it at render time. #}
 {%- set shared_gids = [] %}
 {%- if facility_bundle_gid and svc.container_bundle_dir and facility_bundle_gid not in shared_gids %}
 {%- set _ = shared_gids.append(facility_bundle_gid) %}
@@ -952,18 +1127,26 @@ services:
 {%- if ariel_mirror_gid and svc.container_mirror_dir and ariel_mirror_gid not in shared_gids %}
 {%- set _ = shared_gids.append(ariel_mirror_gid) %}
 {%- endif %}
-{%- if audit_gid and audit_gid not in shared_gids %}
-{%- set _ = shared_gids.append(audit_gid) %}
-{%- endif %}
 {%- if shared_gids %}
     # Supplementary group(s) for the shared host directories mounted above (the
-    # knowledge bundle, the ARIEL mirror, this user's audit zone — whichever
-    # this service binds). This is the half of the sharing story setgid cannot
-    # supply: setgid decides which group OWNS a newly written file, but a
-    # process is a MEMBER of only the groups its image gives it, so without
-    # this line the directory's group bits would grant this container nothing
-    # and access would hold only where the deploying user's uid happened to
-    # equal the image's.
+    # knowledge bundle, the ARIEL mirror -- whichever this service binds),
+    # granted to this container's INITIAL process: a process is a MEMBER of
+    # only the groups its image or its runtime gives it, and this is the
+    # runtime half of that grant. On a framework-built image started the normal
+    # way that half is NOT what carries access: the initial process is root,
+    # which bypasses group checks anyway, and the grant the process actually
+    # SERVING requests keeps is the entrypoint's own root-phase `/etc/group`
+    # join for the mounted directories (above) -- `gosu` re-derives
+    # supplementary groups from that file for the target user and discards
+    # whatever this line granted the initial process.
+    #
+    # This line is what is left when that join never runs. A container started
+    # with `--user` takes the entrypoint's non-root branch (`if [ "$(id -u)"
+    # -ne 0 ] ... exec "$@"`), which skips both the join and the drop, so the
+    # groups the runtime granted are the only membership the serving process
+    # has. The same holds for any image started without this framework's
+    # entrypoint at all. Dropping this line would silently take the bundle
+    # and the mirror away from both.
     #
     # Each value is the directory's OWN group id, read off the host at render
     # time -- never a hardcoded id, which would be wrong on every host but the

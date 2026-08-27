@@ -8,11 +8,26 @@ Covers the startup-timing context manager, config-builder priming
 
 from __future__ import annotations
 
+import ast
+import inspect
+import subprocess
+import sys
+from contextlib import ExitStack
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import fastmcp
 import pytest
 
-from osprey.mcp_server import startup
+from osprey.mcp_server import channel_finder_common, startup
+
+# Imported HERE, at test-module scope, on purpose: several tests patch
+# ``importlib.import_module`` globally, and ``install_audit_middleware``'s lazy
+# import of this module would otherwise run its whole import chain through the
+# mock. Pre-importing puts it in ``sys.modules``, so the lazy import resolves
+# from there. The import-closure tests below use subprocesses precisely so this
+# process's own imports cannot mask a regression.
+from osprey.mcp_server.audit_middleware import AuditMiddleware  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # startup_timer
@@ -170,3 +185,205 @@ def test_run_mcp_server_wires_startup_sequence(monkeypatch):
     assert [name for name, _, _ in order.mock_calls] == ["configure_logging", "import_module"]
     # Label is the second-to-last dotted segment.
     assert startup._server_label == "workspace"
+
+
+# ---------------------------------------------------------------------------
+# Audit middleware install wiring
+#
+# The install site is deliberately INSIDE ``run_mcp_server``, after
+# ``load_dotenv_from_project()``: ``fastmcp.settings`` snapshots the environment
+# at fastmcp-import time, so importing the middleware (which imports fastmcp) at
+# ``startup.py`` module scope would freeze the transport before a project
+# ``.env`` had been loaded, and the skip predicate would then disagree with the
+# transport the server actually speaks.
+# ---------------------------------------------------------------------------
+
+
+def _run(server_module: str, *, transport: str, monkeypatch, logger_mock=None):
+    """Drive ``run_mcp_server`` with a mock server and a pinned fastmcp transport.
+
+    Returns the mock server object so callers can assert on ``add_middleware``.
+    """
+    monkeypatch.setattr(startup, "_server_label", startup._server_label)
+    monkeypatch.setattr(fastmcp.settings, "transport", transport)
+
+    server = MagicMock()
+    mod = MagicMock()
+    mod.create_server.return_value = server
+
+    stack = [
+        patch("osprey.mcp_env.load_dotenv_from_project"),
+        patch("osprey.utils.logger.configure_logging"),
+        patch("importlib.import_module", return_value=mod),
+    ]
+    if logger_mock is not None:
+        stack.append(patch.object(startup, "logger", logger_mock))
+    with ExitStack() as es:
+        for ctx in stack:
+            es.enter_context(ctx)
+        startup.run_mcp_server(server_module)
+    return server
+
+
+@pytest.mark.unit
+def test_audit_middleware_is_installed_on_the_stdio_path(monkeypatch):
+    """Every stdio framework server gets exactly one AuditMiddleware."""
+    server = _run("osprey.mcp_server.workspace.server", transport="stdio", monkeypatch=monkeypatch)
+
+    server.add_middleware.assert_called_once()
+    (installed,) = server.add_middleware.call_args.args
+    assert isinstance(installed, AuditMiddleware)
+    # Installed BEFORE the server starts serving, never after.
+    names = [c[0] for c in server.mock_calls]
+    assert names.index("add_middleware") < names.index("run")
+
+
+@pytest.mark.unit
+def test_audit_middleware_is_skipped_off_stdio_with_one_named_warning(monkeypatch):
+    """The event dispatcher (FASTMCP_TRANSPORT=http) is excluded by the predicate.
+
+    The skip is never silent: one WARNING names the server that did not get it.
+    """
+    mock_logger = MagicMock()
+    server = _run(
+        "osprey.dispatch.server", transport="http", monkeypatch=monkeypatch, logger_mock=mock_logger
+    )
+
+    server.add_middleware.assert_not_called()
+    server.run.assert_called_once()
+    skipped = [
+        str(call)
+        for call in mock_logger.warning.call_args_list
+        if "audit middleware NOT installed" in call.args[0]
+    ]
+    assert len(skipped) == 1, mock_logger.warning.call_args_list
+    said = skipped[0]
+    assert "dispatch" in said
+    assert "http" in said
+
+
+@pytest.mark.unit
+def test_the_skip_predicate_reads_fastmcp_settings_not_the_environment(monkeypatch):
+    """An env var fastmcp never saw must not decide the install.
+
+    ``FASTMCP_TRANSPORT`` set after fastmcp imported has no effect on the
+    transport the server actually speaks, so it must have none on the predicate
+    either -- otherwise a late env write silently drops the audit layer while
+    the server keeps talking stdio.
+    """
+    monkeypatch.setenv("FASTMCP_TRANSPORT", "http")
+    server = _run("osprey.mcp_server.workspace.server", transport="stdio", monkeypatch=monkeypatch)
+    server.add_middleware.assert_called_once()
+
+
+@pytest.mark.unit
+def test_the_skip_predicate_follows_settings_with_no_env_var_at_all(monkeypatch):
+    """The mirror case: settings say http, the environment says nothing."""
+    monkeypatch.delenv("FASTMCP_TRANSPORT", raising=False)
+    server = _run("osprey.dispatch.server", transport="http", monkeypatch=monkeypatch)
+    server.add_middleware.assert_not_called()
+
+
+@pytest.mark.unit
+def test_fastmcp_transport_is_the_single_predicate_seam(monkeypatch):
+    """``fastmcp_transport()`` is the one place the transport is read.
+
+    The fastmcp contract test (a project ``.env`` ``FASTMCP_TRANSPORT`` honored
+    by both the predicate and the actual transport) hangs off this seam.
+    """
+    import fastmcp
+
+    monkeypatch.setattr(fastmcp.settings, "transport", "http")
+    assert startup.fastmcp_transport() == "http"
+    monkeypatch.setattr(fastmcp.settings, "transport", "stdio")
+    assert startup.fastmcp_transport() == startup.STDIO_TRANSPORT == "stdio"
+
+
+# ---------------------------------------------------------------------------
+# Import-order contract
+# ---------------------------------------------------------------------------
+
+
+def _module_scope_imports(module) -> set[str]:
+    """Dotted names imported at MODULE SCOPE (``if TYPE_CHECKING:`` excluded)."""
+    tree = ast.parse(Path(inspect.getsourcefile(module)).read_text())
+    names: set[str] = set()
+    for node in tree.body:  # top level only: a nested/guarded import is not module scope
+        if isinstance(node, ast.Import):
+            names.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            names.add(node.module)
+    return names
+
+
+@pytest.mark.unit
+def test_startup_does_not_import_fastmcp_or_the_middleware_at_module_scope():
+    imported = _module_scope_imports(startup)
+    assert not [n for n in imported if n == "fastmcp" or n.startswith("fastmcp.")]
+    assert "osprey.mcp_server.audit_middleware" not in imported
+
+
+@pytest.mark.unit
+def test_channel_finder_common_does_not_import_fastmcp_at_module_scope():
+    """The fastmcp-before-dotenv wrinkle: ``run_cf_main``'s own module used to
+    import fastmcp at module scope, so every ``python -m
+    osprey.mcp_server.channel_finder_<variant>`` froze ``fastmcp.settings``
+    before the project ``.env`` was loaded."""
+    imported = _module_scope_imports(channel_finder_common)
+    assert not [n for n in imported if n == "fastmcp" or n.startswith("fastmcp.")]
+
+
+@pytest.mark.parametrize(
+    "module",
+    ["osprey.mcp_server.startup", "osprey.mcp_server.channel_finder_common"],
+)
+@pytest.mark.unit
+def test_importing_an_entry_point_module_does_not_pull_in_fastmcp(module):
+    """The real closure, not just the direct imports: a transitive import of
+    fastmcp would freeze its settings just as effectively."""
+    code = (
+        "import sys, importlib\n"
+        f"importlib.import_module({module!r})\n"
+        "print('fastmcp' in sys.modules,"
+        " 'osprey.mcp_server.audit_middleware' in sys.modules)"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+    ).stdout.strip()
+    assert out == "False False", f"{module} import closure: {out}"
+
+
+# ---------------------------------------------------------------------------
+# run_cf_main
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_run_cf_main_delegates_to_run_mcp_server(monkeypatch):
+    """Folded in, not re-implemented: one startup sequence, one install site."""
+    seen: list[str] = []
+    monkeypatch.setattr(startup, "run_mcp_server", seen.append)
+    channel_finder_common.run_cf_main("osprey.mcp_server.channel_finder_graph.server")
+    assert seen == ["osprey.mcp_server.channel_finder_graph.server"]
+
+
+@pytest.mark.unit
+def test_run_cf_main_installs_the_audit_middleware_too(monkeypatch):
+    """Wired identically: a channel-finder variant is audited like any other."""
+    monkeypatch.setattr(startup, "_server_label", startup._server_label)
+    monkeypatch.setattr(fastmcp.settings, "transport", "stdio")
+
+    server = MagicMock()
+    mod = MagicMock()
+    mod.create_server.return_value = server
+
+    with (
+        patch("osprey.mcp_env.load_dotenv_from_project"),
+        patch("osprey.utils.logger.configure_logging"),
+        patch("importlib.import_module", return_value=mod),
+    ):
+        channel_finder_common.run_cf_main("osprey.mcp_server.channel_finder_graph.server")
+
+    server.add_middleware.assert_called_once()
+    assert isinstance(server.add_middleware.call_args.args[0], AuditMiddleware)
+    assert startup._server_label == "channel_finder_graph"

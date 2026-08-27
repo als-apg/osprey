@@ -16,6 +16,8 @@ from urllib.parse import urlsplit
 
 import pytest
 
+from osprey.audit import writer
+
 # The port/uvicorn helpers now live in a supported module shared with the docs
 # screenshot runner; re-export them under their historical underscore names so
 # every ``tests/interfaces`` importer stays byte-for-byte unchanged.
@@ -135,21 +137,25 @@ def use_process_web_credentials(app: Any) -> None:
 
 
 # Both seams below restore by hand in a ``finally`` rather than taking the
-# ``monkeypatch`` fixture, and that is load-bearing rather than stylistic.
+# ``monkeypatch`` fixture. That was once load-bearing: an autouse fixture that
+# requests ``monkeypatch`` pulls it into EVERY test's fixture closure, and
+# autouse fixtures are set up first — so ``monkeypatch`` is created before the
+# test's own fixtures and torn down AFTER them. That inversion breaks any
+# fixture that wraps a ``mock.patch`` around a target the test body then
+# re-points with ``monkeypatch.setattr``: the patch's ``__exit__`` puts the real
+# object back first, and ``monkeypatch.undo()`` then restores the value it
+# captured — the mock — leaving it installed for the rest of the worker.
+# ``tests/interfaces/channel_finder`` was exactly that shape, and the leaked
+# ``MagicMock`` answered every later config read in the worker — which is how
+# an unrelated store suite ended up resolving its repo root one directory short.
 #
-# An autouse fixture that requests ``monkeypatch`` pulls it into EVERY test's
-# fixture closure, and autouse fixtures are set up first — so ``monkeypatch``
-# ends up created before the test's own fixtures and therefore torn down AFTER
-# them. That inversion breaks any fixture that wraps a ``mock.patch`` around a
-# target the test body then re-points with ``monkeypatch.setattr``: the patch's
-# ``__exit__`` puts the real object back first, and ``monkeypatch.undo()`` then
-# restores the value it captured — the mock — leaving it installed for the rest
-# of the worker. ``tests/interfaces/channel_finder/test_pending_review_api.py``
-# is exactly that shape (its ``pending_review_client`` fixture patches
-# ``osprey.utils.workspace.load_osprey_config``, and ``_artifact_store_dir``
-# monkeypatches the same name), and the leaked ``MagicMock`` then answered every
-# later config read in the worker — which is how an unrelated store suite ended
-# up resolving its repo root one directory short.
+# ``_isolate_audit_zone`` below does request ``monkeypatch``, so that early
+# creation is now the normal order under this tree. What keeps it harmless is
+# the invariant on the other side: a fixture and a test body that repoint the
+# SAME seam must both go through ``monkeypatch`` (see ``_patch_config`` in
+# ``channel_finder/conftest.py``), so their undos stack in one list and unwind
+# LIFO. Never wrap a fixture-level ``mock.patch`` around a target a test body
+# monkeypatches.
 
 
 @pytest.fixture(autouse=True)
@@ -334,3 +340,23 @@ def chromium_browser() -> Iterator[Browser]:
     finally:
         browser.close()
         pw.stop()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_audit_zone(tmp_path, monkeypatch):
+    """Keep every record an interface-app test fires out of the live ledger.
+
+    ``writer.audit_dir`` is the ledger's one seam — the HTTP middleware, the
+    protected-set funnel and the hook emitters all resolve the zone through
+    it — so redirecting it here contains a whole app test. Interfaces-wide
+    (this directory and every subdirectory) because the modules that need it
+    are exactly the ones whose authors would not think to ask: the auth
+    middleware, token-exchange and ARIEL display-menu suites were filing real
+    ``web_auth`` / ``http_mutation`` records into ``var/audit/<you>/`` on every
+    run. A test that fires no recorder pays nothing. Named privately so the
+    ``audit_zone`` fixtures some modules define still win — an explicitly
+    requested fixture is set up after the autouse one and re-points the seam.
+    """
+    zone = tmp_path / "audit-zone" / "var" / "audit"
+    monkeypatch.setattr(writer, "audit_dir", lambda: zone)
+    return zone

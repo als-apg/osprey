@@ -30,12 +30,12 @@ from osprey.deployment.compose_generator import (
     _stage_dev_wheel_for_context,
     compose_base_cmd,
     compose_provider_env,
+    ensure_audit_dir,
     ensure_shared_corpus_dir,
     resolve_ariel_mirror_dir,
     resolve_facility_bundle_dir,
     resolve_project_name,
     resolve_repo_root,
-    resolve_user_audit_dir,
 )
 from osprey.deployment.runtime_helper import (
     ComposeProvider,
@@ -76,7 +76,6 @@ from osprey.deployment.web_terminals.personas import (
     entry_requires_login,
     normalize_users,
     resolve_personas,
-    roster_user_names,
 )
 from osprey.deployment.web_terminals.postup_hooks import (
     enable_linger,
@@ -84,10 +83,12 @@ from osprey.deployment.web_terminals.postup_hooks import (
     run_verify_script,
     warn_if_web_stack_unreachable,
 )
-from osprey.deployment.web_terminals.render import _auth_tls_context
+from osprey.deployment.web_terminals.render import (
+    AUTH_SIDECAR_AUDIT_IDENTITY,
+    _auth_tls_context,
+)
 from osprey.deployment.web_terminals.seeding import seed_user_containers
 from osprey.utils.logger import get_logger
-from osprey.utils.workspace import AUDIT_DIR_RELPATH
 
 logger = get_logger("deployment.lifecycle")
 
@@ -891,6 +892,39 @@ def build_auth_sidecar_image(
     _report_step(f"auth sidecar image {tag}")
 
 
+def _audit_identities(config: dict) -> list[str]:
+    """Every audit identity the web stack renders a bind mount for.
+
+    The roster, plus ``sidecar`` whenever a sidecar service is rendered at all.
+    Derived from the same two sources the compose overlay renders those services
+    from — :func:`resolve_personas` for the users,
+    :func:`~osprey.deployment.web_terminals.render._auth_tls_context` for the
+    auth method — so the set of directories this deploy provisions is exactly
+    the set of directories the render is about to mount. A directory missing
+    from here is a bind source the container runtime creates root-owned; one too
+    many is an empty directory nobody writes.
+
+    Resolved with ``strict=False``: an unresolvable persona reference renders no
+    service and so needs no directory, and the strict resolve that refuses it
+    (with an explanation this function has none of) runs later on the same path.
+
+    :param config: The deployment configuration
+    :type config: dict
+    :return: Audit identities, roster order, sidecar last
+    :rtype: list[str]
+    """
+    web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
+    facility_prefix = (config.get("facility") or {}).get("prefix") or ""
+    registry_cfg = config.get("registry") or {}
+    identities = [
+        entry["name"]
+        for entry in resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=False)
+    ]
+    if _auth_tls_context(web_terminals)["auth_method"] != "none":
+        identities.append(AUTH_SIDECAR_AUDIT_IDENTITY)
+    return identities
+
+
 def _resolved_repo_root(config: dict, repo_root: Path | str | None) -> Path:
     """This deployment's repo root, resolving it only if nobody handed one down.
 
@@ -1354,15 +1388,22 @@ def deploy_up_web_terminals(
                 "(every entitled web terminal writes it; the sidecar indexes it read-only)."
             )
 
-    # Each roster user's audit zone (`var/audit/<user>/`), bound into that
-    # user's container where its python executor appends the refusal log. The
-    # zone's root is provisioned first so the per-user directories inherit
-    # its group — the one the render emits for every service — and each
-    # subdirectory is created here rather than by the runtime, which would
-    # create a missing bind source owned by root.
-    ensure_shared_corpus_dir(Path(repo_root) / AUDIT_DIR_RELPATH, relative_to=repo_root)
-    for user in roster_user_names((config.get("modules") or {}).get("web_terminals") or {}):
-        ensure_shared_corpus_dir(resolve_user_audit_dir(repo_root, user), relative_to=repo_root)
+    # Every audit subdirectory this stack is about to bind: one per roster user,
+    # plus the sidecar's fixed one whenever a sidecar is rendered. Provisioned
+    # BEFORE the render for the same ordering reason the bundle above is, minus
+    # one: no gid is read back here, because the group membership that survives
+    # the privilege drop is granted inside the container by the entrypoint,
+    # which stats the mounted directory itself. What still has to be true before
+    # compose runs is that the directory EXISTS and is group-writable — a bind
+    # source the container runtime creates is root-owned, and the dropped
+    # `osprey` process then writes nothing while the deployment looks healthy.
+    #
+    # Resolved non-strictly: an unresolvable roster entry renders no service, so
+    # it needs no directory, and refusing here would move the strict resolve's
+    # error (raised below, with its own explanation) to a place that cannot
+    # explain it.
+    for identity in _audit_identities(config):
+        ensure_audit_dir(repo_root, identity, relative_to=repo_root)
 
     write_web_terminal_artifacts(config, repo_root)
 

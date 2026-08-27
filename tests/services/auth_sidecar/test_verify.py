@@ -334,7 +334,7 @@ class TestOidcMode:
 
 
 class TestSubjectHeader:
-    """An authorized OIDC request reports the account behind it."""
+    """An authorized request reports the account behind it, in either method."""
 
     SUBJECT_HEADER = "X-Osprey-Auth-Subject"
     ALICE_SUBJECT = "idp|alice"
@@ -346,13 +346,15 @@ class TestSubjectHeader:
         assert response.status_code == 200
         assert response.headers[self.SUBJECT_HEADER] == self.ALICE_SUBJECT
 
-    def test_password_session_omits_the_subject_header(self) -> None:
-        """A password entry has no subject, so the header is absent, not blank."""
+    def test_password_session_names_the_roster_user(self) -> None:
+        """A password session has no provider account, so the roster username
+        *is* the account behind it — and that is what the header names. The
+        header's meaning is unchanged: present still means a known account."""
         cookie = _mint(_unlocked("alice"))
         with TestClient(_app()) as client:
             response = _verify(client, "alice", cookie)
         assert response.status_code == 200
-        assert self.SUBJECT_HEADER.lower() not in response.headers
+        assert response.headers[self.SUBJECT_HEADER] == "alice"
 
     def test_oidc_session_without_a_subject_still_verifies_and_omits_the_header(self) -> None:
         """Backward compat: a session minted before the subject was carried

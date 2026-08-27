@@ -40,6 +40,7 @@ from osprey.interfaces.web_terminal.feedback_composer import (
     PAYLOAD_SEPARATOR,
 )
 from osprey.interfaces.web_terminal.routes.feedback import router
+from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 
 SESSION_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301"
 OTHER_SESSION_ID = "11111111-2222-3333-4444-555555555555"
@@ -364,10 +365,47 @@ def test_send_fails_loudly_when_the_record_cannot_be_written(
     assert "detail" in response.json()
 
 
+def test_send_identity_prefers_the_terminal_user_over_every_environment_rung(
+    env: _Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # ``app.state.terminal_user`` stays the first rung after the delegation: it
+    # is the seam a test (and an embedder) can set without touching the
+    # process environment, and in production the lifespan populates it from
+    # ``OSPREY_TERMINAL_USER`` anyway.
+    env.client.app.state.terminal_user = "  operator  "
+    monkeypatch.setenv(TERMINAL_USER_ENV, "env-user")
+    monkeypatch.setenv(AUDIT_IDENTITY_ENV, "service-key")
+    monkeypatch.setattr("getpass.getuser", lambda: "hostaccount")
+
+    env.client.post("/api/feedback", json=_send_body())
+
+    assert env.headers()[0]["identity"] == "operator"
+
+
+def test_send_identity_is_the_service_identity_in_a_container_without_a_terminal_user(
+    env: _Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Deliberate behaviour change: a containerized web terminal that hosts no
+    # single user files the report under the identity the deployment gave the
+    # container, not under the process account -- ``osprey`` or ``root`` names
+    # nobody, and it would disagree with what every other audit record on that
+    # container carries.
+    env.client.app.state.terminal_user = ""
+    monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
+    monkeypatch.setenv(AUDIT_IDENTITY_ENV, "dispatch-worker")
+    monkeypatch.setattr("getpass.getuser", lambda: "root")
+
+    env.client.post("/api/feedback", json=_send_body())
+
+    assert env.headers()[0]["identity"] == "dispatch-worker"
+
+
 def test_send_falls_back_to_the_process_account_without_a_terminal_user(
     env: _Env, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     env.client.app.state.terminal_user = ""
+    monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
+    monkeypatch.delenv(AUDIT_IDENTITY_ENV, raising=False)
     monkeypatch.setattr("getpass.getuser", lambda: "hostaccount")
 
     env.client.post("/api/feedback", json=_send_body())
@@ -379,6 +417,8 @@ def test_send_identity_is_unknown_when_the_process_account_is_unavailable(
     env: _Env, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     env.client.app.state.terminal_user = ""
+    monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
+    monkeypatch.delenv(AUDIT_IDENTITY_ENV, raising=False)
 
     def _boom() -> str:
         raise KeyError("no pwd entry")

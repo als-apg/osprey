@@ -1,3 +1,17 @@
+{#-
+  Runtime contract for the write-gating layers: the osprey_writes_check.py
+  PreToolUse hook and the MCP audit middleware both read this file as data.
+  Every key is emitted UNCONDITIONALLY — never under the writes-off
+  kill-switch condition — because both consumers run under a readonly session
+  posture too, where that condition never applied.
+
+  `mcp__<name>__.*` is what the registry gives a facility-custom server that
+  opts into writes_check: its tool names are unknown at render time. That
+  matcher lands in `write_tools` like any other (it is also what
+  read_only_disallowed_tools is built from), and the hooks' shared
+  `is_write_tool` honours the trailing wildcard — so every tool on such a
+  server is gated, reads included.
+-#}
 {%- set server_pfx = [] -%}
 {%- set approval_pfx = [] -%}
 {%- set write_tools = [] -%}
@@ -23,5 +37,6 @@
   "server_prefixes": {{ server_pfx | tojson }},
   "approval_prefixes": {{ approval_pfx | tojson }},
   "write_tools": {{ write_tools | tojson }},
+  "mixed_read_write_tools": {{ mixed_read_write_tools | default([], true) | tojson }},
   "lane_addressed_tools": {{ lane_addressed_tools | default([], true) | tojson }}
 }

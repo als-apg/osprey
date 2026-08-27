@@ -26,7 +26,6 @@ Three things about these handlers are deliberate and easy to undo by accident:
 
 from __future__ import annotations
 
-import getpass
 import hashlib
 import logging
 from datetime import UTC, datetime
@@ -49,6 +48,7 @@ from osprey.interfaces.web_terminal.feedback_store import (
     prune_store,
     write_record,
 )
+from osprey.utils.identity import acting_identity
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -193,19 +193,26 @@ def _utc_now() -> datetime:
 def _identity(request: Request) -> str:
     """Who filed this report, as the deployment sees it.
 
-    ``OSPREY_TERMINAL_USER`` is what a multi-user deployment sets per container;
-    a developer laptop has no such value, so the process account stands in. A
-    container with neither (no ``pwd`` entry for the uid is normal in a slim
-    image) reports ``"unknown"`` rather than failing the submission.
+    ``app.state.terminal_user`` stays the first rung: the lifespan populates it
+    from ``OSPREY_TERMINAL_USER``, but it is also settable directly, so it is
+    the seam an embedder (and a test) can drive without touching the process
+    environment. Everything below it is :func:`acting_identity`, the one ladder
+    every audit surface reads, so a report and the records around it cannot name
+    two different actors.
+
+    **This changed the fallback deliberately.** A containerized web terminal
+    with no terminal user used to file under the process account; it now files
+    under ``OSPREY_AUDIT_IDENTITY``, the identity the deployment gave that
+    container. The old answer — ``osprey`` or ``root`` — named nobody and
+    disagreed with every other record the same container writes. A laptop, which
+    sets neither marker, still gets its process account; a slim image with no
+    ``pwd`` entry for its uid still reports ``"unknown"`` rather than failing the
+    submission.
     """
     terminal_user = getattr(request.app.state, "terminal_user", "")
     if isinstance(terminal_user, str) and terminal_user.strip():
         return terminal_user.strip()
-    try:
-        return getpass.getuser() or "unknown"
-    except Exception:  # noqa: BLE001 — an unresolvable account must not lose the report
-        logger.debug("feedback: no process account available for identity", exc_info=True)
-        return "unknown"
+    return acting_identity()
 
 
 def _version() -> str:
