@@ -132,8 +132,13 @@ _RESOURCE_COUNT_CYPHER = "MATCH (r:Resource) RETURN count(r) AS resource_count"
 
 _READ_MARKER_CYPHER = f"MATCH (m:{SEED_MARKER_LABEL}) RETURN m.sha256 AS sha256 LIMIT 1"
 
+_READ_DIRECTION_SOURCE_CYPHER = (
+    f"MATCH (m:{SEED_MARKER_LABEL}) RETURN m.directionSource AS directionSource LIMIT 1"
+)
+
 _WRITE_MARKER_CYPHER = (
-    f"MERGE (m:{SEED_MARKER_LABEL} {{kind: 'ttl'}}) SET m.sha256 = $sha256, m.seededAt = datetime()"
+    f"MERGE (m:{SEED_MARKER_LABEL} {{kind: 'ttl'}}) "
+    "SET m.sha256 = $sha256, m.directionSource = $directionSource, m.seededAt = datetime()"
 )
 
 _IMPORT_CYPHER = (
@@ -469,6 +474,44 @@ def ttl_sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def parse_direction_source(text: str) -> str | None:
+    """Return the direction source a TTL payload declares, or ``None``.
+
+    ``build-ttl`` knows which rule decided the corpus's read/write directions
+    and records it as a leading comment (the emitter's
+    ``DIRECTION_SOURCE_HEADER``); the graph agents that later describe the store
+    run from a different command, so the file is the only channel between them.
+    This reads that comment back off the same text the import receives, which is
+    also the text :func:`ttl_sha256` digests — so what the marker claims is
+    always what was actually imported, never what some other copy on disk says.
+
+    A byte-order mark and leading blank lines are tolerated, because a corpus
+    curated by hand or round-tripped through an editor may carry either; only
+    the first line with content is examined.  Anything else — a corpus built by
+    an older osprey, or a hand-written one — yields ``None``, and the callers
+    record no source rather than guessing at one.
+
+    Args:
+        text: The Turtle payload.
+
+    Returns:
+        The declared source token (``"limits"`` / ``"grammar"``), or ``None``
+        when the payload declares none.
+    """
+    # Imported here, not at module top: the emitter's package reaches back into
+    # this one for the NARAD prefix table, so a top-level import would close a
+    # cycle through the partially-initialized seeder package.
+    from ..ttl_generator.emitter import DIRECTION_SOURCE_HEADER
+
+    for line in text.lstrip("\ufeff").splitlines():
+        if not line.strip():
+            continue
+        if not line.startswith(DIRECTION_SOURCE_HEADER):
+            return None
+        return line[len(DIRECTION_SOURCE_HEADER) :].strip() or None
+    return None
+
+
 def read_marker(session: Session) -> str | None:
     """Return the sha256 recorded on the ``(:_OspreySeed)`` marker, if any.
 
@@ -488,7 +531,31 @@ def read_marker(session: Session) -> str | None:
     return str(sha256) if sha256 is not None else None
 
 
-def write_marker(session: Session, sha256: str) -> None:
+def read_direction_source(session: Session) -> str | None:
+    """Return the direction source recorded on the ``(:_OspreySeed)`` marker.
+
+    The companion to :func:`read_marker`, and the last leg of the provenance
+    chain: ``build-ttl`` writes the header, the seeder parses it into the marker,
+    and the prompt snapshot reads it back here to tell the graph agents where
+    their corpus's read/write directions came from.
+
+    Args:
+        session: An open driver session.
+
+    Returns:
+        The stored token (``"limits"`` / ``"grammar"``), or ``None`` — no
+        marker, a marker written before this property existed, or a corpus whose
+        header declared nothing.  All three mean the same thing to a caller:
+        say nothing rather than guess.
+    """
+    record = session.run(_READ_DIRECTION_SOURCE_CYPHER).single()
+    if record is None:
+        return None
+    direction_source = record["directionSource"]
+    return str(direction_source) if direction_source is not None else None
+
+
+def write_marker(session: Session, sha256: str, direction_source: str | None = None) -> None:
     """Record *sha256* on the singleton ``(:_OspreySeed)`` marker node.
 
     **Sequencing is the caller's job, and it is load-bearing:** call this only
@@ -502,8 +569,17 @@ def write_marker(session: Session, sha256: str) -> None:
     Args:
         session: An open driver session.
         sha256: Hex digest of the TTL text that was imported.
+        direction_source: What :func:`parse_direction_source` read off that same
+            text, or ``None`` for a corpus declaring none.  It is written in the
+            same ``MERGE`` as the digest, so the two can never describe different
+            corpora, and it is nullable so re-seeding with an older corpus clears
+            a stale claim instead of leaving one behind.
     """
-    session.run(_WRITE_MARKER_CYPHER, sha256=sha256).consume()
+    session.run(
+        _WRITE_MARKER_CYPHER,
+        sha256=sha256,
+        directionSource=direction_source,
+    ).consume()
 
 
 def import_ttl(session: Session, text: str) -> ImportResult:

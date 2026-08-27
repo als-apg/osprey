@@ -133,7 +133,11 @@ def _seeded_store(plugin_dir: Path, ttl_text: str, label: str) -> Iterator[str]:
             assert bootstrap.ok, bootstrap.message
             imported = graph_seeder.import_ttl(session, ttl_text)
             assert imported.termination_status == graph_seeder.TERMINATION_OK, imported.extra_info
-            graph_seeder.write_marker(session, graph_seeder.ttl_sha256(ttl_text))
+            graph_seeder.write_marker(
+                session,
+                graph_seeder.ttl_sha256(ttl_text),
+                graph_seeder.parse_direction_source(ttl_text),
+            )
             logger.info(
                 f"{label}: seeded {imported.triples_loaded} triples, "
                 f"{graph_seeder.resource_count(session)} Resource nodes"

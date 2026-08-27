@@ -150,7 +150,11 @@ def _seed(uri: str, ttl: str, label: str) -> None:
             f"n10s parsed {imported.triples_parsed} triples out of the {label} corpus "
             f"but committed {imported.triples_loaded}"
         )
-        graph_seeder.write_marker(session, graph_seeder.ttl_sha256(ttl))
+        graph_seeder.write_marker(
+            session,
+            graph_seeder.ttl_sha256(ttl),
+            graph_seeder.parse_direction_source(ttl),
+        )
         logger.info(
             f"{label}: seeded {imported.triples_loaded} triples, "
             f"{graph_seeder.resource_count(session)} Resource nodes"

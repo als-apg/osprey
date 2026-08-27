@@ -67,7 +67,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .direction import DIRECTION_READ, DIRECTION_WRITE
+from .direction import DIRECTION_READ, DIRECTION_WRITE, DirectionSource
 from .model import (
     NARAD_PROPERTY_NS,
     NARAD_SEM_NS,
@@ -85,6 +85,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
 
 __all__ = [
     "CHANNEL_BINDING_CLASS_IRI",
+    "DIRECTION_SOURCE_HEADER",
     "OBJECT_PROPERTY_NAMES",
     "PREFIXES",
     "PROPERTY_NAMES",
@@ -116,6 +117,21 @@ PREFIXES: dict[str, str] = {
     "skos": SKOS_NS,
     "xsd": XSD_NS,
 }
+
+#: Comment prefix carrying the corpus's direction provenance on the first line.
+#:
+#: A Turtle comment rather than a triple, deliberately.  A provenance *triple*
+#: would need a subject the NARAD convention does not define, and neosemantics
+#: imports every subject as a ``:Resource`` — so it would show up in the graph
+#: agents' schema report and inflate the resource count of the very corpus it
+#: describes.  A leading comment is invisible to the importer and costs the
+#: shipped corpora exactly one line.
+#:
+#: The value is the bare :class:`~osprey.services.facility_knowledge.ttl_generator.direction.DirectionSource`
+#: token — never the limits file's path.  The corpora are committed to the
+#: repository and regenerated on whichever machine happens to build them, so a
+#: build-host path in the header would make the file unreproducible.
+DIRECTION_SOURCE_HEADER = "# osprey:direction-source "
 
 RDF_TYPE = f"{RDF_NS}type"
 RDFS_LABEL = f"{RDFS_NS}label"
@@ -654,16 +670,34 @@ def build_graph(model: GraphModel, ontology: OntologyMap) -> rdflib.Graph:
     return graph
 
 
-def serialize_turtle(model: GraphModel, ontology: OntologyMap) -> str:
+def serialize_turtle(
+    model: GraphModel,
+    ontology: OntologyMap,
+    *,
+    direction_source: DirectionSource | str | None = None,
+) -> str:
     """Serialise the corpus as deterministic Turtle text.
 
     Pure text assembly — no ``rdflib`` involved, so this keeps rdflib out of
     the emitter's import graph.  Identical input always yields identical output,
     byte for byte.
 
+    **Direction provenance.**  ``build-ttl`` knows which rule produced the
+    corpus's read/write directions, but the graph agents that later describe the
+    corpus run from a different command; the file itself is the only channel
+    between them.  A deployment emitting through the library API therefore
+    states its source by passing *direction_source*, and the value is recorded as
+    a :data:`DIRECTION_SOURCE_HEADER` comment on the first line.  Absent it, the
+    corpus records no source and the agents' baked snapshot prints no provenance
+    line — which is the honest reading of a corpus that never said.
+
     Args:
         model: The derived graph, with directions already assigned.
         ontology: The FAMILY-to-class table.
+        direction_source: Which rule produced the directions, as a
+            :class:`~osprey.services.facility_knowledge.ttl_generator.direction.DirectionSource`
+            or its bare value.  ``None`` emits the document unchanged, byte for
+            byte, from what it was before the header existed.
 
     Returns:
         The Turtle document, ending in a newline.
@@ -677,7 +711,10 @@ def serialize_turtle(model: GraphModel, ontology: OntologyMap) -> str:
         objects = by_subject.setdefault(subject, {}).setdefault(predicate, {})
         objects[(obj.kind, obj.value)] = obj
 
-    lines = [f"@prefix {prefix}: <{namespace}> ." for prefix, namespace in PREFIXES.items()]
+    lines: list[str] = []
+    if direction_source is not None:
+        lines.append(f"{DIRECTION_SOURCE_HEADER}{DirectionSource(direction_source).value}")
+    lines += [f"@prefix {prefix}: <{namespace}> ." for prefix, namespace in PREFIXES.items()]
     lines.append("")
     for subject, predicates in by_subject.items():
         lines.extend(_subject_block(subject, predicates))
@@ -716,13 +753,22 @@ def _subject_block(subject: str, predicates: dict[str, dict[tuple[str, str], _Te
     return lines
 
 
-def write_turtle(model: GraphModel, ontology: OntologyMap, path: Path) -> Path:
+def write_turtle(
+    model: GraphModel,
+    ontology: OntologyMap,
+    path: Path,
+    *,
+    direction_source: DirectionSource | str | None = None,
+) -> Path:
     """Serialise the corpus and write it to *path* as UTF-8.
 
     Args:
         model: The derived graph, with directions already assigned.
         ontology: The FAMILY-to-class table.
         path: File to write.  Missing parent directories are created.
+        direction_source: Forwarded to :func:`serialize_turtle`, which records it
+            as the file's first line.  ``None`` writes the same bytes it always
+            did.
 
     Returns:
         *path*, so a caller can report where the corpus landed.
@@ -732,7 +778,7 @@ def write_turtle(model: GraphModel, ontology: OntologyMap, path: Path) -> Path:
         UnknownFamilyError: If a device family has no class in the table.
         OSError: If the file cannot be written.
     """
-    text = serialize_turtle(model, ontology)
+    text = serialize_turtle(model, ontology, direction_source=direction_source)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")

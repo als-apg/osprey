@@ -1,3 +1,4 @@
+# osprey:direction-source limits
 @prefix narad_p: <https://narad.example.org/property/> .
 @prefix narad_sem: <https://narad.example.org/schema/shared_semantics/> .
 @prefix owl: <http://www.w3.org/2002/07/owl#> .

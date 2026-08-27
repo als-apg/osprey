@@ -269,15 +269,24 @@ def committed_graph() -> Any:
 
 
 @pytest.fixture(scope="module")
-def regenerated_graph(directed_model: Any) -> Any:
-    """The corpus as generating it from today's inputs would write it."""
+def regenerated_graph(directed_model_and_report: tuple[Any, Any]) -> Any:
+    """The corpus as generating it from today's inputs would write it.
+
+    The direction source travels with the model, exactly as ``build-ttl`` sends
+    it, so this fixture regenerates the file the verb would actually write.
+    """
     from rdflib import Graph
 
     from osprey.services.facility_knowledge.ttl_generator import emitter, ontology_map
 
+    directed_model, report = directed_model_and_report
     graph = Graph()
     graph.parse(
-        data=emitter.serialize_turtle(directed_model, ontology_map.load_demo_ontology()),
+        data=emitter.serialize_turtle(
+            directed_model,
+            ontology_map.load_demo_ontology(),
+            direction_source=report.source,
+        ),
         format="turtle",
     )
     return graph

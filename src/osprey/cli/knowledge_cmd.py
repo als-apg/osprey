@@ -513,6 +513,11 @@ def seed_graph(ttl: Path | None, force: bool) -> None:
     # staging step read one another's markers rather than re-seeding on sight.
     digest = graph_seeder.ttl_sha256(text)
 
+    # Read off the same text, so the marker's provenance and its digest can only
+    # ever describe the one corpus. A file built before the header existed
+    # declares nothing, and the snapshot then states nothing.
+    direction_source = graph_seeder.parse_direction_source(text)
+
     try:
         connection = resolve_graphdb_connection(_graphdb_block())
     except ValueError as exc:
@@ -556,7 +561,7 @@ def seed_graph(ttl: Path | None, force: bool) -> None:
             # Only now: a marker written before this point would label a
             # half-imported graph as a good seed, and every later run would
             # report it as unchanged.
-            graph_seeder.write_marker(session, digest)
+            graph_seeder.write_marker(session, digest, direction_source)
 
             state = "Overwritten" if force else "Seeded"
             report(f"{state}. The graph store at {connection.uri} now holds {ttl}.")
@@ -1030,7 +1035,12 @@ def build_ttl(
     graph_model, direction_report = _assign_directions(graph_model, limits)
 
     try:
-        written = emitter.write_turtle(graph_model, ontology_table, output)
+        written = emitter.write_turtle(
+            graph_model,
+            ontology_table,
+            output,
+            direction_source=direction_report.source,
+        )
     except emitter.UndirectedSignalError as exc:
         raise click.ClickException(
             f"The corpus was not written because a signal has no direction: {exc}"
