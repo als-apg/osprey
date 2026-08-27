@@ -13,6 +13,16 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- A server spec that `extends:` a framework server and carries a malformed
+  `env:` (a list, a string, a number) no longer crashes the whole resolve;
+  the clone renders with the template's env and a warning names the spec,
+  as a custom server already did. (#748)
+- Web terminals: the ARIEL logbook mirror bound into each entitled terminal
+  is now writable by the `qmd_export` module that runs there. The mirror's
+  group was granted only through compose `group_add:`, which the
+  entrypoint's privilege drop discards; the render now names the mount to
+  the entrypoint, which joins its group before the drop, as it already did
+  for the knowledge bundle. (#747)
 - The facility-knowledge-graph agent prose and the channel-finder example
   catalogue no longer claim read/write direction comes from the limits file;
   direction is one edge per signal group, whatever produced it. (#742)
@@ -110,6 +120,9 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- Web terminals: the session menu behind the header chip shows the role the
+  login resolved to, next to the user name. Nothing is shown when the login
+  carried no role, or on a single-user terminal. (#746, part 1)
 - `osprey knowledge build-ttl --facility` (and `build_model(facility=...)`): the
   facility token minted into every graph identifier is an input the model
   carries, not a module constant a deployment had to patch in two places. (#740)
