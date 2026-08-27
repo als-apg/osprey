@@ -65,13 +65,18 @@ from .web_terminals.test_golden_render import EXAMPLE_CONFIG
 #: The bundle the reference config mounts when a test needs the bundle half.
 BUNDLE_PATH = "data/facility_knowledge"
 
+#: The ARIEL qmd mirror the reference config mounts when a test needs that half.
+MIRROR_PATH = "var/ariel_mirror"
+
 
 # ---------------------------------------------------------------------------
 # Rendering helpers
 # ---------------------------------------------------------------------------
 
 
-def _web_config(*, auth: bool = False, bundle: bool = False, personas: bool = False) -> dict:
+def _web_config(
+    *, auth: bool = False, bundle: bool = False, mirror: bool = False, personas: bool = False
+) -> dict:
     """The reference roster, with the optional halves this file exercises."""
     config = copy.deepcopy(EXAMPLE_CONFIG)
     web_terminals = config["modules"]["web_terminals"]
@@ -82,6 +87,12 @@ def _web_config(*, auth: bool = False, bundle: bool = False, personas: bool = Fa
         web_terminals["auth"] = {"method": "password", "allow_insecure_http": True}
     if bundle:
         config["facility_knowledge"] = {"bundle_path": BUNDLE_PATH}
+    if mirror:
+        config["ariel"] = {
+            "enhancement_modules": {
+                "qmd_export": {"enabled": True, "settings": {"mirror_path": MIRROR_PATH}}
+            }
+        }
     if personas:
         web_terminals["personas"] = {
             "operator": {"project": "dls-operator", "project_path": "../dls-operator"},
@@ -326,6 +337,32 @@ def test_no_bundle_dir_without_a_bundle_mount():
     services = _web_services()
 
     assert "OSPREY_FACILITY_BUNDLE_DIR" not in _env(services["web-alice"])
+
+
+# ---------------------------------------------------------------------------
+# The mirror directory, named for the same step
+# ---------------------------------------------------------------------------
+
+
+def test_the_mirror_dir_is_named_when_a_mirror_is_mounted():
+    """The ARIEL qmd mirror is the third directory the entrypoint's root phase
+    joins — the exporter writing it runs as the dropped user, which `group_add:`
+    alone never reaches. Named by the mount's actual target, like the bundle."""
+    services = _web_services(mirror=True)
+
+    service = services["web-alice"]
+    mirror_targets = [
+        mount.split(":")[1] for mount in service["volumes"] if MIRROR_PATH in mount.split(":")[0]
+    ]
+    assert len(mirror_targets) == 1, service["volumes"]
+    assert _env(service)["OSPREY_ARIEL_MIRROR_DIR"] == mirror_targets[0]
+
+
+def test_no_mirror_dir_without_a_mirror_mount():
+    """A deployment running no qmd export binds no mirror and names none."""
+    services = _web_services()
+
+    assert "OSPREY_ARIEL_MIRROR_DIR" not in _env(services["web-alice"])
 
 
 # ---------------------------------------------------------------------------

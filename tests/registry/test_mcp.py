@@ -656,6 +656,29 @@ class TestExtendsServers:
         assert "phoebus2" not in {s["name"] for s in servers}
         assert any("Unknown extends target" in r.message for r in caplog.records)
 
+    @pytest.mark.parametrize(
+        "bad_env", [None, ["A=1"], "A=1", 7], ids=["null", "list", "str", "int"]
+    )
+    def test_extends_clone_malformed_env_is_dropped_not_fatal(self, caplog, bad_env):
+        """The extends mirror of the custom-server case: a non-mapping ``env:``
+        on a clone used to reach ``merged_env.update()`` and crash the WHOLE
+        resolve (``ValueError`` for a list/str, ``TypeError`` for an int). The
+        clone now renders with the template's env alone and the warning names
+        the spec, exactly as a custom server does. ``env: null`` stays valid
+        and warning-free on both paths: absent, not malformed."""
+        cfg = {"servers": {"phoebus2": {"extends": "phoebus", "env": bad_env}}}
+        with caplog.at_level(logging.WARNING):
+            p2 = _resolve_one(cfg, "phoebus2")
+        template = _resolve_one({"servers": {"phoebus": {"enabled": True}}}, "phoebus")
+        expected = dict(template["env"])
+        expected["OSPREY_SERVER_NAME"] = "phoebus2"
+        expected["OSPREY_MCP_TOOL_PREFIX"] = "phoebus2"
+        assert p2["env"] == expected
+        if bad_env is None:
+            assert "malformed env" not in caplog.text
+        else:
+            assert "malformed env" in caplog.text and "phoebus2" in caplog.text
+
     def test_duplicate_allow_override_cannot_defeat_ask_union(self, caplog):
         """Duplicated entries in an override's permissions.allow must not defeat
         the single-.remove() ask-union guard: drive ends ONLY in ask."""

@@ -11,8 +11,8 @@ drop. The bind-mounted audit subdir and facility bundle are owned by a HOST
 group, and the dropped process reaches them through membership rather than
 ownership — so the group has to be in ``/etc/group`` and ``osprey`` has to be
 in it before ``exec gosu``. The set of directories is named by the render
-(``OSPREY_AUDIT_DIR``, ``OSPREY_FACILITY_BUNDLE_DIR``) and the gid is stat'd off
-the mount, never passed in. Root and system gids are refused, because a mount
+(``OSPREY_AUDIT_DIR``, ``OSPREY_FACILITY_BUNDLE_DIR``, ``OSPREY_ARIEL_MIRROR_DIR``)
+and the gid is stat'd off the mount, never passed in. Root and system gids are refused, because a mount
 that presents one must not hand the agent's user a privileged group. And a
 join is not claimed until it is VERIFIED: membership is the mechanism, while
 write access to the mount is the property the audit trail depends on, so the
@@ -53,9 +53,11 @@ TEMPLATE = (
     / "entrypoint.sh"
 )
 
-#: The two variables the render names, and the only two the join may read.
+#: The variables the render names, and the only ones the join may read.
 AUDIT_VAR = "OSPREY_AUDIT_DIR"
 BUNDLE_VAR = "OSPREY_FACILITY_BUNDLE_DIR"
+MIRROR_VAR = "OSPREY_ARIEL_MIRROR_DIR"
+RENDER_NAMED_VARS = frozenset({AUDIT_VAR, BUNDLE_VAR, MIRROR_VAR})
 
 #: The marker that routes the root phase's records to their own file.
 WRITER_VAR = "OSPREY_AUDIT_WRITER"
@@ -133,21 +135,23 @@ class TestScriptShape:
         drop = text.index('exec gosu osprey "$@"')
         assert join < drop, "the group join runs after gosu, where it grants nothing"
 
-    def test_the_join_reads_only_the_two_render_named_variables(self, text: str):
+    def test_the_join_reads_only_the_render_named_variables(self, text: str):
         """Named by the render, never guessed: this script reads no config.
 
         Scanned over the WHOLE mounted-group section — both the dispatcher and
         ``join_mounted_group``, which is where every read that decides what
         gets stat'd and joined actually lives. A slice of the dispatcher alone
-        would let a third variable steer the join from inside the worker."""
+        would let a fourth variable steer the join from inside the worker.
+        The set is a deliberate allowlist: widening it means adding exactly
+        one name here, never loosening the scan."""
         start = text.index("join_mounted_group() {")
         end = text.index("# \u2500\u2500 state-zone hand-back")
         section = text[start:end]
         assert "join_mounted_groups() {" in section, "the slice lost the dispatcher"
         code = "\n".join(line for line in section.splitlines() if not line.lstrip().startswith("#"))
-        assert AUDIT_VAR in code
-        assert BUNDLE_VAR in code
-        others = set(re.findall(r"\bOSPREY_[A-Z_]+\b", code)) - {AUDIT_VAR, BUNDLE_VAR}
+        read = set(re.findall(r"\bOSPREY_[A-Z_]+\b", code))
+        assert RENDER_NAMED_VARS <= read, f"a render-named mount is never joined: {read}"
+        others = read - RENDER_NAMED_VARS
         assert not others, f"the join reads variables the render does not name: {others}"
 
     def test_the_gid_is_stat_ed_off_the_mount(self, text: str):
@@ -237,6 +241,12 @@ class Sandbox:
         character — and the one these tests use to pin quoting."""
         return self._mount(self.tmp / name, gid)
 
+    def mirror_mount(self, gid: int, name: str = "mirror") -> Path:
+        """The deployment's ARIEL qmd mirror: a host-group mount for exactly
+        the reason the bundle is, written by this container's own exporter
+        after the drop and indexed by the sidecar on the host."""
+        return self._mount(self.tmp / name, gid)
+
     def _mount(self, path: Path, gid: int) -> Path:
         path.mkdir(parents=True, exist_ok=True)
         with self.gid_map.open("a") as handle:
@@ -255,6 +265,7 @@ class Sandbox:
         uid: int = 0,
         audit_dir: Path | str | None = None,
         bundle_dir: Path | str | None = None,
+        mirror_dir: Path | str | None = None,
         groupadd_rc: int = 0,
         usermod_rc: int = 0,
         stat_rc: int | None = None,
@@ -294,6 +305,8 @@ class Sandbox:
             env[AUDIT_VAR] = str(audit_dir)
         if bundle_dir is not None:
             env[BUNDLE_VAR] = str(bundle_dir)
+        if mirror_dir is not None:
+            env[MIRROR_VAR] = str(mirror_dir)
 
         command = ["/bin/sh", "-c", f'printf "cmd\\n" >> "{order_log}"']
         result = subprocess.run(
@@ -527,6 +540,46 @@ class TestTheGroupJoin:
         assert run.returncode == 0, run.stderr
         assert _groupadds(run) == ["groupadd 3000 osprey-mount-3000"]
         assert _usermods(run) == ["usermod osprey-mount-3000 osprey"]
+
+    def test_the_mirror_mount_is_joined_too(self, sandbox: Sandbox):
+        """The ARIEL mirror is the third host-group mount: the exporter that
+        writes it runs as the DROPPED user, so a `group_add:` alone (which
+        gosu discards) left every entry enhanced from a terminal unwritable
+        or root-owned on the host."""
+        audit = sandbox.audit_mount(gid=3000)
+        mirror = sandbox.mirror_mount(gid=5000)
+
+        run = sandbox.run(audit_dir=audit, mirror_dir=mirror)
+
+        assert run.returncode == 0, run.stderr
+        assert _groupadds(run) == [
+            "groupadd 3000 osprey-mount-3000",
+            "groupadd 5000 osprey-mount-5000",
+        ]
+        assert _usermods(run) == [
+            "usermod osprey-mount-3000 osprey",
+            "usermod osprey-mount-5000 osprey",
+        ]
+        assert f"for {MIRROR_VAR}={mirror}" in run.stderr, run.stderr
+
+    def test_mirror_and_bundle_on_one_gid_join_once(self, sandbox: Sandbox):
+        """The deploy provisions both shared directories as the same user, so
+        they usually carry one group; the dedup covers the third mount too."""
+        audit = sandbox.audit_mount(gid=3000)
+        bundle = sandbox.bundle_mount(gid=4000)
+        mirror = sandbox.mirror_mount(gid=4000)
+
+        run = sandbox.run(audit_dir=audit, bundle_dir=bundle, mirror_dir=mirror)
+
+        assert run.returncode == 0, run.stderr
+        assert _groupadds(run) == [
+            "groupadd 3000 osprey-mount-3000",
+            "groupadd 4000 osprey-mount-4000",
+        ]
+        assert _usermods(run) == [
+            "usermod osprey-mount-3000 osprey",
+            "usermod osprey-mount-4000 osprey",
+        ]
 
 
 class TestTheJoinIsVerifiedNotAssumed:

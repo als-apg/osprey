@@ -168,6 +168,25 @@ def test_mirror_gid_reaches_only_entitled_services():
     assert groups == {"web-alice": ["21"], "web-bob": []}
 
 
+def _mirror_dir_env(config: dict, **kwargs) -> dict[str, str | None]:
+    return {
+        name: dict(item.split("=", 1) for item in svc["environment"]).get("OSPREY_ARIEL_MIRROR_DIR")
+        for name, svc in _services(config, **kwargs).items()
+    }
+
+
+def test_mirror_dir_is_named_for_entitled_services_only():
+    """`group_add:` reaches the container's initial process and is discarded by
+    the entrypoint's privilege drop; the join that survives it reads
+    ``OSPREY_ARIEL_MIRROR_DIR``. Gated on the MOUNT, not on the gid: a platform
+    that reads no gid back still binds the directory, and the entrypoint stats
+    the group off what it can see."""
+    config = _config(personas=True)
+    mounts = _mirror_mounts(config, ariel_mirror_personas={"operator"})
+    named = _mirror_dir_env(config, ariel_mirror_personas={"operator"})
+    assert named == {"web-alice": mounts["web-alice"][0].split(":")[1], "web-bob": None}
+
+
 # ---------------------------------------------------------------------------
 # Entitlement
 # ---------------------------------------------------------------------------

@@ -22,7 +22,12 @@ from jinja2 import pass_context
 
 from osprey.cli.scaffold_cmd import ScaffoldClaimError
 from osprey.interfaces._app_setup import configure_interface_app
-from osprey.interfaces.common_middleware import apply_url_prefix, compute_url_prefix
+from osprey.interfaces.common_middleware import (
+    UNSAFE_FORWARDED_VALUE,
+    apply_url_prefix,
+    compute_url_prefix,
+    forwarded_identity,
+)
 from osprey.interfaces.vendor import vendor_url
 from osprey.interfaces.web_terminal.file_watcher import (
     FileEventBroadcaster,
@@ -1358,6 +1363,15 @@ def create_app(
         web_rail_position = getattr(request.app.state, "web_rail_position", DEFAULT_RAIL_POSITION)
         terminal_user = getattr(request.app.state, "terminal_user", "")
         landing_url = getattr(request.app.state, "landing_url", "")
+        # The role nginx forwarded on THIS request, off the header rather than
+        # app.state: a per-login fact, and the page GET is itself a gated
+        # request that carries it. Decoded by the audit ledger's own bound; a
+        # value that fails it is shown as nothing, not as the ledger's
+        # sentinel — with no nginx in front any client can send this header,
+        # and the chip is a display, not an authorization surface.
+        _, auth_role = forwarded_identity(request.headers)
+        if auth_role == UNSAFE_FORWARDED_VALUE:
+            auth_role = None
         return templates.TemplateResponse(
             request,
             "index.html",
@@ -1369,6 +1383,7 @@ def create_app(
                 "web_rail_position": web_rail_position,
                 "terminal_user": terminal_user,
                 "landing_url": landing_url,
+                "auth_role": auth_role or "",
                 "url_prefix": url_prefix,
             },
         )

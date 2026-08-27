@@ -125,7 +125,9 @@
 
     ariel_mirror_gid: str, required (may be "")
       Group id of that host directory, for the same `group_add:` reason as
-      `facility_bundle_gid` below.
+      `facility_bundle_gid` below. Like the bundle, the mirror is ALSO named
+      to the entrypoint (OSPREY_ARIEL_MIRROR_DIR) so its group is joined
+      before the privilege drop, which `group_add:` alone does not survive.
 
     facility_bundle_gid: str, required (may be "")
       Group id of that host directory, read off disk by the deploy and emitted as
@@ -775,6 +777,15 @@ services:
          directory to name, and the step skips what is unset. #}
       - OSPREY_FACILITY_BUNDLE_DIR={{ svc.container_bundle_dir }}
 {%- endif %}
+{%- if ariel_mirror_source and svc.container_mirror_dir %}
+      {#- The mirror mount's target, for the same contract: the qmd_export
+         module writing it runs as the DROPPED user, and `group_add:` (below)
+         reaches only the initial process. Gated on the same pair as the mount
+         itself, never on the gid — a platform that reads no gid back still
+         binds the directory, and the entrypoint stats the group off what it
+         can see. #}
+      - OSPREY_ARIEL_MIRROR_DIR={{ svc.container_mirror_dir }}
+{%- endif %}
       - OSPREY_TERMINAL_LANDING_URL={{ landing_url }}
       - OSPREY_TERMINAL_BIND_HOST={{ bind_host }}
       - OSPREY_TERMINAL_WEB_PORT={{ svc.web }}
@@ -1100,7 +1111,9 @@ services:
          own exporter, so the sidecar's corpus is the union of everything any
          process enhanced. Read-write, like the bundle and unlike the sidecar's
          `:ro` mount of the same directory; shared through the same setgid group
-         (see `group_add` below). #}
+         (see `group_add` below) and named to the entrypoint as
+         OSPREY_ARIEL_MIRROR_DIR (in `environment:` above) for the join that
+         survives the privilege drop. #}
       # The DEPLOYMENT's ARIEL qmd mirror, written by this container's own
       # qmd_export module and indexed by the qmd sidecar. Bound here so an entry
       # enhanced from this terminal reaches the sidecar's corpus instead of a
