@@ -540,9 +540,9 @@ your build profile, not an ARIEL extension. Pinning test:
 <section id="health-plugin">
 <span id="extending-health-plugin"></span><h2>Health plugin<a class="headerlink" href="#health-plugin" title="Link to this heading">#</a></h2>
 <p>Most health checks are declarative YAML. A plugin is for the ones that need
-real Python — querying a facility service, computing a derived state. Write
-a module that exposes <code class="docutils literal notranslate"><span class="pre">get_health_categories()</span></code>, returning a mapping of
-category name to a no-argument callable (sync or async) that produces a list of
+real Python — querying a facility service, computing a derived state. Write a
+module that exposes <code class="docutils literal notranslate"><span class="pre">get_health_categories()</span></code>, returning a mapping of
+category name to a callable (sync or async) that produces a list of
 <code class="docutils literal notranslate"><span class="pre">osprey.health.models.CheckResult</span></code>, then name it under <code class="docutils literal notranslate"><span class="pre">health.plugins</span></code> —
 either as a dotted path to an importable module (<code class="docutils literal notranslate"><span class="pre">my_package.health_checks</span></code>)
 or as a path to a <code class="docutils literal notranslate"><span class="pre">.py</span></code> file (<code class="docutils literal notranslate"><span class="pre">./health/facility_checks.py</span></code>). A relative
@@ -551,10 +551,17 @@ file path is resolved against the project root, the same anchor <code class="doc
 packaging them or setting <code class="docutils literal notranslate"><span class="pre">PYTHONPATH</span></code>. A file loaded that way is given a
 synthetic module name derived from its path and is <strong>re-executed</strong> every time
 the health config is reloaded, so it must not keep state at module level.
-<code class="docutils literal notranslate"><span class="pre">osprey.health.plugins.load_plugin_categories</span></code>
-loads it, and does so fail-safe: a plugin that will not import, returns the
-wrong type, or collides with an existing category name becomes one <code class="docutils literal notranslate"><span class="pre">error</span></code>
-row rather than a crashed suite. Pinning test:
+<code class="docutils literal notranslate"><span class="pre">osprey.health.plugins.load_plugin_categories</span></code> loads it, and does so
+fail-safe: a plugin that will not import, returns the wrong type, or collides
+with an existing category name becomes one <code class="docutils literal notranslate"><span class="pre">error</span></code> row rather than a crashed
+suite. A category callable normally takes no arguments. An <code class="docutils literal notranslate"><span class="pre">async</span> <span class="pre">def</span></code> one
+may instead declare a <code class="docutils literal notranslate"><span class="pre">runtime</span></code> parameter and receive the suite’s shared
+<code class="docutils literal notranslate"><span class="pre">osprey.health.runtime.HealthRuntime</span></code>, so <code class="docutils literal notranslate"><span class="pre">await</span> <span class="pre">runtime.get_connector()</span></code>
+hands back the one control-system connector the whole run shares instead of
+opening a second Channel Access context. The runtime is valid only for that
+call. A sync callable cannot take it — it runs on a worker thread with no event
+loop — and one that declares <code class="docutils literal notranslate"><span class="pre">runtime</span></code> is refused with an <code class="docutils literal notranslate"><span class="pre">error</span></code> row
+saying to make it <code class="docutils literal notranslate"><span class="pre">async</span> <span class="pre">def</span></code>. Pinning test:
 <code class="docutils literal notranslate"><span class="pre">tests/health/test_plugins.py</span></code>. Config side:
 <a class="reference internal" href="../how-to/health-and-monitoring/configure-health-checks.html"><span class="doc">Configure Health Checks</span></a>.</p>
 </section>

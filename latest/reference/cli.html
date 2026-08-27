@@ -1341,8 +1341,9 @@ file the scaffolder did not write is reported and left alone unless
 <code class="docutils literal notranslate"><span class="pre">--force</span></code> is given. <code class="docutils literal notranslate"><span class="pre">ci-extra.yml</span></code> is never touched: it is yours, and the
 pipeline includes it.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">systemd</span> <span class="pre">[--force]</span></code></dt><dd><p>Emit a systemd user unit that starts this deployment at boot: <code class="docutils literal notranslate"><span class="pre">osprey.service</span></code>
-at the repository root, plus the commands to install it. The unit runs
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">systemd</span> <span class="pre">[--force]</span></code></dt><dd><p>Emit the files that start this deployment at boot: a systemd user unit,
+<code class="docutils literal notranslate"><span class="pre">osprey.service</span></code> at the repository root, and a boot hook,
+<code class="docutils literal notranslate"><span class="pre">scripts/osprey-boot-hook.sh</span></code>, plus the commands to install the unit. The unit runs
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span> <span class="pre">-d</span></code> from this repository and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">down</span></code> on stop, with both
 the repository and the <code class="docutils literal notranslate"><span class="pre">osprey</span></code> program written in as full paths — systemd
 starts a unit with no working directory and a short <code class="docutils literal notranslate"><span class="pre">PATH</span></code>. Run it on the
@@ -1352,9 +1353,11 @@ OSPREY is reinstalled elsewhere. Re-running is safe on the same terms as
 write needs <code class="docutils literal notranslate"><span class="pre">--force</span></code>. Refuses when no <code class="docutils literal notranslate"><span class="pre">osprey</span></code> program can be found to
 name. Starting at boot also needs <code class="docutils literal notranslate"><span class="pre">loginctl</span> <span class="pre">enable-linger</span> <span class="pre">$USER</span></code> once —
 see <a class="reference internal" href="../how-to/deploy-a-facility.html"><span class="doc">Deploy a Facility</span></a>. When <code class="docutils literal notranslate"><span class="pre">$HOME</span></code> is on an NFS or autofs
-mount it also warns that linger alone will not survive a reboot there, and
-prints the root-only <code class="docutils literal notranslate"><span class="pre">user&#64;&lt;uid&gt;.service</span></code> drop-in that orders the user
-manager after the mount.</p>
+mount it also warns that linger alone will not survive a reboot there, prints
+the root-only <code class="docutils literal notranslate"><span class="pre">user&#64;&lt;uid&gt;.service</span></code> drop-in that orders the user manager
+after a systemd-managed mount, and shows the two crontab lines that run the
+boot hook at boot — the route for a daemon-managed autofs home, and the
+no-root fallback elsewhere.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">list</span></code></dt><dd><p>List all build artifacts and their ownership status (framework vs.
 user-owned).</p>

@@ -1049,8 +1049,9 @@ systemd user unit that does it for you.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>scaffold<span class="w"> </span>systemd
 </pre></div>
 </div>
-<p>It writes <code class="docutils literal notranslate"><span class="pre">osprey.service</span></code> at the repository root and prints the commands that
-install it on this machine:</p>
+<p>It writes <code class="docutils literal notranslate"><span class="pre">osprey.service</span></code> at the repository root — and, beside it,
+<code class="docutils literal notranslate"><span class="pre">scripts/osprey-boot-hook.sh</span></code>, covered below — and prints the commands that
+install the unit on this machine:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cp<span class="w"> </span>/path/to/repo/osprey.service<span class="w"> </span>~/.config/systemd/user/
 systemctl<span class="w"> </span>--user<span class="w"> </span>daemon-reload
 systemctl<span class="w"> </span>--user<span class="w"> </span><span class="nb">enable</span><span class="w"> </span>--now<span class="w"> </span>osprey.service
@@ -1097,8 +1098,10 @@ finds nothing, and does not look again — so after every host reboot the unit
 reads as <code class="docutils literal notranslate"><span class="pre">not-found</span></code>, and <code class="docutils literal notranslate"><span class="pre">podman.socket</span></code> with it, until somebody runs
 <code class="docutils literal notranslate"><span class="pre">systemctl</span> <span class="pre">--user</span> <span class="pre">daemon-reload</span></code> by hand. It looks like a broken unit and it
 is a mount-ordering problem.</p>
-<p>Ordering the user manager after the mount is a drop-in on <code class="docutils literal notranslate"><span class="pre">user&#64;&lt;uid&gt;.service</span></code>,
-which OSPREY cannot install for you because it needs root:</p>
+<p>When systemd manages the mount itself — an fstab entry, or a <code class="docutils literal notranslate"><span class="pre">.mount</span></code> or
+<code class="docutils literal notranslate"><span class="pre">.automount</span></code> unit — ordering the user manager after it is a drop-in on
+<code class="docutils literal notranslate"><span class="pre">user&#64;&lt;uid&gt;.service</span></code>, which OSPREY cannot install for you because it needs
+root:</p>
 <div class="highlight-ini notranslate"><div class="highlight"><pre><span></span><span class="c1"># /etc/systemd/system/user@&lt;uid&gt;.service.d/network-home.conf</span>
 <span class="k">[Unit]</span>
 <span class="na">RequiresMountsFor</span><span class="o">=</span><span class="s">/home/&lt;account&gt;</span>
@@ -1109,6 +1112,46 @@ which OSPREY cannot install for you because it needs root:</p>
 your own uid and home directory already filled in, ready to hand to whoever
 administers the host. On a local home — or on a host with no <code class="docutils literal notranslate"><span class="pre">findmnt</span></code>, where
 there is no way to tell — it prints nothing extra.</p>
+<p>That drop-in does nothing for a home served by the autofs daemon
+(<code class="docutils literal notranslate"><span class="pre">automount(8)</span></code>): there is no systemd mount unit for <code class="docutils literal notranslate"><span class="pre">RequiresMountsFor</span></code> to
+order against, so the manager starts exactly as before. <code class="docutils literal notranslate"><span class="pre">findmnt</span></code> reports
+<code class="docutils literal notranslate"><span class="pre">autofs</span></code> for a systemd automount as well, so the command cannot tell the two
+apart — check <code class="docutils literal notranslate"><span class="pre">systemctl</span> <span class="pre">list-units</span> <span class="pre">-t</span> <span class="pre">mount,automount</span></code> for your home to know
+which you have. For a daemon-managed home, and for any host where nobody with
+root is available, the same run has already written the other route:
+<code class="docutils literal notranslate"><span class="pre">scripts/osprey-boot-hook.sh</span></code>, beside the unit. It waits for the home, the
+deployment and the user manager to appear, then reloads the unit files and
+starts the unit — the script an affected site otherwise ends up writing by
+hand. Wire it into the account’s own crontab with the lines the command
+prints, all of them, pasted whole:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>crontab<span class="w"> </span>-e
+<span class="nv">SHELL</span><span class="o">=</span>/bin/sh
+<span class="nv">HOME</span><span class="o">=</span>/
+@reboot<span class="w"> </span><span class="nv">d</span><span class="o">=</span>/tmp/osprey-boot-hook.<span class="k">$(</span>id<span class="w"> </span>-u<span class="k">)</span><span class="p">;</span><span class="w"> </span>mkdir<span class="w"> </span>-m<span class="w"> </span><span class="m">700</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$d</span><span class="s2">&quot;</span><span class="w"> </span><span class="m">2</span>&gt;/dev/null<span class="p">;</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="o">[</span><span class="w"> </span>-d<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$d</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">[</span><span class="w"> </span>!<span class="w"> </span>-L<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$d</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="o">[</span><span class="w"> </span>-O<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$d</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">]</span><span class="p">;</span><span class="w"> </span><span class="k">then</span><span class="w"> </span><span class="nv">log</span><span class="o">=</span>/tmp/osprey-boot-hook.<span class="k">$(</span>id<span class="w"> </span>-u<span class="k">)</span>/boot.log<span class="p">;</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="nv">log</span><span class="o">=</span>/dev/null<span class="p">;</span><span class="w"> </span><span class="k">fi</span><span class="p">;</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>date<span class="k">)</span><span class="s2"> osprey-boot-hook: cron fired&quot;</span><span class="w"> </span>&gt;&gt;<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$log</span><span class="s2">&quot;</span><span class="p">;</span><span class="w"> </span><span class="nv">n</span><span class="o">=</span><span class="m">0</span><span class="p">;</span><span class="w"> </span><span class="k">until</span><span class="w"> </span><span class="o">[</span><span class="w"> </span>-x<span class="w"> </span>/path/to/repo/scripts/osprey-boot-hook.sh<span class="w"> </span><span class="o">]</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="o">[</span><span class="w"> </span><span class="nv">$n</span><span class="w"> </span>-ge<span class="w"> </span><span class="m">120</span><span class="w"> </span><span class="o">]</span><span class="p">;</span><span class="w"> </span><span class="k">do</span><span class="w"> </span>sleep<span class="w"> </span><span class="m">5</span><span class="p">;</span><span class="w"> </span><span class="nv">n</span><span class="o">=</span><span class="k">$((</span><span class="nv">n</span><span class="o">+</span><span class="m">1</span><span class="k">))</span><span class="p">;</span><span class="w"> </span><span class="k">done</span><span class="p">;</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="o">[</span><span class="w"> </span>-x<span class="w"> </span>/path/to/repo/scripts/osprey-boot-hook.sh<span class="w"> </span><span class="o">]</span><span class="p">;</span><span class="w"> </span><span class="k">then</span><span class="w"> </span><span class="nb">exec</span><span class="w"> </span>/path/to/repo/scripts/osprey-boot-hook.sh<span class="p">;</span><span class="w"> </span><span class="k">fi</span><span class="p">;</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>date<span class="k">)</span><span class="s2"> osprey-boot-hook: gave up, /path/to/repo/scripts/osprey-boot-hook.sh never appeared&quot;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>tee<span class="w"> </span>-a<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$log</span><span class="s2">&quot;</span>
+</pre></div>
+</div>
+<p>The job is deliberately not a bare <code class="docutils literal notranslate"><span class="pre">&#64;reboot</span></code> with the script’s path, because
+two things happen before a cron job’s command runs and each one kills the job
+silently on this kind of host. cron changes into the crontab’s <code class="docutils literal notranslate"><span class="pre">HOME</span></code> first
+and dies, with no mail, when that directory is not there yet — <code class="docutils literal notranslate"><span class="pre">HOME=/</span></code>
+gives it one that is, <code class="docutils literal notranslate"><span class="pre">SHELL=/bin/sh</span></code> names the shell the job is written
+for whatever an existing crontab set above, and the script restores the real
+home as its first act. Then <code class="docutils literal notranslate"><span class="pre">sh</span></code> has to read the script, which sits on the same late mount; so the
+job, which lives in the crontab on the local disk, notes that cron fired it in
+<code class="docutils literal notranslate"><span class="pre">/tmp/osprey-boot-hook.&lt;uid&gt;/boot.log</span></code> and waits for the script to become
+readable before running it. That log is the first place to look after a boot
+that did not come back: it splits “cron never fired” from “still waiting for
+the home” from “the hook ran and said why”. Put the lines last in the
+crontab: every job below them runs from <code class="docutils literal notranslate"><span class="pre">/</span></code> and sees <code class="docutils literal notranslate"><span class="pre">HOME=/</span></code> in its
+environment, so a job body that expands <code class="docutils literal notranslate"><span class="pre">$HOME</span></code> breaks silently unless it
+starts with its own <code class="docutils literal notranslate"><span class="pre">export</span> <span class="pre">HOME=&lt;the</span> <span class="pre">real</span> <span class="pre">home&gt;</span></code>.</p>
+<p>Where the drop-in applies, the hook repairs each boot after the fact rather
+than ordering the manager correctly in the first place, so there it is a
+fallback, not a replacement.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> reports this condition too: the <code class="docutils literal notranslate"><span class="pre">systemd_unit</span></code> category
+is <code class="docutils literal notranslate"><span class="pre">error</span></code> when the unit is installed but the user manager reports it
+<code class="docutils literal notranslate"><span class="pre">not-found</span></code>, <code class="docutils literal notranslate"><span class="pre">warning</span></code> when it was scaffolded but never installed, and
+a skip on any host without a scaffolded unit or a user manager.</p>
 </section>
 <section id="why-the-unit-runs-osprey-and-not-compose">
 <h3>Why the unit runs <code class="docutils literal notranslate"><span class="pre">osprey</span></code> and not compose<a class="headerlink" href="#why-the-unit-runs-osprey-and-not-compose" title="Link to this heading">#</a></h3>
