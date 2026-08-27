@@ -4163,16 +4163,18 @@ jobs:
     # host where BOTH images are pinned linux/amd64 and therefore emulated:
     #   - virtual accelerator image, cold (`--no-cache`):     226 s
     #   - bench IOC image, cold, base layers already resident:  1 s
-    #   - the two test modules, images already built:         147 s
-    #     (40 tests, 0 skipped, one pytest invocation)
-    # i.e. 6.2 min end to end on the slowest machine this work has run on.
+    #   - the three test modules, images already built:       214 s
+    #     (54 tests, 0 skipped, one pytest invocation — the same invocation
+    #      the run step below makes. 147 s of it was the first two modules,
+    #      measured alone before the live-stand-in module joined the lane.)
+    # i.e. 7.4 min end to end on the slowest machine this work has run on.
     # GitHub's runners are amd64-native, so every container second above is
     # emulation this lane will not pay; the honest direction of the error is
     # "faster there", with one exception in the other direction — a cold runner
     # must also PULL what was already resident here (python:3.11-slim plus the
     # two epics-containers bases, one of which is the full developer image),
     # which the local measurement did not include.
-    # 30 is that 6.2 min with roughly 5x headroom, which is deliberate for a
+    # 30 is that 7.4 min with roughly 4x headroom, which is deliberate for a
     # lane that has never run in GHA: the first PR must not be reddened by a
     # cap tuned to a laptop. It is also materially tighter than the lanes it
     # sits beside (va-substrate-equivalence 45, qmd-sidecar 60) because this
@@ -4202,10 +4204,10 @@ jobs:
       run: uv sync --extra dev
 
     - name: Assert a container runtime is present
-      # Both modules drive real containers, and their fixtures fail rather than
-      # skip when the image is missing — but nothing in them checks that a
-      # runtime exists at all. Failing here makes that state loud, and does it
-      # before the multi-minute build rather than after.
+      # Every module in this lane drives real containers, and their fixtures
+      # fail rather than skip when the image is missing — but nothing in them
+      # checks that a runtime exists at all. Failing here makes that state
+      # loud, and does it before the multi-minute build rather than after.
       run: |
         set -euo pipefail
         docker info > /dev/null
@@ -4325,7 +4327,7 @@ jobs:
     - name: Run the control-target switch E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
       # capture step below room to run. A job-level timeout is a hard cancel
-      # that takes the container logs with it. 15 against a measured 2.5 min
+      # that takes the container logs with it. 15 against a measured 3.6 min
       # leaves the two image builds the remaining half of the job cap, and
       # still bounds the realistic hang here — a read of a channel nobody
       # serves, which the connector itself gives up on after 120 s.
@@ -4336,11 +4338,16 @@ jobs:
         # zero-skip gate below is what turns a lost flag into a red lane
         # instead of a green one over nothing.
         OSPREY_VA_E2E_ENABLE: "1"
-      # Named by path rather than by marker: these two modules are the whole
+      # Named by path rather than by marker: these three modules are the whole
       # subject of this lane, and a path that stops existing exits pytest 4 and
       # reds the step, whereas a renamed marker would silently select nothing.
+      #
+      # Each module carries its own collection floor (`MIN_COLLECTED_TESTS`,
+      # asserted by its final test), so a file that survives a refactor while
+      # losing half its tests reds the step rather than passing on what is left.
       run: |
         uv run pytest tests/va/e2e/test_target_switch.py tests/va/e2e/test_bench_ioc_live.py \
+          tests/va/e2e/test_live_standin.py \
           -v --tb=short --junitxml=junit-target-switch-e2e.xml
 
     - name: Fail the lane on any skipped test
@@ -4348,8 +4355,8 @@ jobs:
         # Same gate, same argument as scan-agentic-e2e: every way this lane can
         # skip is a CI misconfiguration rather than a legitimate environment
         # gap, and pytest's exit code cannot express the difference. The live
-        # one here is `OSPREY_VA_E2E_ENABLE`: unset, both modules collect
-        # cleanly and skip in full, and the job goes green having built two
+        # one here is `OSPREY_VA_E2E_ENABLE`: unset, every module collects
+        # cleanly and skips in full, and the job goes green having built two
         # images and measured nothing. The other is the Bluesky lane scenario,
         # which skips when the queueserver client stack is not importable —
         # it is a core dependency, so a skip there means the install step

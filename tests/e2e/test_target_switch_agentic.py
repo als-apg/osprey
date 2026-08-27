@@ -220,6 +220,12 @@ TARGET_LINE_PREFIX = "Target: "
 #: of the identity line. Not asserted by the smoke below — they need a session
 #: that has actually reached for ``control_target_set`` — but pinned here for
 #: the scenarios, and covered by the rendered-hook guard.
+#:
+#: The phrase is the LABEL the controls server mints for this deployment, which
+#: renders both lines below. It is ``LIVE MACHINE`` here because this
+#: deployment's live target is a real Channel Access endpoint; a deployment
+#: whose live target is a stand-in is labelled ``LIVE MACHINE (stand-in)`` and
+#: these composed lines would name that instead.
 LIVE_MACHINE_PHRASE = "LIVE MACHINE"
 DESTINATION_LINE_PREFIX = "Destination: "
 DESTINATION_PROBE_LINE_PREFIX = "Destination probe channel: "
@@ -230,8 +236,9 @@ LIVE_SWITCH_WARNING = "THIS SWITCH POINTS THE SESSION AT THE LIVE MACHINE"
 #: alone surviving a reword would not save
 #: :func:`live_target_line` / :func:`live_destination_line`, which both assume an
 #: endpoint follows the phrase in parentheses. Verified against
-#: ``src/osprey/templates/claude_code/claude/hooks/osprey_approval.py``.
-LIVE_MACHINE_ENDPOINT_SOURCE = "LIVE MACHINE ({"
+#: ``src/osprey/templates/claude_code/claude/hooks/osprey_approval.py``. Both
+#: lines render the writer's label, so neither fragment names a machine.
+TARGET_IDENTITY_ENDPOINT_SOURCE = 'return f"{label} ({endpoint})"'
 DESTINATION_ENDPOINT_SOURCE = "Destination: {label} ({"
 
 
@@ -874,9 +881,9 @@ def test_the_rendered_approval_hook_still_speaks_these_lines(
             DESTINATION_LINE_PREFIX.rstrip(),
             DESTINATION_PROBE_LINE_PREFIX.rstrip(),
             LIVE_SWITCH_WARNING,
-            # Source fragments: `return f"LIVE MACHINE ({endpoint})"` and
+            # Source fragments: `return f"{label} ({endpoint})"` and
             # `lines.append(f"Destination: {label} ({endpoint})")`.
-            LIVE_MACHINE_ENDPOINT_SOURCE,
+            TARGET_IDENTITY_ENDPOINT_SOURCE,
             DESTINATION_ENDPOINT_SOURCE,
         )
         if literal not in hook
