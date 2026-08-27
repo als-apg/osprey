@@ -275,6 +275,87 @@ def _graphdb_configured(config: dict) -> bool:
         return False
 
 
+def _facility_vocabulary(config: dict, project_dir: Path) -> list[dict[str, Any]] | None:
+    """The deployment's device vocabulary, read from its compiled ontology.
+
+    ``facility.ontology`` names the compiled ontology table
+    (``osprey knowledge compile-ontology``'s JSON output) this deployment's
+    corpus was generated from, resolved against the project root. It is the
+    facility's own device vocabulary, and it is the ONLY source the rendered
+    terminology tables draw on: the paradigm partials used to spell device
+    tokens themselves, and the spelling had already drifted — the hierarchical
+    table named four family tokens that exist in no shipped channel database.
+    A prompt that names a device kind the corpus does not have sends the agent
+    looking for something that returns no rows and no error.
+
+    Read here rather than in either render path's own context so both of them
+    carry it. The block goes through :func:`~osprey.deployment.web_terminals.
+    personas.as_dict` like every other ``facility:`` reader in the tree, so a
+    scalar block — a plausible slip, given that a top-level ``facility_name``
+    exists — falls through to "no ontology declared" instead of a traceback.
+    The table itself is loaded through the same reader ``osprey knowledge
+    build-ttl`` uses, imported lazily so an ordinary render never pays for the
+    knowledge stack.
+
+    Args:
+        config: Parsed ``config.yml`` mapping.
+        project_dir: Root of the project being rendered; a relative
+            ``facility.ontology`` resolves against it. A leading ``~`` is
+            expanded first, as every other path key in ``config.yml`` does.
+
+    Returns:
+        One row per class that carries synonyms — ``class_name``, its sorted
+        ``synonyms``, and the sorted ``families`` (FAMILY tokens) that map to
+        it — or ``None`` when no ontology is declared, which renders as an
+        honest "no vocabulary table here" line rather than as demo tokens.
+
+    Raises:
+        BuildProfileError: If the key is set but the file cannot be read or
+            does not validate. A declared ontology that is not there is an
+            operator error worth stopping the build for; falling back to the
+            packaged demo table would ship a facility an agent that speaks
+            somebody else's vocabulary and says nothing about it.
+    """
+    from osprey.deployment.web_terminals.personas import as_dict
+
+    declared = as_dict(config.get("facility")).get("ontology")
+    if not declared:
+        return None
+
+    from osprey.services.facility_knowledge.ttl_generator import ontology_map
+
+    path = Path(str(declared)).expanduser()
+    if not path.is_absolute():
+        path = Path(project_dir) / path
+    try:
+        table = ontology_map.load_ontology(path)
+    except (OSError, ontology_map.OntologyMapError) as exc:
+        raise BuildProfileError(
+            f"facility.ontology names {declared!r}, which does not resolve to a "
+            f"readable compiled ontology table at {path}: {exc}. Point the key at "
+            "the JSON `osprey knowledge compile-ontology` wrote for this "
+            "deployment, or drop it — a build profile that renders this key from "
+            "an app template removes it with a bare `facility.ontology:` entry, "
+            "with no value, under its own `config:` block. An absent key renders "
+            "the agent's terminology tables without a vocabulary section, which "
+            "is honest. It is never filled in from the packaged demo ontology."
+        ) from exc
+
+    families_by_class: dict[str, list[str]] = {}
+    for family, class_name in table.family_to_class.items():
+        families_by_class.setdefault(class_name, []).append(family)
+
+    return [
+        {
+            "class_name": name,
+            "synonyms": sorted(class_def.alt_labels),
+            "families": sorted(families_by_class.get(name, ())),
+        }
+        for name, class_def in sorted(table.classes.items())
+        if class_def.alt_labels
+    ]
+
+
 def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
     """The template-context keys read straight out of a project's ``config.yml``.
 
@@ -338,6 +419,11 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # left out of the render entirely rather than shipped as a tool that
         # can only fail.
         "graphdb_configured": _graphdb_configured(config),
+        # The device vocabulary the channel-finder terminology partials render
+        # their rows from, out of the deployment's own compiled ontology
+        # (`facility.ontology`). None when no ontology is declared — the
+        # partials then say so instead of falling back to demo tokens.
+        "facility_vocabulary": _facility_vocabulary(config, project_dir),
         # The interactive deny floor settings.json.j2 renders into
         # permissions.deny. Sourced from DENY_DEFAULTS so the template, the
         # build lint and the read-only-floor drift test cannot fork.

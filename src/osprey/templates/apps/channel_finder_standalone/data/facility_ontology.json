@@ -1,0 +1,207 @@
+{
+  "_generated": "Generated from demo_ontology.yaml by `osprey knowledge compile-ontology`. Do not edit.",
+  "classes": {
+    "AcceleratingCavity": {
+      "altLabels": [
+        "accelerating cavity",
+        "cavity",
+        "rf cavity"
+      ],
+      "parent": "RadioFrequency"
+    },
+    "AcceleratorDevice": {
+      "altLabels": [],
+      "parent": null
+    },
+    "BeamCurrentMonitor": {
+      "altLabels": [
+        "bc",
+        "bcm",
+        "beam current monitor",
+        "current monitor",
+        "dcct"
+      ],
+      "parent": "Instrumentation"
+    },
+    "BeamLossMonitor": {
+      "altLabels": [
+        "beam loss monitor",
+        "blm",
+        "gamma monitor",
+        "lm",
+        "loss monitor",
+        "neutron monitor",
+        "radiation monitor"
+      ],
+      "parent": "Instrumentation"
+    },
+    "BeamPositionMonitor": {
+      "altLabels": [
+        "beam position monitor",
+        "bpm",
+        "drbpm",
+        "pm",
+        "position monitor",
+        "position pickup"
+      ],
+      "parent": "Instrumentation"
+    },
+    "Corrector": {
+      "altLabels": [
+        "corrector",
+        "orbit corrector",
+        "steerer",
+        "steering magnet"
+      ],
+      "parent": "Magnet"
+    },
+    "Dipole": {
+      "altLabels": [
+        "bend",
+        "bend magnet",
+        "bending magnet",
+        "dipole",
+        "dipole magnet"
+      ],
+      "parent": "Magnet"
+    },
+    "Gauge": {
+      "altLabels": [
+        "cold cathode",
+        "cold cathode gauge",
+        "coldcathode",
+        "gauge",
+        "pressure gauge",
+        "quattro",
+        "quattro gauge",
+        "quattrogauge",
+        "vacuum gauge"
+      ],
+      "parent": "Vacuum"
+    },
+    "HCorrector": {
+      "altLabels": [
+        "hcor",
+        "hcorrector",
+        "horizontal corrector",
+        "horizontal orbit corrector",
+        "horizontal steering magnet"
+      ],
+      "parent": "Corrector"
+    },
+    "Instrumentation": {
+      "altLabels": [
+        "diagnostics",
+        "instrumentation"
+      ],
+      "parent": "AcceleratorDevice"
+    },
+    "Magnet": {
+      "altLabels": [
+        "electromagnet",
+        "magnet"
+      ],
+      "parent": "AcceleratorDevice"
+    },
+    "Modulator": {
+      "altLabels": [
+        "klystron",
+        "modulator",
+        "rf modulator"
+      ],
+      "parent": "RadioFrequency"
+    },
+    "Pump": {
+      "altLabels": [
+        "ion pump",
+        "neg pump",
+        "negpump",
+        "pump",
+        "uhv pump",
+        "uhvpump",
+        "vacuum pump"
+      ],
+      "parent": "Vacuum"
+    },
+    "Quadrupole": {
+      "altLabels": [
+        "defocusing magnet",
+        "focusing magnet",
+        "qj",
+        "quad",
+        "quadrupole",
+        "quadrupole magnet",
+        "qw"
+      ],
+      "parent": "Magnet"
+    },
+    "RadioFrequency": {
+      "altLabels": [
+        "radio frequency",
+        "radiofrequency",
+        "rf"
+      ],
+      "parent": "AcceleratorDevice"
+    },
+    "Sextupole": {
+      "altLabels": [
+        "sext",
+        "sextupole"
+      ],
+      "parent": "Magnet"
+    },
+    "VCorrector": {
+      "altLabels": [
+        "vcor",
+        "vcorrector",
+        "vertical corrector",
+        "vertical orbit corrector",
+        "vertical steering magnet"
+      ],
+      "parent": "Corrector"
+    },
+    "Vacuum": {
+      "altLabels": [
+        "vacuum"
+      ],
+      "parent": "AcceleratorDevice"
+    },
+    "Valve": {
+      "altLabels": [
+        "beamline gate valve",
+        "beamline valve",
+        "beamlinevalve",
+        "bv",
+        "fast valve",
+        "fastvalve",
+        "fv",
+        "gate valve",
+        "isolation valve",
+        "valve"
+      ],
+      "parent": "Vacuum"
+    }
+  },
+  "family_to_class": {
+    "BPM": "BeamPositionMonitor",
+    "CAVITY": "AcceleratingCavity",
+    "DCCT": "BeamCurrentMonitor",
+    "DIPOLE": "Dipole",
+    "GAMMA": "BeamLossMonitor",
+    "GAUGE": "Gauge",
+    "HCM": "HCorrector",
+    "ION-PUMP": "Pump",
+    "KLYSTRON": "Modulator",
+    "NEUTRON": "BeamLossMonitor",
+    "QD": "Quadrupole",
+    "QF": "Quadrupole",
+    "QFA": "Quadrupole",
+    "SD": "Sextupole",
+    "SF": "Sextupole",
+    "SHD": "Sextupole",
+    "SHF": "Sextupole",
+    "VALVE": "Valve",
+    "VCM": "VCorrector"
+  },
+  "root": "AcceleratorDevice"
+}

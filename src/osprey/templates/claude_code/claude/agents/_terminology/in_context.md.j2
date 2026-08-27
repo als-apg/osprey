@@ -9,20 +9,24 @@ navigate; instead you search, filter, and match against channel names directly.
 
 ### Terminology Mapping
 
-Operators use domain language. Map their terms to channel name patterns:
-
+Operators use domain language.
+{% if facility_vocabulary %}
+The device rows below are this deployment's own vocabulary, read from the
+compiled ontology it declares (`facility.ontology`) — the same table the
+channel database was generated from, so the tokens are the ones that really
+appear in these channel names:
+{% else %}
+No facility ontology is declared (`facility.ontology`), so the table below
+carries only navigation guidance and no device vocabulary — match on names and
+descriptions in the database and verify with a lookup rather than guessing.
+{% endif %}
 | Operator Language | Channel Name Patterns |
 |---|---|
-| "beam current" | Look for channels containing `DCCT`, `BCM`, `current` |
-| "BPM positions" / "beam position" | Channels containing `BPM`, `position`, possibly with `X`/`Y` suffix |
-| "corrector magnets" | `HCM` (horizontal), `VCM` (vertical), `corrector`, `steering` |
-| "quadrupole" / "quad" | `QF` (focusing), `QD` (defocusing), `quad` |
+{%- for entry in facility_vocabulary | default(none) or [] if entry.families %}
+| {{ '"' ~ (entry.synonyms | join('", "')) ~ '"' }} | Channels containing {{ '`' ~ (entry.families | join('`, `')) ~ '`' }} |
+{%- endfor %}
 | "readback" / "monitor" | Channels with `RB`, `ReadBack`, `Monitor` in name |
 | "setpoint" / "control" | Channels with `SP`, `Set`, `Setpoint`, `Control` in name |
-| "temperature" | `Temp`, `TC`, `temperature` patterns |
-| "vacuum" / "pressure" | `VGC`, `CCG`, `pressure`, `vacuum` patterns |
-| "RF" / "radio frequency" | `RF`, `LLRF`, `cavity`, `frequency` patterns |
-| "power supply" | `PS`, `PSU`, `supply`, `current` (in magnet context) |
 
 ### Channel Naming Conventions
 

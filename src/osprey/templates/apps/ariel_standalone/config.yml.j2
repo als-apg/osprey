@@ -9,7 +9,7 @@
 # Project identity
 project_name: "{{ project_name }}"
 
-# Facility identity — one block, two keys:
+# Facility identity — one block; the two keys this bundle sets:
 #   name   — display name woven into the agent prompts (CLAUDE.md, subagents)
 #            and the web-terminal landing page. Keep it in sync with
 #            .claude/rules/facility.md. A top-level `facility_name` is
@@ -23,6 +23,12 @@ project_name: "{{ project_name }}"
 facility:
   name: "Example Research Facility"
   # prefix: ex
+  # A third key, `ontology`, names this facility's compiled ontology table (the
+  # JSON `osprey knowledge compile-ontology` writes) and supplies the device
+  # vocabulary the channel-finder subagent's terminology table renders. This
+  # bundle ships no channel finder — its graph agent reads the vocabulary out
+  # of the seeded store instead — so the key stays an example here:
+  # ontology: data/facility_ontology.json
 
 build_dir: ./build
 

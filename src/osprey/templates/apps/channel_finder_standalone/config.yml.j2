@@ -10,20 +10,29 @@
 # Project identity
 project_name: "{{ project_name }}"
 
-# Facility identity — one block, two keys:
-#   name   — display name woven into the agent prompts (CLAUDE.md, subagents)
-#            and the web-terminal landing page. Keep it in sync with
-#            .claude/rules/facility.md. A top-level `facility_name` is
-#            honored as a fallback, but this is the canonical spelling and
-#            wins over it.
-#   prefix — short abbreviation the deployed web stack uses for container
-#            names (`<prefix>-nginx`, `<prefix>-web-<user>`); must be a
-#            non-empty valid Docker name start ([a-zA-Z0-9]). Only the
-#            multi-user web-terminal stack reads it, so it stays commented
-#            here.
+# Facility identity — one block, three keys:
+#   name     — display name woven into the agent prompts (CLAUDE.md, subagents)
+#              and the web-terminal landing page. Keep it in sync with
+#              .claude/rules/facility.md. A top-level `facility_name` is
+#              honored as a fallback, but this is the canonical spelling and
+#              wins over it.
+#   prefix   — short abbreviation the deployed web stack uses for container
+#              names (`<prefix>-nginx`, `<prefix>-web-<user>`); must be a
+#              non-empty valid Docker name start ([a-zA-Z0-9]). Only the
+#              multi-user web-terminal stack reads it, so it stays commented
+#              here.
+#   ontology — path, relative to the project root, to this facility's compiled
+#              ontology table: the JSON `osprey knowledge compile-ontology`
+#              writes. It is the one source for the device vocabulary the
+#              channel-finder subagent's terminology table renders, so pointing
+#              it at your own table is how that table learns your words. Drop
+#              the key and the subagent is told plainly that no vocabulary was
+#              declared, which is better than shipping somebody else's; point
+#              it at a file that is not there and the build stops and says so.
 facility:
   name: "Example Research Facility"
   # prefix: ex
+  ontology: data/facility_ontology.json
 
 build_dir: ./build
 
