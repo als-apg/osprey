@@ -1,10 +1,11 @@
 """Templates and render contexts for the ``osprey scaffold`` verbs.
 
 Scaffolding emits generated files into a deployment repo — a CI pipeline, a
-post-deploy health check, a systemd unit — and every one of them is a Jinja
-template under ``osprey/templates/deploy/``. This module owns three things the
-verbs need and nothing else: which template a platform selects, what context
-each template expects, and how to turn a profile into that context.
+post-deploy health check, a systemd unit and its boot hook — and every one of
+them is a Jinja template under ``osprey/templates/deploy/``. This module owns
+three things the verbs need and nothing else: which template a platform
+selects, what context each template expects, and how to turn a profile into
+that context.
 
 The split matters because the templates are held to a byte-for-byte golden
 (``tests/deployment/goldens/``). Layout decisions — column alignment, comment
@@ -52,12 +53,22 @@ VERIFY_TEMPLATE: str = "verify.sh.j2"
 #: The systemd unit that brings a deployment up at boot.
 SYSTEMD_TEMPLATE: str = "osprey.service.j2"
 
+#: The no-root fallback for a host whose home is a late mount. A lingering user
+#: manager resolves its unit search path once, at boot, before an NFS or autofs
+#: home is there — and never looks again, so the unit reads ``not-found`` until
+#: someone reloads by hand. The supported fix is a ``RequiresMountsFor``
+#: drop-in on ``user@<uid>.service``, which needs root; this script is what an
+#: operator without root ends up writing instead, so it is shipped rather than
+#: left to be rediscovered.
+BOOT_HOOK_TEMPLATE: str = "osprey-boot-hook.sh.j2"
+
 #: Provenance markers the emitted files carry. A file whose first lines name one
 #: of these was written by the scaffolder and may be re-emitted; anything else is
 #: treated as hand-written.
 CI_MARKER: str = "deploy/gitlab-ci"
 VERIFY_MARKER: str = "deploy/verify"
 SYSTEMD_MARKER: str = "deploy/systemd"
+BOOT_HOOK_MARKER: str = "deploy/boot-hook"
 
 #: What the emitted unit is called. Fixed rather than chosen at emission time:
 #: the unit's own header tells the operator which file to copy and which name to
@@ -65,12 +76,29 @@ SYSTEMD_MARKER: str = "deploy/systemd"
 #: could get wrong.
 SYSTEMD_UNIT_NAME: str = "osprey.service"
 
+#: What the emitted boot hook is called, fixed for the same reason the unit's
+#: name is: the script's own header tells the operator the ``@reboot`` line to
+#: paste into their crontab, and a name the caller could change is a name that
+#: line could get wrong.
+BOOT_HOOK_OUTPUT_NAME: str = "osprey-boot-hook.sh"
+
 #: How long systemd may wait for ``osprey up -d``. A oneshot gets 90 seconds by
 #: default, which a start that pulls images first will exceed — and a start
 #: timeout kills the deploy halfway through. Fifteen minutes is long enough for
 #: a cold pull on a slow link and still short enough to end a genuinely wedged
 #: start rather than hang the boot on it.
 SYSTEMD_START_TIMEOUT_SEC: int = 900
+
+#: How long the boot hook waits, in total, for the pieces it needs — the home
+#: mount, the deployment, and the user manager's runtime directory. An automount
+#: that has not answered in five minutes is not slow, it is broken, and a hook
+#: that waits past that holds a cron slot open on a host nobody is watching.
+BOOT_HOOK_TOTAL_WAIT_SEC: int = 300
+
+#: Seconds between the hook's attempts. Short enough that a mount landing two
+#: seconds after boot does not cost the deployment a visible delay, long enough
+#: that the wait is not a spin.
+BOOT_HOOK_POLL_SEC: int = 5
 
 #: Where the unit's ``Documentation=`` points. The deployment how-to is the page
 #: that covers what a host needs before the unit can bring a stack up.
@@ -91,10 +119,15 @@ DEPLOY_SSH_KEY_VAR: str = "DEPLOY_SSH_KEY"
 #: the engine derives its output path from it, and ``test_scaffold_ci`` asks
 #: every reader (engine, rendered pipeline, init, post-up hook) about the file
 #: that was actually written, so the spellings cannot drift apart in silence.
+#: ``BOOT_HOOK_PATH`` is the same idea one directory over: the hook's header
+#: prints the ``@reboot`` crontab line an operator pastes, and that line is this
+#: path under the repo root, so the spelling the script shows and the spelling
+#: the emitter writes to have to be one constant.
 PROFILE_PATH: str = PROFILE_FILENAME
 BUILD_DIR: str = BUILD_OUTPUT_DIR
 STATE_DIR_PATH: str = STATE_DIR
 VERIFY_PATH: str = "scripts/verify.sh"
+BOOT_HOOK_PATH: str = f"scripts/{BOOT_HOOK_OUTPUT_NAME}"
 
 #: What ``osprey users env --output`` writes on the deploy host, at the repo
 #: root where compose reads it. Aliased from the writer's own constant rather
@@ -272,7 +305,46 @@ class SystemdContext:
     timeout_start_sec: int = SYSTEMD_START_TIMEOUT_SEC
 
 
-def render(template_name: str, context: CIContext | VerifyContext | SystemdContext) -> str:
+@dataclass(frozen=True)
+class BootHookContext:
+    """Everything ``osprey-boot-hook.sh.j2`` renders from.
+
+    Frozen, and every field a plain string or integer, for the same reason
+    :class:`SystemdContext` is: the script runs at boot on a host the
+    scaffolder may never see, so nothing here may be recomputed from the local
+    machine after the caller has decided what it says.
+
+    Attributes:
+        facility_name: The profile's ``name:`` — the script's title. One host
+            can carry a hook per deployment, and cron mails their output to the
+            same account.
+        osprey_version: Installed framework version, for the provenance header.
+        repo_root: Absolute path of the deployment repo on the deploy host. The
+            hook waits for it, because on the host this exists for it sits under
+            the same late mount as the home; it is also what makes the
+            ``@reboot`` line in the header absolute.
+        osprey_bin: Absolute path to the ``osprey`` executable on that host. The
+            hook waits for this too: a pip install under the home directory is
+            just as absent as the repo until the mount lands, and a unit started
+            without it fails where nobody is looking.
+        poll_seconds: Seconds between attempts — see :data:`BOOT_HOOK_POLL_SEC`.
+        total_wait_seconds: Seconds the hook waits in total before giving up and
+            saying which piece never arrived — see
+            :data:`BOOT_HOOK_TOTAL_WAIT_SEC`.
+    """
+
+    facility_name: str
+    osprey_version: str
+    repo_root: str
+    osprey_bin: str
+    poll_seconds: int = BOOT_HOOK_POLL_SEC
+    total_wait_seconds: int = BOOT_HOOK_TOTAL_WAIT_SEC
+
+
+def render(
+    template_name: str,
+    context: CIContext | VerifyContext | SystemdContext | BootHookContext,
+) -> str:
     """Render one deploy template.
 
     Args:
@@ -296,6 +368,7 @@ def render(template_name: str, context: CIContext | VerifyContext | SystemdConte
         build_dir=BUILD_DIR,
         state_dir=STATE_DIR_PATH,
         verify_path=VERIFY_PATH,
+        boot_hook_path=BOOT_HOOK_PATH,
         users_env_name=USERS_ENV_NAME,
         unit_name=SYSTEMD_UNIT_NAME,
         docs_url=DEPLOY_DOCS_URL,
@@ -445,6 +518,49 @@ def build_systemd_context(
             there would fail at boot, where nobody is watching.
     """
     return SystemdContext(
+        facility_name=str(profile.get("name", repo_root.name)),
+        osprey_version=osprey_version or osprey.__version__,
+        repo_root=str(repo_root.resolve()),
+        osprey_bin=osprey_bin or resolve_shell_command("osprey"),
+    )
+
+
+def build_boot_hook_context(
+    profile: dict[str, Any],
+    repo_root: Path,
+    osprey_bin: str | None = None,
+    osprey_version: str | None = None,
+) -> BootHookContext:
+    """Derive the boot hook's context from a profile and a machine.
+
+    Takes the same arguments as :func:`build_systemd_context`, and for the same
+    reasons: the hook exists to start the unit that function's template
+    describes, so the two are emitted from one set of host coordinates or they
+    describe two different machines.
+
+    Args:
+        profile: The resolved raw profile dict.
+        repo_root: The deployment repo's root. Resolved to an absolute path — a
+            crontab entry is run from the account's home with no context, and
+            the hook waits on this path by name; a caller emitting a hook for a
+            *different* host passes that host's path, which is absolute already
+            and travels through untouched.
+        osprey_bin: Absolute path to the ``osprey`` executable on the host that
+            will run the unit. Defaults to the one that would answer here,
+            resolved through the same helper the web terminal uses for a
+            stripped ``PATH``.
+        osprey_version: Version for the provenance header; defaults to the
+            installed framework's.
+
+    Returns:
+        The context :data:`BOOT_HOOK_TEMPLATE` renders against.
+
+    Raises:
+        FileNotFoundError: If no ``osprey_bin`` was given and no ``osprey``
+            executable can be found — a hook waiting for a path that will never
+            exist would time out every boot.
+    """
+    return BootHookContext(
         facility_name=str(profile.get("name", repo_root.name)),
         osprey_version=osprey_version or osprey.__version__,
         repo_root=str(repo_root.resolve()),

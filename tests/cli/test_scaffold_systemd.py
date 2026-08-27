@@ -20,9 +20,14 @@ full. The executable is resolved through a helper that reads the machine, so
 every test here freezes it: a unit whose contents depend on the developer's
 PATH is a unit nobody can pin.
 
-*The instruction.* The file is written to the repo root and takes effect from
+*The instruction.* The unit is written to the repo root and takes effect from
 ``~/.config/systemd/user/``, so the verb's output is the only thing standing
 between "emitted" and "installed".
+
+*The pair.* The verb emits two files with independent histories — the unit, and
+the boot hook under ``scripts/`` — and the printing has to keep them apart. A
+hand-written hook is a refusal, but it is not a reason to stop telling an
+operator how to install the unit they did just get.
 """
 
 from __future__ import annotations
@@ -35,11 +40,12 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.deploy_scaffold import (
+    BOOT_HOOK_OUTPUT_PATH,
     SYSTEMD_OUTPUT_NAME,
     detect_network_home,
     scaffold_systemd_unit,
 )
-from osprey.cli.deploy_scaffold_templates import SYSTEMD_MARKER
+from osprey.cli.deploy_scaffold_templates import BOOT_HOOK_MARKER, SYSTEMD_MARKER
 from osprey.cli.main import cli
 from osprey.cli.scaffold_cmd import scaffold
 from osprey.errors import ConfigurationError
@@ -82,6 +88,10 @@ def emit(runner: CliRunner, repo: Path, *args: str):
 
 def unit_of(repo: Path) -> Path:
     return repo / SYSTEMD_OUTPUT_NAME
+
+
+def hook_of(repo: Path) -> Path:
+    return repo.joinpath(*BOOT_HOOK_OUTPUT_PATH)
 
 
 # ── What it writes, and where ────────────────────────────────────────────────
@@ -130,6 +140,35 @@ def test_no_temporary_file_is_left_behind(runner: CliRunner, repo: Path) -> None
 
     assert not list(repo.glob("*.tmp"))
     assert not list(repo.glob(".osprey.service.*"))
+
+
+def test_the_hook_lands_under_scripts(runner: CliRunner, repo: Path) -> None:
+    """One run, two files: the unit at the root and the hook beside it."""
+    result = emit(runner, repo)
+
+    assert result.exit_code == 0, result.output
+    hook = hook_of(repo)
+    assert hook.is_file()
+    assert hook.parent == repo / "scripts"
+    assert hook.name == "osprey-boot-hook.sh"
+    assert f"osprey-scaffold: {BOOT_HOOK_MARKER}" in hook.read_text(encoding="utf-8")
+
+
+def test_both_files_are_reported(runner: CliRunner, repo: Path) -> None:
+    """Each emitted file gets its own status line, named repo-relative."""
+    result = emit(runner, repo)
+
+    text = flat(result)
+    assert f"{SYSTEMD_OUTPUT_NAME} (created)" in text
+    assert "scripts/osprey-boot-hook.sh (created)" in text
+
+
+def test_the_hook_is_executable_and_the_unit_is_not(runner: CliRunner, repo: Path) -> None:
+    """cron runs the hook directly; systemd only reads the unit."""
+    emit(runner, repo)
+
+    assert hook_of(repo).stat().st_mode & 0o777 == 0o755
+    assert unit_of(repo).stat().st_mode & 0o777 == 0o644
 
 
 # ── Which repo it acts on ────────────────────────────────────────────────────
@@ -189,6 +228,20 @@ def test_a_second_run_writes_nothing(runner: CliRunner, repo: Path) -> None:
     assert result.exit_code == 0, result.output
     assert unit.read_bytes() == first
     assert "unchanged" in result.output
+
+
+def test_a_second_run_reports_both_files_as_unchanged(runner: CliRunner, repo: Path) -> None:
+    """Neither file may drift on a re-run, and both have to say so."""
+    emit(runner, repo)
+    before = (unit_of(repo).read_bytes(), hook_of(repo).read_bytes())
+
+    result = emit(runner, repo)
+
+    assert result.exit_code == 0, result.output
+    assert (unit_of(repo).read_bytes(), hook_of(repo).read_bytes()) == before
+    text = flat(result)
+    assert f"{SYSTEMD_OUTPUT_NAME} (unchanged)" in text
+    assert "scripts/osprey-boot-hook.sh (unchanged)" in text
 
 
 def test_a_stale_version_stamp_alone_is_not_a_change(runner: CliRunner, repo: Path) -> None:
@@ -325,15 +378,38 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return account
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def findmnt(monkeypatch: pytest.MonkeyPatch):
-    """Drive the detection seam: is ``findmnt`` there, and what does it say.
+    """Own the detection seam: is ``findmnt`` there, and what does it say.
 
     Both halves are patched in the module that reaches for them — the binary
     lookup as well as the call — because the tests run on macOS too, where
     ``findmnt`` does not exist and an unpatched lookup would answer for every
     case at once.
+
+    Autouse, so the seam is closed from setup even for the tests that never
+    mention it: ``shutil.which`` answers ``None``, which is the quiet default
+    (no binary, no warning, and the answer those tests already expect), and
+    ``subprocess.run`` is replaced by a callable that raises rather than
+    letting an unpatched path shell out. Without that, every test that calls
+    ``emit`` would run the real detection against the machine's own ``$HOME``
+    — a live ``findmnt`` per test on Linux, with a two-second timeout hanging
+    off it. No assertion here depends on the outcome, so nothing was failing;
+    what the default removes is the subprocess and the machine-dependence.
+
+    The returned ``install`` is how a test opts into a specific answer, exactly
+    as before; it patches over the default and returns a fresh list of the
+    argv the seam is called with. A test that patches the same two names by
+    hand also wins, because its patches land after this setup.
     """
+
+    def unexpected_run(argv, **kwargs):
+        raise AssertionError(
+            f"the findmnt seam was called without an answer installed: argv={list(argv)}"
+        )
+
+    monkeypatch.setattr("osprey.cli.deploy_scaffold.shutil.which", lambda name: None)
+    monkeypatch.setattr("osprey.cli.deploy_scaffold.subprocess.run", unexpected_run)
 
     def install(fstype: str = "", *, present: bool = True, returncode: int = 0) -> list[list[str]]:
         calls: list[list[str]] = []
@@ -455,6 +531,79 @@ def test_a_refusal_prints_no_drop_in_either(
 
     assert result.exit_code == 1
     assert "RequiresMountsFor" not in flat(result)
+
+
+def test_a_hand_written_hook_still_leaves_the_unit_fully_explained(
+    runner: CliRunner, repo: Path, home: Path, findmnt
+) -> None:
+    """A refused hook must not swallow the unit's instructions.
+
+    The two files have independent histories. A hook somebody wrote by hand is
+    refused and makes the run non-zero, but the unit beside it was written
+    perfectly — and on a network home the drop-in is the whole reason this
+    warning exists. Gating any of that on "did anything refuse" would hide the
+    drop-in from exactly the operator who needs it.
+    """
+    findmnt("nfs")
+    hook = hook_of(repo)
+    hook.parent.mkdir(parents=True, exist_ok=True)
+    hook.write_text("#!/bin/sh\necho mine\n", encoding="utf-8")
+
+    result = emit(runner, repo)
+
+    assert result.exit_code == 1
+    assert hook.read_text(encoding="utf-8") == "#!/bin/sh\necho mine\n"
+    text = flat(result)
+    assert "osprey scaffold systemd --force" in text
+    assert f"cp {unit_of(repo)} ~/.config/systemd/user/" in text
+    assert "systemctl --user enable --now osprey.service" in text
+    assert "loginctl enable-linger" in text
+    assert f"RequiresMountsFor={home}" in text
+
+
+def test_a_network_home_says_how_to_wire_the_hook_up(
+    runner: CliRunner, repo: Path, home: Path, findmnt
+) -> None:
+    """The no-root fallback: the hook's full path, and the crontab line."""
+    findmnt("nfs")
+
+    result = emit(runner, repo)
+
+    assert result.exit_code == 0, result.output
+    text = flat(result)
+    assert str(hook_of(repo)) in text
+    assert "crontab -e" in text
+    assert f"@reboot {hook_of(repo)}" in text
+
+
+def test_the_hook_is_named_as_a_fallback_not_a_replacement(
+    runner: CliRunner, repo: Path, home: Path, findmnt
+) -> None:
+    """The drop-in is still the fix; cron only repairs each boot after it."""
+    findmnt("autofs")
+
+    result = emit(runner, repo)
+
+    text = flat(result)
+    assert "fallback" in text
+    assert "not a replacement for the drop-in" in text
+    # Said in the order an operator reads it: root first, cron only after.
+    assert text.index("RequiresMountsFor") < text.index("@reboot")
+
+
+def test_a_local_home_never_mentions_the_hook(
+    runner: CliRunner, repo: Path, home: Path, findmnt
+) -> None:
+    """The hook is written either way, but wiring it up here is noise."""
+    findmnt("ext4")
+
+    result = emit(runner, repo)
+
+    assert result.exit_code == 0, result.output
+    text = flat(result)
+    assert "@reboot" not in text
+    assert "crontab" not in text
+    assert str(hook_of(repo)) not in text
 
 
 # ── The detection itself ─────────────────────────────────────────────────────

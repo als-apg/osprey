@@ -623,8 +623,9 @@ systemd user unit that does it for you.
 
    osprey scaffold systemd
 
-It writes ``osprey.service`` at the repository root and prints the commands that
-install it on this machine:
+It writes ``osprey.service`` at the repository root — and, beside it,
+``scripts/osprey-boot-hook.sh``, covered below — and prints the commands that
+install the unit on this machine:
 
 .. code-block:: bash
 
@@ -696,6 +697,27 @@ Followed by ``sudo systemctl daemon-reload``. The command prints that file with
 your own uid and home directory already filled in, ready to hand to whoever
 administers the host. On a local home — or on a host with no ``findmnt``, where
 there is no way to tell — it prints nothing extra.
+
+When nobody with root is available, the same run has already written the
+fallback: ``scripts/osprey-boot-hook.sh``, beside the unit. It waits for the
+home, the deployment and the user manager to appear, then reloads the unit
+files and starts the unit — the script an affected site otherwise ends up
+writing by hand. Wire it into the account's own crontab:
+
+.. code-block:: bash
+
+   crontab -e
+   @reboot /path/to/repo/scripts/osprey-boot-hook.sh
+
+It repairs each boot after the fact rather than ordering the manager
+correctly in the first place, so it is a fallback, not a replacement for the
+drop-in. cron mails the account whatever the hook prints, so a boot that
+did not come back says why.
+
+``osprey health`` reports this condition too: the ``systemd_unit`` category
+is ``error`` when the unit is installed but the user manager reports it
+``not-found``, ``warning`` when it was scaffolded but never installed, and
+a skip on any host without a scaffolded unit or a user manager.
 
 Why the unit runs ``osprey`` and not compose
 --------------------------------------------

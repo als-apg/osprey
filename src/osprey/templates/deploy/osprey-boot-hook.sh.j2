@@ -1,0 +1,102 @@
+#!/bin/sh
+# =============================================================================
+# {{ ctx.facility_name }} — OSPREY boot hook
+# =============================================================================
+# osprey-scaffold: deploy/boot-hook
+# osprey-version: {{ ctx.osprey_version }}
+#
+# Emitted by `osprey scaffold systemd` beside the user unit, for one situation:
+# a deploy host whose home directory is an NFS or autofs mount.
+#
+# A lingering `systemd --user` manager starts at boot, before that mount lands.
+# It resolves its unit search path once, finds nothing under the not-yet-
+# mounted home, and never looks again — so `systemctl --user status
+# {{ unit_name }}` reads `not-found` after every reboot and the stack sits
+# there until somebody runs `daemon-reload` by hand.
+#
+# The proper fix is a `RequiresMountsFor` drop-in on `user@<uid>.service`,
+# which needs root. This script is the fallback that does not: it waits for the
+# home, the deployment and the user manager to appear, then reloads the unit
+# files and starts the unit. Wire it into the account's own crontab:
+#
+#   crontab -e
+#   @reboot {{ ctx.repo_root }}/{{ boot_hook_path }}
+#
+# cron mails the account whatever this prints, so a boot that did not come back
+# says why in that mail. Running it again by hand is harmless: an already
+# active unit is left alone.
+#
+# Deployment how-to: {{ docs_url }}
+#
+# Re-run `osprey scaffold systemd` after the repo moves or OSPREY is
+# reinstalled elsewhere — the paths below are absolute. The marker line above
+# is what makes re-emission safe, so a file without it is treated as
+# hand-written and left alone unless you pass --force.
+# =============================================================================
+set -u
+
+# The one line that makes a cron job able to talk to the user manager at all.
+# `@reboot` runs with no session and no bus address, and `systemctl --user`
+# with no XDG_RUNTIME_DIR does not fail loudly — it just fails. Every hook of
+# this kind that "does nothing" is missing this.
+XDG_RUNTIME_DIR="/run/user/$(id -u)"
+export XDG_RUNTIME_DIR
+
+# Seconds between attempts, and the budget shared by every wait below. Past
+# the budget the hook gives up and says which thing never showed, rather than
+# holding a cron slot open forever.
+POLL_SECONDS={{ ctx.poll_seconds }}
+TOTAL_WAIT_SECONDS={{ ctx.total_wait_seconds }}
+WAITED=0
+
+say() { printf 'osprey-boot-hook: %s\n' "$1"; }
+die() { printf 'osprey-boot-hook: %s\n' "$1" >&2; exit 1; }
+
+# Block until a path exists, spending from the shared budget. POSIX sh has no
+# `local`, so WAITED is deliberately global: the budget covers the whole boot,
+# not each path in turn.
+wait_for() {
+  while [ ! -e "$1" ]; do
+    if [ "$WAITED" -ge "$TOTAL_WAIT_SECONDS" ]; then
+      die "gave up after ${TOTAL_WAIT_SECONDS}s waiting for $2 ($1) — the unit was not started"
+    fi
+    sleep "$POLL_SECONDS"
+    WAITED=$((WAITED + POLL_SECONDS))
+  done
+  say "$2 is there: $1"
+}
+
+if [ -z "${HOME:-}" ]; then
+  die "HOME is unset — cron gives a job the account's home, so this ran from somewhere unexpected"
+fi
+
+# The home carries the unit file, and on this kind of host it is the mount
+# everything else is waiting on.
+wait_for "$HOME" "the home directory"
+
+# Both absolute, and both may live under that same mount: the unit's
+# WorkingDirectory, and the executable it runs.
+wait_for "{{ ctx.repo_root }}" "the deployment repo"
+wait_for "{{ ctx.osprey_bin }}" "the osprey executable"
+
+# The runtime directory is created by the user manager itself, so it appearing
+# is the signal that there is a manager to talk to — checking for the mount
+# alone would race a manager that has not started yet.
+wait_for "$XDG_RUNTIME_DIR" "the user manager's runtime directory"
+
+# Re-resolve the unit search path, which is the whole point: the manager read
+# it once, before the home was there.
+if ! systemctl --user daemon-reload; then
+  die "systemctl --user daemon-reload failed — the manager is up but not answering this account"
+fi
+say "reloaded the user manager's unit files"
+
+if systemctl --user is-active --quiet {{ unit_name }}; then
+  say "{{ unit_name }} is already active — nothing to start"
+  exit 0
+fi
+
+if ! systemctl --user start {{ unit_name }}; then
+  die "systemctl --user start {{ unit_name }} failed — see: systemctl --user status {{ unit_name }}"
+fi
+say "started {{ unit_name }}"

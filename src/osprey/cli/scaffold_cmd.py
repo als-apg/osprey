@@ -863,12 +863,15 @@ def ci(repo: Path | None, force: bool) -> None:
 def systemd(repo: Path | None, force: bool) -> None:
     """Emit a systemd unit that starts this deployment at boot.
 
-    Writes osprey.service at the repo root and prints how to install it. The
-    unit runs 'osprey up -d' from this repo and 'osprey down' on stop; both the
-    repo and the osprey program are written into it as full paths, because
-    systemd starts a unit with no working directory and a short PATH. Run it on
-    the machine that will run the deployment, and again after the repo moves or
-    OSPREY is reinstalled somewhere else.
+    Writes two files and prints how to install them: osprey.service at the repo
+    root, and scripts/osprey-boot-hook.sh beside it. The unit runs
+    'osprey up -d' from this repo and 'osprey down' on stop; both the repo and
+    the osprey program are written into it as full paths, because systemd
+    starts a unit with no working directory and a short PATH. The hook is for
+    one situation only — a home directory that arrives after the user manager
+    does — and this verb says so when it finds one. Run it on the machine that
+    will run the deployment, and again after the repo moves or OSPREY is
+    reinstalled somewhere else.
 
     Re-running is safe. A file whose content already matches is left untouched,
     stamp included, so an OSPREY upgrade alone produces no diff. A file the
@@ -884,12 +887,16 @@ def systemd(repo: Path | None, force: bool) -> None:
     # Imported here for the same reason `ci` does it: the build-profile chain
     # behind these two verbs is not loaded for any of the ownership ones.
     from .deploy_scaffold import detect_network_home, scaffold_systemd_unit
-    from .deploy_scaffold_templates import SYSTEMD_UNIT_NAME
+    from .deploy_scaffold_templates import (
+        BOOT_HOOK_MARKER,
+        SYSTEMD_MARKER,
+        SYSTEMD_UNIT_NAME,
+    )
 
     repo_root = find_repo_root(repo)
 
     try:
-        result = scaffold_systemd_unit(repo_root, force=force)
+        emitted = scaffold_systemd_unit(repo_root, force=force)
     except ConfigurationError as exc:
         raise click.ClickException(str(exc)) from None
     except FileNotFoundError as exc:
@@ -906,34 +913,50 @@ def systemd(repo: Path | None, force: bool) -> None:
             "environment, activate it and re-run."
         ) from None
 
-    shown = result.path.relative_to(repo_root)
-    if result.refused:
-        console.print(f"  [error]✗[/error] {shown} not written: {result.reason}")
-        # Non-zero for the same reason `ci` exits non-zero on a refusal: the
-        # operator asked for a file and did not get one.
+    for result in emitted:
+        shown = result.path.relative_to(repo_root)
+        if result.refused:
+            console.print(f"  [error]✗[/error] {shown} not written: {result.reason}")
+        elif result.action == "unchanged":
+            console.print(f"  [dim]= {shown} (unchanged)[/dim]")
+        else:
+            console.print(f"  [success]✓[/success] {shown} ({result.action})")
+
+    # Found by marker rather than by position: the emission order is the
+    # engine's business, and the two files below are told apart by what they
+    # are, not by where they happened to land in the list.
+    unit = next(f for f in emitted if f.marker == SYSTEMD_MARKER)
+    hook = next(f for f in emitted if f.marker == BOOT_HOOK_MARKER)
+
+    # Gated on the unit alone. A hand-written boot hook already sitting in the
+    # repo is refused, and rightly — but the unit beside it may have been
+    # written perfectly, and an operator who just got one still needs to be
+    # told how to install it and what a late-mounting home does to it.
+    if not unit.refused:
+        console.print()
+        console.print("  Install it on this machine:")
+        # The full path, not the one reported above: --repo and any subdirectory
+        # both put the operator somewhere this line has to work from anyway. Soft
+        # wrapped, so a deep repo path stays one line for whoever copies it.
+        console.print(f"    cp {unit.path} ~/.config/systemd/user/", soft_wrap=True)
+        console.print("    systemctl --user daemon-reload")
+        console.print(f"    systemctl --user enable --now {SYSTEMD_UNIT_NAME}")
+        console.print()
+        console.print("  For it to start at boot, the account also needs:")
+        console.print("    loginctl enable-linger $USER")
+
+        home = Path.home()
+        _warn_about_a_network_home(home, detect_network_home(home), hook.path)
+
+    if any(result.refused for result in emitted):
+        # Last, after everything above has been said. Non-zero for the same
+        # reason `ci` exits non-zero on a refusal: the operator asked for a file
+        # and did not get one. The reason printed above names the overriding
+        # flag.
         raise SystemExit(1)
-    if result.action == "unchanged":
-        console.print(f"  [dim]= {shown} (unchanged)[/dim]")
-    else:
-        console.print(f"  [success]✓[/success] {shown} ({result.action})")
-
-    console.print()
-    console.print("  Install it on this machine:")
-    # The full path, not the one reported above: --repo and any subdirectory
-    # both put the operator somewhere this line has to work from anyway. Soft
-    # wrapped, so a deep repo path stays one line for whoever copies it.
-    console.print(f"    cp {result.path} ~/.config/systemd/user/", soft_wrap=True)
-    console.print("    systemctl --user daemon-reload")
-    console.print(f"    systemctl --user enable --now {SYSTEMD_UNIT_NAME}")
-    console.print()
-    console.print("  For it to start at boot, the account also needs:")
-    console.print("    loginctl enable-linger $USER")
-
-    home = Path.home()
-    _warn_about_a_network_home(home, detect_network_home(home))
 
 
-def _warn_about_a_network_home(home: Path, fstype: str | None) -> None:
+def _warn_about_a_network_home(home: Path, fstype: str | None, hook: Path) -> None:
     """Say what linger does not cover when ``$HOME`` is a network mount.
 
     Printed after the install instructions rather than instead of them: those
@@ -943,6 +966,12 @@ def _warn_about_a_network_home(home: Path, fstype: str | None) -> None:
     mount. So the drop-in is printed verbatim, for the operator to hand to
     whoever has root, and nothing here is refused or withheld.
 
+    Then the fallback for an operator who has nobody to hand it to: the boot
+    hook this verb already wrote, and the crontab line that runs it. That is
+    the only reason the hook exists, and this is the only place its path is
+    named — an operator on a local home never needs it. OSPREY prints the
+    ``@reboot`` line rather than installing it; the crontab is the account's.
+
     Silent when *fstype* is ``None``, which covers both a local home and a host
     the detection could not read.
 
@@ -950,6 +979,8 @@ def _warn_about_a_network_home(home: Path, fstype: str | None) -> None:
         home: The home directory that was inspected, and the one the drop-in
             has to name.
         fstype: What :func:`~.deploy_scaffold.detect_network_home` reported.
+        hook: Absolute path to the emitted boot hook, as the crontab line has
+            to name it.
     """
     if fstype is None:
         return
@@ -982,6 +1013,17 @@ def _warn_about_a_network_home(home: Path, fstype: str | None) -> None:
     console.print("      After=remote-fs.target autofs.service", markup=False)
     console.print("    and then run:")
     console.print("      sudo systemctl daemon-reload")
+    console.print()
+    console.print("    If nobody with root is available, this run also wrote a boot hook:")
+    console.print(f"      {hook}", soft_wrap=True)
+    console.print("    It waits for the home, this deployment and the user manager to show")
+    console.print("    up, then reloads the unit files and starts the unit. Run it once per")
+    console.print("    boot from the account's own crontab:")
+    console.print("      crontab -e")
+    console.print(f"      @reboot {hook}", soft_wrap=True)
+    console.print("    That is a fallback, not a replacement for the drop-in above: it")
+    console.print("    repairs each boot after the fact rather than ordering the manager")
+    console.print("    correctly in the first place.")
 
 
 def _owned_row(profile_root: Path | None, name: str) -> tuple[str, str, str]:
