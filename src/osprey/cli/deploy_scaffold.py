@@ -41,6 +41,8 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
+import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -106,6 +108,19 @@ _REGULAR_MODE = 0o644
 #: mentioned in prose — a README pasted into a comment, this docstring quoted
 #: in a template — from being read as provenance.
 _MARKER_SCAN_LINES = 20
+
+#: Filesystem types that mean ``$HOME`` is not local storage. Matched as
+#: prefixes, so ``nfs`` covers ``nfs`` and ``nfs4`` alike; ``autofs`` is the
+#: automounter's own type, reported for a home that is mounted on first access.
+#: These are the two a lingering user manager loses at boot, and the whole test
+#: the issue behind :func:`detect_network_home` asks for.
+_NETWORK_HOME_FSTYPES: tuple[str, ...] = ("nfs", "autofs")
+
+#: How long ``findmnt`` is given to answer. It reads ``/proc/self/mountinfo``
+#: and returns in milliseconds normally, but a stuck network mount is exactly
+#: the situation this detection is about, and a scaffolding verb must not hang
+#: on one.
+_FINDMNT_TIMEOUT_SECONDS = 2.0
 
 _MARKER_RE = re.compile(r"^#\s*osprey-scaffold:\s*(?P<marker>\S+)\s*$")
 _VERSION_RE = re.compile(r"^#\s*osprey-version:.*$", re.MULTILINE)
@@ -268,6 +283,64 @@ def scaffold_systemd_unit(
         force=force,
         command="osprey scaffold systemd",
     )
+
+
+def detect_network_home(home: Path) -> str | None:
+    """Report the filesystem type of *home* when it is a network mount.
+
+    A ``systemd --user`` unit installed under ``~/.config/systemd/user/`` is
+    only found if the home directory is mounted when the user manager starts.
+    With linger enabled that happens at boot, and a manager that reaches
+    ``default.target`` before an NFS or autofs home is there resolves its unit
+    search path once, finds nothing, and does not look again — so the unit, and
+    ``podman.socket`` with it, stay ``not-found`` until somebody runs
+    ``daemon-reload`` by hand. The scaffolding verb warns about that, and this
+    is what it keys the warning off.
+
+    ``findmnt -T <home> -no FSTYPE`` is the whole test: it resolves *home* to
+    the mount point that actually carries it, so a home nested inside a mounted
+    parent answers correctly.
+
+    Everything that is not a confident "yes" degrades to ``None``. The binary
+    is Linux-only, so macOS and minimal containers have none; a container
+    without ``/proc`` mount information, a non-zero exit, a hang and output
+    that is not a filesystem type all mean the same thing here — we do not
+    know, and a scaffolding run that does not know says nothing extra.
+
+    Args:
+        home: The home directory of the account whose user manager will run
+            the unit.
+
+    Returns:
+        The filesystem type as ``findmnt`` reports it (``nfs``, ``nfs4``,
+        ``autofs``) when *home* is on a network mount, and ``None`` otherwise
+        — local storage, or no way to tell.
+    """
+    findmnt = shutil.which("findmnt")
+    if findmnt is None:
+        return None
+
+    try:
+        completed = subprocess.run(
+            [findmnt, "-T", str(home), "-no", "FSTYPE"],
+            capture_output=True,
+            text=True,
+            timeout=_FINDMNT_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+    if completed.returncode != 0:
+        return None
+
+    # One mount point, so one line; anything else is not an answer we can read.
+    lines = [line.strip() for line in (completed.stdout or "").splitlines() if line.strip()]
+    if len(lines) != 1:
+        return None
+
+    fstype = lines[0]
+    return fstype if fstype.startswith(_NETWORK_HOME_FSTYPES) else None
 
 
 def _load_profile(profile_file: Path, *, command: str) -> tuple[dict[str, Any], Path]:

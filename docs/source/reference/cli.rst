@@ -1056,7 +1056,10 @@ All subcommands accept a common flag:
    ``ci``: a matching file is left untouched, and a file the scaffolder did not
    write needs ``--force``. Refuses when no ``osprey`` program can be found to
    name. Starting at boot also needs ``loginctl enable-linger $USER`` once —
-   see :doc:`/how-to/deploy-a-facility`.
+   see :doc:`/how-to/deploy-a-facility`. When ``$HOME`` is on an NFS or autofs
+   mount it also warns that linger alone will not survive a reboot there, and
+   prints the root-only ``user@<uid>.service`` drop-in that orders the user
+   manager after the mount.
 
 ``osprey scaffold list``
    List all build artifacts and their ownership status (framework vs.

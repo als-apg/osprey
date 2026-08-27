@@ -27,12 +27,18 @@ between "emitted" and "installed".
 
 from __future__ import annotations
 
+import os
+import subprocess
 from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
 
-from osprey.cli.deploy_scaffold import SYSTEMD_OUTPUT_NAME, scaffold_systemd_unit
+from osprey.cli.deploy_scaffold import (
+    SYSTEMD_OUTPUT_NAME,
+    detect_network_home,
+    scaffold_systemd_unit,
+)
 from osprey.cli.deploy_scaffold_templates import SYSTEMD_MARKER
 from osprey.cli.main import cli
 from osprey.cli.scaffold_cmd import scaffold
@@ -305,3 +311,194 @@ def test_the_group_help_lists_the_verb(runner: CliRunner) -> None:
 
     assert result.exit_code == 0, result.output
     assert "systemd" in result.output
+
+
+# ── A home the user manager cannot see at boot ───────────────────────────────
+
+
+@pytest.fixture
+def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A ``$HOME`` the test owns, so the warning has a path to name."""
+    account = tmp_path / "home" / "operator"
+    account.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("HOME", str(account))
+    return account
+
+
+@pytest.fixture
+def findmnt(monkeypatch: pytest.MonkeyPatch):
+    """Drive the detection seam: is ``findmnt`` there, and what does it say.
+
+    Both halves are patched in the module that reaches for them — the binary
+    lookup as well as the call — because the tests run on macOS too, where
+    ``findmnt`` does not exist and an unpatched lookup would answer for every
+    case at once.
+    """
+
+    def install(fstype: str = "", *, present: bool = True, returncode: int = 0) -> list[list[str]]:
+        calls: list[list[str]] = []
+        monkeypatch.setattr(
+            "osprey.cli.deploy_scaffold.shutil.which",
+            lambda name: "/usr/bin/findmnt" if present and name == "findmnt" else None,
+        )
+
+        def fake_run(argv, **kwargs):
+            calls.append(list(argv))
+            return subprocess.CompletedProcess(list(argv), returncode, f"{fstype}\n", "")
+
+        monkeypatch.setattr("osprey.cli.deploy_scaffold.subprocess.run", fake_run)
+        return calls
+
+    return install
+
+
+def flat(result) -> str:
+    """The output with its wrapping collapsed, for asserting on prose."""
+    return " ".join(result.output.split())
+
+
+def test_an_nfs_home_gets_the_root_only_drop_in(
+    runner: CliRunner, repo: Path, home: Path, findmnt
+) -> None:
+    """Linger alone loses the unit here, and the fix is not ours to apply."""
+    findmnt("nfs")
+
+    result = emit(runner, repo)
+
+    assert result.exit_code == 0, result.output
+    text = flat(result)
+    assert "nfs" in text
+    assert str(home) in text
+    assert "linger alone" in text
+    assert f"/etc/systemd/system/user@{os.getuid()}.service.d/network-home.conf" in text
+    assert "[Unit]" in text
+    assert f"RequiresMountsFor={home}" in text
+    assert "After=remote-fs.target autofs.service" in text
+    assert "sudo systemctl daemon-reload" in text
+
+
+def test_an_autofs_home_gets_it_too(runner: CliRunner, repo: Path, home: Path, findmnt) -> None:
+    findmnt("autofs")
+
+    result = emit(runner, repo)
+
+    assert result.exit_code == 0, result.output
+    assert "autofs" in flat(result)
+    assert f"RequiresMountsFor={home}" in flat(result)
+
+
+def test_the_warning_does_not_replace_the_install_instructions(
+    runner: CliRunner, repo: Path, home: Path, findmnt
+) -> None:
+    """It is a warning beside them, not a different set of instructions."""
+    findmnt("nfs4")
+
+    result = emit(runner, repo)
+
+    assert "systemctl --user daemon-reload" in result.output
+    assert "systemctl --user enable --now osprey.service" in result.output
+    assert "loginctl enable-linger" in result.output
+    assert "RequiresMountsFor" in flat(result)
+
+
+def test_the_home_is_the_path_findmnt_is_asked_about(
+    runner: CliRunner, repo: Path, home: Path, findmnt
+) -> None:
+    calls = findmnt("nfs")
+
+    emit(runner, repo)
+
+    assert calls == [["/usr/bin/findmnt", "-T", str(home), "-no", "FSTYPE"]]
+
+
+def test_a_local_home_says_nothing_extra(
+    runner: CliRunner, repo: Path, home: Path, findmnt
+) -> None:
+    findmnt("ext4")
+
+    result = emit(runner, repo)
+
+    assert result.exit_code == 0, result.output
+    assert "RequiresMountsFor" not in flat(result)
+    assert "loginctl enable-linger" in result.output
+
+
+def test_no_findmnt_says_nothing_extra(runner: CliRunner, repo: Path, home: Path, findmnt) -> None:
+    """macOS and minimal containers have no findmnt, and get no guesswork."""
+    findmnt(present=False)
+
+    result = emit(runner, repo)
+
+    assert result.exit_code == 0, result.output
+    assert "RequiresMountsFor" not in flat(result)
+
+
+def test_a_findmnt_that_fails_says_nothing_extra(
+    runner: CliRunner, repo: Path, home: Path, findmnt
+) -> None:
+    findmnt("nfs", returncode=1)
+
+    result = emit(runner, repo)
+
+    assert result.exit_code == 0, result.output
+    assert "RequiresMountsFor" not in flat(result)
+
+
+def test_a_refusal_prints_no_drop_in_either(
+    runner: CliRunner, repo: Path, home: Path, findmnt
+) -> None:
+    """Nothing was written, so there is nothing for a mount to hide."""
+    findmnt("nfs")
+    unit_of(repo).write_text("[Unit]\nDescription=mine\n", encoding="utf-8")
+
+    result = emit(runner, repo)
+
+    assert result.exit_code == 1
+    assert "RequiresMountsFor" not in flat(result)
+
+
+# ── The detection itself ─────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("fstype", ["nfs", "nfs4", "autofs"])
+def test_detection_names_the_network_filesystem(fstype: str, home: Path, findmnt) -> None:
+    findmnt(fstype)
+
+    assert detect_network_home(home) == fstype
+
+
+@pytest.mark.parametrize("fstype", ["ext4", "xfs", "btrfs", "overlay", ""])
+def test_detection_passes_over_local_storage(fstype: str, home: Path, findmnt) -> None:
+    findmnt(fstype)
+
+    assert detect_network_home(home) is None
+
+
+def test_a_findmnt_that_hangs_is_not_waited_on(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A stuck mount is exactly where findmnt blocks, so the call is bounded."""
+    monkeypatch.setattr(
+        "osprey.cli.deploy_scaffold.shutil.which",
+        lambda name: "/usr/bin/findmnt" if name == "findmnt" else None,
+    )
+
+    def timing_out(argv, **kwargs):
+        assert kwargs.get("timeout"), "the call has to carry a timeout"
+        raise subprocess.TimeoutExpired(list(argv), kwargs["timeout"])
+
+    monkeypatch.setattr("osprey.cli.deploy_scaffold.subprocess.run", timing_out)
+
+    assert detect_network_home(home) is None
+
+
+def test_an_unrunnable_findmnt_is_not_an_error(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "osprey.cli.deploy_scaffold.shutil.which",
+        lambda name: "/usr/bin/findmnt" if name == "findmnt" else None,
+    )
+
+    def unrunnable(argv, **kwargs):
+        raise OSError("Permission denied")
+
+    monkeypatch.setattr("osprey.cli.deploy_scaffold.subprocess.run", unrunnable)
+
+    assert detect_network_home(home) is None
