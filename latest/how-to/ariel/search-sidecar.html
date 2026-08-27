@@ -669,7 +669,12 @@ loses any.</p></li>
 <p>Both halves are needed, and this is the part that is easy to get wrong: setgid
 makes <strong>new files inherit the directory’s group</strong>. It does <em>not</em> make any
 container process a member of that group. Without <code class="docutils literal notranslate"><span class="pre">group_add</span></code> the container
-is not in the group at all, and the group-write bit grants it nothing.</p>
+is not in the group at all, and the group-write bit grants it nothing. The
+framework’s own entrypoint adds a third half for the process that actually
+serves requests: it joins the <code class="docutils literal notranslate"><span class="pre">osprey</span></code> user to the mounted directory’s group
+before dropping privileges, because <code class="docutils literal notranslate"><span class="pre">group_add</span></code> reaches only the container’s
+initial process. The logbook mirror written by <code class="docutils literal notranslate"><span class="pre">qmd_export</span></code> is shared through
+exactly the same mechanism.</p>
 <p>One limit follows from how Unix works rather than from OSPREY: setgid fixes who
 <em>owns</em> a new file, not its permission bits, which come from the writing
 process’s umask — normally <code class="docutils literal notranslate"><span class="pre">rw-r--r--</span></code>. So the supported cross-container
