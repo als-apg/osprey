@@ -66,6 +66,50 @@ WEB_COMPOSE_FILENAME = "docker-compose.web.yml"
 #: persona catalog key can collide with.
 ZERO_MIGRATION_OFFENDER = "(no persona: the deploy project)"
 
+#: The one deploy-config key that waives the Bash/launch-token refusal. Root of
+#: the deploy config, boolean ``true`` and nothing else (see
+#: :func:`dangerously_allow_bash`). Named so it cannot be typed innocently, in
+#: the spirit of Claude Code's dangerous skip-permissions flag: for a dev box
+#: whose only operator is the person reading the banner, never for a deployment
+#: that arms a live machine.
+DANGEROUSLY_ALLOW_BASH_KEY = "dangerously_allow_bash"
+
+
+class DangerouslyAllowBashValueError(DeploymentError):
+    """``dangerously_allow_bash`` is set to something other than ``true``.
+
+    A key this loud cannot be half-set. ``"true"``, ``1``, ``yes`` and every
+    other spelling are refused as a config error rather than read as either
+    on (a silent waiver) or off (a refusal that reads as the key not working).
+    """
+
+    def __init__(self, value: Any) -> None:
+        self.value = value
+        super().__init__(
+            f"{DANGEROUSLY_ALLOW_BASH_KEY} is {value!r}; the only value it takes is the "
+            f"boolean true. Remove the key to keep the Bash/launch-token refusal."
+        )
+
+
+def dangerously_allow_bash(config: Any) -> bool:
+    """Whether the deploy config waives the Bash/launch-token refusal.
+
+    Absent, ``null`` and ``false`` all read as off — byte-for-byte the refusal.
+    ``true`` reads as on. Anything else raises
+    :class:`DangerouslyAllowBashValueError`, on every reader of the predicate
+    and whether or not a conflict exists, so a mis-set key is caught on the
+    first ``osprey up`` rather than on the first conflict.
+
+    Args:
+        config: The parsed deploy config.
+    """
+    value = (config or {}).get(DANGEROUSLY_ALLOW_BASH_KEY)
+    if value is None or value is False:
+        return False
+    if value is True:
+        return True
+    raise DangerouslyAllowBashValueError(value)
+
 
 class BashLaunchTokenConflictError(DeploymentError):
     """A persona would hold ``BLUESKY_LAUNCH_TOKEN`` while its agent may run a shell.
@@ -225,6 +269,13 @@ def check_bash_launch_token_conflict(config: Any, project_root: Path | str) -> d
       whose pre-recreate re-render reaches the render seam through neither of the
       call sites above. The seam has to answer for itself.
 
+    :data:`DANGEROUSLY_ALLOW_BASH_KEY` waives the refusal -- and ONLY the
+    refusal: the entitlement map below is returned unchanged, so the waived
+    persona is granted exactly the token it would have been. It is honoured
+    here and in :func:`bash_launch_token_offenders` off one reader
+    (:func:`dangerously_allow_bash`), so the three call sites and the
+    collect-all preflight cannot disagree about whether it applies.
+
     No call site is redundant; removing any one of them leaves a real path
     uncovered. The decommission check is the easiest to mistake for duplication,
     because the seam behind it means deleting it breaks no test about *safety* —
@@ -256,6 +307,9 @@ def check_bash_launch_token_conflict(config: Any, project_root: Path | str) -> d
             Any lane's token is enough: a shell reads whichever one the container
             holds, and every lane arms real hardware motion on its own target.
     """
+    # Read FIRST, so a mis-set key is a config error even on a roster with no
+    # conflict to waive.
+    waived = dangerously_allow_bash(config)
     entitled_by_lane = personas_needing_launch_token_by_lane(config, project_root)
     permitting = personas_not_denying_bash(config, project_root)
     offenders_by_lane = {
@@ -267,7 +321,7 @@ def check_bash_launch_token_conflict(config: Any, project_root: Path | str) -> d
     # persona; they are bound per lane against the deploy project itself.
     for lane in _personaless_lanes(config, project_root):
         offenders_by_lane.setdefault(lane, set()).add(ZERO_MIGRATION_OFFENDER)
-    if offenders_by_lane:
+    if offenders_by_lane and not waived:
         # Read once more, only on the refusal path: the remedy names the key
         # that decides THAT lane's posture in THAT persona's config, and a lane
         # whose offenders disagree about it (two personas, two live connector
@@ -327,6 +381,33 @@ def bash_launch_token_offenders(config: Any, project_root: Path | str) -> set[st
         persona-less entries are in that state on some lane (see
         :func:`_personaless_lanes`). Empty when there is no conflict.
     """
+    if dangerously_allow_bash(config):
+        return set()
+    return _offenders_ignoring_the_waiver(config, project_root)
+
+
+def dangerously_allowed_bash_personas(config: Any, project_root: Path | str) -> set[str]:
+    """The personas :data:`DANGEROUSLY_ALLOW_BASH_KEY` waved through.
+
+    What the deploy's banner names: exactly the set
+    :func:`bash_launch_token_offenders` would have returned with the key off,
+    computed by the same predicate so the banner and the refusal cannot
+    disagree about who is in conflict. Empty whenever the key is off, and
+    empty on a conflict-free roster with the key on -- a banner naming nobody
+    would train operators to ignore it.
+
+    Args:
+        config: The parsed deploy config.
+        project_root: Deploy project root; relative ``project_path`` values
+            resolve against it.
+    """
+    if not dangerously_allow_bash(config):
+        return set()
+    return _offenders_ignoring_the_waiver(config, project_root)
+
+
+def _offenders_ignoring_the_waiver(config: Any, project_root: Path | str) -> set[str]:
+    """The conflict set with :data:`DANGEROUSLY_ALLOW_BASH_KEY` left out of it."""
     entitled = set().union(*personas_needing_launch_token_by_lane(config, project_root).values())
     offenders = entitled & personas_not_denying_bash(config, project_root)
     if _personaless_lanes(config, project_root):

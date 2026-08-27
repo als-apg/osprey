@@ -206,6 +206,27 @@ def _as_built_config(root: Path) -> dict | None:
     return load_project_config(str(config_path), wrap_errors=True)
 
 
+def as_built_dangerously_allows_bash(repo_root: Path | str) -> bool:
+    """Whether the deployment ``repo_root`` has BUILT runs under the Bash waiver.
+
+    Read off the same rendered ``build/config.yml`` as every other
+    ``as_built_*`` reader. Advisory like them: no build, an unreadable config or
+    a mis-set key answer ``False`` here -- the preflight is where a mis-set key
+    is refused, and the card that follows a successful verb must not fail it.
+    """
+    from osprey.deployment.web_terminals.artifacts import (
+        DangerouslyAllowBashValueError,
+        dangerously_allow_bash,
+    )
+
+    try:
+        config = _as_built_config(Path(repo_root))
+        return config is not None and dangerously_allow_bash(config)
+    except (DangerouslyAllowBashValueError, OSError, ValueError) as exc:
+        logger.debug("Bash waiver not read from the build: %s", exc)
+        return False
+
+
 @dataclass(frozen=True)
 class ClosingFacts:
     """What a finished ``up`` needs in order to say where to go next.

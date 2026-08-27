@@ -11,9 +11,11 @@ import yaml
 from osprey.deployment.web_terminals.artifacts import (
     ZERO_MIGRATION_OFFENDER,
     BashLaunchTokenConflictError,
+    DangerouslyAllowBashValueError,
     auth_env_digest,
     bash_launch_token_offenders,
     check_bash_launch_token_conflict,
+    dangerously_allowed_bash_personas,
     write_web_terminal_artifacts,
 )
 from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
@@ -839,3 +841,66 @@ def test_a_personaless_roster_armed_on_the_va_lane_alone_is_refused_by_lane(tmp_
     # The ask-only reader binds the same entry: one shared predicate, so the
     # collect-all preflight cannot clear what the raising guard refuses.
     assert bash_launch_token_offenders(config, tmp_path) == {ZERO_MIGRATION_OFFENDER}
+
+
+# ---------------------------------------------------------------------------
+# dangerously_allow_bash -- the one key that waives the Bash/launch-token refusal
+# ---------------------------------------------------------------------------
+
+
+def _dangerous_va_config(tmp_path, value=True):
+    config = _va_lane_roster_config(tmp_path, denies_bash=False)
+    config["dangerously_allow_bash"] = value
+    return config
+
+
+def test_dangerously_allow_bash_waives_the_refusal_and_still_grants_the_token(tmp_path):
+    """The key changes ONE thing: the deploy no longer refuses. The entitlement is
+    untouched -- the same persona is granted the same lane's token by the same
+    rule -- so the render must carry BLUESKY_VA_LAUNCH_TOKEN for a persona whose
+    shipped settings permit Bash."""
+    config = _dangerous_va_config(tmp_path)
+
+    assert bash_launch_token_offenders(config, tmp_path) == set()
+    assert check_bash_launch_token_conflict(config, tmp_path) == {"bluesky_va": {"va_operator"}}
+    write_web_terminal_artifacts(config, tmp_path)
+
+    alice_env = _rendered_services(tmp_path / "build")["web-alice"]["environment"]
+    assert any("BLUESKY_VA_LAUNCH_TOKEN" in value for value in alice_env)
+
+
+def test_dangerously_allow_bash_names_the_personas_it_waved_through(tmp_path):
+    """What the banner prints: the personas the guard WOULD have refused. Computed
+    by the same predicate, so the banner and the refusal cannot disagree about
+    who is in conflict. Empty whenever the key is off -- including on a
+    conflict-free roster with the key on."""
+    assert dangerously_allowed_bash_personas(_dangerous_va_config(tmp_path), tmp_path) == {
+        "va_operator"
+    }
+    assert (
+        dangerously_allowed_bash_personas(
+            _va_lane_roster_config(tmp_path / "off", denies_bash=False), tmp_path / "off"
+        )
+        == set()
+    )
+    clean = _va_lane_roster_config(tmp_path / "clean")
+    clean["dangerously_allow_bash"] = True
+    assert dangerously_allowed_bash_personas(clean, tmp_path / "clean") == set()
+
+
+@pytest.mark.parametrize("value", [False, None])
+def test_dangerously_allow_bash_off_is_byte_for_byte_the_refusal(tmp_path, value):
+    with pytest.raises(BashLaunchTokenConflictError):
+        check_bash_launch_token_conflict(_dangerous_va_config(tmp_path, value), tmp_path)
+
+
+@pytest.mark.parametrize("value", ["true", 1, "yes", "I-understand-the-risk"])
+def test_dangerously_allow_bash_accepts_only_the_boolean_true(tmp_path, value):
+    """A key this loud cannot be half-set. Anything but a literal YAML `true` is
+    a config error naming the key -- not a silent refusal (which would read as
+    the key not working) and not a silent waiver."""
+    with pytest.raises(DangerouslyAllowBashValueError) as excinfo:
+        check_bash_launch_token_conflict(_dangerous_va_config(tmp_path, value), tmp_path)
+
+    assert "dangerously_allow_bash" in str(excinfo.value)
+    assert repr(value) in str(excinfo.value)

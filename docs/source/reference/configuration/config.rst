@@ -512,6 +512,28 @@ dialog's Local channel is always available and needs no configuration at all.
 A build profile overrides any of these keys from its ``config:`` block in the
 dotted form, e.g. ``web.feedback.max_store_bytes: 536870912``.
 
+.. _config-dangerously-allow-bash:
+
+``dangerously_allow_bash`` — waiving the Bash/launch-token refusal
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``osprey up`` refuses to deploy a persona that is entitled to a Bluesky launch
+token while its ``.claude/settings.json`` does not deny ``Bash``: a shell could
+read the token out of its own environment and arm a queue with no approval.
+One root-level key waives that refusal, for a development box with a single
+trusted operator and no live machine behind it:
+
+.. code-block:: yaml
+
+   dangerously_allow_bash: true
+
+It takes the boolean ``true`` and nothing else — any other value is a config
+error. Absent, the refusal stands exactly as before. When set, every
+``osprey up`` prints a warning naming the personas it waved through, and the
+closing card carries a ``dangerously_allow_bash`` row. The key belongs to
+:ref:`the protected set <config-protected-set>`, so the running agent cannot
+set it. A build profile sets it from its ``config:`` block.
+
 .. _config-deployment:
 
 Deployment — service images and ``${VAR}`` interpolation
@@ -701,6 +723,8 @@ chain resolves to it warns by name — never by value — and states which value
 the provider it just probed will actually use, plus what to do about it. The
 reliable habit is to put the value in the env chain and leave your shell out of
 it: that is the one gesture that means the same thing on both providers.
+
+.. _config-protected-set:
 
 .. _config-protected-set:
 

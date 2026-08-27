@@ -95,7 +95,11 @@ def _card_parts(repo_root: Path | str, state: str) -> tuple[str, list[tuple[str,
         deployment's name, the same one the compose project carries
     :param state: One of ``created``, ``built``, ``running``, ``stopped``
     """
-    from osprey.deployment.deploy_summary import as_built_endpoint_entries
+    from osprey.deployment.deploy_summary import (
+        as_built_dangerously_allows_bash,
+        as_built_endpoint_entries,
+    )
+    from osprey.deployment.web_terminals.artifacts import DANGEROUSLY_ALLOW_BASH_KEY
 
     root = Path(repo_root)
     rows: list[tuple[str, str]] = []
@@ -104,6 +108,15 @@ def _card_parts(repo_root: Path | str, state: str) -> tuple[str, list[tuple[str,
         # can act on are the ones they can open. The full list, bare addresses
         # and the not-configured facts included, is `osprey status`.
         rows += [(s, a) for s, a in as_built_endpoint_entries(root) if a.startswith("http://")]
+    if as_built_dangerously_allows_bash(root):
+        # Above the housekeeping rows, on every state: a waiver of a safety
+        # refusal is the one fact on this card that must not be skimmed past.
+        rows.append(
+            (
+                DANGEROUSLY_ALLOW_BASH_KEY,
+                "ON -- a persona may run Bash while holding a launch token",
+            )
+        )
     rows.append(("command output", str(root / SPOOL_DIR)))
     rows.append(("next", _next_step(root, state)))
     return f"{root.name} — {state}", rows

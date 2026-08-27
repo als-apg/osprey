@@ -849,3 +849,18 @@ class TestTokenLoginClosingLine:
         assert "osprey users login-url kiosk" in printed
         # ...and only that entry: alice and bob still have a login page.
         assert "alice" not in printed.split("no login page")[1]
+
+
+def test_the_card_flags_dangerously_allow_bash(repo: Path):
+    """A deployment running under the waiver says so on the card operators read
+    after every deploy; one absent from the config leaves no trace."""
+    assert not any(
+        "dangerously_allow_bash" in line for line in format_summary_card(repo, "running")
+    )
+
+    config = repo / "build" / "config.yml"
+    config.write_text(config.read_text() + "dangerously_allow_bash: true\n")
+
+    lines = format_summary_card(repo, "running")
+    flagged = [line for line in lines if "dangerously_allow_bash" in line]
+    assert flagged and "Bash" in flagged[0] and "launch token" in flagged[0]

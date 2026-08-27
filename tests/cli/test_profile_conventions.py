@@ -1657,3 +1657,9 @@ def test_the_glob_match_is_the_other_mirror():
     assert is_setup_patch_capable(config) is not any(
         fnmatchcase(SETUP_PATCH_TOOL, entry) for entry in rendered
     )
+
+
+def test_dangerously_allow_bash_is_protected():
+    """The waiver decides whether a Bash-capable agent may hold a launch token, so
+    the agent must not be able to set it through a config write."""
+    assert is_protected_key("config.yml", "dangerously_allow_bash") is True

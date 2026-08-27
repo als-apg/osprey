@@ -47,9 +47,11 @@ from osprey.deployment.runtime_helper import (
 )
 from osprey.deployment.subprocess_capture import run_captured
 from osprey.deployment.web_terminals.artifacts import (
+    DANGEROUSLY_ALLOW_BASH_KEY,
     BashLaunchTokenConflictError,
     bash_launch_token_offenders,
     check_bash_launch_token_conflict,
+    dangerously_allowed_bash_personas,
     web_compose_file,
     write_web_terminal_artifacts,
 )
@@ -157,6 +159,18 @@ def preflight_web_terminals(config: dict, *, repo_root: Path | str | None = None
     # again — see check_bash_launch_token_conflict for why all three call sites
     # are load-bearing.
     check_bash_launch_token_conflict(config, root)
+    # The one waiver of that refusal is never silent: every `up` that runs
+    # under it names the key and who it waved through, here, at the point the
+    # refusal would have fired. Silence is how a dev-box key reaches a machine.
+    if waived := dangerously_allowed_bash_personas(config, root):
+        logger.warning(
+            "%s is set: %s may run Bash while holding a launch token, so the "
+            "chat approval on queue_start is not the only way to arm a queue. "
+            "For a dev box with one trusted operator only -- remove the key "
+            "before this deployment arms a live machine.",
+            DANGEROUSLY_ALLOW_BASH_KEY,
+            ", ".join(sorted(waived)),
+        )
     ensure_env_production(config, str(root))
     # BEFORE the mint, deliberately: a registry-mode deploy that forgot
     # auth.image is already doomed, and minting here first would write (and

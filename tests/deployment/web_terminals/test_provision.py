@@ -1208,3 +1208,51 @@ def test_preflight_passes_a_persona_that_denies_bash(monkeypatch, tmp_path):
     monkeypatch.setattr(provision, "ensure_env_production", lambda config, root: None)
 
     provision.preflight_web_terminals(_persona_roster_config(tmp_path, denies_bash=True))
+
+
+def test_preflight_with_dangerously_allow_bash_proceeds_and_says_so(monkeypatch, tmp_path, caplog):
+    """The waiver must never be silent: every `osprey up` that runs under it
+    prints a warning naming the key and the personas it waved through, at the
+    exact point the refusal would otherwise have fired."""
+    import logging
+
+    monkeypatch.chdir(tmp_path)
+    reached: list[str] = []
+    monkeypatch.setattr(
+        provision, "ensure_env_production", lambda config, root: reached.append("env_production")
+    )
+    monkeypatch.setattr(
+        provision, "_provision_auth_secrets", lambda wt, root: reached.append("auth_secrets")
+    )
+    monkeypatch.setattr(
+        provision, "_provision_terminal_secrets", lambda wt, root: reached.append("terminal")
+    )
+    config = _persona_roster_config(tmp_path, denies_bash=False)
+    config["dangerously_allow_bash"] = True
+
+    with caplog.at_level(logging.WARNING):
+        provision.preflight_web_terminals(config)
+
+    assert reached == ["env_production", "auth_secrets", "terminal"]
+    banner = [r.getMessage() for r in caplog.records if "dangerously_allow_bash" in r.getMessage()]
+    assert banner, caplog.text
+    assert "readwrite" in banner[0]
+
+
+def test_preflight_stays_quiet_when_dangerously_allow_bash_waives_nothing(
+    monkeypatch, tmp_path, caplog
+):
+    """The key on a conflict-free roster is inert and the banner is not printed --
+    a banner with nobody named would train operators to ignore it."""
+    import logging
+
+    monkeypatch.chdir(tmp_path)
+    for name in ("ensure_env_production", "_provision_auth_secrets", "_provision_terminal_secrets"):
+        monkeypatch.setattr(provision, name, lambda *a, **k: None)
+    config = _persona_roster_config(tmp_path, denies_bash=True)
+    config["dangerously_allow_bash"] = True
+
+    with caplog.at_level(logging.WARNING):
+        provision.preflight_web_terminals(config)
+
+    assert "dangerously_allow_bash" not in caplog.text
