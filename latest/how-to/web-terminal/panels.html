@@ -520,8 +520,11 @@
 <p>A <strong>panel</strong> is a self-contained, themed mini-app the Web Terminal shows as a tab
 beside the chat. OSPREY’s own tools — Channel Finder, ARIEL, the lattice
 dashboard, the artifact gallery — are all panels, and you can add your own.
-Because panels use the shared design tokens (<a class="reference internal" href="theming.html"><span class="doc">Theming</span></a>), they match your
-theme automatically, in light and dark, with no extra work.</p>
+A panel that takes its colors from the shared design tokens (<a class="reference internal" href="theming.html"><span class="doc">Theming</span></a>)
+matches your theme automatically, in light and dark, with no extra work. A
+service that brings its own colors — most facility dashboards do — follows
+the theme only once it opts in; <a class="reference internal" href="#theming-a-url-backed-panel">Theming a URL-backed panel</a> is what it needs
+to do.</p>
 <p>Enable OSPREY’s built-in panels in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">panels</span><span class="p">:</span>
@@ -557,6 +560,65 @@ the entries for you):</p>
 </div>
 <p>The hub shows the service as a tab and proxies requests to it from the same
 origin, so the browser never needs direct access to the backing port.</p>
+</section>
+<section id="theming-a-url-backed-panel">
+<h2>Theming a URL-backed panel<a class="headerlink" href="#theming-a-url-backed-panel" title="Link to this heading">#</a></h2>
+<p>A service you did not write for OSPREY keeps its own colors when you hang it
+in a tab, and the terminal will not restyle it for you. What the terminal does
+do is tell the service, at every moment, which theme the operator is looking
+at — and it is then a small change in the service to follow along. This is the
+whole of what it is told. Everything below is <strong>version 1</strong> of the contract
+(<code class="docutils literal notranslate"><span class="pre">CONTRACT_VERSION</span></code> in the design system’s <code class="docutils literal notranslate"><span class="pre">frame-params.js</span></code>), so a service
+that follows it keeps working as later versions add to it.</p>
+<p><strong>The theme arrives in the address.</strong> The terminal opens the panel at the URL
+you configured with three parameters added:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>?embedded=true&amp;theme=retro-dark&amp;mode=expert
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">theme</span></code> is the theme to paint with. <code class="docutils literal notranslate"><span class="pre">embedded=true</span></code> says the page is
+running inside the terminal rather than on its own, which is the cue to hide
+your own logo and page chrome — the terminal already draws a header around the
+tab, and without this you get two. <code class="docutils literal notranslate"><span class="pre">mode</span></code> is the operator’s Expert or Simple
+preference. Read all three <em>before the page first paints</em>, or the operator sees
+your default colors flash before yours settle on theirs.</p>
+<p><strong>The theme is one of eight names.</strong> <code class="docutils literal notranslate"><span class="pre">light</span></code> and <code class="docutils literal notranslate"><span class="pre">dark</span></code> for the main
+family, then <code class="docutils literal notranslate"><span class="pre">desy-light</span></code>, <code class="docutils literal notranslate"><span class="pre">desy-dark</span></code>, <code class="docutils literal notranslate"><span class="pre">high-contrast-light</span></code>,
+<code class="docutils literal notranslate"><span class="pre">high-contrast-dark</span></code>, <code class="docutils literal notranslate"><span class="pre">retro-light</span></code> and <code class="docutils literal notranslate"><span class="pre">retro-dark</span></code> (<a class="reference internal" href="theming.html"><span class="doc">Theming</span></a>
+describes the families). OSPREY’s own pages put the name on the <code class="docutils literal notranslate"><span class="pre">&lt;html&gt;</span></code>
+element as <code class="docutils literal notranslate"><span class="pre">data-theme=&quot;retro-dark&quot;</span></code> and let their stylesheet key off it;
+a service is free to map the eight names onto whatever its own styling
+expects, and to treat an unfamiliar name as its nearest light or dark default.</p>
+<p><strong>A change while the tab is open arrives as a message.</strong> When the operator
+switches theme, the terminal posts to the panel’s frame:</p>
+<div class="highlight-javascript notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="w"> </span><span class="nx">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;osprey-theme-change&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">theme</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;high-contrast-dark&#39;</span><span class="w"> </span><span class="p">}</span>
+</pre></div>
+</div>
+<p>A panel is always served from the terminal’s own address, so the message is
+same-origin. Check that before acting on it — <code class="docutils literal notranslate"><span class="pre">if</span> <span class="pre">(event.origin</span> <span class="pre">!==</span>
+<span class="pre">window.location.origin)</span> <span class="pre">return;</span></code> — and repaint. The Expert/Simple toggle
+broadcasts the same way, as <code class="docutils literal notranslate"><span class="pre">{</span> <span class="pre">type:</span> <span class="pre">'osprey-mode-change',</span> <span class="pre">mode</span> <span class="pre">}</span></code>.</p>
+<p><strong>The tokens come from the terminal, not from your copy.</strong> A page embedded as
+a panel can load OSPREY’s design tokens with a plain root-absolute reference:</p>
+<div class="highlight-html notranslate"><div class="highlight"><pre><span></span><span class="p">&lt;</span><span class="nt">link</span> <span class="na">rel</span><span class="o">=</span><span class="s">&quot;stylesheet&quot;</span> <span class="na">href</span><span class="o">=</span><span class="s">&quot;/design-system/css/tokens.css&quot;</span><span class="p">&gt;</span>
+</pre></div>
+</div>
+<p>The proxy rewrites that to the terminal’s own copy of the design system, so
+the colors a panel paints with are the ones the terminal is running — not
+whichever ones the service’s own build happened to ship. Every OSPREY color is
+a CSS variable there, and all eight themes are defined in that one file, so a
+service that restates its colors in terms of those variables gets the whole
+theme switch for free.</p>
+<p>Two boundaries are worth saying out loud:</p>
+<ul class="simple">
+<li><p><strong>Nothing happens on its own.</strong> The terminal only <em>tells</em> the panel the
+theme. A service that never reads the parameter, the message, or the tokens
+is embedded successfully and stays exactly the color it always was.</p></li>
+<li><p><strong>No credentials cross the proxy.</strong> The terminal strips the operator’s
+cookies and <code class="docutils literal notranslate"><span class="pre">Authorization</span></code> header on the way to your service, and strips
+headers that would act on the terminal’s address on the way back — see the
+note under <a class="reference internal" href="#adding-your-own-panel">Adding your own panel</a>. A service that authenticates its own
+callers that way cannot be driven as a panel, themed or not.</p></li>
+</ul>
 </section>
 <section id="the-bluesky-panel">
 <h2>The Bluesky panel<a class="headerlink" href="#the-bluesky-panel" title="Link to this heading">#</a></h2>
@@ -780,6 +842,7 @@ shape of it.</p>
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#where-the-panel-rail-lives">Where the panel rail lives</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#panels-backed-by-a-url">Panels backed by a URL</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#theming-a-url-backed-panel">Theming a URL-backed panel</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-bluesky-panel">The Bluesky panel</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#channel-suggestions-in-plan-forms">Channel suggestions in plan forms</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#adding-your-own-panel">Adding your own panel</a></li>
