@@ -1358,6 +1358,28 @@ def _inject_project_metadata(config):
                 services[lane_key] = {**services[lane_key], "writes_enabled": armed}
             config_with_labels["services"] = services
 
+    # The BPM readout perturbation the Virtual Accelerator's stand-in instance
+    # ships with, rendered as the default inside its
+    # ``${VA_STANDIN_BPM_ERRORS:-...}`` interpolation. Derived here rather than
+    # written into the template for the reason every constant here is: the same
+    # value is consumed host-side by the archiver seed, and a template literal
+    # would be a second copy of it that could drift into a stand-in whose
+    # present and whose recorded past disagree about which machine it is.
+    #
+    # Injected unconditionally — a single-instance render never names the key
+    # (the template gates it on the stand-in branch), so this is inert for every
+    # project that has not asked for a second instance.
+    #
+    # Imported inside the function, following container_lifecycle's own use of
+    # this package: the VA manifest package pulls in the channel-finder database
+    # readers at import, and the deployment layer keeps that off the module
+    # import path that every `osprey` invocation pays for.
+    from osprey.services.virtual_accelerator.manifest.standin_defaults import (
+        STANDIN_BPM_ERRORS_DEFAULT,
+    )
+
+    config_with_labels["standin_bpm_errors_default"] = STANDIN_BPM_ERRORS_DEFAULT
+
     return config_with_labels
 
 
@@ -2943,7 +2965,10 @@ def find_existing_compose_files(config, deployed_services, quiet=False, base=Non
 
     Returns:
         list: Paths to the existing compose files, RELATIVE to *base* (which is
-        the anchor :func:`compose_base_cmd` resolves each ``-f`` against).
+        the anchor :func:`compose_base_cmd` resolves each ``-f`` against). Two
+        services sharing one template ``path`` each report that file, so the
+        list can repeat; :func:`~osprey.deployment.container_lifecycle._dedupe_compose_files`
+        is what every caller building a ``-f`` list passes it through.
 
     Example:
         compose_files = find_existing_compose_files(config, ['osprey.jupyter'])
