@@ -6,8 +6,8 @@ the artifact gallery.  Python tools, ``submit_response`` validation, and the
 fetches the registry at startup and overlays its lookup tables, so adding a
 new type here is all that's needed — no JS or CSS changes required.
 
-Icons (SVGs) remain in ``gallery.js`` where they belong; this module only
-stores display metadata (label + color).
+Icons (SVGs) remain in ``interfaces/artifacts/static/js/types.js`` where they
+belong; this module only stores display metadata (label + color).
 """
 
 from __future__ import annotations
@@ -56,7 +56,11 @@ CATEGORIES: dict[str, TypeDef] = {
     "dashboard": TypeDef("dashboard", "Dashboard", "#06b6d4"),
     "document": TypeDef("document", "Document", "#a3e635"),
     "screenshot": TypeDef("screenshot", "Screenshot", "#a78bfa"),
-    "agent_response": TypeDef("agent_response", "Agent Response", "#f472b6"),
+    # The fallback when a submitting agent names no category. "Agent Response"
+    # read as a content category, which it is not — every subagent artifact is
+    # an agent response. The honest label makes an undeclared hand-in look like
+    # what it is: something that forgot to say what it holds.
+    "agent_response": TypeDef("agent_response", "Uncategorized", "#f472b6"),
     "channel_addresses": TypeDef("channel_addresses", "Channel Addresses", "#2dd4bf"),
     "channel_finder": TypeDef("channel_finder", "Channel Finder", "#10b981"),
     "logbook_research": TypeDef("logbook_research", "Logbook Research", "#e879f9"),
@@ -65,8 +69,10 @@ CATEGORIES: dict[str, TypeDef] = {
     "user_artifact": TypeDef("user_artifact", "User Artifact", "#94a3b8"),
     "diagnostic_report": TypeDef("diagnostic_report", "Diagnostic Report", "#ef4444"),
     "lattice_analysis": TypeDef("lattice_analysis", "Lattice Analysis", "#0ea5e9"),
-    # The facility-knowledge agent has always been instructed to submit with
-    # this type; register it so submit_response accepts the instruction.
+    # Both facility-knowledge agents submit here — the document-bundle one and
+    # the knowledge-graph one. They answer different questions from different
+    # stores, but the operator asking them is after the same thing; telling the
+    # two apart is source_agent's job, not the category's.
     "facility_knowledge": TypeDef("facility_knowledge", "Facility Knowledge", "#84cc16"),
 }
 

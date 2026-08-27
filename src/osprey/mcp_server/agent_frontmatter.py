@@ -2,12 +2,9 @@
 
 The rendered ``<project>/.claude/agents/*.md`` files (from
 ``src/osprey/templates/claude_code/claude/agents/*.md.j2``) are the one place
-an agent says what it is: its ``name``, the ``tools`` it may use, and — for an
-agent that computes something — the ``results_category`` it owes a data
-artifact to. Two runtime readers consume that frontmatter: the dispatch worker
-(tool surfaces, :mod:`osprey.mcp_server.dispatch_worker.agent_surfaces`) and
-``submit_response`` (the results contract). They share this parser so they
-cannot disagree about which files are agents or what an agent is called.
+an agent says what it is: its ``name`` and the ``tools`` it may use. The
+dispatch worker reads that frontmatter to build tool surfaces
+(:mod:`osprey.mcp_server.dispatch_worker.agent_surfaces`).
 
 Frontmatter contract (matching what the Claude Code CLI loads):
 
@@ -33,11 +30,6 @@ from typing import Any
 import yaml
 
 logger = logging.getLogger("osprey.mcp_server.agent_frontmatter")
-
-#: Frontmatter key naming the artifact category an agent owes its computed
-#: results to. ``submit_response`` files the agent's ``data`` there and refuses
-#: a hand-in that carries none.
-RESULTS_CATEGORY_KEY = "results_category"
 
 
 def parse_agent_frontmatter(project_dir: str | Path) -> dict[str, dict[str, Any]]:
@@ -89,19 +81,3 @@ def parse_agent_frontmatter(project_dir: str | Path) -> dict[str, dict[str, Any]
         declared[name] = frontmatter
 
     return declared
-
-
-def results_category_for(agent_name: str, project_dir: str | Path) -> str | None:
-    """The artifact category *agent_name* declares it owes its results to.
-
-    ``None`` for an agent that declares nothing, for a blank or non-string
-    declaration, and for a name no agent file carries — all of which mean the
-    same thing to the caller: this agent hands in prose only.
-    """
-    frontmatter = parse_agent_frontmatter(project_dir).get(agent_name)
-    if not frontmatter:
-        return None
-    category = frontmatter.get(RESULTS_CATEGORY_KEY)
-    if not isinstance(category, str) or not category.strip():
-        return None
-    return category.strip()

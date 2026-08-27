@@ -9,12 +9,13 @@ Two halves share one deployment-build path:
   every subagent ``execute`` call is readonly-or-unset (the template pins
   ``execution_mode="readonly"`` for the in-memory simulation).
 
-- **Grounding** (:func:`test_pyat_specialist_grounding`): reads the exact
-  floats the subagent handed in as ``submit_response(data=...)`` — filed by
-  the tool as its results JSON artifact — and checks them against ground truth computed in-test from ``build_ring()`` with the
-  *identical* 4D recipe (no pinned numeric literals). An LLM judge confirms
-  provenance and simulation-derived labeling in the prose only — numbers are
-  never parsed out of prose.
+- **Grounding** (:func:`test_pyat_specialist_grounding`): grades the subagent's
+  answer — the artifact it files and returns — against ground truth computed
+  in-test from ``build_ring()`` with the *identical* 4D recipe (no pinned
+  numeric literals). One LLM judge checks both halves: every requested quantity
+  present and within tolerance, and the answer labeled as computed from the
+  simulated design lattice. The judge reads the numbers wherever the answer put
+  them, in prose or in a table.
 
 These tests use real API calls via the Claude Agent SDK — zero mocking.
 
@@ -31,7 +32,6 @@ GitHub Actions runners. To run locally you need:
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -40,7 +40,6 @@ from tests.e2e.judge import LLMJudge, WorkflowResult
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
     SDKWorkflowResult,
-    agent_data_dir,
     e2e_budget_scale,
     init_project,
     is_claude_code_available,
@@ -229,137 +228,6 @@ def _ground_truth() -> dict:
     }
 
 
-def _leaves(obj, prefix: str = ""):
-    """Yield ``(lowercased_path, value)`` for every scalar leaf of a JSON tree.
-
-    Nested dicts extend the path with ``.key`` and lists with ``[i]`` so a value
-    can be located by any substring of its full path — this is what makes the
-    result-key matching tolerant of how the subagent chose to nest/name keys
-    (``beta.BPM01.x`` and ``BPM01.beta_x`` both carry ``beta``/``bpm01``/``x``).
-    """
-    if isinstance(obj, dict):
-        for k, v in obj.items():
-            yield from _leaves(v, f"{prefix}.{k}".lower())
-    elif isinstance(obj, list):
-        for i, v in enumerate(obj):
-            yield from _leaves(v, f"{prefix}[{i}]")
-    else:
-        yield prefix, obj
-
-
-def _coerce_float(value, label: str) -> float:
-    """Coerce a saved value to float, failing loudly on a numpy display-repr string.
-
-    The template requires native Python values in ``submit_response(data=...)``;
-    a value like ``'np.float64(0.22)'`` means a numpy repr was handed in instead. Surface it
-    as a clear, actionable error rather than an opaque ``ValueError``.
-    """
-    if isinstance(value, bool):  # bool is an int subclass — never a physics scalar
-        raise AssertionError(f"{label}: got a boolean {value!r}, expected a number")
-    try:
-        return float(value)
-    except (TypeError, ValueError) as exc:
-        raise AssertionError(
-            f"{label}: expected a numeric value but got {value!r} — likely an "
-            "un-coerced numpy display-repr string. The subagent must hand in "
-            "native float()/int() values in submit_response(data=...) (per the "
-            "template's 'Returning Results' recipe)."
-        ) from exc
-
-
-# Quantity stems that legitimately fuse with a bare plane letter (``betax``,
-# ``nux``, ``tuney``, ``qx``). The bare-suffix clause in ``_has_token`` fires
-# only after one of these — never on an ordinary word that happens to end in a
-# plane letter (``index`` ends with ``x``, ``energy`` ends with ``y``).
-_PLANE_STEMS = ("beta", "tune", "nu", "q", "b")
-
-
-def _has_token(path: str, tokens) -> bool:
-    """True if *path* carries a plane token as a delimited segment (avoids
-    matching an incidental character inside a longer word)."""
-    for t in tokens:
-        if f".{t}" in path or f"_{t}" in path or f"[{t}]" in path:
-            return True
-        if path.endswith(t):
-            head = path[: -len(t)].split(".")[-1].split("_")[-1].rstrip("]").split("[")[-1]
-            if head in _PLANE_STEMS:
-                return True
-    return False
-
-
-def _resolve_two_plane(cands: list, label: str) -> tuple[float, float]:
-    """Resolve (x, y) from candidate ``(path, value)`` leaves.
-
-    Prefers explicit plane tokens (``_x``/``_y``, ``horizontal``/``vertical``);
-    falls back to sorted order when exactly two candidates exist (covers a
-    2-element list saved under one key, e.g. ``tune[0]``/``tune[1]``).
-    """
-    xs = [(p, v) for p, v in cands if _has_token(p, _X_TOKENS)]
-    ys = [(p, v) for p, v in cands if _has_token(p, _Y_TOKENS)]
-    if xs and ys:
-        return _coerce_float(xs[0][1], f"{label} (x)"), _coerce_float(ys[0][1], f"{label} (y)")
-    if len(cands) == 2:
-        ordered = sorted(cands)
-        return (
-            _coerce_float(ordered[0][1], f"{label} (x)"),
-            _coerce_float(ordered[1][1], f"{label} (y)"),
-        )
-    raise AssertionError(f"could not resolve horizontal/vertical {label} from saved keys: {cands}")
-
-
-def test_resolve_two_plane_ignores_metadata_keys() -> None:
-    """Regression: a sibling metadata key ending in a plane letter must not win.
-
-    In CI the subagent saved BPM01's lattice element index (7) alongside the
-    correct betas; ``.beta.bpm01.index`` ends with ``x``, so the resolver read
-    the index as the horizontal beta and failed a numerically correct artifact
-    (``got 7.0, truth 14.93``). Suffix matching must stay limited to compact
-    plane spellings (``betax``, ``nux``) and never fire on ordinary words.
-    """
-    data = {"beta": {"bpm01": {"index": 7, "s_m": 4.8, "beta_x": 14.93, "beta_y": 6.05}}}
-    cands = [(p, v) for p, v in _leaves(data) if "beta" in p and "bpm01" in p]
-    assert _resolve_two_plane(cands, "beta at BPM01") == (14.93, 6.05)
-
-    # Compact spellings without a delimiter keep resolving via the suffix path.
-    compact = {"bpm01": {"betax": 14.93, "betay": 6.05}}
-    cands = [(p, v) for p, v in _leaves(compact) if "bpm01" in p]
-    assert _resolve_two_plane(cands, "beta at BPM01") == (14.93, 6.05)
-
-
-def _load_results_artifacts(repo: Path) -> list[tuple[dict, dict]]:
-    """Return ``[(index_entry, parsed_json)]`` for the subagent's results artifacts.
-
-    SDK e2e runs the artifact store **unscoped** (``OSPREY_SESSION_ID`` unset),
-    so the shared root ``<repo>/var/agent_data/artifacts/`` holds every
-    artifact this run produced. Filter to ``artifact_type == 'json'`` AND
-    ``category != 'code_output'`` — the latter drops the executor's auto-saved
-    code+stdout wrapper (also stored as json), leaving the results dicts filed
-    by ``submit_response(data=...)`` (or by ``save_artifact`` for large arrays).
-    """
-    index_path = agent_data_dir(repo) / "artifacts" / "artifacts.json"
-    assert index_path.exists(), (
-        "No artifact index at "
-        f"{index_path} — the pyat-specialist never produced a results artifact: "
-        "its submit_response(data=...) hand-in did not complete."
-    )
-    index = json.loads(index_path.read_text(encoding="utf-8"))
-    artifacts_dir = index_path.parent
-    out: list[tuple[dict, dict]] = []
-    for entry in index.get("entries", []):
-        if entry.get("artifact_type") != "json" or entry.get("category") == "code_output":
-            continue
-        fp = artifacts_dir / entry.get("filename", "")
-        if not fp.exists():
-            continue
-        try:
-            data = json.loads(fp.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            continue
-        if isinstance(data, (dict, list)):
-            out.append((entry, data))
-    return out
-
-
 def _to_workflow_result(query: str, sdk_result: SDKWorkflowResult) -> WorkflowResult:
     """Convert an ``SDKWorkflowResult`` into the plain-text shape the judge reads."""
     response = "\n".join(sdk_result.text_blocks).strip()
@@ -378,18 +246,19 @@ def _to_workflow_result(query: str, sdk_result: SDKWorkflowResult) -> WorkflowRe
 
 
 @pytest.mark.asyncio
-# The retries absorb the LLM's turn-to-turn variance and nothing else. The
-# results-artifact assertion below is a contract: when it fails on every
-# attempt, the subagent's save path has regressed — widen neither the retries
-# nor the match.
+# The retries absorb the LLM's turn-to-turn variance and nothing else. A verdict
+# that fails on every attempt is a real regression in what the subagent computes
+# or reports — widen neither the retries nor the tolerances.
 @pytest.mark.flaky(reruns=2)
 async def test_pyat_specialist_grounding(tmp_path: Path) -> None:
-    """The subagent's saved numbers match ground truth; prose carries provenance.
+    """The numbers in the subagent's answer match ground truth, and it says where
+    they came from.
 
-    Numeric correctness is checked against exact floats read from the results
-    JSON artifact (never parsed out of prose) versus ground truth recomputed
-    in-test with the identical 4D recipe. The LLM judge only confirms the prose
-    labels the answer as simulation-derived — it never sees or grades a number.
+    The answer is the deliverable, so the answer is what gets graded: the judge
+    is handed the reference values — recomputed in-test with the template's own
+    4D recipe, no pinned literals — and the tolerance each must hold to. It
+    fails the response for a wrong number as readily as for a missing
+    provenance statement, wherever in the prose or its tables the value appears.
     """
     repo = init_project(tmp_path, "pyat_grd", template="control_assistant", provider="als-apg")
     judge = LLMJudge(provider="als-apg")
@@ -400,7 +269,7 @@ async def test_pyat_specialist_grounding(tmp_path: Path) -> None:
     )
 
     # See the delegation test: the executor's approval "ask" hook needs the
-    # auto-approve callback, or the compute (and its saved artifact) never runs.
+    # auto-approve callback, or the compute never runs.
     result = await run_sdk_query_with_hooks(
         repo, prompt, approval_policy="auto_approve", max_turns=25, max_budget_usd=2.0
     )
@@ -410,70 +279,6 @@ async def test_pyat_specialist_grounding(tmp_path: Path) -> None:
     assert result.result is not None, "No ResultMessage received"
     assert not result.result.is_error, f"SDK query ended in error: {result.result.result}"
 
-    # --- Numeric grounding: read exact floats from the results artifact(s) ---
-
-    truth = _ground_truth()
-    results = _load_results_artifacts(repo)
-    assert results, (
-        "No results JSON artifact found (artifact_type=='json' and "
-        "category!='code_output'). The subagent must hand its computed "
-        "quantities in as submit_response(data={...}). Index entries seen: "
-        f"{[(e.get('artifact_type'), e.get('category')) for e, _ in _all_index_entries(repo)]}"
-    )
-
-    # Union the leaves across every results artifact so the check is robust to a
-    # subagent that split its output across more than one results artifact.
-    leaves: list[tuple[str, object]] = []
-    for _entry, data in results:
-        leaves.extend(_leaves(data))
-
-    def _artifact_dump() -> str:
-        return json.dumps([data for _e, data in results], indent=2, default=str)[:2000]
-
-    # Tunes — compared modulo 1 with absolute tolerance. Match "tune" only:
-    # a raw "nu" substring would false-match keys like "number_of_bpms".
-    tune_cands = [(p, v) for p, v in leaves if "tune" in p]
-    assert tune_cands, f"No tune keys in the results artifact(s):\n{_artifact_dump()}"
-    got_nux, got_nuy = _resolve_two_plane(tune_cands, "tune")
-    for label, got, ref in (
-        ("nu_x", got_nux, truth["tune"][0]),
-        ("nu_y", got_nuy, truth["tune"][1]),
-    ):
-        d = abs((got - ref) % 1.0)
-        d = min(d, 1.0 - d)  # circular distance on the unit circle
-        assert d < _TUNE_ABS_TOL, (
-            f"{label} mismatch: got {got} (frac {got % 1.0:.6f}), "
-            f"truth {ref} (frac {ref % 1.0:.6f}), |Δ mod 1| {d:.2e} ≥ {_TUNE_ABS_TOL:.0e}"
-        )
-
-    # Circumference — relative tolerance.
-    circ_cands = [(p, v) for p, v in leaves if "circ" in p]
-    assert circ_cands, f"No circumference key in the results artifact(s):\n{_artifact_dump()}"
-    got_circ = _coerce_float(circ_cands[0][1], "circumference")
-    rel = abs(got_circ - truth["circumference"]) / truth["circumference"]
-    assert rel < _CIRCUMFERENCE_REL_TOL, (
-        f"circumference mismatch: got {got_circ}, truth {truth['circumference']}, "
-        f"rel {rel:.2e} ≥ {_CIRCUMFERENCE_REL_TOL:.0e}"
-    )
-
-    # Beta at named elements — 1% relative, per plane.
-    for elem in ("BPM01", "BPM03"):
-        beta_cands = [(p, v) for p, v in leaves if "beta" in p and elem.lower() in p]
-        assert beta_cands, (
-            f"No beta keys for {elem} in the results artifact(s) — the operator "
-            f"asked for beta at {elem}.\n{_artifact_dump()}"
-        )
-        got_bx, got_by = _resolve_two_plane(beta_cands, f"beta at {elem}")
-        ref_bx, ref_by = truth["beta"][elem]
-        for label, got, ref in (
-            (f"beta_x @ {elem}", got_bx, ref_bx),
-            (f"beta_y @ {elem}", got_by, ref_by),
-        ):
-            rel = abs(got - ref) / ref
-            assert rel < _BETA_REL_TOL, (
-                f"{label} mismatch: got {got}, truth {ref}, rel {rel:.2e} ≥ {_BETA_REL_TOL:.0%}"
-            )
-
     # Cost under budget.
     if result.cost_usd is not None:
         budget = 2.0 * e2e_budget_scale()
@@ -481,32 +286,41 @@ async def test_pyat_specialist_grounding(tmp_path: Path) -> None:
             f"Test cost ${result.cost_usd:.4f} — exceeded ${budget:.2f} budget"
         )
 
-    # --- Provenance judged in PROSE only (numbers already verified above) ---
+    truth = _ground_truth()
+    nu_x, nu_y = truth["tune"]
+    bpm01_x, bpm01_y = truth["beta"]["BPM01"]
+    bpm03_x, bpm03_y = truth["beta"]["BPM03"]
 
     result_eval = await judge.evaluate(
         _to_workflow_result(prompt, result),
         expectations=(
-            "The response explicitly states that the reported quantities "
-            "(tunes, circumference, beta functions) were COMPUTED from the "
-            "simulated ALS-U Accumulator Ring (AR) design lattice — i.e. they "
-            "are simulation-derived from the lattice/optics model, not a live "
-            "machine reading or measured data. Do NOT grade the numeric values "
-            "themselves; judge only whether the answer is clearly labeled as "
-            "computed from the simulated design lattice and free of unhandled "
-            "errors."
+            "Grade the response on TWO things.\n\n"
+            "(1) NUMERIC CORRECTNESS. The reference values below were computed "
+            "from the same lattice with the same recipe and are correct. Find "
+            "each quantity in the response — it may appear in a sentence or in "
+            "a table, under any reasonable name or symbol (nu_x/Qx/horizontal "
+            "tune; beta_x/βx) and in any order — and compare it to the "
+            "reference. FAIL if any is missing, or differs by more than its "
+            "tolerance. Tunes may be reported with or without the integer part; "
+            "compare only the FRACTIONAL part, modulo 1.\n"
+            f"  - horizontal tune: {nu_x!r} (fractional part; tolerance "
+            f"{_TUNE_ABS_TOL:.0e} absolute)\n"
+            f"  - vertical tune:   {nu_y!r} (fractional part; tolerance "
+            f"{_TUNE_ABS_TOL:.0e} absolute)\n"
+            f"  - circumference:   {truth['circumference']!r} m (tolerance "
+            f"{_CIRCUMFERENCE_REL_TOL:.0e} relative)\n"
+            f"  - beta at BPM01:   x={bpm01_x!r} m, y={bpm01_y!r} m (tolerance "
+            f"{_BETA_REL_TOL:.0%} relative)\n"
+            f"  - beta at BPM03:   x={bpm03_x!r} m, y={bpm03_y!r} m (tolerance "
+            f"{_BETA_REL_TOL:.0%} relative)\n\n"
+            "(2) PROVENANCE. The response explicitly states that the reported "
+            "quantities were COMPUTED from the simulated ALS-U Accumulator Ring "
+            "(AR) design lattice — simulation-derived from the lattice/optics "
+            "model, not a live machine reading or measured data.\n\n"
+            "FAIL on an unhandled error. Do not reward a confident tone: a "
+            "number outside tolerance fails no matter how it is presented. "
+            "In your reasoning, quote each value you found and the reference "
+            "you compared it to."
         ),
     )
     assert result_eval.passed, result_eval.reasoning
-
-
-def _all_index_entries(repo: Path) -> list[tuple[dict, dict]]:
-    """Every json artifact index entry (unfiltered) — used only to enrich a
-    failure message when no results artifact is found."""
-    index_path = agent_data_dir(repo) / "artifacts" / "artifacts.json"
-    if not index_path.exists():
-        return []
-    try:
-        index = json.loads(index_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return []
-    return [(e, {}) for e in index.get("entries", [])]

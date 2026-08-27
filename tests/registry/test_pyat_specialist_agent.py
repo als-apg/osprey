@@ -195,24 +195,19 @@ class TestPyatSpecialistAgentTemplate:
         )
         assert expected in rendered
 
-    def test_frontmatter_declares_results_category(self, template_manager):
-        """The agent owes its computed quantities to lattice_analysis — declared
-        where submit_response reads it (results_category_for)."""
-        from osprey.mcp_server.agent_frontmatter import results_category_for
+    def test_frontmatter_declares_no_results_contract(self, template_manager):
+        """The agent's answer is its prose — there is no second data hand-in.
 
+        ``results_category`` was a frontmatter declaration that made
+        ``submit_response`` refuse a hand-in without a JSON copy of the numbers.
+        The copy was re-typed by the model out of its own stdout, so it was no
+        more authoritative than the prose; the run itself is preserved by the
+        automatic notebook artifact.
+        """
         ctx = self._full_ctx(enabled=True)
         rendered = self._render(template_manager, ctx)
-        assert "results_category: lattice_analysis" in rendered
-
-        # And the rendered file is what the runtime reader actually resolves.
-        import tempfile
-        from pathlib import Path
-
-        with tempfile.TemporaryDirectory() as tmp:
-            agents = Path(tmp) / ".claude" / "agents"
-            agents.mkdir(parents=True)
-            (agents / "pyat-specialist.md").write_text(rendered, encoding="utf-8")
-            assert results_category_for("pyat-specialist", tmp) == "lattice_analysis"
+        assert "results_category" not in rendered
+        assert "data={" not in rendered
 
     def test_frontmatter_disallowed_tools_exact(self, template_manager):
         """The disallowedTools: line pins exactly the eleven blocked tools, in order."""
@@ -282,26 +277,26 @@ class TestPyatSpecialistAgentTemplate:
         rendered = self._render(template_manager, ctx)
         assert "Flag heavy runs before launching them" in rendered
 
-    def test_body_hands_in_data_with_the_response(self, template_manager):
-        """The numbers travel in submit_response(data=...) — one call, prose + data.
+    def test_body_hands_in_its_answer_as_prose(self, template_manager):
+        """One submit_response call carrying the answer, filed under its category.
 
-        The agent is told the hand-in is refused without data, and that large
-        arrays go through save_artifact in the computing call instead of being
-        retyped — the one case the single-call contract deliberately leaves open.
+        The agent is told to report every quantity it was asked for in that
+        prose (a table once there are several), and that a large array goes
+        through save_artifact in the computing call instead of being retyped —
+        the one case where a second artifact earns its place.
         """
         ctx = self._full_ctx(enabled=True)
         rendered = self._render(template_manager, ctx)
         normalized = " ".join(rendered.split())
 
-        assert 'source_agent="pyat-specialist"' in rendered
-        assert "data={" in rendered
-        assert "every quantity your prose reports" in normalized
-        assert "A `submit_response` without `data` is refused" in normalized
-        assert "Hand in every computed quantity in `submit_response(data=...)`" in normalized
+        assert '`source_agent`: "pyat-specialist"' in rendered
+        assert '`data_type`: "lattice_analysis"' in rendered
+        assert "Report every quantity you were asked for" in normalized
+        assert "markdown table" in normalized
         # The large-array escape hatch names the injected helper and the category.
         assert 'category="lattice_analysis"' in rendered
         assert "np.asarray(x).tolist()" in rendered
-        # The old self-verification step is gone — the tool does it now.
+        # No self-verification step: the agent does not re-read its own filing.
         assert "artifact_list" not in rendered
 
 
