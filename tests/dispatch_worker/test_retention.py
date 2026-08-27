@@ -393,3 +393,89 @@ def test_retention_loop_re_resolves_a_callable_log_dir(tmp_path, monkeypatch):
 
     assert resolved == [stale_root, real_root]
     assert not (real_root / "old.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# record_is_deletable / delete_run_records — the shared eligibility rule
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("status", ["completed", "error"])
+def test_record_is_deletable_terminal_without_age_floor(status):
+    """No age floor: a terminal record qualifies however young it is."""
+    record = {"status": status, "completed_at": _NOW}
+    assert retention.record_is_deletable(record, _NOW) is True
+
+
+@pytest.mark.parametrize("status", ["pending", "unknown", None])
+def test_record_is_deletable_rejects_non_terminal(status):
+    """A non-terminal record is never deletable, at any age or floor."""
+    record = {"status": status, "completed_at": _NOW - 100 * _DAY}
+    assert retention.record_is_deletable(record, _NOW) is False
+    assert retention.record_is_deletable(record, _NOW, older_than_days=1) is False
+
+
+def test_record_is_deletable_age_floor_matches_sweep_boundary():
+    """Same boundary as the sweep: N-1 and exactly N survive, N+1 goes."""
+    for days, expected in ((4, False), (5, False), (6, True)):
+        record = {"status": "completed", "completed_at": _NOW - days * _DAY}
+        assert retention.record_is_deletable(record, _NOW, older_than_days=5) is expected
+
+
+def test_record_is_deletable_unreadable_timestamp_under_age_floor():
+    """A record with no usable timestamp is kept when an age floor is asked for."""
+    record = {"status": "completed"}
+    assert retention.record_is_deletable(record, _NOW, older_than_days=5) is False
+    # …but it is still clearable when the caller asks for no floor at all.
+    assert retention.record_is_deletable(record, _NOW) is True
+
+
+def test_delete_run_records_clears_every_terminal_record(tmp_path):
+    log_dir = tmp_path / "dispatch"
+    _write_run(log_dir, "fresh", completed_at=_NOW)
+    _write_run(log_dir, "failed", status="error", completed_at=_NOW - _DAY)
+    _write_run(log_dir, "running", status="pending", created_at=_NOW)
+
+    deleted = retention.delete_run_records(log_dir, _NOW)
+
+    assert sorted(deleted) == ["failed", "fresh"]
+    assert not (log_dir / "fresh.json").exists()
+    assert not (log_dir / "failed.json").exists()
+    assert (log_dir / "running.json").exists()
+
+
+def test_delete_run_records_honours_in_flight_ids(tmp_path):
+    """A run the worker still holds as pending survives even if its record says done."""
+    log_dir = tmp_path / "dispatch"
+    _write_run(log_dir, "in-flight", completed_at=_NOW)
+    _write_run(log_dir, "done", completed_at=_NOW)
+
+    deleted = retention.delete_run_records(log_dir, _NOW, in_flight_run_ids=["in-flight"])
+
+    assert deleted == ["done"]
+    assert (log_dir / "in-flight.json").exists()
+
+
+def test_delete_run_records_age_floor_is_the_sweep_horizon(tmp_path):
+    """With a floor, delete_run_records deletes exactly what the sweep would."""
+    log_dir = tmp_path / "dispatch"
+    _write_run(log_dir, "young", completed_at=_NOW - 2 * _DAY)
+    _write_run(log_dir, "old", completed_at=_NOW - 20 * _DAY)
+
+    deleted = retention.delete_run_records(log_dir, _NOW, older_than_days=5)
+
+    assert deleted == ["old"]
+    assert (log_dir / "young.json").exists()
+
+
+def test_delete_run_records_missing_dir_is_a_noop(tmp_path):
+    assert retention.delete_run_records(tmp_path / "nope", _NOW) == []
+
+
+def test_delete_run_records_leaves_unreadable_files(tmp_path):
+    log_dir = tmp_path / "dispatch"
+    log_dir.mkdir(parents=True)
+    (log_dir / "corrupt.json").write_text("{not json")
+
+    assert retention.delete_run_records(log_dir, _NOW) == []
+    assert (log_dir / "corrupt.json").exists()

@@ -9,6 +9,7 @@ SDK and tests never assert a timing-dependent terminal status.
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from typing import Any
@@ -251,6 +252,115 @@ def test_cancel_finished_run(client):
     assert "cancelled" in body
     # A finished run cannot be cancelled.
     assert body["cancelled"] is False
+
+
+# ---------------------------------------------------------------------------
+# DELETE /dispatch/runs — clear finished history
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def log_dir(tmp_path, monkeypatch):
+    """Point the worker's persisted-record directory at a tmp dir."""
+    d = tmp_path / "dispatch"
+    d.mkdir()
+    monkeypatch.setattr(dispatch_api, "_log_dir", lambda: str(d))
+    return d
+
+
+def _write_record(log_dir, run_id: str, **fields: Any) -> None:
+    """Write a persisted record the way ``_persist_run`` would."""
+    record = {"run_id": run_id, "status": "completed", "completed_at": time.time()}
+    record.update(fields)
+    (log_dir / f"{run_id}.json").write_text(json.dumps(record))
+
+
+def test_clear_runs_requires_auth(client, log_dir):
+    resp = client.delete("/dispatch/runs")
+    assert resp.status_code in (401, 403)
+
+
+def test_clear_runs_deletes_records_and_memory(client, log_dir):
+    """Both layers go: the persisted file AND the in-memory entry."""
+    _write_record(log_dir, "on-disk-only")
+    dispatch_api._runs["in-ram-only"] = {"status": "error", "completed_at": time.time()}
+    _write_record(log_dir, "both")
+    dispatch_api._runs["both"] = {"status": "completed", "completed_at": time.time()}
+
+    resp = client.delete("/dispatch/runs", headers=_auth())
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["cleared"] == 3
+    assert body["records_deleted"] == 2
+    assert list(log_dir.glob("*.json")) == []
+    assert dispatch_api._runs == {}
+
+
+def test_clear_runs_route_is_not_swallowed_by_the_cancel_route(client, log_dir):
+    """``/dispatch/runs`` must not be read as a cancel of run id "runs".
+
+    Starlette matches in registration order, so this only holds while the
+    literal route is declared above ``DELETE /dispatch/{run_id}``.
+    """
+    resp = client.delete("/dispatch/runs", headers=_auth())
+    assert resp.status_code == 200
+    assert "cancelled" not in resp.json()
+
+
+def test_clear_runs_keeps_in_flight_runs(client, log_dir):
+    """A pending run survives — in memory and on disk — however the record reads."""
+    dispatch_api._runs["running"] = {"status": "pending", "created_at": time.time()}
+    # A stale record claiming the run finished must still be protected by the
+    # worker's live pending set.
+    _write_record(log_dir, "running")
+    _write_record(log_dir, "done")
+
+    resp = client.delete("/dispatch/runs", headers=_auth())
+
+    assert resp.json()["cleared"] == 1
+    assert (log_dir / "running.json").exists()
+    assert not (log_dir / "done.json").exists()
+    assert "running" in dispatch_api._runs
+
+
+def test_clear_runs_honours_older_than_days(client, log_dir):
+    """With an age floor, only runs past the horizon go — the sweep on demand."""
+    day = 86400.0
+    now = time.time()
+    _write_record(log_dir, "recent", completed_at=now - day)
+    _write_record(log_dir, "ancient", completed_at=now - 30 * day)
+    dispatch_api._runs["recent"] = {"status": "completed", "completed_at": now - day}
+    dispatch_api._runs["ancient"] = {"status": "completed", "completed_at": now - 30 * day}
+
+    # ``TestClient.delete`` takes no body (httpx's API); the age floor rides in
+    # one, as it does from the dispatcher's proxy.
+    resp = client.request("DELETE", "/dispatch/runs", headers=_auth(), json={"older_than_days": 7})
+
+    assert resp.json() == {"cleared": 1, "records_deleted": 1, "older_than_days": 7}
+    assert (log_dir / "recent.json").exists()
+    assert not (log_dir / "ancient.json").exists()
+    assert set(dispatch_api._runs) == {"recent"}
+
+
+def test_clear_runs_rejects_a_negative_horizon(client, log_dir):
+    """A negative floor is a typo, not a request to delete everything."""
+    _write_record(log_dir, "done")
+
+    resp = client.request("DELETE", "/dispatch/runs", headers=_auth(), json={"older_than_days": -1})
+
+    assert resp.status_code == 422
+    assert (log_dir / "done.json").exists()
+
+
+def test_clear_runs_drops_the_stream_queue(client, log_dir):
+    """A cleared run's SSE queue goes with it rather than leaking."""
+    dispatch_api._runs["done"] = {"status": "completed", "completed_at": time.time()}
+    dispatch_api._queues["done"] = MagicMock()
+
+    client.delete("/dispatch/runs", headers=_auth())
+
+    assert "done" not in dispatch_api._queues
 
 
 # ---------------------------------------------------------------------------

@@ -41,6 +41,7 @@ from osprey.dispatch.worker_client import (
     WorkerAuthRejectedError,
     WorkerRequestError,
     cancel_worker_run,
+    clear_worker_history,
     dispatch_to_worker,
     fetch_worker_runs,
     proxy_worker_stream,
@@ -500,11 +501,12 @@ def create_server() -> FastMCP:
     #     header-gated too, so it is unavailable on the standalone path (EventSource
     #     cannot set headers, and we deliberately do NOT accept a ``?token=`` query
     #     that would leak the bearer into access logs); polled state still renders.
-    # WRITE endpoints (/retry, /dashboard/cancel, /trigger/.../status) are gated the
-    # same way. The /dashboard HTML SHELL itself stays ungated on purpose: it carries
-    # no agent data, and the standalone token handoff requires the page to load so
-    # its JS can read the fragment. Secret-like source_config keys are still redacted
-    # in /dashboard/state. Production deployments should still network-isolate the port.
+    # WRITE endpoints (/retry, /dashboard/cancel, /dashboard/clear-history and
+    # /trigger/.../status) are gated the same way. The /dashboard HTML SHELL itself
+    # stays ungated on purpose: it carries no agent data, and the standalone token
+    # handoff requires the page to load so its JS can read the fragment. Secret-like
+    # source_config keys are still redacted in /dashboard/state. Production
+    # deployments should still network-isolate the port.
     # -----------------------------------------------------------------------
 
     @mcp.custom_route("/dashboard", methods=["GET"])
@@ -749,6 +751,45 @@ def create_server() -> FastMCP:
         run_id = request.path_params["run_id"]
         try:
             result = await cancel_worker_run(dispatch_target, dispatch_token, run_id)
+        except WorkerAuthRejectedError:
+            return JSONResponse({"detail": "worker auth failed"}, status_code=502)
+        except WorkerRequestError as exc:
+            return JSONResponse({"detail": str(exc)}, status_code=502)
+        return JSONResponse(result)
+
+    @mcp.custom_route("/dashboard/clear-history", methods=["POST"])
+    async def dashboard_clear_history(request: Request) -> JSONResponse:
+        """Proxy a clear-history request to the worker.
+
+        Bearer-auth against the dispatcher's own token, like the cancel proxy;
+        the dispatcher holds the worker token itself so the browser never sees
+        it. POST rather than DELETE because this is the browser-facing hop and
+        the dashboard already speaks POST for every write.
+
+        Body is optional: ``{"older_than_days": N}`` keeps runs younger than N
+        days, and anything else (absent, empty, ``0``) clears every finished run.
+        """
+        unauth = _check_auth(request)
+        if unauth is not None:
+            return unauth
+
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            return JSONResponse({"detail": "body must be an object"}, status_code=400)
+
+        raw = body.get("older_than_days") or 0
+        try:
+            older_than_days = int(raw)
+        except (TypeError, ValueError):
+            return JSONResponse({"detail": "older_than_days must be an integer"}, status_code=400)
+        if older_than_days < 0:
+            return JSONResponse({"detail": "older_than_days must not be negative"}, status_code=400)
+
+        try:
+            result = await clear_worker_history(dispatch_target, dispatch_token, older_than_days)
         except WorkerAuthRejectedError:
             return JSONResponse({"detail": "worker auth failed"}, status_code=502)
         except WorkerRequestError as exc:
