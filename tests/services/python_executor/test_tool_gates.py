@@ -411,3 +411,154 @@ async def test_the_writes_posture_does_not_clamp(tmp_path, monkeypatch):
     data = extract_response_dict(await _run_clean_readwrite(tmp_path, monkeypatch))
     assert data.get("error") is not True
     assert data["execution_mode"] == "readwrite"
+
+
+# ---------------------------------------------------------------------------
+# Deployment writes gate, per control target
+#
+# Write posture is per connector type, so the gate has to ask about the target
+# the session is actually on. The deployment below is the shape that makes the
+# difference visible: one machine with writes refused and a virtual accelerator
+# on the same deployment with writes armed.
+# ---------------------------------------------------------------------------
+
+MIXED_POSTURE_SECTION = {
+    "type": "epics",
+    "writes_enabled": False,
+    "connector": {
+        "epics": {},
+        "virtual_accelerator": {"writes_enabled": True},
+    },
+}
+
+#: The block key an operator has to edit to arm writes on that deployment's
+#: live machine — what its refusal must name, instead of the global key.
+LIVE_BLOCK_KEY = "control_system.connector.epics.writes_enabled"
+
+#: The deployment-wide key, which governs nothing here and so must appear
+#: nowhere in the refusal.
+GLOBAL_KEY = "control_system.writes_enabled"
+
+
+@pytest.fixture
+def mixed_posture(monkeypatch):
+    """A deployment that arms writes on its VA and refuses them on its machine."""
+    monkeypatch.setattr(
+        "osprey.utils.config.get_config_value",
+        lambda path, default=None, config_path=None: (
+            MIXED_POSTURE_SECTION if path == "control_system" else default
+        ),
+    )
+
+
+@pytest.fixture
+def session_target(monkeypatch):
+    """Put the session on a control target, as the controls server's state file does."""
+    import osprey.mcp_server.python_executor.executor as executor
+
+    def _select(record):
+        monkeypatch.setattr(executor, "_session_target_record", lambda: record)
+
+    return _select
+
+
+async def _run_readwrite(tmp_path, monkeypatch):
+    """A harmless readwrite run with only the subprocess mocked out.
+
+    Unlike :func:`_run_clean_readwrite` the deployment gate is left real — it is
+    what these tests are about.
+    """
+    monkeypatch.chdir(tmp_path)
+
+    from osprey.mcp_server.python_executor.executor import ExecutionResult
+
+    mock_exec = AsyncMock(
+        return_value=ExecutionResult(
+            success=True,
+            stdout="ran\n",
+            stderr="",
+            execution_method_used="subprocess",
+            execution_time_seconds=0.01,
+        )
+    )
+    with (
+        patch(
+            "osprey.services.python_executor.analysis.pattern_detection"
+            ".detect_control_system_operations",
+            return_value={"has_writes": True, "has_reads": False, "detected_patterns": {}},
+        ),
+        patch("osprey.mcp_server.python_executor.executor.execute_code", mock_exec),
+    ):
+        return await _execute()(
+            code=CLEAN_READWRITE_CODE,
+            description="a write",
+            execution_mode="readwrite",
+            save_output=False,
+        )
+
+
+def _assert_refused_for_the_live_machine(envelope, expected_target):
+    """The refusal names the block that governs, the target, and nothing else."""
+    text = " ".join([envelope["error_message"], *envelope["suggestions"]])
+    assert LIVE_BLOCK_KEY in text
+    assert f"{GLOBAL_KEY}=" not in text
+    assert envelope["details"]["active_target"] == expected_target
+    assert envelope["details"]["writes_enabled_key"] == LIVE_BLOCK_KEY
+
+
+async def test_readwrite_runs_on_a_target_whose_block_arms_writes(
+    tmp_path, monkeypatch, mixed_posture, session_target
+):
+    """A global false does not disarm a VA block that says true."""
+    session_target({"target": "va", "generation": 1, "server_pid": 4242})
+
+    data = extract_response_dict(await _run_readwrite(tmp_path, monkeypatch))
+
+    assert data.get("error") is not True
+    assert data["execution_mode"] == "readwrite"
+
+
+async def test_readwrite_is_refused_on_the_live_target(
+    tmp_path, monkeypatch, mixed_posture, session_target
+):
+    """The same deployment, the other target: the machine's own block refuses."""
+    session_target({"target": "live", "generation": 1, "server_pid": 4242})
+
+    with assert_raises_error(error_type="safety_error") as ctx:
+        await _run_readwrite(tmp_path, monkeypatch)
+
+    _assert_refused_for_the_live_machine(ctx["envelope"], "live")
+
+
+async def test_an_unstamped_run_is_answered_for_the_baseline_target(
+    tmp_path, monkeypatch, mixed_posture, session_target
+):
+    """No session record means the baseline — which here is the live machine."""
+    session_target(None)
+
+    with assert_raises_error(error_type="safety_error") as ctx:
+        await _run_readwrite(tmp_path, monkeypatch)
+
+    _assert_refused_for_the_live_machine(ctx["envelope"], "live")
+
+
+async def test_a_failing_target_read_answers_the_baseline_rather_than_skipping(
+    tmp_path, monkeypatch, mixed_posture
+):
+    """Not knowing the target narrows the question; it never drops the gate.
+
+    A target read that raises used to be the one way to reach a readwrite run
+    with no deployment check at all, if it were allowed to join the gate's
+    import guard — whose failure path is to return.
+    """
+    import osprey.mcp_server.python_executor.executor as executor
+
+    def unreadable():
+        raise RuntimeError("state directory unreadable")
+
+    monkeypatch.setattr(executor, "_session_target_record", unreadable)
+
+    with assert_raises_error(error_type="safety_error") as ctx:
+        await _run_readwrite(tmp_path, monkeypatch)
+
+    _assert_refused_for_the_live_machine(ctx["envelope"], "live")

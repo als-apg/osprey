@@ -633,9 +633,11 @@ class TestWritesCheckDenies:
         assert record["subject"] == "mcp__controls__channel_write"
         assert record["posture"] == "sandbox"
 
-    def test_the_server_level_posture_deny_records_the_server(self, repo, project_env, tmp_path):
+    def test_a_wildcard_matched_tool_records_the_posture_deny(self, repo, project_env, tmp_path):
+        """A facility-custom server's tools reach the gate through the registry's
+        ``mcp__<server>__.*`` matcher, and refuse under the same reason word."""
         hook_config = tmp_path / "hook_config.json"
-        hook_config.write_text(json.dumps({"write_tools": [], "write_servers": ["bluesky"]}))
+        hook_config.write_text(json.dumps({"write_tools": ["mcp__bluesky__.*"]}))
         env = {
             **project_env,
             "OSPREY_EXECUTION_MODE": "readonly",
@@ -649,7 +651,6 @@ class TestWritesCheckDenies:
         assert decision_of(result) == "deny"
         record = records(ledger(repo, "alice", "hook_writes_check"))[0]
         assert record["reason"] == "posture"
-        assert record["detail"] == "server=bluesky"
         assert record["subject"] == "mcp__bluesky__queue_add"
 
     def test_the_kill_switch_deny_records(self, repo, project_env):

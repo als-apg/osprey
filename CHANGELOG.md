@@ -13,6 +13,18 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- A deploy on podman served by Docker Compose v2 now says so. On that provider
+  pairing, image builds that must fetch a base image reach the registry with an
+  empty credential and are refused with a 401 naming a password that was never
+  sent — after the build has already run for minutes. `osprey up` now warns
+  which provider is in use before building, and both `osprey up` and
+  `osprey build` translate the registry refusal into the two things that
+  resolve it: pin podman-compose in `containers.conf`, or deploy on docker.
+  `podman login` does not help, because the credential does not come from
+  podman's auth file.
+- Graph-mode builds now write the channel-suggestions snapshot from the corpus
+  named by `services.graphdb.ttl_path`, so the web-panel typeahead keeps
+  working after a project moves to the graph pipeline instead of going quiet.
 - The build-drift gate no longer counts material `osprey up` mints itself: the
   per-lane Bluesky CURVE certificates now live under `data/.runtime/`, a
   reserved runtime-output subpath the fingerprint never hashes and the build
@@ -41,6 +53,10 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- `rdflib` is now a core dependency instead of a member of the `knowledge`
+  extra, which keeps `linkml-runtime`. Every build can parse a Turtle corpus
+  whichever extras are installed; the extra itself stays, so existing install
+  commands keep working.
 - Web Terminal and every standalone panel (workspace, Channel Finder, lattice
   dashboard, knowledge panel) now use the same display menu as ARIEL: the sliders
   button opens one popover with the light/dark switch, the Expert/Simple view and
@@ -51,9 +67,30 @@ Compatibility is documented in release notes, not encoded in the version string.
 - `artifact_delete_all` reports one activity entry ("N artifacts (scope)") instead
   of one per deleted artifact, so clearing a large gallery no longer pushes
   everything else out of the activity history.
+- CI: pushing to a pull-request branch now cancels that branch's previous run
+  instead of leaving it queued. Pull requests run three unit-test cells rather
+  than four — Python 3.11 and 3.12 on Ubuntu, and 3.12 on macOS; the full
+  product still runs on `main`, on the nightly schedule and on manual dispatch.
+  The lean connectors wheel and the Tier 0 config-key guard now run as steps of
+  the package and lint jobs.
+- Only a literal boolean `true` now arms writes. `writes_enabled: 'true'` (quoted)
+  and `writes_enabled: 1` were treated as on before and are refused now, at both
+  the deployment-wide key and the per-connector-type one. A config that spells the
+  value either way must change it to `true` or its writes stop. (#713)
 
 ### Added
 
+- Write posture is now per control target. `control_system.connector.<type>.writes_enabled`
+  arms or disarms writes for one connector type; a type that does not set it keeps
+  the deployment-wide `control_system.writes_enabled`. So a deployment pointed at a
+  live machine can arm writes on its virtual accelerator alone, and the same tool
+  call that runs there is refused when the session is switched to the machine. Every
+  write surface reads the same answer. A server-level
+  `writes_check` matcher (`mcp__<server>__.*`) now gates every tool on that
+  server, including its read tools, where before it matched nothing. (#713)
+- New shipped persona preset `control-assistant-va-readwrite`: a tier that writes to
+  the virtual accelerator and reads the live machine, sitting between
+  `control-assistant-readonly` and `control-assistant-readwrite`. (#713)
 - Build interview: an upstream fit watch — places where OSPREY cannot express what a
   facility needs are recorded as candidates in `INTERVIEW.md`, verified against the
   installed framework by a scout, and offered to the user as a GitHub issue or email
@@ -197,9 +234,9 @@ Compatibility is documented in release notes, not encoded in the version string.
   by the agent-side hook: a sandboxed session's write tools are refused before
   the tool body runs, whatever the agent was permitted. Read-only `execute` is
   unaffected. MCP servers a facility supplies itself are not covered by that
-  layer, and the writes-check hook now refuses them by server name under the
-  sandbox posture instead of passing them silently. Re-render (`osprey build`)
-  to pick this up; an older render clamps a built-in floor only.
+  layer; the agent-side hook still gates them, through their server-level
+  `writes_check` matcher (see the per-target entry above). An older render
+  clamps a built-in floor only — re-render (`osprey build`) to pick this up.
 - New `modules.web_terminals.authorization` block: name a role once
   (`operator: {persona: readwrite}`) and let roster entries carry `role:` in
   place of `persona:`. Under single sign-on, an ID-token claim maps a person's

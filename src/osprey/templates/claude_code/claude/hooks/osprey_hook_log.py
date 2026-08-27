@@ -34,6 +34,141 @@ def load_hook_config():
     return _hook_config_cache
 
 
+#: The one wildcard form a ``write_tools`` entry may use. ``settings.json``
+#: PreToolUse matchers spell a whole self-gated MCP server as
+#: ``mcp__<server>__.*``, and ``hook_config.json`` carries those matchers
+#: verbatim, so that suffix is the only regex syntax that can reach here. It is
+#: compared as a literal prefix rather than compiled: a hook may run under a
+#: bare ``python3``, and a hand-edited matcher must not make a write gate raise.
+#: Honouring it is a behaviour change for the deployments that carry one: the
+#: gates used to compare entries for equality, so a whole-server matcher matched
+#: nothing at all, and a server declaring ``writes_check`` at server level now
+#: has every one of its tools gated where before it had none of them.
+_MATCHER_WILDCARD = ".*"
+
+#: The one write tool whose calls are not all writes: the python server's
+#: executor, which carries an ``execution_mode``. A SHORT name, because an
+#: ``extends`` clone of that server renames the prefix and keeps the tool.
+_EXECUTE_TOOL = "execute"
+
+#: The write tools refused when the generated list cannot be read. Fail-closed:
+#: a hook that gated nothing because ``hook_config.json`` was missing would be
+#: a write gate that quietly stopped being one.
+#:
+#: It covers EVERY write-gated tool the framework ships, not the ones a default
+#: render happens to enable: the bluesky plan-queue arming pair used to be left
+#: out because bluesky is opt-in, which has it backwards — a deployment that
+#: opted in is precisely the one whose sandboxed session can reach those tools,
+#: and a degraded render is exactly when nothing else is left to refuse them.
+#: Facility-declared extras are absent by construction — they are only knowable
+#: from the generated list — so a fallback run gates less than a real render,
+#: never more.
+#:
+#: The one floor every write gate shares: ``osprey_writes_check`` and
+#: ``osprey_approval`` read it through :func:`write_tools`, the MCP audit
+#: middleware and ``osprey.agent_runner.write_tools`` carry copies of the same
+#: literal (this file ships as a copied-in project template run by a bare
+#: ``python3``, so nothing can import it), and all of them are pinned against
+#: ``registry.mcp.framework_write_tools()`` by
+#: ``tests/registry/test_mixed_floor_driftguard.py`` so registry growth cannot
+#: strand any copy.
+FALLBACK_WRITE_TOOLS = [
+    "mcp__bluesky__queue_add",
+    "mcp__bluesky__queue_start",
+    "mcp__controls__channel_write",
+    "mcp__python__execute",
+]
+
+
+def write_tools():
+    """The write-tool matchers this deployment generated, or the fallback.
+
+    One accessor so every write gate reads the same list from the same place
+    with the same fallback. Two gates disagreeing about which tools are writes
+    is one of them refusing a call the other waves through.
+    """
+    return load_hook_config().get("write_tools", FALLBACK_WRITE_TOOLS)
+
+
+def short_tool_name(tool_name, prefixes):
+    """*tool_name* with its MCP server prefix stripped.
+
+    The LONGEST matching prefix wins, since one server prefix can be a prefix of
+    another and stripping the shorter one would leave half a server name glued
+    to the tool. A name matching none of *prefixes* falls back to the
+    ``mcp__<server>__<tool>`` shape the prefix lists are themselves generated
+    from, and a name in no MCP shape at all is already its own short name.
+
+    Non-string entries are skipped rather than raising, for the same reason
+    :func:`is_write_tool` skips them: the lists are generated into a deployment
+    and a gate must survive a malformed one.
+
+    Args:
+        tool_name: The full tool name as the hook payload carries it.
+        prefixes: Server prefixes to consider — ``server_prefixes``,
+            ``approval_prefixes``, or both, as the caller's question needs.
+    """
+    matched = [
+        prefix
+        for prefix in prefixes or ()
+        if isinstance(prefix, str) and tool_name.startswith(prefix)
+    ]
+    if matched:
+        return tool_name[len(max(matched, key=len)) :]
+    parts = tool_name.split("__")
+    if tool_name.startswith("mcp__") and len(parts) > 2:
+        return "__".join(parts[2:])
+    return tool_name
+
+
+def is_write_tool(tool_name, write_tools):
+    """Is *tool_name* covered by *write_tools*, the hook_config write list?
+
+    Entries are exact tool names plus ``mcp__<server>__.*`` matchers for servers
+    that gate their own writes. An entry matches when it equals *tool_name*, or
+    when it ends in :data:`_MATCHER_WILDCARD` and *tool_name* starts with the
+    text before it — so ``foo.*`` matches ``foo`` itself as well as ``foobar``.
+
+    Non-string entries are skipped rather than raising: the list is generated
+    into a deployment and a write gate must survive a malformed one.
+    """
+    for entry in write_tools or ():
+        if not isinstance(entry, str):
+            continue
+        if entry == tool_name:
+            return True
+        if entry.endswith(_MATCHER_WILDCARD) and tool_name.startswith(
+            entry[: -len(_MATCHER_WILDCARD)]
+        ):
+            return True
+    return False
+
+
+def is_write_call(tool_name, tool_input, short_name=None):
+    """Does *this call* write, judged from the tool name and its arguments?
+
+    Distinct from :func:`is_write_tool`, which answers whether a tool is *able*
+    to write. Only the python server's ``execute`` separates the two: it carries
+    an ``execution_mode``, and a readonly execution writes nothing. A missing
+    mode counts as readonly, matching the server's own default. Every other
+    write tool writes whenever it is called, and a *tool_input* that is not a
+    mapping is read as an empty one.
+
+    The carve-out keys on the SHORT name, so an ``extends`` clone of the python
+    server (``mcp__pyva__execute``) keeps it rather than having every readonly
+    analysis on it refused. *short_name* is the caller's own resolution against
+    its prefix list; without one the ``mcp__<server>__<tool>`` shape the lists
+    are generated from is used.
+    """
+    if short_name is None:
+        short_name = short_tool_name(tool_name, ())
+    if short_name != _EXECUTE_TOOL:
+        return True
+    if not isinstance(tool_input, dict):
+        tool_input = {}
+    return tool_input.get("execution_mode", "readonly") != "readonly"
+
+
 def get_hook_input():
     """Read and return hook input JSON from stdin. Returns {} on failure."""
     try:

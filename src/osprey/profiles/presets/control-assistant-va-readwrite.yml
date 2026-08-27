@@ -1,0 +1,77 @@
+# control-assistant-va-readwrite.yml
+# Simulator-write persona — the rehearsal tier of the control-assistant
+# multi-user stack.
+#
+# The other tiers are armed on every machine or on none. This one is armed on
+# ONE: write posture is per connector type, so a persona can hold writes on the
+# virtual accelerator and hold none on the machine that has beam. An operator
+# here queues and runs a plan against the simulator through the real path — the
+# same approval prompt, the same per-channel limits, the same connector — and
+# the same tool call refuses when the session is pointed at the live machine.
+#
+# Which of the two a call reaches is the session's control TARGET, so the
+# target switch is what arms and disarms this tier while nothing in the profile
+# changes. Two keys do the work below: the flat `control_system.writes_enabled`
+# is what a connector type inherits when it says nothing, so pinning it false
+# keeps the live machine read-only, and the `virtual_accelerator` block pins
+# the one type that is armed. A facility that points this deployment at real
+# hardware names that hardware's own block, and it inherits the false.
+#
+# The flat tiers either side of it are `control-assistant-readonly` (armed on
+# neither machine) and `control-assistant-readwrite` (armed on both).
+
+name: Control Assistant (VA Read-Write)
+
+extends: control-assistant
+
+# Attached render: this persona builds per-user terminal images only and
+# connects to the shared web tier the hosting deployment runs on the same host.
+deploy_services: false
+
+# The write-oriented panels, same as the fully-armed tier: this persona writes,
+# and what it writes are plans. Persona lists UNION over the base, so these are
+# added to the inherited builtin set. Each tab's URL, path and label are not
+# spelled here: the hosting deployment's build derives them when it injects the
+# event dispatcher and the bluesky-web sidecar, and this attached render is told
+# them from that render (the Reach Contract, `osprey.deployment.reach`).
+web_panels:
+  - events          # EVENTS dashboard tab (event dispatcher)
+  - bluesky         # Plan authoring, the plan queue, and the run's live results
+
+# ── Config overrides ─────────────────────────────────────────────────────────
+# Dotted keys ONLY — see the base profile's block.
+config:
+  # The tier boundary, and it takes two keys rather than one. This is the
+  # posture every connector type inherits when its own block says nothing, so
+  # false here is what leaves the live machine read-only.
+  control_system.writes_enabled: false
+  # The single type this tier arms. Only a literal `true` arms a type, and a
+  # type-level value never falls back to the key above — so the block a live
+  # control system would be configured under is deliberately left unwritten
+  # here, keeping it on the inherited false.
+  control_system.connector.virtual_accelerator.writes_enabled: true
+  # The surface those writes travel over: plans, queued and run. On in the base
+  # already, pinned again because a tier that exists for the plan queue must not
+  # lose it if the base's selection ever changes.
+  claude_code.servers.bluesky.enabled: true
+  # Full split-pane terminal + workspace layout for a write-armed operator.
+  # Pinned rather than left to the server default, for the same reason the
+  # posture keys are.
+  web.ui_mode: expert
+  # The hosting deployment owns the web-terminal tier (nginx, landing,
+  # per-user containers). Without this override the inherited roster would
+  # make this render try to host a second web tier on the same host ports.
+  modules.web_terminals.enabled: false
+  # Nothing here says where the hosting deployment's services are — the graph
+  # store's bolt port, the qmd sidecar's port, the Postgres the logbook lives
+  # in, the telemetry store, the bluesky bridge, the simulator's own EPICS
+  # port, the EVENTS and BLUESKY tabs' URLs. This persona is an attached render
+  # (`services: {}` of its own) built beside that deployment, and the build
+  # copies every such fact from the deployment's own render into it (the Reach
+  # Contract, `osprey.deployment.reach`). Per-user web-terminal containers run
+  # `network_mode: host`, so container `localhost` IS the deployment host and
+  # the copied ports are dialed there. Move a port on the hosting profile and
+  # every persona follows; spell a different one here and the build refuses the
+  # contradiction. Built alone, with no hosting deployment in the repo, the
+  # build copies what the app template deploys at its defaults instead — and a
+  # host that differs IS named here.

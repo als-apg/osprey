@@ -80,7 +80,25 @@ async def _do(spec: dict[str, Any]) -> dict[str, Any]:
     overrides = spec["config_overrides"]
 
     def _get_config_value(key: str, default: Any = None) -> Any:
-        return overrides.get(key, default)
+        # Answer a SECTION read the way the real loader does: a nested mapping
+        # assembled from every override under that prefix. The per-type write
+        # posture reads ``control_system`` whole and indexes the connector
+        # block by name (a custom type is a dotted module path, so the leaf
+        # cannot be looked up by dotted path), and a flat map that only
+        # answered exact keys would leave that read empty and writes unarmed.
+        if key in overrides:
+            return overrides[key]
+        prefix = key + "."
+        section: dict[str, Any] = {}
+        for dotted, value in overrides.items():
+            if not dotted.startswith(prefix):
+                continue
+            node = section
+            *parents, leaf = dotted[len(prefix) :].split(".")
+            for part in parents:
+                node = node.setdefault(part, {})
+            node[leaf] = value
+        return section or default
 
     with patch("osprey.utils.config.get_config_value", side_effect=_get_config_value):
         connector = await ConnectorFactory.create_control_system_connector(spec["connector_config"])

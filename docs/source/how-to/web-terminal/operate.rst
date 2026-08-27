@@ -98,12 +98,17 @@ marker in its environment, and every process it launches inherits it. Two
 people working in two sessions of the same deployment can hold different
 postures, and one of them sandboxing theirs does not touch the other.
 
-It narrows, and never widens. On a deployment rendered with
-``control_system.writes_enabled`` off, no session can leave the sandbox: the
-request is refused with *"This deployment is rendered with
-control_system.writes_enabled off; no session can step out of the sandbox"*,
-and the badge on a sandboxed session there is shown disabled rather than
-offering a switch that is certain to fail.
+It narrows, and never widens. On a deployment rendered so that **no** control
+target may be written to, no session can leave the sandbox: the request is
+refused with *"This deployment arms writes for no control target ... No session
+can step out of the sandbox until one target is armed"*, and the badge on a
+sandboxed session there is shown disabled rather than offering a switch that is
+certain to fail.
+
+Write posture is per target, so a deployment armed on one target and not another
+is not that deployment: its sessions can leave the sandbox, and what they meet
+afterwards depends on where the session is pointed. Leaving the sandbox restores
+the deployment's posture; it never adds to it.
 
 A terminal session has to have started before it can be given a posture --- it
 only exists on disk once it has been sent a prompt. Until then the request is
@@ -159,11 +164,12 @@ sends you to the wrong control:
 - The executor --- *"This terminal session is in the sandbox posture, which
   refuses control-system writes regardless of what the run asks for."*
 
-None of them mentions ``control_system.writes_enabled``, deliberately: changing
-that key would not lift a posture refusal, and a message that pointed at it
-would send an operator to rebuild a deployment when a single click was the
-remedy. The reverse holds too --- a write refused because the deployment has
-writes off says so in its own words and says nothing about postures.
+None of them mentions the deployment's write posture, deliberately: changing a
+``writes_enabled`` key would not lift a posture refusal, and a message that
+pointed at one would send an operator to rebuild a deployment when a single
+click was the remedy. The reverse holds too --- a write refused because this
+target is not armed says so in its own words, names the key that would arm it,
+and says nothing about postures.
 
 .. note::
 

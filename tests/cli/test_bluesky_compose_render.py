@@ -108,7 +108,13 @@ def _render(
         whenever *writes_enabled* is on, defaulting to the repo-root shape.
         Passing an explicit dict renders another entry point's spelling.
     """
-    bluesky: dict[str, Any] = {"port": 8090, "tiled_enabled": tiled_enabled}
+    # The generator precomputes each lane's posture onto its service entry
+    # (the template cannot resolve a target itself); a direct render supplies it.
+    bluesky: dict[str, Any] = {
+        "port": 8090,
+        "tiled_enabled": tiled_enabled,
+        "writes_enabled": writes_enabled,
+    }
     if plan_dir is not None:
         bluesky["plan_dir"] = plan_dir
     if excluded_plans is not None:

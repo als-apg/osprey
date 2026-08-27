@@ -203,7 +203,8 @@ def deployment(tmp_path, monkeypatch):
     Returns a callable taking the baseline target and the second lane's target
     (``None`` for a single-lane deployment), plus an optional override of the
     second lane's config block — which is how the "renders a lane it cannot
-    address" case is staged.
+    address" case is staged — and of the whole ``control_system`` section, which
+    is how a per-target write posture is staged.
     """
 
     def _stage(
@@ -211,6 +212,7 @@ def deployment(tmp_path, monkeypatch):
         second: str | None = None,
         *,
         second_block: dict | None = None,
+        control_system: dict | None = None,
         running: str | None = None,
         revisions: tuple[int, int] = (1, 7),
     ) -> _Bridges:
@@ -224,8 +226,13 @@ def deployment(tmp_path, monkeypatch):
                 if second_block is not None
                 else {"path": "./services/bluesky", "port": _VA_LANE_PORT, "target": second}
             )
+        section = (
+            control_system
+            if control_system is not None
+            else {"type": _BASELINE_TYPES[baseline], "writes_enabled": True}
+        )
         config = {
-            "control_system": {"type": _BASELINE_TYPES[baseline], "writes_enabled": True},
+            "control_system": section,
             "bluesky": {"bridge_url": _LANE_ONE_URL},
             "services": services,
         }
@@ -234,7 +241,14 @@ def deployment(tmp_path, monkeypatch):
         monkeypatch.setattr("osprey_connectors.workspace.load_osprey_config", lambda: config)
 
         def fake_get_config_value(key: str, default: Any = None, config_path: Any = None) -> Any:
-            return {"control_system.writes_enabled": True}.get(key, default)
+            # The whole section, not only the deployment-wide flag: write posture
+            # is resolved per control target out of `control_system.connector`,
+            # so a stub that served one dotted key would answer "unarmed" for
+            # every lane whatever this deployment says.
+            return {
+                "control_system": section,
+                "control_system.writes_enabled": section.get("writes_enabled", False),
+            }.get(key, default)
 
         monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
         monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
@@ -541,6 +555,174 @@ async def test_a_lane_this_deployment_cannot_address_is_a_refusal_not_a_crash(de
 
     assert bridges.calls == []
     assert "bluesky_va" in ctx["envelope"]["error_message"]
+
+
+# =========================================================================
+# Write posture is per lane, because it is per control target
+# =========================================================================
+
+#: The deployment this whole section is about: a real machine as its baseline,
+#: writes off deployment-wide, and the simulator armed by its own block. The
+#: facility that wants its agent to run plans against the virtual accelerator
+#: without arming the storage ring — which one deployment-wide flag could not
+#: express.
+_LIVE_MACHINE_VA_ARMED = {
+    "type": "epics",
+    "writes_enabled": False,
+    "connector": {
+        "epics": {"gateways": {"read_only": {"host": "gw-ro"}}},
+        "virtual_accelerator": {"writes_enabled": True},
+    },
+}
+
+
+async def test_a_start_on_the_armed_lane_passes_the_posture_gate(deployment):
+    """The point of per-target posture: the simulator lane starts while live does not."""
+    # Arrange
+    bridges = deployment("live", "va", control_system=_LIVE_MACHINE_VA_ARMED)
+    _session_on("live")
+    _switch_to("va")
+
+    # Act
+    result = await _start(lane="bluesky_va")
+
+    # Assert
+    assert result["started"] is True
+    assert bridges.urls("/queue/start") == [f"{_VA_LANE_URL}/queue/start"]
+    assert bridges.token_for("/queue/start") == _VA_LANE_TOKEN
+
+
+async def test_a_start_on_the_unarmed_lane_names_that_lanes_own_posture_key(deployment):
+    """The other half of the same config: the live lane is refused, by its own key.
+
+    Naming ``control_system.connector.epics.writes_enabled`` rather than the
+    deployment-wide key is what keeps the refusal actionable — an operator sent
+    to the deployment-wide key would arm the machine they deliberately left
+    unarmed, and they would arm it to run a plan on the other one.
+    """
+    # Arrange
+    bridges = deployment("live", "va", control_system=_LIVE_MACHINE_VA_ARMED)
+
+    # Act
+    with assert_raises_error(error_type="writes_disabled") as ctx:
+        await _start(lane="bluesky")
+
+    # Assert
+    assert bridges.calls == []
+    message = ctx["envelope"]["error_message"]
+    assert "control_system.connector.epics.writes_enabled" in message
+    assert "'bluesky'" in message and "'live'" in message
+    assert all("control_system.writes_enabled" not in s for s in ctx["envelope"]["suggestions"])
+
+
+async def test_a_start_with_no_lane_hears_lane_required_before_any_posture(deployment):
+    """Gate ORDER on a two-lane deployment: the lane is bound before the posture.
+
+    The live lane here is unarmed, so a tool that read the posture first would
+    answer ``writes_disabled`` — for a lane the caller never named, chosen for
+    them. There is no target to read a posture for until a lane is bound, and
+    saying so is the only answer that does not guess which machine was meant.
+    """
+    # Arrange
+    bridges = deployment("live", "va", control_system=_LIVE_MACHINE_VA_ARMED)
+
+    # Act
+    with assert_raises_error(error_type=lanes_module.REASON_LANE_REQUIRED) as ctx:
+        await _start()
+
+    # Assert
+    assert bridges.calls == []
+    assert "writes_enabled" not in ctx["envelope"]["error_message"]
+
+
+async def test_a_readonly_session_is_refused_even_on_the_armed_lane(deployment, monkeypatch):
+    """A read-only run refuses whatever the deployment armed, and says so.
+
+    The refusal must not send the operator to a config key: the simulator IS
+    armed here, so editing config would change nothing about why this was
+    refused.
+    """
+    # Arrange
+    bridges = deployment("live", "va", control_system=_LIVE_MACHINE_VA_ARMED)
+    monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
+    _session_on("live")
+    _switch_to("va")
+
+    # Act
+    with assert_raises_error(error_type="writes_disabled") as ctx:
+        await _start(lane="bluesky_va")
+
+    # Assert
+    assert bridges.calls == []
+    assert "OSPREY_EXECUTION_MODE=readonly" in ctx["envelope"]["error_message"]
+    assert all("profile.yml" not in s for s in ctx["envelope"]["suggestions"])
+
+
+async def test_withdrawing_a_halt_is_allowed_while_any_rendered_lane_is_armed(deployment):
+    """``queue_stop(cancel=True)`` gates on the union over rendered lanes' targets.
+
+    A withdrawal is addressed to whichever lane is actually draining, and that
+    lane is only known after the bridges have been asked — so the local gate
+    that runs first can only ask whether any lane this deployment renders is
+    armed. Here the simulator lane is, so the withdrawal proceeds and the
+    per-lane check that remains is the launch token.
+    """
+    # Arrange
+    bridges = deployment("live", "va", control_system=_LIVE_MACHINE_VA_ARMED)
+
+    # Act
+    await get_tool_fn(queue.queue_stop)(cancel=True)
+
+    # Assert
+    assert bridges.urls("/queue/stop") == [f"{_LANE_ONE_URL}/queue/stop"]
+    assert bridges.token_for("/queue/stop") == _LANE_ONE_TOKEN
+
+
+async def test_withdrawing_a_halt_is_refused_when_no_rendered_lane_is_armed(deployment):
+    """Negative control for the union gate: with nothing armed anywhere it refuses.
+
+    Without this the test above would pass on a tool that had dropped the
+    posture check from the withdrawal path entirely.
+    """
+    # Arrange
+    bridges = deployment("live", "va", control_system={"type": "epics", "writes_enabled": False})
+
+    # Act
+    with assert_raises_error(error_type="writes_disabled") as ctx:
+        await get_tool_fn(queue.queue_stop)(cancel=True)
+
+    # Assert
+    assert bridges.calls == []
+    assert "control_system.writes_enabled" in ctx["envelope"]["error_message"]
+
+
+async def test_a_phantom_live_target_cannot_arm_a_withdrawal_on_a_va_deployment(deployment):
+    """The union is over the RENDERED LANES' targets, not over both target names.
+
+    A virtual-accelerator deployment renders one lane, serving ``va``, and has
+    no live machine: nothing in its config names one, so ``live`` resolves to no
+    connector type and would inherit the deployment-wide key. Unioning over both
+    target names would let that phantom target answer ``true`` and arm a
+    withdrawal on the only lane there is — the one the operator explicitly
+    disarmed with its own block. The bridge's stop endpoint has no posture
+    check, so this local gate is the whole defense.
+    """
+    # Arrange
+    bridges = deployment(
+        "va",
+        control_system={
+            "type": "virtual_accelerator",
+            "writes_enabled": True,
+            "connector": {"virtual_accelerator": {"writes_enabled": False}},
+        },
+    )
+
+    # Act
+    with assert_raises_error(error_type="writes_disabled"):
+        await get_tool_fn(queue.queue_stop)(cancel=True)
+
+    # Assert
+    assert bridges.calls == []
 
 
 # =========================================================================

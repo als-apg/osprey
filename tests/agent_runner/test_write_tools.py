@@ -5,7 +5,7 @@ Covers:
   - Missing file: falls back to _FALLBACK_WRITE_TOOLS.
   - Malformed JSON: falls back without raising.
   - Safety invariant: channel_write is always present even on the loaded path.
-  - Drift guard: canonical _FALLBACK_WRITE_TOOLS in osprey_writes_check.py
+  - Drift guard: canonical FALLBACK_WRITE_TOOLS in osprey_hook_log.py
     must equal the module-level replica in write_tools.py.
 """
 
@@ -169,34 +169,34 @@ def test_load_write_tools_floors_entire_canonical_set(tmp_path: Path) -> None:
 
 
 def test_fallback_write_tools_matches_canonical_hook() -> None:
-    """_FALLBACK_WRITE_TOOLS must equal the list in osprey_writes_check.py.
+    """_FALLBACK_WRITE_TOOLS must equal FALLBACK_WRITE_TOOLS in osprey_hook_log.py.
 
     Locates the canonical file relative to the installed osprey package so
     the check works in editable installs and worktrees alike.
     """
     package_root = Path(osprey.__file__).parent
     canonical_path = (
-        package_root / "templates" / "claude_code" / "claude" / "hooks" / "osprey_writes_check.py"
+        package_root / "templates" / "claude_code" / "claude" / "hooks" / "osprey_hook_log.py"
     )
     assert canonical_path.exists(), f"canonical hook file not found: {canonical_path}"
 
     source = canonical_path.read_text()
     tree = ast.parse(source)
 
-    # Walk top-level assignments looking for _FALLBACK_WRITE_TOOLS = [...]
+    # Walk top-level assignments looking for FALLBACK_WRITE_TOOLS = [...]
     canonical_list: list[str] | None = None
     for node in ast.walk(tree):
         if (
             isinstance(node, ast.Assign)
             and len(node.targets) == 1
             and isinstance(node.targets[0], ast.Name)
-            and node.targets[0].id == "_FALLBACK_WRITE_TOOLS"
+            and node.targets[0].id == "FALLBACK_WRITE_TOOLS"
             and isinstance(node.value, ast.List)
         ):
             canonical_list = [elt.value for elt in node.value.elts if isinstance(elt, ast.Constant)]
             break
 
-    assert canonical_list is not None, "_FALLBACK_WRITE_TOOLS not found in osprey_writes_check.py"
+    assert canonical_list is not None, "FALLBACK_WRITE_TOOLS not found in osprey_hook_log.py"
     assert _FALLBACK_WRITE_TOOLS == canonical_list, (
         f"write_tools.py fallback {_FALLBACK_WRITE_TOOLS!r} "
         f"differs from canonical hook {canonical_list!r} — update one to match"

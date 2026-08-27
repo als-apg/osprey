@@ -127,9 +127,13 @@ class TestCustomConnectorVerificationDefault:
 
     @pytest.fixture
     def writes_enabled(self, monkeypatch):
+        # A custom connector is stamped with its dotted type and resolves its
+        # posture from the ``control_system`` section, which carries no block for
+        # that type and so inherits the deployment-wide key.
+        section = {"writes_enabled": True}
         monkeypatch.setattr(
             "osprey.utils.config.get_config_value",
-            lambda key, default=None: True if key == "control_system.writes_enabled" else default,
+            lambda key, default=None: section if key == "control_system" else default,
         )
 
     async def _connector(self):

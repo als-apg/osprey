@@ -13,6 +13,10 @@ These tests lock down the translation from profile inputs into rendered
    from every tier built on it, and the ``remove_deny`` that gives them back to
    the admin tier alone — asserted on the rendered artifacts, since a profile
    pin is only worth what the build writes out.
+6. The three shapes the write posture renders: no target armed (hard deny),
+   every target armed (nothing rendered), and targets that disagree, where a
+   tool legal on one target and refused on the other can be neither denied nor
+   asked and the runtime hooks decide per call.
 """
 
 from __future__ import annotations
@@ -27,6 +31,7 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
+from osprey.bluesky_tool_names import QUEUE_CONTROL_TOOLS
 from osprey.cli.build_cmd import build
 from osprey.cli.templates.manager import TemplateManager
 from osprey.cli.validate_claude_artifacts import (
@@ -643,9 +648,36 @@ def test_hook_config_with_no_enabled_servers(tmp_path):
         "server_prefixes": [],
         "approval_prefixes": [],
         "write_tools": [],
-        "write_servers": [],
         "mixed_read_write_tools": [],
+        # Not a per-server list: it names the tools the writes-check hook leaves
+        # to their own lane gate, and renders whether or not any server is on.
+        "lane_addressed_tools": list(QUEUE_CONTROL_TOOLS),
     }, f"all-disabled build should render empty lists; got {hook_cfg}"
+
+
+def test_hook_config_lane_addressed_tools_come_from_the_registry(tmp_path):
+    """The kill switch's lane carve-out is rendered data, not a name in the hook.
+
+    ``osprey_writes_check.py`` skips its per-target stage for a tool addressed by
+    a plan lane rather than by the session target, and reads which tools those
+    are from this file. Spelling them in that standalone hook source instead
+    would detach the carve-out from the tool the day it is renamed, so the list
+    is pinned to the registry's own queue-control group here — SHORT names,
+    because an ``extends`` clone of the server renames only the prefix and the
+    hook compares the short name.
+    """
+    manager = TemplateManager()
+    project = manager.create_project(
+        project_name="lane-addressed-tools",
+        output_dir=tmp_path,
+        data_bundle="hello_world",
+    )
+
+    hook_cfg = _read_hook_config(project)
+
+    assert hook_cfg["lane_addressed_tools"] == list(QUEUE_CONTROL_TOOLS), (
+        f"expected the registry's queue-control group; got {hook_cfg['lane_addressed_tools']}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1048,6 +1080,162 @@ def test_killswitch_dedupe_when_profile_also_denies(tmp_path):
     assert deny.count("mcp__controls__channel_write") == 1, (
         f"expected exactly one deny entry for the kill-switch matcher; got {deny}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Per-target write posture: the third render shape
+# ---------------------------------------------------------------------------
+
+#: The connector blocks backing the two session targets, and the key that makes
+#: both selectable. The render counts only targets a session here can be pointed
+#: at, and a deployment has two of those only when it renders the switch — its
+#: own type is one of the targets and both have a configured block. The
+#: control-assistant preset builds a ``mock`` and already carries both blocks,
+#: so naming ``epics`` as the type is what opens the second target. Spelled out
+#: rather than resolved, so a preset that stopped configuring both targets fails
+#: these tests instead of quietly turning them into another copy of the
+#: writes-off case.
+_TYPE_KEY = "control_system.type"
+_LIVE_TYPE = "epics"
+_LIVE_WRITES = "control_system.connector.epics.writes_enabled"
+_VA_WRITES = "control_system.connector.virtual_accelerator.writes_enabled"
+
+
+def _rendered_permissions(project: Path) -> dict:
+    return json.loads((project / ".claude" / "settings.json").read_text())["permissions"]
+
+
+def test_mixed_posture_renders_neither_a_deny_nor_an_ask_for_channel_write(tmp_path):
+    """Global writes off, the VA target armed: channel_write is in no list at all.
+
+    settings.json is rendered once, before a session picks a target, so neither
+    static answer is available: a deny would refuse the write the VA target is
+    armed for, and an ask would drive it to the SDK approval prompt on the live
+    target, where the writes-check hook's deny cannot suppress an ask entry.
+    The render leaves the tool unlisted and the two hooks — the writes-check
+    hook's per-target stage and the approval hook's defer — carry it per call.
+    """
+    project = _killswitch_project(
+        tmp_path,
+        "posture-mixed-va-armed",
+        {_TYPE_KEY: _LIVE_TYPE, "control_system.writes_enabled": False, _VA_WRITES: True},
+    )
+    perms = _rendered_permissions(project)
+    assert "mcp__controls__channel_write" not in perms["deny"]
+    assert "mcp__controls__channel_write" not in perms["ask"]
+    assert "mcp__controls__channel_write" not in perms["allow"]
+
+
+def test_mixed_posture_from_a_disarmed_live_block_renders_the_same_way(tmp_path):
+    """Global writes on, the live machine's block disarmed — the same disagreement.
+
+    Which key carries the disagreement is not something the permission layer can
+    act on differently, so this must reach the same render as the case above.
+    """
+    project = _killswitch_project(
+        tmp_path,
+        "posture-mixed-live-disarmed",
+        {_TYPE_KEY: _LIVE_TYPE, "control_system.writes_enabled": True, _LIVE_WRITES: False},
+    )
+    perms = _rendered_permissions(project)
+    assert "mcp__controls__channel_write" not in perms["deny"]
+    assert "mcp__controls__channel_write" not in perms["ask"]
+    assert "mcp__controls__channel_write" not in perms["allow"]
+
+
+def test_mixed_posture_leaves_python_execute_unasked_and_undenied(tmp_path):
+    """python's execute is pulled from ask on a mixed render and never denied.
+
+    It reaches ``allow`` here only through the required-tool rescue, which the
+    enabled ``pyat-specialist`` triggers: that agent declares ``execute`` as its
+    only compute path, and a declared tool present in none of the permission
+    lists fails ``validate_agent_tools_against_permissions``. ``allow`` is the
+    safe half of the pair — it auto-approves at the permission layer without
+    reopening the approval prompt, and the writes-check hook still refuses a
+    write-access kernel on a target whose posture forbids one.
+    """
+    project = _killswitch_project(
+        tmp_path,
+        "posture-mixed-execute",
+        {_TYPE_KEY: _LIVE_TYPE, "control_system.writes_enabled": False, _VA_WRITES: True},
+    )
+    perms = _rendered_permissions(project)
+    assert "mcp__python__execute" not in perms["deny"]
+    assert "mcp__python__execute" not in perms["ask"]
+    assert "mcp__python__execute" in perms["allow"]
+    assert validate_agent_tools_against_permissions(project) == []
+
+
+def test_per_connector_keys_agreeing_with_the_global_key_still_kill_switch(tmp_path):
+    """Both targets disarmed, spelled out per connector: the hard deny is back.
+
+    The render is keyed on the resolved per-target postures rather than on the
+    deployment-wide key, so this pins that a deployment which says the same
+    thing twice keeps the deny it already had.
+    """
+    project = _killswitch_project(
+        tmp_path,
+        "posture-both-disarmed",
+        {
+            _TYPE_KEY: _LIVE_TYPE,
+            "control_system.writes_enabled": False,
+            _LIVE_WRITES: False,
+            _VA_WRITES: False,
+        },
+    )
+    assert "mcp__controls__channel_write" in _rendered_deny(project)
+
+
+def test_both_targets_armed_per_connector_lifts_a_global_writes_off(tmp_path):
+    """Both targets armed per connector: nothing is taken away.
+
+    The deployment-wide key is off here and neither target inherits it, which is
+    what makes this the proof that the render reads the resolved postures.
+    """
+    project = _killswitch_project(
+        tmp_path,
+        "posture-both-armed",
+        {
+            _TYPE_KEY: _LIVE_TYPE,
+            "control_system.writes_enabled": False,
+            _LIVE_WRITES: True,
+            _VA_WRITES: True,
+        },
+    )
+    perms = _rendered_permissions(project)
+    assert "mcp__controls__channel_write" not in perms["deny"]
+    assert "mcp__controls__channel_write" in perms["ask"]
+
+
+def test_a_deployment_whose_only_target_is_disarmed_still_renders_the_deny(tmp_path):
+    """One reachable target, unarmed, with the deployment-wide key on.
+
+    This project builds ``epics`` and has no virtual-accelerator block, so it
+    renders no switch and a session sits on the live machine alone — whose own
+    block says no. The deployment-wide ``true`` therefore arms nothing anyone
+    here can reach, and the kill switch must fire. Counting ``va`` anyway would
+    read it as armed (an absent block inherits the deployment-wide key), call
+    the render mixed, and drop the deny.
+    """
+    from osprey.utils.config_writer import config_delete_field, config_update_fields
+
+    manager = TemplateManager()
+    project = manager.create_project(
+        project_name="posture-single-target-disarmed",
+        output_dir=tmp_path,
+        data_bundle="control_assistant",
+        context={"channel_finder_mode": "hierarchical"},
+    )
+    config_update_fields(
+        project / "config.yml",
+        {_TYPE_KEY: _LIVE_TYPE, "control_system.writes_enabled": True, _LIVE_WRITES: False},
+    )
+    assert config_delete_field(
+        project / "config.yml", "control_system.connector.virtual_accelerator"
+    )
+    manager.regenerate_claude_code(project)
+
+    assert "mcp__controls__channel_write" in _rendered_deny(project)
 
 
 # ---------------------------------------------------------------------------

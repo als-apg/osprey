@@ -94,6 +94,47 @@ leaving it out means a crashed server's stale file answering for a live one.
         v
     {target, generation, display}
 
+Write posture (a second question, answered from config)
+-------------------------------------------------------
+Hooks that gate writes need one more answer that identity alone cannot give:
+does this deployment ARM writes for the target a call names? That is a config
+question, and its authority is ``osprey_connectors.types`` —
+:func:`type_writes_enabled` and :func:`target_writes_enabled`. Hooks cannot
+import it, so :func:`writes_posture`, :func:`session_types` and
+:func:`most_restrictive_posture` restate it here in stdlib terms, once, for
+every hook that asks: two hooks mirroring the same rules separately is two ways
+for one deployment to be described.
+
+The mirrored rules, on the ``control_system:`` section:
+
+* ``connector.<type>.writes_enabled`` is a tri-state. Absent — no connector
+  table, no block for the type, a block that is not a mapping, or one without
+  the leaf — inherits ``control_system.writes_enabled``. Literally ``True``
+  arms. Any other value leaves writes unarmed and does NOT fall back to the
+  deployment-wide key;
+* ``<type>`` is one whole key, never a path: a custom connector's dotted module
+  path names a single block;
+* ``va`` resolves to the virtual accelerator; ``live`` resolves to the section's
+  own type when that type is not simulated, else to the single non-simulated
+  key under ``connector``. Zero or more than one is underivable, and an
+  underivable target answers the deployment-wide key.
+
+A caller holding no target of its own asks a prior question: which targets can a
+session on THIS deployment reach at all? :func:`session_types` answers it,
+restating ``osprey_connectors.types.session_posture`` — both targets only where
+the deployment renders the target switch, and otherwise the single type
+``control_system.type`` builds, read by TYPE under the baseline target that
+names it. Iterating the two target names instead would answer for a machine no
+session here ever reaches: a mock deployment carrying one ``epics`` block
+resolves ``live`` to that block, while the connector the runtime built is the
+mock.
+
+What this module adds on top of the framework's booleans is a THIRD state:
+``None``, for a section that expresses no posture at all — no deployment-wide
+key and no per-type key anywhere. That is the shape every deployment had before
+the per-type key existed, and a hook must leave it exactly as it found it rather
+than reading silence as a refusal.
+
 This module never writes to stdout and never raises into a hook.
 """
 
@@ -142,26 +183,55 @@ MAX_ANCESTOR_HOPS = 64
 #: simply the end of the chain.
 PS_TIMEOUT_S = 5
 
+#: The two session targets, spelled as the state file and the config spell them.
+TARGET_LIVE = "live"
+TARGET_VA = "va"
+
+#: Connector types that serve a machine nobody has to be careful around, and the
+#: type ``resolve_control_system_type`` falls back to when a section names none.
+#: They are why ``live`` cannot simply be "whatever the config selects": a
+#: deployment whose baseline is one of these has not said what its real machine
+#: is. Literals rather than an import, like everything else in this module.
+MOCK_TYPE = "mock"
+VIRTUAL_ACCELERATOR_TYPE = "virtual_accelerator"
+SIMULATED_TYPES = (MOCK_TYPE, VIRTUAL_ACCELERATOR_TYPE)
+
+#: The write-posture key, as a LEAF: it is looked up both directly on the
+#: ``control_system:`` section and inside one already-resolved connector block,
+#: whose own key is the connector type in full.
+WRITES_ENABLED_LEAF = "writes_enabled"
+
 __all__ = [
     "FALLBACK_BASELINE",
     "MAX_ANCESTOR_HOPS",
+    "MOCK_TYPE",
     "REASON_AMBIGUOUS",
     "REASON_NO_STATE",
     "REASON_UNREADABLE",
+    "SIMULATED_TYPES",
     "STATE_DIR_NAME",
     "STATE_FILE_GLOB",
     "STATE_FILE_PREFIX",
     "STATE_FILE_SUFFIX",
+    "TARGET_LIVE",
+    "TARGET_VA",
+    "VIRTUAL_ACCELERATOR_TYPE",
+    "WRITES_ENABLED_LEAF",
     "ancestor_pids",
     "baseline_result",
     "is_baseline",
+    "most_restrictive_posture",
     "parent_pid",
     "read_session_record",
     "read_session_target",
     "read_state_file",
     "resolve_state_dir",
     "selected_target",
+    "session_types",
     "target_metadata",
+    "target_type",
+    "type_posture",
+    "writes_posture",
 ]
 
 
@@ -559,3 +629,188 @@ def _select_record(hook_input):
     if target is None:
         return None, None, REASON_UNREADABLE
     return record, target, None
+
+
+# -- write posture ---------------------------------------------------------
+
+
+def _resolved_type(section):
+    """The connector type ``control_system.type`` selects — the mock when absent.
+
+    The factory's documented fail-closed default, restated: a missing section, a
+    section that is not a mapping, and a bare ``type:`` (which YAML gives as
+    ``None``) all name no type, and a deployment that named none gets the mock.
+    """
+    declared = section.get("type") if isinstance(section, dict) else None
+    return str(declared) if declared else MOCK_TYPE
+
+
+def _live_type(section):
+    """The connector type that reaches this deployment's real machine, or ``None``.
+
+    ``None`` wherever the framework's own ``_live_type`` raises: a section whose
+    declared type is simulated and whose connector table holds no single
+    non-simulated block has never said what ``live`` means here, and there is
+    nothing to infer it from. A section that is not a mapping resolves to the
+    mock, which is the factory's documented fail-closed default.
+    """
+    declared = _resolved_type(section)
+    if declared not in SIMULATED_TYPES:
+        return declared
+
+    connector = section.get("connector") if isinstance(section, dict) else None
+    if not isinstance(connector, dict):
+        return None
+    candidates = [key for key in connector if isinstance(key, str) and key not in SIMULATED_TYPES]
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def target_type(section, target):
+    """The connector type *target* selects, or ``None`` when it selects none.
+
+    An unknown target and an underivable ``live`` are the same answer for the
+    same reason: there is no per-type block to consult because there is no type.
+
+    Public because a refusal has to NAME the block its answer came from, and a
+    hook re-deriving the mapping to spell that key is a hook whose message can
+    drift away from its own decision.
+    """
+    if target == TARGET_VA:
+        return VIRTUAL_ACCELERATOR_TYPE
+    if target == TARGET_LIVE:
+        return _live_type(section)
+    return None
+
+
+def _baseline_target(section):
+    """The target *section* describes when nobody has switched."""
+    return TARGET_VA if _resolved_type(section) == VIRTUAL_ACCELERATOR_TYPE else TARGET_LIVE
+
+
+def _switch_capable(section):
+    """Whether a session on this deployment can be pointed at either target.
+
+    The stdlib restatement of ``osprey_connectors.types.switch_capable``, whose
+    three conditions are mirrored here in order: both targets resolve to a type
+    at all; the deployment's OWN type is what its baseline target resolves back
+    to, which is what keeps a mock that happens to carry an ``epics`` block out
+    of the two-target world; and both types carry a non-empty connector block,
+    since that block is what a connector is configured from.
+    """
+    if not isinstance(section, dict):
+        return False
+    types_by_target = {target: target_type(section, target) for target in (TARGET_LIVE, TARGET_VA)}
+    if any(name is None for name in types_by_target.values()):
+        return False
+    if types_by_target[_baseline_target(section)] != _resolved_type(section):
+        return False
+    connector = section.get("connector")
+    if not isinstance(connector, dict):
+        return False
+    return all(
+        isinstance(connector.get(name), dict) and bool(connector.get(name))
+        for name in types_by_target.values()
+    )
+
+
+def session_types(section):
+    """``{target: connector type}`` for the targets a session here can REACH.
+
+    The stdlib restatement of ``osprey_connectors.types.session_posture``'s
+    reachable-target rule, and what a caller with no target of its own iterates
+    instead of the two target names. Both targets on a deployment that renders
+    the switch; otherwise the one type ``control_system.type`` builds, under the
+    baseline target that names it — by type on purpose, because ``live`` is the
+    switch's own derivation and without the switch it can name a machine the
+    built connector is not.
+
+    Never raises: every section is at minimum one baseline target holding the
+    mock, which is what the factory would build from it.
+    """
+    if _switch_capable(section):
+        return {target: target_type(section, target) for target in (TARGET_LIVE, TARGET_VA)}
+    return {_baseline_target(section): _resolved_type(section)}
+
+
+def _global_posture(section):
+    """``control_system.writes_enabled`` alone — explicitly ``True`` or nothing."""
+    return isinstance(section, dict) and section.get(WRITES_ENABLED_LEAF) is True
+
+
+def _states_posture(section):
+    """Whether *section* says anything at all about write posture."""
+    if not isinstance(section, dict):
+        return False
+    if WRITES_ENABLED_LEAF in section:
+        return True
+    connector = section.get("connector")
+    if not isinstance(connector, dict):
+        return False
+    return any(
+        isinstance(block, dict) and WRITES_ENABLED_LEAF in block for block in connector.values()
+    )
+
+
+def type_posture(section, connector_type):
+    """Whether *section* arms writes for one connector TYPE. Never raises.
+
+    :func:`writes_posture` below the target-to-type step, for the callers that
+    already hold a type: :func:`session_types` hands out types, and a refusal
+    naming a key must name the block the answer was read from.
+
+    ``True`` or ``False`` only. The third state belongs to
+    :func:`writes_posture`, because a section that states no posture anywhere
+    states none for any type and the distinction is not a per-type one.
+    """
+    connector = section.get("connector") if isinstance(section, dict) else None
+    block = connector.get(connector_type) if isinstance(connector, dict) else None
+    if not isinstance(block, dict) or WRITES_ENABLED_LEAF not in block:
+        return _global_posture(section)
+    return block[WRITES_ENABLED_LEAF] is True
+
+
+def writes_posture(section, target):
+    """Whether *section* arms writes for one session *target*. Never raises.
+
+    ``True`` armed, ``False`` not armed, and ``None`` for a section that states
+    no posture anywhere — see the module docstring for why silence is its own
+    answer rather than a refusal, and for the rules the ``True``/``False`` half
+    mirrors from ``osprey_connectors.types``.
+
+    Args:
+        section: The ``control_system:`` config section. A caller holding a
+            whole rendered config passes ``config.get("control_system")``.
+        target: The session target, ``"live"`` or ``"va"``.
+    """
+    if not _states_posture(section):
+        return None
+    connector_type = target_type(section, target)
+    if connector_type is None:
+        return _global_posture(section)
+    return type_posture(section, connector_type)
+
+
+def most_restrictive_posture(section):
+    """:func:`type_posture` ANDed over the REACHABLE targets. Never raises.
+
+    The answer for a caller that could not identify which target a call would
+    act on. Armed only where every target a session here could be pointed at is
+    armed, so an unidentifiable call on a deployment that armed one of two is
+    treated as the unarmed one — a guess between them could be a guess in
+    favour of hardware.
+
+    The set ANDed over is :func:`session_types` rather than the two target
+    names. Without the switch there is only one target to be uncertain between,
+    and ANDing in a ``live`` no session here can select would leave a
+    simulator-armed deployment unarmed on the strength of a machine it does not
+    have — while telling the operator to flip a key that is deliberately false.
+
+    ``None`` when the section states no posture at all, which is target-blind
+    and therefore the same ``None`` :func:`writes_posture` returns.
+    """
+    if not _states_posture(section):
+        return None
+    return all(
+        type_posture(section, connector_type) is True
+        for connector_type in session_types(section).values()
+    )

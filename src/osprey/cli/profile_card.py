@@ -88,23 +88,57 @@ def _dotted_lookup(config: Mapping[str, Any], wanted: tuple[str, ...]) -> Any:
     return found
 
 
-def _persona_writes_enabled(
+def _persona_control_section(
     profile: BuildProfile, persona_deltas: Mapping[str, Mapping[str, Any]], persona: str
-) -> bool:
-    """Whether ``persona``'s render arms the control system's write surface.
+) -> dict[str, Any]:
+    """The ``control_system:`` section ``persona``'s render resolves to.
 
-    The persona delta's own ``config:`` wins over the host profile's — the
-    bundled tiers pin ``control_system.writes_enabled`` on both sides of the
-    boundary, and a facility persona that says nothing inherits the host's
-    posture.
+    The persona delta's own ``config:`` folded over the host profile's, deeper
+    key winning, exactly as the build applies the two flat dotted bags in turn
+    — the bundled tiers pin posture on both sides of the boundary, and a
+    facility persona that says nothing inherits the host's.
     """
-    wanted = ("control_system", "writes_enabled")
+    from .build_profile_emit import _merge_subtree, effective_config_subtree
+
+    wanted = ("control_system",)
+    section = effective_config_subtree(profile.config, wanted)
     config = persona_deltas.get(persona, {}).get("config")
     if isinstance(config, Mapping):
-        value = _dotted_lookup(config, wanted)
-        if value is not None:
-            return bool(value)
-    return bool(_dotted_lookup(profile.config, wanted))
+        _merge_subtree(section, effective_config_subtree(config, wanted))
+    return section
+
+
+def _write_rights(
+    profile: BuildProfile, persona_deltas: Mapping[str, Mapping[str, Any]], persona: str
+) -> list[str]:
+    """``persona``'s write posture, one item per target its render reaches.
+
+    Posture is per connector type — ``control_system.connector.<type>.
+    writes_enabled``, and only for a type whose own block says nothing the
+    deployment-wide ``control_system.writes_enabled`` — so one deployment can
+    be armed on its simulator and read-only on the machine beside it. There is
+    no deployment-wide answer to print, and no single answer per persona
+    either: the card says it per target, and per login.
+
+    Which targets are named is
+    :func:`~osprey_connectors.types.session_posture`'s answer, never a loop
+    over both — a render that cannot switch reaches the one connector it
+    builds, and speaking about the other would describe a machine no session
+    here can be pointed at. So the ordinary single-target render reads as it
+    always has, one unqualified item or nothing at all, and only a
+    switch-capable render spells the targets out — both of them, armed and
+    not, since which half of a mixed posture carries the write path is the
+    whole reason to say it.
+    """
+    from osprey_connectors.types import session_posture
+
+    posture = session_posture(_persona_control_section(profile, persona_deltas, persona))
+    if len(posture) == 1:
+        return ["rights approval-gated"] if any(posture.values()) else []
+    return [
+        f"{target} rights approval-gated" if armed else f"{target} read-only"
+        for target, armed in posture.items()
+    ]
 
 
 def _panel_labels(
@@ -207,8 +241,7 @@ def _web_terminal_group(
         rights: list[str] = []
         if persona:
             rights.append(persona)
-            if _persona_writes_enabled(profile, persona_deltas, persona):
-                rights.append("rights approval-gated")
+            rights.extend(_write_rights(profile, persona_deltas, persona))
         if user.get("login") is False:
             # The one warning tone on the card: an open surface must not be
             # skimmed past, so `password` stays dim precisely to keep it alone.

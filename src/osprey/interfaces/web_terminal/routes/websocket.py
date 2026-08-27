@@ -477,22 +477,42 @@ def _persist_postures(app, store: dict[str, str]) -> None:
 
 
 def _rendered_writes_enabled(config_path: Path | None) -> bool:
-    """Whether the rendered config permits control-system writes at all.
+    """Whether the rendered config arms control-system writes for *any* target.
 
-    Defaults to ``False`` when the key, the file, or the whole config is
-    missing — the same default ``cli/templates/claude_code.py`` uses when it
-    bakes the kill-switch into ``permissions.deny`` and the ``osprey_writes_check``
-    hook uses when it gates each call. An absent config is a writes-off render
-    everywhere else in the system; this gate agrees with them rather than
-    inventing a permissive third answer.
+    Write posture is per connector type — each target's
+    ``control_system.connector.<type>.writes_enabled``, inheriting
+    ``control_system.writes_enabled`` where it is absent — so the render permits
+    writes as soon as one target is armed. A deployment that arms only its
+    virtual accelerator can still step a session out of the sandbox; what it
+    cannot do is write to the live machine, and the connector layer refuses that
+    on its own rather than this gate pre-empting it.
+
+    ``any_target_writes_enabled`` rather than a loop over ``CONTROL_TARGETS``:
+    the union has to run over the targets a session here can actually be pointed
+    at, and an unresolvable one falls back to the deployment-wide key. On a
+    virtual-accelerator deployment with no live block that fallback would answer
+    for a machine no session reaches, and a global ``true`` over an explicitly
+    disarmed simulator would offer the operator a button that arms nothing.
+
+    The one predicate behind both the 403 gate and the badge's
+    ``rendered_writes_enabled``, so the button an operator is offered and the
+    answer they get when they press it can never disagree.
+
+    Everything that can go wrong — no config, an unreadable one, a section the
+    resolver cannot make sense of — answers ``False``: no target may write. That
+    is the default ``cli/templates/claude_code.py`` bakes into
+    ``permissions.deny`` and the ``osprey_writes_check`` hook applies per call,
+    so an absent config stays a writes-off render here as everywhere else.
     """
-    if not config_path or not Path(config_path).exists():
-        return False
     try:
+        from osprey_connectors.types import any_target_writes_enabled
+
+        if not config_path or not Path(config_path).exists():
+            return False
         config = yaml.safe_load(Path(config_path).read_text(encoding="utf-8")) or {}
-        return bool(config.get("control_system", {}).get("writes_enabled", False))
+        return any_target_writes_enabled(config.get("control_system"))
     except Exception:  # noqa: BLE001 — an unreadable config is not a writes-on render
-        logger.warning("Could not read control_system.writes_enabled from %s", config_path)
+        logger.warning("Could not read the control-system write posture from %s", config_path)
         return False
 
 
@@ -945,8 +965,11 @@ async def set_terminal_posture(body: PostureRequest, request: Request):
       there is nothing to respawn, and the detail says so, because sending a
       prompt is the entire remedy and the alternative is a toggle that
       silently does nothing.
-    * **403** — ``writes`` on a render whose ``control_system.writes_enabled``
-      is off. The posture may narrow what the render permits, never widen it.
+    * **403** — ``writes`` on a render that arms no control target at all:
+      ``control_system.connector.<type>.writes_enabled`` off for every type,
+      and off in the deployment-wide ``control_system.writes_enabled`` they
+      inherit from. One armed target is enough, because the posture may narrow
+      what the render permits and never widen it.
     * **400** — an id outside the closed key grammar
       (:func:`_require_session_uuid`), so an arbitrary string can never become
       a store key that is then written to disk.
@@ -975,8 +998,11 @@ async def set_terminal_posture(body: PostureRequest, request: Request):
             detail={
                 "error": "writes_disabled",
                 "message": (
-                    "This deployment is rendered with control_system.writes_enabled off; "
-                    "no session can step out of the sandbox."
+                    "This deployment arms writes for no control target: "
+                    "control_system.connector.<type>.writes_enabled is off for every "
+                    "connector type, as is the deployment-wide "
+                    "control_system.writes_enabled they inherit from. No session can "
+                    "step out of the sandbox until one target is armed."
                 ),
             },
         )
@@ -1007,12 +1033,14 @@ async def get_terminal_posture(session_id: str, request: Request):
       adds ``OSPREY_EXECUTION_MODE`` for a sandboxed session and nothing at all
       otherwise, so "no entry" means the session runs the render's baseline and
       ``writes`` is the honest name for it.
-    * ``rendered_writes_enabled`` — whether ``control_system.writes_enabled``
-      permits control-system writes at all. This is what keeps the default
-      reading honest on a writes-off deployment: the posture is ``writes`` and
-      the effective write capability is still nil, because the kill-switch, not
-      the toggle, is the binding constraint there. The badge says so rather
-      than implying the session can write.
+    * ``rendered_writes_enabled`` — whether the render arms writes for *any*
+      control target, over the per-type
+      ``control_system.connector.<type>.writes_enabled`` and the
+      deployment-wide ``control_system.writes_enabled`` it inherits from. This
+      is what keeps the default reading honest on a writes-off deployment: the
+      posture is ``writes`` and the effective write capability is still nil,
+      because the render, not the toggle, is the binding constraint there. The
+      badge says so rather than implying the session can write.
 
     Unlike POST, an id that names no session on disk is **not** a 409. The badge
     renders with the terminal card, which can be before the first prompt has

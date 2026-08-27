@@ -564,8 +564,11 @@ that now points at a file the persona dropped. See :ref:`profile-unwire-hook`.
    ``exclude:`` carves a tier by *removing* capability. When the boundary you
    want is "may not write," prefer flipping the enforcement switch instead —
    the bundled ``control-assistant-readonly`` preset differs from its
-   write-capable sibling only on ``control_system.writes_enabled``, leaving
-   the tool surface identical (see :doc:`web-terminal/multi-user/tiers`).
+   write-capable sibling only on write posture, leaving the tool surface
+   identical (see :doc:`web-terminal/multi-user/tiers`). Write posture is per
+   control target, so that tier pins the deployment-wide
+   ``control_system.writes_enabled`` *and* each connector type's own key: the
+   flat key is what a type inherits, not a floor over it.
 
 To keep the bluesky server **on** while hiding an individual plan, set
 ``bluesky.excluded_plans`` instead:

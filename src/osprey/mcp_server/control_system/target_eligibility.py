@@ -30,15 +30,23 @@ reports success and the tool calls land on the wrong machine.
 Both are computed from the same inputs the connector itself uses.
 :func:`derive_endpoints` restates ``EPICSConnector.connect()``'s gateway
 selection and environment derivation *positively* — the role it would pick given
-``control_system.writes_enabled`` and
+the target's own write posture and
 :func:`~osprey_connectors.control_system.base.is_readonly_run`, and the
 CA/PVA mode each gateway would produce — rather than re-deciding it. Where a
 pure helper already exists it is imported, never restated: the target resolves
-through :func:`~osprey_connectors.types.resolve_target` and the virtual
+through :func:`~osprey_connectors.types.resolve_target`, its write posture
+through :func:`~osprey_connectors.types.target_writes_enabled`, and the virtual
 accelerator's unset gateway ports fill through
 :func:`~osprey_connectors.control_system.va_connector.fill_gateway_ports`, so
 this module and the process it describes cannot disagree about where a target
-lands or which port it lands on.
+lands, which port it lands on, or whether it may be written to once there.
+
+Write posture is per connector type, so the two targets of one deployment are
+not answered together: a facility whose baseline is the real machine can arm
+writes on its simulator alone, and both checks then report a ``write_access``
+gateway selected for ``va`` while ``live`` stays on ``read_only``. The
+deployment-wide key is not a second posture beside that one — it is what a
+target inherits when its own block says nothing about itself.
 
 Session-relativity
 ------------------
@@ -77,6 +85,7 @@ from osprey_connectors.types import (
     TARGET_LIVE,
     VIRTUAL_ACCELERATOR,
     resolve_target,
+    target_writes_enabled,
 )
 
 # -- Config keys, spelled once ---------------------------------------------
@@ -252,9 +261,14 @@ def connector_block(config: Any, connector_type: str) -> Any:
     return _sub(_section(config, "control_system"), "connector").get(connector_type)
 
 
-def _config_writes_enabled(config: Any) -> bool:
-    """``control_system.writes_enabled``, read as ``MCPServerConfig`` reads it."""
-    return bool(_section(config, "control_system").get("writes_enabled", False))
+def _config_writes_enabled(config: Any, target: str) -> bool:
+    """Whether this config arms writes for *target*, as the connector reads it.
+
+    Per connector type, through the resolver rather than off the section: the
+    type *target* selects may carry its own ``writes_enabled``, and the
+    deployment-wide key answers only for a type that carries none.
+    """
+    return target_writes_enabled(_section(config, "control_system"), target)
 
 
 # ---------------------------------------------------------------------------
@@ -296,12 +310,16 @@ def _selected_role(gateways: dict[str, Any], *, writes_enabled: bool, readonly_r
     """The gateway role the child will configure the process with.
 
     A positive restatement of ``EPICSConnector.connect()``'s selection: the
-    write-capable gateway is used only when the deployment permits writes, this
-    run is not a readonly sandbox run, and a ``write_access`` gateway is actually
-    configured. Every other combination — writes off, readonly run, or no
-    write-capable gateway to route through — lands on ``read_only``, which is
-    also what ``connect()`` falls back to (with a warning) when writes are
-    enabled and no write gateway exists.
+    write-capable gateway is used only when writes are armed for the target being
+    derived, this run is not a readonly sandbox run, and a ``write_access``
+    gateway is actually configured. Every other combination — writes unarmed,
+    readonly run, or no write-capable gateway to route through — lands on
+    ``read_only``, which is also what ``connect()`` falls back to (with a
+    warning) when writes are enabled and no write gateway exists.
+
+    Takes the posture as an argument rather than resolving it: the caller holds
+    the target, and one gateways table is all this selection is entitled to know
+    about.
     """
     write_gateway = gateways.get(ROLE_WRITE_ACCESS) or {}
     if writes_enabled and write_gateway and not readonly_run:
@@ -321,10 +339,13 @@ def derive_endpoints(
     Args:
         config: The full rendered config mapping (``config.yml`` as loaded).
         target: The session target, ``'live'`` or ``'va'``.
-        writes_enabled: Whether the deployment permits writes. Defaults to
-            ``control_system.writes_enabled``, the same value the connector
-            reads; injectable so a caller (or a test) can derive the endpoints
-            of a posture other than the current process's.
+        writes_enabled: Whether writes are armed for *target*. Defaults to
+            this target's own posture —
+            ``control_system.connector.<type>.writes_enabled`` where the
+            resolved type states one, ``control_system.writes_enabled`` where it
+            does not — which is the same value the connector reads; injectable
+            so a caller (or a test) can derive the endpoints of a posture other
+            than the configured one.
         readonly_run: Whether this is a readonly executor run. Defaults to
             :func:`~osprey_connectors.control_system.base.is_readonly_run`.
 
@@ -344,7 +365,7 @@ def derive_endpoints(
     connector_type = resolve_target(control_system, target)
 
     if writes_enabled is None:
-        writes_enabled = _config_writes_enabled(config)
+        writes_enabled = _config_writes_enabled(config, target)
     if readonly_run is None:
         readonly_run = is_readonly_run()
 
@@ -431,9 +452,10 @@ def evaluate_eligibility(
     1. the target resolves to a connector type at all;
     2. ``control_system.connector.<type>`` exists;
     3. its ``gateways`` table is non-empty and carries the role this deployment
-       would select (a write-enabled deployment with only a read gateway selects
-       ``read_only`` and is eligible; a deployment with only a write gateway and
-       writes off selects ``read_only`` and is not);
+       would select *for this target* (a target armed for writes with only a read
+       gateway selects ``read_only`` and is eligible; a target with only a write
+       gateway whose own posture leaves writes unarmed selects ``read_only`` and
+       is not);
     4. that block names a ``probe_channel`` — a target that cannot prove itself
        reachable is never switched to;
     5. honesty: pointing a session at the virtual accelerator while the archiver

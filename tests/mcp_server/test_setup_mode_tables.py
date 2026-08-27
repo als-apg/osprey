@@ -13,6 +13,11 @@ them changes nothing until the server restarts. Only per-call hook subprocesses
 are hot. `control_system.type` stays cold too, but its note now has a job the
 others do not have: telling the operator that changing control *target* is a
 run-time tool call (`control_target_set`), not a config edit and a rebuild.
+
+Write posture is per connector type, so the skill table carries a row for
+`control_system.connector.<type>.writes_enabled` as well. Like the probe
+channel, that key is per-type and so has no exact-match note in the tool — the
+table is the only place an operator learns it exists.
 """
 
 import pytest
@@ -44,6 +49,15 @@ TARGET_SWITCH_KEYS = [
 PROBE_CHANNEL_KEYS = [
     "control_system.connector.virtual_accelerator.probe_channel",
     "control_system.connector.epics.probe_channel",
+]
+
+#: Write posture is per connector type, so it has the same shape as the probe
+#: channel above: one key per type, no exact-match note, carried by the skill
+#: table alone. An operator who reads only the deployment-wide row would not
+#: learn that the key exists.
+PER_TYPE_WRITES_KEYS = [
+    "control_system.connector.virtual_accelerator.writes_enabled",
+    "control_system.connector.epics.writes_enabled",
 ]
 
 
@@ -89,6 +103,34 @@ def test_probe_channel_keeps_the_generic_connector_classification(key_path):
     note = _classify_change(CONFIG, key_path)
     assert note.startswith("cold")
     assert "mcp server" in note.lower()
+
+
+@pytest.mark.parametrize("key_path", PER_TYPE_WRITES_KEYS)
+def test_per_type_write_posture_keeps_the_generic_connector_classification(key_path):
+    """Per-type `writes_enabled` is a `connector.*` key: unlisted, generic note."""
+    # Arrange / Act
+    note = _classify_change(CONFIG, key_path)
+
+    # Assert
+    assert key_path not in _HOT_CHANGE_PATHS.get(CONFIG, set())
+    assert key_path not in _COLD_CHANGE_NOTES[CONFIG]
+    assert note.startswith("cold")
+
+
+def test_skill_table_documents_the_per_type_write_posture():
+    """The table must name the key that answers instead of the flat one.
+
+    A per-type block is what makes a deployment armed on one machine and not
+    the other, so a table that lists only `control_system.writes_enabled`
+    describes a posture the deployment may not have.
+    """
+    # Arrange / Act
+    rows = _skill_rows("control_system.connector.<type>.writes_enabled")
+
+    # Assert
+    assert len(rows) == 1, f"expected one per-type writes_enabled row, got {rows}"
+    assert "| Cold |" in rows[0]
+    assert "| Hot |" not in rows[0]
 
 
 def test_control_system_type_stays_cold_and_points_at_the_run_time_switch():

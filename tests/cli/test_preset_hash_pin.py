@@ -155,11 +155,39 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # rebuilt persona's rendered config gains the projected blocks, so the
     # staleness advisory firing on already-deployed persona projects is the
     # correct signal.
+    # Moved once more, and this time READONLY ALONE, when write posture became
+    # per connector type. The flat `control_system.writes_enabled` is only what
+    # a type inherits when its own block says nothing, so a read-only tier that
+    # pinned nothing else could be armed over by a per-type key added anywhere
+    # in the chain; readonly now pins `control_system.connector.epics.
+    # writes_enabled` and `…virtual_accelerator.writes_enabled` false beside it.
+    # Deploy-visible in two ways, and the second is the one worth knowing:
+    # a rebuilt read-only terminal's config.yml grows the two keys, AND its
+    # `connector.epics` block goes from absent to present — which is what
+    # `resolve_target` reads to derive the live machine, so the tier becomes
+    # switch-capable in shape (still not switchable TO live, which needs a
+    # probe channel the preset cannot guess). The advisory firing on
+    # already-deployed read-only projects is correct.
+    #
+    # `control-assistant-readwrite` and `control-assistant-admin` did NOT move:
+    # they write no per-type key, so every type still reads their flat `true`
+    # and their resolved content is unchanged. Their comment rewrites in the
+    # same commit contributed nothing, which is the digest being comment-blind
+    # exactly as the note at the top of this table says.
     "control-assistant-readonly": (
-        "sha256:d06220d4429a3f627efb71205c9f53a1b179c194f964a662a2947bcabfbb4dc5"
+        "sha256:a56b66057ff54c8fb7853c7e09b5d6b2863da8f030d4eab6ea9f33d3294873ec"
     ),
     "control-assistant-readwrite": (
         "sha256:b5c68c2b9f64bf83eec5902ffb3cdf3697f9ae4b9d88d39a2afc400d4f6073b7"
+    ),
+    # New with per-target write posture, not a moved entry: the rung between
+    # the two flat tiers, armed on the virtual accelerator alone. It pins the
+    # flat key `false` — the posture a live machine's block inherits — and
+    # `control_system.connector.virtual_accelerator.writes_enabled: true` over
+    # it, so which machine the session is pointed at decides whether its writes
+    # land.
+    "control-assistant-va-readwrite": (
+        "sha256:7b14d6fdfb8deb58379f72fcd3130ba95c4fc6374ae2a480a55d73bbcfce38c6"
     ),
     # Moved when the onboarding rewrite dropped the `facility` rule. The
     # wholesale comment rewrite that shipped alongside it contributed nothing:

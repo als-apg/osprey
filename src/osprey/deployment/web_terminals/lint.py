@@ -63,6 +63,7 @@ from osprey.deployment.web_terminals.render import (
     _configured_external_origin,
     _external_origin,
 )
+from osprey_connectors.types import TYPE_WRITES_ENABLED_LEAF, WRITES_ENABLED_KEY
 
 # The TLS seam's listener port (`listen 443 ssl` in the gated nginx block). The
 # auth sidecar's listener has no constant here: it is config-driven
@@ -178,6 +179,18 @@ def lint_web_terminals(
             users,
             rendered_project=rendered_project,
             project_root=project_root,
+            profile_root=profile_root,
+        )
+    )
+    # Reads the same persona layers, and asks the one question that needs them
+    # unmerged: whether a read-only-looking persona inherits an armed connector
+    # block. Profile altitude only — see the check.
+    findings.extend(
+        _check_readonly_persona_inherits_writes(
+            root,
+            web_terminals,
+            users,
+            rendered_project=rendered_project,
             profile_root=profile_root,
         )
     )
@@ -872,12 +885,41 @@ class _UnreadablePersona:
 _PrivilegeMap = dict[str, tuple[str, ...]]
 
 
+@dataclass(frozen=True)
+class _PersonaLayers:
+    """One catalog persona's config chain, and the one layer it wrote itself.
+
+    Two answers rather than one, because two checks here ask different
+    questions of the same persona. What it *holds* is the whole chain merged —
+    that is what gets deployed. What its author *said* is one layer of it, and
+    the difference between the two is exactly an inherited key: see
+    :func:`_check_readonly_persona_inherits_writes`, the check that cannot be
+    written against the merged document at all.
+    """
+
+    #: The chain, base first, in the order a merge applies them — the argument
+    #: list :func:`~osprey.deployment.web_terminals.personas.persona_privileges`
+    #: and friends take.
+    layers: tuple[Any, ...]
+    #: The persona's OWN ``config:`` block: the delta file's, or the preset's
+    #: before ``extends`` folds its parents in. Always the last word in
+    #: ``layers`` too, never a layer that is missing from it.
+    authored: dict[str, Any]
+    #: The catalog entry's ``build_profile`` value, verbatim — the file or
+    #: preset name a message points the operator's edit at.
+    source: str
+    #: Whether *source* is a persona delta beside the profile (rather than a
+    #: bundled preset name). The two inherit from different documents, which is
+    #: the half a message has to phrase differently.
+    is_delta: bool
+
+
 def _profile_persona_layers(
     root: dict[str, Any],
     entry: dict[str, Any],
     *,
     profile_root: Path | None,
-) -> tuple[Any, ...] | _UnreadablePersona:
+) -> _PersonaLayers | _UnreadablePersona:
     """The config layers that decide one catalog persona's privileges, at PROFILE altitude.
 
     Nothing is rendered yet and the catalog's ``build_profile`` names one of two
@@ -898,9 +940,10 @@ def _profile_persona_layers(
     word "valid".
 
     Returns:
-        The layers, or an :class:`_UnreadablePersona` saying why there are none.
-        "Cannot tell" is deliberately NOT "no privilege" here — see
-        :func:`_check_unreadable_persona_privileges` for what is done with it.
+        A :class:`_PersonaLayers`, or an :class:`_UnreadablePersona` saying why
+        there are none. "Cannot tell" is deliberately NOT "no privilege" here —
+        see :func:`_check_unreadable_persona_privileges` for what is done with
+        it.
     """
     build_profile = entry.get("build_profile")
     if not isinstance(build_profile, str) or not build_profile:
@@ -917,7 +960,8 @@ def _profile_persona_layers(
                 delta = yaml.safe_load(fh)
         except (OSError, yaml.YAMLError):
             return _UnreadablePersona(build_profile, str(delta_file), None)
-        return (root, as_dict(as_dict(delta).get("config")))
+        authored = as_dict(as_dict(delta).get("config"))
+        return _PersonaLayers((root, authored), authored, build_profile, is_delta=True)
 
     # Not a delta reference, so the only other thing it can be is a bundled
     # preset name — the shape the presets themselves ship with, before
@@ -928,15 +972,21 @@ def _profile_persona_layers(
     # same module the same way.
     try:
         from osprey.cli.build_profile import resolve_build_profile
+        from osprey.cli.build_profile_resolve import preset_authored_config
 
         resolved, _preset_dir = resolve_build_profile(None, build_profile)
+        # The same file, read one step earlier: what this preset says before its
+        # `extends` parents are folded in. Taken here rather than recovered
+        # afterwards, because the merged document no longer records which layer
+        # any of its keys came from.
+        authored = preset_authored_config(build_profile)
     except Exception:
         # The shape problem travels with the failure: a value like
         # `../admin.yml` is neither a delta this may read nor a preset name that
         # resolves, and naming both halves is the difference between "could not
         # resolve" and an instruction.
         return _UnreadablePersona(build_profile, None, shape_problem)
-    return (resolved.config,)
+    return _PersonaLayers((resolved.config,), authored, build_profile, is_delta=False)
 
 
 def _privileges_by_persona(
@@ -1028,7 +1078,7 @@ def _privileges_by_persona(
         if isinstance(layers, _UnreadablePersona):
             unreadable[persona_name] = layers
             continue
-        record(persona_name, persona_privileges(*layers))
+        record(persona_name, persona_privileges(*layers.layers))
     return absolute, lifted, unreadable
 
 
@@ -1475,6 +1525,153 @@ def _check_privileged_persona_exposure(
                 severity="error",
                 code="web_terminals.unauthenticated_privileged_terminal",
                 message=problem + (_STALE_RENDER_REMEDY if rendered_project else ""),
+            )
+        )
+    return findings
+
+
+#: The two fixed ends of ``control_system.connector.<type>.writes_enabled``,
+#: which this module matches one path segment at a time. Both come from the
+#: resolver that reads the key at run time; the ``connector`` hop in the middle
+#: is spelled here because that module reads it off an already-resolved section
+#: and keeps no constant for it.
+_CONTROL_SYSTEM_SECTION = WRITES_ENABLED_KEY.split(".")[0]
+_CONNECTOR_TABLE_KEY = "connector"
+
+
+def _config_leaves(*layers: Any) -> dict[str, Any]:
+    """Every value the layers declare, one dotted path per leaf, later wins.
+
+    A config layer may spell the same place two ways — a profile's ``config:``
+    block is a flat bag of dotted keys, a preset's own block nests where it
+    likes, and a rendered ``config.yml`` is fully nested — so flattening first
+    is what keeps a check from depending on which spelling its author chose.
+    Nested and dotted spellings of one path collapse onto the same entry here,
+    which is also what lets two layers written in different styles be compared
+    key for key.
+
+    Layers fold base first, so a later layer's leaf replaces an earlier one's —
+    the merge order the build itself applies.
+    """
+    leaves: dict[str, Any] = {}
+    for layer in layers:
+        _collect_leaves(layer, (), leaves)
+    return leaves
+
+
+def _collect_leaves(node: Any, prefix: tuple[str, ...], into: dict[str, Any]) -> None:
+    """Walk one config layer into ``into``; see :func:`_config_leaves`."""
+    if not isinstance(node, Mapping):
+        return
+    for key, value in node.items():
+        path = prefix + tuple(str(key).split("."))
+        if isinstance(value, Mapping) and value:
+            _collect_leaves(value, path, into)
+        else:
+            into[".".join(path)] = value
+
+
+def _connector_writes_type(path: str) -> str | None:
+    """The connector type ``control_system.connector.<type>.writes_enabled`` names.
+
+    ``None`` for any other path. The type is everything between the two fixed
+    ends rather than one segment, because a custom connector's type key is its
+    dotted module path (``mypackage.TangoConnector``) and rejoining it is what
+    keeps the message naming the key the operator would have to write.
+    """
+    parts = path.split(".")
+    if len(parts) < 4:
+        return None
+    if parts[0] != _CONTROL_SYSTEM_SECTION or parts[1] != _CONNECTOR_TABLE_KEY:
+        return None
+    if parts[-1] != TYPE_WRITES_ENABLED_LEAF:
+        return None
+    return ".".join(parts[2:-1])
+
+
+def _check_readonly_persona_inherits_writes(
+    root: dict[str, Any],
+    web_terminals: dict[str, Any],
+    users: list[Any],
+    *,
+    rendered_project: bool,
+    profile_root: Path | None,
+) -> list[Finding]:
+    """A persona that writes down a read-only posture must not inherit an armed connector.
+
+    Write posture is per connector type: ``control_system.writes_enabled`` is
+    only what a type inherits when its own
+    ``control_system.connector.<type>.writes_enabled`` block says nothing, and a
+    block that says ``true`` never falls back to it. So a persona layer whose
+    author typed ``control_system.writes_enabled: false`` — the one line that
+    makes a tier read as read-only, and the line an operator scans for — can
+    still be handed an armed connector by the document underneath it: the
+    profile a delta is merged over, or the preset a preset extends. Nothing
+    downstream is wrong when that happens. The persona is armed, every surface
+    agrees it is armed, and only the author thinks otherwise.
+
+    **This is the one check that must be keyed on the AUTHORED file rather than
+    the merged one**, which is why the layers carry both. In the merge, an
+    inherited ``true`` and a deliberate one are the same key with the same
+    value — the shipped ``control-assistant-va-readwrite`` tier is exactly the
+    deliberate case, and it pins the global key false beside the one block it
+    arms on purpose. What separates the two is which file the ``true`` is
+    written in, and that fact only exists before the layers are folded.
+
+    Profile altitude only. A rendered ``config.yml`` is one composed document
+    with no authored layer left in it, so there is no question to ask there:
+    every key in it reads as written down.
+    """
+    if rendered_project:
+        return []
+
+    catalog = _persona_catalog(web_terminals)
+    findings: list[Finding] = []
+    for persona_name in sorted(_referenced_persona_names(web_terminals, users)):
+        entry = catalog.get(persona_name)
+        if not isinstance(entry, dict):
+            continue  # unresolvable reference — reported elsewhere
+        layers = _profile_persona_layers(root, entry, profile_root=profile_root)
+        if isinstance(layers, _UnreadablePersona):
+            continue  # reported by `_check_unreadable_persona_privileges`
+
+        authored = _config_leaves(layers.authored)
+        # Not `is False`: the resolver arms a type on a literal `true` and on
+        # nothing else, so every other value this layer could carry — `false`,
+        # `"no"`, `0` — is a layer whose author wrote down a read-only posture
+        # and would read the inherited block the same way.
+        if WRITES_ENABLED_KEY not in authored or authored[WRITES_ENABLED_KEY] is True:
+            continue
+
+        resolved = _config_leaves(*layers.layers)
+        inherited = sorted(
+            path
+            for path, value in resolved.items()
+            if value is True and _connector_writes_type(path) is not None and path not in authored
+        )
+        if not inherited:
+            continue
+
+        layer_word = "delta" if layers.is_delta else "preset"
+        inherited_from = (
+            "the profile it is merged over"
+            if layers.is_delta
+            else f"the preset {layers.source!r} extends"
+        )
+        findings.append(
+            Finding(
+                severity="error",
+                code="web_terminals.persona_inherits_armed_connector",
+                message=(
+                    f"modules.web_terminals persona {persona_name!r} sets "
+                    f"{WRITES_ENABLED_KEY}: false in {layers.source!r}, but inherits "
+                    f"{privilege_phrase(inherited)}: true from {inherited_from} — a key "
+                    f"this {layer_word} does not set itself. A per-type key never falls "
+                    f"back to the flat one, so this persona would be served as a "
+                    f"read-only tier while writes stay armed for it. Set "
+                    f"{privilege_phrase(inherited)}: false in {layers.source!r} too, or "
+                    f"take the inherited true out of {inherited_from}"
+                ),
             )
         )
     return findings

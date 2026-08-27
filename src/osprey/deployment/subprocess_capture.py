@@ -216,4 +216,40 @@ def _run_teeing(
     return subprocess.CompletedProcess(list(cmd), returncode)
 
 
-__all__ = ["SPOOL_DIR", "SPOOL_RETENTION", "CapturedProcess", "run_captured"]
+def diagnose_captured_failure(exc: BaseException) -> str | None:
+    """Translate a captured child's failure into a remedy, or ``None``.
+
+    A :class:`~osprey.deployment.errors.CapturedProcessError` names the file its
+    child's output went to, and some of those failures have a cause OSPREY can
+    recognize and answer in words the raw text never uses. This is the one seam
+    that reads that spool and asks the diagnosers, so every verb that runs a
+    build gets the same translation rather than each growing its own.
+
+    Total by construction. No spool (a ``--verbose`` run, where the output went
+    to the terminal instead, or an exception of some other type), a spool that
+    cannot be read, or output that nothing recognizes all yield ``None`` — and
+    the caller then renders the failure exactly as it did before.
+
+    :param exc: The exception a verb is about to fail on.
+    :returns: Operator-facing remedy text, or ``None`` when there is nothing
+        honest to add.
+    """
+    from osprey.deployment.runtime_helper import diagnose_build_failure
+
+    spool_path = getattr(exc, "spool_path", None)
+    if spool_path is None:
+        return None
+    try:
+        output = Path(spool_path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    return diagnose_build_failure(output)
+
+
+__all__ = [
+    "SPOOL_DIR",
+    "SPOOL_RETENTION",
+    "CapturedProcess",
+    "diagnose_captured_failure",
+    "run_captured",
+]

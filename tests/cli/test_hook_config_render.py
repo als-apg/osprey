@@ -10,8 +10,8 @@ on both render paths, and when a consumer's context key is missing.
 Three properties are pinned here:
 
 1. **All keys are unconditional.** ``mixed_read_write_tools`` and
-   ``write_servers`` describe properties of a *tool* and of a *server*, not of
-   the current posture. They must not inherit the condition of the writes-off
+   ``lane_addressed_tools`` describe properties of a *tool*, not of the
+   current posture. They must not inherit the condition of the writes-off
    ``killswitch_deny`` derivation, whose block only runs when writes are
    disabled: the hook and the middleware read this file at run time under
    either posture.
@@ -47,8 +47,8 @@ _EXPECTED_KEYS = {
     "server_prefixes",
     "approval_prefixes",
     "write_tools",
-    "write_servers",
     "mixed_read_write_tools",
+    "lane_addressed_tools",
 }
 
 
@@ -92,7 +92,8 @@ def _regenerate(manager, project_dir):
 # (python), an `extends` clone of that mixed server (python2), a second
 # framework write server (bluesky), and a facility-custom server whose
 # writes_check matcher is the registry's per-server REGEX rather than an exact
-# tool name (sitectl) — the case `write_servers` exists to cover.
+# tool name (sitectl) — which lands in `write_tools` as-is, for the hooks'
+# wildcard-aware `is_write_tool` to honour.
 _MULTI_SERVER = {
     "bluesky": {"enabled": True},
     "python2": {"extends": "python", "enabled": True},
@@ -118,7 +119,6 @@ def test_create_project_path_emits_every_key(tmp_path):
     assert set(config) == _EXPECTED_KEYS
     assert "mcp__python__" in config["server_prefixes"]
     assert config["mixed_read_write_tools"] == ["mcp__python__execute"]
-    assert config["write_servers"] == []
 
 
 def test_regenerate_path_emits_every_key(tmp_path):
@@ -172,7 +172,7 @@ def test_keys_are_unconditional_in_both_writes_states(tmp_path, writes_enabled):
     config = _regenerate(manager, project_dir)
 
     assert config["mixed_read_write_tools"] == ["mcp__python__execute", "mcp__python2__execute"]
-    assert config["write_servers"] == ["sitectl"]
+    assert "mcp__sitectl__.*" in config["write_tools"]
     assert "mcp__sitectl__" in config["server_prefixes"]
 
 
@@ -211,91 +211,6 @@ def test_server_prefixes_excludes_disabled_servers(tmp_path):
     config = _regenerate(manager, project_dir)
 
     assert "mcp__python__" not in config["server_prefixes"]
-
-
-# ---------------------------------------------------------------------------
-# write_servers
-# ---------------------------------------------------------------------------
-
-
-def test_write_servers_lists_only_regex_matched_write_servers(tmp_path):
-    """Server-level coverage exists for exactly the servers exact names miss.
-
-    The registry gives a custom server that opts into ``writes_check`` a single
-    per-server regex rule (``mcp__<name>__.*``): its individual tool names are
-    unknown at render time, so the hook's exact-name membership test can never
-    match one. Framework servers and their clones carry exact matchers and are
-    already covered tool-by-tool — listing them here would take their READ
-    tools down with them under a readonly posture.
-    """
-    manager, project_dir = _create_project(tmp_path)
-    _reconfigure(project_dir, claude_code_servers=_MULTI_SERVER)
-    config = _regenerate(manager, project_dir)
-
-    assert config["write_servers"] == ["sitectl"]
-    for exact_matcher_server in ("controls", "python", "python2", "bluesky"):
-        assert exact_matcher_server not in config["write_servers"]
-
-
-def test_write_servers_holds_bare_names_not_prefixes(tmp_path):
-    """Names, not ``mcp__<name>__`` prefixes.
-
-    The consuming hook builds the prefix itself. Emitting a prefix here would
-    make its ``mcp__%s__`` composition produce ``mcp__mcp__sitectl____``, which
-    matches no tool — a coverage hole that reads as coverage.
-    """
-    manager, project_dir = _create_project(tmp_path)
-    _reconfigure(project_dir, claude_code_servers=_MULTI_SERVER)
-    config = _regenerate(manager, project_dir)
-
-    assert config["write_servers"]
-    for name in config["write_servers"]:
-        assert not name.startswith("mcp__")
-        assert f"mcp__{name}__" in config["server_prefixes"]
-
-
-def test_write_servers_empty_without_a_regex_gated_server(tmp_path):
-    """A default project has none — an empty list, not a missing key."""
-    _, project_dir = _create_project(tmp_path)
-    config = _hook_config(project_dir)
-
-    assert config["write_servers"] == []
-
-
-def test_write_servers_skips_a_custom_server_without_writes_check(tmp_path):
-    """The regex is only interesting where a writes_check hook rides it.
-
-    A custom server that declares only ``approval`` gets the same
-    ``mcp__<name>__.*`` matcher shape; keying off the regex alone rather than
-    off the writes_check hook would refuse every one of its read tools under a
-    readonly posture.
-    """
-    manager, project_dir = _create_project(tmp_path)
-    _reconfigure(
-        project_dir,
-        claude_code_servers={
-            "readonlyctl": {
-                "command": "node",
-                "args": ["readonlyctl.js"],
-                "permissions": {"ask": ["look"]},
-                "hooks": {"pre_tool_use": ["approval"]},
-            }
-        },
-    )
-    config = _regenerate(manager, project_dir)
-
-    assert "mcp__readonlyctl__" in config["server_prefixes"]
-    assert config["write_servers"] == []
-
-
-def test_write_servers_lists_a_server_once(tmp_path):
-    """One entry per server, however many write-gated rules it carries."""
-    manager, project_dir = _create_project(tmp_path)
-    _reconfigure(project_dir, claude_code_servers=_MULTI_SERVER)
-    config = _regenerate(manager, project_dir)
-
-    names = config["write_servers"]
-    assert len(names) == len(set(names))
 
 
 # ---------------------------------------------------------------------------
@@ -346,9 +261,9 @@ def test_write_tools_still_carries_exact_names_and_the_custom_regex(tmp_path):
     assert "mcp__controls__channel_write" in write_tools
     assert "mcp__python__execute" in write_tools
     assert "mcp__python2__execute" in write_tools
-    # The regex the exact-name membership test can never match — the hole
-    # `write_servers` closes at server level. It stays in write_tools: removing
-    # it would strip the entry read_only_disallowed_tools is built from.
+    # The registry's per-server regex for a custom server: the hooks' wildcard-
+    # aware `is_write_tool` gates every tool on that server off it, and
+    # read_only_disallowed_tools is built from the same entry.
     assert "mcp__sitectl__.*" in write_tools
 
 

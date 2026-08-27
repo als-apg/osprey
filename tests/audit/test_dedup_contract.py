@@ -90,7 +90,6 @@ def project(tmp_path, monkeypatch):
                 "server_prefixes": ["mcp__controls__", "mcp__python__"],
                 "approval_prefixes": [],
                 "write_tools": [CONTROLS_WRITE, PYTHON_EXECUTE],
-                "write_servers": [],
                 "mixed_read_write_tools": [PYTHON_EXECUTE],
             }
         )

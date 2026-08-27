@@ -2,8 +2,8 @@
 """
 ---
 name: Writes Kill Switch
-description: Blocks ALL write operations under a readonly session posture or writes kill switch
-summary: Blocks write operations when the session is sandboxed or writes are disabled
+description: Blocks ALL write operations under a readonly session posture or an unarmed target
+summary: Blocks write operations when the session is sandboxed or the target is not armed
 event: PreToolUse
 tools: channel_write, execute
 safety_layer: 1
@@ -15,18 +15,9 @@ safety_layer: 1
 stdin ──► Parse JSON
               │
               ▼
-         Is write tool?  ──NO──► readonly mode? ──NO──► EXIT (allow)
-              │                        │
-             YES                      YES
-              │                        │
-              │                        ▼
-              │                   write_servers
-              │                   prefix hit?   ──NO──► EXIT (allow)
-              │                        │
-              │                       YES
-              │                        │
-              │                        ▼
-              │                   DENY: sandbox posture
+         Is write tool?  ──NO──► EXIT (allow)
+              │
+             YES
               │
               ▼
          execute          ──YES──► readonly mode? ──YES──► EXIT (allow)
@@ -35,21 +26,29 @@ stdin ──► Parse JSON
              NO                         │
               │◄────────────────────────┘
               ▼
-         OSPREY_EXECUTION_MODE
-         == "readonly"?   ──YES──► DENY: sandbox posture
+  STAGE 1  OSPREY_EXECUTION_MODE
+           == "readonly"?   ──YES──► DENY: sandbox posture
               │
              NO
               │
               ▼
-         Load config.yml
-              │
-              ▼
-         writes_enabled?  ──YES──► EXIT (allow)
+         Lane-addressed
+         queue tool?      ──YES──► EXIT (allow)
               │
              NO
               │
               ▼
-         DENY: writes disabled
+  STAGE 2  Load config.yml
+           Read session target
+              │
+              ▼
+         Armed for that
+         target?          ──YES──► EXIT (allow)
+              │
+             NO
+              │
+              ▼
+         DENY: writes not armed
 ```
 
 ## Details
@@ -59,41 +58,46 @@ order:
 
 1. **Session posture.** `OSPREY_EXECUTION_MODE=readonly` means *this terminal
    session* was switched to the sandbox posture, whatever the deployment
-   allows. Answered from the environment alone, ahead of any config read.
-2. **Deployment kill switch.** `control_system.writes_enabled` in `config.yml`.
-   When false, **all** channel writes and non-readonly Python executions are
-   blocked before any other hook runs.
+   allows. Answered from the environment alone, ahead of any config read, and
+   it covers every write call — a queue operation staged on a writes-armed
+   deployment included.
+2. **Deployment posture, per target.** Write posture is a property of the
+   machine a call would reach, not of the deployment as a whole: a facility can
+   arm its virtual accelerator and leave its ring unarmed. So the question is
+   only answerable once the call has been pointed at a target — the session's,
+   from the state file — and the answer comes from
+   `control_system.connector.<type>.writes_enabled` over
+   `control_system.writes_enabled`.
 
 The two keep separate vocabularies: a posture refusal never points the operator
-at `writes_enabled`, because flipping that key would not lift it.
+at a config key, because flipping one would not lift it. A stage-2 refusal names
+the key the posture was actually read from, which on a per-target deployment is
+the connector block rather than the deployment-wide flag.
 
-## Server-level coverage (`write_servers`)
+Which tools are writes is rendered data (`write_tools` in `hook_config.json`),
+read through the shared `write_tools()` accessor with its fail-closed floor. A
+facility-custom server that opts into `writes_check` arrives there as a
+whole-server matcher (`mcp__<name>__.*`), and `is_write_tool` honours it — so
+every tool on such a server is gated by BOTH stages, reads included: nothing in
+the render can tell a custom server's reads from its writes, and the server
+asked for the gate at server level.
 
-A facility-custom server that opts into `writes_check` has tool names the render
-cannot know, so the registry gives it a REGEX matcher (`mcp__<name>__.*`). That
-matcher reaches `write_tools` like any other, where the exact-name membership
-test above can never match a real call against it. The render therefore also
-names the server in `write_servers`, and this hook covers it by prefix.
+Lane-bound queue tools skip stage 2. A queue operation is addressed by *lane*,
+and the lane's own bridge refuses what it must; the session target says nothing
+about it. Which tools those are is rendered into `hook_config.json` off the tool
+registry rather than spelled here, so renaming one never touches this file.
+Stage 1 still applies to them in full.
 
-Only on the posture path. An exact-name miss whose `mcp__<server>__` prefix is
-listed refuses under `OSPREY_EXECUTION_MODE=readonly` — before any config read —
-and exits 0 on every other posture. Two reasons for that asymmetry, both
-deliberate:
+The rules themselves live in `osprey_target_state`, shared with
+`osprey_approval` so a deny here and a missing prompt there can never disagree
+about one deployment.
 
-- Nothing in the render knows which of a custom server's tools write, so
-  server-level coverage necessarily takes the reads with it. A sandboxed session
-  is the one posture where refusing the whole server is the honest answer.
-- Letting the prefix reach the writes-off kill switch would turn a deployment
-  that merely disabled writes into one whose custom-server *reads* all fail. So
-  that branch never sees these servers, and their reads keep working exactly as
-  they do today.
-
-Degrade, deliberately different from `write_tools`: an absent or malformed
-`write_servers` yields the empty list — no coverage, pre-feature behavior —
-because server names are deployment-specific and no floor shipped here could
-name the right ones. A `hook_config.json` that parsed but says nothing about
-the key is a stale render, so that branch warns once on stderr and names
-`osprey build` as the remedy.
+Both refusals are also written to the audit trail (`emit_audit`, surface
+`hook_writes-check`): the posture refusal under the reason word `posture` — the
+same word the MCP audit middleware and the python executor's session clamp
+record for the same refusal, so one grep finds all three layers — and the
+stage-2 refusal under `writes_disabled`, because a different action lifts it.
+A record is written before the deny is emitted and can never cost it.
 """
 
 import json
@@ -105,116 +109,40 @@ from osprey_hook_log import (
     AUDIT_DECISION_REFUSED,
     emit_audit,
     get_hook_input,
+    is_write_call,
+    is_write_tool,
     load_hook_config,
     load_osprey_config,
     log_hook,
+    short_tool_name,
+    write_tools,
 )
 
-#: The write tools refused when hook_config.json cannot be read. Covers EVERY
-#: write-gated tool the framework ships, not the ones a default render happens
-#: to enable: the bluesky plan-queue arming pair used to be left out because
-#: bluesky is opt-in, which has it backwards — a deployment that opted in is
-#: precisely the one whose sandboxed session can reach those tools, and a
-#: degraded render is exactly when nothing else is left to refuse them.
-#: Deliberately the same literal as the MCP audit middleware's floor of the
-#: same name (the two layers must not disagree about what a degraded deployment
-#: refuses), and both are pinned against registry.mcp.framework_write_tools()
-#: by tests/registry/test_mixed_floor_driftguard.py so registry growth cannot
-#: strand them. Not imported from either: this file ships as a copied-in
-#: project template run by a bare python3 and imports nothing from osprey.
-_FALLBACK_WRITE_TOOLS = [
-    "mcp__bluesky__queue_add",
-    "mcp__bluesky__queue_start",
-    "mcp__controls__channel_write",
-    "mcp__python__execute",
-]
+# The shared, stdlib-only reader for the control-system target state, and the
+# home of the write-posture rules. Imported while this file's own directory is
+# still the first `sys.path` entry the line above put there, because it is a
+# sibling script rather than an installed module.
+#
+# Guarded exactly as `osprey_approval` guards it: a project rendered before the
+# reader existed has no such sibling. Stage 2 treats that as not armed (see
+# `_deployment_posture`).
+try:
+    import osprey_target_state as _target_state
+except Exception:  # pragma: no cover - older render without the reader
+    _target_state = None
 
+#: The deployment-wide posture key, dotted as an operator spells it. Named in a
+#: refusal only when no per-type block answered — an unidentifiable target, or a
+#: `live` this deployment never described.
+_GLOBAL_WRITES_KEY = "control_system.writes_enabled"
 
-def _get_write_tools():
-    """Return the set of tool names subject to the writes kill switch.
+#: The hook_config key naming the tools stage 2 leaves to their own lane gate.
+#: Short names, so an `extends` clone of the server — which renames only the
+#: prefix — keeps the carve-out.
+_LANE_ADDRESSED_KEY = "lane_addressed_tools"
 
-    Loaded from hook_config.json (generated at deploy time).
-    Falls back to framework defaults if missing — fail-closed.
-    """
-    tools = load_hook_config().get("write_tools", _FALLBACK_WRITE_TOOLS)
-    return set(tools)
-
-
-#: One WARNING per process, and a hook process handles exactly one tool call —
-#: so this is "once per stale call", not once per session. Cheap, and it keeps
-#: the message in front of the operator until the render is refreshed.
-_warned_write_servers = False
-
-
-def _warn_stale_write_servers():
-    """Say that this render predates server-level coverage, once, on stderr.
-
-    stderr, never stdout: Claude Code parses a PreToolUse decision off stdout,
-    and a warning printed there would make a deny unreadable — reporting a stale
-    render by failing the call open.
-    """
-    global _warned_write_servers
-    if _warned_write_servers:
-        return
-    _warned_write_servers = True
-    try:
-        print(
-            "WARNING: [writes-check] hook_config.json names no usable "
-            "'write_servers'. Facility-custom MCP servers get no server-level "
-            "coverage under the sandbox posture. Re-render with `osprey build`.",
-            file=sys.stderr,
-        )
-    except Exception:
-        pass  # a warning must never cost a decision
-
-
-def _get_write_servers():
-    """Bare server names whose tools the sandbox posture refuses wholesale.
-
-    No fallback floor, unlike :func:`_get_write_tools`: server names are
-    deployment-specific, so the only honest answer for a render that does not
-    supply them is the empty list.
-
-    The warning fires on a hook_config that *parsed to something* yet has no
-    usable list — a stale render, which `osprey build` fixes. A config the hook
-    could not read at all (missing or malformed file) is a different failure:
-    ``load_hook_config`` answers ``{}`` there, ``write_tools`` already covers it
-    with its fail-closed floor and no warning, and both keys are emitted by the
-    same render — so it says nothing about this key specifically and warning on
-    it would fire on every framework write call too.
-    """
-    config = load_hook_config()
-    names = config.get("write_servers")
-    if isinstance(names, list):
-        return [name for name in names if isinstance(name, str) and name]
-    if config:
-        _warn_stale_write_servers()
-    return []
-
-
-def _write_server_for(tool_name):
-    """The ``write_servers`` entry owning *tool_name*, or ``None``.
-
-    Prefix match on the composed ``mcp__<server>__``. The trailing ``__`` is what
-    keeps a listed ``sitectl`` from swallowing a neighbouring ``sitectl_extra``.
-
-    Wrapped: this runs on the posture path, which must reach its deny without
-    raising (an uncaught exception exits non-zero, prints no JSON, and the tool
-    proceeds). A failure here costs the coverage this key adds — the same place
-    an unrendered key leaves it — never a traceback.
-    """
-    try:
-        for server in _get_write_servers():
-            if tool_name.startswith("mcp__" + server + "__"):
-                return server
-    except Exception:
-        return None
-    return None
-
-
-#: The posture refusal, said once. Both posture branches — exact-name write tool
-#: and server-level prefix — are lifted by the same action, so they say the same
-#: thing rather than teaching the operator two dialects.
+#: The posture refusal, said once: it is lifted by one action, so it teaches the
+#: operator one dialect.
 _POSTURE_DENY_REASON = (
     "\U0001f512 SANDBOX POSTURE — this terminal session refuses "
     "control-system writes.\n\n"
@@ -222,8 +150,7 @@ _POSTURE_DENY_REASON = (
     "config.yml is not the gate here."
 )
 
-
-#: The machine-ish reason both posture refusals record. Deliberately the same
+#: The machine-ish reason the posture refusal records. Deliberately the same
 #: word the MCP audit middleware and the python executor's in-tool session
 #: clamp record for the same refusal, so a sandboxed session's records join
 #: across all three layers on one spelling. A cross-layer test pins them
@@ -231,50 +158,189 @@ _POSTURE_DENY_REASON = (
 #: osprey, so it cannot share the constant itself.
 _POSTURE_DENY_AUDIT_REASON = "posture"
 
-#: What the kill-switch refusal records. A different word from the posture one,
+#: What the stage-2 refusal records. A different word from the posture one,
 #: because a different action lifts it — the same separation the two
 #: operator-facing messages keep.
 _WRITES_DISABLED_AUDIT_REASON = "writes_disabled"
 
 
-def _deny_posture(hook_input, server=None):
-    """Emit the sandbox-posture deny and exit 0. Does not return.
+def _server_prefixes():
+    """Every MCP server prefix this render generated into hook_config.
 
-    The one seam both posture refusals go through — the exact-name write tool
-    and the server-level prefix — so the debug line and the audit record are
-    written once for two branches. *server* is the ``write_servers`` entry that
-    matched, or ``None`` for the exact-name branch: the only thing that
-    distinguishes them, and the only thing either record adds.
+    `server_prefixes` is the full list; `approval_prefixes` — the subset of
+    servers that also wired the approval hook — is appended so a hook_config
+    carrying only that one still resolves a short name.
 
-    Nothing here may raise. This hook fails OPEN — an uncaught exception exits
-    non-zero with no JSON and the tool proceeds — and for a mixed read/write
-    kernel this deny is the primary layer, since the renderer re-grants those
-    tools via ``allow`` and leans on the hard deny. So both calls that touch the
-    filesystem (the debug logger, which reads config and appends to a JSONL
-    file, and the audit record) are wrapped, and both happen BEFORE the exit: a
-    broken config or an unwritable audit zone costs a line, never the decision.
+    Never raises: a hook_config carrying something other than a list under those
+    keys must not cost the gate a short name, and `short_tool_name` still
+    resolves one from the `mcp__<server>__<tool>` shape without any prefixes.
     """
-    detail = "server=" + server if server else None
     try:
-        log_hook(
-            "writes-check",
-            hook_input,
-            status="deny",
-            detail="reason=posture" + (" " + detail if detail else ""),
-        )
+        hook_config = load_hook_config()
+        return [
+            prefix
+            for key in ("server_prefixes", "approval_prefixes")
+            for prefix in hook_config.get(key) or ()
+        ]
     except Exception:
-        pass  # logging must never cost the deny
+        return []
+
+
+def _is_lane_addressed(short_name):
+    """Whether stage 2 leaves a tool alone because a lane addresses it.
+
+    A queue operation binds to one plan lane, not to the session target: the
+    lane-bound tools name their lane and refuse in-tool, and the one that only
+    stages work composes tokenless by contract, so nothing it stages reaches a
+    machine on its own. Gating them on the session target would refuse a plan
+    queued for the simulator because the session happens to point at the ring.
+
+    The set is data, read from this render's hook_config, never a name spelled
+    in this file — a renamed tool would otherwise detach its carve-out here
+    while still looking gated.
+
+    Fails *towards* gating, twice over: a hook_config that lists no such tools
+    leaves every write tool subject to the target posture, and one whose
+    prefixes could not be read leaves *short_name* as the full tool name, which
+    no short name matches. Both are the more restrictive answer.
+    """
+    try:
+        listed = load_hook_config().get(_LANE_ADDRESSED_KEY) or ()
+        return short_name in tuple(listed)
+    except Exception:
+        return False
+
+
+def _key_for_type(connector_type):
+    """The config key that arms one connector type, spelled as an operator does.
+
+    The deployment-wide key when there is no type: an unknown target and an
+    underivable `live` have no block to name, and that key is the one their
+    posture was read from anyway.
+
+    A deliberate restatement of `osprey_connectors.types.writes_enabled_key`.
+    A hook runs on the operator's stdlib Python with none of OSPREY installed,
+    so it cannot import the framework spelling; the parity test is what keeps
+    the two readings from drifting apart.
+    """
+    if connector_type is None:
+        return _GLOBAL_WRITES_KEY
+    return f"control_system.connector.{connector_type}.writes_enabled"
+
+
+def _refusal_keys(section, target):
+    """The config keys an operator would edit to lift this refusal, in order.
+
+    The blocks the posture was actually READ from, never the deployment-wide key
+    by default: a refusal naming the global key on a deployment whose live block
+    says `false` would send the operator to flip a key that changes nothing.
+
+    A `None` *target* is the session whose target could not be identified. It is
+    refused unless EVERY target it could reach is armed, so the keys are the
+    unarmed ones among those — naming a target whose key already says `true`
+    would be the same wrong instruction reached by a different route.
+
+    The types come from the reader's own mappings rather than being re-derived
+    here, so the keys named and the postures read cannot drift apart while both
+    look right.
+    """
+    if target is not None:
+        return [_key_for_type(_target_state.target_type(section, target))]
+    keys = []
+    for connector_type in _target_state.session_types(section).values():
+        if _target_state.type_posture(section, connector_type) is True:
+            continue
+        key = _key_for_type(connector_type)
+        if key not in keys:
+            keys.append(key)
+    return keys or [_GLOBAL_WRITES_KEY]
+
+
+def _deployment_posture(hook_input):
+    """Whether this deployment arms writes for the target this session acts on.
+
+    Returns ``(armed, keys, target)`` — the decision, the config keys a refusal
+    should name, and the target it was answered for (``None`` when the session's
+    target could not be identified).
+
+    Everything stage 2 touches sits inside one ``try``, and every failure
+    resolves to NOT ARMED. That is the deliberate exception to this hook's
+    fail-open rule: elsewhere an uncaught exception exits non-zero with no JSON
+    and the tool proceeds, which is right for a hook that only enriches, and
+    wrong for the one that decides whether a write reaches a machine. Stage 1
+    runs before this and is unaffected either way.
+    """
+    try:
+        config = load_osprey_config(hook_input)
+        section = config.get("control_system")
+
+        if _target_state is None:
+            # The reader is also where the posture RULES live, so a render
+            # without it cannot answer stage 2 at all — and "cannot answer" is
+            # not armed. The sibling is rendered beside this file by the same
+            # build, so this is theoretical rather than an upgrade path.
+            return False, [_GLOBAL_WRITES_KEY], None
+
+        result = _target_state.read_session_target(hook_input)
+        target = None if _target_state.is_baseline(result) else result.get("target")
+
+        if target is None:
+            # A baseline fallback still NAMES the deployment's baseline target,
+            # and answering for it would state a posture for a session that may
+            # have switched away from it. The posture every target this session
+            # could reach agrees on is the only one that cannot become a guess
+            # in favour of hardware.
+            posture = _target_state.most_restrictive_posture(section)
+            return posture is True, _refusal_keys(section, None), None
+
+        posture = _target_state.writes_posture(section, target)
+        # `None` — a config that expresses no posture anywhere — refuses here.
+        # This hook has always denied a config with no `control_system` block,
+        # and a deployment that says nothing must not become one that writes.
+        # It is also the one shape where this hook and `osprey_approval`
+        # deliberately disagree: approval falls through to its normal prompt,
+        # this hook still refuses.
+        return posture is True, _refusal_keys(section, target), target
+    except Exception:
+        return False, [_GLOBAL_WRITES_KEY], None
+
+
+def _record_refusal(hook_input, tool_name, reason, detail=None):
+    """Write one refusal to the audit trail. Never raises.
+
+    Wrapped because this hook's stage 1 fails OPEN — an uncaught exception exits
+    non-zero with no JSON and the tool proceeds — and on a mixed read/write
+    render the deny it accompanies is the primary layer, since the renderer
+    re-grants those tools via ``allow`` and leans on the hard deny. An
+    unwritable audit zone costs a record, never the decision.
+    """
     try:
         emit_audit(
             "writes-check",
             hook_input,
             decision=AUDIT_DECISION_REFUSED,
-            subject=hook_input.get("tool_name", ""),
-            reason=_POSTURE_DENY_AUDIT_REASON,
+            subject=tool_name,
+            reason=reason,
             detail=detail,
         )
     except Exception:
         pass  # the audit trail must never cost the deny
+
+
+def _deny_posture(hook_input, tool_name):
+    """Emit the sandbox-posture deny and exit 0. Does not return.
+
+    Nothing here may raise (see :func:`_record_refusal` for why). Both calls that
+    touch the filesystem — the debug logger, which reads config and appends to
+    a JSONL file, and the audit record — are wrapped, and both happen BEFORE
+    the exit: a broken config or an unwritable audit zone costs a line, never
+    the decision.
+    """
+    try:
+        log_hook("writes-check", hook_input, status="deny", detail="reason=posture")
+    except Exception:
+        pass  # logging must never cost the deny
+    _record_refusal(hook_input, tool_name, _POSTURE_DENY_AUDIT_REASON)
     output = {
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
@@ -293,27 +359,24 @@ def main():
 
     tool_name = hook_input.get("tool_name", "")
 
-    # Only inspect write tools -- by exact name. A miss is not automatically a
-    # read: a facility-custom server's write tools arrive as an unmatchable
-    # regex, and `write_servers` is how the render says so. That coverage is
-    # confined to the sandbox posture (see the module docstring); every other
-    # posture exits here exactly as it did before the key existed.
-    if tool_name not in _get_write_tools():
-        if os.environ.get("OSPREY_EXECUTION_MODE") == "readonly":
-            server = _write_server_for(tool_name)
-            if server:
-                _deny_posture(hook_input, server=server)
+    # Only inspect write tools
+    if not is_write_tool(tool_name, write_tools()):
         sys.exit(0)
 
     tool_input = hook_input.get("tool_input", {})
 
-    # For execute: allow readonly even when writes disabled.
-    # The server defaults execution_mode to "readonly", so treat missing as readonly.
-    if tool_name == "mcp__python__execute":
-        if tool_input.get("execution_mode", "readonly") == "readonly":
-            sys.exit(0)
+    # Resolved once, against this render's own server prefixes: both exits below
+    # are carve-outs for a TOOL rather than for a server, and an `extends` clone
+    # renames only the prefix — a carve-out matched on the full name would miss
+    # every clone.
+    short_name = short_tool_name(tool_name, _server_prefixes())
 
-    # -- Session posture -------------------------------------------------
+    # For execute: allow readonly even when writes are not armed.
+    # The server defaults execution_mode to "readonly", so treat missing as readonly.
+    if not is_write_call(tool_name, tool_input, short_name):
+        sys.exit(0)
+
+    # -- Stage 1: session posture ----------------------------------------
     # A web terminal session switched to the sandbox posture launches its agent
     # with OSPREY_EXECUTION_MODE=readonly, and this hook inherits it. The
     # posture belongs to *this session*, not to the deployment, so it is
@@ -327,49 +390,56 @@ def main():
     # writes posture, and a presence check would sandbox on it.
     #
     # It sits *after* the execute-readonly exit above: a readonly execution is
-    # exactly what a sandboxed session is for.
+    # exactly what a sandboxed session is for. It sits *before* the queue exit
+    # below, so a sandboxed session cannot arm a Bluesky lane either.
     #
     # `_deny_posture` states the fail-open rule this branch has to survive.
     if os.environ.get("OSPREY_EXECUTION_MODE") == "readonly":
-        _deny_posture(hook_input)
+        _deny_posture(hook_input, tool_name)
 
-    config = load_osprey_config(hook_input)
-    writes_enabled = config.get("control_system", {}).get("writes_enabled", False)
-
-    if writes_enabled:
-        log_hook("writes-check", hook_input, status="allow")
+    # -- Stage 2: deployment posture, for this session's target ----------
+    if _is_lane_addressed(short_name):
+        log_hook("writes-check", hook_input, status="allow", detail="lane_addressed")
         sys.exit(0)
 
-    # Deny — writes are disabled. Emit a JSON `permissionDecision: deny`. This
-    # is the canonical PreToolUse deny mechanism. Empirically: in the 2-hook
-    # chain (`mcp__python__execute`: writes_check + approval), the deny here
-    # combined with approval's defer (see osprey_approval.py) is enough to
-    # suppress Claude Code's `permissions.ask` → `can_use_tool` callback. In
-    # the 3-hook chain (`mcp__controls__channel_write`: writes_check + limits
-    # + approval), this deny is NOT sufficient — the channel_write kill switch
-    # is enforced by the renderer's `permissions.deny` augmentation in
-    # `src/osprey/cli/templates/claude_code.py`. The deny emitted here is
-    # defense-in-depth for that case (and primary for the execute case).
-    log_hook("writes-check", hook_input, status="deny")
-    try:
-        emit_audit(
-            "writes-check",
-            hook_input,
-            decision=AUDIT_DECISION_REFUSED,
-            subject=tool_name,
-            reason=_WRITES_DISABLED_AUDIT_REASON,
+    armed, refusal_keys, target = _deployment_posture(hook_input)
+
+    if armed:
+        log_hook("writes-check", hook_input, status="allow", detail=f"target={target}")
+        sys.exit(0)
+
+    # Deny — this deployment is not armed for what the call would touch. Emit a
+    # JSON `permissionDecision: deny`, the canonical PreToolUse deny mechanism.
+    # Empirically: PreToolUse decision aggregation does not honour this deny if
+    # another hook in the same chain returns an "ask", so on a mixed
+    # read/write render — where the renderer no longer emits a static ask for
+    # the write tools — this deny together with approval's defer (see
+    # osprey_approval.py) is the whole gate. On a render that hard-blocks the
+    # tool through `permissions.deny` in
+    # `src/osprey/cli/templates/claude_code.py`, this is defense-in-depth.
+    log_hook("writes-check", hook_input, status="deny", detail=f"target={target}")
+    _record_refusal(
+        hook_input,
+        tool_name,
+        _WRITES_DISABLED_AUDIT_REASON,
+        detail=f"target={target}" if target else None,
+    )
+    if target:
+        scope = f"Control system writes are not armed for the active target ({target})."
+    else:
+        # Named as a refusal ABOUT the missing identity, not about one target: the
+        # posture was the intersection over every target this session could reach,
+        # and a line naming one of them would describe a decision nobody made.
+        scope = (
+            "This session's control target could not be identified, so writes "
+            "are refused unless every target it could reach is armed."
         )
-    except Exception:
-        pass  # the audit trail must never cost the deny
+    arm = "Arm them in config.yml: " + ", ".join(f"{key}: true" for key in refusal_keys)
     output = {
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
             "permissionDecision": "deny",
-            "permissionDecisionReason": (
-                "\U0001f512 WRITES DISABLED\n\n"
-                "Control system writes are disabled in config.yml.\n"
-                "Set control_system.writes_enabled: true to enable."
-            ),
+            "permissionDecisionReason": (f"\U0001f512 WRITES DISABLED\n\n{scope}\n{arm}"),
         }
     }
     json.dump(output, sys.stdout)

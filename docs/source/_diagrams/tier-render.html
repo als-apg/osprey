@@ -1,7 +1,7 @@
 <div class="osprey-diagram">
 <svg viewBox="0 0 960 312" role="img" aria-labelledby="tier-render-title tier-render-desc">
   <title id="tier-render-title">A tier is a persona file, rendered</title>
-  <desc id="tier-render-desc">profile.yml carries the floor every tier inherits; each persona file under personas/ holds only its differences — readonly turns control-system writes off, readwrite leaves them on, admin leaves them on and lifts the floor. osprey build merges every delta over the base and renders one project per persona, and each becomes one operator's container: bob's readonly, alice's readwrite, carol's admin.</desc>
+  <desc id="tier-render-desc">profile.yml carries the floor every tier inherits; each persona file under personas/ holds only its differences — readonly turns control-system writes off for every target, readwrite leaves them on for every target, admin leaves them on and lifts the floor; a delta may also arm one target only, which is what the bundled va-readwrite tier does. osprey build merges every delta over the base and renders one project per persona, and each becomes one operator's container: bob's readonly, alice's readwrite, carol's admin.</desc>
   <defs>
     <marker id="tier-render-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
@@ -35,11 +35,11 @@
   <rect class="mask" x="24" y="124" width="216" height="44" rx="6"/>
   <rect class="nb-in" x="24" y="124" width="216" height="44" rx="6"/>
   <text class="tn" x="132" y="143" text-anchor="middle">personas/readonly.yml</text>
-  <text class="ts" x="132" y="159" text-anchor="middle">writes_enabled: false</text>
+  <text class="ts" x="132" y="159" text-anchor="middle">writes_enabled: false · every target</text>
   <rect class="mask" x="24" y="184" width="216" height="44" rx="6"/>
   <rect class="nb-in" x="24" y="184" width="216" height="44" rx="6"/>
   <text class="tn" x="132" y="203" text-anchor="middle">personas/readwrite.yml</text>
-  <text class="ts" x="132" y="219" text-anchor="middle">writes_enabled: true</text>
+  <text class="ts" x="132" y="219" text-anchor="middle">writes_enabled: true · every target</text>
   <rect class="mask" x="24" y="244" width="216" height="44" rx="6"/>
   <rect class="nb-in" x="24" y="244" width="216" height="44" rx="6"/>
   <text class="tn" x="132" y="263" text-anchor="middle">personas/admin.yml</text>

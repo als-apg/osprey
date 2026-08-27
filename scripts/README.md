@@ -137,12 +137,13 @@ uv run python scripts/check_config_keys.py --back-test <commit>
 
 **When to use**: After editing any `config.yml.j2`, any preset under
 `src/osprey/profiles/presets/`, or code that reads configuration. Use the plain
-form for a quick local check; use `--back-test` to reproduce CI exactly. The
-`config-key-guard` CI job runs the `--back-test` form with `fetch-depth: 0`.
-`tests/scripts/test_config_key_guard.py` exercises the guard from the unit-test
-lane as well, back-test included — but those cases skip themselves when the
-baseline is unreachable, so that coverage is revocable by a checkout-depth or
-marker change. The dedicated job is what pins it down.
+form for a quick local check; use `--back-test` to reproduce CI exactly. CI runs
+the `--back-test` form as a step of the `lint` job, which checks out with
+`fetch-depth: 0`. `tests/scripts/test_config_key_guard.py` exercises the guard
+from the unit-test lane as well, back-test included — but those cases skip
+themselves when the baseline is unreachable, so that coverage is revocable by a
+checkout-depth or marker change. The step's own `!cancelled()` guard is what
+pins it down: it runs even when the lint steps before it fail.
 
 **Exit codes**:
 - `0`: No findings

@@ -64,10 +64,12 @@ write is proposed, the operator sees the target channel and value and
 must explicitly approve before anything reaches hardware.
 
 Two automated checks run behind the scenes. The **kill switch**
-(``writes_enabled`` in ``config.yml``) blocks all writes globally when
-off --- no prompt appears. The **limits system** validates each value
-against per-channel safe ranges and read-only flags. If either check
-fails, the write is blocked before the operator is ever asked.
+(``writes_enabled`` in ``config.yml``) blocks writes when off --- no prompt
+appears. It is set per control target, so a deployment can arm writes on its
+simulator and refuse them on the machine that has beam; a session is answered by
+the posture of whichever target it is pointed at. The **limits system**
+validates each value against per-channel safe ranges and read-only flags. If
+either check fails, the write is blocked before the operator is ever asked.
 
 These checks are enforced by the runtime, in a layer the agent's tool calls
 pass through: they run whether or not the agent cooperates, and the agent holds

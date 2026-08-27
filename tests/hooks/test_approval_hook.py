@@ -9,6 +9,8 @@ This hook implements the human-in-the-loop approval system. Based on the
 Also covers pre-execution notebook creation for execute (python) approval.
 """
 
+import json
+import os
 import re
 
 import pytest
@@ -1107,3 +1109,414 @@ def test_selective_readwrite_asks_for_aliased_caput(tmp_path, hook_runner, make_
 
     assert result is not None
     assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
+
+
+# ============================================================================
+# Write posture — the short-circuit that keeps an unarmed write from prompting
+# ============================================================================
+# When a deployment is not armed for the target a call names, this hook must
+# emit NO decision at all: the layer that refuses the call has already spoken,
+# and an "ask" from here would reopen `can_use_tool` over it. Two things bound
+# that: the three-way (a config stating no posture prompts exactly as before),
+# and the rule that a defer is only safe where a refusal is GUARANTEED — by
+# `osprey_writes_check`'s deny for the session-targeted tools, or by
+# `queue_start`'s own pre-bridge lane gate for a start whose lane is placed.
+
+#: A hook_config whose `write_tools` covers the two framework write tools and a
+#: whole self-gated Bluesky server, the way a rendered project spells it.
+POSTURE_HOOK_CONFIG = {
+    "server_prefixes": ["mcp__controls__", "mcp__python__", "mcp__bluesky__"],
+    "approval_prefixes": ["mcp__controls__", "mcp__python__", "mcp__bluesky__"],
+    "write_tools": [
+        "mcp__controls__channel_write",
+        "mcp__python__execute",
+        "mcp__bluesky__.*",
+    ],
+}
+
+#: Global "yes" overridden by a "no" on the live machine's own connector block.
+#: Its live answer (not armed) and its most-restrictive answer (not armed) are
+#: the same, so a test using it alone cannot show the state file was read.
+DISARMED_LIVE_CONFIG = {
+    "type": "epics",
+    "writes_enabled": True,
+    "connector": {
+        "epics": {"writes_enabled": False},
+        "virtual_accelerator": {},
+    },
+}
+
+#: The mirror image: global "no", armed on the machine alone. Its live answer
+#: (armed) and its most-restrictive answer (not armed) DIFFER, so a call that
+#: prompts on target `live` proves the session's state file reached the hook.
+ARMED_LIVE_ONLY_CONFIG = {
+    "type": "epics",
+    "writes_enabled": False,
+    "connector": {
+        "epics": {"writes_enabled": True},
+        "virtual_accelerator": {},
+    },
+}
+
+#: Not one word about posture anywhere — the shape every deployment had before
+#: the per-type key existed.
+NO_POSTURE_CONFIG = {"type": "epics", "connector": {"epics": {}}}
+
+#: Two rendered plan lanes, one per target, over a config that arms neither.
+TWO_LANE_SERVICES = {
+    "bluesky": {"port": 8090, "target": "va"},
+    "bluesky_live": {"port": 8091, "target": "live"},
+}
+
+#: One rendered plan lane, serving the machine.
+ONE_LANE_SERVICES = {"bluesky": {"port": 8090, "target": "live"}}
+
+
+def _posture_config(make_config, control_system, services=None):
+    """A config that prompts for everything, over the given control_system block."""
+    config = {
+        "approval": {"enabled": True, "default_policy": "always"},
+        "control_system": control_system,
+    }
+    if services is not None:
+        config["services"] = services
+    return make_config(config)
+
+
+def _write_session_state(repo_root, target):
+    """Point the session at *target* with a state file this process owns.
+
+    ``owner_ppid`` is this pytest process, which is genuinely on the ancestor
+    chain of the hook subprocess, and ``server_pid`` is alive by definition — so
+    the reader's real parentage and liveness rules select this record.
+    """
+    directory = repo_root / "var" / "agent_data" / "control_target"
+    directory.mkdir(parents=True, exist_ok=True)
+    record = {
+        "target": target,
+        "generation": 1,
+        "server_pid": os.getpid(),
+        "owner_ppid": os.getpid(),
+        "targets": {
+            "live": {"label": "Storage ring", "endpoint": "pva://gw:5075", "real_machine": True},
+            "va": {"label": "Virtual accelerator", "endpoint": "pva://127.0.0.1:5074"},
+        },
+    }
+    (directory / f"target_state_{os.getpid()}.json").write_text(json.dumps(record))
+
+
+def _decision(result):
+    """The permission decision in a hook result, or ``None`` when it emitted none."""
+    if result is None:
+        return None
+    return result["hookSpecificOutput"]["permissionDecision"]
+
+
+@pytest.mark.unit
+def test_readonly_execute_still_prompts_when_writes_are_not_armed(
+    tmp_path, hook_runner, make_config
+):
+    """A readonly execution is not a write, so the posture never reaches it.
+
+    Deferring here would delete the approval prompt for ordinary analysis code
+    on every unarmed deployment — the tool `writes_check` deliberately lets
+    through is the one this hook must keep asking about.
+    """
+    config = _posture_config(make_config, {"type": "mock", "writes_enabled": False})
+
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__python__execute",
+        {"code": "print(get_channel('SR:CURRENT'))", "execution_mode": "readonly"},
+        config_path=config,
+        cwd=tmp_path,
+        hook_config=POSTURE_HOOK_CONFIG,
+    )
+
+    assert _decision(result) == "ask"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("short_name", ["queue_add", "queue_stop"], ids=["queue_add", "queue_stop"])
+def test_the_queue_tools_that_no_layer_denies_keep_their_prompt(
+    tmp_path, hook_runner, make_config, short_name
+):
+    """Neither composing onto an idle queue nor halting one is ever deferred.
+
+    `writes_check` allows every lane-addressed tool and neither of these refuses
+    on posture, so this prompt is the only gate they have. `queue_add` starts
+    nothing — the server withholds the launch token and the bridge refuses
+    `launch_token_required` once the queue drains — and a plain stop is ungated
+    everywhere by design.
+    """
+    config = _posture_config(make_config, {"type": "mock", "writes_enabled": False})
+
+    result = hook_runner(
+        "osprey_approval.py",
+        f"mcp__bluesky__{short_name}",
+        {"draft_revision": 3},
+        config_path=config,
+        cwd=tmp_path,
+        hook_config=POSTURE_HOOK_CONFIG,
+    )
+
+    assert _decision(result) == "ask"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("control_system", "target", "decision"),
+    [
+        pytest.param(DISARMED_LIVE_CONFIG, "live", None, id="disarmed-block-on-the-machine"),
+        pytest.param(DISARMED_LIVE_CONFIG, "va", "ask", id="global-yes-still-arms-the-sim"),
+        pytest.param(ARMED_LIVE_ONLY_CONFIG, "live", "ask", id="armed-block-on-the-machine"),
+        pytest.param(ARMED_LIVE_ONLY_CONFIG, "va", None, id="global-no-leaves-the-sim-unarmed"),
+    ],
+)
+def test_channel_write_follows_the_session_target(
+    tmp_path, hook_runner, make_config, control_system, target, decision
+):
+    """One tool, two configs, both targets — the posture is per target.
+
+    Each config is the other's mirror, so no row can pass on the deployment-wide
+    key alone. `ARMED_LIVE_ONLY_CONFIG` is what makes the state file
+    load-bearing: its most-restrictive answer is "not armed", so the `live` row
+    can only prompt if the hook actually read the session's target.
+    """
+    config = _posture_config(make_config, control_system)
+    _write_session_state(tmp_path, target=target)
+
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__controls__channel_write",
+        {"operations": [{"channel": "SR:QF:SP", "value": 1.5}]},
+        config_path=config,
+        cwd=tmp_path,
+        hook_config=POSTURE_HOOK_CONFIG,
+    )
+
+    assert _decision(result) == decision
+
+
+@pytest.mark.unit
+def test_a_config_that_states_no_posture_prompts_exactly_as_before(
+    tmp_path, hook_runner, make_config
+):
+    """No `writes_enabled` anywhere is the shape every deployment used to have.
+
+    Silence is not a refusal. Reading it as one would make the approval prompt
+    disappear on every project written before the key existed.
+    """
+    config = _posture_config(make_config, NO_POSTURE_CONFIG)
+
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__controls__channel_write",
+        {"operations": [{"channel": "SR:QF:SP", "value": 1.5}]},
+        config_path=config,
+        cwd=tmp_path,
+        hook_config=POSTURE_HOOK_CONFIG,
+    )
+
+    assert _decision(result) == "ask"
+
+
+@pytest.mark.unit
+def test_an_unidentifiable_target_takes_the_most_restrictive_posture(
+    tmp_path, hook_runner, make_config
+):
+    """No state file means no target, and no target means both of them.
+
+    The deployment is unarmed on either side here, so the defer stands and
+    `writes_check`'s deny is what the agent sees. Picking the baseline instead
+    would state a posture for a session that may have switched away from it.
+    """
+    config = _posture_config(make_config, {"type": "epics", "writes_enabled": False})
+
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__controls__channel_write",
+        {"operations": [{"channel": "SR:QF:SP", "value": 1.5}]},
+        config_path=config,
+        cwd=tmp_path,
+        hook_config=POSTURE_HOOK_CONFIG,
+    )
+
+    assert _decision(result) is None
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("services", "tool_input", "decision"),
+    [
+        pytest.param(TWO_LANE_SERVICES, {"lane": "bluesky_live"}, None, id="lane-on-the-machine"),
+        pytest.param(TWO_LANE_SERVICES, {"lane": "bluesky"}, "ask", id="lane-on-the-sim"),
+        pytest.param(TWO_LANE_SERVICES, {}, "ask", id="two-lanes-and-none-named"),
+        pytest.param(TWO_LANE_SERVICES, {"lane": "bluesky_ghost"}, "ask", id="lane-not-rendered"),
+        pytest.param(ONE_LANE_SERVICES, {}, None, id="one-lane-binds-itself"),
+    ],
+)
+def test_queue_start_follows_the_target_its_lane_serves(
+    tmp_path, hook_runner, make_config, services, tool_input, decision
+):
+    """A start is addressed by LANE, and only a PLACED lane may be deferred.
+
+    Which machine a plan lane drives is render-time truth in the config, so a
+    start bound to the disarmed lane defers whatever the session is pointed at:
+    `queue_start` re-reads that same posture and refuses before its bridge is
+    called. A start naming no lane binds to the one lane a single-lane
+    deployment has, which is what the tool's own `_bind_lane` does.
+
+    The two "cannot place it" rows are the ones that must NOT defer. Nothing
+    else denies a lane-addressed tool — `writes_check` allows them all — so
+    without a placed lane there is no guaranteed refusal behind a defer, and
+    this prompt is the only gate the start has.
+    """
+    config = _posture_config(make_config, DISARMED_LIVE_CONFIG, services=services)
+
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__bluesky__queue_start",
+        tool_input,
+        config_path=config,
+        cwd=tmp_path,
+        hook_config=POSTURE_HOOK_CONFIG,
+    )
+
+    assert _decision(result) == decision
+
+
+# ============================================================================
+# The composed invariant: a defer must never be the last word
+# ============================================================================
+
+#: The layer that refuses a call this hook defers on. `None` is the state the
+#: matrix forbids a defer in — nothing would stop the call.
+_BY_WRITES_CHECK = "osprey_writes_check denies it"
+_BY_LANE_GATE = "queue_start refuses before its bridge is called"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("control_system", "services", "tool_name", "tool_input", "target", "guarantor"),
+    [
+        pytest.param(
+            DISARMED_LIVE_CONFIG,
+            None,
+            "mcp__controls__channel_write",
+            {"operations": [{"channel": "SR:QF:SP", "value": 1.5}]},
+            "live",
+            _BY_WRITES_CHECK,
+            id="channel_write-on-the-disarmed-machine",
+        ),
+        pytest.param(
+            DISARMED_LIVE_CONFIG,
+            None,
+            "mcp__controls__channel_write",
+            {"operations": [{"channel": "SR:QF:SP", "value": 1.5}]},
+            "va",
+            None,
+            id="channel_write-on-the-armed-simulator",
+        ),
+        pytest.param(
+            {"type": "mock", "writes_enabled": False},
+            None,
+            "mcp__python__execute",
+            {"code": "caput('SR:QF:SP', 1.5)", "execution_mode": "readwrite"},
+            None,
+            _BY_WRITES_CHECK,
+            id="readwrite-execute-unarmed",
+        ),
+        pytest.param(
+            {"type": "mock", "writes_enabled": False},
+            None,
+            "mcp__python__execute",
+            {"code": "print(1)", "execution_mode": "readonly"},
+            None,
+            None,
+            id="readonly-execute-unarmed",
+        ),
+        pytest.param(
+            NO_POSTURE_CONFIG,
+            None,
+            "mcp__controls__channel_write",
+            {"operations": [{"channel": "SR:QF:SP", "value": 1.5}]},
+            None,
+            None,
+            id="no-posture-stated",
+        ),
+        pytest.param(
+            DISARMED_LIVE_CONFIG,
+            TWO_LANE_SERVICES,
+            "mcp__bluesky__queue_start",
+            {"lane": "bluesky_live"},
+            None,
+            _BY_LANE_GATE,
+            id="queue_start-on-the-disarmed-lane",
+        ),
+        pytest.param(
+            DISARMED_LIVE_CONFIG,
+            TWO_LANE_SERVICES,
+            "mcp__bluesky__queue_start",
+            {},
+            None,
+            None,
+            id="queue_start-with-no-lane-to-place",
+        ),
+        pytest.param(
+            DISARMED_LIVE_CONFIG,
+            TWO_LANE_SERVICES,
+            "mcp__bluesky__queue_add",
+            {"draft_revision": 3},
+            None,
+            None,
+            id="queue_add-composes-tokenless",
+        ),
+    ],
+)
+def test_a_defer_is_never_the_last_word(
+    tmp_path,
+    hook_runner,
+    make_config,
+    control_system,
+    services,
+    tool_input,
+    tool_name,
+    target,
+    guarantor,
+):
+    """Both write hooks over one call: an approval defer must leave a refusal behind.
+
+    Deferring emits no decision, so the call proceeds unless something else
+    refuses it. Each row names the layer that would, and `None` names a row
+    where nothing does — which is precisely where this hook must keep prompting.
+    `osprey_writes_check` is the one guarantor a pytest process can observe, so
+    rows naming it are checked against the deny it actually emits; the lane gate
+    lives in `queue_start` itself, which no hook run reaches.
+    """
+    config = _posture_config(make_config, control_system, services=services)
+    if target is not None:
+        _write_session_state(tmp_path, target=target)
+
+    def run(hook):
+        return _decision(
+            hook_runner(
+                hook,
+                tool_name,
+                tool_input,
+                config_path=config,
+                cwd=tmp_path,
+                hook_config=POSTURE_HOOK_CONFIG,
+            )
+        )
+
+    approval_deferred = run("osprey_approval.py") is None
+
+    if guarantor is None:
+        assert approval_deferred is False, (
+            "nothing refuses this call, so the approval prompt is its only gate"
+        )
+    else:
+        assert approval_deferred is True
+    if guarantor == _BY_WRITES_CHECK:
+        assert run("osprey_writes_check.py") == "deny"

@@ -4,7 +4,7 @@ Provides a single entry point, ``load_write_tools``, that returns the list of
 MCP tool names subject to the writes kill switch.  The list is read from the
 project's generated ``hook_config.json``; on any failure the module falls back
 to a replica of the canonical list in
-``templates/claude_code/claude/hooks/osprey_writes_check.py`` so the runner
+``templates/claude_code/claude/hooks/osprey_hook_log.py`` so the runner
 always fail-closes (i.e. never accidentally omits a gated tool).
 """
 
@@ -20,7 +20,8 @@ from osprey.bluesky_tool_names import DESTRUCTIVE_MARKERS
 
 logger = logging.getLogger(__name__)
 
-# Replica of _FALLBACK_WRITE_TOOLS from osprey_writes_check.py.
+# Replica of FALLBACK_WRITE_TOOLS from osprey_hook_log.py, where the hooks'
+# shared write-gate helpers keep it.
 # DRIFT GUARD: the test suite (test_write_tools.py) asserts that this list
 # equals the canonical one in the hook file — update both together.
 _FALLBACK_WRITE_TOOLS = [

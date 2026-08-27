@@ -1,11 +1,18 @@
 """Gate wiring for ``control_target_set``: approval-gated, never kill-switched.
 
 The target switch is the one control-system tool whose gate must survive the
-writes kill switch. A deployment with ``control_system.writes_enabled: false``
-is precisely the one that most needs to move a session between the simulator
-and the machine it only reads — and the kill switch renders every
+writes kill switch. A deployment that may write to neither of its targets is
+precisely the one that most needs to move a session between the simulator and
+the machine it only reads — and the kill switch renders every
 writes-check-gated tool into ``permissions.deny``, where a call is blocked
 before any hook or refusal of the tool's own ever runs.
+
+Write posture is per connector type, so a render reaches that all-off state
+only when no target may write. The render below gets there the way most
+deployments do: it pins ``control_system.writes_enabled: false`` and writes no
+per-type block, so both targets inherit the false. A deployment armed on one
+target and not the other renders no static deny at all, which is a weaker
+version of the same requirement — the pins here hold the strict case.
 
 So this file pins three things that are easy to break by adding one hook to one
 list:
@@ -195,10 +202,16 @@ def test_a_writes_off_render_does_not_deny_the_switch_tool(tmp_path) -> None:
     assert MATCHER not in hook_config.get("write_tools", [])
     assert ROSTER_MATCHER not in hook_config.get("write_tools", [])
 
-    # And the rendered project really did have writes off, so the assertions
-    # above describe the writes-off render and not an accidental writes-on one.
+    # And the rendered project really did have writes off on EVERY target, so
+    # the assertions above describe the all-off render and not a mixed one (a
+    # mixed render denies nothing statically, which would pass these pins for
+    # the wrong reason). Posture is per connector type, so that means the flat
+    # key is false and no connector block overrides it for a type.
     config = yaml.safe_load((project_dir / "config.yml").read_text())
     assert config["control_system"]["writes_enabled"] is False
+    for block in (config["control_system"].get("connector") or {}).values():
+        if isinstance(block, dict):
+            assert block.get("writes_enabled") is not True
 
 
 # ---------------------------------------------------------------------------

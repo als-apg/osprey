@@ -71,7 +71,6 @@ def _hook_config(
         ),
         "approval_prefixes": [],
         "write_tools": [CONTROLS_WRITE, PYTHON_EXECUTE] if write_tools is None else write_tools,
-        "write_servers": [],
     }
     if mixed is not NO_MIXED_KEY:
         body["mixed_read_write_tools"] = [PYTHON_EXECUTE] if mixed is None else mixed
@@ -1081,10 +1080,12 @@ class TestSpellings:
         assert am._FALLBACK_WRITE_TOOLS == framework_write_tools()
 
     def test_the_write_floor_matches_the_hook(self):
-        """Same fallback floor as ``osprey_writes_check.py``, by construction."""
+        """Same fallback floor as the hooks' shared ``osprey_hook_log.py``, by
+        construction — the one ``osprey_writes_check.py`` and
+        ``osprey_approval.py`` both read through ``write_tools()``."""
         hook = (
             Path(__file__).resolve().parents[2]
-            / "src/osprey/templates/claude_code/claude/hooks/osprey_writes_check.py"
+            / "src/osprey/templates/claude_code/claude/hooks/osprey_hook_log.py"
         )
         tree = ast.parse(hook.read_text())
         literal = next(
@@ -1092,7 +1093,7 @@ class TestSpellings:
             for node in tree.body
             if isinstance(node, ast.Assign)
             and any(
-                isinstance(t, ast.Name) and t.id == "_FALLBACK_WRITE_TOOLS" for t in node.targets
+                isinstance(t, ast.Name) and t.id == "FALLBACK_WRITE_TOOLS" for t in node.targets
             )
         )
         assert am._FALLBACK_WRITE_TOOLS == literal

@@ -42,7 +42,7 @@ pytestmark = pytest.mark.unit
 # The wire keys the capability object carries. Pinned as a set because every
 # consumer branches on these names: the JS panel client, the MCP queue tools,
 # and `/health` itself.
-_WIRE_KEYS = {"can_execute", "reason", "detail", "lane", "lane_target"}
+_WIRE_KEYS = {"can_execute", "reason", "detail", "lane", "lane_target", "lane_degraded"}
 
 
 class _ExplodingBackend:
@@ -64,10 +64,11 @@ def _isolated_backend():
 def deployment(monkeypatch: pytest.MonkeyPatch):
     """Stage the config a bridge container would read, and its lane env var.
 
-    `services.<lane>.target` and `control_system.type` are the only two keys
-    this fixture answers; everything else falls through to its default, the way
-    the surrounding suite's `connector` fixture does — a bridge reads more keys
-    than these and answering them all with one value would stage nonsense.
+    `services.<lane>.target`, `control_system.type` and the `control_system`
+    section itself are the only keys this fixture answers; everything else
+    falls through to its default, the way the surrounding suite's `connector`
+    fixture does — a bridge reads more keys than these and answering them all
+    with one value would stage nonsense.
     """
 
     def _stage(
@@ -75,6 +76,7 @@ def deployment(monkeypatch: pytest.MonkeyPatch):
         control_system_type: str = "epics",
         lane: str | None = None,
         targets: dict[str, str] | None = None,
+        connector: dict[str, Any] | None = None,
     ) -> None:
         if lane is None:
             monkeypatch.delenv(qb.LANE_ENV, raising=False)
@@ -82,11 +84,15 @@ def deployment(monkeypatch: pytest.MonkeyPatch):
             monkeypatch.setenv(qb.LANE_ENV, lane)
 
         declared = {f"services.{key}.target": value for key, value in (targets or {}).items()}
-        control_system = {"type": control_system_type}
+        control_system: dict[str, Any] = {"type": control_system_type}
+        if connector is not None:
+            control_system["connector"] = connector
 
         def fake_get_config_value(key: str, default: Any = None, config_path: Any = None) -> Any:
             if key == "control_system.type":
                 return control_system_type
+            if key == "control_system":
+                return control_system
             return declared.get(key, default)
 
         monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
@@ -229,6 +235,7 @@ def test_to_dict_round_trips_the_lane_fields() -> None:
         "detail": "why",
         "lane": "bluesky_va",
         "lane_target": "va",
+        "lane_degraded": None,
     }
 
 

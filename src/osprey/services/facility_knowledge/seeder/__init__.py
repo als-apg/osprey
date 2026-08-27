@@ -9,8 +9,9 @@ Two seeders, both offline and both driven from ``osprey knowledge``:
 
 Import this subpackage directly — it is intentionally excluded from the parent
 ``facility_knowledge`` namespace so that the runtime read path pulls in neither
-``rdflib`` (the ``knowledge`` extra) nor the ``neo4j`` driver.  Both are
-imported lazily inside the functions that need them.
+``rdflib`` nor the ``neo4j`` driver.  Both are core dependencies, so this is an
+import-graph boundary rather than an optional-install one; both are imported
+lazily inside the functions that need them.
 
 Example::
 

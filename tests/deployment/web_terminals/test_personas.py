@@ -10,28 +10,32 @@ import pytest
 from osprey.deployment.web_terminals.personas import (
     EVENTS_PANEL_ID,
     UnresolvedRoleError,
+    bluesky_server_enabled,
     config_archiver_password_env,
     config_declares_panel,
     config_needs_ariel_password,
     config_needs_dispatcher_token,
     config_needs_graphdb_password,
     config_needs_launch_token,
+    config_needs_launch_token_for,
     effective_persona,
     entry_requires_login,
     env_var_suffix,
     env_var_suffix_collisions,
     freeze_user_indices,
+    lane_control_target,
     normalize_users,
     personas_needing_archiver_password,
     personas_needing_ariel_password,
     personas_needing_dispatcher_token,
     personas_needing_graphdb_password,
-    personas_needing_launch_token,
+    personas_needing_launch_token_by_lane,
     personas_not_denying_bash,
     resolve_authorization_roles,
     resolve_personas,
     settings_json_denies_bash,
 )
+from osprey.registry.mcp import FRAMEWORK_SERVERS
 
 
 def test_normalize_users_bare_strings_indexed_by_position() -> None:
@@ -1540,8 +1544,8 @@ def test_personas_needing_ariel_password_skips_unrendered_persona_projects(tmp_p
 # `BLUESKY_LAUNCH_TOKEN` arms a queue start, so it is gated on the intersection
 # of the two things that make arming meaningful: writes actually enabled, and
 # the bluesky MCP server (the token's consumer -- not the panel) actually run.
-# The two reads are asymmetric on purpose: `writes_enabled` must be explicitly
-# true, while the server's `enabled` override defaults to on when absent.
+# Both reads deny on absence: `writes_enabled` must be explicitly true, and the
+# server's `enabled` key is an override over a registry default that is off.
 # ---------------------------------------------------------------------------
 
 
@@ -1555,17 +1559,45 @@ def _launch_config(writes_enabled: Any = "absent", bluesky_enabled: Any = "absen
     return config
 
 
+def test_bluesky_server_enabled_reads_the_override_tri_state() -> None:
+    """`claude_code.servers.bluesky.enabled` is an override: explicit `true` runs the
+    server, explicit `false` switches it off, and absence leaves the registry default,
+    which for the opt-in bluesky server is off."""
+    # Assert
+    assert bluesky_server_enabled(_launch_config(bluesky_enabled=True)) is True
+    assert bluesky_server_enabled(_launch_config(bluesky_enabled=False)) is False
+    assert bluesky_server_enabled(_launch_config()) is False
+
+
+def test_bluesky_server_enabled_absent_key_matches_the_registry_default() -> None:
+    """The absent-key answer is the registry's own `default_enabled`, not a second
+    copy of it: the render obeys the registry, so a hand-written default here could
+    drift away from the server this project actually runs."""
+    # Assert
+    assert bluesky_server_enabled(_launch_config()) is FRAMEWORK_SERVERS["bluesky"].default_enabled
+
+
+def test_bluesky_server_enabled_reads_non_dict_sections_defensively() -> None:
+    """A config with no `claude_code` section at all, or a non-dict one, answers with
+    the default rather than raising."""
+    # Assert
+    assert bluesky_server_enabled({}) is False
+    assert bluesky_server_enabled(None) is False
+    assert bluesky_server_enabled({"claude_code": "on"}) is False
+
+
 def test_config_needs_launch_token_requires_writes_and_the_bluesky_server() -> None:
     """Both halves of the capability present -- the readwrite tier."""
     # Assert
     assert config_needs_launch_token(_launch_config(True, True)) is True
 
 
-def test_config_needs_launch_token_defaults_the_bluesky_server_to_enabled() -> None:
-    """`claude_code.servers.bluesky.enabled` is an override over an already-enabled
-    default, so its absence must not deny the token."""
+def test_config_needs_launch_token_denies_when_the_bluesky_server_is_absent() -> None:
+    """The bluesky server is opt-in in the registry, so an absent `enabled` override
+    means it does not run here -- and a token for a server that never starts arms
+    nothing while still handing the agent a live credential."""
     # Assert
-    assert config_needs_launch_token(_launch_config(writes_enabled=True)) is True
+    assert config_needs_launch_token(_launch_config(writes_enabled=True)) is False
 
 
 def test_config_needs_launch_token_denies_when_the_bluesky_server_is_off() -> None:
@@ -1640,10 +1672,10 @@ def test_personas_needing_launch_token_selects_only_the_readwrite_persona(tmp_pa
     )
 
     # Act
-    result = personas_needing_launch_token(config, tmp_path)
+    result = personas_needing_launch_token_by_lane(config, tmp_path)
 
     # Assert
-    assert result == {"readwrite"}
+    assert result == {"bluesky": {"readwrite"}}
 
 
 def test_personas_needing_launch_token_skips_unrendered_persona_projects(tmp_path) -> None:
@@ -1656,7 +1688,203 @@ def test_personas_needing_launch_token_skips_unrendered_persona_projects(tmp_pat
     )
 
     # Act / Assert
-    assert personas_needing_launch_token(config, tmp_path) == set()
+    assert personas_needing_launch_token_by_lane(config, tmp_path) == {}
+
+
+# ---------------------------------------------------------------------------
+# Per-lane launch-token entitlement
+#
+# A plan lane is bound at render time to ONE control target, so the posture
+# that decides whether its token may be issued is that target's -- not the
+# deployment's. The case the whole axis exists for: a deployment whose baseline
+# is a live machine arms writes on its virtual-accelerator lane alone, and lane
+# 1 (the live one) must stay disarmed while it does.
+# ---------------------------------------------------------------------------
+
+#: A live-baseline project that arms writes on the VA connector only, and
+#: renders the VA second lane. Lane 1 has no `target:` of its own, so it takes
+#: the deployment baseline, which here is `live`.
+_VA_ARMED_LIVE_DEPLOYMENT: dict = {
+    "control_system": {
+        "type": "epics",
+        "writes_enabled": False,
+        "connector": {"epics": {}, "virtual_accelerator": {"writes_enabled": True}},
+    },
+    "services": {"bluesky_va": {"target": "va", "port": 8091}},
+    "claude_code": {"servers": {"bluesky": {"enabled": True}}},
+}
+
+#: A VA-baseline project with a single lane: lane 1 declares no target and so
+#: serves `va`, the only target this deployment has.
+_VA_BASELINE_DEPLOYMENT: dict = {
+    "control_system": {
+        "type": "virtual_accelerator",
+        "connector": {"virtual_accelerator": {"writes_enabled": True}},
+    },
+    "claude_code": {"servers": {"bluesky": {"enabled": True}}},
+}
+
+
+def test_lane_control_target_falls_back_to_the_baseline_for_lane_one() -> None:
+    """Lane 1 on a single-lane deployment has never carried a `target:` key -- it
+    serves the only target the deployment has -- so it reads the baseline."""
+    # Assert
+    assert lane_control_target(_VA_ARMED_LIVE_DEPLOYMENT, "bluesky") == "live"
+    assert lane_control_target(_VA_BASELINE_DEPLOYMENT, "bluesky") == "va"
+
+
+def test_lane_control_target_reads_a_second_lanes_declared_target() -> None:
+    """A second lane's rendered block states the target it drives."""
+    # Assert
+    assert lane_control_target(_VA_ARMED_LIVE_DEPLOYMENT, "bluesky_va") == "va"
+
+
+def test_lane_control_target_falls_back_to_the_target_the_lane_key_names() -> None:
+    """A lane is named for the target it serves, so a block that wrote no
+    `target:` is still unambiguous -- the key itself answers."""
+    # Arrange
+    config = {"services": {"bluesky_va": {"port": 8091}, "bluesky_live": {"port": 8092}}}
+
+    # Assert
+    assert lane_control_target(config, "bluesky_va") == "va"
+    assert lane_control_target(config, "bluesky_live") == "live"
+
+
+def test_config_needs_launch_token_for_arms_only_the_lane_whose_target_allows_writes() -> None:
+    """The feature in one assertion: writes are armed for `va` and nowhere else, so
+    the VA lane's token may be issued and lane 1's -- which drives the live machine
+    -- may not."""
+    # Assert
+    assert config_needs_launch_token_for(_VA_ARMED_LIVE_DEPLOYMENT, "bluesky_va") is True
+    assert config_needs_launch_token_for(_VA_ARMED_LIVE_DEPLOYMENT, "bluesky") is False
+
+
+def test_config_needs_launch_token_for_denies_a_lane_this_render_does_not_carry() -> None:
+    """An undeclared second lane has no bridge to arm. The live lane is absent from
+    this render even though the deployment's baseline IS live, so it entitles
+    nothing."""
+    # Assert
+    assert config_needs_launch_token_for(_VA_ARMED_LIVE_DEPLOYMENT, "bluesky_live") is False
+
+
+def test_config_needs_launch_token_for_denies_every_lane_for_the_readonly_tier() -> None:
+    """The read-only tier disarms writes at every level, so no lane it renders can
+    issue a token -- the tier boundary the whole grant rests on."""
+    # Arrange
+    config = {
+        "control_system": {
+            "type": "epics",
+            "writes_enabled": False,
+            "connector": {"epics": {"writes_enabled": False}, "virtual_accelerator": {}},
+        },
+        "services": {"bluesky_va": {"target": "va", "port": 8091}},
+        "claude_code": {"servers": {"bluesky": {"enabled": True}}},
+    }
+
+    # Assert
+    assert config_needs_launch_token_for(config, "bluesky") is False
+    assert config_needs_launch_token_for(config, "bluesky_va") is False
+
+
+def test_config_needs_launch_token_for_denies_every_lane_when_the_server_is_off() -> None:
+    """A token for a server that never starts arms nothing while still handing the
+    agent a live credential -- true of every lane, however armed its target is."""
+    # Arrange
+    config = {
+        **_VA_ARMED_LIVE_DEPLOYMENT,
+        "claude_code": {"servers": {"bluesky": {"enabled": False}}},
+    }
+
+    # Assert
+    assert config_needs_launch_token_for(config, "bluesky") is False
+    assert config_needs_launch_token_for(config, "bluesky_va") is False
+
+
+def test_config_needs_launch_token_is_the_lane_one_case() -> None:
+    """The pre-lane predicate is this one asked about lane 1, so a deployment that
+    arms only its VA lane does not satisfy it."""
+    # Assert
+    assert config_needs_launch_token(_VA_ARMED_LIVE_DEPLOYMENT) is False
+    assert config_needs_launch_token(_VA_BASELINE_DEPLOYMENT) is True
+
+
+def test_personas_needing_launch_token_by_lane_grants_only_the_armed_lane(tmp_path) -> None:
+    """The producer in roster form: the persona holds the VA lane's token and not
+    lane 1's, and lane 1 is ABSENT from the map rather than present and empty --
+    the deployment renders no such grant at all."""
+    # Arrange
+    config = _catalog_config(
+        {
+            "va_operator": {
+                "project": "va",
+                "project_path": _write_persona_project_config(
+                    tmp_path, "va", _VA_ARMED_LIVE_DEPLOYMENT
+                ),
+            }
+        },
+        [{"name": "alice", "index": 0, "persona": "va_operator"}],
+    )
+
+    # Act
+    result = personas_needing_launch_token_by_lane(config, tmp_path)
+
+    # Assert
+    assert result == {"bluesky_va": {"va_operator"}}
+
+
+def test_personas_needing_launch_token_by_lane_grants_lane_one_on_a_va_baseline(
+    tmp_path,
+) -> None:
+    """A single-lane VA deployment arms lane 1: its lane declares no target, so lane
+    1 drives `va`, and that is the target the config arms."""
+    # Arrange
+    config = _catalog_config(
+        {
+            "va_only": {
+                "project": "vaonly",
+                "project_path": _write_persona_project_config(
+                    tmp_path, "vaonly", _VA_BASELINE_DEPLOYMENT
+                ),
+            }
+        },
+        [{"name": "alice", "index": 0, "persona": "va_only"}],
+    )
+
+    # Act
+    result = personas_needing_launch_token_by_lane(config, tmp_path)
+
+    # Assert
+    assert result == {"bluesky": {"va_only"}}
+
+
+def test_personas_needing_launch_token_by_lane_is_empty_for_the_readonly_tier(tmp_path) -> None:
+    """A roster of read-only personas entitles nothing on any lane, so the map is
+    empty rather than carrying a lane with no personas in it."""
+    # Arrange
+    config = _catalog_config(
+        {
+            "readonly": {
+                "project": "ro",
+                "project_path": _write_persona_project_config(
+                    tmp_path,
+                    "ro",
+                    {
+                        "control_system": {
+                            "type": "epics",
+                            "writes_enabled": False,
+                            "connector": {"epics": {}, "virtual_accelerator": {}},
+                        },
+                        "services": {"bluesky_va": {"target": "va", "port": 8091}},
+                        "claude_code": {"servers": {"bluesky": {"enabled": True}}},
+                    },
+                ),
+            }
+        },
+        [{"name": "bob", "index": 0, "persona": "readonly"}],
+    )
+
+    # Act / Assert
+    assert personas_needing_launch_token_by_lane(config, tmp_path) == {}
 
 
 # ---------------------------------------------------------------------------

@@ -312,10 +312,13 @@ async def test_queue_start_success_emits(_bluesky_context):
 async def test_queue_start_client_side_refusal_no_emit(_bluesky_context, monkeypatch):
     """A client-side refusal (kill switch off) never reaches the emit site.
 
-    ``queue_start`` refuses before any HTTP call when writes are disabled, so
-    neither the bridge nor the activity emitter is touched.
+    ``queue_start`` refuses before any HTTP call when the bound lane's target
+    is not armed for writes, so neither the bridge nor the activity emitter is
+    touched.
     """
-    monkeypatch.setattr(f"{_QUEUE_MOD}._writes_enabled", lambda: False)
+    # Takes the bound lane's control target: write posture is resolved per
+    # target, so the stub has to accept the one `queue_start` passes it.
+    monkeypatch.setattr(f"{_QUEUE_MOD}._writes_enabled", lambda _lane_target: False)
 
     with (
         patch(f"{_QUEUE_MOD}._http_post_json") as post,

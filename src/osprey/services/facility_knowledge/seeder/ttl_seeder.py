@@ -4,9 +4,10 @@ Reads a canonical NARAD/als-ontology RDF/Turtle file and emits one
 :class:`DeviceStub` per device node (``?d a narad_sem:<Class>``).
 
 **rdflib is imported lazily inside each public function** — never at module
-top — so that importing this module does not require the ``knowledge`` extra.
-Callers that invoke :func:`seed_from_ttl` without rdflib installed receive an
-:class:`ImportError` with a clear message.
+top — so that importing this module keeps rdflib out of the import graph.
+rdflib is a core dependency, so an absent one means a broken environment:
+callers that invoke :func:`seed_from_ttl` without it receive an
+:class:`ImportError` saying how to repair the installation.
 
 Stub document format (OKF §9)::
 
@@ -259,7 +260,8 @@ def seed_from_ttl(ttl_path: Path | str | None) -> list[DeviceStub]:
         ``None`` or the file contains no device nodes.
 
     Raises:
-        ImportError: If ``rdflib`` is not installed (``knowledge`` extra required).
+        ImportError: If ``rdflib`` is not importable, which means the
+            installation is incomplete.
         FileNotFoundError: If *ttl_path* does not exist.
     """
     if not ttl_path:
@@ -267,13 +269,14 @@ def seed_from_ttl(ttl_path: Path | str | None) -> list[DeviceStub]:
 
     ttl_path = Path(ttl_path)
 
-    # Lazy import — keeps this module importable without the knowledge extra.
+    # Lazy import — keeps rdflib out of this module's import graph.
     try:
         from rdflib import Graph, URIRef
     except ImportError as exc:  # pragma: no cover
         raise ImportError(
-            "rdflib is required for seed_from_ttl(); "
-            "install it with: pip install 'osprey-framework[knowledge]'"
+            f"rdflib is not importable: {exc}\n"
+            "It is a core dependency, so this environment is incomplete. "
+            "Reinstall it with: pip install --upgrade osprey-framework"
         ) from exc
 
     g = Graph()

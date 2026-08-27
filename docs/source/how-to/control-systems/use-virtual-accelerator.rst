@@ -218,10 +218,48 @@ Write limits
 
 Channels listed in the project's ``channel_limits.json`` carry a min/max range,
 and a write outside that range is rejected before it reaches the IOC; an
-in-range write goes through. The mandatory write-approval flow and the
-``control_system.writes_enabled`` switch apply unchanged — the Virtual
-Accelerator connector inherits the same write-safety wiring as the EPICS
-connector.
+in-range write goes through. The mandatory write-approval flow applies
+unchanged — the Virtual Accelerator connector inherits the same write-safety
+wiring as the EPICS connector.
+
+Arm writes here without arming the machine
+------------------------------------------
+
+Write posture is per control target, and this is the page where that matters
+most: the Virtual Accelerator can be write-armed while the live machine the
+same deployment knows about stays read-only.
+``control_system.writes_enabled`` is the posture a connector type inherits when
+it says nothing about itself; a block under ``connector:`` answers for that type
+instead.
+
+.. code-block:: yaml
+
+   control_system:
+     writes_enabled: false          # what every type inherits — the live machine
+     connector:
+       virtual_accelerator:
+         writes_enabled: true       # ... and the simulator alone is armed
+
+Only a literal ``true`` arms a target. The quoted string ``'true'`` and the
+number ``1`` do not, at either level, and a config that uses one of them will
+find its writes refused. A type that states its own posture never falls back to
+the inherited key, so the ``false`` above holds for the live machine even if a
+profile turns the deployment-wide key on.
+
+Switching the session to the live target (see
+:doc:`switch-control-target`) therefore takes its writes away, with no config
+edit and no rebuild — the same write tool that moves the simulator is refused
+on the machine. The bundled ``control-assistant-va-readwrite`` persona ships
+exactly that pair of keys.
+
+.. note::
+
+   On a deployment whose targets disagree like this, ``settings.json`` denies
+   nothing up front — it is rendered once, before any session has picked a
+   target — so every refusal arrives per call instead, from the safety hook and
+   the connector, naming the target that refused it. Tools you list under
+   ``control_system.write_tools`` are refused by that same hook, which is how
+   they are gated in every deployment.
 
 .. note::
 

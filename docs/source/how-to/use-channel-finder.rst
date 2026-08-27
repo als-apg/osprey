@@ -215,9 +215,10 @@ Launch the browser-based channel explorer:
 The explorer browses a channel database, so on the graph pipeline it shows a
 short pane saying so instead of a tree; database statistics and validation are
 not offered there. Ask the OSPREY agent for the channels you need — it answers
-from the graph. The channel-suggestion typeahead in the web panels is off in
-graph mode for the same reason: it is built from a database file on the build
-host, and there is none.
+from the graph. The channel-suggestion typeahead in the web panels still
+works in graph mode: ``osprey build`` reads the channel names out of the
+Turtle corpus named by ``services.graphdb.ttl_path`` and writes them into the
+snapshot the panels use.
 
 
 The ``config.yml`` keys for every pipeline, and how the active one is served to

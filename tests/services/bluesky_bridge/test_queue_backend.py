@@ -598,6 +598,7 @@ def test_capability_serializes_to_the_wire_shape() -> None:
         "detail": "why",
         "lane": "bluesky",
         "lane_target": "live",
+        "lane_degraded": None,
     }
 
 

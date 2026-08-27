@@ -289,7 +289,11 @@ async def _capability_dict() -> dict[str, Any]:
     it comes from render-time facts (`resolve_lane_identity`, which never
     raises), not from the probe that just failed.
     """
-    from .queue_backend import REASON_MANAGER_UNREACHABLE, resolve_lane_identity
+    from .queue_backend import (
+        REASON_MANAGER_UNREACHABLE,
+        resolve_lane_connector_type,
+        resolve_lane_identity,
+    )
 
     try:
         return (await get_queue_backend().capability()).to_dict()
@@ -302,6 +306,7 @@ async def _capability_dict() -> dict[str, Any]:
             "detail": f"The bridge could not determine whether plans can execute: {exc}",
             "lane": lane,
             "lane_target": lane_target,
+            "lane_degraded": resolve_lane_connector_type()[1],
         }
 
 
@@ -314,7 +319,7 @@ async def health() -> dict:
     what the bridge in front of it can do:
 
     ``{"status": "ok", "capability": {"can_execute", "reason", "detail",
-    "lane", "lane_target"}}``
+    "lane", "lane_target", "lane_degraded"}}``
 
     ``can_execute`` is the answer; ``reason`` is one of the machine-readable
     ``REASON_*`` codes in `queue_backend.py`, which panels and MCP tools branch
@@ -323,6 +328,9 @@ async def health() -> dict:
     ``lane_target`` say which plan lane answered and which control target it
     serves — render-time facts, identical before and after a session switch,
     which the host is what composes against the session's own target.
+    ``lane_degraded`` is null unless the lane's declared target resolves to no
+    connector type here, in which case it names what its worker was built as
+    instead.
     ``status: "ok"`` means
     only that this process is up — it is deliberately independent of
     ``can_execute``, because a browse-only deployment is a healthy deployment.

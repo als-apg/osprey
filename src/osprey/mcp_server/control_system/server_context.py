@@ -60,6 +60,7 @@ from osprey.mcp_server.control_system.connector_host_manager import (
     switch_capable,
 )
 from osprey_connectors.ipc.proxy import ConnectorHostProxy
+from osprey_connectors.types import CONTROL_TARGETS, target_writes_enabled
 
 __all__ = [
     "ConnectorEntry",
@@ -173,11 +174,14 @@ class ControlSystemContext:
 
         self._initialized = True
         logger.info(
-            "ControlSystemContext: initialized (control_system=%s, archiver=%s, writes=%s, "
-            "serving=%s)",
+            "ControlSystemContext: initialized (control_system=%s, archiver=%s, "
+            "writes_by_target=%s, serving=%s)",
             self._config.control_system.get("type", "not configured"),
             self._config.archiver.get("type", "not configured"),
-            self._config.writes_enabled,
+            {
+                target: target_writes_enabled(self._config.control_system, target)
+                for target in CONTROL_TARGETS
+            },
             "connector-host child" if self.switch_capable else "in-process connector",
         )
 

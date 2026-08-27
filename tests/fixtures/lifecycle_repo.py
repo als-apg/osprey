@@ -770,10 +770,15 @@ deploy_services: false
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY — see the base profile's block.
 config:
-  # The single axis this persona hard-pins: this key is the tier boundary, so
-  # it must not drift if the base's default ever changes — it is what makes
-  # the read-only terminal read-only.
+  # The axis this persona hard-pins, and it takes three keys rather than one.
+  # The flat key is the posture a connector type inherits when its own block
+  # says nothing, so on its own it is not a floor: a per-type `true` anywhere
+  # in the chain — the base, an overlay, a facility's own edit — would arm that
+  # type over it. So the read-only tier pins every block off as well as the key
+  # they inherit from, and a type that arms writes here has to be added by name.
   control_system.writes_enabled: false
+  control_system.connector.epics.writes_enabled: false
+  control_system.connector.virtual_accelerator.writes_enabled: false
   # Pared-down operator layout: chat only, workspace hidden until the agent
   # puts something in it. Pinned on both sides of the tier boundary (readwrite
   # pins `expert`), same rationale as writes_enabled.
@@ -832,8 +837,11 @@ web_panels:
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY — see the base profile's block.
 config:
-  # The single axis this persona hard-pins: this key is the tier boundary, so
-  # it must not drift silently if the base's default ever changes.
+  # The single axis this persona hard-pins. It is the inherited posture rather
+  # than a verdict: a `control_system.connector.<type>.writes_enabled` key
+  # anywhere in the chain answers for that type instead, which is how the
+  # simulator-only tier is built. With none written, every type reads this key,
+  # so it must not drift silently if the base's default ever changes.
   control_system.writes_enabled: true
   # Full split-pane terminal + workspace layout for the write-armed operator.
   # Pinned on both sides of the tier boundary (readonly pins `simple`) rather
@@ -889,9 +897,12 @@ skills:
 # Dotted keys ONLY — see the base profile's block.
 config:
   # The admin tier sits above readwrite: it keeps the write-armed control
-  # posture and adds deployment editing on top. Pinned here, like the two
-  # tiers beneath it pin their own side, so the boundary cannot drift if the
-  # base's default ever changes.
+  # posture and adds deployment editing on top. This is the posture every
+  # connector type inherits when its own
+  # `control_system.connector.<type>.writes_enabled` block says nothing, and
+  # none is written here, so it is the answer for every machine the session can
+  # be pointed at. Pinned like the tiers beneath it pin their own side, so the
+  # boundary cannot drift if the base's default ever changes.
   control_system.writes_enabled: true
   # The axis this tier is defined by: the three privileges the base floors, all
   # lifted here and nowhere else.

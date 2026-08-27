@@ -10,9 +10,10 @@ posture by reading this one file.
 Two independent gates, each defense-in-depth against a different failure:
 
 - :func:`_assert_limits_readable_if_writable` — a STARTUP guard. Refuses to
-  bring the bridge up in the one unsafe posture: writes enabled + limits
-  checking enabled + the limits database unreadable. Fail-OPEN by design (see
-  its docstring): every other combination starts normally.
+  bring the bridge up in the one unsafe posture: writes enabled for the
+  target THIS LANE serves + limits checking enabled + the limits database
+  unreadable. Fail-OPEN by design (see its docstring): every other
+  combination starts normally.
 - :func:`_validate_launchable_request` — a per-ENQUEUE gate. Refuses to enqueue
   a session/unreviewed plan whose CURRENT on-disk content has no passing
   validation record, re-reading and re-hashing the file at enqueue time rather
@@ -51,8 +52,22 @@ def _request_field(request: Any, field: str, default: Any = None) -> Any:
 def _assert_limits_readable_if_writable() -> None:
     """Refuse startup if writes are enabled but the limits database can't be read.
 
+    The posture checked is THIS LANE's, not the deployment's: a bridge
+    container serves one lane, that lane serves one control target
+    (`queue_backend.resolve_lane_identity`), and the write posture of that
+    target is what this process could actually move. Reading the
+    deployment-wide ``control_system.writes_enabled`` instead would refuse
+    startup for a read-only virtual-accelerator lane because some *other*
+    lane's machine is armed, and — the direction that matters — would start a
+    lane whose own connector block arms writes while the global key says
+    false. So the condition is
+    ``control_system.connector.<type>.writes_enabled`` for the type this
+    lane's target resolves to (inheriting the deployment-wide key where the
+    block says nothing), ANDed with ``not is_readonly_run()`` so a read-only
+    run needs no limits database at all.
+
     Fail-OPEN by design: this is the ONLY combination that refuses
-    startup — ``control_system.writes_enabled`` AND
+    startup — this lane's write posture AND
     ``control_system.limits_checking.enabled`` both true, AND the limits
     database is missing, unreadable, or unparseable. Every other combination
     starts normally: writes disabled (read-only posture) never even probes
@@ -80,30 +95,40 @@ def _assert_limits_readable_if_writable() -> None:
     lookup itself.
 
     Raises:
-        RuntimeError: naming which condition failed (config keys, and
-            whether the database path was configured/found/parseable) —
-            never the database's file contents or any other secret value.
+        RuntimeError: naming the lane, its target, and which condition failed
+            (the resolved posture key, and whether the database path was
+            configured/found/parseable) — never the database's file contents
+            or any other secret value.
     """
     from osprey.utils.config import get_config_value
+    from osprey_connectors.control_system.base import is_readonly_run
+    from osprey_connectors.types import target_writes_enabled, target_writes_enabled_key
+
+    from .queue_backend import resolve_lane_identity
+
+    lane, lane_target = resolve_lane_identity()
 
     try:
-        writes_enabled = get_config_value("control_system.writes_enabled", False)
+        section = get_config_value("control_system", {})
         limits_enabled = get_config_value("control_system.limits_checking.enabled", False)
         db_path = get_config_value("control_system.limits_checking.database_path", None)
         project_root = get_config_value("project_root", None)
     except (FileNotFoundError, KeyError, RuntimeError):
         return
 
-    if not writes_enabled:
+    if not target_writes_enabled(section, lane_target) or is_readonly_run():
         return
     if not limits_enabled:
         return
 
+    writes_key = target_writes_enabled_key(section, lane_target)
+
     if not db_path or not isinstance(db_path, str):
         raise RuntimeError(
-            "refusing to start writable: control_system.writes_enabled and "
-            "control_system.limits_checking.enabled are both set, but "
-            "control_system.limits_checking.database_path is not configured"
+            f"refusing to start writable: lane {lane} serves target {lane_target}, "
+            f"where {writes_key} and control_system.limits_checking.enabled are "
+            "both set, but control_system.limits_checking.database_path is not "
+            "configured"
         )
 
     from osprey.connectors.control_system.limits_validator import LimitsValidator
@@ -119,10 +144,11 @@ def _assert_limits_readable_if_writable() -> None:
         LimitsValidator._load_limits_database(db_path)
     except Exception as exc:
         raise RuntimeError(
-            "refusing to start writable: control_system.writes_enabled and "
-            "control_system.limits_checking.enabled are both set, but the "
-            "configured control_system.limits_checking.database_path could "
-            "not be read or parsed"
+            f"refusing to start writable: lane {lane} serves target {lane_target}, "
+            f"where {writes_key} and control_system.limits_checking.enabled are "
+            "both set, but the configured "
+            "control_system.limits_checking.database_path could not be read or "
+            "parsed"
         ) from exc
 
 

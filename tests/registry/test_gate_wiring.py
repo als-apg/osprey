@@ -195,15 +195,16 @@ def test_write_tools_destructive_markers_is_shared_constant() -> None:
 # render what would be queued/run/resumed at approval time. ``stop_run`` /
 # ``write_plan`` / ``validate_plan`` are handled by the hook's GENERIC per-tool
 # policy dispatch (keyed on the short name extracted from an approval prefix),
-# so they carry no literal. ``osprey_writes_check.py`` carries a Bluesky literal
-# in exactly ONE place — ``_FALLBACK_WRITE_TOOLS``, the degraded floor refused
-# when ``hook_config.json`` cannot be read at all, which is by definition the
-# one set that cannot be data-driven. Everywhere else its write-tool set comes
-# from ``hook_config.json`` (rendered from the registry HookRule), so the arming
-# tools' kill-switch leg stays rename-safe; the floor itself is kept fresh by
-# ``tests/registry/test_mixed_floor_driftguard.py``, which pins it against
-# ``registry.mcp.framework_write_tools()``. Those are the load-bearing facts
-# this section pins.
+# so they carry no literal. ``osprey_writes_check.py`` carries NO Bluesky
+# literal at all: its write-tool set is data-driven from ``hook_config.json``
+# (rendered from the registry HookRule), so the arming tools' kill-switch leg is
+# rename-safe without touching that source. The one Bluesky literal on the
+# hooks' side is ``FALLBACK_WRITE_TOOLS`` in ``osprey_hook_log.py`` — the
+# degraded floor refused when ``hook_config.json`` cannot be read at all, which
+# is by definition the one set that cannot be data-driven — and the floor is
+# kept fresh by ``tests/registry/test_mixed_floor_driftguard.py``, which pins it
+# against ``registry.mcp.framework_write_tools()``. Those are the load-bearing
+# facts this section pins.
 # ---------------------------------------------------------------------------
 
 
@@ -228,60 +229,47 @@ def test_approval_template_source_carries_the_queue_control_constants() -> None:
     )
 
 
-def _writes_check_source_outside_the_floor() -> str:
-    """``osprey_writes_check.py``'s source with its degraded floor excised."""
-    src = _hook_source("osprey_writes_check.py")
-    tree = ast.parse(src)
-    node = next(
-        n
-        for n in tree.body
-        if isinstance(n, ast.Assign)
-        and any(isinstance(t, ast.Name) and t.id == "_FALLBACK_WRITE_TOOLS" for t in n.targets)
-    )
-    segment = ast.get_source_segment(src, node)
-    assert segment, "could not locate the _FALLBACK_WRITE_TOOLS assignment's source"
-    return src.replace(segment, "")
+def test_writes_check_template_carries_no_bluesky_tool_literal() -> None:
+    """The kill switch stays data-driven — no Bluesky tool name is hardcoded.
 
-
-def test_writes_check_template_carries_no_bluesky_tool_literal_outside_the_floor() -> None:
-    """The kill switch stays data-driven everywhere it can be.
-
-    The arming tools' writes-check gating flows registry HookRule →
-    ``hook_config.json`` → this hook's runtime ``write_tools`` load, never a
-    literal here. The single exception is ``_FALLBACK_WRITE_TOOLS``, the floor
-    refused when that file cannot be read at all — the one set that by
-    definition cannot come from the render — so the floor's own text is excised
-    before the scan. Pinning the absence everywhere else documents why a
-    Bluesky tool rename touches only the floor in this standalone source, and
-    flags anyone who reintroduces a literal on the gating path that would then
-    silently drift on the next rename.
+    Both of the hook's tool-keyed decisions arrive as rendered data, never as a
+    literal here: which tools it gates at all flows registry HookRule →
+    ``hook_config.json`` → its runtime ``write_tools`` load, and which of them
+    skip the per-target stage because a plan lane addresses them flows
+    ``QUEUE_CONTROL_TOOLS`` → ``hook_config.json`` → its ``lane_addressed_tools``
+    load. Pinning the ABSENCE documents why a Bluesky tool rename never needs to
+    touch this standalone source (and flags anyone who reintroduces a literal
+    that would then silently drift on the next rename).
     """
-    present = [t for t in bsky.ALL_TOOLS if t in _writes_check_source_outside_the_floor()]
+    src = _hook_source("osprey_writes_check.py")
+    present = [t for t in bsky.ALL_TOOLS if t in src]
     assert present == [], (
-        f"osprey_writes_check.py hardcodes Bluesky tool name(s) {present} outside "
-        f"its degraded write floor — the writes kill switch must stay data-driven "
-        f"(write_tools loaded from hook_config.json rendered off the registry); "
-        f"keep the gate in the registry HookRule, not this standalone hook source"
+        f"osprey_writes_check.py hardcodes Bluesky tool name(s) {present} — the "
+        f"writes kill switch must stay data-driven (write_tools loaded from "
+        f"hook_config.json rendered off the registry); keep the gate in the "
+        f"registry HookRule, not this standalone hook source"
     )
 
 
-def test_writes_check_floor_refuses_the_arming_pair_when_the_render_is_unreadable() -> None:
+def test_hooks_write_floor_refuses_the_arming_pair_when_the_render_is_unreadable() -> None:
     """The one literal that must be there.
 
     A degraded render (missing/unreadable/malformed ``hook_config.json``) is
     exactly when a deployment that enabled Bluesky has nothing left to refuse
     ``queue_add``/``queue_start`` — arming and starting a plan queue, both
-    control-system writes. The floor is kept in step with the registry by
+    control-system writes. The floor lives in the hooks' shared
+    ``osprey_hook_log.py`` (both ``osprey_writes_check`` and ``osprey_approval``
+    read it through ``write_tools()``) and is kept in step with the registry by
     ``tests/registry/test_mixed_floor_driftguard.py``, so this literal cannot
     go stale on a rename the way an ungated one would.
     """
-    src = _hook_source("osprey_writes_check.py")
+    src = _hook_source("osprey_hook_log.py")
     tree = ast.parse(src)
     floor = next(
         ast.literal_eval(n.value)
         for n in tree.body
         if isinstance(n, ast.Assign)
-        and any(isinstance(t, ast.Name) and t.id == "_FALLBACK_WRITE_TOOLS" for t in n.targets)
+        and any(isinstance(t, ast.Name) and t.id == "FALLBACK_WRITE_TOOLS" for t in n.targets)
     )
     for tool in (bsky.QUEUE_ADD, bsky.QUEUE_START):
         assert f"mcp__{bsky.SERVER_NAME}__{tool}" in floor

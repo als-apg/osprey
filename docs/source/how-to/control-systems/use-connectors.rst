@@ -46,9 +46,9 @@ Everything below is configuration only — which machine sits behind that API.
 
 .. note::
 
-   Write operations require explicit opt-in whichever connector is selected.
+   Write operations require explicit opt-in, per connector type.
    See :ref:`write-safety-config` in :doc:`/reference/contracts/connectors` for
-   the ``writes_enabled`` setting that controls write permissions.
+   the ``writes_enabled`` settings that control write permissions.
 
 Pick a control system
 ---------------------
@@ -82,7 +82,7 @@ Pick a control system
              epics:
                gateways:
                  # EPICS uses one process-wide CA context, so the connector points at a
-                 # single gateway. When control_system.writes_enabled is true and a
+                 # single gateway. When writes are armed for this connector type and a
                  # write_access gateway is set, writes route through it; otherwise the
                  # connector uses read_only (so a read-only deployment rejects writes at
                  # the network layer as well).

@@ -114,11 +114,22 @@ def test_the_cli_renders_the_aggregate_through_the_shared_refusal_shape(capsys):
 
 
 def _persona_project(root: Path, name: str, *, writes: bool, denies_bash: bool) -> str:
-    """Write a persona project under *root*; return its relative project_path."""
+    """Write a persona project under *root*; return its relative project_path.
+
+    The bluesky server is spelled out because it is opt-in in the registry: a
+    project that omits the key runs no server, holds no launch token, and so
+    cannot raise the shell/token conflict this file's collection depends on.
+    """
     project_dir = root / "profiles" / name
     (project_dir / ".claude").mkdir(parents=True)
     (project_dir / "config.yml").write_text(
-        yaml.safe_dump({"project_name": name, "control_system": {"writes_enabled": writes}}),
+        yaml.safe_dump(
+            {
+                "project_name": name,
+                "control_system": {"writes_enabled": writes},
+                "claude_code": {"servers": {"bluesky": {"enabled": True}}},
+            }
+        ),
         encoding="utf-8",
     )
     deny = ["Bash", "Edit"] if denies_bash else ["Edit"]

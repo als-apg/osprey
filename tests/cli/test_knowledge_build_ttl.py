@@ -228,9 +228,9 @@ def _flat(result: Any) -> str:
 def _parse(ttl_path: Path) -> Any:
     """Parse *ttl_path* as Turtle.
 
-    rdflib is imported outright rather than skipped past: it is a CI
-    dependency (the ``dev`` extra), so an absent one is a broken environment
-    and four of these tests would otherwise pass by not running.
+    rdflib is imported outright rather than skipped past: it is a core
+    dependency, so an absent one is a broken environment and four of these
+    tests would otherwise pass by not running.
     """
     import rdflib
 

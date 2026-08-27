@@ -60,10 +60,12 @@ from osprey.deployment.host_ports import (
 )
 from osprey.deployment.qmd_service import preflight_qmd_models_dir
 from osprey.deployment.runtime_helper import (
+    PODMAN_COMPOSE_PROVIDER_REMEDY,
     ComposeProvider,
     UnsupportedComposeProviderError,
     detect_compose_provider,
     get_runtime_command,
+    podman_compose_provider_advisory,
     runtime_env,
     verify_runtime_is_running,
     with_plain_progress,
@@ -3852,6 +3854,51 @@ def _preflight_bluesky_network_backend(config: dict) -> None:
     )
 
 
+def _preflight_podman_compose_provider(config: dict, provider: ComposeProvider) -> None:
+    """Name the podman + Docker-Compose-v2 registry break before anything is built.
+
+    Purely advisory, and silent on every host but that one pairing. See
+    :func:`~osprey.deployment.runtime_helper.podman_compose_provider_advisory`
+    for why this warns rather than refuses, and why a probe would have to build
+    an image to be sure.
+
+    Placed with the other preflights so the operator reads it in the second
+    before a build starts rather than in the minutes after one fails. The
+    failure it describes is also translated in place, if it happens, by
+    :func:`~osprey.deployment.runtime_helper.diagnose_build_failure`.
+
+    Takes the provider the caller already resolved rather than probing for it.
+    That is not just thrift: this note asks the HOST a question, so it must sit
+    below every refusal that reads only this deployment's own files -- a deploy
+    about to abort on a drifted env chain or a machine-minted pin should not
+    first start a provider process to be told something it will never use. Both
+    names it does read are the ones bound in THIS module, the seam the lifecycle
+    tests patch, so it adds no bare subprocess to a site that forbids them.
+
+    Total, like :func:`_podman_network_backend`: a host with no usable runtime
+    gets no advisory. That failure is not this note's to report --
+    ``verify_runtime_is_running`` says it far better, and pre-empting it with a
+    provider aside would bury the refusal that actually stops the deploy.
+
+    :param config: Raw deploy config, for the runtime it may pin.
+    :param provider: The compose provider the start sequence already detected.
+    """
+    try:
+        runtime = get_runtime_command(config)[0]
+    except RuntimeError:
+        return
+
+    advisory = podman_compose_provider_advisory(runtime, provider)
+    if advisory is None:
+        return
+
+    _warn_fact(
+        "podman's compose provider is Docker Compose v2, not podman-compose",
+        advisory,
+        PODMAN_COMPOSE_PROVIDER_REMEDY,
+    )
+
+
 def _web_terminals_enabled(config: dict) -> bool:
     """True if ``modules.web_terminals.enabled`` is set on ``config``.
 
@@ -5467,6 +5514,14 @@ def _start_stack(
     # be told something it will never use. Above the advisory below, which is
     # the first thing whose wording depends on the answer.
     provider = _compose_provider(config)
+
+    # First use of that answer: podman served by Docker Compose v2 cannot fetch a
+    # base image during a build, and the 401 it gets names a password nobody
+    # typed. Here rather than up with the other preflights for the reason the
+    # comment above gives -- it needs the host's answer, so it must not run ahead
+    # of the refusals that read only this deployment's own files. Still well above
+    # the image build, which is the only thing it is trying to get ahead of.
+    _preflight_podman_compose_provider(config, provider)
 
     # Advisory, and last of the .env preflights so it reads the files every
     # provisioner above has finished writing: the shell and the env chain can

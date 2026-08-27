@@ -698,3 +698,261 @@ def test_end_to_end_switch_prompt_previews_the_destination(tmp_path, hook_runner
     assert "Target: virtual accelerator (simulation)" in reason
     assert f"Destination: Storage ring ({LIVE_ENDPOINT})" in reason
     assert "Destination probe channel: RING:BEAM:CURRENT" in reason
+
+
+# ---------------------------------------------------------------------------
+# write posture: the stdlib restatement of the framework's resolver
+# ---------------------------------------------------------------------------
+# `osprey_connectors.types.type_writes_enabled` / `target_writes_enabled` are the
+# authority; the reader mirrors them for hooks, which cannot import osprey. The
+# shapes below are the ones a real deployment is written in, and each states the
+# answer literally rather than deriving it from either implementation.
+
+#: A deployment that has never said anything about writes.
+MOCK_SECTION = {"type": "mock"}
+
+#: The hello_world shape: one deployment-wide "no", no connector table at all.
+HELLO_WORLD_SECTION = {"type": "mock", "writes_enabled": False}
+
+#: One real machine, armed deployment-wide.
+EPICS_ARMED_SECTION = {
+    "type": "epics",
+    "writes_enabled": True,
+    "connector": {"epics": {"address_list": "10.0.0.1"}},
+}
+
+#: Baseline is the simulator, and the VA block arms writes the global "no" denies.
+ARM_VA_SECTION = {
+    "type": "virtual_accelerator",
+    "writes_enabled": False,
+    "connector": {
+        "virtual_accelerator": {"writes_enabled": True},
+        "epics": {"address_list": "10.0.0.1"},
+    },
+}
+
+#: Baseline is the machine, and the live block disarms what the global armed.
+DISARM_LIVE_SECTION = {
+    "type": "epics",
+    "writes_enabled": True,
+    "connector": {
+        "epics": {"writes_enabled": False},
+        "virtual_accelerator": {},
+    },
+}
+
+#: Armed deployment-wide with no connector table to override it.
+INHERIT_SECTION = {"type": "epics", "writes_enabled": True}
+
+#: Two non-simulated blocks under a simulated baseline: `live` names no single
+#: type, so neither block's posture can answer for it.
+UNDERIVABLE_LIVE_SECTION = {
+    "type": "mock",
+    "writes_enabled": True,
+    "connector": {
+        "epics": {"writes_enabled": False},
+        "doocs": {"writes_enabled": False},
+    },
+}
+
+#: A DOOCS baseline: `live` is the section's own type, and its block governs.
+DOOCS_BASELINE_SECTION = {
+    "type": "doocs",
+    "writes_enabled": True,
+    "connector": {"doocs": {"writes_enabled": False}},
+}
+
+#: Connector blocks, but not one word about posture anywhere in the section.
+NO_POSTURE_SECTION = {
+    "type": "epics",
+    "connector": {
+        "epics": {"address_list": "10.0.0.1"},
+        "virtual_accelerator": {"port": 5074},
+    },
+}
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("section", "live", "va"),
+    [
+        pytest.param(MOCK_SECTION, None, None, id="mock-says-nothing"),
+        pytest.param(HELLO_WORLD_SECTION, False, False, id="hello-world-global-no"),
+        pytest.param(EPICS_ARMED_SECTION, True, True, id="epics-armed-globally"),
+        pytest.param(ARM_VA_SECTION, False, True, id="arm-the-simulator-only"),
+        pytest.param(DISARM_LIVE_SECTION, False, True, id="disarm-the-machine-only"),
+        pytest.param(INHERIT_SECTION, True, True, id="no-connector-table-inherits"),
+        pytest.param(UNDERIVABLE_LIVE_SECTION, True, True, id="underivable-live-takes-global"),
+        pytest.param(DOOCS_BASELINE_SECTION, False, True, id="doocs-baseline-block-governs"),
+        pytest.param(NO_POSTURE_SECTION, None, None, id="no-posture-expressed"),
+    ],
+)
+def test_writes_posture_over_the_deployment_shapes(reader, section, live, va):
+    """Each config shape, and the posture each target gets from it.
+
+    The `None` rows are the ones that keep every deployment written before the
+    per-type key behaving exactly as it always has: silence is not a refusal,
+    and a hook reading it as one would make prompts disappear on deployments
+    that never opted into anything.
+    """
+    assert reader.writes_posture(section, "live") is live
+    assert reader.writes_posture(section, "va") is va
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("section", "expected"),
+    [
+        pytest.param(MOCK_SECTION, None, id="mock-says-nothing"),
+        pytest.param(HELLO_WORLD_SECTION, False, id="hello-world-global-no"),
+        pytest.param(EPICS_ARMED_SECTION, True, id="epics-armed-globally"),
+        pytest.param(ARM_VA_SECTION, False, id="arm-the-simulator-only"),
+        pytest.param(DISARM_LIVE_SECTION, False, id="disarm-the-machine-only"),
+        pytest.param(NO_POSTURE_SECTION, None, id="no-posture-expressed"),
+    ],
+)
+def test_most_restrictive_posture_is_the_and_over_both_targets(reader, section, expected):
+    """Armed only where BOTH targets are armed — the answer for an unidentified call."""
+    assert reader.most_restrictive_posture(section) is expected
+
+
+#: The `control-assistant-va-readwrite` shape: a simulator deployment carrying no
+#: live block at all, armed through the single connector type it builds.
+VA_ONLY_ARMED_SECTION = {
+    "type": "virtual_accelerator",
+    "writes_enabled": False,
+    "connector": {"virtual_accelerator": {"writes_enabled": True}},
+}
+
+
+@pytest.mark.unit
+def test_a_simulator_only_deployment_is_armed_for_an_unidentified_call(reader):
+    """No switch rendered means one target to be uncertain between, not two.
+
+    `live` is underivable here — there is no non-simulated block anywhere — so
+    ANDing over both target NAMES would fold in the deployment-wide `false` and
+    leave the tier that exists to write to the simulator unarmed on every
+    session whose target could not be read.
+    """
+    assert reader.session_types(VA_ONLY_ARMED_SECTION) == {"va": "virtual_accelerator"}
+    assert reader.most_restrictive_posture(VA_ONLY_ARMED_SECTION) is True
+
+
+@pytest.mark.unit
+def test_a_mock_carrying_one_live_block_answers_for_the_mock_it_builds(reader):
+    """`live` resolves to the block, but the connector the runtime built is the mock.
+
+    Requiring the baseline target to resolve back to `control_system.type` is
+    what keeps such a deployment out of the two-target world, so the posture a
+    session here can hold is the mock's — the deployment-wide key it inherits,
+    and not the `false` in a block no session reaches.
+    """
+    section = {
+        "type": "mock",
+        "writes_enabled": True,
+        "connector": {"epics": {"writes_enabled": False}},
+    }
+
+    assert reader.session_types(section) == {"live": "mock"}
+    assert reader.most_restrictive_posture(section) is True
+
+
+@pytest.mark.unit
+def test_both_targets_are_reachable_only_on_a_switch_capable_render(reader):
+    """Both types configured with a block, and the baseline naming its own type."""
+    section = {
+        "type": "epics",
+        "writes_enabled": True,
+        "connector": {
+            "epics": {"writes_enabled": False},
+            "virtual_accelerator": {"port": 5074},
+        },
+    }
+
+    assert reader.session_types(section) == {"live": "epics", "va": "virtual_accelerator"}
+    assert reader.most_restrictive_posture(section) is False
+
+
+@pytest.mark.unit
+def test_the_target_to_type_mapping_is_public(reader):
+    """`osprey_writes_check` spells its refusal keys from this mapping.
+
+    Public on purpose: a refusal has to name the block its own answer was read
+    from, and a hook re-deriving the mapping privately is a hook whose message
+    can drift away from its decision without either looking wrong.
+    """
+    assert "target_type" in reader.__all__
+    assert reader.target_type(DISARM_LIVE_SECTION, "live") == "epics"
+    assert reader.target_type(DISARM_LIVE_SECTION, "va") == "virtual_accelerator"
+    assert reader.target_type(UNDERIVABLE_LIVE_SECTION, "live") is None
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param(True, True, id="literal-true"),
+        pytest.param(False, False, id="literal-false"),
+        pytest.param(None, False, id="bare-key-yaml-gives-none"),
+        pytest.param("true", False, id="quoted-string"),
+        pytest.param(1, False, id="one"),
+    ],
+)
+def test_only_a_literal_true_arms_a_connector_block(reader, value, expected):
+    """A per-type value nobody can be sure of lands on the unarmed side.
+
+    The deployment-wide key is `True` throughout, so anything but a literal
+    `True` in the block is the value being read — never an inherited `yes`.
+    """
+    section = {
+        "type": "epics",
+        "writes_enabled": True,
+        "connector": {"epics": {"writes_enabled": value}},
+    }
+
+    assert reader.writes_posture(section, "live") is expected
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param(True, True, id="literal-true"),
+        pytest.param(False, False, id="literal-false"),
+        pytest.param(None, False, id="bare-key-yaml-gives-none"),
+        pytest.param("true", False, id="quoted-string"),
+    ],
+)
+def test_only_a_literal_true_arms_the_deployment_wide_key(reader, value, expected):
+    """The same rule on `control_system.writes_enabled`, which the block inherits."""
+    section = {"type": "epics", "writes_enabled": value}
+
+    assert reader.writes_posture(section, "live") is expected
+
+
+@pytest.mark.unit
+def test_a_dotted_custom_type_is_one_key_and_not_a_path(reader):
+    """A custom connector's module path names a single block, dots and all."""
+    section = {
+        "type": "mypackage.TangoConnector",
+        "writes_enabled": False,
+        "connector": {"mypackage.TangoConnector": {"writes_enabled": True}},
+    }
+
+    assert reader.writes_posture(section, "live") is True
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("section", [None, "control_system", [], 42], ids=type)
+def test_a_section_that_is_not_a_mapping_states_no_posture(reader, section):
+    """Nothing to read is not a refusal; it is the absence of an answer."""
+    assert reader.writes_posture(section, "live") is None
+    assert reader.most_restrictive_posture(section) is None
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("target", [None, "", "LIVE", "staging"], ids=repr)
+def test_an_unknown_target_answers_the_deployment_wide_key(reader, target):
+    """An unknown target names no type, so there is no block to consult."""
+    assert reader.writes_posture(DISARM_LIVE_SECTION, target) is True
+    assert reader.writes_posture(HELLO_WORLD_SECTION, target) is False

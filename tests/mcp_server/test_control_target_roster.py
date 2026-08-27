@@ -152,9 +152,10 @@ class TestCorrectBeforeAnySwitch:
         assert rows["live"]["label"] == display["live"]["label"]
         assert rows["live"]["connector_type"].endswith("MockConnector")
 
-    async def test_writes_permitted_follows_the_deployment_posture(
+    async def test_writes_permitted_follows_the_deployment_posture_no_type_states(
         self, make_manager, monkeypatch, no_prober
     ):
+        """Neither connector block says anything, so both rows inherit the global key."""
         manager = make_manager(raw=config_with_gateways())
         install_context(manager, monkeypatch)
 
@@ -169,6 +170,26 @@ class TestCorrectBeforeAnySwitch:
         rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
         assert all(row["writes_permitted"] for row in rows.values())
 
+    async def test_each_row_carries_its_own_targets_posture(
+        self, make_manager, monkeypatch, no_prober
+    ):
+        """A deployment arms its simulator alone, and the two rows say so separately.
+
+        The write posture the roster reports is per connector type, so the row
+        for ``va`` and the row for ``live`` are two answers and not one flag
+        printed twice.
+        """
+        raw = config_with_gateways()
+        raw["control_system"]["writes_enabled"] = False
+        raw["control_system"]["connector"]["virtual_accelerator"]["writes_enabled"] = True
+        manager = make_manager(raw=raw)
+        install_context(manager, monkeypatch)
+
+        rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
+
+        assert rows["va"]["writes_permitted"] is True
+        assert rows["live"]["writes_permitted"] is False
+
     async def test_a_readonly_run_reports_writes_as_not_permitted(
         self, make_manager, monkeypatch, no_prober
     ):
@@ -182,6 +203,22 @@ class TestCorrectBeforeAnySwitch:
         rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
 
         assert not any(row["writes_permitted"] for row in rows.values())
+
+    async def test_a_readonly_run_collapses_an_armed_target_too(
+        self, make_manager, monkeypatch, no_prober
+    ):
+        """Per-target posture does not survive a read-only run — no row is armed."""
+        raw = config_with_gateways()
+        raw["control_system"]["writes_enabled"] = False
+        raw["control_system"]["connector"]["virtual_accelerator"]["writes_enabled"] = True
+        manager = make_manager(raw=raw)
+        install_context(manager, monkeypatch)
+        monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
+
+        rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
+
+        assert rows["va"]["writes_permitted"] is False
+        assert rows["live"]["writes_permitted"] is False
 
 
 # ------------------------------------------------------- reachability rows

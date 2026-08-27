@@ -15,7 +15,7 @@ each boundary are one link away wherever they matter.
    :icon: book
 
    - The two questions that decide a tier
-   - What the three tiers the ``control-assistant`` preset ships can and
+   - What the four tiers the ``control-assistant`` preset ships can and
      cannot do, login by login
    - That a tier is nothing more than a persona file — and what that means
      when you rename one or add one
@@ -30,12 +30,19 @@ Two questions decide a tier
 
 A tier is the answer to two independent questions.
 
-**May this session move hardware?** That is the reference monitor's master
-write switch, ``control_system.writes_enabled``. Off, and every write surface
-refuses — channel writes, read-write Python execution, plan arming, all of it,
-from the single switch. On, and a write is *supervised*: it still passes the
-writes-check hook, the per-channel limits, and a human approval prompt before
-the connector executes it.
+**May this session move hardware, and which hardware?** That is the reference
+monitor's write posture, and it is answered per control target rather than once
+for the deployment. ``control_system.writes_enabled`` is what a connector type
+inherits when it says nothing about itself, and a
+``control_system.connector.<type>.writes_enabled`` block answers for that type
+instead. Unarmed, every write surface refuses — channel writes, read-write
+Python execution, plan arming, all of it. Armed, a write is *supervised*: it
+still passes the writes-check hook, the per-channel limits, and a human
+approval prompt before the connector executes it.
+
+Because the answer is per target, a tier can be armed on the simulator and
+read-only on the machine — the same session, the same tools, refused the moment
+it switches target. That is the ``va-readwrite`` tier below.
 
 **May this session change the deployment it runs in?** That is a different
 capability altogether — the ability to rewrite the ``config.yml`` every terminal
@@ -53,21 +60,24 @@ Put the two side by side and the tiers name themselves:
    * -
      - Cannot edit the deployment
      - Can edit the deployment
-   * - **Control-system writes off**
+   * - **Control-system writes off everywhere**
      - **readonly**
+     - —
+   * - **Writes on the simulator only** (supervised)
+     - **va-readwrite**
      - —
    * - **Control-system writes on** (supervised)
      - **readwrite**
      - **admin**
 
-The preset ships the three named cells. The empty one is not forbidden by
-anything in OSPREY — a persona could be written for it — it simply has no use
-the preset wanted to ship.
+The preset ships the four named cells. The empty ones are not forbidden by
+anything in OSPREY — a persona could be written for either — they simply have
+no use the preset wanted to ship.
 
 .. _multi-user-tiers:
 
-The three tiers the preset ships
-================================
+The four tiers the preset ships
+===============================
 
 Each tier is a self-contained OSPREY project with its **own** permissions,
 because permissions are a property of a project's ``config.yml`` — the tiers
@@ -82,14 +92,20 @@ are genuinely different agents, not one agent with a UI toggle.
      - Editing the deployment
      - What the screen looks like
    * - **readonly** (bob)
-     - Off. Every write surface refuses, from the single switch
+     - Off, on every target. Every write surface refuses
      - No. The ``setup_patch`` tool is denied, the Config panel is off, and
        the scaffold gallery is readable but not writable
      - Chat-first ``simple`` layout, without the EVENTS and BLUESKY panels
+   * - **va-readwrite**
+     - On for the virtual accelerator, off for the live machine. Supervised on
+       exactly the terms below; a write refuses the moment the session is
+       switched to the machine, with no config edit either way
+     - No — the same floor as readonly
+     - Full ``expert`` workspace with the EVENTS and BLUESKY panels
    * - **readwrite** (alice)
-     - On, and supervised: a channel write still passes the writes-check
-       hook, the per-channel limits, and a human approval prompt before it
-       executes
+     - On for every machine the session can reach, and supervised: a channel
+       write still passes the writes-check hook, the per-channel limits, and a
+       human approval prompt before it executes
      - No — the same floor as readonly
      - Full ``expert`` workspace with the EVENTS and BLUESKY panels
    * - **admin** (carol)
@@ -133,34 +149,51 @@ read-only tier.
 
    .. list-table::
       :header-rows: 1
-      :widths: 28 16 18 18 20
+      :widths: 22 13 20 13 13 19
 
       * - Capability
         - readonly
+        - va-readwrite
         - readwrite
         - admin
         - single-user base
       * - ``control_system.writes_enabled``
         - ``false``
+        - ``false``
         - ``true``
         - ``true``
         - ``true``
+      * - ``control_system.connector.<type>.writes_enabled``
+        - ``false`` for both connector types, so no later edit of the
+          deployment-wide key can arm one
+        - ``virtual_accelerator: true``; the live machine's type is left
+          unwritten, so it inherits that ``false``
+        - none — every type inherits the deployment-wide key
+        - none — every type inherits the deployment-wide key
+        - none — every type inherits the deployment-wide key
       * - ``mcp__controls__channel_write``
         - kill-switch deny
+        - neither denied nor asked in ``settings.json``: ask + approval hook
+          on the simulator, hook refusal on the live machine
         - ask + approval hook
         - ask + approval hook
         - ask + approval hook
       * - Bluesky arming tools
         - kill-switch deny
+        - per lane: ask on the simulator's lane, ``writes_disabled`` on the
+          live one
         - ask
         - ask
         - ask
       * - ``mcp__python__execute``
         - read-only kernel only
+        - both kernels, but a read-write run is refused while the session is
+          on the live machine
         - both kernels
         - both kernels
         - both kernels
       * - ``mcp__osprey_workspace__setup_patch``
+        - deny (floor)
         - deny (floor)
         - deny (floor)
         - ask + approval hook
@@ -168,9 +201,11 @@ read-only tier.
       * - Config panel (``/api/config``)
         - 403
         - 403
+        - 403
         - enabled
         - 403
       * - Scaffold gallery edit / create / delete
+        - 403 (read OK)
         - 403 (read OK)
         - 403 (read OK)
         - enabled
@@ -180,12 +215,15 @@ read-only tier.
         - confirm modal
         - confirm modal
         - confirm modal
+        - confirm modal
       * - ``build/config.yml`` owner in the container
+        - root
         - root
         - root
         - osprey
         - root
       * - :ref:`The protected set <config-protected-set>`
+        - refused
         - refused
         - refused
         - refused
@@ -245,10 +283,22 @@ holds is file ownership, not a permission list.
 .. raw:: html
    :file: ../../../_diagrams/tier-layers.html
 
-**Layer 1** is what makes the readonly tier certain. ``writes_enabled: false``
-does not merely tell the agent not to write; it renders the control-system
-write tools into a deny list that the agent runtime checks before any OSPREY
-code runs, and no persona setting can subtract from that list.
+**Layer 1** is what makes the readonly tier certain. A tier armed on **no**
+target does not merely tell the agent not to write; it renders the framework
+servers' write-gated tools into a deny list that the agent runtime checks
+before any OSPREY code runs, and no persona setting can subtract from that
+list. Tools a project adds under ``control_system.write_tools`` are not in that
+list in any render — they are refused by the writes-check hook, which is
+Layer 2.
+
+A tier armed on *some* targets, like ``va-readwrite``, cannot get that static
+deny: ``settings.json`` is rendered once, before any session has picked a
+target, and the same tool is legal on one machine and refused on the other. So
+that tier renders no deny at all and carries the boundary per call instead — the
+safety hook checks the session's active target, and the connector refuses again
+behind it. Layer 1 is the stronger guarantee, which is why the read-only tier,
+and not the simulator-write tier, is the one to hand out when the requirement is
+"this login can never move anything".
 
 **Layer 2** is the set of gates that give the agent a readable refusal —
 ``setup_patch`` denied by the floor, the Config panel and gallery refusing

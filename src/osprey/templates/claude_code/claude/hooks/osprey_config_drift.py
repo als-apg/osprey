@@ -16,7 +16,10 @@ SessionStart ──► stat config.yml & .claude/settings.json
    (a) config.yml mtime > settings.json mtime? ──► general drift
                      │
                      ▼
-   (b) config writes_enabled  vs  channel_write in deny? ──► precise drift
+   (b) exactly one writes_enabled key?  ── no ─► claim nothing about writes
+                     │ yes
+                     ▼
+       its value  vs  channel_write in deny? ──► precise drift
                      │
                      ▼
    drift?  ── yes ─► warn (stderr + additionalContext) ─► exit 0
@@ -25,13 +28,19 @@ SessionStart ──► stat config.yml & .claude/settings.json
 
 ## Details
 
-`config.yml` is a build-time input: safety-critical fields (notably the
-``control_system.writes_enabled`` kill-switch, which bakes
-``mcp__controls__channel_write`` into ``settings.json``'s ``permissions.deny``)
-only take effect once the artifacts are re-rendered by ``osprey build``. The web
-and CLI entry points auto-regenerate, but a hand-edited config.yml launched
-via raw ``claude`` would otherwise run stale settings with no signal. This hook
-is that signal.
+`config.yml` is a build-time input: safety-critical fields (notably the write
+posture, which bakes ``mcp__controls__channel_write`` into ``settings.json``'s
+``permissions.deny``) only take effect once the artifacts are re-rendered by
+``osprey build``. The web and CLI entry points auto-regenerate, but a
+hand-edited config.yml launched via raw ``claude`` would otherwise run stale
+settings with no signal. This hook is that signal.
+
+Check (b) covers one shape of deployment only: the one whose whole posture is
+``control_system.writes_enabled``. Posture is per connector type, and a config
+carrying ``control_system.connector.<type>.writes_enabled`` blocks has an
+answer that depends on the target the session lands on — which this hook cannot
+resolve without importing the framework. It abstains there rather than warn
+about the wrong key, and check (a) still covers such a config.
 
 Warn-only by design — it never mutates artifacts and never blocks the session
 (writes stay blocked until a proper regen, which is the safe direction). It is
@@ -54,9 +63,15 @@ import re
 import sys
 from pathlib import Path
 
-# Section-blind on purpose: `writes_enabled` exists only under `control_system:` in
-# OSPREY config.yml, so the first line-anchored match is unambiguous. This is a
-# warn-only signal — even a mis-parse cannot weaken the write-block gate.
+# Section-blind on purpose, and `writes_enabled` is not a unique key: alongside the
+# global `control_system.writes_enabled` a config may carry per-connector-type
+# posture blocks (`control_system.connector.<type>.writes_enabled`), so more than
+# one line-anchored match is legitimate. The hook cannot resolve them — it does not
+# know which target the session will run against — and for a warn-only signal a
+# wrong warning is worse than none, so it claims nothing about writes unless
+# exactly one key exists. The value-blind counter decides that; the value pattern
+# reads the single key. Even a mis-parse cannot weaken the write-block gate.
+_WRITES_ENABLED_KEY = re.compile(r"^\s*writes_enabled:", re.MULTILINE | re.IGNORECASE)
 _WRITES_ENABLED = re.compile(r"^\s*writes_enabled:\s*(true|false)\b", re.MULTILINE | re.IGNORECASE)
 _CHANNEL_WRITE = "mcp__controls__channel_write"
 
@@ -68,6 +83,8 @@ def _writes_enabled_in_config(config_path: Path) -> bool | None:
     try:
         text = config_path.read_text(encoding="utf-8")
     except OSError:
+        return None
+    if len(_WRITES_ENABLED_KEY.findall(text)) != 1:
         return None
     match = _WRITES_ENABLED.search(text)
     if match is None:

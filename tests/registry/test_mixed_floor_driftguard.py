@@ -10,21 +10,24 @@ only when a render cannot be trusted (missing/unreadable/malformed
   always equal to the registry's ``MIXED_READ_WRITE_TEMPLATES``-derived
   matcher list (``registry.mcp.framework_mixed_read_write_tools()``).
 - ``_FALLBACK_WRITE_TOOLS`` -- the pre-existing write-tool floor, documented
-  as the same literal as the client-side ``osprey_writes_check.py`` hook's own
-  floor of the same name. The two layers (server-side middleware, client-side
-  hook) must not disagree about what a degraded deployment refuses.
+  as the same literal as the client-side hooks' shared floor,
+  ``osprey_hook_log.FALLBACK_WRITE_TOOLS`` (which ``osprey_writes_check.py``
+  and ``osprey_approval.py`` both read through ``write_tools()``). The two
+  layers (server-side middleware, client-side hooks) must not disagree about
+  what a degraded deployment refuses.
 
 ``tests/mcp_server/test_audit_middleware.py`` already asserts
 ``_FALLBACK_MIXED_TOOLS == framework_mixed_read_write_tools()`` and
-``_FALLBACK_WRITE_TOOLS == <the hook's own literal>`` directly. This module is
+``_FALLBACK_WRITE_TOOLS == <the hooks' shared literal>`` directly. This module is
 the independent second guard the PLAN calls for: it re-derives the mixed
 floor's expected value from ``FRAMEWORK_SERVERS``/``_WRITES_CHECK`` by hand,
 without going through ``framework_mixed_read_write_tools()`` at all, so a bug
 in that helper's own derivation cannot make both guards go green for the same
-wrong reason. It also re-pins the write floor against the hook file so this
-file alone is a complete driftguard for both floors, not just the mixed one.
+wrong reason. It also re-pins the write floor against the hooks' shared module
+so this file alone is a complete driftguard for both floors, not just the
+mixed one.
 
-The write floor used to be pinned ONLY against the hook's identical copy, and
+The write floor used to be pinned ONLY against the hooks' identical copy, and
 that is how it went stale: it named ``controls`` and ``python``'s write-gated
 tools but not bluesky's ``queue_add``/``queue_start``, on the argument that
 bluesky is opt-in (``default_enabled=False``). That argument has it backwards
@@ -57,10 +60,11 @@ from osprey.registry.mcp import (
     framework_write_tools,
 )
 
-_HOOK_TEMPLATE = (
-    Path(__file__).resolve().parents[2]
-    / "src/osprey/templates/claude_code/claude/hooks/osprey_writes_check.py"
-)
+_HOOKS_DIR = Path(__file__).resolve().parents[2] / "src/osprey/templates/claude_code/claude/hooks"
+#: The kill-switch hook: home of the posture-refusal reason word.
+_HOOK_TEMPLATE = _HOOKS_DIR / "osprey_writes_check.py"
+#: The hooks' shared helpers: home of the write-tool floor both gates read.
+_HOOK_LOG_TEMPLATE = _HOOKS_DIR / "osprey_hook_log.py"
 
 
 def _mixed_matchers_from_framework_servers() -> list[str]:
@@ -84,14 +88,14 @@ def _mixed_matchers_from_framework_servers() -> list[str]:
     return matchers
 
 
-def _hook_literal(name: str):
-    """One module-level literal out of ``osprey_writes_check.py``, by AST.
+def _hook_literal(name: str, template: Path = _HOOK_TEMPLATE):
+    """One module-level literal out of a hook template file, by AST.
 
-    Never by import: the hook ships as a copied-in project template file run
-    by a bare ``python3``, and importing it here would both pull in its
+    Never by import: the hooks ship as copied-in project template files run
+    by a bare ``python3``, and importing one here would both pull in its
     ``sys.path`` games and hide the very drift this module exists to catch.
     """
-    tree = ast.parse(_HOOK_TEMPLATE.read_text())
+    tree = ast.parse(template.read_text())
     return next(
         ast.literal_eval(node.value)
         for node in ast.walk(tree)
@@ -101,8 +105,9 @@ def _hook_literal(name: str):
 
 
 def _write_floor_literal_from_hook() -> list[str]:
-    """``osprey_writes_check.py``'s own ``_FALLBACK_WRITE_TOOLS`` literal."""
-    return _hook_literal("_FALLBACK_WRITE_TOOLS")
+    """``osprey_hook_log.py``'s ``FALLBACK_WRITE_TOOLS`` literal, the floor
+    ``osprey_writes_check.py`` and ``osprey_approval.py`` share."""
+    return _hook_literal("FALLBACK_WRITE_TOOLS", _HOOK_LOG_TEMPLATE)
 
 
 class TestMixedFloorDriftGuard:

@@ -3651,9 +3651,9 @@ def test_entitled_persona_gets_the_launch_token() -> None:
     time so the secret is never written into a rendered artifact."""
     # Act
     compose = yaml.safe_load(
-        render_web_terminals(_events_persona_config(), launch_token_personas={"readwrite"})[
-            "docker-compose.web.yml"
-        ]
+        render_web_terminals(
+            _events_persona_config(), launch_token_personas={"bluesky": {"readwrite"}}
+        )["docker-compose.web.yml"]
     )
 
     # Assert
@@ -3666,9 +3666,9 @@ def test_unentitled_persona_gets_no_launch_token() -> None:
     in the shared .env.production that every user's container reads."""
     # Act
     compose = yaml.safe_load(
-        render_web_terminals(_events_persona_config(), launch_token_personas={"readwrite"})[
-            "docker-compose.web.yml"
-        ]
+        render_web_terminals(
+            _events_persona_config(), launch_token_personas={"bluesky": {"readwrite"}}
+        )["docker-compose.web.yml"]
     )
 
     # Assert
@@ -3679,8 +3679,10 @@ def test_unentitled_persona_gets_no_launch_token() -> None:
 # A deployment that opted into a second plan lane (`bluesky.second_lane`) renders
 # a second bridge with its own launch token, because each lane is a whole stack
 # armed separately -- one shared token would let a launch approved against one
-# machine be replayed against the other. An entitled persona is told both lanes
-# and so is handed both tokens; the tier boundary is the same one.
+# machine be replayed against the other. Entitlement is therefore per lane as
+# well as per persona: a persona armed on both lanes is handed both tokens, one
+# armed on a single lane is handed that lane's alone, and the tier boundary --
+# an unentitled persona receives nothing -- is the same one throughout.
 
 _SECOND_LANE_TOKEN_LINE = "BLUESKY_LIVE_LAUNCH_TOKEN=${BLUESKY_LIVE_LAUNCH_TOKEN:-}"
 
@@ -3697,9 +3699,10 @@ def _two_lane_persona_config() -> dict:
 def test_entitled_persona_on_a_two_lane_deployment_gets_both_launch_tokens() -> None:
     # Act
     compose = yaml.safe_load(
-        render_web_terminals(_two_lane_persona_config(), launch_token_personas={"readwrite"})[
-            "docker-compose.web.yml"
-        ]
+        render_web_terminals(
+            _two_lane_persona_config(),
+            launch_token_personas={"bluesky": {"readwrite"}, "bluesky_live": {"readwrite"}},
+        )["docker-compose.web.yml"]
     )
 
     # Assert
@@ -3711,9 +3714,10 @@ def test_entitled_persona_on_a_two_lane_deployment_gets_both_launch_tokens() -> 
 def test_unentitled_persona_on_a_two_lane_deployment_gets_neither_token() -> None:
     # Act
     compose = yaml.safe_load(
-        render_web_terminals(_two_lane_persona_config(), launch_token_personas={"readwrite"})[
-            "docker-compose.web.yml"
-        ]
+        render_web_terminals(
+            _two_lane_persona_config(),
+            launch_token_personas={"bluesky": {"readwrite"}, "bluesky_live": {"readwrite"}},
+        )["docker-compose.web.yml"]
     )
 
     # Assert
@@ -3725,9 +3729,9 @@ def test_single_lane_deployment_grants_lane_ones_token_alone() -> None:
     """The pre-lane render exactly: one token line, the historical name."""
     # Act
     compose = yaml.safe_load(
-        render_web_terminals(_events_persona_config(), launch_token_personas={"readwrite"})[
-            "docker-compose.web.yml"
-        ]
+        render_web_terminals(
+            _events_persona_config(), launch_token_personas={"bluesky": {"readwrite"}}
+        )["docker-compose.web.yml"]
     )
 
     # Assert
@@ -3735,10 +3739,99 @@ def test_single_lane_deployment_grants_lane_ones_token_alone() -> None:
     assert [line for line in alice_env if "LAUNCH_TOKEN" in line] == [_LAUNCH_TOKEN_LINE]
 
 
+_VA_LANE_TOKEN_LINE = "BLUESKY_VA_LAUNCH_TOKEN=${BLUESKY_VA_LAUNCH_TOKEN:-}"
+
+
+def _va_lane_persona_config() -> dict:
+    """A deployment whose baseline is the live machine, plus an opt-in VA lane."""
+    config = _events_persona_config()
+    config["services"] = {
+        "bluesky": {"port": 8090, "target": "live"},
+        "bluesky_va": {"port": 8190, "target": "va"},
+    }
+    return config
+
+
+def test_persona_armed_on_the_va_lane_alone_gets_only_that_lanes_token() -> None:
+    """Why the posture is per target: a deployment whose baseline is a live machine
+    arms writes on its virtual-accelerator lane alone, and the persona entitled
+    there must not also receive the live lane's token -- holding it would let a
+    launch approved against the simulator be replayed against the machine."""
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(
+            _va_lane_persona_config(), launch_token_personas={"bluesky_va": {"readwrite"}}
+        )["docker-compose.web.yml"]
+    )
+
+    # Assert
+    alice_env = compose["services"]["web-alice"]["environment"]
+    assert [line for line in alice_env if "LAUNCH_TOKEN" in line] == [_VA_LANE_TOKEN_LINE]
+
+
+def test_persona_less_roster_without_a_va_lane_gets_no_va_token() -> None:
+    """A deployment that renders no `services.bluesky_va` block has no VA bridge to
+    arm, so arming writes grants lane 1's token and nothing else. The render must
+    not mint a variable for a lane this deployment does not have."""
+    # Arrange
+    config = copy.deepcopy(_config(["alice"]))
+    config["control_system"] = {"writes_enabled": True}
+    config["claude_code"] = {"servers": {"bluesky": {"enabled": True}}}
+
+    # Act
+    compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
+
+    # Assert
+    env = compose["services"]["web-alice"]["environment"]
+    assert [line for line in env if "LAUNCH_TOKEN" in line] == [_LAUNCH_TOKEN_LINE]
+
+
+def test_persona_less_roster_with_a_va_lane_gets_that_lanes_token() -> None:
+    """The contrast that makes the test above about the LANE and not about writes:
+    the same armed config that renders a `services.bluesky_va` block does get the
+    VA lane's own token, because there is a second bridge stack to arm."""
+    # Arrange
+    config = copy.deepcopy(_config(["alice"]))
+    config["control_system"] = {"writes_enabled": True}
+    config["claude_code"] = {"servers": {"bluesky": {"enabled": True}}}
+    config["services"] = {
+        "bluesky": {"port": 8090, "target": "live"},
+        "bluesky_va": {"port": 8190, "target": "va"},
+    }
+
+    # Act
+    compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
+
+    # Assert
+    env = compose["services"]["web-alice"]["environment"]
+    assert _VA_LANE_TOKEN_LINE in env
+
+
+def test_render_emits_no_launch_token_value_anywhere() -> None:
+    """A launch token reaches a container as a compose interpolation from the deploy
+    `.env` and never as a value in a rendered artifact: the render writes neither
+    `bluesky.launch_token` nor `bluesky.lane_launch_tokens`, the two config keys a
+    literal token could travel into a persona's project under."""
+    # Act
+    compose_text = render_web_terminals(
+        _two_lane_persona_config(),
+        launch_token_personas={"bluesky": {"readwrite"}, "bluesky_live": {"readwrite"}},
+    )["docker-compose.web.yml"]
+
+    # Assert
+    assert "launch_token:" not in compose_text
+    assert "lane_launch_tokens" not in compose_text
+    assert [line.strip() for line in compose_text.splitlines() if "LAUNCH_TOKEN" in line] == [
+        f"- {_LAUNCH_TOKEN_LINE}",
+        f"- {_SECOND_LANE_TOKEN_LINE}",
+    ]
+
+
 def test_render_without_launch_token_personas_emits_no_token_line() -> None:
     """The no-project-root render path (`osprey scaffold web-terminals render`)
-    passes no persona set, so no user is armed. Harmless: every `osprey up`
-    re-renders through the artifacts seam, which resolves the set from disk."""
+    passes no per-lane map, so no user is armed on any lane. Harmless: every
+    `osprey up` re-renders through the artifacts seam, which resolves the map
+    from disk."""
     # Act
     compose = yaml.safe_load(
         render_web_terminals(_events_persona_config())["docker-compose.web.yml"]
@@ -3759,6 +3852,7 @@ def test_persona_less_roster_is_armed_from_the_config_itself() -> None:
     # Arrange
     config = copy.deepcopy(_config(["alice"]))
     config["control_system"] = {"writes_enabled": True}
+    config["claude_code"] = {"servers": {"bluesky": {"enabled": True}}}
 
     # Act
     compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
@@ -3768,10 +3862,16 @@ def test_persona_less_roster_is_armed_from_the_config_itself() -> None:
 
 
 def test_persona_less_roster_without_writes_is_not_armed() -> None:
-    """The same path, read-only: writes were never granted, so there is nothing to
-    arm and no token is emitted."""
+    """The same path, read-only: the bluesky server runs, so writes being ungranted
+    is the ONE thing standing between this roster and the token. Leaving the server
+    key out too would make the test pass for a second reason and stop pinning the
+    tier boundary it is named for."""
+    # Arrange
+    config = copy.deepcopy(_config(["alice"]))
+    config["claude_code"] = {"servers": {"bluesky": {"enabled": True}}}
+
     # Act
-    compose = yaml.safe_load(render_web_terminals(_config(["alice"]))["docker-compose.web.yml"])
+    compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
 
     # Assert
     env = compose["services"]["web-alice"]["environment"]
