@@ -110,6 +110,18 @@ is not that deployment: its sessions can leave the sandbox, and what they meet
 afterwards depends on where the session is pointed. Leaving the sandbox restores
 the deployment's posture; it never adds to it.
 
+The badge therefore carries a second reading beside the posture word: the
+control target this session is on, and whether writes are armed **for that
+target** --- ``live · armed`` or ``live · not armed``. On a deployment that
+arms its virtual accelerator and leaves the live machine read-only, a session
+sitting on the live machine reads ``live · not armed``: the session is out of
+the sandbox, and every write it attempts on that target is still refused, one
+call at a time. The reading updates a few seconds after you switch targets, so
+you do not have to reload the page to trust it. When no control target can be
+resolved for the session --- before the controls tools have been used at all, or
+when the record cannot be read --- it shows the deployment's own default, marked
+``(baseline)``.
+
 A terminal session has to have started before it can be given a posture --- it
 only exists on disk once it has been sent a prompt. Until then the request is
 refused with *"This session has not started yet --- send one prompt first, then

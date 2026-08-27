@@ -680,10 +680,19 @@ the first example names both:</p>
 <span class="w">    </span>--channel-db<span class="w"> </span>data/channel_databases/tiers/tier3/hierarchical.json
 </pre></div>
 </div>
+<p>A corpus that is not the demo machine’s wants its own facility token as well:
+<code class="docutils literal notranslate"><span class="pre">--facility</span> <span class="pre">&lt;token&gt;</span></code> decides the token every IRI, every identifier and every
+<code class="docutils literal notranslate"><span class="pre">narad_p:facility</span></code> value in the file carries, and it defaults to <code class="docutils literal notranslate"><span class="pre">demo</span></code>.</p>
+<p>A facility whose device database carries attributes the convention has no slot
+for — engineering units on a channel, a crate or serial identity on a device —
+can attach them as first-class properties through the generator’s library API
+(<code class="docutils literal notranslate"><span class="pre">build_model(...,</span> <span class="pre">device_properties=...,</span> <span class="pre">binding_properties=...)</span></code>), rather
+than folding them into description prose where only a substring match reaches
+them; <code class="docutils literal notranslate"><span class="pre">get_schema()</span></code> then lists them to the agent like any other property.</p>
 <p>Every flag, what it decides and what it falls back to — the two databases the
 corpus is built from, the file that tells a readback from a setpoint, the
-device-family table, and the key to point at the corpus you wrote — is in
-<a class="reference internal" href="../../reference/cli.html#cli-osprey-knowledge"><span class="std std-ref">osprey knowledge</span></a>.</p>
+device-family table, the facility token, and the key to point at the corpus you
+wrote — is in <a class="reference internal" href="../../reference/cli.html#cli-osprey-knowledge"><span class="std std-ref">osprey knowledge</span></a>.</p>
 <p>Then load it (see <a class="reference internal" href="okf-bundle.html"><span class="doc">The OKF Bundle</span></a> for the seeding verb in full):</p>
 <div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>osprey<span class="w"> </span>knowledge<span class="w"> </span>seed-graph<span class="w"> </span>data/demo_machine.ttl
 </pre></div>

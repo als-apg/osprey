@@ -677,9 +677,23 @@ an honest answer: the store is reachable, it is simply not being written.</p>
 <section id="checks-that-need-real-python">
 <h2>Checks that need real Python<a class="headerlink" href="#checks-that-need-real-python" title="Link to this heading">#</a></h2>
 <p>A check that has to query a facility service or compute a derived state cannot
-be written in YAML. For those, <code class="docutils literal notranslate"><span class="pre">health.plugins</span></code> takes dotted module paths and
-loads each module’s checks as a category of its own — writing that module is a
+be written in YAML. For those, <code class="docutils literal notranslate"><span class="pre">health.plugins</span></code> names Python modules and loads
+each module’s checks as a category of its own — writing that module is a
 developer task, covered in <a class="reference internal" href="../../contributing/extending-osprey.html"><span class="doc">Extending Osprey</span></a>.</p>
+<p>An entry is either a dotted module path, which has to be importable by every
+process that runs the suite, or a path to a <code class="docutils literal notranslate"><span class="pre">.py</span></code> file, which does not:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">health</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">plugins</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./health/facility_checks.py</span><span class="w">   </span><span class="c1"># a file in your project</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my_package.health_checks</span><span class="w">      </span><span class="c1"># an installed module</span>
+</pre></div>
+</div>
+<p>A relative file path is resolved against your project root — the directory
+holding <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> — the same way <code class="docutils literal notranslate"><span class="pre">data/</span></code> and <code class="docutils literal notranslate"><span class="pre">plans/</span></code> paths are, so a
+checks file kept beside your profile is found by the CLI, the dashboard and the
+health MCP server alike, with no <code class="docutils literal notranslate"><span class="pre">PYTHONPATH</span></code> to arrange. A plugin that will
+not load never takes the suite down: it reports one <code class="docutils literal notranslate"><span class="pre">error</span></code> row under the
+<code class="docutils literal notranslate"><span class="pre">plugins</span></code> category, naming the entry and what went wrong.</p>
 </section>
 <section id="the-web-dashboard-system-panel">
 <h2>The web dashboard (<code class="docutils literal notranslate"><span class="pre">SYSTEM</span></code> panel)<a class="headerlink" href="#the-web-dashboard-system-panel" title="Link to this heading">#</a></h2>

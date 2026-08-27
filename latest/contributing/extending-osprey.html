@@ -543,8 +543,15 @@ your build profile, not an ARIEL extension. Pinning test:
 real Python — querying a facility service, computing a derived state. Write
 a module that exposes <code class="docutils literal notranslate"><span class="pre">get_health_categories()</span></code>, returning a mapping of
 category name to a no-argument callable (sync or async) that produces a list of
-<code class="docutils literal notranslate"><span class="pre">osprey.health.models.CheckResult</span></code>, then name the module as a dotted path
-under <code class="docutils literal notranslate"><span class="pre">health.plugins</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey.health.plugins.load_plugin_categories</span></code>
+<code class="docutils literal notranslate"><span class="pre">osprey.health.models.CheckResult</span></code>, then name it under <code class="docutils literal notranslate"><span class="pre">health.plugins</span></code> —
+either as a dotted path to an importable module (<code class="docutils literal notranslate"><span class="pre">my_package.health_checks</span></code>)
+or as a path to a <code class="docutils literal notranslate"><span class="pre">.py</span></code> file (<code class="docutils literal notranslate"><span class="pre">./health/facility_checks.py</span></code>). A relative
+file path is resolved against the project root, the same anchor <code class="docutils literal notranslate"><span class="pre">data/</span></code> and
+<code class="docutils literal notranslate"><span class="pre">plans/</span></code> use, so a deployment can keep its checks beside its profile without
+packaging them or setting <code class="docutils literal notranslate"><span class="pre">PYTHONPATH</span></code>. A file loaded that way is given a
+synthetic module name derived from its path and is <strong>re-executed</strong> every time
+the health config is reloaded, so it must not keep state at module level.
+<code class="docutils literal notranslate"><span class="pre">osprey.health.plugins.load_plugin_categories</span></code>
 loads it, and does so fail-safe: a plugin that will not import, returns the
 wrong type, or collides with an existing category name becomes one <code class="docutils literal notranslate"><span class="pre">error</span></code>
 row rather than a crashed suite. Pinning test:

@@ -670,6 +670,33 @@ Check it the way you would check any unit:
    systemctl --user status osprey.service
    journalctl --user -u osprey.service -b
 
+When the home directory is on a network mount
+---------------------------------------------
+
+Linger is not enough when ``$HOME`` is on NFS or autofs, and the scaffold verb
+says so: it reads the home directory's filesystem type with ``findmnt`` and
+prints a warning beside the install commands. The lingering user manager starts
+at boot before that mount is there. It resolves its unit search path once,
+finds nothing, and does not look again — so after every host reboot the unit
+reads as ``not-found``, and ``podman.socket`` with it, until somebody runs
+``systemctl --user daemon-reload`` by hand. It looks like a broken unit and it
+is a mount-ordering problem.
+
+Ordering the user manager after the mount is a drop-in on ``user@<uid>.service``,
+which OSPREY cannot install for you because it needs root:
+
+.. code-block:: ini
+
+   # /etc/systemd/system/user@<uid>.service.d/network-home.conf
+   [Unit]
+   RequiresMountsFor=/home/<account>
+   After=remote-fs.target autofs.service
+
+Followed by ``sudo systemctl daemon-reload``. The command prints that file with
+your own uid and home directory already filled in, ready to hand to whoever
+administers the host. On a local home — or on a host with no ``findmnt``, where
+there is no way to tell — it prints nothing extra.
+
 Why the unit runs ``osprey`` and not compose
 --------------------------------------------
 

@@ -1109,7 +1109,7 @@ unchanged schema twice leaves <code class="docutils literal notranslate"><span c
 synonyms and families that differ — which is what a CI job or a pre-commit
 hook runs to prove a committed table still matches its schema.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">build-ttl</span> <span class="pre">OUTPUT</span> <span class="pre">[--channel-db</span> <span class="pre">PATH]</span> <span class="pre">[--descriptions</span> <span class="pre">PATH]</span> <span class="pre">[--limits</span> <span class="pre">PATH]</span> <span class="pre">[--ontology</span> <span class="pre">PATH]</span></code></dt><dd><p>Derive a NARAD-convention TTL corpus — the file <code class="docutils literal notranslate"><span class="pre">seed-graph</span></code> loads — from
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">build-ttl</span> <span class="pre">OUTPUT</span> <span class="pre">[--channel-db</span> <span class="pre">PATH]</span> <span class="pre">[--descriptions</span> <span class="pre">PATH]</span> <span class="pre">[--limits</span> <span class="pre">PATH]</span> <span class="pre">[--ontology</span> <span class="pre">PATH]</span> <span class="pre">[--facility</span> <span class="pre">TOKEN]</span></code></dt><dd><p>Derive a NARAD-convention TTL corpus — the file <code class="docutils literal notranslate"><span class="pre">seed-graph</span></code> loads — from
 the project’s own channel databases, so the graph store and the channel
 finder describe the same machine. The corpus carries one device node per
 device, one binding per address, one class per device family, a read or write
@@ -1135,7 +1135,7 @@ the OSPREY source tree keeps the two, side by side under <code class="docutils l
 With no such neighbour the command asks for the flag.</p>
 </dd>
 </dl>
-<p>Two more inputs decide details:</p>
+<p>Three more inputs decide details:</p>
 <dl class="simple">
 <dt><code class="docutils literal notranslate"><span class="pre">--limits</span></code></dt><dd><p><code class="docutils literal notranslate"><span class="pre">control_system.limits_checking.database_path</span></code>. This file is what tells
 a readback from a setpoint, so the corpus and the write-safety layer agree
@@ -1149,6 +1149,13 @@ the demo machine’s. The table is compiled from an authored LinkML schema
 (<code class="docutils literal notranslate"><span class="pre">compile-ontology</span></code> above) rather than written by hand, though a
 hand-written JSON table is still accepted, so an existing one keeps
 working untouched.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">--facility</span></code></dt><dd><p>The facility token, <code class="docutils literal notranslate"><span class="pre">demo</span></code> by default. Every IRI and identifier the
+corpus mints embeds it, and each device carries it as
+<code class="docutils literal notranslate"><span class="pre">narad_p:facility</span></code>, so name your own facility when the corpus is not
+the demo machine’s. The token is written once, from this flag: there is
+no second place for it to come from and therefore no way for the
+identifiers and the property to disagree.</p>
 </dd>
 </dl>
 <p>The neighbour rule for <code class="docutils literal notranslate"><span class="pre">--descriptions</span></code> is a convenience of the OSPREY
@@ -1344,7 +1351,10 @@ OSPREY is reinstalled elsewhere. Re-running is safe on the same terms as
 <code class="docutils literal notranslate"><span class="pre">ci</span></code>: a matching file is left untouched, and a file the scaffolder did not
 write needs <code class="docutils literal notranslate"><span class="pre">--force</span></code>. Refuses when no <code class="docutils literal notranslate"><span class="pre">osprey</span></code> program can be found to
 name. Starting at boot also needs <code class="docutils literal notranslate"><span class="pre">loginctl</span> <span class="pre">enable-linger</span> <span class="pre">$USER</span></code> once —
-see <a class="reference internal" href="../how-to/deploy-a-facility.html"><span class="doc">Deploy a Facility</span></a>.</p>
+see <a class="reference internal" href="../how-to/deploy-a-facility.html"><span class="doc">Deploy a Facility</span></a>. When <code class="docutils literal notranslate"><span class="pre">$HOME</span></code> is on an NFS or autofs
+mount it also warns that linger alone will not survive a reboot there, and
+prints the root-only <code class="docutils literal notranslate"><span class="pre">user&#64;&lt;uid&gt;.service</span></code> drop-in that orders the user
+manager after the mount.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">list</span></code></dt><dd><p>List all build artifacts and their ownership status (framework vs.
 user-owned).</p>

@@ -1087,6 +1087,29 @@ the unit that starts them is still a user unit, so it still needs it.</p>
 journalctl<span class="w"> </span>--user<span class="w"> </span>-u<span class="w"> </span>osprey.service<span class="w"> </span>-b
 </pre></div>
 </div>
+<section id="when-the-home-directory-is-on-a-network-mount">
+<h3>When the home directory is on a network mount<a class="headerlink" href="#when-the-home-directory-is-on-a-network-mount" title="Link to this heading">#</a></h3>
+<p>Linger is not enough when <code class="docutils literal notranslate"><span class="pre">$HOME</span></code> is on NFS or autofs, and the scaffold verb
+says so: it reads the home directory’s filesystem type with <code class="docutils literal notranslate"><span class="pre">findmnt</span></code> and
+prints a warning beside the install commands. The lingering user manager starts
+at boot before that mount is there. It resolves its unit search path once,
+finds nothing, and does not look again — so after every host reboot the unit
+reads as <code class="docutils literal notranslate"><span class="pre">not-found</span></code>, and <code class="docutils literal notranslate"><span class="pre">podman.socket</span></code> with it, until somebody runs
+<code class="docutils literal notranslate"><span class="pre">systemctl</span> <span class="pre">--user</span> <span class="pre">daemon-reload</span></code> by hand. It looks like a broken unit and it
+is a mount-ordering problem.</p>
+<p>Ordering the user manager after the mount is a drop-in on <code class="docutils literal notranslate"><span class="pre">user&#64;&lt;uid&gt;.service</span></code>,
+which OSPREY cannot install for you because it needs root:</p>
+<div class="highlight-ini notranslate"><div class="highlight"><pre><span></span><span class="c1"># /etc/systemd/system/user@&lt;uid&gt;.service.d/network-home.conf</span>
+<span class="k">[Unit]</span>
+<span class="na">RequiresMountsFor</span><span class="o">=</span><span class="s">/home/&lt;account&gt;</span>
+<span class="na">After</span><span class="o">=</span><span class="s">remote-fs.target autofs.service</span>
+</pre></div>
+</div>
+<p>Followed by <code class="docutils literal notranslate"><span class="pre">sudo</span> <span class="pre">systemctl</span> <span class="pre">daemon-reload</span></code>. The command prints that file with
+your own uid and home directory already filled in, ready to hand to whoever
+administers the host. On a local home — or on a host with no <code class="docutils literal notranslate"><span class="pre">findmnt</span></code>, where
+there is no way to tell — it prints nothing extra.</p>
+</section>
 <section id="why-the-unit-runs-osprey-and-not-compose">
 <h3>Why the unit runs <code class="docutils literal notranslate"><span class="pre">osprey</span></code> and not compose<a class="headerlink" href="#why-the-unit-runs-osprey-and-not-compose" title="Link to this heading">#</a></h3>
 <p>The unit’s <code class="docutils literal notranslate"><span class="pre">ExecStart</span></code> is <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span> <span class="pre">-d</span></code> and its <code class="docutils literal notranslate"><span class="pre">ExecStop</span></code> is <code class="docutils literal notranslate"><span class="pre">osprey</span>
@@ -1200,6 +1223,7 @@ containerized terminal per operator.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#changing-something-later">Changing something later</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#operating-it">Operating it</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#starting-it-again-after-a-reboot">Starting it again after a reboot</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#when-the-home-directory-is-on-a-network-mount">When the home directory is on a network mount</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#why-the-unit-runs-osprey-and-not-compose">Why the unit runs <code class="docutils literal notranslate"><span class="pre">osprey</span></code> and not compose</a></li>
 </ul>
 </li>
