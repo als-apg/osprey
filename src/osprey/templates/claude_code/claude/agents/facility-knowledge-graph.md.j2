@@ -24,9 +24,9 @@ Yours (structural):
 - Location and beam order: "what sits in section 7, in order?" — `sPositionM` and
   `ordinalInSection` are facts in the graph, not inferences.
 - One device's surface: "what can I read or set on this magnet?" — every binding,
-  split by its `READSSIGNAL` / `WRITESSIGNAL` edge. Read vs write is data here,
-  sourced from the same limits file the write-safety layer uses, never a guess
-  from an address suffix.
+  split by its direction edge. Read vs write is data here — one
+  `READSSIGNAL`/`WRITESSIGNAL` edge decided once per signal group — never
+  inferred from the address text.
 - Reverse lookup: "which device owns this address?" — from a `fullPv` back to the
   device and its siblings.
 - Ontology: "what kinds of magnets are there?" — classes, subclasses, synonyms.

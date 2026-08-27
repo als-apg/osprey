@@ -326,3 +326,24 @@ def test_the_catalogue_composes_hardware_and_signal_filters() -> None:
     assert "b.description" not in composed.cypher, (
         "the point of this example is to NOT match the sibling-blind description prose"
     )
+
+
+def test_no_description_claims_where_direction_came_from() -> None:
+    """The catalogue may not name the artifact a direction came from.
+
+    Direction reaches the corpus by more than one route: the generator falls
+    back to the PV grammar when no channel limits file resolves, and a
+    deployment may assign directions from its own mapping without a limits file
+    ever being opened. A description that names one of those routes as *the*
+    source reads as fact to the agent and to the operator asking "how do you
+    know this is writable?" — and is wrong in the reassuring direction on every
+    other route. The instruction that survives is provenance-neutral: read the
+    edge, do not infer from the address text.
+    """
+    for query in EXAMPLE_QUERIES:
+        lowered = query.description.lower()
+        assert "limits file" not in lowered, (
+            f"{query.key}'s description names the limits file as the direction "
+            "source; direction may come from the PV-grammar fallback or from a "
+            "deployment-supplied mapping instead"
+        )

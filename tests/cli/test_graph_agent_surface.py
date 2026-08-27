@@ -172,6 +172,33 @@ def test_the_rendered_agent_ships_the_snapshot_placeholder(built_ariel_standalon
     )
 
 
+def test_the_rendered_agent_does_not_claim_where_direction_came_from(
+    built_ariel_standalone_project,
+):
+    """The prompt may not name the artifact a binding's direction came from.
+
+    The sentence that tells the agent to trust the ``READSSIGNAL`` /
+    ``WRITESSIGNAL`` edge over its own reading of the address text is
+    load-bearing, and it is what an operator gets back when they ask "how do
+    you know this is writable?". Direction reaches the corpus by more than one
+    route — the generator's PV-grammar fallback when no channel limits file
+    resolves, or a deployment-supplied mapping that never opens one — so naming
+    a single artifact as the source is true on one path and reassuringly wrong
+    on the others. The instruction survives without the provenance claim; the
+    per-deployment answer belongs in the snapshot, which is stamped from what
+    the store actually holds.
+    """
+    text = (
+        built_ariel_standalone_project / ".claude" / "agents" / "facility-knowledge-graph.md"
+    ).read_text(encoding="utf-8")
+
+    assert "limits file" not in text.lower(), (
+        "the rendered agent names the limits file as the direction source; "
+        "direction may come from the PV-grammar fallback or from a "
+        "deployment-supplied mapping instead"
+    )
+
+
 # ---------------------------------------------------------------------------
 # channel_finder_standalone: a subagent with no graph store
 # ---------------------------------------------------------------------------
