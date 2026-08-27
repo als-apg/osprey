@@ -261,7 +261,8 @@ def test_the_crontab_job_survives_a_home_that_is_not_there_yet() -> None:
     # Bounded by the same budget the script uses, and loud when it runs out.
     assert f"[ $n -ge {BOOT_HOOK_TOTAL_WAIT_SEC // BOOT_HOOK_POLL_SEC} ]" in job
     assert f"sleep {BOOT_HOOK_POLL_SEC}" in job
-    assert f'never appeared" >> {BOOT_HOOK_LOG}' in job
+    # On stdout as well as in the log: this is the branch cron's mail is for.
+    assert f'never appeared" | tee -a {BOOT_HOOK_LOG}' in job
 
 
 def test_the_script_restores_the_real_home_before_anything_else(code: str) -> None:

@@ -25,7 +25,7 @@
 #
 #   crontab -e
 #   HOME=/
-#   @reboot echo "$(date) osprey-boot-hook: cron fired" >> /tmp/osprey-boot-hook.$(id -u).log; n=0; until [ -x /srv/osprey/demo-facility/scripts/osprey-boot-hook.sh ] || [ $n -ge 60 ]; do sleep 5; n=$((n+1)); done; if [ -x /srv/osprey/demo-facility/scripts/osprey-boot-hook.sh ]; then exec /srv/osprey/demo-facility/scripts/osprey-boot-hook.sh; fi; echo "$(date) osprey-boot-hook: gave up, /srv/osprey/demo-facility/scripts/osprey-boot-hook.sh never appeared" >> /tmp/osprey-boot-hook.$(id -u).log
+#   @reboot echo "$(date) osprey-boot-hook: cron fired" >> /tmp/osprey-boot-hook.$(id -u).log; n=0; until [ -x /srv/osprey/demo-facility/scripts/osprey-boot-hook.sh ] || [ $n -ge 120 ]; do sleep 5; n=$((n+1)); done; if [ -x /srv/osprey/demo-facility/scripts/osprey-boot-hook.sh ]; then exec /srv/osprey/demo-facility/scripts/osprey-boot-hook.sh; fi; echo "$(date) osprey-boot-hook: gave up, /srv/osprey/demo-facility/scripts/osprey-boot-hook.sh never appeared" | tee -a /tmp/osprey-boot-hook.$(id -u).log
 #
 # Neither line is optional, and the job is deliberately not a bare `@reboot`
 # with this script's path. cron changes into the crontab's HOME before it runs
@@ -35,7 +35,9 @@
 # the same late mount, so the job — which lives in the crontab, on the local
 # disk — first notes that cron fired it in `/tmp/osprey-boot-hook.$(id -u).log`, waits for
 # this file to become readable, and only then runs it. Put the two lines last
-# in the crontab, or any job below them runs from `/` too.
+# in the crontab: every job below them runs from `/` and sees HOME=/ in its
+# environment, so a job body that expands $HOME breaks silently unless it
+# starts with its own `export HOME=<the real home>`.
 #
 # Everything this script prints lands in that same log, on the local disk
 # rather than the home, so a boot on which the home never came still says
@@ -78,7 +80,7 @@ fi
 # the budget the hook gives up and says which thing never showed, rather than
 # holding a cron slot open forever.
 POLL_SECONDS=5
-TOTAL_WAIT_SECONDS=300
+TOTAL_WAIT_SECONDS=600
 WAITED=0
 
 say() { printf 'osprey-boot-hook: %s\n' "$1" | tee -a "$LOG"; }

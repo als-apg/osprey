@@ -89,11 +89,16 @@ BOOT_HOOK_OUTPUT_NAME: str = "osprey-boot-hook.sh"
 #: start rather than hang the boot on it.
 SYSTEMD_START_TIMEOUT_SEC: int = 900
 
-#: How long the boot hook waits, in total, for the pieces it needs — the home
-#: mount, the deployment, and the user manager's runtime directory. An automount
-#: that has not answered in five minutes is not slow, it is broken, and a hook
-#: that waits past that holds a cron slot open on a host nobody is watching.
-BOOT_HOOK_TOTAL_WAIT_SEC: int = 300
+#: How long the crontab job waits for the hook to become readable — in practice
+#: how long the home may take to arrive — and, separately, how long the hook
+#: then waits for the deployment and the user manager. On a normal boot the
+#: automounter followed cron by under twenty seconds; the boot that matters is
+#: the messy one, a site power event with the filer coming up after the compute
+#: host, where the home can be minutes late and giving up recreates the silent
+#: dead stack the hook exists to prevent. Ten minutes of a sleeping shell costs
+#: nothing; a hook that waits past that holds a cron slot open on a host nobody
+#: is watching.
+BOOT_HOOK_TOTAL_WAIT_SEC: int = 600
 
 #: Seconds between the hook's attempts. Short enough that a mount landing two
 #: seconds after boot does not cost the deployment a visible delay, long enough
@@ -374,7 +379,9 @@ def boot_hook_crontab_lines(hook: str) -> tuple[str, str]:
     for itself: it writes a launch marker to :data:`BOOT_HOOK_LOG` before
     anything else, waits up to :data:`BOOT_HOOK_TOTAL_WAIT_SEC` for the script
     to become readable, and only then runs it. The script restores the real
-    ``HOME`` as its first act.
+    ``HOME`` as its first act. Giving up is said on stdout as well as in the
+    log: cron mails what a job prints, and this is the one branch where that
+    mail is the whole point.
 
     No ``%`` anywhere: cron reads it as a newline.
 
@@ -391,7 +398,7 @@ def boot_hook_crontab_lines(hook: str) -> tuple[str, str]:
         f"n=0; until [ -x {hook} ] || [ $n -ge {attempts} ]; "
         f"do sleep {BOOT_HOOK_POLL_SEC}; n=$((n+1)); done; "
         f"if [ -x {hook} ]; then exec {hook}; fi; "
-        f'echo "$(date) osprey-boot-hook: gave up, {hook} never appeared" >> {BOOT_HOOK_LOG}'
+        f'echo "$(date) osprey-boot-hook: gave up, {hook} never appeared" | tee -a {BOOT_HOOK_LOG}'
     )
     return ("HOME=/", job)
 

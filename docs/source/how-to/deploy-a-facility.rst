@@ -717,7 +717,7 @@ prints, pasted whole:
 
    crontab -e
    HOME=/
-   @reboot echo "$(date) osprey-boot-hook: cron fired" >> /tmp/osprey-boot-hook.$(id -u).log; n=0; until [ -x /path/to/repo/scripts/osprey-boot-hook.sh ] || [ $n -ge 60 ]; do sleep 5; n=$((n+1)); done; if [ -x /path/to/repo/scripts/osprey-boot-hook.sh ]; then exec /path/to/repo/scripts/osprey-boot-hook.sh; fi; echo "$(date) osprey-boot-hook: gave up, /path/to/repo/scripts/osprey-boot-hook.sh never appeared" >> /tmp/osprey-boot-hook.$(id -u).log
+   @reboot echo "$(date) osprey-boot-hook: cron fired" >> /tmp/osprey-boot-hook.$(id -u).log; n=0; until [ -x /path/to/repo/scripts/osprey-boot-hook.sh ] || [ $n -ge 120 ]; do sleep 5; n=$((n+1)); done; if [ -x /path/to/repo/scripts/osprey-boot-hook.sh ]; then exec /path/to/repo/scripts/osprey-boot-hook.sh; fi; echo "$(date) osprey-boot-hook: gave up, /path/to/repo/scripts/osprey-boot-hook.sh never appeared" | tee -a /tmp/osprey-boot-hook.$(id -u).log
 
 The job is deliberately not a bare ``@reboot`` with the script's path, because
 two things happen before a cron job's command runs and each one kills the job
@@ -730,7 +730,9 @@ job, which lives in the crontab on the local disk, notes that cron fired it in
 readable before running it. That log is the first place to look after a boot
 that did not come back: it splits "cron never fired" from "still waiting for
 the home" from "the hook ran and said why". Put the two lines last in the
-crontab, or every job below them runs from ``/`` too.
+crontab: every job below them runs from ``/`` and sees ``HOME=/`` in its
+environment, so a job body that expands ``$HOME`` breaks silently unless it
+starts with its own ``export HOME=<the real home>``.
 
 Where the drop-in applies, the hook repairs each boot after the fact rather
 than ordering the manager correctly in the first place, so there it is a

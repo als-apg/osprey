@@ -35,7 +35,9 @@
 # the same late mount, so the job — which lives in the crontab, on the local
 # disk — first notes that cron fired it in `{{ boot_hook_log }}`, waits for
 # this file to become readable, and only then runs it. Put the two lines last
-# in the crontab, or any job below them runs from `/` too.
+# in the crontab: every job below them runs from `/` and sees HOME=/ in its
+# environment, so a job body that expands $HOME breaks silently unless it
+# starts with its own `export HOME=<the real home>`.
 #
 # Everything this script prints lands in that same log, on the local disk
 # rather than the home, so a boot on which the home never came still says
