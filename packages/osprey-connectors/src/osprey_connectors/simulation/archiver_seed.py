@@ -45,6 +45,7 @@ worth reasoning about — pure and testable with no store at all.
 from __future__ import annotations
 
 import hashlib
+import json
 import time
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -371,6 +372,7 @@ def synthesize_documents(
     engine: SimulationEngine | None = None,
     boot_values: Mapping[str, float] | None = None,
     noise_level: float = DEFAULT_NOISE_LEVEL,
+    value_transform: Callable[[str, Sequence[Any]], Sequence[Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """One document per timestamp, carrying every channel's value at it.
 
@@ -379,6 +381,15 @@ def synthesize_documents(
     restores to it, and an equivalence test compares a live query against it.
     A second implementation of this arithmetic anywhere would be a second
     opinion about the machine's past.
+
+    ``value_transform`` is the one seam in that: the arithmetic stays here, and
+    a caller may only *declare* a transform over its result — never compute the
+    values itself. It exists for the deployment whose ``live`` target is a
+    stand-in, whose readout carries systematic offsets the machine this module
+    models does not have. Because a transform changes what the store contains,
+    a caller applying one must describe it to :func:`seed_fingerprint` through
+    ``transform_fingerprint``; a store seeded with offsets would otherwise
+    compare MATCH against one seeded without them.
 
     Channel values come from three places, matching what the deployment's live
     half serves:
@@ -401,6 +412,13 @@ def synthesize_documents(
             :func:`~osprey_connectors.simulation.procedural.baseline_value` so procedural
             channels anchor where the VA boots them.
         noise_level: Relative noise for the procedural channels.
+        value_transform: Called once per channel with ``(address, values)``
+            after the values are synthesized and before they are scattered into
+            the documents, returning the values to store. It must return one
+            value per timestamp, in the same order; a shorter or longer sequence
+            raises rather than silently shifting a channel's history. ``None``
+            stores what this module computed, which is the only behaviour a
+            deployment without a stand-in ever sees.
 
     Returns:
         A list of ``{date: datetime, <address>: value}`` documents, ascending in
@@ -432,6 +450,11 @@ def synthesize_documents(
             boot_values=boot_values,
             noise_level=noise_level,
         )
+        if value_transform is not None:
+            values = value_transform(address, values)
+        # ``strict`` is the length contract: a transform that returned the wrong
+        # number of values would otherwise leave the tail of a channel's window
+        # unwritten, which reads back as a channel that simply stops.
         for document, value in zip(documents, values, strict=True):
             document[address] = value
 
@@ -503,19 +526,34 @@ def seed_fingerprint(
     channel_addresses: Iterable[str],
     *,
     compression: str,
+    transform_fingerprint: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The knobs a store's coverage depends on, as a comparable dict.
 
     Everything here changes what the store *contains*: the window's depth and
-    density, which channels are in it, how it is compressed on disk, and the
-    document schema itself. Nothing here is an instant or a count — those move
-    on every deploy and would make the comparison a coin flip.
+    density, which channels are in it, how it is compressed on disk, the
+    document schema itself, and any transform the caller applied to the values.
+    Nothing here is an instant or a count — those move on every deploy and would
+    make the comparison a coin flip.
+
+    The transform belongs here for the same reason the channel set does: a store
+    seeded with a stand-in's systematic offsets holds different numbers than one
+    seeded without them, and a fingerprint blind to that would report MATCH
+    across the very change that makes the stored past belong to another machine.
 
     Args:
         knobs: The archive's shape.
         channel_addresses: The seeded channel set. Order does not matter; the
             hash is taken over the sorted, deduplicated names.
         compression: The collection's block compressor.
+        transform_fingerprint: A JSON-able description of the value transform
+            passed to :func:`synthesize_documents`, or ``None`` when the values
+            are stored as this module computed them. It is folded in as
+            canonical JSON — key order and tuple-versus-list spelling therefore
+            do not move the fingerprint — under the ``value_transform`` field,
+            whose ``None`` is also what a manifest predating the field reads as,
+            so an untransformed store seeded by an older version still compares
+            MATCH rather than reseeding for a knob nobody changed.
 
     Returns:
         The fingerprint, JSON-serializable and safe to store verbatim.
@@ -531,6 +569,11 @@ def seed_fingerprint(
         "compression": compression,
         "channel_count": len(names),
         "channel_set_sha256": digest,
+        "value_transform": (
+            None
+            if transform_fingerprint is None
+            else json.dumps(transform_fingerprint, sort_keys=True, separators=(",", ":"))
+        ),
     }
 
 
@@ -639,6 +682,8 @@ def seed_base(
     workers: int = DEFAULT_WORKERS,
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     progress: Callable[[SeedReport], None] | None = None,
+    value_transform: Callable[[str, Sequence[Any]], Sequence[Any]] | None = None,
+    transform_fingerprint: Mapping[str, Any] | None = None,
 ) -> SeedReport:
     """Build the store: indexes, the whole base series, then the manifest.
 
@@ -670,6 +715,14 @@ def seed_base(
         chunk_size: Timestamps synthesized and inserted per batch.
         progress: Called after each chunk with the running report, for a
             deploy-time progress line.
+        value_transform: Applied per channel to every chunk's values (see
+            :func:`synthesize_documents`), or ``None`` to store the synthesized
+            values unchanged.
+        transform_fingerprint: The transform's declared identity, recorded in
+            the manifest so a store built with it does not compare MATCH against
+            one built without. Passing a ``value_transform`` and leaving this
+            ``None`` is how a reseed would silently be skipped, so a caller
+            applying one is expected to describe it.
 
     Returns:
         The completed report.
@@ -703,6 +756,7 @@ def seed_base(
                 engine=engine,
                 boot_values=boot_values,
                 noise_level=noise_level,
+                value_transform=value_transform,
             )
             for document, expire_at in zip(documents, _as_utc_datetimes(chunk_expiry), strict=True):
                 document[EXPIRE_FIELD] = expire_at
@@ -721,7 +775,12 @@ def seed_base(
     report.elapsed_s = time.monotonic() - started
     write_manifest(
         collection,
-        seed_fingerprint(knobs, addresses, compression=compression),
+        seed_fingerprint(
+            knobs,
+            addresses,
+            compression=compression,
+            transform_fingerprint=transform_fingerprint,
+        ),
         seeded_at=t0,
         report=report,
     )

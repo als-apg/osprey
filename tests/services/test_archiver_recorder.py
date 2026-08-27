@@ -40,6 +40,10 @@ from osprey.services.archiver_recorder import (
     resolve_channel_addresses,
 )
 
+# Not re-exported by the package: the enablement facts are this service's own
+# internal contract, and the package surface stays the narrow reader it was.
+from osprey.services.archiver_recorder.config import RecordingFacts, read_recording_facts
+
 # The session-scoped MongoDB container, reused rather than re-declared: one
 # container for the whole test session, skipping cleanly without Docker.
 from tests.connectors.conftest import mongodb_container  # noqa: F401
@@ -65,8 +69,25 @@ def _settings(**overrides) -> RecorderSettings:
     return RecorderSettings(**base)
 
 
-def _write_config(path: Path, control_system_type: str = "virtual_accelerator", **extra) -> Path:
-    config = {
+def _write_config(
+    path: Path,
+    control_system_type: str = "virtual_accelerator",
+    *,
+    live_gateway: tuple[str, int | str] | None = None,
+    standin_port: int | None = None,
+    **extra,
+) -> Path:
+    """A rendered config.yml, optionally shaped like a stand-in deployment.
+
+    ``live_gateway`` writes the ``epics`` connector block whose ``read_only``
+    gateway is what a live session dials — the block a stand-in build
+    overwrites with the stand-in's loopback port, and the block an SSH tunnel
+    also lands on. ``standin_port`` writes ``services.live_standin.port``, which
+    is the deployment saying it stood a second virtual accelerator up. The two
+    are independent arguments because the interesting cases are the ones where
+    they disagree.
+    """
+    config: dict = {
         "control_system": {"type": control_system_type},
         "archiver": {
             "mongodb_archiver": {
@@ -90,6 +111,13 @@ def _write_config(path: Path, control_system_type: str = "virtual_accelerator", 
             "recorder_poll_sec": 30,
         },
     }
+    if live_gateway is not None:
+        address, port = live_gateway
+        config["control_system"]["connector"] = {
+            "epics": {"gateways": {"read_only": {"address": address, "port": port}}}
+        }
+    if standin_port is not None:
+        config["services"] = {"live_standin": {"port": standin_port}}
     config.update(extra)
     path.write_text(yaml.safe_dump(config), encoding="utf-8")
     return path
@@ -376,9 +404,10 @@ async def test_non_numeric_channels_are_skipped_and_warned_about_once(
 # ---------------------------------------------------------------------------
 
 
-async def test_only_a_virtual_accelerator_is_recorded(tmp_path: Path) -> None:
+async def test_a_mock_control_system_is_not_recorded(tmp_path: Path) -> None:
     """A real machine's readings spliced onto a synthesized past is exactly the
-    two-world archive this service exists to prevent."""
+    two-world archive this service exists to prevent, and a mock has nothing
+    worth recording in the first place."""
     writer = _FakeWriter()
     recorder = Recorder(
         settings=_settings(),
@@ -414,6 +443,75 @@ async def test_the_control_system_flip_takes_effect_without_a_restart(tmp_path: 
     assert await recorder.tick(datetime(2026, 8, 10, 12, 0, 40, tzinfo=UTC)) is True
 
 
+async def test_a_stand_in_is_recorded_though_the_type_no_longer_says_so(tmp_path: Path) -> None:
+    """`osprey set connector=epics` rewrites the rendered control_system.type
+    without touching services.live_standin, and the machine on the other end of
+    the Channel Access connection has not changed at all. Recording follows the
+    machine, so the gate has to see the stand-in the type stopped naming."""
+    writer = _FakeWriter()
+    recorder = Recorder(
+        settings=_settings(),
+        addresses=["SR:BPM01:X"],
+        writer=writer,
+        config_path=_write_config(
+            tmp_path / "config.yml",
+            control_system_type="epics",
+            live_gateway=("127.0.0.1", 5074),
+            standin_port=5074,
+        ),
+        reader=_reader({"SR:BPM01:X": 1.5}),
+    )
+
+    assert await recorder.tick(datetime(2026, 8, 10, 12, 0, 0, tzinfo=UTC)) is True
+    assert writer.samples[0][1] == {"SR:BPM01:X": 1.5}
+
+
+async def test_a_stand_in_block_does_not_record_a_gateway_pointed_off_the_host(
+    tmp_path: Path,
+) -> None:
+    """The label follows the endpoint, never a leftover `services:` block. Once
+    the gateways name a real facility's host the deployment has gone live,
+    whatever it still says it once stood up — and recording a real machine into
+    a synthesized archive is the failure this gate exists for."""
+    writer = _FakeWriter()
+    recorder = Recorder(
+        settings=_settings(),
+        addresses=["SR:BPM01:X"],
+        writer=writer,
+        config_path=_write_config(
+            tmp_path / "config.yml",
+            control_system_type="epics",
+            live_gateway=("epics-gateway.example.org", 5074),
+            standin_port=5074,
+        ),
+        reader=_reader({"SR:BPM01:X": 1.5}),
+    )
+
+    assert await recorder.tick(datetime(2026, 8, 10, 12, 0, 0, tzinfo=UTC)) is False
+    assert writer.samples == []
+
+
+async def test_an_ssh_tunnel_to_a_real_gateway_is_not_a_stand_in(tmp_path: Path) -> None:
+    """Loopback alone proves nothing: forwarding a real facility's gateway to a
+    local port is one hop from hardware. Without a stand-in the deployment
+    built, there is no synthesized past for those readings to join."""
+    writer = _FakeWriter()
+    recorder = Recorder(
+        settings=_settings(),
+        addresses=["SR:BPM01:X"],
+        writer=writer,
+        config_path=_write_config(
+            tmp_path / "config.yml",
+            control_system_type="epics",
+            live_gateway=("localhost", 5064),
+        ),
+        reader=_reader({"SR:BPM01:X": 1.5}),
+    )
+
+    assert await recorder.tick(datetime(2026, 8, 10, 12, 0, 0, tzinfo=UTC)) is False
+    assert writer.samples == []
+
+
 async def test_a_torn_config_read_keeps_the_last_known_state(tmp_path: Path) -> None:
     """Config writes are truncate-in-place, not atomic. Reading a half-written
     file as "the control system changed" would stop and restart recording on a
@@ -433,6 +531,56 @@ async def test_a_torn_config_read_keeps_the_last_known_state(tmp_path: Path) -> 
     config_path.write_text("{unterminated", encoding="utf-8")
 
     assert recorder.refresh_enablement(datetime(2026, 8, 10, 12, 0, 40, tzinfo=UTC)) is True
+
+
+async def test_a_torn_read_keeps_stand_in_recording_alive_too(tmp_path: Path) -> None:
+    """The torn-read tolerance covers the whole answer, not the type half of it.
+    A recorder enabled by the stand-in must not fall out of the machine's own
+    archive because a poll landed on a half-written file."""
+    config_path = _write_config(
+        tmp_path / "config.yml",
+        control_system_type="epics",
+        live_gateway=("127.0.0.1", 5074),
+        standin_port=5074,
+    )
+    recorder = Recorder(
+        settings=_settings(poll_sec=30),
+        addresses=["SR:BPM01:X"],
+        writer=_FakeWriter(),
+        config_path=config_path,
+        reader=_reader({"SR:BPM01:X": 1.5}),
+    )
+    assert await recorder.tick(datetime(2026, 8, 10, 12, 0, 0, tzinfo=UTC)) is True
+
+    config_path.write_text("{unterminated", encoding="utf-8")
+
+    assert recorder.refresh_enablement(datetime(2026, 8, 10, 12, 0, 40, tzinfo=UTC)) is True
+
+
+async def test_the_idle_line_names_both_ways_a_machine_could_be_recordable(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The idle line is the whole explanation an operator gets from `docker
+    logs`. Naming only the type would send someone to edit the one condition
+    that is not the reason they are being told nothing is written."""
+    recorder = Recorder(
+        settings=_settings(poll_sec=1),
+        addresses=["SR:BPM01:X"],
+        writer=_FakeWriter(),
+        config_path=_write_config(
+            tmp_path / "config.yml",
+            control_system_type="epics",
+            live_gateway=("localhost", 5064),
+        ),
+        reader=_reader({"SR:BPM01:X": 1.5}),
+    )
+
+    with caplog.at_level(logging.INFO):
+        await recorder.tick(datetime(2026, 8, 10, 12, 0, 0, tzinfo=UTC))
+
+    assert "control_system.type=epics" in caplog.text
+    assert "virtual_accelerator" in caplog.text
+    assert "services.live_standin.port" in caplog.text
 
 
 async def test_idling_logs_once_not_every_poll(
@@ -549,6 +697,73 @@ def test_control_system_type_reads_the_file_each_time(tmp_path: Path) -> None:
 
     _write_config(config_path, control_system_type="virtual_accelerator")
     assert read_control_system_type(config_path) == "virtual_accelerator"
+
+
+@pytest.mark.parametrize(
+    ("control_system_type", "live_gateway", "standin_port", "expected"),
+    [
+        # The baseline virtual accelerator: its own type answers, and there is
+        # no live machine named at all for a stand-in to be.
+        ("virtual_accelerator", None, None, RecordingFacts("virtual_accelerator", False)),
+        # A stand-in deployment before and after `osprey set connector=epics`:
+        # the rendered type moves, the stand-in does not.
+        (
+            "virtual_accelerator",
+            ("127.0.0.1", 5074),
+            5074,
+            RecordingFacts("virtual_accelerator", True),
+        ),
+        ("epics", ("127.0.0.1", 5074), 5074, RecordingFacts("epics", True)),
+        # localhost and ::1 are loopback the same way an address is.
+        ("epics", ("localhost", 5074), 5074, RecordingFacts("epics", True)),
+        ("epics", ("::1", 5074), 5074, RecordingFacts("epics", True)),
+        # Gateways moved to the real machine: the leftover block loses.
+        ("epics", ("epics-gateway.example.org", 5074), 5074, RecordingFacts("epics", False)),
+        # The stand-in was built somewhere else than the gateways dial.
+        ("epics", ("127.0.0.1", 5064), 5074, RecordingFacts("epics", False)),
+        # A quoted port in the gateway block, coerced the same way the roster's
+        # own label derivation coerces it: one endpoint, never two answers.
+        ("epics", ("127.0.0.1", "5074"), 5074, RecordingFacts("epics", True)),
+        # A gateway port that names no port at all fails toward the real machine.
+        ("epics", ("127.0.0.1", "not-a-port"), 5074, RecordingFacts("epics", False)),
+        # An SSH tunnel: loopback, and nothing else.
+        ("epics", ("localhost", 5064), None, RecordingFacts("epics", False)),
+        # No live machine ever named — the ordinary mock project.
+        ("mock", None, None, RecordingFacts("mock", False)),
+    ],
+)
+def test_recording_facts_answer_for_the_endpoint_a_live_session_would_dial(
+    tmp_path: Path,
+    control_system_type: str,
+    live_gateway: tuple[str, int | str] | None,
+    standin_port: int | None,
+    expected: RecordingFacts,
+) -> None:
+    """Both facts out of one parse, and the stand-in half decided by the shared
+    predicate against the derived live endpoint rather than by the presence of a
+    `services:` block. A guard that read the block directly would keep claiming
+    a stand-in after the gateways had been moved to hardware."""
+    config_path = _write_config(
+        tmp_path / "config.yml",
+        control_system_type=control_system_type,
+        live_gateway=live_gateway,
+        standin_port=standin_port,
+    )
+
+    assert read_recording_facts(config_path) == expected
+
+
+def test_recording_facts_need_a_control_system_block(tmp_path: Path) -> None:
+    """No silent defaults on the poll path either: a config with nothing to say
+    about its control system cannot say what is being recorded, and the caller
+    keeps its last answer rather than acting on the silence."""
+    config_path = _write_config(tmp_path / "config.yml")
+    config = yaml.safe_load(config_path.read_text())
+    del config["control_system"]
+    config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
+
+    with pytest.raises(RecorderConfigError, match="control_system"):
+        read_recording_facts(config_path)
 
 
 def _recorder_template_text() -> str:
