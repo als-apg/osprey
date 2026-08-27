@@ -1046,8 +1046,9 @@ All subcommands accept a common flag:
    pipeline includes it.
 
 ``osprey scaffold systemd [--force]``
-   Emit a systemd user unit that starts this deployment at boot: ``osprey.service``
-   at the repository root, plus the commands to install it. The unit runs
+   Emit the files that start this deployment at boot: a systemd user unit,
+   ``osprey.service`` at the repository root, and a boot hook,
+   ``scripts/osprey-boot-hook.sh``, plus the commands to install the unit. The unit runs
    ``osprey up -d`` from this repository and ``osprey down`` on stop, with both
    the repository and the ``osprey`` program written in as full paths — systemd
    starts a unit with no working directory and a short ``PATH``. Run it on the
@@ -1057,9 +1058,11 @@ All subcommands accept a common flag:
    write needs ``--force``. Refuses when no ``osprey`` program can be found to
    name. Starting at boot also needs ``loginctl enable-linger $USER`` once —
    see :doc:`/how-to/deploy-a-facility`. When ``$HOME`` is on an NFS or autofs
-   mount it also warns that linger alone will not survive a reboot there, and
-   prints the root-only ``user@<uid>.service`` drop-in that orders the user
-   manager after the mount.
+   mount it also warns that linger alone will not survive a reboot there, prints
+   the root-only ``user@<uid>.service`` drop-in that orders the user manager
+   after a systemd-managed mount, and shows the two crontab lines that run the
+   boot hook at boot — the route for a daemon-managed autofs home, and the
+   no-root fallback elsewhere.
 
 ``osprey scaffold list``
    List all build artifacts and their ownership status (framework vs.

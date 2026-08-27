@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
+import threading
 from time import perf_counter
 
 import pytest
@@ -305,6 +307,139 @@ async def test_on_demand_callable_skip_row_named_after_category(runtime) -> None
     assert len(report.results) == 1
     assert report.results[0].name == "mycat"
     assert report.results[0].status is Status.SKIP
+
+
+# --- Runtime injection into category callables ------------------------------
+
+
+async def test_async_callable_receives_runtime_positional_or_keyword(runtime) -> None:
+    """An ``async def check(runtime)`` gets the suite's own HealthRuntime."""
+    seen: dict[str, object] = {}
+
+    async def _cat(runtime):
+        seen["runtime"] = runtime
+        return [CheckResult("r1", "mycat", Status.OK, "ok")]
+
+    report = await run_health_suite([_call("mycat", _cat)], runtime=runtime)
+
+    assert seen["runtime"] is runtime
+    assert report.results[0].name == "r1"
+
+
+async def test_async_callable_receives_runtime_keyword_only(runtime) -> None:
+    """``async def check(*, runtime)`` is a natural spelling and must work."""
+    seen: dict[str, object] = {}
+
+    async def _cat(*, runtime):
+        seen["runtime"] = runtime
+        return [CheckResult("r1", "mycat", Status.OK, "ok")]
+
+    report = await run_health_suite([_call("mycat", _cat)], runtime=runtime)
+
+    assert seen["runtime"] is runtime
+    assert report.results[0].status is Status.OK
+
+
+async def test_runtime_bound_by_keyword_not_position(runtime) -> None:
+    """A leading unrelated parameter must not receive the runtime."""
+    seen: dict[str, object] = {}
+
+    async def _cat(cache=None, runtime=None):
+        seen["cache"] = cache
+        seen["runtime"] = runtime
+        return [CheckResult("r1", "mycat", Status.OK, "ok")]
+
+    await run_health_suite([_call("mycat", _cat)], runtime=runtime)
+
+    assert seen["runtime"] is runtime
+    assert seen["cache"] is None
+
+
+async def test_zero_arg_async_callable_unchanged(runtime) -> None:
+    async def _cat():
+        return [CheckResult("a1", "mycat", Status.WARNING, "async warn")]
+
+    report = await run_health_suite([_call("mycat", _cat)], runtime=runtime)
+    assert report.results[0].name == "a1"
+    assert report.results[0].status is Status.WARNING
+
+
+async def test_zero_arg_sync_callable_still_offloaded(runtime) -> None:
+    seen: dict[str, object] = {}
+
+    def _cat():
+        seen["thread"] = threading.current_thread()
+        return [CheckResult("s1", "mycat", Status.OK, "sync ok")]
+
+    report = await run_health_suite([_call("mycat", _cat)], runtime=runtime)
+
+    assert report.results[0].name == "s1"
+    assert report.results[0].status is Status.OK
+    assert seen["thread"] is not threading.current_thread()
+
+
+async def test_sync_callable_asking_for_runtime_is_refused(runtime) -> None:
+    """A sync category cannot own the connector's loop, so it is not invoked."""
+    called = False
+
+    def _cat(runtime):
+        nonlocal called
+        called = True
+        return []
+
+    report = await run_health_suite([_call("mycat", _cat)], runtime=runtime)
+
+    assert called is False
+    assert len(report.results) == 1
+    row = report.results[0]
+    assert row.name == "mycat"
+    assert row.category == "mycat"
+    assert row.status is Status.ERROR
+    assert "async def" in row.message
+    assert report.deadline_hit is False
+
+
+async def test_unreadable_signature_is_called_with_zero_arguments(runtime) -> None:
+    """An unreadable signature falls back to the older, safer zero-arg shape."""
+
+    async def _cat():
+        return [CheckResult("o1", "mycat", Status.OK, "opaque ok")]
+
+    _cat.__signature__ = "not a signature"
+    with pytest.raises((TypeError, ValueError)):  # which one is version-dependent
+        inspect.signature(_cat)
+
+    report = await run_health_suite([_call("mycat", _cat)], runtime=runtime)
+
+    assert report.results[0].name == "o1"
+    assert report.results[0].status is Status.OK
+
+
+async def test_signature_raising_anything_else_is_still_zero_arguments(runtime) -> None:
+    """``signature()`` reads ``__signature__``, which plugin code owns.
+
+    The signature probe runs outside the per-callable isolation, so an
+    exception it let through would abort the whole suite — against the
+    module's promise — rather than cost one row. Only ``TypeError`` and
+    ``ValueError`` are documented; a property that raises something else is
+    the case that has to be absorbed too.
+    """
+
+    class _Opaque:
+        @property
+        def __signature__(self):
+            raise RuntimeError("signature unavailable")
+
+        def __call__(self):
+            return [CheckResult("o1", "mycat", Status.OK, "opaque ok")]
+
+    with pytest.raises(RuntimeError):
+        inspect.signature(_Opaque())
+
+    report = await run_health_suite([_call("mycat", _Opaque())], runtime=runtime)
+
+    assert report.results[0].name == "o1"
+    assert report.results[0].status is Status.OK
 
 
 # --- Report shape -----------------------------------------------------------

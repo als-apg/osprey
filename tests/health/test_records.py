@@ -369,6 +369,87 @@ class TestBuildRecords:
         env_row = next(r for r in by_name["file_system"].func() if r.name == "env_file")
         assert env_row.status is Status.WARNING  # no .env at the repo root
 
+    def test_systemd_unit_is_assembled_and_anchored_on_the_repo_root(self, tmp_path, monkeypatch):
+        """The boot unit is looked for beside the profile, not under the render.
+
+        ``osprey scaffold systemd`` writes ``osprey.service`` into the tracked
+        source zone at the repo root. The category's trigger is that repo copy:
+        no repo unit means the operator never asked for the systemd boot path
+        and the row skips. Anchored on ``render_path`` instead, the unit would
+        be invisible on every deployment that HAS one, and the category would
+        skip permanently — silently, since a skip is what a deployment without
+        a unit is supposed to produce.
+
+        Written as the discriminating case: the unit exists ONLY at the repo
+        root, so a render anchor cannot find it.
+        """
+        import asyncio
+
+        # The category is run for real below; without `systemctl` it skips at
+        # the install-directory step, so a developer host that happens to have
+        # the unit installed never spawns a real `systemctl --user show`.
+        monkeypatch.setattr("osprey.health.core.systemd_unit.shutil.which", lambda _name: None)
+
+        repo = tmp_path / "repo"
+        build = repo / "build"
+        config_path = _write_config(build, _VALID_CONFIG)
+        (repo / "osprey.service").write_text("[Unit]\n")
+        assert not (build / "osprey.service").exists()
+
+        state, expanded, settings, config_ok = load_config(config_path, repo)
+        records, _ = build_records(
+            state, expanded, settings, config_ok, repo, 30.0, render_path=state.config_path.parent
+        )
+        by_name = {r.name: r for r in records}
+
+        # The category is in the assembled record set, at plain poll cost: it
+        # reads no config and is cheap, so it is neither config-dependent nor
+        # gated behind ``--full``.
+        assert "systemd_unit" in by_name
+        assert by_name["systemd_unit"].cost is Cost.POLL
+
+        no_unit_message = "no scaffolded osprey.service in this deployment"
+        rows = asyncio.run(by_name["systemd_unit"].func())
+        assert len(rows) == 1
+        assert rows[0].name == "systemd_unit"
+        # The repo unit was seen, so the row got past the trigger. What it
+        # reports next depends on the host (no systemctl on macOS/containers),
+        # which is not what this pin is about.
+        assert rows[0].message != no_unit_message
+
+        # The discrimination, in the same test: anchored on the render zone,
+        # the identical deployment reports no unit at all.
+        from osprey.health.core import get_core_category_factory
+
+        render_anchored = get_core_category_factory("systemd_unit")(
+            expanded, context=None, cwd=state.config_path.parent
+        )
+        render_rows = asyncio.run(render_anchored())
+        assert render_rows[0].status is Status.SKIP
+        assert render_rows[0].message == no_unit_message
+
+
+# --------------------------------------------------------------------------- #
+# systemd_unit: the unit-name spelling pin
+# --------------------------------------------------------------------------- #
+
+
+def test_systemd_unit_spelling_matches_the_verb_that_writes_it():
+    """The two literals cannot drift apart.
+
+    ``osprey.health.core.systemd_unit`` spells the unit filename itself rather
+    than importing ``SYSTEMD_UNIT_NAME``, because importing it would pull the
+    CLI package into the web and MCP health surfaces that import the category.
+    A rename on either side that missed the other would leave the check looking
+    for a file the scaffolder no longer writes — and it would fail silently, as
+    a permanent "no scaffolded unit" skip that reads exactly like a deployment
+    which never asked for one. So the equality is asserted, not assumed.
+    """
+    from osprey.cli.deploy_scaffold_templates import SYSTEMD_UNIT_NAME
+    from osprey.health.core.systemd_unit import _UNIT_NAME
+
+    assert _UNIT_NAME == SYSTEMD_UNIT_NAME
+
 
 # --------------------------------------------------------------------------- #
 # build_records: auto-derived mcp_servers category

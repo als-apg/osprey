@@ -411,3 +411,84 @@ def test_path_entry_collision_is_error_row(tmp_path: Path) -> None:
     assert len(result.errors) == 1
     assert "collides" in result.errors[0].message
     assert "./b.py" in result.errors[0].message
+
+
+def test_unresolvable_home_entry_is_error_row(tmp_path: Path, monkeypatch) -> None:
+    """A ``~`` entry on a host with no resolvable home degrades by one row, not a crash.
+
+    ``Path.expanduser()`` raises ``RuntimeError`` when neither ``$HOME`` nor a
+    passwd entry answers — containers and some CI runners. Resolution happens
+    outside the import ``try``, so nothing else would catch it.
+    """
+
+    def _no_home(self):
+        raise RuntimeError("Could not determine home directory.")
+
+    monkeypatch.setattr(Path, "expanduser", _no_home)
+
+    result = load_plugin_categories(
+        _settings(plugins=["~/health/facility_checks.py"]), project_root=tmp_path
+    )
+
+    assert result.categories == {}
+    assert len(result.errors) == 1
+    row = result.errors[0]
+    assert row.status is Status.ERROR
+    assert row.category == PLUGINS_DIAGNOSTIC_CATEGORY
+    assert "could not resolve" in row.message
+    assert "~/health/facility_checks.py" in row.message
+    assert "Could not determine home directory." in row.message
+
+
+def test_unresolvable_home_entry_without_anchor_is_error_row(monkeypatch) -> None:
+    """Same on the anchorless path, where the shared config-path rule expands ``~``."""
+
+    def _no_home(self):
+        raise RuntimeError("Could not determine home directory.")
+
+    monkeypatch.setattr(Path, "expanduser", _no_home)
+
+    result = load_plugin_categories(_settings(plugins=["~/checks.py"]))
+
+    assert result.categories == {}
+    assert len(result.errors) == 1
+    assert "could not resolve" in result.errors[0].message
+
+
+def test_resolution_oserror_is_error_row(tmp_path: Path, monkeypatch) -> None:
+    """A path that cannot be resolved (symlink cycle, over-long name) is a row too."""
+
+    def _boom(self, *args, **kwargs):
+        raise OSError("Too many levels of symbolic links")
+
+    monkeypatch.setattr(Path, "resolve", _boom)
+
+    result = load_plugin_categories(
+        _settings(plugins=["./health/facility_checks.py"]), project_root=tmp_path
+    )
+
+    assert result.categories == {}
+    assert len(result.errors) == 1
+    assert "could not resolve" in result.errors[0].message
+    assert "symbolic links" in result.errors[0].message
+
+
+def test_unresolvable_entry_does_not_stop_later_plugins(tmp_path: Path, monkeypatch) -> None:
+    """One bad entry costs one row; the rest of the plugin list still loads."""
+    _write_plugin(tmp_path, "checks.py")
+    real_expanduser = Path.expanduser
+
+    def _no_home_for_tilde(self):
+        if str(self).startswith("~"):
+            raise RuntimeError("Could not determine home directory.")
+        return real_expanduser(self)
+
+    monkeypatch.setattr(Path, "expanduser", _no_home_for_tilde)
+
+    result = load_plugin_categories(
+        _settings(plugins=["~/broken.py", "./checks.py"]), project_root=tmp_path
+    )
+
+    assert set(result.categories) == {"facility"}
+    assert len(result.errors) == 1
+    assert "could not resolve" in result.errors[0].message

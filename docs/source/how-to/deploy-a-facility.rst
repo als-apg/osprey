@@ -623,8 +623,9 @@ systemd user unit that does it for you.
 
    osprey scaffold systemd
 
-It writes ``osprey.service`` at the repository root and prints the commands that
-install it on this machine:
+It writes ``osprey.service`` at the repository root — and, beside it,
+``scripts/osprey-boot-hook.sh``, covered below — and prints the commands that
+install the unit on this machine:
 
 .. code-block:: bash
 
@@ -682,8 +683,10 @@ reads as ``not-found``, and ``podman.socket`` with it, until somebody runs
 ``systemctl --user daemon-reload`` by hand. It looks like a broken unit and it
 is a mount-ordering problem.
 
-Ordering the user manager after the mount is a drop-in on ``user@<uid>.service``,
-which OSPREY cannot install for you because it needs root:
+When systemd manages the mount itself — an fstab entry, or a ``.mount`` or
+``.automount`` unit — ordering the user manager after it is a drop-in on
+``user@<uid>.service``, which OSPREY cannot install for you because it needs
+root:
 
 .. code-block:: ini
 
@@ -696,6 +699,51 @@ Followed by ``sudo systemctl daemon-reload``. The command prints that file with
 your own uid and home directory already filled in, ready to hand to whoever
 administers the host. On a local home — or on a host with no ``findmnt``, where
 there is no way to tell — it prints nothing extra.
+
+That drop-in does nothing for a home served by the autofs daemon
+(``automount(8)``): there is no systemd mount unit for ``RequiresMountsFor`` to
+order against, so the manager starts exactly as before. ``findmnt`` reports
+``autofs`` for a systemd automount as well, so the command cannot tell the two
+apart — check ``systemctl list-units -t mount,automount`` for your home to know
+which you have. For a daemon-managed home, and for any host where nobody with
+root is available, the same run has already written the other route:
+``scripts/osprey-boot-hook.sh``, beside the unit. It waits for the home, the
+deployment and the user manager to appear, then reloads the unit files and
+starts the unit — the script an affected site otherwise ends up writing by
+hand. Wire it into the account's own crontab with the lines the command
+prints, all of them, pasted whole:
+
+.. code-block:: bash
+
+   crontab -e
+   SHELL=/bin/sh
+   HOME=/
+   @reboot d=/tmp/osprey-boot-hook.$(id -u); mkdir -m 700 "$d" 2>/dev/null; if [ -d "$d" ] && [ ! -L "$d" ] && [ -O "$d" ]; then log=/tmp/osprey-boot-hook.$(id -u)/boot.log; else log=/dev/null; fi; echo "$(date) osprey-boot-hook: cron fired" >> "$log"; n=0; until [ -x /path/to/repo/scripts/osprey-boot-hook.sh ] || [ $n -ge 120 ]; do sleep 5; n=$((n+1)); done; if [ -x /path/to/repo/scripts/osprey-boot-hook.sh ]; then exec /path/to/repo/scripts/osprey-boot-hook.sh; fi; echo "$(date) osprey-boot-hook: gave up, /path/to/repo/scripts/osprey-boot-hook.sh never appeared" | tee -a "$log"
+
+The job is deliberately not a bare ``@reboot`` with the script's path, because
+two things happen before a cron job's command runs and each one kills the job
+silently on this kind of host. cron changes into the crontab's ``HOME`` first
+and dies, with no mail, when that directory is not there yet — ``HOME=/``
+gives it one that is, ``SHELL=/bin/sh`` names the shell the job is written
+for whatever an existing crontab set above, and the script restores the real
+home as its first act. Then ``sh`` has to read the script, which sits on the same late mount; so the
+job, which lives in the crontab on the local disk, notes that cron fired it in
+``/tmp/osprey-boot-hook.<uid>/boot.log`` and waits for the script to become
+readable before running it. That log is the first place to look after a boot
+that did not come back: it splits "cron never fired" from "still waiting for
+the home" from "the hook ran and said why". Put the lines last in the
+crontab: every job below them runs from ``/`` and sees ``HOME=/`` in its
+environment, so a job body that expands ``$HOME`` breaks silently unless it
+starts with its own ``export HOME=<the real home>``.
+
+Where the drop-in applies, the hook repairs each boot after the fact rather
+than ordering the manager correctly in the first place, so there it is a
+fallback, not a replacement.
+
+``osprey health`` reports this condition too: the ``systemd_unit`` category
+is ``error`` when the unit is installed but the user manager reports it
+``not-found``, ``warning`` when it was scaffolded but never installed, and
+a skip on any host without a scaffolded unit or a user manager.
 
 Why the unit runs ``osprey`` and not compose
 --------------------------------------------

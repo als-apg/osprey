@@ -1,10 +1,14 @@
 """Load facility health categories from ``health.plugins`` entries.
 
 A plugin exposes ``get_health_categories() -> dict[str, CategoryCallable]`` — a
-mapping of category name to a no-argument callable returning
-``list[CheckResult]`` (sync or async), the same callable shape core and YAML
-categories use. Plugin categories run alongside core and YAML categories through
-the identical runner path.
+mapping of category name to a callable returning ``list[CheckResult]`` (sync or
+async), the same callable shape core and YAML categories use. The callable
+normally takes no arguments; an ``async def`` one may declare a ``runtime``
+parameter and be handed the suite's shared
+:class:`~osprey.health.runtime.HealthRuntime` by keyword, while a sync one that
+declares it is refused with an ``error`` row. The full contract is on the
+``contributing/extending-osprey`` page. Plugin categories run alongside core and
+YAML categories through the identical runner path.
 
 An entry under ``health.plugins`` names that plugin in one of two ways:
 
@@ -25,8 +29,9 @@ surfaces do on every config-change refresh — **re-executes** the file and
 replaces that ``sys.modules`` entry. Module-level state in a plugin therefore
 does not survive a refresh, and a plugin must not rely on it doing so.
 
-Loading is defensive: no plugin failure ever crashes the suite. An import error,
-a missing/non-callable ``get_health_categories``, a bad return type, or a name
+Loading is defensive: no plugin failure ever crashes the suite. A file-path
+entry that cannot even be resolved to an absolute path, an import error, a
+missing/non-callable ``get_health_categories``, a bad return type, or a name
 that collides with a core/YAML/earlier-plugin category each yields a single
 ``error`` :class:`~osprey.health.models.CheckResult` in the diagnostic
 ``plugins`` category — never an exception. Successfully loaded plugin categories
@@ -199,7 +204,13 @@ def _import_plugin_file(
     entry: str, errors: list[CheckResult], *, project_root: Path | None
 ) -> ModuleType | None:
     """Load a ``.py`` plugin entry off disk under its synthetic module name."""
-    resolved = _resolve_plugin_file(entry, project_root)
+    try:
+        resolved = _resolve_plugin_file(entry, project_root)
+    except Exception as exc:  # noqa: BLE001 - an unresolvable path is a reported error row
+        # ``~`` with no resolvable home, a symlink cycle, an over-long name: the
+        # entry never becomes a path, and that must degrade the suite by one row.
+        errors.append(_error_row(entry, f"could not resolve health plugin path '{entry}': {exc}"))
+        return None
     if not resolved.is_file():
         errors.append(_error_row(entry, f"health plugin file '{entry}' not found: {resolved}"))
         return None
