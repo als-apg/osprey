@@ -106,13 +106,22 @@ BOOT_HOOK_TOTAL_WAIT_SEC: int = 600
 BOOT_HOOK_POLL_SEC: int = 5
 
 #: Where the boot hook and the crontab job that launches it record their
-#: progress: ``/tmp``, on the local disk, because on the host this exists for
-#: the home is the thing that has not arrived yet. Written before any wait, so
-#: a boot that never mounted the home still shows whether cron fired the job at
-#: all — the one question a mail that never came cannot answer. ``$(id -u)`` is
-#: expanded by the shell that runs the line, so the same spelling serves the
+#: progress: under ``/tmp``, on the local disk, because on the host this exists
+#: for the home is the thing that has not arrived yet. Written before any wait,
+#: so a boot that never mounted the home still shows whether cron fired the job
+#: at all — the one question a mail that never came cannot answer. ``$(id -u)``
+#: is expanded by the shell that runs the line, so the same spelling serves the
 #: crontab and the script.
-BOOT_HOOK_LOG: str = "/tmp/osprey-boot-hook.$(id -u).log"
+#:
+#: A directory rather than a bare file, because ``/tmp`` is world-writable and
+#: the name is predictable: appending to a file there follows a symlink any
+#: local user could have planted, turning the log into an append to a file of
+#: their choosing, as the deploying account. Both writers create the directory
+#: with mode 700 and use it only if it is a real directory they own — otherwise
+#: they log to ``/dev/null`` — and ``/tmp``'s sticky bit keeps anyone else from
+#: swapping it out afterwards.
+BOOT_HOOK_LOG_DIR: str = "/tmp/osprey-boot-hook.$(id -u)"
+BOOT_HOOK_LOG: str = f"{BOOT_HOOK_LOG_DIR}/boot.log"
 
 #: Where the unit's ``Documentation=`` points. The deployment how-to is the page
 #: that covers what a host needs before the unit can bring a stack up.
@@ -347,7 +356,7 @@ class BootHookContext:
             :func:`boot_hook_crontab_lines`), and asking the identity stack
             with ``getent`` at that moment depends on a service that may have
             started seconds earlier, or not yet.
-        crontab_job: The ``@reboot`` line the header shows, from
+        crontab_lines: Every line the header tells the operator to paste, from
             :func:`boot_hook_crontab_lines` — one spelling for the header and
             the console.
         poll_seconds: Seconds between attempts — see :data:`BOOT_HOOK_POLL_SEC`.
@@ -361,20 +370,23 @@ class BootHookContext:
     repo_root: str
     osprey_bin: str
     home: str
-    crontab_job: str
+    crontab_lines: tuple[str, ...]
     poll_seconds: int = BOOT_HOOK_POLL_SEC
     total_wait_seconds: int = BOOT_HOOK_TOTAL_WAIT_SEC
 
 
-def boot_hook_crontab_lines(hook: str) -> tuple[str, str]:
-    """The two crontab lines that run the boot hook at every boot.
+def boot_hook_crontab_lines(hook: str) -> tuple[str, ...]:
+    """The crontab lines that run the boot hook at every boot.
 
-    Both are needed, and the job is deliberately not a bare ``@reboot <hook>``.
-    Two things happen before a cron job's command runs, and on a host whose
-    home is a late mount each one kills the job silently: cron changes into the
-    crontab's ``HOME`` first, and dies if that directory is not there yet; then
-    ``sh`` has to read the script, which sits on the same mount. The first line
-    gives cron a directory that exists at boot. The job itself lives in the
+    All of them are needed, and the job is deliberately not a bare
+    ``@reboot <hook>``. Two things happen before a cron job's command runs,
+    and on a host whose home is a late mount each one kills the job silently:
+    cron changes into the crontab's ``HOME`` first, and dies if that directory
+    is not there yet; then ``sh`` has to read the script, which sits on the
+    same mount. ``HOME=/`` gives cron a directory that exists at boot.
+    ``SHELL=/bin/sh`` makes the job's shell a property of these lines rather
+    than of whatever an existing crontab set above them — the job is POSIX
+    ``sh`` and would not parse under a ``csh``. The job itself lives in the
     crontab — on the local disk — and does the waiting the script cannot do
     for itself: it writes a launch marker to :data:`BOOT_HOOK_LOG` before
     anything else, waits up to :data:`BOOT_HOOK_TOTAL_WAIT_SEC` for the script
@@ -383,24 +395,30 @@ def boot_hook_crontab_lines(hook: str) -> tuple[str, str]:
     log: cron mails what a job prints, and this is the one branch where that
     mail is the whole point.
 
+    The log directory is created and checked the way :data:`BOOT_HOOK_LOG`
+    describes, in the job as well as in the script: the job writes first.
+
     No ``%`` anywhere: cron reads it as a newline.
 
     Args:
         hook: Absolute path of the emitted boot hook on the deploy host.
 
     Returns:
-        The ``HOME=/`` line and the ``@reboot`` line, in the order they go
-        into the crontab.
+        The lines in the order they go into the crontab: the two preamble
+        assignments, then the ``@reboot`` job.
     """
     attempts = BOOT_HOOK_TOTAL_WAIT_SEC // BOOT_HOOK_POLL_SEC
     job = (
-        f'@reboot echo "$(date) osprey-boot-hook: cron fired" >> {BOOT_HOOK_LOG}; '
+        f'@reboot d={BOOT_HOOK_LOG_DIR}; mkdir -m 700 "$d" 2>/dev/null; '
+        f'if [ -d "$d" ] && [ ! -L "$d" ] && [ -O "$d" ]; then log={BOOT_HOOK_LOG}; '
+        f"else log=/dev/null; fi; "
+        f'echo "$(date) osprey-boot-hook: cron fired" >> "$log"; '
         f"n=0; until [ -x {hook} ] || [ $n -ge {attempts} ]; "
         f"do sleep {BOOT_HOOK_POLL_SEC}; n=$((n+1)); done; "
         f"if [ -x {hook} ]; then exec {hook}; fi; "
-        f'echo "$(date) osprey-boot-hook: gave up, {hook} never appeared" | tee -a {BOOT_HOOK_LOG}'
+        f'echo "$(date) osprey-boot-hook: gave up, {hook} never appeared" | tee -a "$log"'
     )
-    return ("HOME=/", job)
+    return ("SHELL=/bin/sh", "HOME=/", job)
 
 
 def render(
@@ -432,6 +450,7 @@ def render(
         verify_path=VERIFY_PATH,
         boot_hook_path=BOOT_HOOK_PATH,
         boot_hook_log=BOOT_HOOK_LOG,
+        boot_hook_log_dir=BOOT_HOOK_LOG_DIR,
         users_env_name=USERS_ENV_NAME,
         unit_name=SYSTEMD_UNIT_NAME,
         docs_url=DEPLOY_DOCS_URL,
@@ -626,16 +645,18 @@ def build_boot_hook_context(
         FileNotFoundError: If no ``osprey_bin`` was given and no ``osprey``
             executable can be found — a hook waiting for a path that will never
             exist would time out every boot.
+        RuntimeError: If no ``home`` was given and this machine cannot resolve
+            one (``Path.home()``'s own failure) — a user unit has no account to
+            belong to there.
     """
     resolved_root = repo_root.resolve()
-    _, crontab_job = boot_hook_crontab_lines(str(resolved_root / BOOT_HOOK_PATH))
     return BootHookContext(
         facility_name=str(profile.get("name", repo_root.name)),
         osprey_version=osprey_version or osprey.__version__,
         repo_root=str(resolved_root),
         osprey_bin=osprey_bin or resolve_shell_command("osprey"),
         home=str(home if home is not None else Path.home()),
-        crontab_job=crontab_job,
+        crontab_lines=boot_hook_crontab_lines(str(resolved_root / BOOT_HOOK_PATH)),
     )
 
 

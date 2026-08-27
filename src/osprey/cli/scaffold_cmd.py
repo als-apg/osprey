@@ -899,6 +899,17 @@ def systemd(repo: Path | None, force: bool) -> None:
         emitted = scaffold_systemd_unit(repo_root, force=force)
     except ConfigurationError as exc:
         raise click.ClickException(str(exc)) from None
+    except RuntimeError as exc:
+        # `Path.home()` — the boot hook writes the account's home in as a
+        # literal, and a host with no resolvable home has no account for a
+        # user unit to belong to. Reported rather than traced for the same
+        # reason as the missing program below: it is the host, not OSPREY.
+        raise click.ClickException(
+            f"cannot resolve this account's home directory: {exc}\n\n"
+            "The boot hook names the home in full, and a systemd user unit "
+            "belongs to an account. Set HOME, or run this on the account that "
+            "will run the deployment."
+        ) from None
     except FileNotFoundError as exc:
         # The unit names the program in full, so there is nothing to write
         # until one can be found. Reported as a refusal rather than a
@@ -946,7 +957,9 @@ def systemd(repo: Path | None, force: bool) -> None:
         console.print("    loginctl enable-linger $USER")
 
         home = Path.home()
-        _warn_about_a_network_home(home, detect_network_home(home), hook.path)
+        _warn_about_a_network_home(
+            home, detect_network_home(home), hook.path, hook_written=not hook.refused
+        )
 
     if any(result.refused for result in emitted):
         # Last, after everything above has been said. Non-zero for the same
@@ -956,7 +969,9 @@ def systemd(repo: Path | None, force: bool) -> None:
         raise SystemExit(1)
 
 
-def _warn_about_a_network_home(home: Path, fstype: str | None, hook: Path) -> None:
+def _warn_about_a_network_home(
+    home: Path, fstype: str | None, hook: Path, *, hook_written: bool
+) -> None:
     """Say what linger does not cover when ``$HOME`` is a network mount.
 
     Printed after the install instructions rather than instead of them: those
@@ -985,6 +1000,12 @@ def _warn_about_a_network_home(home: Path, fstype: str | None, hook: Path) -> No
         fstype: What :func:`~.deploy_scaffold.detect_network_home` reported.
         hook: Absolute path to the emitted boot hook, as the crontab line has
             to name it.
+        hook_written: Whether this run wrote (or found unchanged) the hook at
+            that path. When it refused — a hand-written file sits there — the
+            crontab lines are withheld: printing them would wire cron to the
+            operator's own script, which is most likely the very hook that
+            "does nothing", and the sentence saying this run wrote one would
+            be false.
     """
     if fstype is None:
         return
@@ -1025,21 +1046,30 @@ def _warn_about_a_network_home(home: Path, fstype: str | None, hook: Path) -> No
     console.print()
     console.print("    A home served by the autofs daemon has no mount unit for that drop-in")
     console.print("    to order against, so there it changes nothing. For that host, and")
+    if not hook_written:
+        console.print("    for one where nobody has root, this verb writes a boot hook — but")
+        console.print("    this run did not (see above): a file it did not write is already at")
+        console.print(f"      {hook}", soft_wrap=True)
+        console.print("    Re-run with --force to replace it; that run prints the crontab lines")
+        console.print("    that wire it up. Do not wire the existing file up as it is.")
+        return
     console.print("    for one where nobody has root, this run also wrote a boot hook:")
     console.print(f"      {hook}", soft_wrap=True)
     console.print("    It waits for the home, this deployment and the user manager to show")
     console.print("    up, then reloads the unit files and starts the unit. Run it once per")
-    console.print("    boot from the account's own crontab — both lines, pasted whole:")
+    console.print("    boot from the account's own crontab — all of these lines, pasted whole:")
     console.print("      crontab -e")
     # markup=False: the job holds `[ -x ... ]` tests that Rich would read as
     # style tags. soft_wrap keeps it one line for whoever pastes it.
-    home_line, job = boot_hook_crontab_lines(str(hook))
-    console.print(f"      {home_line}", markup=False)
-    console.print(f"      {job}", markup=False, soft_wrap=True)
+    for line in boot_hook_crontab_lines(str(hook)):
+        console.print(f"      {line}", markup=False, soft_wrap=True)
     console.print("    HOME=/ is what lets the job start at all: cron changes into the")
     console.print("    crontab's HOME before it runs a job, and on this host the home is")
-    console.print("    not there yet. The job restores the real home itself, and notes in")
-    console.print(f"    {BOOT_HOOK_LOG} that it fired before it waits for anything.")
+    console.print("    not there yet. The script restores the real home itself; the job")
+    console.print(f"    first notes in {BOOT_HOOK_LOG} that it fired, then waits for the")
+    console.print("    script to be readable. Put these lines LAST in the crontab: every job")
+    console.print("    below them runs from / with HOME=/ in its environment, so a job that")
+    console.print("    expands $HOME breaks unless it starts with its own export HOME=... .")
     console.print("    Where the drop-in applies, the hook repairs each boot after the")
     console.print("    fact rather than ordering the manager correctly in the first place,")
     console.print("    so it is a fallback there, not a replacement.")

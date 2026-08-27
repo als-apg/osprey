@@ -527,7 +527,12 @@ def test_a_findmnt_that_fails_says_nothing_extra(
 def test_a_refusal_prints_no_drop_in_either(
     runner: CliRunner, repo: Path, home: Path, findmnt
 ) -> None:
-    """Nothing was written, so there is nothing for a mount to hide."""
+    """The unit was refused, so there is no install for a mount to undo.
+
+    The hook beside it is still written — the two files have independent
+    histories — but the whole install-and-linger block, drop-in included,
+    hangs off the unit alone.
+    """
     findmnt("nfs")
     unit_of(repo).write_text("[Unit]\nDescription=mine\n", encoding="utf-8")
 
@@ -547,6 +552,11 @@ def test_a_hand_written_hook_still_leaves_the_unit_fully_explained(
     perfectly — and on a network home the drop-in is the whole reason this
     warning exists. Gating any of that on "did anything refuse" would hide the
     drop-in from exactly the operator who needs it.
+
+    What the run must NOT do is claim it wrote the hook and print the crontab
+    lines: those would wire cron to the operator's own script — most likely
+    the very hook that "does nothing" — with HOME=/ set and never restored,
+    because the restore lives in the script that was refused.
     """
     findmnt("nfs")
     hook = hook_of(repo)
@@ -563,6 +573,11 @@ def test_a_hand_written_hook_still_leaves_the_unit_fully_explained(
     assert "systemctl --user enable --now osprey.service" in text
     assert "loginctl enable-linger" in text
     assert f"RequiresMountsFor={home}" in text
+    assert "this run did not" in text
+    assert "Do not wire the existing file up" in text
+    assert "also wrote a boot hook" not in text
+    assert "@reboot" not in text
+    assert "HOME=/" not in text
 
 
 def test_a_network_home_says_how_to_wire_the_hook_up(
@@ -580,12 +595,15 @@ def test_a_network_home_says_how_to_wire_the_hook_up(
 
     assert result.exit_code == 0, result.output
     text = flat(result)
-    home_line, job = boot_hook_crontab_lines(str(hook_of(repo)))
+    lines = boot_hook_crontab_lines(str(hook_of(repo)))
     assert str(hook_of(repo)) in text
     assert "crontab -e" in text
-    assert home_line in text
-    assert job in text
-    assert text.index("HOME=/") < text.index("@reboot")
+    for line in lines:
+        assert line in text
+    assert text.index("SHELL=/bin/sh") < text.index("HOME=/") < text.index("@reboot")
+    # Placement is part of the instruction: HOME=/ applies to every line below.
+    assert "Put these lines LAST in the crontab" in text
+    assert "export HOME=" in text
 
 
 def test_the_drop_in_is_scoped_to_mounts_systemd_manages(

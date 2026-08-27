@@ -710,26 +710,28 @@ root is available, the same run has already written the other route:
 ``scripts/osprey-boot-hook.sh``, beside the unit. It waits for the home, the
 deployment and the user manager to appear, then reloads the unit files and
 starts the unit — the script an affected site otherwise ends up writing by
-hand. Wire it into the account's own crontab with the two lines the command
-prints, pasted whole:
+hand. Wire it into the account's own crontab with the lines the command
+prints, all of them, pasted whole:
 
 .. code-block:: bash
 
    crontab -e
+   SHELL=/bin/sh
    HOME=/
-   @reboot echo "$(date) osprey-boot-hook: cron fired" >> /tmp/osprey-boot-hook.$(id -u).log; n=0; until [ -x /path/to/repo/scripts/osprey-boot-hook.sh ] || [ $n -ge 120 ]; do sleep 5; n=$((n+1)); done; if [ -x /path/to/repo/scripts/osprey-boot-hook.sh ]; then exec /path/to/repo/scripts/osprey-boot-hook.sh; fi; echo "$(date) osprey-boot-hook: gave up, /path/to/repo/scripts/osprey-boot-hook.sh never appeared" | tee -a /tmp/osprey-boot-hook.$(id -u).log
+   @reboot d=/tmp/osprey-boot-hook.$(id -u); mkdir -m 700 "$d" 2>/dev/null; if [ -d "$d" ] && [ ! -L "$d" ] && [ -O "$d" ]; then log=/tmp/osprey-boot-hook.$(id -u)/boot.log; else log=/dev/null; fi; echo "$(date) osprey-boot-hook: cron fired" >> "$log"; n=0; until [ -x /path/to/repo/scripts/osprey-boot-hook.sh ] || [ $n -ge 120 ]; do sleep 5; n=$((n+1)); done; if [ -x /path/to/repo/scripts/osprey-boot-hook.sh ]; then exec /path/to/repo/scripts/osprey-boot-hook.sh; fi; echo "$(date) osprey-boot-hook: gave up, /path/to/repo/scripts/osprey-boot-hook.sh never appeared" | tee -a "$log"
 
 The job is deliberately not a bare ``@reboot`` with the script's path, because
 two things happen before a cron job's command runs and each one kills the job
 silently on this kind of host. cron changes into the crontab's ``HOME`` first
 and dies, with no mail, when that directory is not there yet — ``HOME=/``
-gives it one that is, and the script restores the real home as its first act.
-Then ``sh`` has to read the script, which sits on the same late mount; so the
+gives it one that is, ``SHELL=/bin/sh`` names the shell the job is written
+for whatever an existing crontab set above, and the script restores the real
+home as its first act. Then ``sh`` has to read the script, which sits on the same late mount; so the
 job, which lives in the crontab on the local disk, notes that cron fired it in
-``/tmp/osprey-boot-hook.<uid>.log`` and waits for the script to become
+``/tmp/osprey-boot-hook.<uid>/boot.log`` and waits for the script to become
 readable before running it. That log is the first place to look after a boot
 that did not come back: it splits "cron never fired" from "still waiting for
-the home" from "the hook ran and said why". Put the two lines last in the
+the home" from "the hook ran and said why". Put the lines last in the
 crontab: every job below them runs from ``/`` and sees ``HOME=/`` in its
 environment, so a job body that expands ``$HOME`` breaks silently unless it
 starts with its own ``export HOME=<the real home>``.

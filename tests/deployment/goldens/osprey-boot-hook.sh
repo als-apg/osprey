@@ -21,23 +21,26 @@
 # changes nothing, and this script is the fix rather than the fallback. It
 # waits for the home, the deployment and the user manager to appear, then
 # reloads the unit files and starts the unit. Wire it into the account's own
-# crontab, both lines, pasted whole:
+# crontab — all of these lines, pasted whole:
 #
 #   crontab -e
+#   SHELL=/bin/sh
 #   HOME=/
-#   @reboot echo "$(date) osprey-boot-hook: cron fired" >> /tmp/osprey-boot-hook.$(id -u).log; n=0; until [ -x /srv/osprey/demo-facility/scripts/osprey-boot-hook.sh ] || [ $n -ge 120 ]; do sleep 5; n=$((n+1)); done; if [ -x /srv/osprey/demo-facility/scripts/osprey-boot-hook.sh ]; then exec /srv/osprey/demo-facility/scripts/osprey-boot-hook.sh; fi; echo "$(date) osprey-boot-hook: gave up, /srv/osprey/demo-facility/scripts/osprey-boot-hook.sh never appeared" | tee -a /tmp/osprey-boot-hook.$(id -u).log
+#   @reboot d=/tmp/osprey-boot-hook.$(id -u); mkdir -m 700 "$d" 2>/dev/null; if [ -d "$d" ] && [ ! -L "$d" ] && [ -O "$d" ]; then log=/tmp/osprey-boot-hook.$(id -u)/boot.log; else log=/dev/null; fi; echo "$(date) osprey-boot-hook: cron fired" >> "$log"; n=0; until [ -x /srv/osprey/demo-facility/scripts/osprey-boot-hook.sh ] || [ $n -ge 120 ]; do sleep 5; n=$((n+1)); done; if [ -x /srv/osprey/demo-facility/scripts/osprey-boot-hook.sh ]; then exec /srv/osprey/demo-facility/scripts/osprey-boot-hook.sh; fi; echo "$(date) osprey-boot-hook: gave up, /srv/osprey/demo-facility/scripts/osprey-boot-hook.sh never appeared" | tee -a "$log"
 #
-# Neither line is optional, and the job is deliberately not a bare `@reboot`
+# None of them is optional, and the job is deliberately not a bare `@reboot`
 # with this script's path. cron changes into the crontab's HOME before it runs
 # a job, and on this host the home is not there yet when cron starts, so the
 # job dies before anything runs — silently, with no mail. `HOME=/` gives cron
-# a directory that exists. Then `sh` has to read this script, which sits on
-# the same late mount, so the job — which lives in the crontab, on the local
-# disk — first notes that cron fired it in `/tmp/osprey-boot-hook.$(id -u).log`, waits for
-# this file to become readable, and only then runs it. Put the two lines last
-# in the crontab: every job below them runs from `/` and sees HOME=/ in its
-# environment, so a job body that expands $HOME breaks silently unless it
-# starts with its own `export HOME=<the real home>`.
+# a directory that exists; `SHELL=/bin/sh` is the shell the job is written
+# for, whatever an existing crontab set above. Then `sh` has to read this
+# script, which sits on the same late mount, so the job — which lives in the
+# crontab, on the local disk — first notes that cron fired it in
+# `/tmp/osprey-boot-hook.$(id -u)/boot.log`, waits for this file to become readable, and only
+# then runs it. Put the lines last in the crontab: every job below them runs
+# from `/` and sees HOME=/ in its environment, so a job body that expands
+# $HOME breaks silently unless it starts with its own
+# `export HOME=<the real home>`.
 #
 # Everything this script prints lands in that same log, on the local disk
 # rather than the home, so a boot on which the home never came still says
@@ -71,7 +74,17 @@ export XDG_RUNTIME_DIR
 # Proof of launch, before any wait, on a disk that is there at boot. Appended:
 # the crontab job wrote the line before this one, and the two together say
 # whether cron fired, whether this file was reachable, and how far it got.
-LOG="/tmp/osprey-boot-hook.$(id -u).log"
+# The directory, not a bare file, because /tmp is shared and the name is
+# predictable: appending would follow a symlink anyone could have planted
+# there. Only a real directory this account owns is used; otherwise nothing
+# is logged rather than something written where a stranger pointed.
+LOG_DIR="/tmp/osprey-boot-hook.$(id -u)"
+mkdir -m 700 "$LOG_DIR" 2>/dev/null
+if [ -d "$LOG_DIR" ] && [ ! -L "$LOG_DIR" ] && [ -O "$LOG_DIR" ]; then
+  LOG="/tmp/osprey-boot-hook.$(id -u)/boot.log"
+else
+  LOG=/dev/null
+fi
 if ! printf 'osprey-boot-hook: launched %s\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')" >> "$LOG" 2>/dev/null; then
   LOG=/dev/null
 fi

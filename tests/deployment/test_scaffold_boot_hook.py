@@ -38,6 +38,7 @@ import yaml
 import osprey
 from osprey.cli.deploy_scaffold_templates import (
     BOOT_HOOK_LOG,
+    BOOT_HOOK_LOG_DIR,
     BOOT_HOOK_MARKER,
     BOOT_HOOK_OUTPUT_NAME,
     BOOT_HOOK_PATH,
@@ -225,17 +226,17 @@ def test_running_it_twice_is_harmless(code: str) -> None:
 
 
 def test_the_header_shows_the_crontab_lines_that_install_it(rendered: str) -> None:
-    """The hook is wired up by hand, so the file has to say how — both lines.
+    """The hook is wired up by hand, so the file has to say how — every line.
 
-    The job comes from the same function the console prints it from, and it
-    names the hook by the same constant the emitter writes to, so the lines an
-    operator pastes cannot drift from where the file lands or from what the
+    The lines come from the same function the console prints them from, and
+    the job names the hook by the same constant the emitter writes to, so what
+    an operator pastes cannot drift from where the file lands or from what the
     verb told them.
     """
     header = rendered[: rendered.index("set -u")]
-    home_line, job = boot_hook_crontab_lines(FROZEN_HOOK)
+    lines = boot_hook_crontab_lines(FROZEN_HOOK)
     assert "crontab -e" in header
-    assert f"#   {home_line}\n#   {job}\n" in header
+    assert "".join(f"#   {line}\n" for line in lines) in header
 
 
 def test_the_crontab_job_survives_a_home_that_is_not_there_yet() -> None:
@@ -249,12 +250,14 @@ def test_the_crontab_job_survives_a_home_that_is_not_there_yet() -> None:
     home before it waits. Both were learned from real reboots, where a bare
     ``@reboot <hook>`` never launched at all.
     """
-    home_line, job = boot_hook_crontab_lines(FROZEN_HOOK)
+    shell_line, home_line, job = boot_hook_crontab_lines(FROZEN_HOOK)
+    # The job is POSIX sh; an existing crontab may have set SHELL to a csh.
+    assert shell_line == "SHELL=/bin/sh"
     assert home_line == "HOME=/"
     assert job.startswith("@reboot ")
     # cron reads a `%` as a newline, and the job would be cut there.
     assert "%" not in job
-    fired_at = job.index(f'cron fired" >> {BOOT_HOOK_LOG}')
+    fired_at = job.index('cron fired" >> "$log"')
     wait_at = job.index(f"until [ -x {FROZEN_HOOK} ]")
     run_at = job.index(f"exec {FROZEN_HOOK}")
     assert fired_at < wait_at < run_at
@@ -262,7 +265,33 @@ def test_the_crontab_job_survives_a_home_that_is_not_there_yet() -> None:
     assert f"[ $n -ge {BOOT_HOOK_TOTAL_WAIT_SEC // BOOT_HOOK_POLL_SEC} ]" in job
     assert f"sleep {BOOT_HOOK_POLL_SEC}" in job
     # On stdout as well as in the log: this is the branch cron's mail is for.
-    assert f'never appeared" | tee -a {BOOT_HOOK_LOG}' in job
+    assert 'never appeared" | tee -a "$log"' in job
+
+
+def test_both_writers_refuse_a_log_directory_they_do_not_own() -> None:
+    """``/tmp`` is shared and the name is predictable.
+
+    Appending to a bare file there follows a symlink any local user could
+    have planted, turning the log into an append to a file of their choosing
+    as the deploying account. So the log lives in a directory each writer
+    creates with mode 700 and uses only if it is a real directory it owns —
+    ``/tmp``'s sticky bit keeps anyone else from swapping it out afterwards.
+    """
+    *_, job = boot_hook_crontab_lines(FROZEN_HOOK)
+    assert BOOT_HOOK_LOG == f"{BOOT_HOOK_LOG_DIR}/boot.log"
+    assert f'd={BOOT_HOOK_LOG_DIR}; mkdir -m 700 "$d"' in job
+    assert 'if [ -d "$d" ] && [ ! -L "$d" ] && [ -O "$d" ]; then log=' in job
+    assert "else log=/dev/null; fi" in job
+    assert job.index("mkdir -m 700") < job.index("cron fired")
+
+
+def test_the_script_guards_its_log_directory_the_same_way(code: str) -> None:
+    """Same directory, same ownership check, before the first write."""
+    assert f'LOG_DIR="{BOOT_HOOK_LOG_DIR}"' in code
+    assert 'mkdir -m 700 "$LOG_DIR"' in code
+    guard = 'if [ -d "$LOG_DIR" ] && [ ! -L "$LOG_DIR" ] && [ -O "$LOG_DIR" ]; then'
+    assert guard in code
+    assert code.index(guard) < code.index(f'LOG="{BOOT_HOOK_LOG}"') < code.index("launched")
 
 
 def test_the_script_restores_the_real_home_before_anything_else(code: str) -> None:
@@ -301,8 +330,8 @@ def test_the_how_to_shows_the_same_crontab_job() -> None:
     job the field evidence says does not launch.
     """
     docs = DEPLOY_HOWTO.read_text(encoding="utf-8")
-    home_line, job = boot_hook_crontab_lines(f"/path/to/repo/{BOOT_HOOK_PATH}")
-    assert f"   {home_line}\n   {job}\n" in docs
+    lines = boot_hook_crontab_lines(f"/path/to/repo/{BOOT_HOOK_PATH}")
+    assert "".join(f"   {line}\n" for line in lines) in docs
 
 
 def test_the_header_names_the_facility_and_the_unit(rendered: str) -> None:
