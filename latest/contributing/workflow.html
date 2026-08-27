@@ -512,14 +512,19 @@ git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </sp
 <li><p><code class="docutils literal notranslate"><span class="pre">test:</span></code> – Tests</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">chore:</span></code> – Dependencies, build</p></li>
 </ul>
-<p>Every commit needs a corresponding CHANGELOG entry added <strong>before</strong> committing.</p>
+<p>Every pull request that touches <code class="docutils literal notranslate"><span class="pre">src/</span></code> or <code class="docutils literal notranslate"><span class="pre">packages/</span></code> needs a changelog
+fragment: a small file in <code class="docutils literal notranslate"><span class="pre">changelog.d/</span></code> named <code class="docutils literal notranslate"><span class="pre">&lt;name&gt;.&lt;type&gt;.md</span></code> (use the
+issue number as the name when there is one). The <code class="docutils literal notranslate"><span class="pre">lint</span></code> CI job checks for one,
+and <code class="docutils literal notranslate"><span class="pre">./scripts/premerge_check.sh</span> <span class="pre">main</span></code> checks the same thing locally. Fragments
+are folded into <code class="docutils literal notranslate"><span class="pre">CHANGELOG.md</span></code> when a release is cut — never add entries to
+<code class="docutils literal notranslate"><span class="pre">CHANGELOG.md</span></code> by hand. See <code class="docutils literal notranslate"><span class="pre">changelog.d/README.md</span></code> for the type list.</p>
 </section>
 <section id="pull-request-process">
 <h2>Pull Request Process<a class="headerlink" href="#pull-request-process" title="Link to this heading">#</a></h2>
 <ol class="arabic simple">
 <li><p>Push your branch: <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">push</span> <span class="pre">origin</span> <span class="pre">feature/your-feature-name</span></code></p></li>
 <li><p>Open a PR on GitHub with a description, related issues, and testing performed.</p></li>
-<li><p>PR requirements: pass all required CI checks, include a <code class="docutils literal notranslate"><span class="pre">CHANGELOG.md</span></code> entry for any user-visible change, and add appropriate tests. Internal-mode contributors with push access self-merge after CI is green (the ruleset does not require human approval); fork-mode contributions wait for a maintainer to merge.</p></li>
+<li><p>PR requirements: pass all required CI checks, include a changelog fragment in <code class="docutils literal notranslate"><span class="pre">changelog.d/</span></code> for any change under <code class="docutils literal notranslate"><span class="pre">src/</span></code> or <code class="docutils literal notranslate"><span class="pre">packages/</span></code>, and add appropriate tests. Internal-mode contributors with push access self-merge after CI is green (branch protection requires zero approving reviews); fork-mode contributions wait for a maintainer to merge.</p></li>
 <li><p>During review: respond to feedback promptly, make requested changes, ask questions if unclear.</p></li>
 </ol>
 </section>
