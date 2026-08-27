@@ -120,6 +120,12 @@
           <div class="header-identity-who">
             <span class="header-identity-avatar" aria-hidden="true">{{ terminal_user[0]|upper }}</span>
             <span class="header-identity-who-name">{{ terminal_user }}</span>
+            {#- The tier this login resolved to (a roster `role:` or the
+                provider's claim), forwarded by nginx on this request. Absent
+                when the login carried none, or when nothing sits in front of
+                the terminal to forward it: a fact stated where it is known,
+                never a default. -#}
+            {% if auth_role %}<span class="header-identity-who-role" title="Role for this session">{{ auth_role }}</span>{% endif %}
             {% if app_name %}<span class="header-identity-who-sub">{{ app_name }}</span>{% endif %}
           </div>
           {#- Only the ACTION depends on landing_url. A user with nowhere to

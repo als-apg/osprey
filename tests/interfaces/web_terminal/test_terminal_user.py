@@ -211,3 +211,110 @@ class TestSessionFooter:
         assert "header-deployment" in body
         assert 'class="header-identity-who-sub">Control Assistant<' in body
         assert "header-app-name" not in body
+
+
+class TestAuthRole:
+    """``X-Osprey-Auth-Role`` -> the identity menu's who-line.
+
+    nginx forwards the role the auth sidecar resolved on every gated request,
+    the page GET included, so ``root()`` reads it off the request rather than
+    off ``app.state``: it is a per-login fact, not a render-time one. The
+    header is decoded by the same bound the audit ledger applies, and a value
+    that fails it renders NOTHING — in a topology with no nginx in front, any
+    client can send the header, and the chip is a display, not an
+    authorization surface.
+    """
+
+    ENV = {"OSPREY_TERMINAL_USER": "alice"}
+
+    def _body(self, workspace_dir, headers, env=None):
+        cfg = {"watch_dir": str(workspace_dir)}
+        with (
+            patch("osprey.interfaces.web_terminal.app._load_web_config", return_value=cfg),
+            patch.dict("os.environ", env if env is not None else self.ENV),
+        ):
+            with TestClient(create_app(shell_command="echo")) as c:
+                return c.get("/", headers=headers).text
+
+    def test_the_role_is_shown_in_the_who_line(self, workspace_dir):
+        body = self._body(workspace_dir, {"X-Osprey-Auth-Role": "operator"})
+
+        assert 'class="header-identity-who-name">alice<' in body
+        assert 'class="header-identity-who-role" title="Role for this session">operator<' in body
+
+    @pytest.mark.parametrize(
+        "headers",
+        [
+            pytest.param({}, id="absent"),
+            pytest.param({"X-Osprey-Auth-Role": ""}, id="empty"),
+        ],
+    )
+    def test_no_role_header_renders_no_role(self, workspace_dir, headers):
+        """The sidecar omits the header when the login carried no role, a
+        deployment with no sidecar never sends one, and an ungated nginx
+        location clears it to ``""``: absence is a state, not a blank to fill
+        with a default."""
+        body = self._body(workspace_dir, headers)
+
+        assert 'class="header-identity-who-name">alice<' in body
+        assert "header-identity-who-role" not in body
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            pytest.param("op erator", id="interior-space"),
+            pytest.param("a" * 129, id="over-long"),
+            pytest.param("oper\x7fator", id="control-char"),
+        ],
+    )
+    def test_a_value_the_sidecar_could_not_have_sent_renders_nothing(self, workspace_dir, value):
+        """Same bound as the audit ledger's ``_recordable``: printable ASCII,
+        no interior space, at most 128 characters. The ledger records such a value as
+        its ``<unsafe>`` sentinel because a record must say something was
+        there; a chip has no such duty and shows nothing rather than a marker
+        an operator would have to interpret."""
+        body = self._body(workspace_dir, {"X-Osprey-Auth-Role": value})
+
+        assert "header-identity-who-role" not in body
+        # Autoescape would spell the sentinel as an entity; pin the escaped form
+        # so this line still fails if the suppression in root() is removed.
+        assert "&lt;unsafe&gt;" not in body
+
+    def test_a_markup_shaped_role_is_escaped(self, workspace_dir):
+        """``<script>…</script>`` carries no space and is printable ASCII, so
+        it clears the bound and reaches the template. Autoescape is what makes
+        the chip safe; nothing else here would notice if it were turned off."""
+        body = self._body(workspace_dir, {"X-Osprey-Auth-Role": "<script>alert(1)</script>"})
+
+        assert "<script>alert(1)</script>" not in body
+        assert "&lt;script&gt;alert(1)&lt;/script&gt;" in body
+
+    def test_a_role_without_a_user_renders_no_chip(self, workspace_dir):
+        """Single-user terminals render no identity chip at all; a stray role
+        header must not conjure one."""
+        body = self._body(workspace_dir, {"X-Osprey-Auth-Role": "operator"}, env={})
+
+        assert 'class="header-identity"' not in body
+        assert "header-identity-who-role" not in body
+
+    def test_the_context_carries_the_role(self, workspace_dir):
+        cfg = {"watch_dir": str(workspace_dir)}
+        with (
+            patch("osprey.interfaces.web_terminal.app._load_web_config", return_value=cfg),
+            patch.dict("os.environ", self.ENV),
+        ):
+            app = create_app(shell_command="echo")
+            with TestClient(app) as c:
+                captured = {}
+                original = app_module.templates.TemplateResponse
+
+                def _capture(request, name, context=None, *args, **kwargs):
+                    captured.update(context or {})
+                    return original(request, name, context, *args, **kwargs)
+
+                with patch.object(app_module.templates, "TemplateResponse", side_effect=_capture):
+                    assert c.get("/", headers={"X-Osprey-Auth-Role": "operator"}).status_code == 200
+                    assert captured["auth_role"] == "operator"
+                    captured.clear()
+                    assert c.get("/").status_code == 200
+                    assert captured["auth_role"] == ""

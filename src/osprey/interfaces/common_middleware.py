@@ -33,7 +33,7 @@ import html
 import json
 import logging
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, parse_qsl, urlencode
 
@@ -84,6 +84,7 @@ __all__ = [
     "WebAuthMiddleware",
     "apply_url_prefix",
     "compute_url_prefix",
+    "forwarded_identity",
     "is_exempt_path",
     "session_cookie_name",
 ]
@@ -575,13 +576,20 @@ def _recordable(value: str) -> bool:
     )
 
 
-def _forwarded_identity(headers: dict[str, str]) -> tuple[str | None, str | None]:
+def forwarded_identity(headers: Mapping[str, str]) -> tuple[str | None, str | None]:
     """The ``(subject, role)`` nginx forwarded on this request, if any.
 
     Each is ``None`` when the header is absent or empty — the sidecar omits a
     header it has no value for, so absence is a state of its own and must not
     be flattened into a blank string. A value that fails :func:`_recordable`
     becomes :data:`UNSAFE_FORWARDED_VALUE`: present, and named as unusable.
+
+    Public because it is the ONE decoder for these headers: the audit
+    emitters record what it returns, and the web terminal's page shows the
+    role from it. A second reader with its own bound would let a value the
+    ledger refuses reach the screen, or the reverse. ``headers`` is read by
+    lower-cased name, so a plain dict of lower-cased keys and Starlette's
+    case-insensitive ``Headers`` both work.
     """
     resolved: list[str | None] = []
     for header in (AUDIT_SUBJECT_HEADER, AUDIT_ROLE_HEADER):
@@ -628,7 +636,7 @@ def _audit_detail(scope: Scope, headers: dict[str, str], **extra: str) -> tuple[
     be a behaviour change smuggled in under an audit heading, and the gate has
     never treated these headers as a credential.
     """
-    subject, role = _forwarded_identity(headers)
+    subject, role = forwarded_identity(headers)
     parts = [f"{key}={value}" for key, value in extra.items()]
     if subject is not None:
         container_user = _container_user()
