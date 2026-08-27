@@ -50,6 +50,12 @@ still take its facts from :func:`resolve_target_situation` — re-deriving the
 session target from config is how two holders start telling a user two
 different things.
 
+One caller is outside the session entirely: the web terminal's posture badge
+asks which target a PTY it spawned is on. :func:`session_target_for_pid`
+answers that, over the same :func:`_live_records` liveness filter, by walking
+the ancestors of each record's ``owner_ppid`` instead of the caller's own — see
+its docstring for why equality is not enough.
+
 Failure posture
 ---------------
 Every failure mode collapses to "on the baseline": absent, unreadable, or
@@ -63,6 +69,8 @@ from __future__ import annotations
 
 import logging
 import os
+import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from osprey.mcp_server.control_system import target_state
@@ -81,8 +89,23 @@ PHOEBUS_SUBJECT = "Phoebus"
 #: recognise "you are switched away" without matching on prose.
 BASELINE_REFUSAL_ERROR_TYPE = "target_switched"
 
+#: Bound on the ancestor walk :func:`session_target_for_pid` runs. A process
+#: tree deeper than this, or one with a cycle, is pathological; stopping early
+#: yields no match, which is the fail-closed answer.
+MAX_ANCESTOR_HOPS = 32
+
+#: Seconds to wait for the ``ps`` fallback. ``ps -o ppid= -p <pid>`` is a table
+#: lookup that returns in milliseconds on a healthy machine, and the badge polls
+#: the route that calls this every few seconds per open card — so the budget is
+#: sized for "the process table is wedged, give up and report the baseline"
+#: rather than for a slow answer worth waiting on. Deliberately shorter than the
+#: hook reader's five seconds: a hook blocks one agent turn that has already
+#: decided to do work, this blocks a worker thread serving a status badge.
+PS_TIMEOUT_S = 1
+
 __all__ = [
     "BASELINE_REFUSAL_ERROR_TYPE",
+    "MAX_ANCESTOR_HOPS",
     "PHOEBUS_SUBJECT",
     "TargetSituation",
     "baseline_pinned_line",
@@ -91,6 +114,7 @@ __all__ = [
     "resolve_baseline_target",
     "resolve_session_target",
     "resolve_target_situation",
+    "session_target_for_pid",
 ]
 
 
@@ -179,6 +203,202 @@ def resolve_session_target(baseline_target: str) -> str:
     if target not in target_state.TARGET_NAMES:
         logger.debug("Target state names an unknown target %r; using baseline", target)
         return baseline_target
+    return str(target)
+
+
+# -- resolution for a process we are NOT inside ----------------------------
+
+
+def _ppid_from_proc(pid: int) -> int | None:
+    """Parent PID from ``/proc/<pid>/stat`` (Linux), or ``None``.
+
+    The ``comm`` field is parenthesized and may itself contain spaces and
+    parentheses, so the fields are taken after the LAST ``)``: they begin with
+    ``state`` and ``ppid``.
+    """
+    try:
+        with open(f"/proc/{int(pid)}/stat", encoding="utf-8", errors="replace") as handle:
+            data = handle.read()
+    except (OSError, TypeError, ValueError):
+        return None
+    try:
+        fields = data[data.rindex(")") + 1 :].split()
+        return int(fields[1])
+    except (ValueError, IndexError):
+        return None
+
+
+def _ppid_from_ps(pid: int) -> int | None:
+    """Parent PID from ``ps -o ppid= -p <pid>`` (macOS and any POSIX), or ``None``.
+
+    ``ps`` is the only portable answer where ``/proc`` does not exist. Every
+    failure — missing binary, non-zero exit, timeout, unparseable output — is
+    simply "no parent".
+    """
+    try:
+        completed = subprocess.run(
+            ["ps", "-o", "ppid=", "-p", str(int(pid))],
+            capture_output=True,
+            text=True,
+            timeout=PS_TIMEOUT_S,
+            check=False,
+        )
+    except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+        return None
+    if completed.returncode != 0:
+        return None
+    try:
+        return int((completed.stdout or "").strip())
+    except (AttributeError, ValueError):
+        return None
+
+
+def _parent_pid(pid: int) -> int | None:
+    """Parent of *pid*, or ``None`` when the chain cannot be walked further.
+
+    ``/proc`` first because it is a file read rather than a process spawn; the
+    ``ps`` fallback carries macOS, where ``/proc`` does not exist and the first
+    attempt fails immediately and cheaply. No ``psutil``: the framework does not
+    depend on it, and this is the whole of what it would have been used for.
+
+    The rule is deliberately the same one the stdlib-only hook reader states
+    (``templates/claude_code/claude/hooks/osprey_target_state``) — hooks cannot
+    import this module, so the two restatements are the drift the hook's
+    docstring warns about, and they must stay word-for-word the same rule.
+    """
+    ppid = _ppid_from_proc(pid)
+    if ppid is None:
+        ppid = _ppid_from_ps(pid)
+    return ppid
+
+
+def _ancestor_pids(
+    start_pid: int,
+    max_hops: int = MAX_ANCESTOR_HOPS,
+    *,
+    stop_at: int | None = None,
+    parent_of: Callable[[int], int | None] | None = None,
+) -> list[int]:
+    """The ancestor chain of *start_pid*, nearest first, INCLUDING itself.
+
+    Including *start_pid* is what makes the common case fall out for free: when
+    the PTY child is ``claude`` itself, the controls server's ``owner_ppid``
+    *is* the PTY pid and needs no walk at all.
+
+    The walk stops at PID 1, at *max_hops*, on a repeat (a cycle can only come
+    from a lying process table), or the moment a parent cannot be determined.
+    Any failure mid-walk simply ends the chain — a short chain yields no match,
+    which is the fail-closed answer.
+
+    Args:
+        start_pid: Where to start. Appears first in the result.
+        max_hops: Hard bound on the walk.
+        stop_at: Stop the moment this pid is reached, without asking for its
+            parent. The caller is asking "is *stop_at* an ancestor of
+            *start_pid*", and every hop past the answer is a syscall — a fork of
+            ``ps`` on a platform without ``/proc`` — spent learning nothing.
+        parent_of: Parent lookup to use instead of :func:`_parent_pid`. The
+            seam a caller walking several chains uses to share one memo across
+            them; they converge on the same upper ancestors.
+    """
+    try:
+        current = int(start_pid)
+    except (TypeError, ValueError):
+        return []
+    lookup = _parent_pid if parent_of is None else parent_of
+
+    chain: list[int] = []
+    for _ in range(max(0, int(max_hops))):
+        if current <= 1:
+            break
+        chain.append(current)
+        if stop_at is not None and current == stop_at:
+            break
+        parent = lookup(current)
+        if parent is None or parent <= 1 or parent in chain:
+            break
+        current = parent
+    return chain
+
+
+def session_target_for_pid(pty_pid: object) -> str | None:
+    """The target of the session running inside process *pty_pid*, or ``None``.
+
+    :func:`resolve_session_target` answers for the session the CALLER is in, by
+    matching ``owner_ppid`` against ``os.getppid()``. The web terminal is not in
+    that session at all: it is the server that spawned the PTY, and the only
+    handle it has is the PTY's own pid. So the match runs the other way round —
+    walk the ancestors of each record's ``owner_ppid`` and ask whether the PTY
+    pid is on that chain.
+
+    Equality alone would not do. ``owner_ppid`` is the Claude Code process that
+    spawned the controls server, which is the PTY child itself only when the
+    shell command is plain ``claude``; with ``claude_code.cli_version`` pinned
+    the PTY child is ``npx`` and Claude Code is its child, and with a custom
+    ``shell`` it can be deeper still. Equality-only matching would report "no
+    session target" on every one of those deployments — silently, and exactly
+    where the operator most needs the badge to be right.
+
+    Zero matches and more than one match both mean the same thing: no answer.
+    The caller (not this function) decides what to show instead, which for the
+    badge is the deployment baseline — the same fail-closed direction the hook
+    reader and :func:`resolve_session_target` take.
+
+    Args:
+        pty_pid: The pid of the PTY process the session runs in. Anything that
+            is not a positive integer — ``None`` from a session that has not
+            started, most of all — is simply "no answer".
+
+    Cost. Each hop is a syscall, and on a platform without ``/proc`` a fork of
+    ``ps``, so the walk is kept as short as the question allows: it stops the
+    moment *pty_pid* is reached rather than continuing to init, and one memo of
+    parent lookups is shared across every record's walk — several sessions in
+    one checkout have different ``owner_ppid`` leaves but converge on the same
+    upper ancestors within a hop or two. The caller must still keep this off the
+    event loop; ``routes/websocket.py`` runs it in a worker thread.
+
+    Returns:
+        ``live`` or ``va``, or ``None``. Never raises.
+    """
+    pid = _int_or_none(pty_pid)
+    if pid is None or pid <= 0:
+        return None
+
+    try:
+        records = _live_records()
+    except Exception:  # pragma: no cover - _live_records is defensive already
+        logger.debug("Could not list live target-state records", exc_info=True)
+        return None
+
+    memo: dict[int, int | None] = {}
+
+    def parent_of(child: int) -> int | None:
+        if child not in memo:
+            memo[child] = _parent_pid(child)
+        return memo[child]
+
+    matches: list[dict] = []
+    for record in records:
+        owner_ppid = _int_or_none(record.get("owner_ppid"))
+        if owner_ppid is None or owner_ppid <= 0:
+            continue
+        try:
+            chain = _ancestor_pids(owner_ppid, stop_at=pid, parent_of=parent_of)
+        except Exception:  # pragma: no cover - process table oddity
+            logger.debug("Could not walk the ancestors of pid %s", owner_ppid, exc_info=True)
+            continue
+        if pid in chain:
+            matches.append(record)
+
+    if len(matches) != 1:
+        if matches:
+            logger.debug("Ambiguous target state: %d records run inside pid %s", len(matches), pid)
+        return None
+
+    target = matches[0].get("target")
+    if target not in target_state.TARGET_NAMES:
+        logger.debug("Target state names an unknown target %r; no answer", target)
+        return None
     return str(target)
 
 

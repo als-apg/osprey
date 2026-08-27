@@ -114,6 +114,21 @@ def test_plugins_non_string_items_raise() -> None:
         parse_health_config({"plugins": ["ok", 3]})
 
 
+def test_plugins_accepts_file_path_entries() -> None:
+    """A ``.py`` entry is a file path; the list stays a plain list of strings."""
+    s = parse_health_config({"plugins": ["./health/facility_checks.py", "my.mod"]})
+    assert s.plugins == ["./health/facility_checks.py", "my.mod"]
+
+
+def test_plugins_error_names_both_accepted_forms() -> None:
+    """The message has to tell a deployer that the path form exists."""
+    with pytest.raises(ConfigurationError) as excinfo:
+        parse_health_config({"plugins": "my.mod"})
+    message = str(excinfo.value)
+    assert "dotted module paths" in message
+    assert ".py" in message
+
+
 # --- title ------------------------------------------------------------------
 
 

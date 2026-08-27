@@ -258,8 +258,34 @@ jobs:
         # YAML or Jinja parser. That crashed this lane on three consecutive
         # runs; tests/ci_diagnostics.py samples from a Python thread instead.
         #
-        # Still dump-only, never kill: the container-starting files can sit in
-        # a cold image pull for minutes and must not be shot for it.
+        # --timeout=600 --timeout-method=signal is the per-test cap that ends a
+        # hang, and it is deliberately not the ini option above. Without a cap,
+        # a single wedged test is indistinguishable from "still running" until
+        # the 40-minute step cap cancels the job — which truncates the log, so
+        # the run ends with no name for the test that hung (#743). Ten minutes
+        # is chosen to clear a cold container image pull: the files in the one
+        # sanctioned xdist group legitimately sit in one for minutes, so a
+        # tighter cap would red them on a cold runner. They therefore need no
+        # per-file exemption. (Careful with the engine's name in THIS block: it
+        # is a run: scalar, so a `#` here is data, and the container-lane pins
+        # in tests/deployment/test_ci_workflow_wiring.py match on that word.)
+        #
+        # signal, not thread: pytest-timeout's thread method ends the test with
+        # os._exit of the xdist WORKER, and a worker that dies without a
+        # protocol shutdown is the `node down: Not properly terminated` case
+        # tests/ci_diagnostics.py documents — the loadgroup scheduler then
+        # either raises KeyError or the controller parks forever, turning "one
+        # hung test" into "the lane is wedged". The signal method raises inside
+        # the test and leaves the worker alive to report it. What it gives up
+        # is a hang inside a C extension that holds the GIL: SIGALRM cannot be
+        # serviced there, no timeout fires, and the step cap is again the only
+        # backstop. That case is rare and it is the one the artifact upload and
+        # the sampled stacks below exist for.
+        #
+        # It lives here rather than as `timeout` in [tool.pytest.ini_options]
+        # because an ini default would apply to every e2e lane too, none of
+        # which passes a --timeout (only scripts/benchmark/*.sh override it),
+        # and ten minutes is well under what those lanes legitimately take.
         #
         # The two live Channel Access modules are excluded here and run in the
         # isolated step below: libca is process-global and not thread-safe, and
@@ -288,7 +314,7 @@ jobs:
         # which is after tee has to open its file.
         mkdir -p ci-diag
         set -o pipefail
-        uv run pytest tests/ --ignore=tests/e2e --ignore=tests/va/test_record_factory.py --ignore=tests/va/test_apply_fault.py -m "not pty" -v --tb=short --durations=50 -n 4 --dist loadgroup $COV_ARGS 2>&1 | tee ci-diag/pytest.log
+        uv run pytest tests/ --ignore=tests/e2e --ignore=tests/va/test_record_factory.py --ignore=tests/va/test_apply_fault.py -m "not pty" -v --tb=short --durations=50 --timeout=600 --timeout-method=signal -n 4 --dist loadgroup $COV_ARGS 2>&1 | tee ci-diag/pytest.log
 
     # The two steps below are the reason the step above has its own timeout.
     # They run on success too: on a green lane the summary is the slow-test

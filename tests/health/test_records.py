@@ -253,6 +253,42 @@ class TestBuildRecords:
         # A valid config with no plugins yields no plugin-load error rows.
         assert extra_rows == []
 
+    def test_plugin_file_path_is_anchored_on_the_project_root(self, tmp_path):
+        """A ``.py`` plugin entry resolves against ``project_path``, not the CWD.
+
+        The wiring pin for the path form: the loader takes the anchor from this
+        argument, so a check file that sits next to the profile is found by the
+        CLI, the sidecar and the health MCP server alike.
+        """
+        project = tmp_path / "proj"
+        config_path = _write_config(
+            project,
+            _VALID_CONFIG + "health:\n  plugins:\n    - ./health/facility_checks.py\n",
+        )
+        checks = project / "health" / "facility_checks.py"
+        checks.parent.mkdir(parents=True, exist_ok=True)
+        checks.write_text(
+            "from osprey.health.models import CheckResult, Status\n"
+            "\n"
+            "def get_health_categories():\n"
+            "    return {'facility': lambda: [CheckResult('r', 'facility', Status.OK, 'ok')]}\n"
+        )
+        state, expanded, settings, config_ok = load_config(config_path, project)
+        assert config_ok is True
+
+        records, extra_rows = build_records(
+            state,
+            expanded,
+            settings,
+            config_ok,
+            project,
+            30.0,
+            render_path=state.config_path.parent,
+        )
+
+        assert extra_rows == []
+        assert "facility" in {r.name for r in records}
+
     def test_on_demand_core_categories_default_to_on_demand_cost(self, tmp_path):
         project = tmp_path / "proj"
         config_path = _write_config(project, _VALID_CONFIG)

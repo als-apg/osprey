@@ -37,6 +37,16 @@ just run one of them:
 **E2E tests are separate.** Run them with `pytest tests/e2e/`, never with
 `-m e2e`.
 
+**CI caps every unit test at 600 seconds** (`--timeout=600
+--timeout-method=signal`, on the lane's pytest line only — an ini default would
+apply to the e2e lanes too, which pass no `--timeout`). Ten minutes clears a
+cold container image pull, so no file needs an exemption; what it ends is a
+genuine hang, which used to run out the 40-minute step cap and cancel the job
+with a truncated log and no name on the test. A timed-out test fails with
+`Failed: Timeout (...) from pytest-timeout`, **not** `AssertionError` — so a
+`@pytest.mark.flaky(only_rerun=["AssertionError"])` marker will not rerun it.
+The two `flaky` markers in the unit suite rerun all failures and are unaffected.
+
 ### What `--dist loadgroup` does here
 
 `tests/conftest.py` installs a small scheduler (`FileOrGroupScheduling`) that

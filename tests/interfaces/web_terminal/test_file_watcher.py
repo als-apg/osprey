@@ -5,10 +5,25 @@ from __future__ import annotations
 import asyncio
 import time
 
+import pytest
+
 from osprey.interfaces.web_terminal.file_watcher import (
     FileEventBroadcaster,
     WorkspaceWatcher,
 )
+
+#: Tighter than the unit lane's 600 s cap, because this file is the one that
+#: has actually hung: ``test_start_creates_directory_if_missing`` sat inside
+#: watchdog's ``Observer()`` on a macOS runner until the 40-minute step cap
+#: cancelled the job, while the same test takes ~10 ms everywhere else (#743).
+#: A minute is roughly four orders of magnitude of headroom over the normal
+#: cost, so it can only fire on that hang. No ``skipif(darwin)``: the hang has
+#: never been reproduced on demand, and skipping the file would trade a rare
+#: red for permanently untested code on the platform where it misbehaves.
+#:
+#: A timeout failure is ``Failed``, not ``AssertionError``, so a
+#: ``flaky(only_rerun=["AssertionError"])`` marker would not rerun it.
+pytestmark = pytest.mark.timeout(60)
 
 
 class TestFileEventBroadcaster:

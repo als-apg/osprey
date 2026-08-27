@@ -32,6 +32,7 @@ the repo the operator is standing in, whichever subdirectory that is.
 from __future__ import annotations
 
 import difflib
+import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -882,7 +883,7 @@ def systemd(repo: Path | None, force: bool) -> None:
     """
     # Imported here for the same reason `ci` does it: the build-profile chain
     # behind these two verbs is not loaded for any of the ownership ones.
-    from .deploy_scaffold import scaffold_systemd_unit
+    from .deploy_scaffold import detect_network_home, scaffold_systemd_unit
     from .deploy_scaffold_templates import SYSTEMD_UNIT_NAME
 
     repo_root = find_repo_root(repo)
@@ -927,6 +928,60 @@ def systemd(repo: Path | None, force: bool) -> None:
     console.print()
     console.print("  For it to start at boot, the account also needs:")
     console.print("    loginctl enable-linger $USER")
+
+    home = Path.home()
+    _warn_about_a_network_home(home, detect_network_home(home))
+
+
+def _warn_about_a_network_home(home: Path, fstype: str | None) -> None:
+    """Say what linger does not cover when ``$HOME`` is a network mount.
+
+    Printed after the install instructions rather than instead of them: those
+    lines are still exactly what the operator has to run. What they do not do
+    is survive a reboot on this host, and the fix for that needs root — a
+    drop-in on ``user@<uid>.service`` ordering the user manager after the
+    mount. So the drop-in is printed verbatim, for the operator to hand to
+    whoever has root, and nothing here is refused or withheld.
+
+    Silent when *fstype* is ``None``, which covers both a local home and a host
+    the detection could not read.
+
+    Args:
+        home: The home directory that was inspected, and the one the drop-in
+            has to name.
+        fstype: What :func:`~.deploy_scaffold.detect_network_home` reported.
+    """
+    if fstype is None:
+        return
+
+    console.print()
+    console.print(
+        f"  [warning]\u26a0[/warning] $HOME is on an {fstype} mount, so linger alone will "
+        "not survive a reboot:"
+    )
+    console.print(f"      {home}", soft_wrap=True)
+    # Wrapped by hand: the console reflows a long line to column zero, which
+    # would drop these out of the block they belong to.
+    console.print("    A lingering user manager starts before that mount is there. It")
+    console.print("    resolves its unit search path once, finds nothing, and does not")
+    console.print("    look again, so after every reboot the unit reads as not-found")
+    console.print("    until someone runs 'systemctl --user daemon-reload' by hand.")
+    console.print()
+    console.print("    Ordering it after the mount needs root. Whoever has it can write:")
+    # markup=False for the whole drop-in: '[Unit]' is a systemd section header,
+    # and Rich would read it as a style tag and swallow it. soft_wrap keeps a
+    # long home path on one line for whoever copies it.
+    console.print(
+        f"      /etc/systemd/system/user@{os.getuid()}.service.d/network-home.conf",
+        markup=False,
+        soft_wrap=True,
+    )
+    console.print("    containing:")
+    console.print("      [Unit]", markup=False)
+    console.print(f"      RequiresMountsFor={home}", markup=False, soft_wrap=True)
+    console.print("      After=remote-fs.target autofs.service", markup=False)
+    console.print("    and then run:")
+    console.print("      sudo systemctl daemon-reload")
 
 
 def _owned_row(profile_root: Path | None, name: str) -> tuple[str, str, str]:

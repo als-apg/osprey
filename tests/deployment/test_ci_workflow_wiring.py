@@ -125,6 +125,15 @@ EXPECTED_MIN_ALS_APG_PROBES = 8
 
 CONFTEST = Path(__file__).resolve().parents[1] / "conftest.py"
 PARALLEL_FLAGS = ("-n 4", "--dist loadgroup")
+
+#: The per-test hang-breaker on the unit lane. Both halves are load-bearing and
+#: pinned as literal substrings: the value has to clear a cold container image
+#: pull (the ``xdist_group("docker")`` files legitimately sit in one for
+#: minutes) while still ending a hang far inside the step cap, and the method
+#: has to be ``signal`` — ``thread`` ends a timed-out test with ``os._exit`` of
+#: the xdist worker, which is the "node down: Not properly terminated" wedge
+#: tests/ci_diagnostics.py documents.
+PER_TEST_TIMEOUT_FLAGS = ("--timeout=600", "--timeout-method=signal")
 SCHEDULER_HOOK = "pytest_xdist_make_scheduler"
 SCHEDULER_CLASS = "FileOrGroupScheduling"
 
@@ -2725,8 +2734,10 @@ def _container_jobs(wf: dict[str, Any]) -> set[str]:
     """Jobs that touch a container engine, derived rather than listed.
 
     Derived on purpose: a hand-maintained list is exactly what a newly added
-    Docker lane forgets to join. Comments cannot pollute the match because
-    ``yaml.safe_load`` has already dropped them.
+    Docker lane forgets to join. YAML comments cannot pollute the match because
+    ``yaml.safe_load`` has already dropped them — but a ``#`` line *inside* a
+    ``run:`` block is part of the shell script, so it is data and it does match.
+    Prose about the engine belongs above the ``run:`` key for that reason.
     """
     pattern = re.compile(r"\b(docker|podman)\b")
     return {
@@ -2952,6 +2963,33 @@ def test_unit_lane_does_not_set_faulthandler_timeout(workflow: dict[str, Any]) -
     )
 
 
+def test_unit_lane_passes_per_test_timeout(workflow: dict[str, Any]) -> None:
+    """The complement of the pin above: no watchdog in-process, but a real cap.
+
+    Without one, a single hung test is indistinguishable from "still running"
+    until the step cap fires 40 minutes later and cancels the job — which
+    truncates the log, so the run ends with no name for the test that hung
+    (#743). ``--timeout=600`` turns that into a named failure inside ten
+    minutes and still clears a cold image pull, so the container-starting
+    files need no exemption.
+
+    ``--timeout-method=signal`` is the other half. pytest-timeout's ``thread``
+    method ends the test with ``os._exit`` of the worker, and a dead worker
+    under ``--dist loadgroup`` takes the whole lane with it rather than one
+    test — see the docstring of tests/ci_diagnostics.py. The cost of ``signal``
+    is that it cannot interrupt a hang inside a C extension holding the GIL;
+    for that case the step cap is still the backstop.
+    """
+    line = _unit_test_pytest_line(workflow)
+    missing = [flag for flag in PER_TEST_TIMEOUT_FLAGS if flag not in line]
+    assert missing == [], (
+        f"the '{UNIT_TEST_JOB}' job in .github/workflows/ci.yml must invoke pytest with "
+        f"{' '.join(PER_TEST_TIMEOUT_FLAGS)} — missing {missing} in: {line.strip()!r}. "
+        f"The timeout belongs on this line and not in [tool.pytest.ini_options]: an ini "
+        f"default would also apply to every e2e lane, none of which passes a --timeout."
+    )
+
+
 def _sole_heavy_step(job: dict[str, Any]) -> dict[str, Any] | None:
     """The lane's single pytest-running step, or None if there isn't exactly one.
 
@@ -3012,6 +3050,30 @@ def test_unit_lane_does_not_set_faulthandler_timeout__mutation_restores_the_ini_
     )
     with pytest.raises(AssertionError):
         test_unit_lane_does_not_set_faulthandler_timeout(mutated)
+
+
+def test_unit_lane_passes_per_test_timeout__mutation_drops_it() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
+    original = step["run"]
+    for flag in PER_TEST_TIMEOUT_FLAGS:
+        step["run"] = step["run"].replace(f" {flag}", "")
+    assert step["run"] != original, "timeout flags not found; mutation is stale"
+    with pytest.raises(AssertionError):
+        test_unit_lane_passes_per_test_timeout(mutated)
+
+
+def test_unit_lane_passes_per_test_timeout__mutation_switches_to_the_thread_method() -> None:
+    """The method is pinned, not just the presence of a timeout: ``thread`` is
+    the variant that ``os._exit``s the xdist worker, turning "one hung test"
+    into "the lane is wedged"."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
+    original = step["run"]
+    step["run"] = original.replace("--timeout-method=signal", "--timeout-method=thread")
+    assert step["run"] != original, "method flag not found; mutation is stale"
+    with pytest.raises(AssertionError):
+        test_unit_lane_passes_per_test_timeout(mutated)
 
 
 # The two-shape boot lane: podman-compose forced and PROVEN, the network axis

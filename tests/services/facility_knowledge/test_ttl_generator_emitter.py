@@ -228,14 +228,17 @@ class TestNodeShapes:
     def graph(self, synthetic_model: model.GraphModel, ontology: OntologyMap) -> Graph:
         return emitter.build_graph(synthetic_model, ontology)
 
-    def test_device_carries_the_identity_and_position_properties(self, graph: Graph) -> None:
+    def test_device_carries_the_identity_and_position_properties(
+        self, graph: Graph, synthetic_model: model.GraphModel
+    ) -> None:
         device = URIRef(model.device_iri("SR", "DIPOLE01"))
         assert (device, URIRef(f"{emitter.RDF_NS}type"), _sem("Dipole")) in graph
         assert (device, _prop("deviceId"), Literal("narad:device:demo:SR:DIPOLE01")) in graph
         assert (device, _prop("sectionCode"), Literal("SR")) in graph
         assert (device, _prop("sourceName"), Literal("DIPOLE01")) in graph
         assert (device, _prop("rawType"), Literal("DIPOLE")) in graph
-        assert (device, _prop("facility"), Literal(model.FACILITY)) in graph
+        # The literal comes off the model, not off a module constant.
+        assert (device, _prop("facility"), Literal(synthetic_model.facility)) in graph
         assert len(list(graph.objects(device, _prop("sPositionM")))) == 1
         assert len(list(graph.objects(device, _prop("ordinalInSection")))) == 1
         assert len(list(graph.objects(device, _prop("ordinalInFacility")))) == 1
@@ -742,3 +745,215 @@ class TestSystemProperty:
         subjects = set(real_graph.subjects(_prop("system"), None))
         assert len(subjects) == _REAL_DEVICES
         assert subjects == {URIRef(device.iri) for device in real_model.devices}
+
+
+# ---------------------------------------------------------------------------
+# The facility token
+# ---------------------------------------------------------------------------
+
+
+def _facility_model(token: str) -> model.GraphModel:
+    """The synthetic model, minted for *token* rather than for the demo machine."""
+    return _directed(
+        model.build_model({address: {} for address in _SYNTHETIC_ADDRESSES}, facility=token)
+    )
+
+
+class TestFacilityLiteral:
+    """``narad_p:facility`` is read off the model, so it cannot disagree with the IRIs.
+
+    Before the token became an input, the emitter held its own copy of the
+    module constant.  Patching only ``model.FACILITY`` then produced a corpus
+    whose IRIs said one facility and whose ``narad_p:facility`` literal said
+    another — no error, just a graph query that joins nothing.
+    """
+
+    @pytest.fixture(scope="class")
+    def custom_model(self) -> model.GraphModel:
+        return _facility_model("xyz")
+
+    @pytest.fixture(scope="class")
+    def custom_ttl(self, custom_model: model.GraphModel, ontology: OntologyMap) -> str:
+        return emitter.serialize_turtle(custom_model, ontology)
+
+    def test_the_emitter_holds_no_facility_of_its_own(self) -> None:
+        # The second place the value could come from is exactly the bug.
+        assert not hasattr(emitter, "FACILITY")
+
+    def test_every_device_carries_the_models_token(
+        self, custom_model: model.GraphModel, ontology: OntologyMap
+    ) -> None:
+        graph = emitter.build_graph(custom_model, ontology)
+        assert custom_model.devices
+        for device in custom_model.devices:
+            objects = list(graph.objects(URIRef(device.iri), _prop("facility")))
+            assert objects == [Literal("xyz")], device.address
+
+    def test_the_demo_token_appears_nowhere_in_a_custom_corpus(self, custom_ttl: str) -> None:
+        assert '    narad_p:facility "xyz" ;' in custom_ttl
+        assert "demo" not in custom_ttl
+
+    def test_the_default_corpus_is_unchanged(self, synthetic_ttl: str) -> None:
+        assert '    narad_p:facility "demo" ;' in synthetic_ttl
+
+    def test_two_facilities_in_one_process_each_serialise_consistently(
+        self, ontology: OntologyMap
+    ) -> None:
+        alpha = emitter.serialize_turtle(_facility_model("alpha"), ontology)
+        beta = emitter.serialize_turtle(_facility_model("beta"), ontology)
+        assert "beta" not in alpha
+        assert "alpha" not in beta
+        # Same corpus, one token apart — no shared state leaked between builds.
+        assert alpha.replace("alpha", "TOKEN") == beta.replace("beta", "TOKEN")
+
+    def test_custom_text_parses_back_to_the_built_graph(
+        self, custom_model: model.GraphModel, ontology: OntologyMap, custom_ttl: str
+    ) -> None:
+        parsed = Graph()
+        parsed.parse(data=custom_ttl, format="turtle")
+        assert isomorphic(parsed, emitter.build_graph(custom_model, ontology))
+
+
+# ---------------------------------------------------------------------------
+# Facility-supplied extra properties
+# ---------------------------------------------------------------------------
+
+#: One device and one binding of the synthetic fixture, by address.
+_EXTRA_DEVICE = "SR:MAG:DIPOLE:01"
+_EXTRA_BINDING = "SR:MAG:DIPOLE:01:CURRENT:SP"
+
+#: One value of each type the carrier accepts, deliberately not in sorted order.
+_DEVICE_EXTRAS = {"serialNumber": "SN-4711", "rackHeightU": 4, "crateSlot": 1.5}
+_BINDING_EXTRAS = {"units": "A", "displayPrecision": 3}
+
+
+def _extras_model(**kwargs) -> model.GraphModel:
+    """The synthetic model, carrying the facility's own scalar properties."""
+    return _directed(model.build_model({address: {} for address in _SYNTHETIC_ADDRESSES}, **kwargs))
+
+
+def _with_extras() -> model.GraphModel:
+    return _extras_model(
+        device_properties={_EXTRA_DEVICE: _DEVICE_EXTRAS},
+        binding_properties={_EXTRA_BINDING: _BINDING_EXTRAS},
+    )
+
+
+class TestExtraProperties:
+    """A facility's own scalar attributes become first-class ``narad_p:`` properties."""
+
+    @pytest.fixture(scope="class")
+    def extras_model(self) -> model.GraphModel:
+        return _with_extras()
+
+    @pytest.fixture(scope="class")
+    def extras_ttl(self, extras_model: model.GraphModel, ontology: OntologyMap) -> str:
+        return emitter.serialize_turtle(extras_model, ontology)
+
+    @pytest.fixture(scope="class")
+    def extras_graph(self, extras_model: model.GraphModel, ontology: OntologyMap) -> Graph:
+        return emitter.build_graph(extras_model, ontology)
+
+    def test_device_extras_render_with_the_literal_form_of_their_type(
+        self, extras_ttl: str
+    ) -> None:
+        lines = _block(extras_ttl, f"<{model.device_iri('SR', 'DIPOLE01')}>")
+        assert "    narad_p:crateSlot 1.5 ;" in lines
+        assert "    narad_p:rackHeightU 4 ;" in lines
+        assert '    narad_p:serialNumber "SN-4711" ;' in lines
+
+    def test_binding_extras_render_with_the_literal_form_of_their_type(
+        self, extras_ttl: str
+    ) -> None:
+        lines = _block(extras_ttl, f"<{model.binding_iri('SR', 'DIPOLE01', 'CURRENT', 'SP')}>")
+        assert "    narad_p:displayPrecision 3 ;" in lines
+        assert '    narad_p:units "A" ;' in lines
+
+    def test_extras_appear_in_sorted_key_order(self, extras_ttl: str) -> None:
+        lines = _block(extras_ttl, f"<{model.device_iri('SR', 'DIPOLE01')}>")
+        positions = [
+            next(
+                index for index, line in enumerate(lines) if line.startswith(f"    narad_p:{key} ")
+            )
+            for key in sorted(_DEVICE_EXTRAS)
+        ]
+        assert positions == sorted(positions)
+
+    def test_the_graph_carries_one_typed_object_per_extra(self, extras_graph: Graph) -> None:
+        device = URIRef(model.device_iri("SR", "DIPOLE01"))
+        binding = URIRef(model.binding_iri("SR", "DIPOLE01", "CURRENT", "SP"))
+        assert list(extras_graph.objects(device, _prop("serialNumber"))) == [Literal("SN-4711")]
+        assert list(extras_graph.objects(device, _prop("rackHeightU"))) == [Literal(4)]
+        assert list(extras_graph.objects(binding, _prop("displayPrecision"))) == [Literal(3)]
+        assert list(extras_graph.objects(binding, _prop("units"))) == [Literal("A")]
+
+    def test_only_the_named_nodes_carry_them(
+        self, extras_graph: Graph, extras_model: model.GraphModel
+    ) -> None:
+        assert set(extras_graph.subjects(_prop("serialNumber"), None)) == {
+            URIRef(model.device_iri("SR", "DIPOLE01"))
+        }
+        assert set(extras_graph.subjects(_prop("units"), None)) == {
+            URIRef(model.binding_iri("SR", "DIPOLE01", "CURRENT", "SP"))
+        }
+        assert extras_model.devices  # the fixture really did build devices
+
+    def test_extras_are_declared_as_datatype_properties(self, extras_ttl: str) -> None:
+        for name in (*_DEVICE_EXTRAS, *_BINDING_EXTRAS):
+            assert f"narad_p:{name} a owl:DatatypeProperty ." in extras_ttl
+
+    def test_the_built_in_constant_is_the_floor_and_stays_untouched(
+        self, extras_model: model.GraphModel
+    ) -> None:
+        declared = emitter.declared_property_names(extras_model)
+        assert declared[: len(emitter.PROPERTY_NAMES)] == emitter.PROPERTY_NAMES
+        assert declared[len(emitter.PROPERTY_NAMES) :] == tuple(
+            sorted((*_DEVICE_EXTRAS, *_BINDING_EXTRAS))
+        )
+        for name in (*_DEVICE_EXTRAS, *_BINDING_EXTRAS):
+            assert name not in emitter.PROPERTY_NAMES
+
+    def test_a_model_without_extras_declares_exactly_the_built_ins(
+        self, synthetic_model: model.GraphModel
+    ) -> None:
+        assert emitter.declared_property_names(synthetic_model) == emitter.PROPERTY_NAMES
+
+    def test_an_empty_carrier_adds_no_bytes(self, ontology: OntologyMap) -> None:
+        """The seed marker is a checksum over these bytes, so empty must cost nothing."""
+        baseline = emitter.serialize_turtle(_extras_model(), ontology)
+        empty = emitter.serialize_turtle(
+            _extras_model(device_properties={}, binding_properties={}), ontology
+        )
+        unmatched = emitter.serialize_turtle(
+            _extras_model(device_properties={"BR:MAG:SEXTUPOLE:99": {"crate": "nowhere"}}),
+            ontology,
+        )
+        assert empty == baseline
+        assert unmatched == baseline
+
+    def test_extras_do_not_disturb_determinism(self, ontology: OntologyMap) -> None:
+        first = emitter.serialize_turtle(_with_extras(), ontology)
+        assert emitter.serialize_turtle(_with_extras(), ontology) == first
+        backward = _directed(
+            model.build_model(
+                {address: {} for address in reversed(_SYNTHETIC_ADDRESSES)},
+                device_properties={_EXTRA_DEVICE: dict(reversed(list(_DEVICE_EXTRAS.items())))},
+                binding_properties={_EXTRA_BINDING: dict(reversed(list(_BINDING_EXTRAS.items())))},
+            )
+        )
+        assert emitter.serialize_turtle(backward, ontology) == first
+
+    def test_extras_text_parses_back_to_the_built_graph(
+        self, extras_model: model.GraphModel, ontology: OntologyMap, extras_ttl: str
+    ) -> None:
+        parsed = Graph()
+        parsed.parse(data=extras_ttl, format="turtle")
+        built = emitter.build_graph(extras_model, ontology)
+        assert len(parsed) == len(built)
+        assert isomorphic(parsed, built), "serialised text and built graph disagree"
+
+    @pytest.mark.parametrize("name", ["fullPv", "system"])
+    def test_a_key_colliding_with_a_built_in_property_is_refused(self, name: str) -> None:
+        """A duplicate predicate with a different meaning is worse than a failure."""
+        with pytest.raises(model.ExtraPropertyError, match=name):
+            _extras_model(binding_properties={_EXTRA_BINDING: {name: "x"}})

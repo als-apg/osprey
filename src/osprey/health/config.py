@@ -175,7 +175,8 @@ class HealthSettings:
         title: Human-readable display title for the health report.
         categories: Declarative (YAML) categories keyed by name.
         overrides: Metadata-only overrides for core/plugin category names.
-        plugins: Dotted plugin module paths exposing category callables.
+        plugins: Plugin entries exposing category callables — a dotted module
+            path, or a ``.py`` file path resolved against the project root.
         auto: Settings for the auto-derived ``mcp_servers`` category
             (``health.auto.mcp``); the default instance when the section is
             absent.
@@ -465,7 +466,9 @@ def _parse_plugins(value: Any) -> list[str]:
     if value is None:
         return []
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-        raise ConfigurationError("health.plugins must be a list of dotted module paths")
+        raise ConfigurationError(
+            "health.plugins must be a list of dotted module paths or repo-relative .py paths"
+        )
     return list(value)
 
 
