@@ -75,14 +75,19 @@ Commit Message Format
 - ``test:`` -- Tests
 - ``chore:`` -- Dependencies, build
 
-Every commit needs a corresponding CHANGELOG entry added **before** committing.
+Every pull request that touches ``src/`` or ``packages/`` needs a changelog
+fragment: a small file in ``changelog.d/`` named ``<name>.<type>.md`` (use the
+issue number as the name when there is one). The ``lint`` CI job checks for one,
+and ``./scripts/premerge_check.sh main`` checks the same thing locally. Fragments
+are folded into ``CHANGELOG.md`` when a release is cut — never add entries to
+``CHANGELOG.md`` by hand. See ``changelog.d/README.md`` for the type list.
 
 Pull Request Process
 ^^^^^^^^^^^^^^^^^^^^
 
 1. Push your branch: ``git push origin feature/your-feature-name``
 2. Open a PR on GitHub with a description, related issues, and testing performed.
-3. PR requirements: pass all required CI checks, include a ``CHANGELOG.md`` entry for any user-visible change, and add appropriate tests. Internal-mode contributors with push access self-merge after CI is green (the ruleset does not require human approval); fork-mode contributions wait for a maintainer to merge.
+3. PR requirements: pass all required CI checks, include a changelog fragment in ``changelog.d/`` for any change under ``src/`` or ``packages/``, and add appropriate tests. Internal-mode contributors with push access self-merge after CI is green (branch protection requires zero approving reviews); fork-mode contributions wait for a maintainer to merge.
 4. During review: respond to feedback promptly, make requested changes, ask questions if unclear.
 
 Branch Protection on ``main``

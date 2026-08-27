@@ -50,6 +50,12 @@ ruff check src/ tests/
 ruff format --check src/ tests/
 ```
 
+**Changelog.** If your change touches `src/` or `packages/`, add a fragment — a
+small file such as `changelog.d/1234.fixed.md` describing the change for users.
+CI checks for it; see [`changelog.d/README.md`](changelog.d/README.md). Don't
+add entries to `CHANGELOG.md` by hand — fragments are folded in when a release
+is cut.
+
 ### 5. Submit Pull Request
 
 - Push your branch to GitHub

@@ -79,8 +79,8 @@ fast-moving field, tight coupling to a volatile dependency is technical risk, no
 ## 5. A user-facing feature isn't done until it's discoverable
 
 If a change alters what an operator or deployer sees or does, the user-facing surface ships with it: a
-docs how-to, CLI `--help` text, and a changelog entry. Code that works but cannot be found is
-incomplete, not done.
+docs how-to, CLI `--help` text, and a changelog fragment in `changelog.d/`. Code that works but cannot
+be found is incomplete, not done.
 
 - Test each change against: "Could a user discover and use this without reading the source?" If no,
   the feature is unfinished.

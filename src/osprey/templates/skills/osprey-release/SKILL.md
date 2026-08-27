@@ -54,7 +54,7 @@ distinguishable from the release it descends from.
 | File | Purpose | Updated by |
 | --- | --- | --- |
 | `RELEASE_NOTES.md` | First-line title with the release version | This skill |
-| `CHANGELOG.md` | Add `## [vYYYY.M.P] - YYYY-MM-DD` heading; rotate `## [Unreleased]` content | This skill |
+| `CHANGELOG.md` | Fold `changelog.d/` fragments into `## [Unreleased]` (`changelog_fragments.py apply`), then rotate it to `## [YYYY.M.P] - YYYY-MM-DD` | This skill |
 | `README.md` | "Latest Release" line with version + theme | This skill |
 | `pyproject.toml` | `[tool.hatch.version] source = "vcs"` | **Do not edit** |
 | `src/osprey/_version.py` | Build-time stamp, gitignored | **Never commit** |
@@ -68,8 +68,9 @@ when the tag is not on the commit being built, or when the checkout is shallow
 
 ## Step 0: Read the CHANGELOG and decide the theme
 
-Open `CHANGELOG.md`, read the `## [Unreleased]` section, and answer three
-questions before doing anything else:
+Open `CHANGELOG.md` and read the `## [Unreleased]` section together with the
+pending fragments in `changelog.d/` — both are this release's content. Then
+answer three questions before doing anything else:
 
 1. **What is this release about?** Pick a short theme (e.g., "plan
    authoring & branch-protection enforcement"). It goes into the release
@@ -148,6 +149,17 @@ git checkout main && git pull --ff-only origin main
 git checkout -b release/vYYYY.M.P
 ```
 
+First fold the fragments in, so the rotation below has the full section to
+rotate:
+
+```bash
+uv run python scripts/changelog_fragments.py apply
+```
+
+This inserts each fragment under its `### <Type>` heading in `## [Unreleased]`
+and deletes the fragment files. Show the maintainer the resulting
+`CHANGELOG.md` diff before continuing.
+
 There is **no version literal to edit** — the tag in Step 5 sets the version.
 This PR carries only the human-facing notes. Show the maintainer each diff
 before applying:
@@ -155,17 +167,24 @@ before applying:
 | File | Change |
 | --- | --- |
 | `RELEASE_NOTES.md` | First line: `# Osprey Framework - Latest Release (vYYYY.M.P)` followed by the theme tagline |
-| `CHANGELOG.md` | Convert `## [Unreleased]` to `## [YYYY.M.P] - YYYY-MM-DD`; insert a fresh empty `## [Unreleased]` above it |
+| `CHANGELOG.md` | After the fold, convert `## [Unreleased]` to `## [YYYY.M.P] - YYYY-MM-DD`; insert a fresh empty `## [Unreleased]` above it |
+| `changelog.d/` | Fragment files deleted by `apply`; only `README.md` remains |
 | `README.md` | Update the "Latest Release" line with version + theme |
 | `docs/source/_static/screenshots/` | Any images re-captured in Step 2, plus the updated `manifest.json` |
 
-Then run a consistency check — every line should mention the same version:
+Stage the fold and the rotation together — `git add -A changelog.d/ CHANGELOG.md`
+(pathspec-scoped, so the fragment deletions are included).
+
+Then run a consistency check — every line should mention the same version, and
+no fragment should be left behind:
 
 ```bash
 echo "=== VERSION CONSISTENCY CHECK ==="
 echo "RELEASE_NOTES:  $(head -1 RELEASE_NOTES.md)"
 echo "README.md:      $(grep 'Latest Release:' README.md)"
 echo "CHANGELOG.md:   $(grep -m1 '^## \[' CHANGELOG.md)"
+echo "changelog.d/:   $(ls changelog.d | grep -vc '^README.md$') fragment(s) on disk (must be 0)"
+echo "staged:         $(git diff --cached --name-only -- changelog.d/ CHANGELOG.md | tr '\n' ' ')"
 ```
 
 Now hand off to `osprey-contribute` for the rest of the PR mechanics:
@@ -269,6 +288,8 @@ This is a fallback. The default path is the automated workflow.
 | PyPI rejects the upload as a duplicate | This version was already published | CalVer means version numbers are unique; you cannot republish. Bump the patch counter and try again |
 | `gh pr merge --rebase` fails with "not mergeable" | Stale checks because `main` moved | `git rebase origin/main` on the release branch, force-push with lease, wait for CI to re-run |
 | GitHub Release body is empty or wrong | CHANGELOG section heading didn't match the regex `release.yml` uses | Make sure the CHANGELOG heading is exactly `## [YYYY.M.P] - YYYY-MM-DD` |
+| `changelog_fragments.py apply` exits 1 | A fragment filename is malformed or carries an unrecognized type | Rename it `<name>.<type>.md` using one of added/changed/deprecated/removed/fixed/security/internal |
+| Released section is missing entries, or fragments are still on `main` after the release | `apply` was not run before the rotation, or its deletions were not staged | Fold the leftover fragments into the released section by hand, delete them, and open a PR carrying just `CHANGELOG.md` and the fragment deletions (`git add -A changelog.d/ CHANGELOG.md`) |
 
 ## Out of Scope
 
