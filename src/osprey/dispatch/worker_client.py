@@ -271,6 +271,54 @@ async def cancel_worker_run(
     return cast(dict[str, Any], response.json())
 
 
+async def clear_worker_history(
+    url: str, token: str, older_than_days: int = 0, timeout: float = 30.0
+) -> dict[str, Any]:
+    """DELETE /dispatch/runs on the worker to drop finished run records.
+
+    Args:
+        url: Base URL of the worker service (e.g. "http://dispatch-worker-1:9190").
+        token: Bearer token for authentication.
+        older_than_days: Age floor in days. ``0`` (the default) clears every
+            finished run; a positive value clears only those older than it,
+            which is the retention sweep's horizon applied on demand.
+        timeout: Request timeout in seconds. Longer than the cancel path's: this
+            unlinks up to a full history's worth of records in one call.
+
+    Returns:
+        Worker's response dict (``{"cleared": int, "records_deleted": int,
+        "older_than_days": int}``).
+
+    Raises:
+        WorkerAuthRejectedError: If the worker returns HTTP 401.
+        WorkerUnreachableError: On connection errors or timeouts.
+    """
+    clear_url = url.rstrip("/") + "/dispatch/runs"
+    headers = {"Authorization": f"Bearer {token}"}
+    payload = {"older_than_days": older_than_days}
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            # ``client.delete`` takes no body, so go through ``request``: the age
+            # floor rides in the body rather than the URL, keeping it out of
+            # access logs alongside the rest of the worker's write surface.
+            response = await client.request("DELETE", clear_url, headers=headers, json=payload)
+    except httpx.TimeoutException as exc:
+        raise WorkerUnreachableError(f"Timeout clearing history at {clear_url}: {exc}") from exc
+    except httpx.ConnectError as exc:
+        raise WorkerUnreachableError(
+            f"Connection error clearing history at {clear_url}: {exc}"
+        ) from exc
+    except httpx.RequestError as exc:
+        raise WorkerUnreachableError(
+            f"Request error clearing history at {clear_url}: {exc}"
+        ) from exc
+
+    if response.status_code == 401:
+        raise WorkerAuthRejectedError(f"Unauthorized (401) from {clear_url}")
+    response.raise_for_status()
+    return cast(dict[str, Any], response.json())
+
+
 async def proxy_worker_stream(url: str, token: str, run_id: str) -> AsyncIterator[bytes]:
     """Proxy an SSE stream from a worker's /dispatch/{run_id}/stream endpoint.
 

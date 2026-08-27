@@ -17,6 +17,11 @@ In-flight runs are never swept regardless of age: a run record whose status is
 not terminal is skipped, and any run id currently pending in the worker (passed
 in as ``in_flight_run_ids``) is skipped along with the artifacts it produced.
 
+The same eligibility rule (:func:`record_is_deletable`) also backs the
+dashboard's on-demand *clear history* action, which runs it with no age floor —
+so a button click and a scheduled sweep agree, by construction, on what counts
+as a finished run.
+
 This is a generic OSPREY-core capability with no channel awareness. The sweep
 functions are pure (they take the log dir, an ``ArtifactStore``, and an injected
 ``now``) so they can be driven directly in tests without a clock or sleeps.
@@ -28,10 +33,10 @@ import json
 import logging
 import os
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from osprey.stores.artifact_store import ArtifactStore
@@ -77,6 +82,87 @@ def _parse_iso_timestamp(value: str) -> float | None:
         return None
 
 
+def record_is_deletable(
+    record: Mapping[str, Any],
+    now: float,
+    older_than_days: int = 0,
+) -> bool:
+    """True when a run record may be deleted. The one eligibility rule.
+
+    Shared by the periodic retention sweep and the dashboard's clear-history
+    action, so the two can never disagree about which runs are finished and safe
+    to drop.
+
+    A record qualifies when its status is terminal and — when ``older_than_days``
+    is positive — its completion is strictly older than that window (a record
+    aged exactly N days survives). ``older_than_days <= 0`` means *no age floor*:
+    every terminal record qualifies, which is what the clear-history button
+    asks for. A record whose timestamp cannot be read is never deletable under
+    an age floor.
+
+    In-flight protection is the caller's: a run the worker still holds as
+    pending is filtered out by run id before this is consulted, because a
+    pending run's record is not always on disk yet.
+    """
+    if record.get("status") not in _TERMINAL_STATUSES:
+        return False
+    if older_than_days <= 0:
+        return True
+
+    ts = record.get("completed_at")
+    if ts is None:
+        ts = record.get("created_at")
+    try:
+        ts = float(ts)
+    except (TypeError, ValueError):
+        return False
+
+    # Strictly older than the window: age exactly N days survives (ts == cutoff).
+    return ts < now - older_than_days * _SECONDS_PER_DAY
+
+
+def delete_run_records(
+    log_dir: str | Path,
+    now: float,
+    older_than_days: int = 0,
+    in_flight_run_ids: Iterable[str] = (),
+) -> list[str]:
+    """Delete every eligible persisted run record. Returns the deleted run ids.
+
+    Eligibility is :func:`record_is_deletable` plus the in-flight guard. With
+    ``older_than_days`` unset there is no age floor and every terminal record
+    goes. Unreadable files are left in place, as is any file whose unlink fails
+    — a partial deletion is reported honestly rather than raising.
+    """
+    log_dir = Path(log_dir)
+    if not log_dir.is_dir():
+        return []
+
+    in_flight = frozenset(in_flight_run_ids)
+    deleted: list[str] = []
+
+    for path in sorted(log_dir.glob("*.json")):
+        run_id = path.name.removesuffix(".json")
+        if run_id in in_flight:
+            continue
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            logger.warning("Could not read %s — leaving it in place", path, exc_info=True)
+            continue
+
+        if not record_is_deletable(data, now, older_than_days):
+            continue
+
+        try:
+            path.unlink()
+            deleted.append(run_id)
+        except OSError:
+            logger.warning("Failed to delete %s", path, exc_info=True)
+
+    return deleted
+
+
 def sweep_dispatch_runs(
     log_dir: str | Path,
     retention_days: int,
@@ -85,53 +171,13 @@ def sweep_dispatch_runs(
 ) -> int:
     """Delete persisted run records older than the threshold. Returns the count.
 
-    Skips any record that is non-terminal or whose run id is in
-    ``in_flight_run_ids`` (an in-flight run is never swept). Unreadable files are
-    left in place. A no-op when ``retention_days <= 0`` or the dir is absent.
+    The age-based face of :func:`delete_run_records`: skips any record that is
+    non-terminal or whose run id is in ``in_flight_run_ids`` (an in-flight run is
+    never swept). A no-op when ``retention_days <= 0`` or the dir is absent.
     """
     if retention_days <= 0:
         return 0
-    log_dir = Path(log_dir)
-    if not log_dir.is_dir():
-        return 0
-
-    in_flight = frozenset(in_flight_run_ids)
-    cutoff = now - retention_days * _SECONDS_PER_DAY
-    deleted = 0
-
-    for path in log_dir.glob("*.json"):
-        run_id = path.name.removesuffix(".json")
-        if run_id in in_flight:
-            continue
-        try:
-            data = json.loads(path.read_text())
-        except (OSError, json.JSONDecodeError):
-            logger.warning("Retention: could not read %s — skipping", path, exc_info=True)
-            continue
-
-        if data.get("status") not in _TERMINAL_STATUSES:
-            # In-flight / non-terminal record — never sweep it.
-            continue
-
-        ts = data.get("completed_at")
-        if ts is None:
-            ts = data.get("created_at")
-        try:
-            ts = float(ts)
-        except (TypeError, ValueError):
-            continue
-
-        # Strictly older than the window: age exactly N days survives (ts == cutoff).
-        if ts >= cutoff:
-            continue
-
-        try:
-            path.unlink()
-            deleted += 1
-        except OSError:
-            logger.warning("Retention: failed to delete %s", path, exc_info=True)
-
-    return deleted
+    return len(delete_run_records(log_dir, now, retention_days, in_flight_run_ids))
 
 
 def sweep_artifacts(

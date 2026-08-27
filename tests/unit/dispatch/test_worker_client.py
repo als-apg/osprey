@@ -14,6 +14,7 @@ from osprey.dispatch.worker_client import (
     WorkerUnavailableError,
     WorkerUnreachableError,
     cancel_worker_run,
+    clear_worker_history,
     dispatch_to_worker,
     fetch_worker_runs,
     proxy_worker_stream,
@@ -301,6 +302,46 @@ async def test_cancel_worker_run_404_raises_dispatch_error():
     with _patched_client(transport):
         with pytest.raises(WorkerRejectedRequestError, match="not found"):
             await cancel_worker_run("http://worker:9190", token="tok", run_id="ghost")
+
+
+# ---------------------------------------------------------------------------
+# clear_worker_history
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_clear_worker_history_success():
+    transport = _mock_transport(200, body={"cleared": 3, "records_deleted": 3})
+    with _patched_client(transport):
+        result = await clear_worker_history("http://worker:9190", token="tok")
+    assert result["cleared"] == 3
+
+
+@pytest.mark.asyncio
+async def test_clear_worker_history_sends_delete_with_the_age_floor():
+    """The horizon rides in the body, not the URL — DELETE /dispatch/runs."""
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["method"] = request.method
+        seen["url"] = str(request.url)
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"cleared": 0}, request=request)
+
+    with _patched_client(httpx.MockTransport(handler)):
+        await clear_worker_history("http://worker:9190/", token="tok", older_than_days=7)
+
+    assert seen["method"] == "DELETE"
+    assert seen["url"] == "http://worker:9190/dispatch/runs"
+    assert seen["body"] == {"older_than_days": 7}
+
+
+@pytest.mark.asyncio
+async def test_clear_worker_history_401_raises_auth_error():
+    transport = _mock_transport(401, body={"detail": "no"})
+    with _patched_client(transport):
+        with pytest.raises(WorkerAuthRejectedError):
+            await clear_worker_history("http://worker:9190", token="bad")
 
 
 # ---------------------------------------------------------------------------
