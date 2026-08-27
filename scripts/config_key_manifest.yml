@@ -376,10 +376,76 @@ keys:
     note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
   services.virtual_accelerator.image:
     rendered: false
-    evidence: 'OSPREY_VA_IMAGE:-\{\{ services\.virtual_accelerator\.image'
+    evidence: 'OSPREY_VA_IMAGE:-\{\{ svc\.image'
     note: >-
       OSPREY-built image. The VA image is large and platform-sensitive, so a
       published multi-arch pin here is the usual way to skip the local build.
+      The compose template reaches it through `svc = services[instance_key]`
+      because the baseline VA and the live stand-in render from the one
+      fragment, so the evidence anchors on that alias rather than on the dotted
+      path — the alias is what a rename would have to touch. Same shape as
+      `services.bluesky.image`.
+  # The live stand-in is a SECOND INSTANCE of the virtual accelerator, not a
+  # service of its own. `_inject_va` writes `services.live_standin` beside
+  # `services.virtual_accelerator` — same `path`, same template directory, same
+  # image, its own Channel Access port — whenever a build profile sets
+  # `virtual_accelerator.live_standin`, and appends the key to
+  # `deployed_services` so the VA compose fragment renders a second container
+  # off it. Both blocks are INJECTOR-written, so neither reaches the rendered
+  # union and every entry below carries `rendered: false` — the same standing
+  # as the `services.bluesky_va` / `services.bluesky_live` lane blocks noted at
+  # the head of this section.
+  #
+  # The stand-in is recorded where its baseline twin is not, because
+  # `services.live_standin.port` is not a deployment detail: it is the whole
+  # evidence that a deployment's `live` target is a stand-in rather than a
+  # machine. The honesty predicate, the roster label, the archiver recorder's
+  # enablement gate, the reach contract and the host-port remedy all decide on
+  # that one key, so its disappearance is a real signal in a way the baseline
+  # VA's port — read only by the generic compose machinery, and recorded here
+  # no more than `services.virtual_accelerator.port` is — would not be.
+  services.live_standin:
+    rendered: false
+    evidence: '_LIVE_STANDIN_SERVICE_KEY = LIVE_STANDIN_PORT_KEY\.split\("\."\)\[1\]'
+    note: >-
+      Evidence anchors on the injector deriving the block's name FROM the
+      dotted path its readers walk, rather than on a reader of the block: that
+      one line is what keeps the writer and the honesty predicate from ending
+      up at two different spellings of one service, so it is the line a rename
+      cannot avoid. The compose fragment reaches the block as
+      `services[instance_key]`, which names no service and would prove nothing.
+  services.live_standin.path:
+    rendered: false
+    covered-by: services.live_standin
+    note: >-
+      Always `./services/virtual_accelerator`, the same fragment directory the
+      baseline instance declares — one template, two containers. No stand-in
+      specific reader exists: the compose generator resolves it through the
+      generic `service_config["path"]` read shared by every service, so the
+      block above carries the anchored evidence.
+  services.live_standin.port:
+    rendered: false
+    evidence: 'LIVE_STANDIN_PORT_KEY = "services\.live_standin\.port"'
+    note: >-
+      The stand-in's Channel Access port, and the one fact four independent
+      readers decide the stand-in's existence from. Evidence anchors on
+      `osprey_connectors.standin`, where the dotted path is spelled ONCE and
+      every other site imports it — the build injector that writes the block,
+      the archiver recorder's enablement gate, `deployment/reach.py`'s
+      projected key and `deployment/host_ports.py`'s port-conflict remedy all
+      go through that constant, so the guard watches the spelling itself rather
+      than whichever consumer happens to be looked at.
+  services.live_standin.image:
+    rendered: false
+    evidence: 'OSPREY_VA_IMAGE:-\{\{ svc\.image'
+    note: >-
+      Hidden per-instance image pin. The SAME site as
+      `services.virtual_accelerator.image` above and cited the same way on
+      purpose: one compose fragment renders both instances through
+      `svc = services[instance_key]`, so there is one `svc.image` read and no
+      per-instance reader to anchor on separately. Both instances also share
+      the OSPREY_VA_IMAGE override, and instance 1 alone owns the `build:`
+      stanza — two services building one tag would race.
   services.qmd.image:
     rendered: false
     evidence: 'OSPREY_QMD_IMAGE:-\{\{ services\.qmd\.image'
@@ -527,12 +593,20 @@ keys:
       which is why the VA block ships it set and the epics block does not.
   control_system.connector.epics.probe_channel:
     rendered: false
-    forward-declared: true
+    evidence: '"probe_channel": str\(block\.get\(PROBE_CHANNEL_KEY\)'
     note: >-
       Same key, commented in both templates that carry an epics block. A live
       probe channel is facility-specific and cannot be guessed, and an unset
       one leaves the live target un-switchable-to rather than falsely
-      eligible — the fail-closed direction.
+      eligible — the fail-closed direction. A build that sets
+      `virtual_accelerator.live_standin` fills it in: the derivation in
+      `cli/build_profile_standin.py` copies the channel the VA block proves
+      into this one, because the stand-in serves that same simulated machine
+      and a `live` target that refuses itself is the one thing a rehearsal
+      deployment cannot ship. With the VA block naming none, none is written
+      and the fail-closed direction is unchanged.
+      No longer forward-declared: the switch's host manager reads it out of the
+      resolved connector block, which is where the evidence anchors.
   control_system.connector.virtual_accelerator.writes_enabled:
     rendered: false
     evidence: 'block\[TYPE_WRITES_ENABLED_LEAF\] is True'
@@ -572,14 +646,23 @@ keys:
   control_system.target_switch.probe_interval_s: {forward-declared: true}
   control_system.target_switch.live_gateway_acknowledged:
     rendered: false
-    forward-declared: true
+    evidence: 'ACK_KEY = "control_system\.target_switch\.live_gateway_acknowledged"'
     note: >-
-      Commented in every template that renders an epics block. The operator
-      sets it to their OWN live gateway hostname; the shipped example is a
-      real-hostname-SHAPED string on purpose (an actually-real one in the
-      control_assistant template, a neutral one in the project template), so
-      nothing can string-test a value for "still the default". Only
-      set-and-non-empty is ever checked.
+      Commented in every template that renders an epics block, so no render
+      carries it. The operator sets it to their OWN live gateway hostname; the
+      shipped example is a real-hostname-SHAPED string on purpose (an
+      actually-real one in the control_assistant template, a neutral one in the
+      project template), so nothing can string-test a value for "still the
+      default". Only set-and-non-empty is ever checked. A build that sets
+      `virtual_accelerator.live_standin` WRITES it —
+      `_acknowledge_standin_as_live` puts the loopback endpoint it pointed the
+      `epics` gateways at, because a gateway table aimed at a container this
+      same build deployed has no hardware behind it and nothing left for an
+      operator to confirm; an acknowledgment naming anything else was written
+      about a real machine and is never clobbered. No longer forward-declared:
+      the eligibility gate reads it, and the evidence anchors on that gate's
+      own spelling of the key rather than on the leaf the CLI writes it
+      through, because the gate is what a rename would have to keep in step.
 
   # ── Archiver ────────────────────────────────────────────────────────
   archiver: {evidence: 'get_config_value\("archiver", \{\}\)'}

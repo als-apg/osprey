@@ -282,15 +282,18 @@ control_system:
       # deployed soft-IOC's port is a one-place edit. Set `port:` on a gateway
       # only to reach a VA this project does not deploy - one on another host,
       # or a container published on a host port different from the one it
-      # serves on.
+      # serves on. The example below reads 5094, not 5074, on purpose: the
+      # shipped build-profile example puts the live stand-in VA on 5074
+      # (`virtual_accelerator.live_standin`), so the example here names a port no
+      # OSPREY service claims.
       gateways:
         read_only:
           address: localhost
-          # port: 5074
+          # port: 5094
           use_name_server: true
         write_access:
           address: localhost
-          # port: 5074
+          # port: 5094
           use_name_server: true
     epics:
       timeout: 5.0
@@ -335,16 +338,17 @@ control_system:
 
   # Control-System Target Switch
   # Bounds how a running session moves between the connector targets above.
+  #
+  # The `live_gateway_acknowledged` key below is the operator acknowledgment for
+  # the live machine. Set it to your own live gateway's hostname to confirm the
+  # `epics` gateways above really are your facility's. While it is unset a
+  # session may not switch TO the live target; returning to it when it is this
+  # deployment's baseline is always allowed.
   target_switch:
     drain_timeout_s: 5      # Seconds in-flight operations get to finish on the
                             # old target before it is torn down regardless
     probe_interval_s: 30    # Seconds between background reachability probes of
                             # every target's gateways
-    # Operator acknowledgment for the live machine. Set it to your own live
-    # gateway's hostname to confirm the `epics` gateways above really are your
-    # facility's. While it is unset a session may not switch TO the live
-    # target; returning to it when it is this deployment's baseline is always
-    # allowed.
     # live_gateway_acknowledged: your-gateway.example.com
 
   # Pattern Detection (Security Layer)

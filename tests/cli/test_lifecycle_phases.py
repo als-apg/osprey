@@ -319,6 +319,9 @@ class TestBuildPhases:
             # the render just written becomes the host config every attached
             # render after it is projected from.
             deploy_services = True
+            # No live stand-in: _build_repo reads the block after the swap to
+            # decide whether to run the stand-in's lattice gate.
+            virtual_accelerator = None
 
             def resolved_tier(self) -> int:
                 return 1

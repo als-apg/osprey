@@ -8,8 +8,9 @@ profile author reads which key to fix out of the message itself. Covered here:
 an ``mcp_servers:`` entry that is not a mapping, an ``mcp_servers:`` entry that
 declares neither transport (``command`` nor ``url``), both halves of the
 ``services:`` loop (the non-mapping raise and the ``ServiceDef`` it builds from
-a valid mapping), and the non-mapping guards on the optional ``bluesky:`` and
-``virtual_accelerator:`` blocks.
+a valid mapping), the non-mapping guards on the optional ``bluesky:`` and
+``virtual_accelerator:`` blocks, and the ``virtual_accelerator:`` block's closed
+key set and ``live_standin`` typing.
 
 Complements the block-scoped suites that exercise the *accepted* shapes:
 ``test_bluesky_service_registration.py`` for ``bluesky:`` field defaults and
@@ -181,3 +182,47 @@ def test_virtual_accelerator_not_a_mapping_raises() -> None:
     """A non-mapping 'virtual_accelerator' block raises during parsing."""
     with pytest.raises(BuildProfileError, match="Profile 'virtual_accelerator' must be a mapping"):
         _parse_profile({"name": "x", "virtual_accelerator": "not-a-mapping"})
+
+
+def test_virtual_accelerator_unknown_key_raises_with_suggestion() -> None:
+    """A misspelled VA subkey is named, corrected and rejected rather than dropped."""
+    with pytest.raises(
+        BuildProfileError,
+        match=r"Unknown virtual_accelerator key\(s\): 'live_standing' "
+        r"\(did you mean 'live_standin'\?\)",
+    ):
+        _parse_profile({"name": "x", "virtual_accelerator": {"live_standing": 5074}})
+
+
+def test_virtual_accelerator_live_standin_parses() -> None:
+    """A live_standin port lands on the parsed VAConfig."""
+    profile = _parse_profile({"name": "x", "virtual_accelerator": {"live_standin": 5074}})
+    assert profile.virtual_accelerator is not None
+    assert profile.virtual_accelerator.live_standin == 5074
+
+
+def test_virtual_accelerator_without_live_standin_parses_to_none() -> None:
+    """Omitting live_standin leaves the deployment with no stand-in lane."""
+    profile = _parse_profile({"name": "x", "virtual_accelerator": {"port": 5064}})
+    assert profile.virtual_accelerator is not None
+    assert profile.virtual_accelerator.live_standin is None
+
+
+def test_virtual_accelerator_live_standin_must_be_an_int() -> None:
+    """A non-integer live_standin raises rather than reaching port validation."""
+    with pytest.raises(
+        BuildProfileError,
+        match="virtual_accelerator.live_standin must be a Channel Access port number "
+        r"\(got '5074'\)",
+    ):
+        _parse_profile({"name": "x", "virtual_accelerator": {"live_standin": "5074"}})
+
+
+def test_virtual_accelerator_live_standin_rejects_a_boolean() -> None:
+    """`live_standin: true` names no port, so it is not a port number either."""
+    with pytest.raises(
+        BuildProfileError,
+        match="virtual_accelerator.live_standin must be a Channel Access port number "
+        r"\(got True\)",
+    ):
+        _parse_profile({"name": "x", "virtual_accelerator": {"live_standin": True}})

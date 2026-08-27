@@ -213,6 +213,14 @@ _KNOWN_BLUESKY_KEYS = frozenset(f.name for f in fields(BlueskyConfig))
 _KNOWN_DISPATCH_KEYS = frozenset(f.name for f in fields(DispatchConfig))
 
 
+# Keys recognized inside the ``virtual_accelerator:`` block, derived from its
+# dataclass like the two sets above. What a dropped key costs here is a
+# deployment that quietly stays on simulated channels: a misspelled
+# `live_standin` leaves the stand-in unbuilt, and the rehearsal of going live
+# would run against the same lane the operator was already on.
+_KNOWN_VA_KEYS = frozenset(f.name for f in fields(VAConfig))
+
+
 def _parse_environment(raw: dict[str, Any]) -> EnvironmentConfig:
     """Parse the raw ``environment:`` block into an :class:`EnvironmentConfig`.
 
@@ -749,8 +757,18 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     if va_raw is not None:
         if not isinstance(va_raw, dict):
             raise BuildProfileError("Profile 'virtual_accelerator' must be a mapping")
+        _reject_unknown_block_keys(va_raw, _KNOWN_VA_KEYS, "virtual_accelerator")
+        live_standin = va_raw.get("live_standin")
+        if live_standin is not None and (
+            isinstance(live_standin, bool) or not isinstance(live_standin, int)
+        ):
+            raise BuildProfileError(
+                "virtual_accelerator.live_standin must be a Channel Access port number "
+                f"(got {live_standin!r})"
+            )
         virtual_accelerator = VAConfig(
             port=va_raw.get("port", 5064),
+            live_standin=live_standin,
         )
 
     bluesky_web_raw = raw.get("bluesky_web")

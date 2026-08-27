@@ -380,6 +380,33 @@ def _va_connector_on(config: Mapping[str, Any]) -> bool:
     return bool(dotted_get(config, "control_system.type") == VIRTUAL_ACCELERATOR)
 
 
+def _live_standin_on(config: Mapping[str, Any]) -> bool:
+    """Whether this render has an EPICS connector pointed at a stand-in.
+
+    The first conjunct is the deployment's own statement that it stood one up,
+    read through :func:`osprey_connectors.standin.live_standin_port` so the
+    build, the roster's label and the recorder's gate all decide it from one
+    reading of one key.
+
+    The second conjunct is what makes this a *consumer*: the stand-in is
+    dialled by the ``epics`` connector and by nothing else, and the port is
+    projected into every attached render ungated (see the contract's
+    ``projected``). An attached project built from a template that has no
+    ``epics`` connector at all — hello_world, ariel_standalone — therefore
+    carries the port for its label and has no client for it, and refusing that
+    render would refuse the projection that makes the label honest.
+    """
+    from osprey_connectors.standin import live_standin_port
+
+    if live_standin_port(config) is None:
+        return False
+    return isinstance(dotted_get(config, "control_system.connector.epics"), Mapping)
+
+
+def _live_standin_resolves(config: Mapping[str, Any]) -> bool:
+    return _live_standin_dial(config) is not None
+
+
 def _events_panel_on(config: Mapping[str, Any]) -> bool:
     return config_declares_panel(config, EVENTS_PANEL_ID)
 
@@ -501,6 +528,36 @@ def _va_dial(config: Mapping[str, Any]) -> Dial | None:
             break
     else:
         address, port = "localhost", published
+    try:
+        return address, int(port)
+    except (TypeError, ValueError):
+        return None
+
+
+#: What the EPICS connector falls back to for a gateway row that names no port
+#: (``epics_connector._configure_epics_env``), so this dialer answers with the
+#: endpoint that connector would really use rather than with a guess.
+_EPICS_DEFAULT_CA_PORT = 5064
+
+
+def _live_standin_dial(config: Mapping[str, Any]) -> Dial | None:
+    """What the ``epics`` connector dials when the stand-in is the live target.
+
+    Resolved the connector's own way (``epics_connector._configure_epics_env``):
+    the ``read_only`` gateway row is the one every session reaches the live
+    target through — a readonly run never leaves it, and a write-enabled run
+    only moves to ``write_access``, which the build points at the same
+    stand-in — and an absent ``port`` falls back to the Channel Access default
+    the connector itself falls back to. No gateways means the connector sets no
+    Channel Access environment at all, which is nothing to dial.
+    """
+    gateway = as_dict(dotted_get(config, "control_system.connector.epics.gateways.read_only"))
+    if not gateway:
+        return None
+    address = str(gateway.get("address") or "localhost")
+    port = gateway.get("port")
+    if port is None:
+        port = _EPICS_DEFAULT_CA_PORT
     try:
         return address, int(port)
     except (TypeError, ValueError):
@@ -738,6 +795,34 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
         ),
         projected=(ProjectedKey("services.virtual_accelerator.port", gate=_va_connector_on),),
         note="the connector fills every gateway port from the block",
+    ),
+    "live_standin": ReachContract(
+        service="live_standin",
+        consumers=(
+            Consumer(
+                name=(
+                    "epics connector dialling the live stand-in "
+                    "(controls MCP server, osprey.runtime)"
+                ),
+                switch_key="control_system.connector.epics.gateways",
+                is_on=_live_standin_on,
+                resolves=_live_standin_resolves,
+                dial=_live_standin_dial,
+            ),
+        ),
+        # UNGATED, alone among the service ports here. An attached or persona
+        # render carries `services: {}` except for the keys projected into it,
+        # and this port is not only how a client dials the stand-in: it is the
+        # whole evidence `osprey_connectors.standin.live_standin_active` reads
+        # to decide whether the roster says LIVE MACHINE or LIVE MACHINE
+        # (stand-in). A gate would withhold it from exactly the renders a
+        # multi-user deployment hands its operators, and the same machine would
+        # be labelled one way in a single-user session and another through a
+        # persona. Projecting it everywhere costs nothing it could be misread
+        # for: an SSH tunnel to a real gateway on loopback carries no such
+        # block, so it stays LIVE MACHINE, which is the truth.
+        projected=(ProjectedKey("services.live_standin.port", gate=None),),
+        note="the epics gateways are pointed at the stand-in's port on loopback",
     ),
     "mongodb": ReachContract(
         service="mongodb",

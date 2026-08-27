@@ -21,6 +21,7 @@ ONE thing still missing is the probe channel.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import yaml as pyyaml
@@ -302,3 +303,218 @@ def test_the_only_thing_missing_after_injection_is_the_probe_channel(tmp_path):
     assert not verdict.eligible
     assert verdict.reason == REASON_PROBE_CHANNEL_MISSING
     assert "probe_channel" in verdict.detail
+
+
+# ---------------------------------------------------------------------------
+# The live stand-in: a second instance of the same service, acknowledged
+# ---------------------------------------------------------------------------
+#
+# ``virtual_accelerator.live_standin: <port>`` deploys a SECOND soft-IOC
+# container and wires it in as the deployment's ``live`` target, so an operator
+# can rehearse the whole go-live ritual against something safe. Three writes
+# make that work with no hand editing, and each of them is pinned below:
+#
+# * ``services.live_standin`` — same ``path`` as ``virtual_accelerator``,
+#   because it is a second instance of one template, not a second service;
+# * ``deployed_services`` — the compose template reads its instance list from
+#   there, so a block that is not deployed conjures no container;
+# * ``control_system.target_switch.live_gateway_acknowledged`` — the gate that
+#   otherwise stops a session switching TO ``live``. Nothing is left for an
+#   operator to confirm about a loopback container this build addressed itself.
+#
+# The text assertions run against the REAL Control Assistant template rather
+# than a literal fixture, because what they pin is how the write lands among
+# comments that ship — the wrapped inline comments beside it, the prose above
+# ``target_switch:``, and the commented-out example the write has to remove.
+
+#: Channel Access port of the stand-in in these tests. Not 5064: the two
+#: instances serve different machines and may never share a port.
+STANDIN_PORT = 5074
+
+#: The note the build hangs above the acknowledgment it wrote. Restated here
+#: rather than imported, because this is the prose an operator reads in their
+#: own config.yml — a reword should have to be made twice, on purpose.
+EXPECTED_ACK_NOTE = (
+    "    # Written by `osprey build` for the live stand-in: the `epics` gateways\n"
+    "    # above dial the second virtual-accelerator container on this loopback\n"
+    "    # port, so the acknowledgment names it. When you go live, delete\n"
+    "    # `virtual_accelerator.live_standin` from the build profile, set your\n"
+    "    # gateways, and replace this value by hand with your own live gateway's\n"
+    "    # hostname.\n"
+)
+
+
+def _render_control_assistant_template() -> str:
+    """The shipped app template, rendered the way the build renders it.
+
+    Same helper as tests/cli/test_rendered_va_block.py's: the text pins below
+    are only worth having if they are against what ships.
+    """
+    from osprey.cli.templates.manager import TemplateManager
+
+    return TemplateManager().jinja_env.get_template("apps/control_assistant/config.yml.j2").render()
+
+
+def _inject_standin(tmp_path, template: str | None = None, *, port: int | None = STANDIN_PORT):
+    """Run the injector over *template* with the stand-in port set (or not)."""
+    if template is None:
+        template = _render_control_assistant_template()
+    (tmp_path / "config.yml").write_text(template, encoding="utf-8")
+    _inject_va(VAConfig(port=5064, live_standin=port), tmp_path)
+    return (tmp_path / "config.yml").read_text(encoding="utf-8")
+
+
+def _target_switch(text: str) -> Any:
+    return pyyaml.safe_load(text)["control_system"]["target_switch"]
+
+
+class TestNoStandinChangesNothing:
+    """``live_standin`` unset is the shipped default, and it has to be inert."""
+
+    def test_the_rendered_config_is_what_it_was_before_the_stand_in_existed(self, tmp_path):
+        template = _render_control_assistant_template()
+        without = _inject_standin(tmp_path, template, port=None)
+
+        assert _inject(tmp_path, template) == without
+
+    def test_no_stand_in_service_and_no_stand_in_entry(self, tmp_path):
+        config = pyyaml.safe_load(_inject_standin(tmp_path, port=None))
+
+        assert "live_standin" not in config["services"]
+        assert "live_standin" not in config["deployed_services"]
+        assert "virtual_accelerator" in config["deployed_services"]
+
+    def test_the_target_switch_block_is_left_exactly_as_the_template_ships_it(self, tmp_path):
+        """Including the commented-out example: nothing wrote the key, so it stays."""
+        template = _render_control_assistant_template()
+        text = _inject_standin(tmp_path, template, port=None)
+
+        block = (
+            "  target_switch:\n" + template.split("  target_switch:\n", 1)[1].split("\n\n", 1)[0]
+        )
+        assert block in text
+        assert "# live_gateway_acknowledged: cagw-alsdmz.als.lbl.gov" in text
+        assert "live_gateway_acknowledged" not in _target_switch(text)
+
+
+class TestStandinServiceRegistration:
+    def test_the_stand_in_shares_the_virtual_accelerators_template_directory(self, tmp_path):
+        """One template, one path, two containers — not a second service tree."""
+        services = pyyaml.safe_load(_inject_standin(tmp_path))["services"]
+
+        assert services["live_standin"] == {
+            "path": "./services/virtual_accelerator",
+            "port": STANDIN_PORT,
+        }
+        assert services["virtual_accelerator"]["path"] == services["live_standin"]["path"]
+
+    def test_both_instances_are_deployed_exactly_once(self, tmp_path):
+        """The compose template reads its instance list off ``deployed_services``."""
+        deployed = pyyaml.safe_load(_inject_standin(tmp_path))["deployed_services"]
+
+        assert deployed.count("virtual_accelerator") == 1
+        assert deployed.count("live_standin") == 1
+
+    def test_an_authored_env_passthrough_survives_the_block_replacement(self, tmp_path):
+        """``_carry_authored_keys`` covers the second instance too.
+
+        ``env:`` is the one key on a service block that belongs to the author
+        rather than to the injector, and it lands in config.yml *before* the
+        injectors run — so a stand-in that dropped it would accept the
+        declaration and then silently deliver no passthrough.
+        """
+        template = _render_control_assistant_template().replace(
+            "services:\n",
+            "services:\n  live_standin:\n    env:\n      - MY_HOST_VAR\n",
+            1,
+        )
+
+        services = pyyaml.safe_load(_inject_standin(tmp_path, template))["services"]
+
+        assert services["live_standin"]["env"] == ["MY_HOST_VAR"]
+        assert services["live_standin"]["port"] == STANDIN_PORT
+
+    def test_the_gateway_rows_still_carry_no_port(self, tmp_path):
+        """Ledger 56 holds with a stand-in deployed: the port is derived, not written."""
+        text = _inject_standin(tmp_path, CONFIG_WITHOUT_VA_BLOCK)
+
+        for role, gateway in _va_block(text)["gateways"].items():
+            assert "port" not in gateway, f"{role} gateway must not name a port"
+
+
+class TestAcknowledgment:
+    def test_the_stand_ins_loopback_endpoint_is_acknowledged(self, tmp_path):
+        assert _target_switch(_inject_standin(tmp_path))["live_gateway_acknowledged"] == (
+            f"localhost:{STANDIN_PORT}"
+        )
+
+    def test_the_note_sits_directly_above_the_key(self, tmp_path):
+        text = _inject_standin(tmp_path)
+
+        assert (
+            EXPECTED_ACK_NOTE + f"    live_gateway_acknowledged: localhost:{STANDIN_PORT}\n"
+        ) in text
+
+    def test_the_key_is_written_once_and_the_commented_example_is_gone(self, tmp_path):
+        """Two spellings of one setting side by side is what this write must not leave."""
+        text = _inject_standin(tmp_path)
+
+        assert text.count("    live_gateway_acknowledged:") == 1
+        assert "# live_gateway_acknowledged:" not in text
+
+    def test_the_template_prose_above_target_switch_survives_once(self, tmp_path):
+        """The write lands inside the block; the header explaining it does not move."""
+        text = _inject_standin(tmp_path)
+
+        assert text.count("# The `live_gateway_acknowledged` key below is the operator") == 1
+        assert _line_no(text, "# The `live_gateway_acknowledged` key below") < _line_no(
+            text, "  target_switch:"
+        )
+
+    def test_the_wrapped_inline_comments_beside_it_are_not_torn_in_half(self, tmp_path):
+        """The failure mode this write is most likely to cause, pinned directly.
+
+        ``probe_interval_s``'s inline comment wraps onto a continuation line,
+        and both lines live on ONE ruamel comment token — together with the
+        commented-out example the write removes.
+        """
+        text = _inject_standin(tmp_path)
+
+        assert (
+            "    probe_interval_s: 30    # Seconds between background reachability probes of\n"
+            "                            # every target's gateways\n"
+        ) in text
+        assert (
+            "    drain_timeout_s: 5      # Seconds in-flight operations get to finish on the\n"
+            "                            # old target before it is torn down regardless\n"
+        ) in text
+
+    def test_a_rebuild_reproduces_the_file_byte_for_byte(self, tmp_path):
+        once = _inject_standin(tmp_path)
+        _inject_va(VAConfig(port=5064, live_standin=STANDIN_PORT), tmp_path)
+        twice = (tmp_path / "config.yml").read_text(encoding="utf-8")
+
+        assert twice == once
+
+    def test_a_config_with_no_target_switch_block_gains_the_acknowledgment(self, tmp_path):
+        """The configs that predate the block, and the hand-maintained ones."""
+        text = _inject_standin(tmp_path, CONFIG_WITHOUT_VA_BLOCK)
+
+        assert _target_switch(text)["live_gateway_acknowledged"] == f"localhost:{STANDIN_PORT}"
+
+    def test_an_operator_authored_acknowledgment_is_never_downgraded(self, tmp_path, caplog):
+        """It names an operator's own machine, and a loopback container is not it."""
+        template = _render_control_assistant_template().replace(
+            "    # live_gateway_acknowledged: cagw-alsdmz.als.lbl.gov\n",
+            "    live_gateway_acknowledged: cagw.example.com   # ours, checked\n",
+            1,
+        )
+
+        with caplog.at_level(logging.WARNING):
+            text = _inject_standin(tmp_path, template)
+
+        assert _target_switch(text)["live_gateway_acknowledged"] == "cagw.example.com"
+        # The value AND the comment the operator wrote beside it.
+        assert "    live_gateway_acknowledged: cagw.example.com   # ours, checked\n" in text
+        assert "# Written by `osprey build`" not in text
+        assert "live_gateway_acknowledged" in caplog.text
