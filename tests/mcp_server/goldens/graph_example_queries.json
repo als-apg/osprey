@@ -80,7 +80,7 @@
   ],
   "notes": [
     "Each example carries its parameters separately from its Cypher. Pass the chosen parameter dict to read_cypher as `params` — never paste values into the query text.",
-    "Each parameter set holds values that exist in the shipped demo machine; on a deployment that seeded a different corpus, take values from the rows the structural examples return. The Cypher is the same either way; only the values differ.",
+    "Each parameter set holds framework-default values that exist in the shipped demo machine. This tool never dials the store, so it cannot substitute this corpus's values; the *Graph at Hand* section of your prompt, baked at seed time, may carry the same examples with values captured from this corpus — prefer those. Failing both, take values from the rows the structural examples return.",
     "Every example already ends in a LIMIT, so an example that comes back truncated was truncated by the server's row cap, not by the query.",
     "Results are bounded by services.graphdb.query_max_rows; a truncated result means narrow the query rather than retry it unchanged."
   ]

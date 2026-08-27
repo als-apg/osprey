@@ -22,6 +22,7 @@ owns preventing.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
@@ -45,6 +46,29 @@ _DEFAULT_KEYS: dict[str, list[str]] = {
     "Resource": ["fullPv", "sourceName", "uri"],
 }
 
+#: Two classes, deliberately unalike: one whose IRI separates on ``/`` and
+#: answers with the ARRAY the store's n10s config produces (with a duplicate, so
+#: deduplication is exercised), one separating on ``#`` whose ``altLabel`` comes
+#: back as a bare scalar — the shape a hand-configured store can answer with.
+_DEFAULT_VOCABULARY: tuple[dict[str, Any], ...] = (
+    {
+        "uri": "https://narad.example.org/schema/shared_semantics/VacuumGauge",
+        "synonyms": ["vgc", "gauge", "vgc"],
+    },
+    {
+        "uri": "https://narad.example.org/schema/shared_semantics#Thermocouple",
+        "synonyms": "tc",
+    },
+)
+
+#: One device with a binding, as the specimen query returns it.
+_DEFAULT_SPECIMEN: dict[str, Any] = {
+    "name": "SR01U-VGC1",
+    "section": "SR01",
+    "system": "vacuum",
+    "pv": "SR01U:VGC1:PRESSURE",
+}
+
 
 @dataclass
 class _FakeStore:
@@ -53,6 +77,8 @@ class _FakeStore:
     labels: tuple[str, ...] = _DEFAULT_LABELS
     relationship_types: tuple[str, ...] = _DEFAULT_RELTYPES
     keys_by_label: dict[str, list[str]] = field(default_factory=lambda: dict(_DEFAULT_KEYS))
+    vocabulary: tuple[dict[str, Any], ...] = _DEFAULT_VOCABULARY
+    specimen: dict[str, Any] | None = field(default_factory=lambda: dict(_DEFAULT_SPECIMEN))
     queries: list[tuple[str, dict[str, Any] | None]] = field(default_factory=list)
 
     def run(self, cypher: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
@@ -64,7 +90,35 @@ class _FakeStore:
         if "UNWIND keys(n)" in cypher:
             label = cypher.split("`")[1]
             return [{"key": key} for key in self.keys_by_label.get(label, [])]
+        # Matched whole, not by substring: routing on a fragment would keep
+        # answering a query the module had since rewritten, and the capture the
+        # test believes it is exercising would drift from the one shipped.
+        if cypher == mod.VOCABULARY_CYPHER:
+            return [dict(row) for row in self.vocabulary]
+        if cypher == mod.SPECIMEN_VALUES_CYPHER:
+            return [dict(self.specimen)] if self.specimen else []
         raise AssertionError(f"unexpected query: {cypher!r}")
+
+
+def _raises(cypher: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """A store that is up enough to be dialled and answers nothing but errors."""
+    raise RuntimeError("store said no")
+
+
+@dataclass
+class _SchemaOnlyStore(_FakeStore):
+    """Answers the schema and errors on both new captures.
+
+    The realistic partial failure: a store seeded by an older ``osprey``, or one
+    whose n10s config never landed ``altLabel``, can fail these two queries
+    outright rather than answer them empty.
+    """
+
+    def run(self, cypher: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        if cypher in (mod.VOCABULARY_CYPHER, mod.SPECIMEN_VALUES_CYPHER):
+            self.queries.append((cypher, params))
+            raise RuntimeError("store said no")
+        return super().run(cypher, params)
 
 
 # ---------------------------------------------------------------------------
@@ -120,6 +174,56 @@ class TestCollectSchema:
 
 
 # ---------------------------------------------------------------------------
+# collect_vocabulary / resolve_example_values
+# ---------------------------------------------------------------------------
+
+
+class TestCollectVocabulary:
+    """The class synonyms are the facility's, read back out of its own ontology."""
+
+    def test_rows_become_named_classes_with_sorted_unique_synonyms(self):
+        store = _FakeStore()
+        vocabulary = mod.collect_vocabulary(store.run)
+
+        assert [entry["name"] for entry in vocabulary] == ["VacuumGauge", "Thermocouple"], (
+            "the display name is the IRI local part, for both / and # separators"
+        )
+        assert vocabulary[0]["synonyms"] == ["gauge", "vgc"], "not sorted, or not deduplicated"
+
+    def test_a_scalar_altlabel_is_wrapped_not_exploded(self):
+        """A single synonym must render as one synonym, not one per character."""
+        vocabulary = mod.collect_vocabulary(_FakeStore().run)
+        assert vocabulary[1]["synonyms"] == ["tc"]
+
+    def test_a_raising_store_yields_no_vocabulary_and_warns(self, caplog):
+        """bake_snapshot runs inside `osprey up`: this query may not break it."""
+        with caplog.at_level("WARNING"):
+            assert mod.collect_vocabulary(_raises) == []
+        assert [r for r in caplog.records if r.levelname == "WARNING"], "no warning was logged"
+
+
+class TestResolveExampleValues:
+    def test_the_specimen_row_becomes_the_values(self):
+        values = mod.resolve_example_values(_FakeStore().run)
+        assert values == _DEFAULT_SPECIMEN
+
+    def test_a_null_column_is_dropped_rather_than_rendered(self):
+        """A device with no `system` must not put a null into an example."""
+        specimen = dict(_DEFAULT_SPECIMEN, system=None)
+        values = mod.resolve_example_values(_FakeStore(specimen=specimen).run)
+        assert "system" not in values
+        assert values["name"] == _DEFAULT_SPECIMEN["name"]
+
+    def test_a_store_without_a_bound_device_resolves_nothing(self):
+        assert mod.resolve_example_values(_FakeStore(specimen=None).run) == {}
+
+    def test_a_raising_store_yields_no_values_and_warns(self, caplog):
+        with caplog.at_level("WARNING"):
+            assert mod.resolve_example_values(_raises) == {}
+        assert [r for r in caplog.records if r.levelname == "WARNING"], "no warning was logged"
+
+
+# ---------------------------------------------------------------------------
 # render_block / apply_snapshot
 # ---------------------------------------------------------------------------
 
@@ -149,7 +253,8 @@ def _block(**overrides: Any) -> str:
         "resource_count": 512,
     }
     kwargs.update(overrides)
-    return mod.render_block(_schema(), [_Example()], **kwargs)
+    examples = kwargs.pop("examples", [_Example()])
+    return mod.render_block(_schema(), examples, **kwargs)
 
 
 class TestRenderBlock:
@@ -168,7 +273,7 @@ class TestRenderBlock:
 
     def test_parameters_render_with_their_example(self):
         block = _block()
-        assert 'Parameters: `{"x": 2}`' in block
+        assert 'Parameters: `{"x": 2}` — framework defaults' in block
 
     def test_a_parameterless_example_says_none(self):
         example = _Example(parameters={})
@@ -182,6 +287,83 @@ class TestRenderBlock:
         assert "HASBINDING" in block
         assert "```cypher" in block
         assert "MATCH (d:Resource) RETURN count(d) LIMIT 100" in block
+
+
+class TestRenderVocabulary:
+    """The synonyms the agent will match on are this corpus's, or absent."""
+
+    def test_each_class_gets_a_row_with_its_synonyms(self):
+        block = _block(vocabulary=mod.collect_vocabulary(_FakeStore().run))
+
+        assert "### Vocabulary" in block
+        assert "| Class | Synonyms (altLabel) |" in block
+        assert "| `VacuumGauge` | `gauge`, `vgc` |" in block
+        assert "| `Thermocouple` | `tc` |" in block
+
+    def test_the_matching_rule_is_stated_with_the_table(self):
+        """`altLabel` is a list; `= $term` against a list is a confident zero."""
+        block = _block(vocabulary=mod.collect_vocabulary(_FakeStore().run))
+        assert "ANY(l IN c.altLabel WHERE toLower(l) CONTAINS $term)" in block
+        assert "never compare with `=`" in block
+
+    def test_an_empty_capture_renders_the_note_not_an_empty_table(self):
+        """An empty table would claim the corpus has no synonyms; it may have."""
+        block = _block(vocabulary=())
+        assert "### Vocabulary" in block
+        assert mod.NO_VOCABULARY_NOTE in block
+        assert "| Class | Synonyms (altLabel) |" not in block
+
+
+class TestParameterLabelling:
+    """No parameter set is unlabelled: the agent must be able to tell them apart."""
+
+    def test_a_fully_resolved_example_is_labelled_captured(self):
+        example = _Example(parameters={"name": "SHIPPED", "section": "SHIPPED"})
+        block = _block(examples=[example], values=_DEFAULT_SPECIMEN)
+
+        assert '"name": "SR01U-VGC1"' in block
+        assert '"section": "SR01"' in block
+        assert f"— {mod.CAPTURED_PARAMETERS_NOTE}" in block
+        assert "SHIPPED" not in block
+
+    def test_an_unresolvable_parameter_keeps_its_literal_and_the_default_label(self):
+        """`phrase` is deliberately English — resolving it would be meaningless."""
+        example = _Example(parameters={"phrase": "vacuum gauge"})
+        block = _block(examples=[example], values=_DEFAULT_SPECIMEN)
+
+        assert '"phrase": "vacuum gauge"' in block
+        assert f"— {mod.DEFAULT_PARAMETERS_NOTE}" in block
+
+    def test_a_partly_resolved_example_is_labelled_a_default(self):
+        """One shipped literal left in the set means the whole set needs swapping."""
+        example = _Example(parameters={"name": "SHIPPED", "phrase": "vacuum gauge"})
+        block = _block(examples=[example], values=_DEFAULT_SPECIMEN)
+
+        assert '"name": "SR01U-VGC1"' in block
+        assert f"— {mod.DEFAULT_PARAMETERS_NOTE}" in block
+        assert mod.CAPTURED_PARAMETERS_NOTE not in block
+
+    def test_a_store_that_resolved_nothing_still_renders_every_parameter(self):
+        """The fallback is the shipped literal, labelled — never an empty set."""
+        from osprey.mcp_server.graph.tools.examples_data import EXAMPLE_QUERIES
+
+        block = _block(examples=EXAMPLE_QUERIES, values={})
+
+        assert "Parameters: `{}`" not in block
+        for example in EXAMPLE_QUERIES:
+            for value in example.parameters.values():
+                assert json.dumps(value) in block
+        assert mod.CAPTURED_PARAMETERS_NOTE not in block
+
+    def test_a_parameterless_example_is_not_labelled_at_all(self):
+        block = _block(examples=[_Example(parameters={})], values=_DEFAULT_SPECIMEN)
+        assert block.count("Parameters: none") == 1
+        assert mod.CAPTURED_PARAMETERS_NOTE not in block
+
+    def test_the_intro_names_what_is_captured_and_what_is_not(self):
+        block = _block()
+        assert "*captured*" in block and "*framework defaults*" in block
+        assert "must be swapped for values from this corpus" in block
 
 
 PLACEHOLDER = (
@@ -345,7 +527,8 @@ class TestBakeSnapshot:
         agents = _render(tmp_path) / ".claude" / "agents"
         (agents / mod.CHANNEL_FINDER_FILENAME).write_text(PLACEHOLDER, encoding="utf-8")
 
-        patched = mod.bake_snapshot(_session(_FakeStore()), tmp_path)
+        store = _FakeStore()
+        patched = mod.bake_snapshot(_session(store), tmp_path)
 
         assert len(patched) == 2
         kg = (agents / mod.AGENT_FILENAME).read_text(encoding="utf-8")
@@ -358,6 +541,54 @@ class TestBakeSnapshot:
         for key in cf_only:
             assert f"#### {key} " in cf and f"#### {key} " not in kg
         assert "42 Resource" in kg and "42 Resource" in cf
+        for text in (kg, cf):
+            assert "### Vocabulary" in text, "the store's synonyms reached only one agent"
+            assert "| `VacuumGauge` |" in text
+
+        # The vocabulary and the specimen are facts about the store, not about a
+        # catalogue: capturing them once and sharing them is what keeps the two
+        # renders consistent — and keeps a second agent from doubling the cost.
+        for cypher in (mod.VOCABULARY_CYPHER, mod.SPECIMEN_VALUES_CYPHER):
+            assert [c for c, _p in store.queries if c == cypher] == [cypher]
+
+    def test_a_store_that_answers_only_the_schema_still_bakes(self, tmp_path: Path, monkeypatch):
+        """`osprey up` stages this bake: a partial store degrades, never raises."""
+        from osprey.services.facility_knowledge.seeder import graph_seeder
+
+        monkeypatch.setattr(graph_seeder, "read_marker", lambda session: None)
+        monkeypatch.setattr(graph_seeder, "resource_count", lambda session: 0)
+
+        agents = _render(tmp_path) / ".claude" / "agents"
+        store = _FakeStore(vocabulary=(), specimen=None)
+
+        patched = mod.bake_snapshot(_session(store), tmp_path)
+
+        assert patched == [agents / mod.AGENT_FILENAME]
+        text = (agents / mod.AGENT_FILENAME).read_text(encoding="utf-8")
+        assert mod.NO_VOCABULARY_NOTE in text
+        assert mod.DEFAULT_PARAMETERS_NOTE in text
+
+    def test_a_store_that_raises_on_both_captures_still_bakes(self, tmp_path: Path, monkeypatch):
+        """The guards must hold end to end, not just around each function.
+
+        `osprey up` stages this bake; a store erroring on the two new queries has
+        to leave the deploy with a prompt rather than an exception.
+        """
+        from osprey.services.facility_knowledge.seeder import graph_seeder
+
+        monkeypatch.setattr(graph_seeder, "read_marker", lambda session: "0123456789abcdef")
+        monkeypatch.setattr(graph_seeder, "resource_count", lambda session: 42)
+
+        agents = _render(tmp_path) / ".claude" / "agents"
+
+        patched = mod.bake_snapshot(_session(_SchemaOnlyStore()), tmp_path)
+
+        assert patched == [agents / mod.AGENT_FILENAME]
+        text = (agents / mod.AGENT_FILENAME).read_text(encoding="utf-8")
+        assert "42 Resource" in text, "the schema capture was lost with the failing ones"
+        assert mod.NO_VOCABULARY_NOTE in text
+        assert mod.DEFAULT_PARAMETERS_NOTE in text
+        assert mod.CAPTURED_PARAMETERS_NOTE not in text
 
 
 # ---------------------------------------------------------------------------

@@ -54,9 +54,11 @@ class ExampleQuery:
             parameter means and how to vary it.
         cypher: The query, parameterized. Safe to run as written once paired
             with the parameter set below.
-        parameters: The query's ``$name`` placeholders mapped to values that
-            exist in the shipped demo machine. An example that takes no
-            parameters carries an empty mapping.
+        parameters: The query's ``$name`` placeholders mapped to framework-default
+            values, which exist in the shipped demo machine. The seed-time
+            prompt snapshot may replace them with values captured from the
+            deployment's own corpus. An example that takes no parameters
+            carries an empty mapping.
     """
 
     key: str

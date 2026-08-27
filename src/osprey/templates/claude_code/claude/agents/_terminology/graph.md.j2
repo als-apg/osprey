@@ -26,7 +26,7 @@ authoritative; this table is the orientation.
 
 | Shape | What it is |
 |---|---|
-| `(d:Resource)` | Every node carries `Resource`. A device carries it plus one concrete class label (`Quadrupole`, `BeamPositionMonitor`, …) — there is **no** `Device` label, so match devices as `:Resource` plus properties |
+| `(d:Resource)` | Every node carries `Resource`. A device carries it plus one concrete class label from the facility ontology — the **Vocabulary** section of *The Graph at Hand* lists them, and if that section is still the placeholder, read them with the query it names — there is **no** `Device` label, so match devices as `:Resource` plus properties |
 | `(b:ChannelBinding)` | One PV bound to one device. `b.fullPv` is the address you return |
 | `(c:Class)` | An ontology class. `c.uri` identifies it, `c.altLabel` holds its synonyms |
 | `(d)-[:HASBINDING]->(b)` | Device to binding — the hop from a device to its addresses |
@@ -66,11 +66,8 @@ Operators use domain language. Map their terms to a graph query:
 
 | Operator Language | Graph Query |
 |---|---|
-| "beam current" | Search binding descriptions for `current`; or class `altLabel` `beam current monitor`, `dcct`, `bc` |
-| "BPM positions" / "beam position" | Class `BeamPositionMonitor` via `altLabel` `beam position monitor`, `bpm` → `HASBINDING` → bindings whose `description`/`subfieldDescription` names the `X`/`Y` axis |
-| "corrector magnets" | Class `Corrector` (or `HCorrector`/`VCorrector`) with `SUBCLASSOF*0..` so both planes roll up |
-| "quadrupole" / "quad" | Class `Quadrupole` via `altLabel` |
-| "all magnets" | `(:Class)-[:SUBCLASSOF*0..]->(:Class {uri: $magnet_uri})` — name the parent class and let the hierarchy supply the kinds |
+| a device kind by its operator word | Look the word up in the **Vocabulary** section of *The Graph at Hand* — every class's `altLabel` synonyms captured from this corpus — then match the class via `altLabel`; if that section is still the placeholder, read the synonyms with the query it names |
+| "all magnets" | `(:Class)-[:SUBCLASSOF*0..]->(:Class {uri: $parent_uri})` — name the parent class and let the hierarchy supply the kinds |
 | "readback" / "monitor" | Bindings with a `READSSIGNAL` edge and no `WRITESSIGNAL` |
 | "setpoint" / "control" | Bindings with a `WRITESSIGNAL` edge |
 | "in sector 3" / "in the storage ring" | `d.sectionCode` for the location, `d.system` for the accelerator system |
@@ -80,8 +77,9 @@ Operators use domain language. Map their terms to a graph query:
 ### Graph Conventions
 
 - Start every unfamiliar question at `example_queries()` — the examples are
-  written against the corpus that is actually loaded, so adapting one is
-  reliable where inventing a query shape is guesswork
+  runnable query shapes for this store's schema, so adapting one is reliable
+  where inventing a query shape is guesswork; their parameter values are this
+  corpus's own only where the **Graph at Hand** block marks them captured
 - Pass every value through `params` as a `$name` placeholder; a value pasted
   into the query text is both a correctness and a safety problem
 - End every query with a `LIMIT`, including aggregates — bounded results are the

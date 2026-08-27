@@ -151,8 +151,9 @@ finder subagent finds addresses by writing read-only Cypher against the seeded
 **How it works:** four tools, served under the ``channel-finder`` name like
 every other pipeline's. ``capabilities`` reports how addresses are spelled and
 what prose the corpus carries; ``example_queries`` returns runnable Cypher for
-the common channel questions, each with parameter values for the corpus at
-hand; ``get_schema`` lists the labels, relationship types and property names
+the common channel questions, each with framework-default parameter values that
+the seed-time snapshot may replace with values captured from this corpus;
+``get_schema`` lists the labels, relationship types and property names
 *this* graph actually holds; ``read_cypher`` runs one query and returns rows.
 There is no resolution API behind them — the subagent adapts an example rather
 than calling a lookup.
