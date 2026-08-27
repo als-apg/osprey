@@ -14,16 +14,33 @@
 # osprey.service` reads `not-found` after every reboot and the stack sits
 # there until somebody runs `daemon-reload` by hand.
 #
-# The proper fix is a `RequiresMountsFor` drop-in on `user@<uid>.service`,
-# which needs root. This script is the fallback that does not: it waits for the
-# home, the deployment and the user manager to appear, then reloads the unit
-# files and starts the unit. Wire it into the account's own crontab:
+# When systemd manages the mount itself — an fstab entry, or a .mount or
+# .automount unit — a `RequiresMountsFor` drop-in on `user@<uid>.service`
+# orders the manager after it, and needs root. A home served by the autofs
+# daemon has no mount unit for that drop-in to order against, so there it
+# changes nothing, and this script is the fix rather than the fallback. It
+# waits for the home, the deployment and the user manager to appear, then
+# reloads the unit files and starts the unit. Wire it into the account's own
+# crontab, both lines, pasted whole:
 #
 #   crontab -e
-#   @reboot /srv/osprey/demo-facility/scripts/osprey-boot-hook.sh
+#   HOME=/
+#   @reboot echo "$(date) osprey-boot-hook: cron fired" >> /tmp/osprey-boot-hook.$(id -u).log; n=0; until [ -x /srv/osprey/demo-facility/scripts/osprey-boot-hook.sh ] || [ $n -ge 60 ]; do sleep 5; n=$((n+1)); done; if [ -x /srv/osprey/demo-facility/scripts/osprey-boot-hook.sh ]; then exec /srv/osprey/demo-facility/scripts/osprey-boot-hook.sh; fi; echo "$(date) osprey-boot-hook: gave up, /srv/osprey/demo-facility/scripts/osprey-boot-hook.sh never appeared" >> /tmp/osprey-boot-hook.$(id -u).log
 #
-# cron mails the account whatever this prints, so a boot that did not come back
-# says why in that mail. Running it again by hand is harmless: an already
+# Neither line is optional, and the job is deliberately not a bare `@reboot`
+# with this script's path. cron changes into the crontab's HOME before it runs
+# a job, and on this host the home is not there yet when cron starts, so the
+# job dies before anything runs — silently, with no mail. `HOME=/` gives cron
+# a directory that exists. Then `sh` has to read this script, which sits on
+# the same late mount, so the job — which lives in the crontab, on the local
+# disk — first notes that cron fired it in `/tmp/osprey-boot-hook.$(id -u).log`, waits for
+# this file to become readable, and only then runs it. Put the two lines last
+# in the crontab, or any job below them runs from `/` too.
+#
+# Everything this script prints lands in that same log, on the local disk
+# rather than the home, so a boot on which the home never came still says
+# how far things got; cron mails the account the same lines if the host
+# delivers mail. Running the script again by hand is harmless: an already
 # active unit is left alone.
 #
 # Deployment how-to: https://als-apg.github.io/osprey/how-to/deploy-a-facility.html
@@ -35,12 +52,27 @@
 # =============================================================================
 set -u
 
+# cron ran this with HOME=/ (see the header), so the real home goes back first:
+# the unit file lives under it, and on this host it is the mount everything
+# else waits on. Written in as a full path like the repo and the executable —
+# until the home is mounted nothing on this host can be asked where it is.
+HOME="/home/osprey"
+export HOME
+
 # The one line that makes a cron job able to talk to the user manager at all.
 # `@reboot` runs with no session and no bus address, and `systemctl --user`
 # with no XDG_RUNTIME_DIR does not fail loudly — it just fails. Every hook of
 # this kind that "does nothing" is missing this.
 XDG_RUNTIME_DIR="/run/user/$(id -u)"
 export XDG_RUNTIME_DIR
+
+# Proof of launch, before any wait, on a disk that is there at boot. Appended:
+# the crontab job wrote the line before this one, and the two together say
+# whether cron fired, whether this file was reachable, and how far it got.
+LOG="/tmp/osprey-boot-hook.$(id -u).log"
+if ! printf 'osprey-boot-hook: launched %s\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')" >> "$LOG" 2>/dev/null; then
+  LOG=/dev/null
+fi
 
 # Seconds between attempts, and the budget shared by every wait below. Past
 # the budget the hook gives up and says which thing never showed, rather than
@@ -49,8 +81,8 @@ POLL_SECONDS=5
 TOTAL_WAIT_SECONDS=300
 WAITED=0
 
-say() { printf 'osprey-boot-hook: %s\n' "$1"; }
-die() { printf 'osprey-boot-hook: %s\n' "$1" >&2; exit 1; }
+say() { printf 'osprey-boot-hook: %s\n' "$1" | tee -a "$LOG"; }
+die() { printf 'osprey-boot-hook: %s\n' "$1" | tee -a "$LOG" >&2; exit 1; }
 
 # Block until a path exists, spending from the shared budget. POSIX sh has no
 # `local`, so WAITED is deliberately global: the budget covers the whole boot,
@@ -66,12 +98,9 @@ wait_for() {
   say "$2 is there: $1"
 }
 
-if [ -z "${HOME:-}" ]; then
-  die "HOME is unset — cron gives a job the account's home, so this ran from somewhere unexpected"
-fi
-
 # The home carries the unit file, and on this kind of host it is the mount
-# everything else is waiting on.
+# everything else is waiting on. On an autofs home the test itself is what
+# triggers the mount.
 wait_for "$HOME" "the home directory"
 
 # Both absolute, and both may live under that same mount: the unit's

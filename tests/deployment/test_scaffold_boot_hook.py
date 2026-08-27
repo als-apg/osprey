@@ -37,6 +37,7 @@ import yaml
 
 import osprey
 from osprey.cli.deploy_scaffold_templates import (
+    BOOT_HOOK_LOG,
     BOOT_HOOK_MARKER,
     BOOT_HOOK_OUTPUT_NAME,
     BOOT_HOOK_PATH,
@@ -44,6 +45,7 @@ from osprey.cli.deploy_scaffold_templates import (
     BOOT_HOOK_TEMPLATE,
     BOOT_HOOK_TOTAL_WAIT_SEC,
     SYSTEMD_UNIT_NAME,
+    boot_hook_crontab_lines,
     build_boot_hook_context,
     render,
 )
@@ -51,23 +53,30 @@ from osprey.cli.deploy_scaffold_templates import (
 GOLDENS = Path(__file__).parent / "goldens"
 EXEMPLAR_DIR = GOLDENS / "exemplar-profile"
 GOLDEN_PATH = GOLDENS / BOOT_HOOK_OUTPUT_NAME
+DEPLOY_HOWTO = Path(__file__).parents[2] / "docs" / "source" / "how-to" / "deploy-a-facility.rst"
 
 #: Passed in place of the installed version so the golden does not change with
 #: the release the test happens to run under.
 FROZEN_VERSION = "OSPREY_VERSION"
 
-#: The deploy host's coordinates, frozen. Both are properties of a machine
+#: The deploy host's coordinates, frozen. All three are properties of a machine
 #: rather than of the profile, so a render that read them off the host running
 #: the tests would produce a different hook on every checkout.
 FROZEN_REPO_ROOT = Path("/srv/osprey/demo-facility")
 FROZEN_OSPREY_BIN = "/usr/local/bin/osprey"
+FROZEN_HOME = Path("/home/osprey")
+
+#: Where the frozen host's hook lands, as the crontab has to name it.
+FROZEN_HOOK = f"{FROZEN_REPO_ROOT}/{BOOT_HOOK_PATH}"
 
 
 def render_hook(profile: dict[str, Any] | None = None) -> str:
     """Render the hook for a profile, with the host's half held fixed."""
     if profile is None:
         profile = yaml.safe_load((EXEMPLAR_DIR / "profile.yml").read_text(encoding="utf-8"))
-    context = build_boot_hook_context(profile, FROZEN_REPO_ROOT, FROZEN_OSPREY_BIN, FROZEN_VERSION)
+    context = build_boot_hook_context(
+        profile, FROZEN_REPO_ROOT, FROZEN_OSPREY_BIN, FROZEN_VERSION, home=FROZEN_HOME
+    )
     return render(BOOT_HOOK_TEMPLATE, context)
 
 
@@ -106,7 +115,7 @@ def test_installed_version_is_the_only_value_that_moves_with_a_release(
     """
     profile = yaml.safe_load((EXEMPLAR_DIR / "profile.yml").read_text(encoding="utf-8"))
     context = build_boot_hook_context(
-        profile, FROZEN_REPO_ROOT, FROZEN_OSPREY_BIN, osprey.__version__
+        profile, FROZEN_REPO_ROOT, FROZEN_OSPREY_BIN, osprey.__version__, home=FROZEN_HOME
     )
     current = render(BOOT_HOOK_TEMPLATE, context)
 
@@ -215,15 +224,84 @@ def test_running_it_twice_is_harmless(code: str) -> None:
     assert guard_at < start_at
 
 
-def test_the_header_shows_the_crontab_line_that_installs_it(rendered: str) -> None:
-    """The hook is wired up by hand, so the file has to say how.
+def test_the_header_shows_the_crontab_lines_that_install_it(rendered: str) -> None:
+    """The hook is wired up by hand, so the file has to say how — both lines.
 
-    The path is absolute and derived from the same constant the emitter writes
-    to, so the line an operator pastes cannot drift from where the file lands.
+    The job comes from the same function the console prints it from, and it
+    names the hook by the same constant the emitter writes to, so the lines an
+    operator pastes cannot drift from where the file lands or from what the
+    verb told them.
     """
     header = rendered[: rendered.index("set -u")]
+    home_line, job = boot_hook_crontab_lines(FROZEN_HOOK)
     assert "crontab -e" in header
-    assert f"@reboot {FROZEN_REPO_ROOT}/{BOOT_HOOK_PATH}" in header
+    assert f"#   {home_line}\n#   {job}\n" in header
+
+
+def test_the_crontab_job_survives_a_home_that_is_not_there_yet() -> None:
+    """Two things kill a cron job before its command runs on this host.
+
+    cron changes into the crontab's ``HOME`` first and dies silently when it is
+    missing, so the preamble has to hand it a directory that exists at boot.
+    Then ``sh`` has to read the script, which sits on the same late mount, so
+    the job — on the local disk, in the crontab — must wait for the file
+    itself before running it, and must say it fired somewhere that is not the
+    home before it waits. Both were learned from real reboots, where a bare
+    ``@reboot <hook>`` never launched at all.
+    """
+    home_line, job = boot_hook_crontab_lines(FROZEN_HOOK)
+    assert home_line == "HOME=/"
+    assert job.startswith("@reboot ")
+    # cron reads a `%` as a newline, and the job would be cut there.
+    assert "%" not in job
+    fired_at = job.index(f'cron fired" >> {BOOT_HOOK_LOG}')
+    wait_at = job.index(f"until [ -x {FROZEN_HOOK} ]")
+    run_at = job.index(f"exec {FROZEN_HOOK}")
+    assert fired_at < wait_at < run_at
+    # Bounded by the same budget the script uses, and loud when it runs out.
+    assert f"[ $n -ge {BOOT_HOOK_TOTAL_WAIT_SEC // BOOT_HOOK_POLL_SEC} ]" in job
+    assert f"sleep {BOOT_HOOK_POLL_SEC}" in job
+    assert f'never appeared" >> {BOOT_HOOK_LOG}' in job
+
+
+def test_the_script_restores_the_real_home_before_anything_else(code: str) -> None:
+    """The crontab sets ``HOME=/`` so cron can start the job at all.
+
+    Everything the script waits for sits under the real home, so it has to
+    put that back first — from a literal the scaffolder knew, not from
+    ``$HOME`` (which is ``/``) or from ``getent`` (which asks an identity
+    service that may not be up yet).
+    """
+    restore_at = code.index(f'HOME="{FROZEN_HOME}"')
+    assert "export HOME" in code
+    assert restore_at < code.index("export HOME") < code.index("wait_for ")
+
+
+def test_the_launch_marker_is_written_before_the_first_wait(code: str) -> None:
+    """A boot on which the home never came leaves no other trace.
+
+    The marker goes to the local disk, appended after the line the crontab job
+    already wrote, and before the script waits for anything — so the log
+    splits "cron never fired" from "still waiting" from "ran and said why".
+    """
+    assert f'LOG="{BOOT_HOOK_LOG}"' in code
+    marker_at = code.index("launched")
+    assert '>> "$LOG"' in code[marker_at : marker_at + 120]
+    assert marker_at < code.index('wait_for "$HOME"')
+    # Every later line lands in the same file.
+    assert 'tee -a "$LOG"' in code
+
+
+def test_the_how_to_shows_the_same_crontab_job() -> None:
+    """The docs cannot render the line, so they carry a copy — pinned here.
+
+    The how-to spells the hook as ``/path/to/repo/...``; the job around it has
+    to be the one the verb prints, or an operator following the page gets a
+    job the field evidence says does not launch.
+    """
+    docs = DEPLOY_HOWTO.read_text(encoding="utf-8")
+    home_line, job = boot_hook_crontab_lines(f"/path/to/repo/{BOOT_HOOK_PATH}")
+    assert f"   {home_line}\n   {job}\n" in docs
 
 
 def test_the_header_names_the_facility_and_the_unit(rendered: str) -> None:

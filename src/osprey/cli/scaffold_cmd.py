@@ -961,16 +961,20 @@ def _warn_about_a_network_home(home: Path, fstype: str | None, hook: Path) -> No
 
     Printed after the install instructions rather than instead of them: those
     lines are still exactly what the operator has to run. What they do not do
-    is survive a reboot on this host, and the fix for that needs root — a
-    drop-in on ``user@<uid>.service`` ordering the user manager after the
-    mount. So the drop-in is printed verbatim, for the operator to hand to
-    whoever has root, and nothing here is refused or withheld.
+    is survive a reboot on this host. When systemd manages the mount the fix
+    needs root — a drop-in on ``user@<uid>.service`` ordering the user manager
+    after the mount — so the drop-in is printed verbatim, for the operator to
+    hand to whoever has root, and nothing here is refused or withheld. A home
+    served by the autofs daemon has no mount unit for it to order against;
+    ``findmnt`` reports ``autofs`` for a systemd automount too, so the two
+    cannot be told apart here and the scope is stated rather than detected.
 
-    Then the fallback for an operator who has nobody to hand it to: the boot
-    hook this verb already wrote, and the crontab line that runs it. That is
-    the only reason the hook exists, and this is the only place its path is
-    named — an operator on a local home never needs it. OSPREY prints the
-    ``@reboot`` line rather than installing it; the crontab is the account's.
+    Then the boot hook this verb already wrote, and the two crontab lines that
+    run it — the only route on a daemon-managed autofs home, and the fallback
+    for an operator who has nobody to hand the drop-in to. That is the only
+    reason the hook exists, and this is the only place its path is named — an
+    operator on a local home never needs it. OSPREY prints the lines rather
+    than installing them; the crontab is the account's.
 
     Silent when *fstype* is ``None``, which covers both a local home and a host
     the detection could not read.
@@ -985,6 +989,9 @@ def _warn_about_a_network_home(home: Path, fstype: str | None, hook: Path) -> No
     if fstype is None:
         return
 
+    # Local for the same reason the verb's own imports are.
+    from .deploy_scaffold_templates import BOOT_HOOK_LOG, boot_hook_crontab_lines
+
     console.print()
     console.print(
         f"  [warning]\u26a0[/warning] $HOME is on an {fstype} mount, so linger alone will "
@@ -998,7 +1005,9 @@ def _warn_about_a_network_home(home: Path, fstype: str | None, hook: Path) -> No
     console.print("    look again, so after every reboot the unit reads as not-found")
     console.print("    until someone runs 'systemctl --user daemon-reload' by hand.")
     console.print()
-    console.print("    Ordering it after the mount needs root. Whoever has it can write:")
+    console.print("    When systemd manages the mount — an fstab entry, or a .mount or")
+    console.print("    .automount unit — ordering the manager after it needs root. Whoever")
+    console.print("    has it can write:")
     # markup=False for the whole drop-in: '[Unit]' is a systemd section header,
     # and Rich would read it as a style tag and swallow it. soft_wrap keeps a
     # long home path on one line for whoever copies it.
@@ -1014,16 +1023,26 @@ def _warn_about_a_network_home(home: Path, fstype: str | None, hook: Path) -> No
     console.print("    and then run:")
     console.print("      sudo systemctl daemon-reload")
     console.print()
-    console.print("    If nobody with root is available, this run also wrote a boot hook:")
+    console.print("    A home served by the autofs daemon has no mount unit for that drop-in")
+    console.print("    to order against, so there it changes nothing. For that host, and")
+    console.print("    for one where nobody has root, this run also wrote a boot hook:")
     console.print(f"      {hook}", soft_wrap=True)
     console.print("    It waits for the home, this deployment and the user manager to show")
     console.print("    up, then reloads the unit files and starts the unit. Run it once per")
-    console.print("    boot from the account's own crontab:")
+    console.print("    boot from the account's own crontab — both lines, pasted whole:")
     console.print("      crontab -e")
-    console.print(f"      @reboot {hook}", soft_wrap=True)
-    console.print("    That is a fallback, not a replacement for the drop-in above: it")
-    console.print("    repairs each boot after the fact rather than ordering the manager")
-    console.print("    correctly in the first place.")
+    # markup=False: the job holds `[ -x ... ]` tests that Rich would read as
+    # style tags. soft_wrap keeps it one line for whoever pastes it.
+    home_line, job = boot_hook_crontab_lines(str(hook))
+    console.print(f"      {home_line}", markup=False)
+    console.print(f"      {job}", markup=False, soft_wrap=True)
+    console.print("    HOME=/ is what lets the job start at all: cron changes into the")
+    console.print("    crontab's HOME before it runs a job, and on this host the home is")
+    console.print("    not there yet. The job restores the real home itself, and notes in")
+    console.print(f"    {BOOT_HOOK_LOG} that it fired before it waits for anything.")
+    console.print("    Where the drop-in applies, the hook repairs each boot after the")
+    console.print("    fact rather than ordering the manager correctly in the first place,")
+    console.print("    so it is a fallback there, not a replacement.")
 
 
 def _owned_row(profile_root: Path | None, name: str) -> tuple[str, str, str]:

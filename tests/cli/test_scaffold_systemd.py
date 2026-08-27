@@ -45,7 +45,11 @@ from osprey.cli.deploy_scaffold import (
     detect_network_home,
     scaffold_systemd_unit,
 )
-from osprey.cli.deploy_scaffold_templates import BOOT_HOOK_MARKER, SYSTEMD_MARKER
+from osprey.cli.deploy_scaffold_templates import (
+    BOOT_HOOK_MARKER,
+    SYSTEMD_MARKER,
+    boot_hook_crontab_lines,
+)
 from osprey.cli.main import cli
 from osprey.cli.scaffold_cmd import scaffold
 from osprey.errors import ConfigurationError
@@ -564,30 +568,45 @@ def test_a_hand_written_hook_still_leaves_the_unit_fully_explained(
 def test_a_network_home_says_how_to_wire_the_hook_up(
     runner: CliRunner, repo: Path, home: Path, findmnt
 ) -> None:
-    """The no-root fallback: the hook's full path, and the crontab line."""
+    """The no-root route: the hook's full path, and both crontab lines.
+
+    The job is the one :func:`boot_hook_crontab_lines` builds — the same
+    spelling the hook's own header carries — printed without Rich reading its
+    ``[ -x ... ]`` tests as style tags.
+    """
     findmnt("nfs")
 
     result = emit(runner, repo)
 
     assert result.exit_code == 0, result.output
     text = flat(result)
+    home_line, job = boot_hook_crontab_lines(str(hook_of(repo)))
     assert str(hook_of(repo)) in text
     assert "crontab -e" in text
-    assert f"@reboot {hook_of(repo)}" in text
+    assert home_line in text
+    assert job in text
+    assert text.index("HOME=/") < text.index("@reboot")
 
 
-def test_the_hook_is_named_as_a_fallback_not_a_replacement(
+def test_the_drop_in_is_scoped_to_mounts_systemd_manages(
     runner: CliRunner, repo: Path, home: Path, findmnt
 ) -> None:
-    """The drop-in is still the fix; cron only repairs each boot after it."""
+    """A home served by the autofs daemon has no mount unit to order against.
+
+    ``findmnt`` says ``autofs`` for a systemd automount too, so the verb cannot
+    tell the two apart and has to say where the drop-in applies rather than
+    pretend it always does. Where it does apply, cron only repairs each boot
+    after it — and that is still said, in the order an operator reads it: root
+    first, cron after.
+    """
     findmnt("autofs")
 
     result = emit(runner, repo)
 
     text = flat(result)
-    assert "fallback" in text
-    assert "not a replacement for the drop-in" in text
-    # Said in the order an operator reads it: root first, cron only after.
+    assert "When systemd manages the mount" in text
+    assert "autofs daemon has no mount unit" in text
+    assert "fallback there, not a replacement" in text
     assert text.index("RequiresMountsFor") < text.index("@reboot")
 
 

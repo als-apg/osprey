@@ -1060,8 +1060,9 @@ All subcommands accept a common flag:
    see :doc:`/how-to/deploy-a-facility`. When ``$HOME`` is on an NFS or autofs
    mount it also warns that linger alone will not survive a reboot there, prints
    the root-only ``user@<uid>.service`` drop-in that orders the user manager
-   after the mount, and shows how to wire the boot hook into the account's
-   crontab as the no-root fallback.
+   after a systemd-managed mount, and shows the two crontab lines that run the
+   boot hook at boot — the route for a daemon-managed autofs home, and the
+   no-root fallback elsewhere.
 
 ``osprey scaffold list``
    List all build artifacts and their ownership status (framework vs.
