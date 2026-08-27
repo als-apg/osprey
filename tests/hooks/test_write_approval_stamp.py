@@ -81,7 +81,7 @@ def state_record(server_pid=SERVER_PID, owner_ppid=OWNER_PPID, target="va", gene
         "server_pid": server_pid,
         "owner_ppid": owner_ppid,
         "targets": {
-            "live": {"label": "Storage ring", "endpoint": LIVE_ENDPOINT, "real_machine": True},
+            "live": {"label": "LIVE MACHINE", "endpoint": LIVE_ENDPOINT, "real_machine": True},
             "va": {"label": "Virtual accelerator", "endpoint": VA_ENDPOINT, "real_machine": False},
         },
         "children": [],

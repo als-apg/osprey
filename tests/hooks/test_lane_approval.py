@@ -125,7 +125,7 @@ def state_record(target="va", targets=None):
         "targets": (
             {
                 "live": {
-                    "label": "Storage ring",
+                    "label": "LIVE MACHINE",
                     "endpoint": LIVE_ENDPOINT,
                     "real_machine": True,
                 },

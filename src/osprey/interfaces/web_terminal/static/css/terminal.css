@@ -1371,10 +1371,19 @@ html[data-ui-mode="simple"] #terminal-container {
 }
 
 /* Sandboxed is the state worth noticing at a glance: the label goes primary
-   and the border picks up the dot's colour. */
+   and the border picks up the dot's colour. Unqualified, so it still holds for
+   a badge with no target at all — there, posture is the only fact there is. */
 .posture-badge[data-posture="sandbox"] {
   color: var(--text-primary);
   border-color: var(--color-warning);
+}
+
+/* …except on the simulator, which is unalarming in whichever posture it is in.
+   Its dot is muted grey (see the colour map below), and a border still shouting
+   amber would have the badge's two colour channels contradict each other. The
+   label stays primary: legibility is not an alarm. */
+.posture-badge[data-target="va"][data-posture="sandbox"] {
+  border-color: var(--border-default);
 }
 
 /* Nothing to click: a sandboxed session on a render that has writes off. The
@@ -1402,6 +1411,35 @@ html[data-ui-mode="simple"] #terminal-container {
 
 .posture-badge[data-posture="sandbox"] .posture-badge-dot {
   background: var(--color-warning);
+}
+
+/* The dot's colour is the pair (which target, which posture) — the two facts an
+   operator reads together and must never read apart. A simulator is unalarming
+   whichever posture it is in; the live machine is the opposite, and its writes
+   posture is the loudest state this interface has. The words beside the dot say
+   all of it too (see .posture-badge-target), so the colour is a second channel
+   rather than the only one. Keyed off the data attributes posture-badge.js
+   already sets, so no colour name lives in the JS. */
+
+/* Virtual accelerator, sandboxed: nothing to notice. */
+.posture-badge[data-target="va"][data-posture="sandbox"] .posture-badge-dot {
+  background: var(--text-muted);
+}
+
+/* Virtual accelerator, writes: working normally on a machine nobody has to be
+   careful around. */
+.posture-badge[data-target="va"][data-posture="writes"] .posture-badge-dot {
+  background: var(--color-success);
+}
+
+/* Live machine, sandboxed: pointed at the real thing, but refusing writes. */
+.posture-badge[data-target="live"][data-posture="sandbox"] .posture-badge-dot {
+  background: var(--color-warning);
+}
+
+/* Live machine, writes: this session can move real hardware. */
+.posture-badge[data-target="live"][data-posture="writes"] .posture-badge-dot {
+  background: var(--color-error);
 }
 
 /* The control target this session is on, and whether THAT target is armed.

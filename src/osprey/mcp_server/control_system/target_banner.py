@@ -55,6 +55,9 @@ asks which target a PTY it spawned is on. :func:`session_target_for_pid`
 answers that, over the same :func:`_live_records` liveness filter, by walking
 the ancestors of each record's ``owner_ppid`` instead of the caller's own — see
 its docstring for why equality is not enough.
+:func:`session_target_meta_for_pid` answers the same question with the record's
+display metadata attached, off the same match, so the badge names a target with
+the label its writer minted rather than deriving a second one from config.
 
 Failure posture
 ---------------
@@ -72,6 +75,7 @@ import os
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.target_state import TARGET_LIVE
@@ -115,6 +119,7 @@ __all__ = [
     "resolve_session_target",
     "resolve_target_situation",
     "session_target_for_pid",
+    "session_target_meta_for_pid",
 ]
 
 
@@ -321,44 +326,21 @@ def _ancestor_pids(
     return chain
 
 
-def session_target_for_pid(pty_pid: object) -> str | None:
-    """The target of the session running inside process *pty_pid*, or ``None``.
+def _matched_record(pty_pid: object) -> dict | None:
+    """The one live state record published from inside process *pty_pid*.
 
-    :func:`resolve_session_target` answers for the session the CALLER is in, by
-    matching ``owner_ppid`` against ``os.getppid()``. The web terminal is not in
-    that session at all: it is the server that spawned the PTY, and the only
-    handle it has is the PTY's own pid. So the match runs the other way round —
-    walk the ancestors of each record's ``owner_ppid`` and ask whether the PTY
-    pid is on that chain.
-
-    Equality alone would not do. ``owner_ppid`` is the Claude Code process that
-    spawned the controls server, which is the PTY child itself only when the
-    shell command is plain ``claude``; with ``claude_code.cli_version`` pinned
-    the PTY child is ``npx`` and Claude Code is its child, and with a custom
-    ``shell`` it can be deeper still. Equality-only matching would report "no
-    session target" on every one of those deployments — silently, and exactly
-    where the operator most needs the badge to be right.
-
-    Zero matches and more than one match both mean the same thing: no answer.
-    The caller (not this function) decides what to show instead, which for the
-    badge is the deployment baseline — the same fail-closed direction the hook
-    reader and :func:`resolve_session_target` take.
-
-    Args:
-        pty_pid: The pid of the PTY process the session runs in. Anything that
-            is not a positive integer — ``None`` from a session that has not
-            started, most of all — is simply "no answer".
-
-    Cost. Each hop is a syscall, and on a platform without ``/proc`` a fork of
-    ``ps``, so the walk is kept as short as the question allows: it stops the
-    moment *pty_pid* is reached rather than continuing to init, and one memo of
-    parent lookups is shared across every record's walk — several sessions in
-    one checkout have different ``owner_ppid`` leaves but converge on the same
-    upper ancestors within a hop or two. The caller must still keep this off the
-    event loop; ``routes/websocket.py`` runs it in a worker thread.
+    The shared half of :func:`session_target_for_pid` and
+    :func:`session_target_meta_for_pid` — the match, the cost discipline and the
+    fail-closed rules are spelled once here so the name a badge shows and the
+    metadata it shows beside it can never come from two different records. See
+    :func:`session_target_for_pid` for why the match runs from each record's
+    ``owner_ppid`` outwards rather than by equality, and why an ambiguous answer
+    is no answer.
 
     Returns:
-        ``live`` or ``va``, or ``None``. Never raises.
+        The matched record, or ``None`` — for a pid that is not a pid, zero
+        matches, more than one match, or a record naming a target this build
+        does not know. Never raises.
     """
     pid = _int_or_none(pty_pid)
     if pid is None or pid <= 0:
@@ -399,7 +381,92 @@ def session_target_for_pid(pty_pid: object) -> str | None:
     if target not in target_state.TARGET_NAMES:
         logger.debug("Target state names an unknown target %r; no answer", target)
         return None
-    return str(target)
+    return matches[0]
+
+
+def session_target_for_pid(pty_pid: object) -> str | None:
+    """The target of the session running inside process *pty_pid*, or ``None``.
+
+    :func:`resolve_session_target` answers for the session the CALLER is in, by
+    matching ``owner_ppid`` against ``os.getppid()``. The web terminal is not in
+    that session at all: it is the server that spawned the PTY, and the only
+    handle it has is the PTY's own pid. So the match runs the other way round —
+    walk the ancestors of each record's ``owner_ppid`` and ask whether the PTY
+    pid is on that chain.
+
+    Equality alone would not do. ``owner_ppid`` is the Claude Code process that
+    spawned the controls server, which is the PTY child itself only when the
+    shell command is plain ``claude``; with ``claude_code.cli_version`` pinned
+    the PTY child is ``npx`` and Claude Code is its child, and with a custom
+    ``shell`` it can be deeper still. Equality-only matching would report "no
+    session target" on every one of those deployments — silently, and exactly
+    where the operator most needs the badge to be right.
+
+    Zero matches and more than one match both mean the same thing: no answer.
+    The caller (not this function) decides what to show instead, which for the
+    badge is the deployment baseline — the same fail-closed direction the hook
+    reader and :func:`resolve_session_target` take.
+
+    Args:
+        pty_pid: The pid of the PTY process the session runs in. Anything that
+            is not a positive integer — ``None`` from a session that has not
+            started, most of all — is simply "no answer".
+
+    Cost. Each hop is a syscall, and on a platform without ``/proc`` a fork of
+    ``ps``, so the walk is kept as short as the question allows: it stops the
+    moment *pty_pid* is reached rather than continuing to init, and one memo of
+    parent lookups is shared across every record's walk — several sessions in
+    one checkout have different ``owner_ppid`` leaves but converge on the same
+    upper ancestors within a hop or two. The caller must still keep this off the
+    event loop; ``routes/websocket.py`` runs it in a worker thread.
+
+    Returns:
+        ``live`` or ``va``, or ``None``. Never raises.
+    """
+    record = _matched_record(pty_pid)
+    if record is None:
+        return None
+    return str(record.get("target"))
+
+
+def session_target_meta_for_pid(pty_pid: object) -> dict[str, Any] | None:
+    """The display metadata of the target process *pty_pid* is on, or ``None``.
+
+    :func:`session_target_for_pid` answers *which* target; this answers *how to
+    name it*. The state file's per-target metadata — ``label``, ``endpoint``,
+    ``real_machine`` and, where one is configured, ``probe_channel`` — is
+    rendered once by the controls server that wrote the record, and every
+    reader shows what it is handed. That is the whole point of asking here
+    rather than deriving a name from config: a deployment whose live target is a
+    stand-in is labelled as one by its writer, and a badge that re-derived the
+    label from ``config.yml`` would be a second opinion about identity.
+
+    The match is :func:`_matched_record`, so this and
+    :func:`session_target_for_pid` agree by construction: the same records, the
+    same ancestor walk, and the same "zero or two-plus matches means no answer".
+
+    Args:
+        pty_pid: The pid of the PTY process the session runs in, exactly as for
+            :func:`session_target_for_pid`.
+
+    Returns:
+        The matched record's metadata for its own target, under a ``target`` key
+        naming that target — or ``None`` when there is no answer. A record whose
+        metadata block is missing or malformed still yields the target name: the
+        caller gets one dict shape, and an absent key reads as "not recorded"
+        rather than as a crash. Never raises.
+    """
+    record = _matched_record(pty_pid)
+    if record is None:
+        return None
+
+    target = str(record.get("target"))
+    targets = record.get("targets")
+    meta = targets.get(target) if isinstance(targets, dict) else None
+    # ``target`` last: it is the validated name this record was matched on, and
+    # a stray ``target`` key inside the metadata block must not be able to
+    # rename the machine an operator is told they are pointed at.
+    return {**(meta if isinstance(meta, dict) else {}), "target": target}
 
 
 def resolve_target_situation() -> TargetSituation:

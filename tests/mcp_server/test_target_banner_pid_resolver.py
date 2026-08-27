@@ -1,4 +1,4 @@
-"""Tests for ``target_banner.session_target_for_pid`` — the PTY-side resolver.
+"""Tests for the PTY-side resolvers — ``session_target_for_pid`` and its meta twin.
 
 ``resolve_session_target`` answers "which target is the session *I* am in on"
 by matching a record's ``owner_ppid`` against this process's own parent. The
@@ -14,6 +14,11 @@ So the match runs the other way round: walk the ancestors of the record's
 is the same fail-closed contract the hook reader and
 :func:`resolve_session_target` already keep — zero matches and two matches
 both mean "no answer", and no failure mode raises.
+
+``session_target_meta_for_pid`` answers the same question with the matched
+record's display metadata attached — the label an operator reads on the badge.
+It runs off the same matcher, so the two can never name different records, and
+the tests at the bottom of this file pin exactly that.
 
 The process tree is never real here: :func:`target_banner._parent_pid` is
 replaced by a synthetic parent map, exactly the seam
@@ -61,8 +66,21 @@ def synthetic_tree(monkeypatch):
     return PARENT_MAP
 
 
-def write_state(state_dir, *, target, owner_ppid, server_pid, name=None, raw=None):
-    """Write one state file; ``raw`` replaces the record wholesale."""
+DEFAULT_TARGETS = {
+    "live": {"label": "live machine", "endpoint": "gw:5064", "real_machine": True},
+    "va": {"label": "virtual accelerator", "endpoint": "localhost:5074"},
+}
+
+
+def write_state(
+    state_dir, *, target, owner_ppid, server_pid, name=None, raw=None, targets=DEFAULT_TARGETS
+):
+    """Write one state file; ``raw`` replaces the record wholesale.
+
+    *targets* is the per-target display metadata block, so a test can publish
+    the label a particular deployment's writer would have minted — or, passing
+    ``None``, a record that carries no metadata at all.
+    """
     state_dir.mkdir(parents=True, exist_ok=True)
     path = state_dir / (name or f"{target_state.STATE_FILE_PREFIX}{server_pid}.json")
     if raw is not None:
@@ -75,10 +93,7 @@ def write_state(state_dir, *, target, owner_ppid, server_pid, name=None, raw=Non
                 "generation": 1,
                 "server_pid": server_pid,
                 "owner_ppid": owner_ppid,
-                "targets": {
-                    "live": {"label": "live machine", "endpoint": "gw:5064", "real_machine": True},
-                    "va": {"label": "virtual accelerator", "endpoint": "localhost:5074"},
-                },
+                "targets": targets,
                 "children": [],
             }
         ),
@@ -301,3 +316,125 @@ def test_ps_timeout_is_short_enough_for_a_polled_route():
 def test_parent_pid_of_a_pid_that_does_not_exist_is_none():
     """Both readers — ``/proc`` and ``ps`` — answer "no parent", never raise."""
     assert target_banner._parent_pid(DEAD_PID) is None
+
+
+# ── the metadata twin ───────────────────────────────────────────────────────
+#
+# The badge needs a NAME for the target, not just its key: a deployment whose
+# live target is a stand-in publishes "LIVE MACHINE (stand-in)", and a reader
+# that re-derived that from config would be a second opinion about which
+# machine an operator is pointed at. So the metadata comes off the record, and
+# off the SAME match the name resolver uses.
+
+STANDIN_TARGETS = {
+    "live": {
+        "label": "LIVE MACHINE (stand-in)",
+        "endpoint": "localhost:5074",
+        "real_machine": True,
+        "probe_channel": "SR:BEAM",
+    },
+    "va": {"label": "virtual accelerator (simulation)", "endpoint": "localhost:5064"},
+}
+
+
+def test_the_matched_records_metadata_comes_back_under_its_own_target(
+    state_dir, synthetic_tree, monkeypatch
+):
+    """Everything the writer recorded for the target the session is on."""
+    write_state(
+        state_dir, target="live", owner_ppid=PTY_PID, server_pid=5150, targets=STANDIN_TARGETS
+    )
+    alive(monkeypatch, 5150)
+
+    assert target_banner.session_target_meta_for_pid(PTY_PID) == {
+        "target": "live",
+        "label": "LIVE MACHINE (stand-in)",
+        "endpoint": "localhost:5074",
+        "real_machine": True,
+        "probe_channel": "SR:BEAM",
+    }
+
+
+def test_the_two_resolvers_answer_off_the_same_record(state_dir, synthetic_tree, monkeypatch):
+    """The bare name and the label are the same record's, or the badge lies."""
+    write_state(
+        state_dir, target="live", owner_ppid=CLAUDE_PID, server_pid=5150, targets=STANDIN_TARGETS
+    )
+    alive(monkeypatch, 5150)
+
+    assert target_banner.session_target_for_pid(PTY_PID) == "live"
+    assert target_banner.session_target_meta_for_pid(PTY_PID)["target"] == "live"
+
+
+def test_no_matching_record_yields_no_metadata(state_dir, synthetic_tree, monkeypatch):
+    """Zero matches is no answer here too — the caller falls back to the render."""
+    write_state(state_dir, target="va", owner_ppid=STRANGER_PID, server_pid=5150)
+    alive(monkeypatch, 5150)
+
+    assert target_banner.session_target_meta_for_pid(PTY_PID) is None
+
+
+def test_two_matching_records_yield_no_metadata(state_dir, synthetic_tree, monkeypatch):
+    """Ambiguity is fail-closed on this side of the pair as well."""
+    write_state(state_dir, target="va", owner_ppid=PTY_PID, server_pid=5150)
+    write_state(state_dir, target="live", owner_ppid=CLAUDE_PID, server_pid=5151)
+    alive(monkeypatch, 5150, 5151)
+
+    assert target_banner.session_target_meta_for_pid(PTY_PID) is None
+    assert target_banner.session_target_for_pid(PTY_PID) is None
+
+
+def test_an_unknown_target_name_yields_no_metadata(state_dir, synthetic_tree, monkeypatch):
+    write_state(state_dir, target="somewhere-else", owner_ppid=PTY_PID, server_pid=5150)
+    alive(monkeypatch, 5150)
+
+    assert target_banner.session_target_meta_for_pid(PTY_PID) is None
+
+
+def test_metadata_cannot_rename_the_target_it_was_matched_on(
+    state_dir, synthetic_tree, monkeypatch
+):
+    """The validated name wins over anything the metadata block claims.
+
+    The name comes from the record's own ``target`` field, which was checked
+    against the known targets; a ``target`` key inside the metadata has been
+    through no such check. Letting it through would let a corrupt — or
+    hand-edited — file tell an operator they are somewhere they are not.
+    """
+    write_state(
+        state_dir,
+        target="va",
+        owner_ppid=PTY_PID,
+        server_pid=5150,
+        targets={"va": {"target": "live", "label": "virtual accelerator (simulation)"}},
+    )
+    alive(monkeypatch, 5150)
+
+    meta = target_banner.session_target_meta_for_pid(PTY_PID)
+
+    assert meta["target"] == "va"
+    assert meta["label"] == "virtual accelerator (simulation)"
+
+
+def test_a_record_with_no_metadata_block_still_names_its_target(
+    state_dir, synthetic_tree, monkeypatch
+):
+    """One dict shape for the caller: an absent key reads as "not recorded".
+
+    A hand-edited or half-written record must not make the badge branch on a
+    missing key — it gets the target it can trust and nothing it cannot.
+    """
+    write_state(state_dir, target="va", owner_ppid=PTY_PID, server_pid=5150, targets=None)
+    alive(monkeypatch, 5150)
+
+    assert target_banner.session_target_meta_for_pid(PTY_PID) == {"target": "va"}
+
+
+@pytest.mark.parametrize("pty_pid", [None, 0, -1, "nonsense"])
+def test_a_pid_that_is_not_a_pid_yields_no_metadata(
+    state_dir, synthetic_tree, monkeypatch, pty_pid
+):
+    write_state(state_dir, target="va", owner_ppid=PTY_PID, server_pid=5150)
+    alive(monkeypatch, 5150)
+
+    assert target_banner.session_target_meta_for_pid(pty_pid) is None
