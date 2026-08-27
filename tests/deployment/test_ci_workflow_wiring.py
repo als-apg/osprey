@@ -4608,6 +4608,93 @@ def test_lint_checks_the_lockfile__mutation_moves_it_after_sync() -> None:
 
 
 # ---------------------------------------------------------------------------
+# the changelog-fragment gate runs in lint, and premerge_check.sh runs the same
+# ---------------------------------------------------------------------------
+#
+# One rule, two callers: `scripts/changelog_fragments.py check` decides whether
+# a PR that touches src/ or packages/ carries a fragment in changelog.d/ and
+# whether anyone hand-edited CHANGELOG.md's [Unreleased] block. The local script
+# has to run the *same command* as the lane, or the pre-PR sweep goes green on
+# work CI then rejects.
+
+CHANGELOG_STEP = "Run changelog-fragment guard"
+CHANGELOG_SCRIPT = "scripts/changelog_fragments.py"
+PREMERGE_SCRIPT = "scripts/premerge_check.sh"
+#: What the CRITICAL block used to be: proof that CHANGELOG.md was *touched*,
+#: which the fragment workflow makes both unsatisfiable (fragments are the
+#: entry) and meaningless (touching the file proves nothing about content).
+_CHANGELOG_TOUCH_GREP = "grep -q CHANGELOG.md"
+
+
+@pytest.fixture()
+def premerge_source() -> str:
+    return _script_source(PREMERGE_SCRIPT)
+
+
+def test_lint_runs_the_changelog_fragment_guard(workflow: dict[str, Any]) -> None:
+    """Four things at once, because each has its own way of silently going
+    missing: the step exists and calls `check`; the base ref reaches the shell
+    through ``env:`` and never through ``${{ }}`` inside ``run:`` (a branch
+    name is attacker-controlled text — interpolated into the run line it is
+    executed); the env value comes from the pull-request event rather than a
+    hardcoded ``main``; and ``!cancelled()`` keeps a ruff failure above from
+    hiding a missing fragment and buying a second full CI cycle."""
+    step = _find_named_step(workflow, LINT_JOB, CHANGELOG_STEP)
+    assert CHANGELOG_SCRIPT + " check --base" in step["run"]
+    assert "${{" not in step["run"], (
+        f"{CHANGELOG_STEP} interpolates an expression into `run:`: {step['run']!r}"
+    )
+    assert "github.event.pull_request.base.ref" in step["env"]["BASE_REF"]
+    assert "!cancelled()" in step["if"]
+    assert "pull_request" in step["if"]
+
+
+def test_lint_runs_the_changelog_fragment_guard__mutation_drops_the_step() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[LINT_JOB]["steps"]
+    steps[:] = [s for s in steps if s.get("name") != CHANGELOG_STEP]
+    with pytest.raises(AssertionError):
+        test_lint_runs_the_changelog_fragment_guard(mutated)
+
+
+def test_lint_runs_the_changelog_fragment_guard__mutation_interpolates_the_base_ref_into_run() -> (
+    None
+):
+    """The regression the ``env:`` indirection exists to prevent: the same
+    command, written the obvious way. A PR from a branch named with shell
+    metacharacters then runs them on the lint runner."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, LINT_JOB, CHANGELOG_STEP)
+    step["run"] = step["run"].replace(
+        '"origin/$BASE_REF"', '"origin/${{ github.event.pull_request.base.ref }}"'
+    )
+    assert "${{" in step["run"], "the run line no longer uses $BASE_REF; this mutation is stale"
+    with pytest.raises(AssertionError):
+        test_lint_runs_the_changelog_fragment_guard(mutated)
+
+
+def test_premerge_check_runs_the_same_gate(premerge_source: str) -> None:
+    """The local sweep must run the gate itself, not a proxy for it. Its old
+    CRITICAL check grepped the diff for CHANGELOG.md, which under the fragment
+    workflow is red on every ordinary PR and green on a PR that hand-edited
+    [Unreleased] — wrong in both directions."""
+    assert CHANGELOG_SCRIPT in premerge_source
+    assert "check --base" in premerge_source
+    assert _CHANGELOG_TOUCH_GREP not in premerge_source
+
+
+def test_premerge_check_runs_the_same_gate__mutation_restores_the_grep() -> None:
+    source = _script_source(PREMERGE_SCRIPT)
+    mutated = source.replace(
+        f'uv run python {CHANGELOG_SCRIPT} check --base "$BASE"',
+        f"git diff $BASE...HEAD --name-only | {_CHANGELOG_TOUCH_GREP}",
+    )
+    assert mutated != source, "the gate invocation moved; this mutation is stale"
+    with pytest.raises(AssertionError):
+        test_premerge_check_runs_the_same_gate(mutated)
+
+
+# ---------------------------------------------------------------------------
 # (j) every dockerbuild-marked module reaches a lane that gates the merge
 # ---------------------------------------------------------------------------
 #

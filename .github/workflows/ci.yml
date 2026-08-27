@@ -518,6 +518,34 @@ jobs:
       # stated purpose, is what makes the coverage non-revocable.
       run: uv run python scripts/check_config_keys.py --back-test
 
+    - name: Run changelog-fragment guard
+      # A PR that touches src/ or packages/ must carry a fragment in
+      # changelog.d/, and nobody may hand-edit CHANGELOG.md's [Unreleased]
+      # block — the release fold owns it. scripts/premerge_check.sh runs the
+      # same command locally.
+      #
+      # `python3`, not `uv run`: the script is stdlib-only and standalone by
+      # design, the same reason scripts/ci/diag_summary.py runs bare above
+      # (ci.yml:330-334) — it still reports when the dependency install is
+      # what broke.
+      #
+      # `!cancelled()` for the reason given on the step above: a ruff or
+      # resurrection-guard failure must not hide a missing fragment and buy a
+      # second full CI cycle to discover it.
+      #
+      # The base comes from the event, not a hardcoded `main`, so a PR onto a
+      # release branch is diffed against that branch. It reaches the command
+      # through `env:` and never through `${{ }}` inside `run:`: a branch name
+      # is attacker-controlled text, and interpolating it into the shell line
+      # would execute it. By the time the shell sees `$BASE_REF` it is a
+      # variable, so the quoting holds. Pull requests only — on a push there
+      # is no base ref to diff against. The checkout above is fetch-depth: 0,
+      # which is what makes `origin/$BASE_REF` and the merge-base resolvable.
+      if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+      env:
+        BASE_REF: ${{ github.event.pull_request.base.ref }}
+      run: python3 scripts/changelog_fragments.py check --base "origin/$BASE_REF"
+
     - name: Run mypy (type checking)
       run: |
         uv run mypy src/ packages/osprey-connectors/src/ --no-error-summary || true

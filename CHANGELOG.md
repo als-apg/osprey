@@ -9,6 +9,9 @@ Versions follow `YYYY.MM.MICRO`. Year and month identify the release window;
 the micro segment increments for hotfixes and same-month follow-up releases.
 Compatibility is documented in release notes, not encoded in the version string.
 
+Unreleased changes are written as fragments in `changelog.d/` and folded into
+the `[Unreleased]` section below when a release is cut.
+
 ## [Unreleased]
 
 ### Fixed

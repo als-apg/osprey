@@ -38,6 +38,7 @@ WHITELIST: dict[str, set[str]] = {
     "benchmark/test_matrix_dashboard.py": {"sys.modules"},
     "benchmark/test_matrix_lanes.py": {"sys.modules"},
     "scripts/test_config_key_guard.py": {"sys.modules"},
+    "scripts/test_changelog_fragments.py": {"sys.modules"},
     "scripts/test_docs_publish.py": {"sys.modules"},
     "va/e2e/conftest.py": {"sys.modules"},
     # the root conftest scrubs FORCE_COLOR/CLICOLOR_FORCE before collection

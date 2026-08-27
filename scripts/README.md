@@ -10,6 +10,7 @@ This directory contains testing and validation scripts for the Osprey Framework 
 | `ci_check.sh` | Full CI replication | 2-3 min | Before pushing |
 | `premerge_check.sh` | Pre-merge validation | 1-2 min | Before creating PR |
 | `check_config_keys.py` | Config-key resurrection guard | 2-5s | After touching a `config.yml.j2`, a preset, or config-reading code |
+| `changelog_fragments.py` | Changelog-fragment gate and release fold | < 1s | After touching `src/` or `packages/`; when cutting a release |
 
 ## Scripts
 
@@ -75,7 +76,7 @@ This directory contains testing and validation scripts for the Osprey Framework 
 - Detects debug code (print, breakpoint, pdb)
 - Finds commented-out code
 - Checks for hardcoded secrets
-- Validates CHANGELOG updates
+- Validates that a changelog fragment was added (runs `changelog_fragments.py check`)
 - Checks type hints
 - Validates TODO/FIXME comments have issue links
 - Runs code formatters and linters
@@ -98,7 +99,7 @@ This directory contains testing and validation scripts for the Osprey Framework 
 
 **Severity levels**:
 - **BLOCKERS**: Must fix (debug code, secrets, test failures)
-- **CRITICAL**: Should fix (missing CHANGELOG, missing type hints)
+- **CRITICAL**: Should fix (missing changelog fragment, missing type hints)
 - **HIGH**: Address before merge (unlinked TODOs)
 - **MEDIUM**: Good to fix (formatting issues)
 
@@ -150,6 +151,42 @@ pins it down: it runs even when the lint steps before it fail.
 - `1`: One or more failure records (each is printed with its key and location),
   or a hard error — notably an unreachable `--back-test` baseline, which raises
   a traceback rather than skipping
+
+---
+
+### changelog_fragments.py
+
+**Purpose**: Make sure a change under `src/` or `packages/` ships a changelog
+fragment, and fold the fragments into `CHANGELOG.md` when a release is cut.
+
+**What it does**: `check` validates every fragment in `changelog.d/` (`README.md` is skipped) — the filename
+grammar `<name>.<type>.md` and the body rules — and then compares the branch
+against its base: a change under `src/` or `packages/` must add a fragment, and
+`## [Unreleased]` in `CHANGELOG.md` must not be edited by hand. `apply` inserts
+each fragment as a bullet under its `### <Type>` heading in `## [Unreleased]`
+and deletes the fragment files.
+
+**Usage**:
+```bash
+# What the `lint` CI job and premerge_check.sh run
+uv run python scripts/changelog_fragments.py check --base origin/main
+
+# The release fold — run once while cutting a release
+uv run python scripts/changelog_fragments.py apply
+```
+
+**When to use**: `check` after touching `src/` or `packages/`, though CI and
+`./scripts/premerge_check.sh` already run it for you. `apply` only when cutting
+a release.
+
+**Exit codes**:
+- `0`: No findings
+- `1`: Something you can fix — a missing fragment, a malformed fragment, a
+  hand-written entry in `## [Unreleased]`, or a deleted fragment
+- `2`: Environment problem — the base ref was not found, or the clone is too
+  shallow to find a common ancestor
+
+See `changelog.d/README.md` for the fragment format and the list of types.
 
 ---
 

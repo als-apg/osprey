@@ -55,12 +55,15 @@ fi
 
 # CRITICAL checks
 echo -e "\n=== CRITICAL ==="
-if git diff $BASE...HEAD --name-only | grep -q CHANGELOG.md; then
-  echo "✓ CHANGELOG updated"
-else
-  echo "✗ CHANGELOG not updated"
-  ERRORS=$((ERRORS + 1))
-fi
+# The changelog gate — the same command the `lint` CI job runs, so this sweep
+# and the lane agree: a fragment in changelog.d/ for any change under src/ or
+# packages/, and no hand-written entry in CHANGELOG.md's [Unreleased] block.
+# It replaces a `grep CHANGELOG.md` over the diff, which under the fragment
+# workflow was wrong in both directions — red on every ordinary PR (fragments
+# are the entry) and green on one that hand-edited [Unreleased].
+# `uv run python` here, bare `python3` in CI; the script is stdlib-only either
+# way. It prints its own ✓/✗ lines, so this block only counts the failure.
+if uv run python scripts/changelog_fragments.py check --base "$BASE"; then :; else ERRORS=$((ERRORS + 1)); fi
 
 # Type hints (fixed: only count functions, not classes; exclude methods)
 # The `|| true` is inside the group so a no-match grep (exit 1) can't abort the
