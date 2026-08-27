@@ -411,6 +411,14 @@ def _overlay_text(*, bench_port: int, va_port: int) -> str:
         The verified spelling for dropping a service block. Every parser gates
         on is-not-None; ``enabled: false`` under a ``services:`` block would
         fail schema validation instead.
+    ``virtual_accelerator.live_standin: null``
+        The preset ships a live stand-in on: a second virtual accelerator that
+        the build installs AS the live machine, deriving the whole ``epics``
+        block from it and taking limits checking strict. This lane supplies its
+        own live machine — the bench IOC — so leaving the stand-in on collides
+        with every ``epics`` key below (the build refuses one fact spelled in
+        two places) and stands up a container no scenario here talks to. Nulled
+        rather than deleted because an override cannot remove a key.
     ``exclude:``
         A ``-O`` list key UNIONS with the preset's and can never subtract, so
         the artifact trims cannot be expressed by re-listing ``skills:``. The
@@ -439,6 +447,13 @@ def _overlay_text(*, bench_port: int, va_port: int) -> str:
         "bluesky_web: null",
         "dispatch: null",
         "va_archiver: null",
+        "",
+        "# The preset's live stand-in is a second VA installed as the live machine:",
+        "# it derives the `epics` block below and forces strict limits. This lane",
+        "# brings its own live machine (the bench IOC), so the stand-in is both a",
+        "# collision and a container nothing here talks to.",
+        "virtual_accelerator:",
+        "  live_standin: null",
         "",
         "# List keys in a -O layer UNION with the preset's and can never subtract,",
         "# so the artifact trims have to be spelled as an exclusion.",
