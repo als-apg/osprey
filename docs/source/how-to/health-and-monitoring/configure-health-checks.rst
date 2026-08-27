@@ -99,9 +99,26 @@ Checks that need real Python
 ----------------------------
 
 A check that has to query a facility service or compute a derived state cannot
-be written in YAML. For those, ``health.plugins`` takes dotted module paths and
-loads each module's checks as a category of its own — writing that module is a
+be written in YAML. For those, ``health.plugins`` names Python modules and loads
+each module's checks as a category of its own — writing that module is a
 developer task, covered in :doc:`/contributing/extending-osprey`.
+
+An entry is either a dotted module path, which has to be importable by every
+process that runs the suite, or a path to a ``.py`` file, which does not:
+
+.. code-block:: yaml
+
+   health:
+     plugins:
+       - ./health/facility_checks.py   # a file in your project
+       - my_package.health_checks      # an installed module
+
+A relative file path is resolved against your project root — the directory
+holding ``profile.yml`` — the same way ``data/`` and ``plans/`` paths are, so a
+checks file kept beside your profile is found by the CLI, the dashboard and the
+health MCP server alike, with no ``PYTHONPATH`` to arrange. A plugin that will
+not load never takes the suite down: it reports one ``error`` row under the
+``plugins`` category, naming the entry and what went wrong.
 
 The web dashboard (``SYSTEM`` panel)
 ------------------------------------

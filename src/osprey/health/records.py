@@ -235,7 +235,8 @@ def build_records(
 
     Args:
         project_path: The deployment REPO ROOT, for the things that belong to
-            it: the ``.env``, ``project_root``-relative paths, the disk.
+            it: the ``.env``, ``project_root``-relative paths, the disk, and a
+            ``health.plugins`` entry that names a ``.py`` file relatively.
         render_path: The directory holding the rendered ``config.yml`` — the
             build zone — for the build-owned paths that config states relative
             to itself (the channel database).
@@ -278,7 +279,10 @@ def build_records(
         from osprey.health.plugins import load_plugin_categories
 
         records.extend(settings.categories.values())
-        plugin_result = load_plugin_categories(settings)
+        # The repo root, like every other project-relative path: a `.py` plugin
+        # entry names a file the deployment keeps beside its profile, not one
+        # under the render zone the build re-creates.
+        plugin_result = load_plugin_categories(settings, project_root=project_path)
         records.extend(plugin_result.categories.values())
         extra_rows = plugin_result.errors
 
