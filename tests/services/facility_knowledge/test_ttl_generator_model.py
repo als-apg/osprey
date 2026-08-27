@@ -22,9 +22,14 @@ from osprey.services.facility_knowledge.ttl_generator.model import (
     PROTOCOL,
     Address,
     HierarchyDescriptions,
+    binding_id,
+    binding_iri,
     build_model,
+    device_id,
+    device_iri,
     parse_address,
     resolve_hierarchy_descriptions,
+    source_section_id,
 )
 
 #: The demo machine the generator actually runs on.
@@ -854,3 +859,90 @@ class TestDescriptionsOnTier3:
         booster = texts["BR:MAG:QF:01:CURRENT:SP"]
 
         assert storage_ring != booster
+
+
+# ---------------------------------------------------------------------------
+# The facility token
+# ---------------------------------------------------------------------------
+
+
+class TestFacilityToken:
+    """The facility token is an input, not a module-level constant to patch.
+
+    Every identifier the generator mints embeds it, so a deployment that is not
+    the demo machine has to be able to hand it in.  A built model then *carries*
+    the token its identifiers were minted with, which is what stops the emitter
+    from having to look the value up a second time.
+    """
+
+    def test_the_default_is_the_demo_token(self, synthetic_map):
+        """Left out, the argument reproduces the shipped demo corpus exactly."""
+        model = build_model(synthetic_map)
+        assert model.facility == FACILITY == "demo"
+        assert model.devices[0].iri.startswith(f"{DEVICE_IRI_PREFIX}demo_")
+
+    def test_the_five_derivations_take_the_token(self):
+        """Each identifier helper mints the token it is handed."""
+        assert device_iri("SR", "DIPOLE01", facility="xyz") == (
+            f"{DEVICE_IRI_PREFIX}xyz_SR_DIPOLE01"
+        )
+        assert device_id("SR", "DIPOLE01", facility="xyz") == "narad:device:xyz:SR:DIPOLE01"
+        assert source_section_id("SR", facility="xyz") == "narad:section:xyz:sr"
+        assert binding_iri("SR", "DIPOLE01", "CURRENT", "SP", facility="xyz") == (
+            f"{BINDING_IRI_PREFIX}narad_endpoint_xyz_SR_DIPOLE01_CURRENT_SP"
+        )
+        assert binding_id("SR", "DIPOLE01", "CURRENT", "SP", facility="xyz") == (
+            "narad:binding:narad:endpoint:xyz:SR:DIPOLE01:CURRENT_SP"
+        )
+
+    def test_the_derivations_keep_their_positional_call_shape(self):
+        """The token is keyword-with-default, so existing call sites keep working."""
+        assert device_iri("SR", "DIPOLE01") == f"{DEVICE_IRI_PREFIX}demo_SR_DIPOLE01"
+        assert device_id("SR", "DIPOLE01") == "narad:device:demo:SR:DIPOLE01"
+        assert source_section_id("SR") == "narad:section:demo:sr"
+        assert binding_iri("SR", "DIPOLE01", "CURRENT", "SP") == (
+            f"{BINDING_IRI_PREFIX}narad_endpoint_demo_SR_DIPOLE01_CURRENT_SP"
+        )
+        assert binding_id("SR", "DIPOLE01", "CURRENT", "SP") == (
+            "narad:binding:narad:endpoint:demo:SR:DIPOLE01:CURRENT_SP"
+        )
+
+    def test_build_model_threads_the_token_into_every_identifier(self, synthetic_map):
+        """Device IRI, deviceId, sourceSectionId, binding IRI and bindingId all move."""
+        model = build_model(synthetic_map, facility="xyz")
+        assert model.facility == "xyz"
+
+        device = {d.address: d for d in model.devices}["SR:MAG:DIPOLE:01"]
+        assert device.iri == f"{DEVICE_IRI_PREFIX}xyz_SR_DIPOLE01"
+        assert device.device_id == "narad:device:xyz:SR:DIPOLE01"
+        assert device.source_section_id == "narad:section:xyz:sr"
+
+        binding = {b.full_pv: b for b in model.bindings}["SR:MAG:DIPOLE:01:CURRENT:SP"]
+        assert binding.iri == f"{BINDING_IRI_PREFIX}narad_endpoint_xyz_SR_DIPOLE01_CURRENT_SP"
+        assert binding.binding_id == "narad:binding:narad:endpoint:xyz:SR:DIPOLE01:CURRENT_SP"
+        assert binding.device_iri == device.iri
+        assert binding.iri in device.binding_iris
+
+    def test_no_demo_token_is_left_anywhere_in_a_custom_model(self, synthetic_map):
+        """A mixed-token corpus is the failure this seam exists to prevent."""
+        model = build_model(synthetic_map, facility="xyz")
+        assert "demo" not in repr(model)
+
+    def test_with_directions_carries_the_facility_through_replace(self, synthetic_map):
+        """``dataclasses.replace`` keeps the token, so the direction pass cannot drop it."""
+        model = build_model(synthetic_map, facility="xyz")
+        directed = model.with_directions({group.key: "read" for group in model.signal_groups})
+        assert directed.facility == "xyz"
+        assert all(group.direction == "read" for group in directed.signal_groups)
+
+    def test_two_tokens_in_one_process_do_not_share_state(self, synthetic_map):
+        """The generator is no longer single-facility per process."""
+        alpha = build_model(synthetic_map, facility="alpha")
+        beta = build_model(synthetic_map, facility="beta")
+
+        assert (alpha.facility, beta.facility) == ("alpha", "beta")
+        assert all(f"{DEVICE_IRI_PREFIX}alpha_" in device.iri for device in alpha.devices)
+        assert all(f"{DEVICE_IRI_PREFIX}beta_" in device.iri for device in beta.devices)
+        # Nothing was patched, so the module constant and the default are intact.
+        assert FACILITY == "demo"
+        assert build_model(synthetic_map).facility == "demo"

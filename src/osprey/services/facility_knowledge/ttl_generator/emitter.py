@@ -20,6 +20,10 @@ the address grammar offers, so a question like "how many vacuum devices are
 there" is one property filter rather than a family-by-family enumeration.  It is
 the token itself, not the prose: ``narad_p:systemDescription`` carries the text.
 
+**Facility.** ``narad_p:facility`` is read off ``GraphModel.facility`` — the
+token the model's identifiers were minted with.  This module keeps no facility
+constant of its own, so the literal and the IRIs beside it cannot disagree.
+
 **Prose.** When the model carries description text, bindings also get
 ``narad_p:description`` / ``fieldDescription`` / ``subfieldDescription`` and
 devices get ``familyDescription`` / ``systemDescription`` / ``ringDescription``.
@@ -59,7 +63,6 @@ from typing import TYPE_CHECKING
 
 from .direction import DIRECTION_READ, DIRECTION_WRITE
 from .model import (
-    FACILITY,
     NARAD_PROPERTY_NS,
     NARAD_SEM_NS,
     ChannelBinding,
@@ -376,12 +379,17 @@ def _description_triples(
     return triples
 
 
-def _device_triples(device: Device, ontology: OntologyMap) -> list[tuple[str, str, _Term]]:
+def _device_triples(
+    device: Device, ontology: OntologyMap, facility: str
+) -> list[tuple[str, str, _Term]]:
     """Triples for one device node, in the NARAD convention's shape.
 
     Args:
         device: The device to describe.
         ontology: Table that says which ``narad_sem`` class its family is.
+        facility: The model's facility token — the same value its identifiers
+            were minted with, so ``narad_p:facility`` cannot disagree with the
+            IRI beside it.
 
     Returns:
         ``(subject, predicate, object)`` triples; the subject is the device IRI.
@@ -394,7 +402,7 @@ def _device_triples(device: Device, ontology: OntologyMap) -> list[tuple[str, st
     triples: list[tuple[str, str, _Term]] = [
         (subject, RDF_TYPE, _iri(klass.iri)),
         (subject, _prop(P_DEVICE_ID), _text(device.device_id)),
-        (subject, _prop(P_FACILITY), _text(FACILITY)),
+        (subject, _prop(P_FACILITY), _text(facility)),
         (subject, _prop(P_ORDINAL_IN_FACILITY), _integer(device.ordinal_in_facility)),
         (subject, _prop(P_ORDINAL_IN_SECTION), _integer(device.ordinal_in_section)),
         (subject, _prop(P_RAW_TYPE), _text(device.raw_type)),
@@ -533,7 +541,7 @@ def _model_triples(model: GraphModel, ontology: OntologyMap) -> list[tuple[str, 
 
     triples: list[tuple[str, str, _Term]] = []
     for device in model.devices:
-        triples.extend(_device_triples(device, ontology))
+        triples.extend(_device_triples(device, ontology, model.facility))
     for binding in model.bindings:
         triples.extend(_binding_triples(binding, predicate_by_group[binding.signal_key]))
     for group in model.signal_groups:

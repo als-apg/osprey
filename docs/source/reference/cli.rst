@@ -770,7 +770,7 @@ from ``services.graphdb.ttl_path``. See :doc:`/how-to/facility-knowledge/okf-bun
    synonyms and families that differ --- which is what a CI job or a pre-commit
    hook runs to prove a committed table still matches its schema.
 
-``osprey knowledge build-ttl OUTPUT [--channel-db PATH] [--descriptions PATH] [--limits PATH] [--ontology PATH]``
+``osprey knowledge build-ttl OUTPUT [--channel-db PATH] [--descriptions PATH] [--limits PATH] [--ontology PATH] [--facility TOKEN]``
    Derive a NARAD-convention TTL corpus — the file ``seed-graph`` loads — from
    the project's own channel databases, so the graph store and the channel
    finder describe the same machine. The corpus carries one device node per
@@ -799,7 +799,7 @@ from ``services.graphdb.ttl_path``. See :doc:`/how-to/facility-knowledge/okf-bun
       the OSPREY source tree keeps the two, side by side under ``tiers/tier3/``.
       With no such neighbour the command asks for the flag.
 
-   Two more inputs decide details:
+   Three more inputs decide details:
 
    ``--limits``
       ``control_system.limits_checking.database_path``. This file is what tells
@@ -815,6 +815,14 @@ from ``services.graphdb.ttl_path``. See :doc:`/how-to/facility-knowledge/okf-bun
       (``compile-ontology`` above) rather than written by hand, though a
       hand-written JSON table is still accepted, so an existing one keeps
       working untouched.
+
+   ``--facility``
+      The facility token, ``demo`` by default. Every IRI and identifier the
+      corpus mints embeds it, and each device carries it as
+      ``narad_p:facility``, so name your own facility when the corpus is not
+      the demo machine's. The token is written once, from this flag: there is
+      no second place for it to come from and therefore no way for the
+      identifiers and the property to disagree.
 
    The neighbour rule for ``--descriptions`` is a convenience of the OSPREY
    source tree. A rendered project keeps only the paradigm it runs, as a flat

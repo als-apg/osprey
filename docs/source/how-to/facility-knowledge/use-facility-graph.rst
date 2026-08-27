@@ -175,10 +175,14 @@ the first example names both:
    $ osprey knowledge build-ttl data/demo_machine.ttl \
        --channel-db data/channel_databases/tiers/tier3/hierarchical.json
 
+A corpus that is not the demo machine's wants its own facility token as well:
+``--facility <token>`` decides the token every IRI, every identifier and every
+``narad_p:facility`` value in the file carries, and it defaults to ``demo``.
+
 Every flag, what it decides and what it falls back to — the two databases the
 corpus is built from, the file that tells a readback from a setpoint, the
-device-family table, and the key to point at the corpus you wrote — is in
-:ref:`osprey knowledge <cli-osprey-knowledge>`.
+device-family table, the facility token, and the key to point at the corpus you
+wrote — is in :ref:`osprey knowledge <cli-osprey-knowledge>`.
 
 Then load it (see :doc:`okf-bundle` for the seeding verb in full):
 

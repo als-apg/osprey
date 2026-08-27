@@ -311,6 +311,7 @@ def test_build_ttl_help_documents_inputs_and_next_step() -> None:
     assert "control_system.limits_checking.database_path" in flat
     assert "--descriptions" in flat
     assert "in_context.json" in flat
+    assert "--facility" in flat
     assert "osprey knowledge seed-graph" in flat
     # Written for operators, not for the framework's authors.
     assert "Claude Code" not in detail.output
@@ -350,6 +351,85 @@ def test_build_ttl_writes_a_parsable_corpus(
     assert "4 devices, 8 channel bindings, 4 signals" in flat
     # The parent directory did not exist before the run.
     assert output.parent.is_dir()
+
+
+def _build_ttl(output: Path, *extra: str, **paths: Path) -> Any:
+    """Run ``build-ttl`` against the fixture inputs, plus *extra* flags."""
+    return CliRunner().invoke(
+        knowledge,
+        [
+            "build-ttl",
+            str(output),
+            "--channel-db",
+            str(paths["channel_db"]),
+            "--descriptions",
+            str(paths["descriptions_db"]),
+            "--limits",
+            str(paths["readonly_limits"]),
+            "--ontology",
+            str(paths["ontology_table"]),
+            *extra,
+        ],
+    )
+
+
+def test_build_ttl_facility_default_is_the_generators_own_default() -> None:
+    """The CLI spells the token out; this is what keeps the two spellings equal."""
+    from osprey.cli.knowledge_cmd import DEFAULT_FACILITY
+    from osprey.services.facility_knowledge.ttl_generator.model import FACILITY
+
+    assert DEFAULT_FACILITY == FACILITY
+
+
+def test_build_ttl_defaults_the_facility_token_to_demo(
+    channel_db: Path,
+    descriptions_db: Path,
+    readonly_limits: Path,
+    ontology_table: Path,
+    tmp_path: Path,
+) -> None:
+    """Without the flag the corpus is the demo one, exactly as before."""
+    output = tmp_path / "demo.ttl"
+    result = _build_ttl(
+        output,
+        channel_db=channel_db,
+        descriptions_db=descriptions_db,
+        readonly_limits=readonly_limits,
+        ontology_table=ontology_table,
+    )
+
+    assert result.exit_code == 0, result.output
+    text = output.read_text(encoding="utf-8")
+    assert 'narad_p:facility "demo"' in text
+    assert "demo_SR_DIPOLE01" in text
+
+
+def test_build_ttl_facility_option_mints_the_given_token(
+    channel_db: Path,
+    descriptions_db: Path,
+    readonly_limits: Path,
+    ontology_table: Path,
+    tmp_path: Path,
+) -> None:
+    """``--facility`` reaches every identifier and the facility literal alike."""
+    output = tmp_path / "xyz.ttl"
+    result = _build_ttl(
+        output,
+        "--facility",
+        "xyz",
+        channel_db=channel_db,
+        descriptions_db=descriptions_db,
+        readonly_limits=readonly_limits,
+        ontology_table=ontology_table,
+    )
+
+    assert result.exit_code == 0, result.output
+    text = output.read_text(encoding="utf-8")
+    assert 'narad_p:facility "xyz"' in text
+    assert "xyz_SR_DIPOLE01" in text
+    assert "narad:device:xyz:SR:DIPOLE01" in text
+    # A mixed-token corpus is the failure this flag exists to make impossible.
+    assert "demo" not in text
 
 
 def test_build_ttl_reports_the_limits_direction_source(

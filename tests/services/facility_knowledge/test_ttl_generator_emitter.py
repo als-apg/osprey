@@ -228,14 +228,17 @@ class TestNodeShapes:
     def graph(self, synthetic_model: model.GraphModel, ontology: OntologyMap) -> Graph:
         return emitter.build_graph(synthetic_model, ontology)
 
-    def test_device_carries_the_identity_and_position_properties(self, graph: Graph) -> None:
+    def test_device_carries_the_identity_and_position_properties(
+        self, graph: Graph, synthetic_model: model.GraphModel
+    ) -> None:
         device = URIRef(model.device_iri("SR", "DIPOLE01"))
         assert (device, URIRef(f"{emitter.RDF_NS}type"), _sem("Dipole")) in graph
         assert (device, _prop("deviceId"), Literal("narad:device:demo:SR:DIPOLE01")) in graph
         assert (device, _prop("sectionCode"), Literal("SR")) in graph
         assert (device, _prop("sourceName"), Literal("DIPOLE01")) in graph
         assert (device, _prop("rawType"), Literal("DIPOLE")) in graph
-        assert (device, _prop("facility"), Literal(model.FACILITY)) in graph
+        # The literal comes off the model, not off a module constant.
+        assert (device, _prop("facility"), Literal(synthetic_model.facility)) in graph
         assert len(list(graph.objects(device, _prop("sPositionM")))) == 1
         assert len(list(graph.objects(device, _prop("ordinalInSection")))) == 1
         assert len(list(graph.objects(device, _prop("ordinalInFacility")))) == 1
@@ -742,3 +745,70 @@ class TestSystemProperty:
         subjects = set(real_graph.subjects(_prop("system"), None))
         assert len(subjects) == _REAL_DEVICES
         assert subjects == {URIRef(device.iri) for device in real_model.devices}
+
+
+# ---------------------------------------------------------------------------
+# The facility token
+# ---------------------------------------------------------------------------
+
+
+def _facility_model(token: str) -> model.GraphModel:
+    """The synthetic model, minted for *token* rather than for the demo machine."""
+    return _directed(
+        model.build_model({address: {} for address in _SYNTHETIC_ADDRESSES}, facility=token)
+    )
+
+
+class TestFacilityLiteral:
+    """``narad_p:facility`` is read off the model, so it cannot disagree with the IRIs.
+
+    Before the token became an input, the emitter held its own copy of the
+    module constant.  Patching only ``model.FACILITY`` then produced a corpus
+    whose IRIs said one facility and whose ``narad_p:facility`` literal said
+    another — no error, just a graph query that joins nothing.
+    """
+
+    @pytest.fixture(scope="class")
+    def custom_model(self) -> model.GraphModel:
+        return _facility_model("xyz")
+
+    @pytest.fixture(scope="class")
+    def custom_ttl(self, custom_model: model.GraphModel, ontology: OntologyMap) -> str:
+        return emitter.serialize_turtle(custom_model, ontology)
+
+    def test_the_emitter_holds_no_facility_of_its_own(self) -> None:
+        # The second place the value could come from is exactly the bug.
+        assert not hasattr(emitter, "FACILITY")
+
+    def test_every_device_carries_the_models_token(
+        self, custom_model: model.GraphModel, ontology: OntologyMap
+    ) -> None:
+        graph = emitter.build_graph(custom_model, ontology)
+        assert custom_model.devices
+        for device in custom_model.devices:
+            objects = list(graph.objects(URIRef(device.iri), _prop("facility")))
+            assert objects == [Literal("xyz")], device.address
+
+    def test_the_demo_token_appears_nowhere_in_a_custom_corpus(self, custom_ttl: str) -> None:
+        assert '    narad_p:facility "xyz" ;' in custom_ttl
+        assert "demo" not in custom_ttl
+
+    def test_the_default_corpus_is_unchanged(self, synthetic_ttl: str) -> None:
+        assert '    narad_p:facility "demo" ;' in synthetic_ttl
+
+    def test_two_facilities_in_one_process_each_serialise_consistently(
+        self, ontology: OntologyMap
+    ) -> None:
+        alpha = emitter.serialize_turtle(_facility_model("alpha"), ontology)
+        beta = emitter.serialize_turtle(_facility_model("beta"), ontology)
+        assert "beta" not in alpha
+        assert "alpha" not in beta
+        # Same corpus, one token apart — no shared state leaked between builds.
+        assert alpha.replace("alpha", "TOKEN") == beta.replace("beta", "TOKEN")
+
+    def test_custom_text_parses_back_to_the_built_graph(
+        self, custom_model: model.GraphModel, ontology: OntologyMap, custom_ttl: str
+    ) -> None:
+        parsed = Graph()
+        parsed.parse(data=custom_ttl, format="turtle")
+        assert isomorphic(parsed, emitter.build_graph(custom_model, ontology))

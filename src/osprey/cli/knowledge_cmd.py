@@ -32,6 +32,12 @@ import click
 
 from .output import fail, note, report, warn
 
+#: Default token for ``build-ttl --facility``.  Spelled out rather than imported
+#: so that ``osprey knowledge`` does not pull the TTL generator into its import
+#: graph for every verb; ``tests/cli/test_knowledge_build_ttl.py`` pins it to
+#: ``ttl_generator.model.FACILITY`` so the two cannot drift apart.
+DEFAULT_FACILITY = "demo"
+
 
 @click.group()
 def knowledge() -> None:
@@ -924,12 +930,21 @@ def _assign_directions(graph_model: Any, limits: Path | None) -> tuple[Any, Any]
     help="FAMILY-to-class table, in its compiled JSON form. Defaults to the demo-machine "
     "table shipped with OSPREY, which is compiled from a LinkML schema.",
 )
+@click.option(
+    "--facility",
+    default=DEFAULT_FACILITY,
+    show_default=True,
+    help="Facility token embedded in every IRI and identifier the corpus mints, "
+    "and written onto each device as narad_p:facility. Name your own facility "
+    "when the corpus is not the demo machine's.",
+)
 def build_ttl(
     output: Path,
     channel_db: Path | None,
     descriptions: Path | None,
     limits: Path | None,
     ontology: Path | None,
+    facility: str,
 ) -> None:
     """Derive a NARAD-convention TTL corpus from the channel database.
 
@@ -969,6 +984,10 @@ def build_ttl(
                     when your device families are not the demo machine's --
                     authored as a LinkML schema and turned into the table this
                     flag reads by 'osprey knowledge compile-ontology'.
+      --facility    The token 'demo', which is what the shipped demo corpus
+                    carries. Every IRI and identifier in the file embeds it,
+                    so name your own facility when the corpus is not the demo
+                    machine's.
 
     Then load the file into the store:
 
@@ -993,6 +1012,7 @@ def build_ttl(
     try:
         graph_model = build_model(
             channel_map,
+            facility=facility,
             hierarchy_descriptions=hierarchy_descriptions,
             binding_descriptions=binding_descriptions,
         )

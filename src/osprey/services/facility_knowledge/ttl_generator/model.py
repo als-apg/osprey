@@ -45,7 +45,9 @@ from osprey.services.facility_knowledge.seeder import NARAD_PREFIXES
 # rdflib off this path.
 # ---------------------------------------------------------------------------
 
-#: Facility token that appears in every generated IRI and identifier.
+#: Default facility token, used when a caller names none.  Every generated IRI
+#: and identifier embeds the token, and :class:`GraphModel` carries the one it
+#: was built with — the value is an argument, never a module global to patch.
 FACILITY = "demo"
 
 NARAD_PROPERTY_NS = NARAD_PREFIXES["narad_p"]
@@ -331,29 +333,31 @@ def source_name(family: str, device: str) -> str:
     return f"{family}{device}"
 
 
-def device_iri(ring: str, name: str) -> str:
-    """Canonical device IRI for *name* in *ring*."""
-    return f"{DEVICE_IRI_PREFIX}{FACILITY}_{ring}_{name}"
+def device_iri(ring: str, name: str, *, facility: str = FACILITY) -> str:
+    """Canonical device IRI for *name* in *ring*, minted for *facility*."""
+    return f"{DEVICE_IRI_PREFIX}{facility}_{ring}_{name}"
 
 
-def device_id(ring: str, name: str) -> str:
-    """``narad_p:deviceId`` literal for *name* in *ring*."""
-    return f"narad:device:{FACILITY}:{ring}:{name}"
+def device_id(ring: str, name: str, *, facility: str = FACILITY) -> str:
+    """``narad_p:deviceId`` literal for *name* in *ring*, minted for *facility*."""
+    return f"narad:device:{facility}:{ring}:{name}"
 
 
-def source_section_id(ring: str) -> str:
+def source_section_id(ring: str, *, facility: str = FACILITY) -> str:
     """``narad_p:sourceSectionId`` literal for *ring* (ring token lowercased)."""
-    return f"narad:section:{FACILITY}:{ring.lower()}"
+    return f"narad:section:{facility}:{ring.lower()}"
 
 
-def binding_iri(ring: str, name: str, field: str, subfield: str) -> str:
-    """Canonical ChannelBinding IRI."""
-    return f"{BINDING_IRI_PREFIX}narad_endpoint_{FACILITY}_{ring}_{name}_{field}_{subfield}"
+def binding_iri(
+    ring: str, name: str, field: str, subfield: str, *, facility: str = FACILITY
+) -> str:
+    """Canonical ChannelBinding IRI, minted for *facility*."""
+    return f"{BINDING_IRI_PREFIX}narad_endpoint_{facility}_{ring}_{name}_{field}_{subfield}"
 
 
-def binding_id(ring: str, name: str, field: str, subfield: str) -> str:
-    """``narad_p:bindingId`` literal for a ChannelBinding."""
-    return f"narad:binding:narad:endpoint:{FACILITY}:{ring}:{name}:{field}_{subfield}"
+def binding_id(ring: str, name: str, field: str, subfield: str, *, facility: str = FACILITY) -> str:
+    """``narad_p:bindingId`` literal for a ChannelBinding, minted for *facility*."""
+    return f"narad:binding:narad:endpoint:{facility}:{ring}:{name}:{field}_{subfield}"
 
 
 def signal_name(family: str, field: str, subfield: str) -> str:
@@ -519,11 +523,16 @@ class GraphModel:
     """The complete derived graph, in deterministic order.
 
     Args:
+        facility: The facility token every identifier in this model was minted
+            with.  Carrying it here is what stops a second reader — the emitter
+            writing ``narad_p:facility`` — from having to look the value up
+            somewhere else and disagreeing with the IRIs beside it.
         devices: Devices in facility order (ring, then SYSTEM/FAMILY/DEVICE).
         bindings: Bindings in device order, then by FIELD and SUBFIELD.
         signal_groups: Signal groups ordered by ``(FAMILY, FIELD, SUBFIELD)``.
     """
 
+    facility: str
     devices: tuple[Device, ...]
     bindings: tuple[ChannelBinding, ...]
     signal_groups: tuple[SignalGroup, ...]
@@ -566,6 +575,7 @@ class GraphModel:
 def build_model(
     channel_map: Mapping[str, Mapping],
     *,
+    facility: str = FACILITY,
     hierarchy_descriptions: HierarchyDescriptions | None = None,
     binding_descriptions: Mapping[str, str] | None = None,
 ) -> GraphModel:
@@ -582,6 +592,10 @@ def build_model(
             :class:`~osprey.services.channel_finder.databases.hierarchical.HierarchicalChannelDatabase`.
             Only the **keys** are read — they are the colon-grammar addresses —
             so the model does not depend on the value shape.
+        facility: Facility token to mint every IRI and identifier with, and the
+            token the returned model carries.  Defaults to :data:`FACILITY`, so
+            the shipped demo corpus is unchanged.  Two models with different
+            tokens can be built in one process: nothing is stored globally.
         hierarchy_descriptions: Prose from the hierarchical tree, as returned by
             :func:`resolve_hierarchy_descriptions`.  Its ring, system and family
             maps land on :class:`Device`; its field and subfield maps land on
@@ -622,9 +636,9 @@ def build_model(
             full_pv=address.text,
             protocol=PROTOCOL,
             confidence=CONFIDENCE,
-            iri=binding_iri(ring, name, address.field, address.subfield),
-            binding_id=binding_id(ring, name, address.field, address.subfield),
-            device_iri=device_iri(ring, name),
+            iri=binding_iri(ring, name, address.field, address.subfield, facility=facility),
+            binding_id=binding_id(ring, name, address.field, address.subfield, facility=facility),
+            device_iri=device_iri(ring, name, facility=facility),
             device_key=address.device_key,
             signal_key=address.signal_key,
             signal_name=group_name,
@@ -649,6 +663,7 @@ def build_model(
             index + 1,
             bindings_by_device[key],
             hierarchy_descriptions,
+            facility=facility,
         )
         for index, key in enumerate(device_keys)
     )
@@ -664,7 +679,12 @@ def build_model(
         )
         for family, field, subfield in sorted(groups)
     )
-    return GraphModel(devices=devices, bindings=bindings, signal_groups=signal_groups)
+    return GraphModel(
+        facility=facility,
+        devices=devices,
+        bindings=bindings,
+        signal_groups=signal_groups,
+    )
 
 
 def _binding_sort_key(address: Address) -> tuple:
@@ -678,6 +698,8 @@ def _build_device(
     facility_ordinal: int,
     bindings: list[ChannelBinding],
     descriptions: HierarchyDescriptions | None = None,
+    *,
+    facility: str = FACILITY,
 ) -> Device:
     """Assemble one :class:`Device` from its identity tuple and ordinals.
 
@@ -697,9 +719,9 @@ def _build_device(
         ordinal_in_section=section_ordinal,
         ordinal_in_facility=facility_ordinal,
         s_position_m=float(section_ordinal),
-        iri=device_iri(ring, name),
-        device_id=device_id(ring, name),
-        source_section_id=source_section_id(ring),
+        iri=device_iri(ring, name, facility=facility),
+        device_id=device_id(ring, name, facility=facility),
+        source_section_id=source_section_id(ring, facility=facility),
         binding_iris=tuple(binding.iri for binding in bindings),
         family_description=_lookup_description(
             None if descriptions is None else descriptions.family, (ring, system, family)
