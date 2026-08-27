@@ -168,17 +168,19 @@ verbatim or summarize.
 The channel database is a knowledge graph and you query it by writing read-only
 Cypher. Work in this order — do not open by composing a query from scratch.
 
-The **Graph at Hand** section below may already carry the store's schema and
-the curated examples, captured from the live store when its corpus was seeded.
-When it does, go straight to Step 3; Steps 1 and 2 are for what that snapshot
-does not answer.
+The **Graph at Hand** section below may already carry the store's schema, its
+class vocabulary, and the curated examples — the schema and vocabulary captured
+from the live store when its corpus was seeded, each example's parameters marked
+as captured or as framework defaults. When it does, go straight to Step 3; Steps
+1 and 2 are for what that snapshot does not answer.
 
 ### Step 1: Read the curated examples
 
 Call `example_queries()`. It returns runnable Cypher for the shapes that answer
 most address questions — devices of a class, one section in beamline order,
 every PV bound to a named device, the reverse lookup from a PV — each with
-parameter values that exist in this deployment's corpus. Adapt the closest
+parameter values that are framework defaults unless the **Graph at Hand** block
+marks them captured. Adapt the closest
 example: swap a parameter, add a `WHERE` clause, widen or narrow the `LIMIT`.
 
 ### Step 2: Check the schema when the examples do not reach

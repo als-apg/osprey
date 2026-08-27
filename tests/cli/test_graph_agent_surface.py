@@ -47,6 +47,8 @@ from osprey.cli.build_cmd import build
 from osprey.cli.templates.manager import TemplateManager
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 
+from ._vocabulary_guard import hardcoded_vocabulary_hits
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -196,6 +198,28 @@ def test_the_rendered_agent_does_not_claim_where_direction_came_from(
         "the rendered agent names the limits file as the direction source; "
         "direction may come from the PV-grammar fallback or from a "
         "deployment-supplied mapping instead"
+    )
+
+
+def test_the_rendered_agent_carries_no_hardcoded_vocabulary(built_ariel_standalone_project):
+    """The prompt may not name a facility's device kinds out of the framework.
+
+    Ruling of 2026-08-27, on issue #739: facility terminology has one source of
+    truth, and for the graph paradigm it is the store's ``(c:Class).altLabel``,
+    captured into the *Graph at Hand* block at seed time. A hard-coded row
+    naming ``Quadrupole`` or ``dcct`` ships every deployment class labels and
+    synonyms its own ontology may not carry — and a label that does not exist
+    returns zero rows rather than an error, which is the failure mode this very
+    prompt spends a section warning about.
+    """
+    text = (
+        built_ariel_standalone_project / ".claude" / "agents" / "facility-knowledge-graph.md"
+    ).read_text(encoding="utf-8")
+
+    assert hardcoded_vocabulary_hits(text) == [], (
+        "the rendered facility-knowledge-graph agent hard-codes facility "
+        "vocabulary; the class synonyms belong in the Vocabulary section of "
+        "the Graph at Hand block, captured from the store at seed time"
     )
 
 

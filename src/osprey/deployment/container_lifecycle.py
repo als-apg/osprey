@@ -4892,7 +4892,11 @@ def _bootstrap_and_seed_graphdb(config: dict, project_dir: Path, connection) -> 
             )
             return
 
-        graph_seeder.write_marker(session, graph_seeder.ttl_sha256(text))
+        graph_seeder.write_marker(
+            session,
+            graph_seeder.ttl_sha256(text),
+            graph_seeder.parse_direction_source(text),
+        )
         _report_step(f"graph seeded: {imported.triples_loaded} triples")
         _bake_graph_prompt_snapshot(session, project_dir)
 

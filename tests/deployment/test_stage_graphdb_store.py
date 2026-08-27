@@ -63,6 +63,7 @@ def graphdb_stubs(monkeypatch, tmp_path):
         "sessions": [],
         "imported": [],
         "markers": [],
+        "direction_sources": [],
         "notes": [],
         "resources": 0,
         "bootstrap": graph_seeder.BootstrapResult(status=graph_seeder.BootstrapStatus.INITIALIZED),
@@ -120,9 +121,10 @@ def graphdb_stubs(monkeypatch, tmp_path):
         state["imported"].append(text)
         return state["import_result"]
 
-    def _write_marker(session, sha256):
+    def _write_marker(session, sha256, direction_source=None):
         state["events"].append("marker")
         state["markers"].append(sha256)
+        state["direction_sources"].append(direction_source)
 
     def _bake_snapshot(session, render_dir):
         state["events"].append("bake")

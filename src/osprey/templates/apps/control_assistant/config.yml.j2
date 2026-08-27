@@ -9,17 +9,26 @@
 # Project identity
 project_name: "{{ project_name }}"
 
-# Facility identity — one block, two keys:
-#   name   — display name woven into the agent prompts (CLAUDE.md, subagents)
-#            and the web-terminal landing page. Preferred spelling, and it
-#            wins over a top-level `facility_name`, which is honored as a
-#            fallback; with neither set, the project name is used.
-#   prefix — short abbreviation the deployed web stack uses for container
-#            names (`<prefix>-nginx`, `<prefix>-web-<user>`); must be a
-#            non-empty valid Docker name start ([a-zA-Z0-9]).
-# facility:
-#   name: "Example Research Facility"
-#   prefix: ex
+# Facility identity — one block, three keys:
+#   name     — display name woven into the agent prompts (CLAUDE.md, subagents)
+#              and the web-terminal landing page. Preferred spelling, and it
+#              wins over a top-level `facility_name`, which is honored as a
+#              fallback; with neither set, the project name is used.
+#   prefix   — short abbreviation the deployed web stack uses for container
+#              names (`<prefix>-nginx`, `<prefix>-web-<user>`); must be a
+#              non-empty valid Docker name start ([a-zA-Z0-9]).
+#   ontology — path, relative to the project root, to this facility's compiled
+#              ontology table: the JSON `osprey knowledge compile-ontology`
+#              writes. It is the one source for the device vocabulary the
+#              channel-finder subagent's terminology table renders, so pointing
+#              it at your own table is how that table learns your words. Drop
+#              the key and the subagent is told plainly that no vocabulary was
+#              declared, which is better than shipping somebody else's; point
+#              it at a file that is not there and the build stops and says so.
+facility:
+  # name: "Example Research Facility"
+  # prefix: ex
+  ontology: data/facility_ontology.json
 
 build_dir: ./build
 

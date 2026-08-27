@@ -67,10 +67,22 @@ keys:
   facility:
     evidence: 'config\.get\("facility"\)'
     note: >-
-      Live (name only) in ariel_standalone and channel_finder_standalone;
-      commented in the other three. Canonical spelling.
+      Live in ariel_standalone and channel_finder_standalone (name), in
+      channel_finder_standalone and control_assistant (ontology); commented
+      in hello_world. Canonical spelling.
   facility.name:
     evidence: 'facility\.get\("name"\)'
+  facility.ontology:
+    evidence: 'as_dict\(config\.get\("facility"\)\)\.get\("ontology"\)'
+    note: >-
+      Live in control_assistant and channel_finder_standalone, which ship the
+      compiled demo table at data/facility_ontology.json; a commented example
+      in ariel_standalone (its agents read the vocabulary out of the seeded
+      store, not the file); absent from hello_world. The sole reader is
+      cli/templates/claude_code.py `_facility_vocabulary`, and it is the sole
+      source of the device rows in the channel-finder terminology tables. A
+      declared path that will not load is a hard build error — never a silent
+      skip and never a fallback to the packaged demo ontology.
   facility.prefix:
     rendered: false
     evidence: 'as_dict\(config\.get\("facility"\)\)\.get\("prefix"\)'
@@ -1378,7 +1390,7 @@ render_contexts:
     enable_middle_layer: channel_finder.pipelines.middle_layer.database.type
     deploy_services_true: services.openobserve.retention_days
     panels_on: web.panels.channel-finder.enabled
-  expected_union_size: 313
+  expected_union_size: 314
   note_union_size: >-
     Informational, not an assertion — it moves whenever a template gains or
     loses a key. The guard should report a diff against this number, not fail on

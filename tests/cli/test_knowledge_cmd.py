@@ -473,6 +473,7 @@ class _GraphStub:
     connection: tuple[str, str, str] | None = None
     imported_text: str | None = None
     written_marker: str | None = None
+    written_direction_source: str | None = None
 
 
 @pytest.fixture()
@@ -503,9 +504,10 @@ def graph(monkeypatch: pytest.MonkeyPatch) -> _GraphStub:
         stub.calls.append("read_marker")
         return stub.marker
 
-    def _write_marker(_session: object, sha256: str) -> None:
+    def _write_marker(_session: object, sha256: str, direction_source: str | None = None) -> None:
         stub.calls.append("write_marker")
         stub.written_marker = sha256
+        stub.written_direction_source = direction_source
 
     def _import_ttl(_session: object, text: str) -> ImportResult:
         stub.calls.append("import_ttl")
@@ -583,6 +585,31 @@ def test_seed_graph_seeds_an_empty_store(
 
     ordered = [call for call in graph.calls if call in {"bootstrap", "import_ttl", "write_marker"}]
     assert ordered == ["bootstrap", "import_ttl", "write_marker"]
+
+    # This corpus declares no direction source, so the marker claims none —
+    # the state a corpus built by an older osprey lands in.
+    assert graph.written_direction_source is None
+
+
+def test_seed_graph_records_the_corpus_direction_source_on_the_marker(
+    graph: _GraphStub, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A corpus that declares its direction source has it written to the marker.
+
+    The header is the only channel between ``build-ttl``, which knows the
+    answer, and the baked agent prompt, which states it; the marker is the leg
+    in between.
+    """
+    from osprey.services.facility_knowledge.ttl_generator.emitter import DIRECTION_SOURCE_HEADER
+
+    _patch_config(monkeypatch, {})
+    ttl = tmp_path / "directed.ttl"
+    ttl.write_text(f"{DIRECTION_SOURCE_HEADER}grammar\n{_TTL_TEXT}", encoding="utf-8")
+
+    result = CliRunner().invoke(knowledge, ["seed-graph", str(ttl)])
+
+    assert result.exit_code == 0, result.output
+    assert graph.written_direction_source == "grammar"
 
 
 def test_seed_graph_reports_unchanged_on_a_matching_marker(

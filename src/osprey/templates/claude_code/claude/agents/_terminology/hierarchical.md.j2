@@ -9,20 +9,26 @@ level-by-level, selecting options at each level to narrow down to specific chann
 
 ### Terminology Mapping
 
-Operators use domain language. Map their terms to hierarchy navigation:
-
+Operators use domain language.
+{% if facility_vocabulary %}
+The device rows below are this deployment's own vocabulary, read from the
+compiled ontology it declares (`facility.ontology`) — the same table the
+channel database was generated from, so the words and tokens are the ones this
+facility actually uses:
+{% else %}
+No facility ontology is declared (`facility.ontology`), so the table below
+carries only navigation guidance and no device vocabulary — match on names and
+descriptions in the database and verify with a lookup rather than guessing.
+{% endif %}
 | Operator Language | Hierarchy Navigation |
 |---|---|
-| "beam current" | System: look for ring/accelerator → Device: `DCCT`, `BCM` → Signal: `current`, `monitor` |
-| "BPM positions" / "beam position" | System: ring/section → Device: `BPM` → Signal: `X`, `Y`, `position` |
-| "corrector magnets" | System: ring/section → Device: `HCM`, `VCM`, `corrector` → Signal: setpoint/readback |
-| "quadrupole" / "quad" | System: ring → Device: `QF`, `QD`, `quad` → Signal: strength/current |
+{%- for entry in facility_vocabulary | default(none) or [] %}
+| {{ '"' ~ (entry.synonyms | join('", "')) ~ '"' }} | {% if entry.families %}System/section → Device: {{ '`' ~ (entry.families | join('`, `')) ~ '`' }} (class {{ entry.class_name }}){% else %}Umbrella class {{ entry.class_name }} — no device of its own; narrow to a specific device first{% endif %} |
+{%- endfor %}
 | "readback" / "monitor" | Navigate to device first, then select readback/monitor signal level |
 | "setpoint" / "control" | Navigate to device first, then select setpoint/control signal level |
-| "temperature" | System: relevant area → Device: `TC`, `Temp` → Signal: readback |
-| "vacuum" / "pressure" | System: relevant section → Device: `VGC`, `CCG`, `gauge` → Signal: pressure |
 | "in sector 3" / "at cell 5" | Map to the appropriate hierarchy level for location (system, section, cell) |
-| "all BPMs" | Select BPM at device level, then use wildcard/range at instance level |
+| "all" of a device kind | Select that device at device level, then use wildcard/range at instance level |
 
 ### Hierarchy Conventions
 

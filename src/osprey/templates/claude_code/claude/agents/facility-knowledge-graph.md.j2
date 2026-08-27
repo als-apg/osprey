@@ -47,12 +47,15 @@ Not yours — say so and stop rather than approximating:
 ## Tool Order — Cheapest First
 
 The **Graph at Hand** section at the end of this prompt may already carry the
-store's schema and the curated examples, captured from the live store when its
-corpus was seeded. When it does, go straight to a query; the tools below are
-for what that snapshot does not answer.
+store's schema, its class vocabulary, and the curated examples — the schema and
+vocabulary captured from the live store when its corpus was seeded, each
+example's parameters marked as captured or as framework defaults. When it does,
+go straight to a query; the tools below are for what that snapshot does not
+answer.
 
 1. `example_queries()` — a curated, runnable catalogue covering the common
-   structural shapes, each with parameter values for the corpus at hand.
+   structural shapes, each with parameter values that are framework defaults
+   unless the **Graph at Hand** block marks them captured.
    **Adapt an example rather than composing Cypher cold**; adapting is reliable
    where inventing is guesswork.
 2. `get_schema()` — the labels, relationship types, and property names *this*

@@ -75,8 +75,8 @@ fewest turns:
    every PV of one device split by direction, the class hierarchy as a table
    and as inheritance chains, a read/write split across all bindings, and
    devices sharing one PV. Each carries its Cypher and a parameter set whose
-   values exist in the demo machine. Adapting one is reliable where inventing
-   a query is guesswork.
+   values are framework defaults taken from the shipped demo machine. Adapting
+   one is reliable where inventing a query is guesswork.
 2. ``get_schema`` — the labels, relationship types and per-label property names
    actually present in *this* graph, plus the NARAD namespace prefix map for
    reading and building ``uri`` values. Call it when you need a name the
@@ -96,7 +96,11 @@ seeds or re-verifies the store — the staging step inside every ``osprey up``,
 or ``osprey knowledge seed-graph`` — captures the live store's schema (property
 lists complete, not sampled) together with the curated examples, and bakes them
 into the rendered ``facility-knowledge-graph`` agent prompt, stamped with the
-seed marker's checksum. The agent starts already knowing the vocabulary and
+seed marker's checksum. Each example's parameters are marked in the block as
+captured from this corpus or as framework defaults, so the agent knows which
+values it can trust as real addresses. The block also carries the class
+vocabulary — every class's ``altLabel`` synonyms — read from the same store, so
+the agent maps an operator's word to a class without a hard-coded list, and
 goes straight to ``read_cypher``. Because the writer of the snapshot is the
 writer of the store, prompt and graph cannot drift apart silently; a rebuilt
 render resets the prompt to a placeholder, and the next ``up`` fills it back

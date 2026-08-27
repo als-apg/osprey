@@ -1572,6 +1572,7 @@ data/
 │   └── TEMPLATE_EXAMPLE.json            # database format example
 ├── benchmarks/cross_paradigm/queries/    # staged query sets, one per tier
 ├── channel_limits.json                   # per-channel write limits
+├── facility_ontology.json                # device vocabulary (facility.ontology)
 ├── machine_state_channels.json           # channels in the machine-state view
 ├── facility_knowledge/                   # markdown knowledge bundle
 └── simulation/                           # mock-connector scenarios
@@ -1676,6 +1677,48 @@ BENCHMARK_QUERIES_JSON = """\
     "targeted_pv": ["SR:DIAG:BPM:01:POSITION:X", "SR:DIAG:BPM:02:POSITION:X"]
   }
 ]
+"""
+
+#: The exemplar's own compiled ontology — the table ``facility.ontology`` names.
+#:
+#: A profile that carries a ``data:`` tree REPLACES the bundle's, so the copy
+#: control-assistant ships never reaches this repo: an exemplar facility
+#: declares its own vocabulary or it declares none, and a declared table that is
+#: not on disk stops the build by design. Written against this repo's own three
+#: families (``BPM``, ``DCCT``, ``HCM``) rather than copied from the demo
+#: machine, because that is what a real facility's table looks like and what the
+#: rendered terminology tables should show.
+FACILITY_ONTOLOGY_JSON = """\
+{
+  "_generated": "Generated from facility_ontology.yaml by `osprey knowledge compile-ontology`. Do not edit.",
+  "root": "AcceleratorDevice",
+  "family_to_class": {
+    "BPM": "BeamPositionMonitor",
+    "DCCT": "BeamCurrentMonitor",
+    "HCM": "HCorrector"
+  },
+  "classes": {
+    "AcceleratorDevice": { "altLabels": [], "parent": null },
+    "BeamCurrentMonitor": {
+      "altLabels": ["beam current monitor", "current monitor", "dcct"],
+      "parent": "Instrumentation"
+    },
+    "BeamPositionMonitor": {
+      "altLabels": ["beam position monitor", "bpm", "position monitor"],
+      "parent": "Instrumentation"
+    },
+    "Corrector": {
+      "altLabels": ["corrector", "orbit corrector", "steering magnet"],
+      "parent": "Magnet"
+    },
+    "HCorrector": {
+      "altLabels": ["hcor", "horizontal corrector", "horizontal steering magnet"],
+      "parent": "Corrector"
+    },
+    "Instrumentation": { "altLabels": ["diagnostics", "instrumentation"], "parent": "AcceleratorDevice" },
+    "Magnet": { "altLabels": ["electromagnet", "magnet"], "parent": "AcceleratorDevice" }
+  }
+}
 """
 
 CHANNEL_LIMITS_JSON = """\
@@ -1868,6 +1911,7 @@ BASE_SOURCE_FILES: Mapping[str, str] = {
     "data/channel_databases/tiers/tier3/hierarchical.json": CHANNEL_DB_HIERARCHICAL_JSON,
     "data/benchmarks/cross_paradigm/queries/tier3_queries.json": BENCHMARK_QUERIES_JSON,
     "data/channel_limits.json": CHANNEL_LIMITS_JSON,
+    "data/facility_ontology.json": FACILITY_ONTOLOGY_JSON,
     "data/machine_state_channels.json": MACHINE_STATE_CHANNELS_JSON,
     "data/raw/address_list.csv": RAW_ADDRESS_LIST_CSV,
     "data/facility_knowledge/index.md": FK_INDEX_MD,

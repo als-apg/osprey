@@ -53,7 +53,14 @@ _MANIFEST_PATH = "scripts/config_key_manifest.yml"
 #: Top-level sections of ``config.yml``. A dotted literal has to start with one
 #: of these to be treated as a config key at all — the bar that keeps prose
 #: like ``osprey.version`` or ``docs.source`` out of the sweep.
+#:
+#: ``facility`` earns its place the moment the reference page documents a
+#: ``facility.*`` key: without it such a literal is not recognised as a key at
+#: all, so it slips the docs↔manifest cross-check as a vacuous pass. The
+#: pattern below anchors a literal dot after the section name, so the entry
+#: cannot swallow ``facility_knowledge.*`` or the retired ``facility_name``.
 _SECTIONS = (
+    "facility",
     "health",
     "web",
     "control_system",

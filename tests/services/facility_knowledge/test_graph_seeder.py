@@ -24,6 +24,8 @@ from osprey.services.facility_knowledge.seeder.graph_seeder import (
     BootstrapStatus,
     bootstrap,
     import_ttl,
+    parse_direction_source,
+    read_direction_source,
     read_marker,
     resource_count,
     ttl_sha256,
@@ -378,8 +380,40 @@ class TestSeedMarker:
         query, params = session.calls[0]
         assert query.startswith("MERGE (m:_OspreySeed")
         assert "SET m.sha256 = $sha256" in query
-        assert params == {"sha256": "deadbeef"}
+        assert params == {"sha256": "deadbeef", "directionSource": None}
         assert session.results[0].consumed
+
+    def test_write_marker_records_the_direction_source_beside_the_digest(self):
+        """One ``MERGE``, so the digest and the provenance describe one corpus."""
+        session = FakeSession()
+        write_marker(session, "deadbeef", "limits")
+
+        query, params = session.calls[0]
+        assert "SET m.sha256 = $sha256" in query
+        assert "m.directionSource = $directionSource" in query
+        assert params == {"sha256": "deadbeef", "directionSource": "limits"}
+
+    def test_write_marker_clears_a_stale_direction_source(self):
+        """Re-seeding with a corpus that declares nothing must not leave the
+        previous corpus's claim standing on the marker."""
+        session = FakeSession()
+        write_marker(session, "deadbeef")
+
+        _, params = session.calls[0]
+        assert params["directionSource"] is None
+
+    def test_read_direction_source_returns_the_stored_token(self):
+        session = FakeSession({"_OspreySeed": [{"directionSource": "grammar"}]})
+        assert read_direction_source(session) == "grammar"
+        assert "MATCH (m:_OspreySeed)" in session.queries[0]
+
+    def test_read_direction_source_returns_none_when_absent(self):
+        assert read_direction_source(FakeSession()) is None
+
+    def test_read_direction_source_returns_none_on_a_marker_without_it(self):
+        """A marker written before the property existed. Say nothing, not wrong."""
+        session = FakeSession({"_OspreySeed": [{"directionSource": None}]})
+        assert read_direction_source(session) is None
 
     def test_write_marker_overwrites_rather_than_accumulating(self):
         """A second seed must not leave two markers behind."""
@@ -389,11 +423,96 @@ class TestSeedMarker:
         assert all(query.startswith("MERGE") for query in session.queries)
         assert all("CREATE (" not in query for query in session.queries)
 
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            ("# osprey:direction-source limits\n@prefix owl: <http://x/> .\n", "limits"),
+            ("# osprey:direction-source grammar\n@prefix owl: <http://x/> .\n", "grammar"),
+            ("@prefix owl: <http://x/> .\n", None),
+        ],
+        ids=["limits", "grammar", "no-header"],
+    )
+    def test_the_header_round_trips_through_the_marker(self, text: str, expected: str | None):
+        """Corpus text → header → marker → snapshot, the whole provenance chain.
+
+        The two writers each parse the text they import and write what they
+        found; the snapshot reads it back.  A corpus declaring nothing yields
+        ``None`` end to end, so the agent is told nothing rather than a guess.
+        """
+        written = FakeSession()
+        write_marker(written, "deadbeef", parse_direction_source(text))
+        _, params = written.calls[0]
+
+        stored = FakeSession({"_OspreySeed": [{"directionSource": params["directionSource"]}]})
+        assert read_direction_source(stored) == expected
+
     def test_write_marker_is_documented_as_post_import_only(self):
         """The ordering contract lives in the docstring the caller reads."""
         doc = write_marker.__doc__ or ""
         assert "terminationStatus" in doc or "ImportResult.ok" in doc
         assert "--force" in doc or "unmanaged-partial" in doc
+
+
+# ---------------------------------------------------------------------------
+# parse_direction_source
+# ---------------------------------------------------------------------------
+
+
+class TestParseDirectionSource:
+    """The corpus's own account of where its read/write directions came from.
+
+    ``build-ttl`` writes the header and this reads it back, off the same text
+    the import receives — so the marker's claim always describes the corpus that
+    was actually loaded, never some other copy on disk.
+    """
+
+    def test_reads_the_header_the_emitter_writes(self):
+        """Pinned through the emitter's constant rather than a literal, because
+        the producer and the consumer must not be able to drift apart."""
+        from osprey.services.facility_knowledge.ttl_generator.emitter import (
+            DIRECTION_SOURCE_HEADER,
+        )
+
+        text = f"{DIRECTION_SOURCE_HEADER}limits\n@prefix owl: <http://example.org/> .\n"
+        assert parse_direction_source(text) == "limits"
+
+    @pytest.mark.parametrize("value", ["limits", "grammar"])
+    def test_reads_either_source(self, value: str):
+        assert parse_direction_source(f"# osprey:direction-source {value}\n") == value
+
+    def test_a_corpus_without_the_header_declares_nothing(self):
+        """A file built by an older osprey, or curated by hand."""
+        assert parse_direction_source("@prefix owl: <http://example.org/> .\n") is None
+
+    def test_a_byte_order_mark_does_not_hide_the_header(self):
+        assert parse_direction_source("\ufeff# osprey:direction-source limits\n") == "limits"
+
+    def test_leading_blank_lines_do_not_hide_the_header(self):
+        assert parse_direction_source("\n\n# osprey:direction-source grammar\n") == "grammar"
+
+    def test_a_header_below_the_first_content_line_is_not_read(self):
+        """Only the corpus's own opening declaration counts; a comment further
+        down belongs to whatever wrote it, and is not the file speaking."""
+        text = "@prefix owl: <http://example.org/> .\n# osprey:direction-source limits\n"
+        assert parse_direction_source(text) is None
+
+    def test_an_empty_payload_declares_nothing(self):
+        assert parse_direction_source("") is None
+
+    def test_a_header_with_no_value_declares_nothing(self):
+        assert parse_direction_source("# osprey:direction-source\n") is None
+
+    def test_the_committed_corpus_declares_its_source(self):
+        """The end-to-end pin: what ``build-ttl`` shipped is what this reads."""
+        from pathlib import Path
+
+        corpus = (
+            Path(__file__).resolve().parents[3]
+            / "src/osprey/templates/apps/control_assistant/data/demo_machine.ttl"
+        )
+        with corpus.open(encoding="utf-8") as handle:
+            first = handle.readline()
+        assert parse_direction_source(first) == "limits"
 
 
 # ---------------------------------------------------------------------------

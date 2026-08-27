@@ -312,6 +312,111 @@ class TestNodeShapes:
 
 
 # ---------------------------------------------------------------------------
+# Direction provenance header
+# ---------------------------------------------------------------------------
+
+
+class TestDirectionSourceHeader:
+    """The corpus states where its read/write directions came from, or nothing.
+
+    ``build-ttl`` resolves the directions and the graph agents describe them,
+    but the two run as separate commands: the file is the only channel between
+    them, and this one leading comment is what carries the answer.
+    """
+
+    def test_the_header_is_the_first_line(
+        self, synthetic_model: model.GraphModel, ontology: OntologyMap
+    ) -> None:
+        text = emitter.serialize_turtle(
+            synthetic_model, ontology, direction_source=direction.DirectionSource.LIMITS
+        )
+        assert text.splitlines()[0] == "# osprey:direction-source limits"
+        assert text.splitlines()[1].startswith("@prefix ")
+
+    def test_the_bare_value_is_accepted_too(
+        self, synthetic_model: model.GraphModel, ontology: OntologyMap
+    ) -> None:
+        """A deployment emitting through the library API may pass the token."""
+        text = emitter.serialize_turtle(synthetic_model, ontology, direction_source="grammar")
+        assert text.splitlines()[0] == "# osprey:direction-source grammar"
+
+    def test_no_source_emits_the_bytes_it_always_did(
+        self, synthetic_model: model.GraphModel, ontology: OntologyMap
+    ) -> None:
+        """A corpus that declares nothing must be byte-for-byte what it was
+        before the header existed, or every deploy would see a corpus change."""
+        plain = emitter.serialize_turtle(synthetic_model, ontology)
+        assert plain == emitter.serialize_turtle(synthetic_model, ontology, direction_source=None)
+        assert plain.splitlines()[0].startswith("@prefix ")
+        assert emitter.DIRECTION_SOURCE_HEADER not in plain
+
+    def test_the_header_costs_exactly_one_line(
+        self, synthetic_model: model.GraphModel, ontology: OntologyMap
+    ) -> None:
+        plain = emitter.serialize_turtle(synthetic_model, ontology)
+        headed = emitter.serialize_turtle(synthetic_model, ontology, direction_source="limits")
+        assert headed.splitlines()[1:] == plain.splitlines()
+        assert len(headed) == len(plain) + len("# osprey:direction-source limits\n")
+
+    def test_the_header_carries_no_path(
+        self, synthetic_model: model.GraphModel, ontology: OntologyMap
+    ) -> None:
+        """``DirectionReport`` also holds the limits file's absolute path and a
+        message naming it.  Neither may reach the file: the corpora are
+        committed and rebuilt on whichever machine happens to build them, so a
+        build-host path would make them unreproducible."""
+        header = emitter.serialize_turtle(
+            synthetic_model, ontology, direction_source="limits"
+        ).splitlines()[0]
+        assert "/" not in header
+        assert "\\" not in header
+
+    def test_serialising_twice_with_a_source_is_byte_identical(
+        self, synthetic_model: model.GraphModel, ontology: OntologyMap
+    ) -> None:
+        """The digest on the seed marker is taken over this text, so an unstable
+        header would make every deploy look like a corpus change."""
+        first = emitter.serialize_turtle(synthetic_model, ontology, direction_source="limits")
+        second = emitter.serialize_turtle(synthetic_model, ontology, direction_source="limits")
+        assert first == second
+
+    def test_an_unknown_source_is_refused(
+        self, synthetic_model: model.GraphModel, ontology: OntologyMap
+    ) -> None:
+        """Only the two sources ``direction.py`` defines may be claimed — which
+        is also what stops a caller passing the report's path or message."""
+        with pytest.raises(ValueError):
+            emitter.serialize_turtle(
+                synthetic_model, ontology, direction_source="/tmp/channel_limits.json"
+            )
+
+    def test_write_turtle_forwards_the_source(
+        self, synthetic_model: model.GraphModel, ontology: OntologyMap, tmp_path: Path
+    ) -> None:
+        written = emitter.write_turtle(
+            synthetic_model, ontology, tmp_path / "corpus.ttl", direction_source="limits"
+        )
+        assert written.read_text(encoding="utf-8").splitlines()[0] == (
+            "# osprey:direction-source limits"
+        )
+
+    def test_the_header_is_a_comment_the_parser_ignores(
+        self, synthetic_model: model.GraphModel, ontology: OntologyMap
+    ) -> None:
+        """It has to be invisible to the importer: a provenance *triple* would
+        land as a ``:Resource`` and inflate the count of the very corpus the
+        baked block reports."""
+        plain = Graph()
+        plain.parse(data=emitter.serialize_turtle(synthetic_model, ontology), format="turtle")
+        headed = Graph()
+        headed.parse(
+            data=emitter.serialize_turtle(synthetic_model, ontology, direction_source="limits"),
+            format="turtle",
+        )
+        assert isomorphic(plain, headed)
+
+
+# ---------------------------------------------------------------------------
 # Determinism and round-trip
 # ---------------------------------------------------------------------------
 

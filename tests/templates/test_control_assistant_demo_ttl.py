@@ -308,7 +308,10 @@ def regenerated_ttl_text() -> str:
     This is the chain ``osprey knowledge build-ttl`` runs: expand the tier-3
     tree through the channel finder's own loader, read both prose sources
     through the verb's own helpers, derive the device and signal layers, resolve
-    directions from the limits file, then serialize against the demo ontology.
+    directions from the limits file, then serialize against the demo ontology
+    carrying the direction source the resolution reported — the verb passes the
+    same report through, so a fixture that dropped it would regenerate a corpus
+    one line short of the committed one.
 
     ``tests/services/facility_knowledge/test_demo_ttl_consistency.py`` builds
     the same model for its semantic comparison. The inputs are spelled out again
@@ -335,8 +338,12 @@ def regenerated_ttl_text() -> str:
         hierarchy_descriptions=_resolve_hierarchy_descriptions(raw, CHANNEL_DB_PATH),
         binding_descriptions=dict(_load_binding_descriptions(DESCRIPTIONS_PATH)),
     )
-    directed, _ = direction.resolve_and_assign(built, LIMITS_PATH)
-    return emitter.serialize_turtle(directed, ontology_map.load_demo_ontology())
+    directed, report = direction.resolve_and_assign(built, LIMITS_PATH)
+    return emitter.serialize_turtle(
+        directed,
+        ontology_map.load_demo_ontology(),
+        direction_source=report.source,
+    )
 
 
 def _first_difference(left: bytes, right: bytes) -> str:

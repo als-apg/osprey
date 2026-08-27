@@ -40,6 +40,8 @@ from osprey.cli.validate_claude_artifacts import (
 )
 from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE, FRAMEWORK_SERVERS
 
+from ._vocabulary_guard import hardcoded_vocabulary_hits
+
 _FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---", re.DOTALL)
 
 _SUBMIT_RESPONSE = "mcp__osprey_workspace__submit_response"
@@ -48,6 +50,25 @@ _SUBMIT_RESPONSE = "mcp__osprey_workspace__submit_response"
 #: carries — proof that ``_terminology/graph.md.j2`` was included and not one of
 #: its siblings.
 _GRAPH_TERMINOLOGY_MARKER = "This is a **graph** channel database"
+
+
+def _graph_paradigm_instructions(body: str) -> str:
+    """The graph arm of a rendered channel finder, without the shared wrapper.
+
+    Every paradigm renders the same YAML frontmatter and the same closing
+    sections (report format, ``submit_response``), and both carry operator
+    phrasings and demo addresses that illustrate *routing and formatting*
+    rather than telling the agent what the facility's device kinds are called.
+    The ruling is about the latter, so the guard is held to the slice it
+    governs: the graph arm plus the terminology partial and the snapshot region
+    it includes.
+    """
+    _before, separator, after_frontmatter = body.partition("\n---\n")
+    assert separator, "no YAML frontmatter in the rendered channel finder"
+    arm, marker, _tail = after_frontmatter.partition("You are exploring the")
+    assert marker, "the shared closing sections moved; re-derive the slice"
+    assert _GRAPH_TERMINOLOGY_MARKER in arm, "the slice lost the graph arm"
+    return arm
 
 
 def _expected_frontmatter_tools(mode: str) -> list[str]:
@@ -334,6 +355,33 @@ def test_graph_paradigm_prompt_carries_the_snapshot_placeholder(tmp_path):
     assert body.count(prompt_snapshot.SNAPSHOT_END) == 1
     assert body.find(prompt_snapshot.SNAPSHOT_BEGIN) < body.find(prompt_snapshot.SNAPSHOT_END)
     assert "No snapshot has been captured yet" in body
+
+
+def test_the_rendered_agent_carries_no_hardcoded_vocabulary(tmp_path):
+    """The prompt may not name a facility's device kinds out of the framework.
+
+    Ruling of 2026-08-27, on issue #739: facility terminology has one source of
+    truth, and for the graph paradigm it is the store's ``(c:Class).altLabel``,
+    captured into the *Graph at Hand* block at seed time. A hard-coded row
+    naming ``Quadrupole`` or ``dcct`` ships every deployment class labels and
+    synonyms its own ontology may not carry — and a label that does not exist
+    returns zero rows rather than an error, which is the failure mode this very
+    prompt spends a section warning about.
+
+    Held to the graph arm only: the YAML frontmatter's ``description`` and the
+    shared "Submitting Results" section name a BPM in a delegation example and
+    in a title/entry_ids format example, and both are illustrative prose about
+    routing and formatting rather than a claim about what this facility's
+    device kinds are called.
+    """
+    _manager, project_dir = _control_assistant(tmp_path, "cf-graph-vocab", "graph")
+    body = _agent_path(project_dir).read_text(encoding="utf-8")
+
+    assert hardcoded_vocabulary_hits(_graph_paradigm_instructions(body)) == [], (
+        "the rendered graph-paradigm channel finder hard-codes facility "
+        "vocabulary; the class synonyms belong in the Vocabulary section of "
+        "the Graph at Hand block, captured from the store at seed time"
+    )
 
 
 @pytest.mark.parametrize("mode", [m for m in VALID_CHANNEL_FINDER_MODES if m != "graph"])

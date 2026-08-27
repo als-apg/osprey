@@ -3,9 +3,11 @@
     graph paradigm). The managed region between the markers is REWRITTEN IN
     THE RENDER by whichever verb seeds or re-verifies the store (`osprey up`'s
     staging step, or `osprey knowledge seed-graph`): prompt_snapshot
-    .bake_snapshot() replaces marker-to-marker with the schema and the
-    including agent's own curated examples, captured from the live store and
-    stamped with the seed marker's checksum. The placeholder is what an
+    .bake_snapshot() replaces marker-to-marker with three captures — the
+    store's schema, its class vocabulary (every class's altLabel), and the
+    including agent's own curated examples with each parameter marked as
+    captured from this corpus or as a framework default — stamped with the
+    seed marker's checksum. The placeholder is what an
     unseeded render ships. Keep the marker comments byte-identical to
     prompt_snapshot.SNAPSHOT_BEGIN/END — a consistency test pins them. -#}
 ## The Graph at Hand
@@ -15,6 +17,8 @@
 No snapshot has been captured yet. The store is seeded at deploy time, and
 whichever verb touches it (`osprey up`, `osprey knowledge seed-graph`) fills
 this section in from the live store. Until then, start with
-`example_queries()` and `get_schema()` before writing any Cypher.
+`example_queries()` and `get_schema()`, and read class synonyms with
+`MATCH (c:Class) WHERE c.altLabel IS NOT NULL RETURN c.uri, c.altLabel`,
+before writing any Cypher.
 
 <!-- osprey:graph-snapshot end -->

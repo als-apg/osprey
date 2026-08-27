@@ -27,10 +27,12 @@ _NOTES: tuple[str, ...] = (
     "Each example carries its parameters separately from its Cypher. Pass the "
     "chosen parameter dict to read_cypher as `params` — never paste values into "
     "the query text.",
-    "Each parameter set holds values that exist in the shipped demo machine; "
-    "on a deployment that seeded a different corpus, take values from the "
-    "rows the structural examples return. The Cypher is the same either way; "
-    "only the values differ.",
+    "Each parameter set holds framework-default values that exist in the "
+    "shipped demo machine. This tool never dials the store, so it cannot "
+    "substitute this corpus's values; the *Graph at Hand* section of your "
+    "prompt, baked at seed time, may carry the same examples with values "
+    "captured from this corpus — prefer those. Failing both, take values "
+    "from the rows the structural examples return.",
     "The search-by-meaning examples read prose the generator writes — the "
     "description predicates and the system token. A corpus imported straight "
     "from a facility export may carry none, and those examples then return no "

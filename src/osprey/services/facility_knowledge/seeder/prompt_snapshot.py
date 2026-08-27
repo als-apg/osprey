@@ -23,6 +23,17 @@ per-label property scan because it answers live queries on request, while this
 capture runs once per seed and can afford the full walk. Both go through
 :func:`collect_schema`, so the bookkeeping exclusions cannot drift apart.
 
+**Three things are captured, and the block says which is which.** The schema
+(:func:`collect_schema`); the facility's own class synonyms
+(:func:`collect_vocabulary`), which are authored in its ontology rather than
+hard-coded here, so a corpus spelling its classes differently gets its own
+spellings; and one specimen device (:func:`resolve_example_values`) whose real
+name, section and address are substituted into the curated examples. Each of
+the latter two is queried under its own guard: a store that answers the schema
+but not them still deploys, the examples keep their shipped literals, and the
+block labels those *framework defaults* rather than passing them off as facts
+about this corpus.
+
 The tools stay registered regardless. They are the recovery path when a query
 returns zero rows for a name the snapshot lists (a store re-seeded out of
 band), and the only path on a render whose store was never seeded.
@@ -38,6 +49,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.services.facility_knowledge.seeder.graph_seeder import NARAD_PREFIXES
+from osprey.services.facility_knowledge.seeder.ttl_seeder import local_name
 from osprey.utils.workspace import BUILD_DIR_NAME, IMAGE_DIR_NAME
 
 logger = logging.getLogger(__name__)
@@ -60,7 +72,7 @@ BOOKKEEPING_LABELS = frozenset({"_GraphConfig", "_NsPrefDef", "_OspreySeed"})
 #: Property names that belong to the bookkeeping nodes above. Filtered on top
 #: of the label exclusion as belt-and-braces: were one of these ever to land on
 #: a knowledge node, listing it would invite the agent to query the seed marker.
-BOOKKEEPING_PROPERTIES = frozenset({"sha256", "seededAt", "kind"})
+BOOKKEEPING_PROPERTIES = frozenset({"sha256", "seededAt", "kind", "directionSource"})
 
 LABELS_CYPHER = "CALL db.labels() YIELD label RETURN label ORDER BY label"
 
@@ -161,6 +173,152 @@ def collect_schema(run: RunCypher, *, sample_size: int | None = None) -> dict[st
 
 
 # ---------------------------------------------------------------------------
+# Vocabulary collection — the facility's own class synonyms
+# ---------------------------------------------------------------------------
+
+#: Every ontology class that declares synonyms, with them. The facility authors
+#: these as ``aliases`` in its LinkML ontology; ``compile-ontology`` emits them
+#: as ``skos:altLabel`` and n10s lands them on ``(c:Class).altLabel``. Capturing
+#: them here is what keeps the prompt's vocabulary *this* facility's rather than
+#: a table of names hard-coded in the framework, which a corpus spelling its
+#: classes differently would silently fail to match.
+VOCABULARY_CYPHER = (
+    "MATCH (c:Class) WHERE c.altLabel IS NOT NULL "
+    "RETURN c.uri AS uri, c.altLabel AS synonyms ORDER BY c.uri"
+)
+
+
+def _class_display_name(uri: str) -> str:
+    """The display name of a class IRI: its local name, never empty.
+
+    Classes carry no ``rdfs:label`` in this corpus shape, so the local name is
+    what the agent will actually type in a Cypher label position. The split
+    itself is :func:`~osprey.services.facility_knowledge.seeder.ttl_seeder.local_name`'s
+    — the package's one rule for IRI → local-name derivation, shared rather
+    than restated so this table and the stub bundles cannot come to disagree
+    about where a name ends. Only the empty case is decided here: a URI ending
+    on its separator has no local name, and the whole URI is a better row label
+    than a blank one.
+    """
+    return local_name(uri) or uri
+
+
+def _as_list(value: Any) -> list[Any]:
+    """Coerce a possibly-multivalued store property to a list.
+
+    ``skos:altLabel`` is configured ``handleMultival: ARRAY``, so the store
+    normally answers with a list. A store whose n10s config was set up by hand
+    can answer with the bare scalar instead; wrapping it costs one branch and
+    keeps a single-synonym class from rendering one row per character.
+    """
+    if value is None:
+        return []
+    if isinstance(value, (str, bytes)):
+        return [value]
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return list(value)
+    return [value]
+
+
+def collect_vocabulary(run: RunCypher) -> list[dict[str, Any]]:
+    """Read the facility's class synonyms through *run*.
+
+    Args:
+        run: The Cypher seam — see :data:`RunCypher`.
+
+    Returns:
+        One entry per class carrying synonyms, ordered by URI:
+        ``{"name": <IRI local part>, "uri": ..., "synonyms": [...]}`` with the
+        synonyms sorted and deduplicated so two bakes of one store render
+        byte-identically.
+
+        An empty list when the store holds no synonyms **or** when the query
+        fails. The guard is the point: :func:`bake_snapshot` runs inside
+        ``osprey up``'s staging step, and a store that answers
+        :func:`collect_schema` but not this query must still deploy — the block
+        then tells the agent to read ``altLabel`` itself.
+    """
+    try:
+        rows = run(VOCABULARY_CYPHER, None)
+    except Exception:  # noqa: BLE001 - any store failure degrades to no vocabulary
+        logger.warning("Could not capture class synonyms from the store", exc_info=True)
+        return []
+
+    vocabulary: list[dict[str, Any]] = []
+    for row in rows:
+        uri = row.get("uri")
+        if uri is None:
+            continue
+        uri = str(uri)
+        synonyms = sorted({str(item) for item in _as_list(row.get("synonyms")) if item is not None})
+        vocabulary.append({"name": _class_display_name(uri), "uri": uri, "synonyms": synonyms})
+    return vocabulary
+
+
+# ---------------------------------------------------------------------------
+# Example parameter values — one specimen device, resolved live
+# ---------------------------------------------------------------------------
+
+#: One real device that actually has a binding, picked deterministically. A
+#: single specimen rather than a query per parameter, because it buys internal
+#: consistency the per-parameter shape could not: the ``pv`` example's address
+#: belongs to the same device the ``name``/``section`` examples name.
+SPECIMEN_VALUES_CYPHER = (
+    "MATCH (d:Resource)-[:HASBINDING]->(b:ChannelBinding) "
+    "WHERE d.sourceName IS NOT NULL AND d.sectionCode IS NOT NULL AND b.fullPv IS NOT NULL "
+    "RETURN d.sourceName AS name, d.sectionCode AS section, d.system AS system, "
+    "b.fullPv AS pv "
+    "ORDER BY d.sectionCode, d.sourceName, b.fullPv LIMIT 1"
+)
+
+#: The parameter names the specimen answers. Substitution is keyed on the
+#: parameter *name*, which already means the same thing in both catalogues, so
+#: the frozen ``ExampleQuery`` never has to change.
+SPECIMEN_PARAMETERS = ("name", "section", "system", "pv")
+
+
+def resolve_example_values(run: RunCypher) -> dict[str, Any]:
+    """Resolve the curated examples' corpus-valued parameters through *run*.
+
+    Only parameters that are *facts about the store* are resolved: ``name``,
+    ``section``, ``system`` and ``pv``. Search terms (``phrase``,
+    ``field_meaning``, ``role``, ``synonym``, …) are deliberately English and
+    exist to demonstrate a prose search — "resolving" them would be meaningless.
+    Absence from this result is therefore the declaration that a parameter is
+    not resolvable; a future example taking a new search term is left alone.
+
+    ``root_uri`` and ``class_uri`` are deliberately **not** resolved either.
+    The ontology has more than one parentless class, so no query can pick a
+    "root" honestly, and ``class_uri``'s "all magnets" is a domain concept no
+    query can pick out of an arbitrary ontology. Both stay framework defaults
+    and are labelled as such, which is exactly what the labelling is for.
+
+    Args:
+        run: The Cypher seam — see :data:`RunCypher`.
+
+    Returns:
+        The resolved values as strings, keyed by parameter name, with any column
+        the specimen left null dropped. Coerced rather than passed through: the
+        block is rendered by ``json.dumps``, and a driver type that does not
+        serialise would fail there — downstream of both guards, taking the whole
+        snapshot with it. An empty mapping when the store holds no such device
+        or the query fails — guarded for the same reason
+        :func:`collect_vocabulary` is: every example then keeps its shipped
+        literal and the block labels it a framework default.
+    """
+    try:
+        rows = run(SPECIMEN_VALUES_CYPHER, None)
+    except Exception:  # noqa: BLE001 - any store failure degrades to shipped defaults
+        logger.warning("Could not resolve example parameter values from the store", exc_info=True)
+        return {}
+
+    if not rows:
+        return {}
+    row = rows[0]
+    return {key: str(row[key]) for key in SPECIMEN_PARAMETERS if row.get(key) is not None}
+
+
+# ---------------------------------------------------------------------------
 # Rendering and applying the block
 # ---------------------------------------------------------------------------
 
@@ -197,12 +355,100 @@ def _example_catalogues() -> dict[str, Sequence[Any]]:
     }
 
 
+#: Rendered when a store answered the schema but carried no class synonyms —
+#: an empty table would read as "this corpus has no synonyms", which is a claim
+#: the capture cannot make when the query simply failed.
+NO_VOCABULARY_NOTE = (
+    "No class synonyms were captured from this corpus; call `get_schema()` and "
+    "query `(c:Class).altLabel` directly."
+)
+
+#: How to match against a multivalued property. Spelled once, next to the table
+#: it applies to: ``altLabel`` is a list, and ``= $term`` against a list is the
+#: confident-zero this whole block exists to prevent.
+VOCABULARY_MATCH_RULE = (
+    "Match with `ANY(l IN c.altLabel WHERE toLower(l) CONTAINS $term)` — "
+    "`altLabel` is a list, never compare with `=`."
+)
+
+#: The two labels a rendered parameter set can carry. Never unlabelled: an
+#: unlabelled value is one the agent has no way to tell apart from a fact about
+#: its own corpus, which is precisely how the shipped demo's names ended up
+#: being typed at other facilities' stores.
+CAPTURED_PARAMETERS_NOTE = "values captured from this corpus"
+DEFAULT_PARAMETERS_NOTE = "framework defaults; substitute values from this corpus"
+
+#: How each ``READSSIGNAL``/``WRITESSIGNAL`` edge in *this* corpus came to point
+#: the way it does. ``build-ttl`` knows; the seeder carries it in the marker;
+#: the agent needs it because the two derivations differ in what they can get
+#: wrong — a grammar-derived corpus mislabels any writable channel whose address
+#: does not end in ``:SP``. Deliberately worded without the build host's path:
+#: the whole rendered prompt is guarded against leaking one.
+DIRECTION_PROVENANCE_LINES = {
+    "limits": (
+        "Direction provenance: read/write edges derived from this facility's channel limits."
+    ),
+    "grammar": (
+        "Direction provenance: read/write edges derived from the address grammar "
+        "(`:SP` writes), because no channel limits were available."
+    ),
+}
+
+
+def _render_direction(direction_source: str | None) -> list[str]:
+    """The provenance line's lines, or none at all.
+
+    A corpus built by an older ``osprey`` recorded no source, and there is no
+    honest default to fall back on — the two derivations are not
+    interchangeable — so an absent source renders nothing rather than a guess.
+    An unrecognised value is printed verbatim: a newer builder's spelling is
+    still more informative than silence.
+    """
+    if not direction_source:
+        return []
+    known = DIRECTION_PROVENANCE_LINES.get(direction_source)
+    return ["", known or f"Direction provenance: `{direction_source}`."]
+
+
+def _render_vocabulary(vocabulary: Sequence[Mapping[str, Any]]) -> list[str]:
+    """The Vocabulary section's lines, table or note."""
+    lines = ["### Vocabulary", ""]
+    if not vocabulary:
+        return [*lines, NO_VOCABULARY_NOTE]
+
+    lines += ["| Class | Synonyms (altLabel) |", "| --- | --- |"]
+    for entry in vocabulary:
+        synonyms = ", ".join(f"`{synonym}`" for synonym in entry["synonyms"])
+        lines.append(f"| `{entry['name']}` | {synonyms or '(none)'} |")
+    return [*lines, "", VOCABULARY_MATCH_RULE]
+
+
+def _render_parameters(parameters: Mapping[str, Any], values: Mapping[str, Any]) -> str:
+    """The one Parameters line for an example, substituted and labelled.
+
+    Substitution is by parameter **name**: a key *values* resolved is replaced,
+    a key it did not keeps the catalogue's shipped literal. ``ExampleQuery`` is
+    frozen and shared by both catalogues, so nothing is mutated — the rendered
+    dict is built here and thrown away with the block.
+    """
+    if not parameters:
+        return "Parameters: none"
+
+    rendered = {key: values.get(key, value) for key, value in parameters.items()}
+    every_key_captured = all(key in values for key in parameters)
+    note = CAPTURED_PARAMETERS_NOTE if every_key_captured else DEFAULT_PARAMETERS_NOTE
+    return f"Parameters: `{json.dumps(rendered)}` — {note}"
+
+
 def render_block(
     schema: dict[str, Any],
     examples: Sequence[Any],
     *,
     digest: str | None,
     resource_count: int,
+    vocabulary: Sequence[Mapping[str, Any]] = (),
+    values: Mapping[str, Any] | None = None,
+    direction_source: str | None = None,
 ) -> str:
     """Render the snapshot block, markers included.
 
@@ -212,17 +458,29 @@ def render_block(
         digest: The seed marker's sha256, or ``None`` on an unmanaged store.
         resource_count: ``(:Resource)`` nodes in the store, for the provenance
             line.
+        vocabulary: A :func:`collect_vocabulary` result. Empty renders the note
+            rather than an empty table.
+        values: A :func:`resolve_example_values` result. Each example's
+            parameters are substituted by name from it; whatever it does not
+            carry stays the shipped literal and the line says so.
+        direction_source: How the corpus's read/write edges were derived, as the
+            seed marker recorded it. ``None`` renders no provenance line.
     """
+    values = values or {}
     lines: list[str] = [SNAPSHOT_BEGIN, ""]
 
     stamp = f"corpus checksum `{digest[:12]}`" if digest else "corpus unmanaged (no seed marker)"
     lines += [
         f"Captured from the live store at seed time — {resource_count} Resource "
-        f"nodes, {stamp}. It is rewritten whenever the store is seeded or "
+        f"nodes, {stamp}. Schema, vocabulary and the example parameters marked "
+        "*captured* are this corpus's own; parameters marked *framework "
+        "defaults* are the shipped catalogue's and must be swapped for values "
+        "from this corpus. It is rewritten whenever the store is seeded or "
         "re-verified (`osprey up`, `osprey knowledge seed-graph`). If a name "
         "listed here returns zero rows, or you need vocabulary beyond it, call "
         "`get_schema()` / `example_queries()` — the live store always wins over "
         "this text.",
+        *_render_direction(direction_source),
         "",
         "### Schema",
         "",
@@ -239,6 +497,8 @@ def render_block(
         lines.append(f"  - `{prefix}:` → `{namespace}`")
     lines += [
         f"- **Naming:** {schema['naming']['note']}",
+        "",
+        *_render_vocabulary(vocabulary),
         "",
         "### Curated examples",
         "",
@@ -260,8 +520,7 @@ def render_block(
             example.cypher,
             "```",
         ]
-        values = example.parameters
-        lines.append(f"Parameters: `{json.dumps(values)}`" if values else "Parameters: none")
+        lines.append(_render_parameters(example.parameters, values))
 
     lines += ["", SNAPSHOT_END]
     return "\n".join(lines)
@@ -346,13 +605,25 @@ def bake_snapshot(session: Any, render_dir: Path) -> list[Path]:
         return [record.data() for record in session.run(cypher, params or {})]
 
     catalogues = _example_catalogues()
-    # One capture, rendered once per catalogue: the schema is the store's and
-    # the same for both agents; only the curated examples differ.
+    # Three captures, each issued once and rendered once per catalogue: schema,
+    # class synonyms and the example specimen are all facts about the *store*
+    # and therefore the same for both agents; only the curated examples differ.
     schema = collect_schema(run)
+    vocabulary = collect_vocabulary(run)
+    values = resolve_example_values(run)
     digest = graph_seeder.read_marker(session)
     resource_count = graph_seeder.resource_count(session)
+    direction_source = graph_seeder.read_direction_source(session)
     blocks = {
-        filename: render_block(schema, examples, digest=digest, resource_count=resource_count)
+        filename: render_block(
+            schema,
+            examples,
+            digest=digest,
+            resource_count=resource_count,
+            vocabulary=vocabulary,
+            values=values,
+            direction_source=direction_source,
+        )
         for filename, examples in catalogues.items()
     }
     return apply_snapshot(render_dir, blocks)
