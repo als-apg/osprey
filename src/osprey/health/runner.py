@@ -246,7 +246,11 @@ def _accepts_runtime(func: Any) -> bool:
     """
     try:
         param = inspect.signature(func).parameters.get("runtime")
-    except (TypeError, ValueError):
+    except Exception:  # noqa: BLE001 - an unreadable signature is the zero-arg shape
+        # ``signature()`` documents TypeError and ValueError, but it also reads
+        # ``__signature__`` and follows ``__wrapped__``, and plugin code owns
+        # both. This runs outside the per-callable isolation, so anything it
+        # raised would abort the whole suite against the module's promise.
         return False
     return param is not None and param.kind in (
         inspect.Parameter.POSITIONAL_OR_KEYWORD,

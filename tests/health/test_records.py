@@ -369,7 +369,7 @@ class TestBuildRecords:
         env_row = next(r for r in by_name["file_system"].func() if r.name == "env_file")
         assert env_row.status is Status.WARNING  # no .env at the repo root
 
-    def test_systemd_unit_is_assembled_and_anchored_on_the_repo_root(self, tmp_path):
+    def test_systemd_unit_is_assembled_and_anchored_on_the_repo_root(self, tmp_path, monkeypatch):
         """The boot unit is looked for beside the profile, not under the render.
 
         ``osprey scaffold systemd`` writes ``osprey.service`` into the tracked
@@ -384,6 +384,11 @@ class TestBuildRecords:
         root, so a render anchor cannot find it.
         """
         import asyncio
+
+        # The category is run for real below; without `systemctl` it skips at
+        # the install-directory step, so a developer host that happens to have
+        # the unit installed never spawns a real `systemctl --user show`.
+        monkeypatch.setattr("osprey.health.core.systemd_unit.shutil.which", lambda _name: None)
 
         repo = tmp_path / "repo"
         build = repo / "build"

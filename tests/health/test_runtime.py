@@ -340,6 +340,32 @@ async def test_many_concurrent_get_connector_calls_construct_exactly_one(
     assert all(result is spy for result in results)
 
 
+async def test_shutdown_during_construction_does_not_orphan_the_connector(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The closed check runs before the lock, so it can be passed and then
+    overtaken: ``shutdown()`` finds the slot still empty, disconnects nothing,
+    and the construction completes into a runtime that has already torn down.
+    Nothing would ever disconnect that connector — the orphan the lock exists
+    to prevent, reached through a different window. The construction has to
+    re-check inside the lock and close what it just built."""
+    construct_calls: list[Any] = []
+    spy = _SpyConnector()
+    _patch_slow_factory(monkeypatch, spy, construct_calls)
+    runtime = HealthRuntime({"type": "mock"})
+
+    getter = asyncio.create_task(runtime.get_connector())
+    await asyncio.sleep(0)  # getter passes the closed check and enters construction
+    assert construct_calls == [{"type": "mock"}]
+    await runtime.shutdown()
+
+    with pytest.raises(RuntimeError, match="closed while its connector was being constructed"):
+        await getter
+    assert spy.disconnect_calls == 1
+    assert runtime.closed
+    assert not runtime.ever_constructed
+
+
 async def test_concurrent_get_archiver_constructs_exactly_one(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

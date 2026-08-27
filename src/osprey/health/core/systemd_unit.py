@@ -141,17 +141,20 @@ async def _run_systemctl(argv: list[str], timeout_s: float) -> tuple[int | None,
 def _user_unit_dir() -> Path:
     """Resolve the directory the user manager loads units from.
 
-    ``$XDG_CONFIG_HOME/systemd/user`` when that variable is set and non-empty,
-    otherwise ``~/.config/systemd/user``. Honouring ``XDG_CONFIG_HOME`` matters:
-    the user manager reads it when set, so hardcoding ``~/.config`` would report
-    a properly installed unit as missing on every host that sets it.
+    ``$XDG_CONFIG_HOME/systemd/user`` when that variable is set, non-empty and
+    absolute, otherwise ``~/.config/systemd/user``. Honouring ``XDG_CONFIG_HOME``
+    matters: the user manager reads it when set, so hardcoding ``~/.config``
+    would report a properly installed unit as missing on every host that sets
+    it. A relative value is ignored the way systemd and the basedir spec ignore
+    it — read literally it would resolve against this process's cwd and report
+    an installed unit as missing.
 
     Raises:
         RuntimeError: If ``Path.home()`` cannot resolve a home directory.
         OSError: If the environment or path expansion fails.
     """
     xdg = os.environ.get("XDG_CONFIG_HOME", "").strip()
-    base = Path(xdg) if xdg else Path.home() / ".config"
+    base = Path(xdg) if xdg and Path(xdg).is_absolute() else Path.home() / ".config"
     return base / "systemd" / "user"
 
 

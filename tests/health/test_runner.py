@@ -415,6 +415,33 @@ async def test_unreadable_signature_is_called_with_zero_arguments(runtime) -> No
     assert report.results[0].status is Status.OK
 
 
+async def test_signature_raising_anything_else_is_still_zero_arguments(runtime) -> None:
+    """``signature()`` reads ``__signature__``, which plugin code owns.
+
+    The signature probe runs outside the per-callable isolation, so an
+    exception it let through would abort the whole suite — against the
+    module's promise — rather than cost one row. Only ``TypeError`` and
+    ``ValueError`` are documented; a property that raises something else is
+    the case that has to be absorbed too.
+    """
+
+    class _Opaque:
+        @property
+        def __signature__(self):
+            raise RuntimeError("signature unavailable")
+
+        def __call__(self):
+            return [CheckResult("o1", "mycat", Status.OK, "opaque ok")]
+
+    with pytest.raises(RuntimeError):
+        inspect.signature(_Opaque())
+
+    report = await run_health_suite([_call("mycat", _Opaque())], runtime=runtime)
+
+    assert report.results[0].name == "o1"
+    assert report.results[0].status is Status.OK
+
+
 # --- Report shape -----------------------------------------------------------
 
 

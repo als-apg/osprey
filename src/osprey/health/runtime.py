@@ -165,9 +165,16 @@ class HealthRuntime:
                 )
 
                 register_builtin_connectors()  # idempotent; must run before create
-                self._connector = await ConnectorFactory.create_control_system_connector(
-                    self._config
-                )
+                connector = await ConnectorFactory.create_control_system_connector(self._config)
+                if self._closed:
+                    # shutdown() ran during construction: it found the slot
+                    # empty and disconnected nothing, so this one is ours to
+                    # close — installing it would orphan it.
+                    await self._disconnect_one("connector", connector)
+                    raise RuntimeError(
+                        "HealthRuntime was closed while its connector was being constructed"
+                    )
+                self._connector = connector
                 self._ever_constructed = True
                 logger.info(
                     "HealthRuntime: constructed control-system connector (%s)",
@@ -212,7 +219,14 @@ class HealthRuntime:
                 )
 
                 register_builtin_connectors()  # idempotent; must run before create
-                self._archiver = await ConnectorFactory.create_archiver_connector(archiver_config)
+                archiver = await ConnectorFactory.create_archiver_connector(archiver_config)
+                if self._closed:
+                    # Same window as get_connector: closed mid-construction.
+                    await self._disconnect_one("archiver connector", archiver)
+                    raise RuntimeError(
+                        "HealthRuntime was closed while its archiver connector was being constructed"
+                    )
+                self._archiver = archiver
                 self._archiver_ever_constructed = True
                 logger.info(
                     "HealthRuntime: constructed archiver connector (%s)",

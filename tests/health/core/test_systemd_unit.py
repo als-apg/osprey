@@ -204,6 +204,25 @@ class TestInstallDirResolution:
         results = await systemd_unit({}, cwd=repo)()
         assert results[0].status == Status.OK
 
+    async def test_relative_xdg_config_home_is_ignored(self, monkeypatch, tmp_path):
+        """systemd and the basedir spec ignore a non-absolute value.
+
+        Read literally it would resolve against this process's cwd, and a unit
+        correctly installed under ``~/.config`` would be reported as missing.
+        """
+        _stub_run(monkeypatch, returncode=0, stdout="loaded\n")
+        _have_systemctl(monkeypatch)
+        repo = _repo_with_unit(tmp_path)
+        monkeypatch.setenv("XDG_CONFIG_HOME", "relative/config")
+        monkeypatch.chdir(tmp_path)
+        home = tmp_path / "home"
+        unit_dir = home / ".config" / "systemd" / "user"
+        unit_dir.mkdir(parents=True)
+        (unit_dir / _UNIT).write_text("[Unit]\n")
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+        results = await systemd_unit({}, cwd=repo)()
+        assert results[0].status == Status.OK
+
     async def test_unset_xdg_config_home_uses_home(self, monkeypatch, tmp_path):
         _stub_run(monkeypatch, raises=AssertionError("must not run systemctl"))
         _have_systemctl(monkeypatch)
