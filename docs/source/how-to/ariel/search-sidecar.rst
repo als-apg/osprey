@@ -165,7 +165,12 @@ Sharing it works through a Unix group, and ``osprey up`` sets both halves up:
 Both halves are needed, and this is the part that is easy to get wrong: setgid
 makes **new files inherit the directory's group**. It does *not* make any
 container process a member of that group. Without ``group_add`` the container
-is not in the group at all, and the group-write bit grants it nothing.
+is not in the group at all, and the group-write bit grants it nothing. The
+framework's own entrypoint adds a third half for the process that actually
+serves requests: it joins the ``osprey`` user to the mounted directory's group
+before dropping privileges, because ``group_add`` reaches only the container's
+initial process. The logbook mirror written by ``qmd_export`` is shared through
+exactly the same mechanism.
 
 One limit follows from how Unix works rather than from OSPREY: setgid fixes who
 *owns* a new file, not its permission bits, which come from the writing

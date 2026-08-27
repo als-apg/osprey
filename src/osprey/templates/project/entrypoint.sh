@@ -170,11 +170,13 @@ PY
 #
 # Which directories: exactly the ones the render NAMED, never guessed. This
 # script is POSIX sh and reads no config; each service's compose
-# `environment:` carries OSPREY_AUDIT_DIR (its own audit subdir) and, where a
-# bundle is mounted, OSPREY_FACILITY_BUNDLE_DIR. Iterating what those name and
-# skipping any that is unset or not a directory is what lets one script serve a
-# web terminal, a dispatch worker with no bundle mount, and a bare
-# `docker run` with neither, without a single special case.
+# `environment:` carries OSPREY_AUDIT_DIR (its own audit subdir) and, where
+# they are mounted, OSPREY_FACILITY_BUNDLE_DIR (the knowledge bundle) and
+# OSPREY_ARIEL_MIRROR_DIR (the ARIEL qmd mirror this container's own exporter
+# writes). Iterating what those name and skipping any that is unset or not a
+# directory is what lets one script serve a web terminal, a dispatch worker
+# with no bundle mount, and a bare `docker run` with none, without a single
+# special case.
 #
 # The gid is STATted off the mounted directory rather than passed in as env: a
 # gid chosen at render time is the host's gid THEN, while the mount's is the
@@ -305,6 +307,7 @@ join_mounted_groups() {
     JOINED_GIDS=''
     join_mounted_group OSPREY_AUDIT_DIR "${OSPREY_AUDIT_DIR:-}"
     join_mounted_group OSPREY_FACILITY_BUNDLE_DIR "${OSPREY_FACILITY_BUNDLE_DIR:-}"
+    join_mounted_group OSPREY_ARIEL_MIRROR_DIR "${OSPREY_ARIEL_MIRROR_DIR:-}"
 }
 
 # ── state-zone hand-back ─────────────────────────────────────────────────────
