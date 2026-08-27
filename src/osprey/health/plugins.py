@@ -1,10 +1,14 @@
 """Load facility health categories from ``health.plugins`` entries.
 
 A plugin exposes ``get_health_categories() -> dict[str, CategoryCallable]`` — a
-mapping of category name to a no-argument callable returning
-``list[CheckResult]`` (sync or async), the same callable shape core and YAML
-categories use. Plugin categories run alongside core and YAML categories through
-the identical runner path.
+mapping of category name to a callable returning ``list[CheckResult]`` (sync or
+async), the same callable shape core and YAML categories use. The callable
+normally takes no arguments; an ``async def`` one may declare a ``runtime``
+parameter and be handed the suite's shared
+:class:`~osprey.health.runtime.HealthRuntime` by keyword, while a sync one that
+declares it is refused with an ``error`` row. The full contract is on the
+``contributing/extending-osprey`` page. Plugin categories run alongside core and
+YAML categories through the identical runner path.
 
 An entry under ``health.plugins`` names that plugin in one of two ways:
 

@@ -116,9 +116,9 @@ Health plugin
 -------------
 
 Most health checks are declarative YAML. A plugin is for the ones that need
-real Python --- querying a facility service, computing a derived state. Write
-a module that exposes ``get_health_categories()``, returning a mapping of
-category name to a no-argument callable (sync or async) that produces a list of
+real Python --- querying a facility service, computing a derived state. Write a
+module that exposes ``get_health_categories()``, returning a mapping of
+category name to a callable (sync or async) that produces a list of
 ``osprey.health.models.CheckResult``, then name it under ``health.plugins`` —
 either as a dotted path to an importable module (``my_package.health_checks``)
 or as a path to a ``.py`` file (``./health/facility_checks.py``). A relative
@@ -127,10 +127,17 @@ file path is resolved against the project root, the same anchor ``data/`` and
 packaging them or setting ``PYTHONPATH``. A file loaded that way is given a
 synthetic module name derived from its path and is **re-executed** every time
 the health config is reloaded, so it must not keep state at module level.
-``osprey.health.plugins.load_plugin_categories``
-loads it, and does so fail-safe: a plugin that will not import, returns the
-wrong type, or collides with an existing category name becomes one ``error``
-row rather than a crashed suite. Pinning test:
+``osprey.health.plugins.load_plugin_categories`` loads it, and does so
+fail-safe: a plugin that will not import, returns the wrong type, or collides
+with an existing category name becomes one ``error`` row rather than a crashed
+suite. A category callable normally takes no arguments. An ``async def`` one
+may instead declare a ``runtime`` parameter and receive the suite's shared
+``osprey.health.runtime.HealthRuntime``, so ``await runtime.get_connector()``
+hands back the one control-system connector the whole run shares instead of
+opening a second Channel Access context. The runtime is valid only for that
+call. A sync callable cannot take it — it runs on a worker thread with no event
+loop — and one that declares ``runtime`` is refused with an ``error`` row
+saying to make it ``async def``. Pinning test:
 ``tests/health/test_plugins.py``. Config side:
 :doc:`/how-to/health-and-monitoring/configure-health-checks`.
 

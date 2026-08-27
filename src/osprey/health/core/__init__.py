@@ -20,15 +20,24 @@ where
   the load outcome, since it is the category that *reports* on config loading.
 * ``context`` is the opaque health runtime (see ``osprey.health.runtime``),
   providing lazy access to a control-system connector via
-  ``await context.get_connector()``. Categories that need no connector ignore
-  it. It defaults to ``None`` so config-only categories can be called without
-  a runtime.
+  ``await context.get_connector()``. It defaults to ``None`` so config-only
+  categories can be called without a runtime — and ``None`` is all it ever is
+  today: ``build_records`` passes ``context=None`` at every call site, and a
+  category that needs the runtime now reaches it through its *callable*
+  instead (see below).
 
-The factory returns a ``CategoryCallable``: a **no-argument** callable that
-returns ``list[CheckResult]`` (sync) or an awaitable of it (async). Anything
-the callable needs (config, runtime, resolved timeouts) is captured by closure
-at registration time — this keeps the runner's execution path uniform across
-core, YAML and plugin categories.
+The factory returns a ``CategoryCallable``: a callable returning
+``list[CheckResult]`` (sync) or an awaitable of it (async). It normally takes
+no arguments — config and resolved timeouts are captured by closure at
+registration time, which keeps the runner's execution path uniform across
+core, YAML and plugin categories. An ``async def`` callable may instead
+declare a ``runtime`` parameter and be handed the suite's shared
+``osprey.health.runtime.HealthRuntime`` by keyword, so it reuses the one
+control-system connector the whole run shares rather than opening a second
+one; that runtime is valid only for the duration of the call. A sync callable
+cannot take it — it runs on a worker thread with no event loop — and one that
+declares ``runtime`` is refused with an ``error`` row saying to make it
+``async def``.
 
 Lazy resolution
 ----------------
@@ -49,9 +58,12 @@ from typing import TYPE_CHECKING, Any, cast
 if TYPE_CHECKING:
     from osprey.health.models import CheckResult
 
-# A category callable takes no arguments and returns results, sync or async.
-CategoryCallable = Callable[[], "list[CheckResult] | Awaitable[list[CheckResult]]"]
-# A factory binds config/runtime and returns the category callable.
+# A category callable returns results, sync or async. Its parameter list is open
+# rather than empty because an ``async def`` one may declare ``runtime`` and be
+# called by keyword — see the factory contract above.
+CategoryCallable = Callable[..., "list[CheckResult] | Awaitable[list[CheckResult]]"]
+# A factory binds the config state (and, where a category takes one, a `cwd`)
+# and returns the category callable.
 CategoryFactory = Callable[..., CategoryCallable]
 
 # Canonical category name -> (sibling module name, factory attribute) within
