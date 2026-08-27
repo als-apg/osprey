@@ -13,6 +13,11 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- The facility-knowledge-graph agent prose and the channel-finder example
+  catalogue no longer claim read/write direction comes from the limits file;
+  direction is one edge per signal group, whatever produced it. (#742)
+- CI unit lanes carry a per-test timeout, so a hung test fails in minutes with a
+  stack dump instead of burning the step budget. (#743)
 - A deploy on podman served by Docker Compose v2 now says so. On that provider
   pairing, image builds that must fetch a base image reach the registry with an
   empty credential and are refused with a 401 naming a password that was never
@@ -105,6 +110,19 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- `osprey knowledge build-ttl --facility` (and `build_model(facility=...)`): the
+  facility token minted into every graph identifier is an input the model
+  carries, not a module constant a deployment had to patch in two places. (#740)
+- Devices and channel bindings in a generated facility graph can carry
+  deployment-specific scalar properties, emitted as first-class `narad_p:`
+  properties and declared in the vocabulary block. (#741)
+- `health.plugins` accepts repo-relative `.py` file paths resolved against the
+  project root, alongside dotted module paths. (#735)
+- `osprey scaffold systemd` warns when the home directory is on NFS/autofs —
+  where enabling linger alone does not survive a reboot — and prints the
+  root-only drop-in that fixes it. (#738)
+- The web terminal's posture badge shows the session's control target and
+  whether that target is armed, instead of only whether any target is. (#737)
 - Write posture is now per control target. `control_system.connector.<type>.writes_enabled`
   arms or disarms writes for one connector type; a type that does not set it keeps
   the deployment-wide `control_system.writes_enabled`. So a deployment pointed at a
