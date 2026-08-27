@@ -882,6 +882,38 @@ _FRAMEWORK_OWNED_SPEC_ENV: tuple[str, ...] = (TOOL_PREFIX_ENV, *NON_PINNABLE_AUD
 _REMOVED_SPEC_ENV: frozenset[str] = frozenset(NON_PINNABLE_AUDIT_MARKERS)
 
 
+def _spec_env(name: str, spec: dict, *, warn: bool = True) -> dict:
+    """The ``env:`` mapping a server spec carries, or ``{}`` when it has none.
+
+    One reader for every path that merges or inspects a spec's env — the
+    custom-server build, the extends clone and the framework-owned-marker
+    lint — so the shape check cannot drift between them. ``env: null`` is
+    absent, not malformed: it returns ``{}`` silently. Any other non-mapping
+    (a list, a string, a number) used to crash the WHOLE resolve at the merge
+    (``.update()`` on the clone, ``.items()`` on the custom server) — every
+    server in the deployment, not just the malformed one. It now fails closed
+    on the SPEC (no env) with a warning naming the server, matching how every
+    other malformed-spec branch in :func:`resolve_servers` warns and moves on.
+
+    ``warn=False`` is for a caller that only inspects the env and knows the
+    build path reading the same spec next will report the shape — so the
+    operator sees one warning per server, not one per reader.
+    """
+    spec_env = spec.get("env")
+    if spec_env is None:
+        return {}
+    if not isinstance(spec_env, dict):
+        if not warn:
+            return {}
+        logger.warning(
+            "Server %r has a malformed env: (expected a mapping, got %s) — ignoring it",
+            name,
+            type(spec_env).__name__,
+        )
+        return {}
+    return spec_env
+
+
 def _lint_framework_owned_env(name: str, spec: dict) -> None:
     """Warn when a server spec tries to pin a framework-owned env marker.
 
@@ -894,11 +926,9 @@ def _lint_framework_owned_env(name: str, spec: dict) -> None:
         name: The server name the spec is keyed under.
         spec: The raw config spec (already known to be a dict).
     """
-    spec_env = spec.get("env")
-    if not isinstance(spec_env, dict):
-        # A malformed ``env:`` (list, string, null) is not this lint's problem;
-        # it has nothing to pin.
-        return
+    # A malformed ``env:`` has nothing to pin; the build path that reads it
+    # next is where the operator hears about the shape, not here.
+    spec_env = _spec_env(name, spec, warn=False)
     for marker in _FRAMEWORK_OWNED_SPEC_ENV:
         if marker in spec_env:
             settlement = (
@@ -1132,13 +1162,14 @@ def build_extended_server(name: str, spec: dict) -> ServerDefinition | None:
     ]
 
     # Spec env merges over template env (spec keys win).
+    spec_env = _spec_env(name, spec)
     merged_env = dict(clone.env)
-    merged_env.update(spec.get("env") or {})
+    merged_env.update(spec_env)
     # Instance identity follows the clone, like the matcher rewrite: unless the
     # spec pins OSPREY_SERVER_NAME explicitly, the clone advertises its OWN
     # name (inheriting the template's would make every instance signal the
     # template's web-terminal panel, e.g. phoebus2 focusing the phoebus tab).
-    if "OSPREY_SERVER_NAME" not in (spec.get("env") or {}):
+    if "OSPREY_SERVER_NAME" not in spec_env:
         merged_env["OSPREY_SERVER_NAME"] = name
     clone.env = merged_env
 
@@ -1227,24 +1258,10 @@ def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition | None:
         if resolved:
             hooks_pre = [HookRule(matcher=f"mcp__{name}__.*", hooks=resolved)]
 
-    spec_env = spec.get("env")
-    if spec_env is None:
-        spec_env = {}
-    elif not isinstance(spec_env, dict):
-        # ``env: null`` or a list/scalar used to reach ``_server_to_dict``'s
-        # ``.items()`` and crash the whole resolve. Fail closed on the SPEC
-        # (no env) rather than on every server in the deployment.
-        logger.warning(
-            "Server %r has a malformed env: (expected a mapping, got %s) — ignoring it",
-            name,
-            type(spec_env).__name__,
-        )
-        spec_env = {}
-
     return ServerDefinition(
         name=name,
         module="",
-        env=spec_env,
+        env=_spec_env(name, spec),
         is_external=True,
         external_command=spec.get("command", ""),
         external_args=spec.get("args", []),
