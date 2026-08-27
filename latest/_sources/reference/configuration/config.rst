@@ -8,13 +8,68 @@ build`` renders it from the build profile, so the profile is where you edit a
 setting and this file is where you look one up: :doc:`profile` describes the
 authoring side, and this page catalogues what the rendered result means.
 
-Three parts of that file are gathered here — the diagnostic suite (``health:``),
-the browser UI's documentation and feedback settings (``web:``), and the
-deployment keys that decide which container image each service runs and how
-``${VAR}`` placeholders in the compose files are filled in. Settings that only
-ever arrive from the environment are in :doc:`environment-variables`. A closing
-note records the **protected set** — the files and keys no agent-side writer
-may touch.
+Four parts of that file are gathered here — the facility this deployment
+belongs to (``facility:``), the diagnostic suite (``health:``), the browser
+UI's documentation and feedback settings (``web:``), and the deployment keys
+that decide which container image each service runs and how ``${VAR}``
+placeholders in the compose files are filled in. Settings that only ever arrive
+from the environment are in :doc:`environment-variables`. A closing note records
+the **protected set** — the files and keys no agent-side writer may touch.
+
+.. _config-facility:
+
+``facility:`` — whose machine this is
+--------------------------------------
+
+Three keys say which facility the deployment serves, and one of them decides
+what the agent thinks your devices are called.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Key
+     - What it does
+   * - ``facility.name``
+     - Display name woven into the agent's prompts and the web-terminal landing
+       page. With no value set, the project name is used.
+   * - ``facility.prefix``
+     - Short abbreviation the multi-user web stack puts in front of its
+       container names. Nothing else reads it.
+   * - ``facility.ontology``
+     - Path — relative to the project root — to this facility's **compiled
+       ontology table**, the JSON that ``osprey knowledge compile-ontology``
+       writes. See below.
+
+``facility.ontology`` is the deployment's device vocabulary: the class names
+your facility uses, the everyday words operators say for each one, and the
+FAMILY tokens that appear in channel names. The channel-finder subagent's
+terminology table is rendered from it, so a deployment that declares its own
+table gets a subagent that speaks its words instead of the demo machine's.
+
+Three behaviours are worth knowing before you set it:
+
+* **Leave the key out** and the terminology table renders without a vocabulary
+  section, and says so — the subagent is told to match on names and
+  descriptions and verify with a lookup rather than guess. That is the honest
+  outcome, and it is deliberately not filled in from the ontology OSPREY ships
+  with its demo machine.
+* **Point it at a file that is not there**, or at one that does not parse, and
+  ``osprey build`` stops and names the key and the path. A vocabulary that was
+  declared and then quietly dropped would be the worst of the three outcomes.
+* **Point it at your own table** and the rows follow it exactly. Regenerate the
+  table and rebuild whenever the ontology changes; the table and the channel
+  database should be generated from the same source.
+
+.. code-block:: yaml
+
+   facility:
+     name: "Example Research Facility"
+     ontology: data/facility_ontology.json
+
+The ``control_assistant`` and ``channel_finder_standalone`` templates ship a
+copy of the demo machine's compiled table at that path, so both render a
+working vocabulary out of the box.
 
 .. _config-health:
 

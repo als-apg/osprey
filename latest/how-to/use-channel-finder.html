@@ -705,8 +705,9 @@ finder subagent finds addresses by writing read-only Cypher against the seeded
 <p><strong>How it works:</strong> four tools, served under the <code class="docutils literal notranslate"><span class="pre">channel-finder</span></code> name like
 every other pipeline’s. <code class="docutils literal notranslate"><span class="pre">capabilities</span></code> reports how addresses are spelled and
 what prose the corpus carries; <code class="docutils literal notranslate"><span class="pre">example_queries</span></code> returns runnable Cypher for
-the common channel questions, each with parameter values for the corpus at
-hand; <code class="docutils literal notranslate"><span class="pre">get_schema</span></code> lists the labels, relationship types and property names
+the common channel questions, each with framework-default parameter values that
+the seed-time snapshot may replace with values captured from this corpus;
+<code class="docutils literal notranslate"><span class="pre">get_schema</span></code> lists the labels, relationship types and property names
 <em>this</em> graph actually holds; <code class="docutils literal notranslate"><span class="pre">read_cypher</span></code> runs one query and returns rows.
 There is no resolution API behind them — the subagent adapts an example rather
 than calling a lookup.</p>

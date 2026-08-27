@@ -469,13 +469,72 @@
 <span class="pre">build</span></code> renders it from the build profile, so the profile is where you edit a
 setting and this file is where you look one up: <a class="reference internal" href="profile.html"><span class="doc">Build Profile — profile.yml</span></a> describes the
 authoring side, and this page catalogues what the rendered result means.</p>
-<p>Three parts of that file are gathered here — the diagnostic suite (<code class="docutils literal notranslate"><span class="pre">health:</span></code>),
-the browser UI’s documentation and feedback settings (<code class="docutils literal notranslate"><span class="pre">web:</span></code>), and the
-deployment keys that decide which container image each service runs and how
-<code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> placeholders in the compose files are filled in. Settings that only
-ever arrive from the environment are in <a class="reference internal" href="environment-variables.html"><span class="doc">Environment Variables</span></a>. A closing
-note records the <strong>protected set</strong> — the files and keys no agent-side writer
-may touch.</p>
+<p>Four parts of that file are gathered here — the facility this deployment
+belongs to (<code class="docutils literal notranslate"><span class="pre">facility:</span></code>), the diagnostic suite (<code class="docutils literal notranslate"><span class="pre">health:</span></code>), the browser
+UI’s documentation and feedback settings (<code class="docutils literal notranslate"><span class="pre">web:</span></code>), and the deployment keys
+that decide which container image each service runs and how <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code>
+placeholders in the compose files are filled in. Settings that only ever arrive
+from the environment are in <a class="reference internal" href="environment-variables.html"><span class="doc">Environment Variables</span></a>. A closing note records
+the <strong>protected set</strong> — the files and keys no agent-side writer may touch.</p>
+<section id="facility-whose-machine-this-is">
+<span id="config-facility"></span><h2><code class="docutils literal notranslate"><span class="pre">facility:</span></code> — whose machine this is<a class="headerlink" href="#facility-whose-machine-this-is" title="Link to this heading">#</a></h2>
+<p>Three keys say which facility the deployment serves, and one of them decides
+what the agent thinks your devices are called.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 70.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>What it does</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">facility.name</span></code></p></td>
+<td><p>Display name woven into the agent’s prompts and the web-terminal landing
+page. With no value set, the project name is used.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">facility.prefix</span></code></p></td>
+<td><p>Short abbreviation the multi-user web stack puts in front of its
+container names. Nothing else reads it.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">facility.ontology</span></code></p></td>
+<td><p>Path — relative to the project root — to this facility’s <strong>compiled
+ontology table</strong>, the JSON that <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">compile-ontology</span></code>
+writes. See below.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">facility.ontology</span></code> is the deployment’s device vocabulary: the class names
+your facility uses, the everyday words operators say for each one, and the
+FAMILY tokens that appear in channel names. The channel-finder subagent’s
+terminology table is rendered from it, so a deployment that declares its own
+table gets a subagent that speaks its words instead of the demo machine’s.</p>
+<p>Three behaviours are worth knowing before you set it:</p>
+<ul class="simple">
+<li><p><strong>Leave the key out</strong> and the terminology table renders without a vocabulary
+section, and says so — the subagent is told to match on names and
+descriptions and verify with a lookup rather than guess. That is the honest
+outcome, and it is deliberately not filled in from the ontology OSPREY ships
+with its demo machine.</p></li>
+<li><p><strong>Point it at a file that is not there</strong>, or at one that does not parse, and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> stops and names the key and the path. A vocabulary that was
+declared and then quietly dropped would be the worst of the three outcomes.</p></li>
+<li><p><strong>Point it at your own table</strong> and the rows follow it exactly. Regenerate the
+table and rebuild whenever the ontology changes; the table and the channel
+database should be generated from the same source.</p></li>
+</ul>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">facility</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Example</span><span class="nv"> </span><span class="s">Research</span><span class="nv"> </span><span class="s">Facility&quot;</span>
+<span class="w">  </span><span class="nt">ontology</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">data/facility_ontology.json</span>
+</pre></div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">control_assistant</span></code> and <code class="docutils literal notranslate"><span class="pre">channel_finder_standalone</span></code> templates ship a
+copy of the demo machine’s compiled table at that path, so both render a
+working vocabulary out of the box.</p>
+</section>
 <section id="health-the-diagnostic-suite">
 <span id="config-health"></span><h2><code class="docutils literal notranslate"><span class="pre">health:</span></code> — the diagnostic suite<a class="headerlink" href="#health-the-diagnostic-suite" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> always runs its built-in checks; a <code class="docutils literal notranslate"><span class="pre">health:</span></code> block adds a
@@ -1218,6 +1277,7 @@ recorded in <a class="reference internal" href="../contracts/audit-trail.html#re
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#facility-whose-machine-this-is"><code class="docutils literal notranslate"><span class="pre">facility:</span></code> — whose machine this is</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#health-the-diagnostic-suite"><code class="docutils literal notranslate"><span class="pre">health:</span></code> — the diagnostic suite</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-health-block">The <code class="docutils literal notranslate"><span class="pre">health:</span></code> block</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#probe-checks">Probe checks</a></li>
