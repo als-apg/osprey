@@ -987,7 +987,12 @@ template says. For what the mode changes about the agent’s answers, see
 answers it, but an attached project renders <code class="docutils literal notranslate"><span class="pre">services:</span> <span class="pre">{}</span></code> — so on its own it
 would keep the mode with nothing behind it, and every logbook query would fail
 with <em>no qmd sidecar is configured</em>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses that instead of
-rendering it.</p>
+rendering it. A deploying profile is held to the same rule from the other side:
+a client left switched on for a service the profile no longer deploys — the
+bluesky MCP server after the <code class="docutils literal notranslate"><span class="pre">bluesky:</span></code> block was removed — is refused naming
+the service missing from <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>, unless the profile names one
+this deployment does not run (an external store’s <code class="docutils literal notranslate"><span class="pre">uri</span></code>, an ARIEL database
+DSN).</p>
 <p>An attached project rarely has to say anything, because <strong>the build tells it
 where the host’s services are</strong>. Every client-facing fact — the sidecar’s port,
 the graph store’s bolt port, the Postgres the logbook lives in, the telemetry
