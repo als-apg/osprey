@@ -127,6 +127,15 @@ INFLIGHT_FILE_SUFFIX = ".json"
 #: stamp: the sandbox resolved its connector from the deployment config alone.
 CONTROL_TARGET_BASELINE = "baseline"
 
+#: :attr:`ExecutionResult.failure_kind` for a run that never started: reading the
+#: config, creating the execution folder, loading the limits validator, or
+#: spawning the interpreter failed. Nothing in the submitted code ran, so the
+#: fault is the sandbox's, not the code's.
+FAILURE_KIND_SETUP = "setup"
+#: :attr:`ExecutionResult.failure_kind` for a run the sandbox killed at the
+#: configured timeout.
+FAILURE_KIND_TIMEOUT = "timeout"
+
 
 @dataclass
 class ExecutionResult:
@@ -144,6 +153,13 @@ class ExecutionResult:
     #: ``va``, or :data:`CONTROL_TARGET_BASELINE` when no session target was
     #: resolvable and the sandbox fell back to the deployment config.
     control_target: str = CONTROL_TARGET_BASELINE
+    #: Why a failed run failed, when the sandbox itself is the reason:
+    #: :data:`FAILURE_KIND_SETUP` or :data:`FAILURE_KIND_TIMEOUT`. ``None`` for
+    #: a run that started and whose own code raised — the only failure the
+    #: submitted code can be blamed for. The response builder reads this to
+    #: class the error envelope: a dead backend is an infrastructure outage,
+    #: not a bug in the user's script.
+    failure_kind: str | None = None
 
 
 def _read_config() -> dict:
@@ -678,6 +694,7 @@ async def _execute_via_local(
                 execution_time_seconds=elapsed,
                 error_message=f"Execution timed out after {timeout} seconds",
                 control_target=control_target,
+                failure_kind=FAILURE_KIND_TIMEOUT,
             )
 
     elapsed = time.time() - start_time
@@ -777,4 +794,5 @@ async def execute_code(
             stderr=traceback.format_exc(),
             execution_method_used=EXECUTION_METHOD_SUBPROCESS,
             error_message=f"Execution setup failed: {exc}",
+            failure_kind=FAILURE_KIND_SETUP,
         )

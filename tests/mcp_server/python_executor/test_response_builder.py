@@ -10,12 +10,17 @@ each, notebook auto-save, and figure/artifact collection.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from osprey.mcp_server.python_executor.executor import ExecutionResult
+from osprey.mcp_server.python_executor.executor import (
+    FAILURE_KIND_SETUP,
+    FAILURE_KIND_TIMEOUT,
+    ExecutionResult,
+)
 from osprey.mcp_server.python_executor.tools._response_builder import build_execution_response
 from tests.mcp_server.conftest import assert_error, extract_response_dict
 
@@ -39,12 +44,25 @@ def _ok_result(stdout="hello\n", stderr="", **kw) -> ExecutionResult:
     )
 
 
-def _err_result(stderr="Traceback: boom") -> ExecutionResult:
+def _err_result(stderr="Traceback: boom", **kw) -> ExecutionResult:
     return ExecutionResult(
         success=False,
         stdout="partial\n",
         stderr=stderr,
         execution_method_used="subprocess",
+        **kw,
+    )
+
+
+def _setup_failed_result() -> ExecutionResult:
+    """What ``execute_code`` returns when the sandbox never started."""
+    return ExecutionResult(
+        success=False,
+        stdout="",
+        stderr="Traceback (most recent call last):\n  ...\nOSError: disk full",
+        execution_method_used="subprocess",
+        error_message="Execution setup failed: disk full",
+        failure_kind=FAILURE_KIND_SETUP,
     )
 
 
@@ -82,6 +100,58 @@ async def test_inline_error_raises_execution_error():
         await _build(_err_result(stderr="ValueError: nope"), save_output=False)
     envelope = assert_error(str(exc_info.value), error_type="execution_error")
     assert "ValueError: nope" in envelope["error_message"]
+
+
+# ---------------------------------------------------------------------------
+# Who failed: the envelope names the subsystem and classes the cause
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("save_output", [False, True])
+async def test_setup_failure_is_a_service_outage_not_a_code_error(save_output):
+    """A sandbox that never started is ``service_unavailable`` (Connection class).
+
+    Before this, a dead backend went out as ``execution_error`` and the
+    error-guidance hook told the agent to help the user fix *their* code — the
+    misattribution in #465. The submitted code never ran, so the envelope
+    says so and names the subsystem.
+    """
+    with pytest.raises(Exception) as exc_info:
+        await _build(_setup_failed_result(), save_output=save_output)
+    envelope = assert_error(str(exc_info.value), error_type="service_unavailable")
+    assert envelope["error_message"] == "Execution setup failed: disk full"
+    assert envelope["details"]["subsystem"] == "python_executor"
+    assert envelope["details"]["kind"] == "setup_failed"
+    assert envelope["suggestions"], "an outage with no next step is what the hook mis-advised on"
+    assert any("python_executor" in s for s in envelope["suggestions"])
+    # The traceback still travels, in details rather than as the message.
+    assert "disk full" in json.dumps(envelope["details"])
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("save_output", [False, True])
+async def test_script_error_names_subsystem_and_suggests_a_fix(save_output):
+    """The user's own traceback stays ``execution_error`` — with a next step."""
+    with pytest.raises(Exception) as exc_info:
+        await _build(_err_result(stderr="ValueError: nope"), save_output=save_output)
+    envelope = assert_error(str(exc_info.value), error_type="execution_error")
+    assert envelope["details"]["subsystem"] == "python_executor"
+    assert envelope["details"]["kind"] == "script_error"
+    assert envelope["suggestions"]
+
+
+@pytest.mark.unit
+async def test_timeout_is_an_execution_error_with_its_own_kind():
+    """A run the sandbox killed is the script's problem, distinguished in details."""
+    result = _err_result(
+        stderr="Execution timed out after 30 seconds", failure_kind=FAILURE_KIND_TIMEOUT
+    )
+    with pytest.raises(Exception) as exc_info:
+        await _build(result, save_output=False)
+    envelope = assert_error(str(exc_info.value), error_type="execution_error")
+    assert envelope["details"]["kind"] == "timeout"
+    assert any("timeout" in s for s in envelope["suggestions"])
 
 
 # ---------------------------------------------------------------------------
