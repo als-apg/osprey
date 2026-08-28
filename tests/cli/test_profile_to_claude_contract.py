@@ -1166,6 +1166,149 @@ def test_mixed_posture_leaves_python_execute_unasked_and_undenied(tmp_path):
     assert validate_agent_tools_against_permissions(project) == []
 
 
+#: The two python-executor tools. They run the same arbitrary Python through the
+#: same kernels, so every posture must reach the same verdict for both.
+_EXECUTE = "mcp__python__execute"
+_EXECUTE_FILE = "mcp__python__execute_file"
+
+#: Disables the agent-declared rescue. ``pyat-specialist`` declares ``execute``
+#: (and only ``execute``) as its compute path, so with it enabled the rescue
+#: fires and with it disabled the postures are compared on the render alone.
+#: Both are exercised: the enabled render is where the two tools can come apart,
+#: because the declaration names one of them and the rescue promotes out of
+#: ``remove_ask`` — that is exactly the fall-through this pair must not have.
+_NO_PYAT = {"claude_code.agents.pyat-specialist.enabled": False}
+
+#: Where each python exec tool must land, per (posture, pyat-specialist state).
+#:
+#: * writes-off / mixed, pyat ENABLED — ``allow``. The render pulls both from
+#:   ``ask``, and the rescue puts the whole policy unit back: the agent's
+#:   declaration names ``execute`` alone (honestly — it never calls the file
+#:   form), but both share one writes-check + approval gate, so promoting only
+#:   the named one would leave ``execute_file`` in no list at all.
+#: * writes-off / mixed, pyat DISABLED — no list. Nothing rescues them, the
+#:   render steps aside, and the two runtime hooks carry the call.
+#: * all-write — ``ask``, the registry's static position, rescue or not.
+_EXPECTED_EXEC_LISTS = {
+    ("writes-off", True): {"allow"},
+    ("writes-off", False): set(),
+    ("mixed", True): {"allow"},
+    ("mixed", False): set(),
+    ("all-write", True): {"ask"},
+    ("all-write", False): {"ask"},
+}
+
+
+def _permission_lists_holding(perms: dict, tool: str) -> set[str]:
+    """Which of allow/ask/deny the rendered permissions put *tool* in."""
+    return {name for name in ("allow", "ask", "deny") if tool in perms.get(name, [])}
+
+
+@pytest.mark.parametrize("pyat_enabled", [True, False], ids=["pyat-on", "pyat-off"])
+@pytest.mark.parametrize(
+    "posture,fields",
+    [
+        (
+            "writes-off",
+            {_TYPE_KEY: _LIVE_TYPE, "control_system.writes_enabled": False, _VA_WRITES: False},
+        ),
+        (
+            "all-write",
+            {
+                _TYPE_KEY: _LIVE_TYPE,
+                "control_system.writes_enabled": True,
+                _LIVE_WRITES: True,
+                _VA_WRITES: True,
+            },
+        ),
+        (
+            "mixed",
+            {_TYPE_KEY: _LIVE_TYPE, "control_system.writes_enabled": False, _VA_WRITES: True},
+        ),
+    ],
+)
+def test_execute_file_lands_in_the_same_permission_list_as_execute(
+    tmp_path, posture, fields, pyat_enabled
+):
+    """``execute_file`` gets the same verdict as ``execute`` under every posture.
+
+    ``execute_file`` used to be in no permission list at all — not allowed, not
+    asked, not denied — which is not a policy but a fall-through: Claude Code
+    put it to an interactive prompt with no writes-check behind it, while the
+    identical ``execute`` was approval-gated. Both run arbitrary Python through
+    the same kernels and the same execution-mode gates, so the write-posture
+    ladder has to move them together, and this pins that: whichever list one
+    lands in — or none, on the postures where the render deliberately steps
+    aside and the runtime hooks carry the call — the other lands in the same one.
+
+    Run with the ``pyat-specialist`` both enabled and disabled, because the
+    enabled render is the one that can split the pair: the rescue promotes the
+    tools an enabled agent *declares* out of ``remove_ask``, and that agent
+    declares only ``execute``. Parity alone is not enough there either — both
+    tools sitting in no list would satisfy it while leaving the file form
+    prompting — so the exact expected placement is asserted from
+    ``_EXPECTED_EXEC_LISTS``.
+
+    The hook config is asserted alongside, because "in no permission list" is
+    only a decision while the writes-check hook still gates the tool; an
+    unlisted tool missing from ``write_tools`` would be ungated after all.
+    """
+    overrides = {} if pyat_enabled else _NO_PYAT
+    project = _killswitch_project(
+        tmp_path,
+        f"execute-file-{posture}-{'pyat' if pyat_enabled else 'nopyat'}",
+        {**fields, **overrides},
+    )
+
+    perms = _rendered_permissions(project)
+    assert _permission_lists_holding(perms, _EXECUTE_FILE) == _permission_lists_holding(
+        perms, _EXECUTE
+    ), f"{posture}: execute_file must share execute's permission placement, not fall through"
+
+    expected = _EXPECTED_EXEC_LISTS[(posture, pyat_enabled)]
+    for tool in (_EXECUTE, _EXECUTE_FILE):
+        assert _permission_lists_holding(perms, tool) == expected, (
+            f"{posture} (pyat_enabled={pyat_enabled}): {tool} must land in {expected or 'no list'}"
+        )
+
+    # The rescue must not have left the enabled agent declaring a tool that no
+    # permission list mentions — the build validation that would fail on it.
+    assert validate_agent_tools_against_permissions(project) == []
+
+    hook_config = json.loads(
+        (project / ".claude" / "hooks" / "hook_config.json").read_text(encoding="utf-8")
+    )
+    assert _EXECUTE_FILE in hook_config["write_tools"], (
+        f"{posture}: execute_file must stay writes-check gated in the rendered hook config"
+    )
+    assert _EXECUTE_FILE in hook_config["mixed_read_write_tools"], (
+        f"{posture}: execute_file is read/write-mixed like execute — a readonly "
+        "script must stay runnable when writes are off"
+    )
+
+
+def test_all_write_posture_asks_for_both_python_exec_tools(tmp_path):
+    """With every target armed, both exec tools are approval-gated, not prompted.
+
+    The parity test above would be satisfied by both tools being unlisted, which
+    is the very fall-through it guards against; this pins the positive half on
+    the posture where the render does take a static position.
+    """
+    project = _killswitch_project(
+        tmp_path,
+        "execute-file-armed-ask",
+        {
+            _TYPE_KEY: _LIVE_TYPE,
+            "control_system.writes_enabled": True,
+            _LIVE_WRITES: True,
+            _VA_WRITES: True,
+        },
+    )
+    ask = _rendered_permissions(project)["ask"]
+    assert _EXECUTE in ask
+    assert _EXECUTE_FILE in ask
+
+
 def test_per_connector_keys_agreeing_with_the_global_key_still_kill_switch(tmp_path):
     """Both targets disarmed, spelled out per connector: the hard deny is back.
 

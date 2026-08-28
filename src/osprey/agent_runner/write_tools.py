@@ -29,6 +29,7 @@ _FALLBACK_WRITE_TOOLS = [
     "mcp__bluesky__queue_start",
     "mcp__controls__channel_write",
     "mcp__python__execute",
+    "mcp__python__execute_file",
 ]
 
 # Built-in (non-MCP) Claude Code tools that can write to disk, execute shell
@@ -136,18 +137,6 @@ def load_write_tools(project_dir: Path) -> list[str]:
 # clear_plan_draft → clear_draft) cannot silently detach a tool from this floor.
 _DESTRUCTIVE_MARKERS = DESTRUCTIVE_MARKERS
 
-# Side-effecting MCP tools the registry walk below cannot see because they are
-# in NO registry permission list at all: the python server registers both
-# ``execute`` (gated) and ``execute_file`` (unlisted), and SDK disallow matching
-# is by exact tool name — so disallowing ``mcp__python__execute`` does NOT cover
-# ``execute_file``, which runs arbitrary Python. (Destructive auto-allowed tools
-# such as the workspace deletes are handled generically by the destructive-name
-# scan in ``_registry_side_effect_tools``, not hard-coded here.) Keep this in
-# sync with server tool modules; test_write_tools.py pins it.
-_EXTRA_SIDE_EFFECT_TOOLS = [
-    "mcp__python__execute_file",
-]
-
 
 def _is_destructive(tool: str) -> bool:
     """True if a tool's name implies it removes/destroys stored state."""
@@ -176,10 +165,12 @@ def _server_side_effect_tools(server) -> list[str]:
     *reads* (``channel_read``, ``archiver_read``), which a read-only query must
     still be able to call.
 
-    Does NOT include ``_EXTRA_SIDE_EFFECT_TOOLS`` (tools in no permission list
-    at all) — callers union those separately: the framework walk via
-    :func:`read_only_disallowed_tools`, extends clones via
-    :func:`_extra_side_effect_tools_for`.
+    This is the whole side-effect surface of a server: the python executor's
+    ``execute_file`` used to sit outside every registry list and needed a
+    hard-coded companion list here, which is exactly how one spelling of a
+    tool drifts from the other. It is now in the registry's ``permissions_ask``
+    and writes-check hooks alongside ``execute``, so this walk sees it — for
+    the template and, unchanged, for an ``extends`` clone.
 
     Returns names as ``mcp__<server>__<tool>`` (writes-check matchers verbatim).
     """
@@ -195,21 +186,6 @@ def _server_side_effect_tools(server) -> list[str]:
         if _WRITES_CHECK in rule.hooks:
             out.append(rule.matcher)
     return out
-
-
-def _extra_side_effect_tools_for(instance_name: str, template_name: str) -> list[str]:
-    """``_EXTRA_SIDE_EFFECT_TOOLS`` entries owned by one framework template,
-    rewritten to an instance's prefix.
-
-    The extras list is keyed by framework-server name (``mcp__python__…``), but
-    SDK disallow matching is by EXACT tool name — an ``extends`` clone launches
-    the SAME tool module under a new prefix, so the template's extras must
-    follow the clone as ``mcp__<instance>__<tool>`` or the clone would keep an
-    unlisted exec tool (e.g. ``execute_file``) callable in read-only mode.
-    """
-    old = f"mcp__{template_name}__"
-    new = f"mcp__{instance_name}__"
-    return [new + tool[len(old) :] for tool in _EXTRA_SIDE_EFFECT_TOOLS if tool.startswith(old)]
 
 
 def _registry_side_effect_tools() -> list[str]:
@@ -253,9 +229,7 @@ def _custom_server_side_effect_tools(project_dir: Path) -> list[str]:
     An ``extends`` spec (second instance of a framework server) is classified
     from the RESOLVED clone via :func:`_server_side_effect_tools`, so it
     inherits the template's ask/destructive-allow/writes-check surface with the
-    ``mcp__<template>__`` → ``mcp__<name>__`` matcher rewrite, plus the
-    template's ``_EXTRA_SIDE_EFFECT_TOOLS`` entries rewritten the same way
-    (:func:`_extra_side_effect_tools_for`). If the extends
+    ``mcp__<template>__`` → ``mcp__<name>__`` matcher rewrite. If the extends
     target cannot be resolved (typo, version skew, config edited after build)
     this fails CLOSED with a server-level ``mcp__<name>`` disallow — a stale
     ``.mcp.json`` from a previous build can still launch the server
@@ -289,12 +263,6 @@ def _custom_server_side_effect_tools(project_dir: Path) -> list[str]:
                 out.append(f"mcp__{name}")  # fail closed (see docstring)
             else:
                 out.extend(_server_side_effect_tools(clone))
-                # The template's hard-coded extras (side-effect tools in NO
-                # registry list, e.g. python's execute_file) must follow the
-                # clone with the rewritten prefix — the registry classifier
-                # cannot see them, and exact-name disallow matching means the
-                # template's own entry does not cover the clone.
-                out.extend(_extra_side_effect_tools_for(name, spec["extends"]))
             continue
         if not spec.get("command") and not spec.get("url"):
             # NONE of extends/command/url (e.g. 'phoebus2: {enabled: true}'):
@@ -340,10 +308,6 @@ def read_only_disallowed_tools(project_dir: Path) -> list[str]:
       destructive auto-allowed tools, and writes-check-gated tools (so the
       side-effect surface tracks the registry as the single source of truth, not
       a hand-maintained copy).
-    * ``_EXTRA_SIDE_EFFECT_TOOLS`` — side-effecting tools in NO registry
-      permission list (currently ``mcp__python__execute_file``); ``extends``
-      clones of the owning template get these rewritten to their own prefix
-      via the custom-server path below.
     * :func:`_custom_server_side_effect_tools` — write tools of facility-defined
       custom MCP servers declared in the project's ``config.yml``.
 
@@ -358,7 +322,6 @@ def read_only_disallowed_tools(project_dir: Path) -> list[str]:
     for tool in (
         *_BUILTIN_UNSAFE_TOOLS,
         *_registry_side_effect_tools(),
-        *_EXTRA_SIDE_EFFECT_TOOLS,
         *_custom_server_side_effect_tools(project_dir),
     ):
         if tool not in result:

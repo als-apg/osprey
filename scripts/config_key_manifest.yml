@@ -1460,10 +1460,12 @@ governed_sets:
     note: >-
       Not exhaustive claims in any shipped comment — recorded so a future
       change to the default-enabled server set is visible. Re-derived
-      2026-08-02 with the method above.
-    project: [channel_write, channel_read, archiver_read, control_target_set, execute, setup_patch, entry_create, draft_concept]
-    control_assistant: [channel_write, channel_read, archiver_read, control_target_set, execute, setup_patch, entry_create, draft_concept]
-    hello_world: [channel_write, channel_read, archiver_read, control_target_set, execute, setup_patch, draft_concept]
+      2026-08-27 with the method above: execute_file joined every set when the
+      policy-unit rescue gave it the same approval hook as execute (they share
+      one gate on the python server, so the pair moves together).
+    project: [channel_write, channel_read, archiver_read, control_target_set, execute, execute_file, setup_patch, entry_create, draft_concept]
+    control_assistant: [channel_write, channel_read, archiver_read, control_target_set, execute, execute_file, setup_patch, entry_create, draft_concept]
+    hello_world: [channel_write, channel_read, archiver_read, control_target_set, execute, execute_file, setup_patch, draft_concept]
   draft_concept_note: >-
     draft_concept is approval-governed in project, control_assistant and
     hello_world (osprey_facility_knowledge is enabled by default and carries the
@@ -1473,8 +1475,10 @@ governed_sets:
     approval.tools LISTS are 6/6/6 — do not "fix" one to match the other.
     control_target_set is governed the same way and for the same reason: the
     controls server carries the approval hook on it, and it appears in no
-    approval.tools block, so it too falls to default_policy. That is what
-    makes the governed set 8/8/7 rather than 7/7/6.
+    approval.tools block, so it too falls to default_policy. execute_file is
+    the third of this kind: it shares execute's policy unit (same server, same
+    hooks) but no approval.tools block names it. That is what makes the
+    governed set 9/9/8 rather than 7/7/6.
 
 # ---------------------------------------------------------------------------
 # kept_readers — code that legitimately still mentions a DELETED key. These are

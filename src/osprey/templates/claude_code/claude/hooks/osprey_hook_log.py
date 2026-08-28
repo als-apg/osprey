@@ -77,6 +77,7 @@ FALLBACK_WRITE_TOOLS = [
     "mcp__bluesky__queue_start",
     "mcp__controls__channel_write",
     "mcp__python__execute",
+    "mcp__python__execute_file",
 ]
 
 
