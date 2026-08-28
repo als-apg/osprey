@@ -521,8 +521,7 @@
   <section id="require-a-login">
 <span id="multi-user-require-a-login"></span><h1>Require a Login<a class="headerlink" href="#require-a-login" title="Link to this heading">#</a></h1>
 <p>The landing page lists the roster; <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.auth.method</span></code>
-decides what stands between a card and the terminal behind it. There are four
-postures:</p>
+decides what stands between a card and the terminal behind it.</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 15.0%" />
@@ -535,13 +534,12 @@ postures:</p>
 </thead>
 <tbody>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">token</span></code></p></td>
-<td><p><strong>The default</strong>, and what an absent <code class="docutils literal notranslate"><span class="pre">auth</span></code> stanza means. No login
-page; each terminal is opened once from that user’s own login URL.</p></td>
+<td><p><strong>The default.</strong> No login page; each terminal is opened once from that
+user’s own login URL.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">none</span></code></p></td>
-<td><p><strong>Open.</strong> No login page and no URL either: the landing page is pure
-navigation, and a card opens its terminal. Only for a room where
-everyone who can reach the page is trusted.</p></td>
+<td><p><strong>Open.</strong> A card opens its terminal. Only for a room where everyone who
+can reach the page is trusted.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">password</span></code></p></td>
 <td><p>A login page, against passwords OSPREY manages.</p></td>
@@ -552,95 +550,171 @@ everyone who can reach the page is trusted.</p></td>
 </tbody>
 </table>
 </div>
-<p>This page covers all four: what <code class="docutils literal notranslate"><span class="pre">open</span></code> requires before OSPREY will start it,
-the HTTPS a login page needs, how a provider’s groups can pick which tier a
-login lands on, where passwords live, and what to do when someone leaves.</p>
-<p>With no <code class="docutils literal notranslate"><span class="pre">auth</span></code> stanza the method is <code class="docutils literal notranslate"><span class="pre">token</span></code>: nginx asks for no credentials
-and speaks plain HTTP, but the terminals behind it are not open. Each one
-authenticates every request against its own operator secret, which <code class="docutils literal notranslate"><span class="pre">osprey</span>
-<span class="pre">up</span></code> mints into the deployment’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> for every roster user in every
-posture. Clicking a card on the landing page therefore reaches a terminal that
-refuses you until you have opened that user’s login URL once:</p>
+<div class="osprey-diagram">
+<svg viewBox="0 0 640 328" role="img" aria-labelledby="auth-postures-title auth-postures-desc">
+  <title id="auth-postures-title">The four auth postures</title>
+  <desc id="auth-postures-desc">What stands between a landing-page card and its terminal under each auth.method: none makes the card the door, nginx stamping that user's secret; token hands out a login URL and nginx stamps nothing; password and oidc put a login page in front, the authentication service checking it before nginx stamps. Behind every posture the terminal itself still checks one credential of its own on every request.</desc>
+  <defs>
+    <marker id="auth-postures-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+
+  <text class="te" x="112" y="24">FRONT DOOR · NGINX</text>
+  <text class="te" x="430" y="24">BEHIND IT · THE TERMINAL ITSELF</text>
+
+  <!-- edges first -->
+  <line class="e" x1="382" y1="68" x2="430" y2="68" marker-end="url(#auth-postures-arr)"/>
+  <line class="e" x1="382" y1="140" x2="430" y2="140" marker-end="url(#auth-postures-arr)"/>
+  <line class="e" x1="382" y1="212" x2="430" y2="212" marker-end="url(#auth-postures-arr)"/>
+  <line class="e" x1="382" y1="284" x2="430" y2="284" marker-end="url(#auth-postures-arr)"/>
+
+  <!-- one row per posture -->
+  <text class="tn" x="24" y="72">none</text>
+  <rect class="nb-warn" x="112" y="40" width="270" height="56" rx="6"/>
+  <text class="tn" x="247" y="64" text-anchor="middle">a card is the door</text>
+  <text class="ts" x="247" y="82" text-anchor="middle">nginx stamps the user's secret</text>
+
+  <text class="tn" x="24" y="144">token</text>
+  <rect class="nb" x="112" y="112" width="270" height="56" rx="6"/>
+  <text class="tn" x="247" y="136" text-anchor="middle">a login URL, once</text>
+  <text class="ts" x="247" y="154" text-anchor="middle">the default · nginx stamps nothing</text>
+
+  <text class="tn" x="24" y="216">password</text>
+  <rect class="nb" x="112" y="184" width="270" height="56" rx="6"/>
+  <text class="tn" x="247" y="208" text-anchor="middle">a login page</text>
+  <text class="ts" x="247" y="226" text-anchor="middle">auth service · then nginx stamps</text>
+
+  <text class="tn" x="24" y="288">oidc</text>
+  <rect class="nb" x="112" y="256" width="270" height="56" rx="6"/>
+  <text class="tn" x="247" y="280" text-anchor="middle">a login page</text>
+  <text class="ts" x="247" y="298" text-anchor="middle">your SSO · then nginx stamps</text>
+
+  <!-- the terminal's own gate -->
+  <rect class="mask" x="430" y="40" width="186" height="272" rx="6"/>
+  <rect class="nb-foc" x="430" y="40" width="186" height="272" rx="6"/>
+  <text class="tn" x="523" y="140" text-anchor="middle">every terminal</text>
+  <text class="tn" x="523" y="156" text-anchor="middle">checks one credential</text>
+  <text class="tn" x="523" y="172" text-anchor="middle">of its own, every request</text>
+  <text class="ts" x="523" y="196" text-anchor="middle">the operator secret</text>
+  <text class="ts" x="523" y="210" text-anchor="middle">nginx stamps, or the cookie</text>
+  <text class="ts" x="523" y="224" text-anchor="middle">a login URL traded it for</text>
+</svg>
+</div>
+<p>Two things to read off the drawing. The front door is nginx, and
+<code class="docutils literal notranslate"><span class="pre">auth.method</span></code> decides what it does there — nothing, vouch for the caller, or
+ask the authentication service. The terminal behind it always checks a
+credential of its own; the postures differ only in who supplies it.</p>
+<section id="choose-a-method">
+<h2>Choose a method<a class="headerlink" href="#choose-a-method" title="Link to this heading">#</a></h2>
+<p><strong>Token</strong> needs no stanza. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> mints an operator secret for every
+roster user into the deployment’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>; a terminal refuses you until you
+have opened that user’s login URL once:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>users<span class="w"> </span>login-url<span class="w"> </span>alice
 </pre></div>
 </div>
-<p>The URL carries alice’s secret and trades it for a session cookie. Send each
-person only their own, the way you would send a password; it stays valid until
-you rotate it, which means deleting that user’s <code class="docutils literal notranslate"><span class="pre">OSPREY_TERMINAL_SECRET_*</span></code>
-line from <code class="docutils literal notranslate"><span class="pre">.env</span></code> and running <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> again. (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> names the
-verb in its summary but never prints the URLs.)</p>
-<p>What <code class="docutils literal notranslate"><span class="pre">token</span></code> does <em>not</em> do is tell one person from another at the front
-door: whoever holds a URL is that user. It suits a <strong>single trusted host</strong> —
-a workstation or control-room machine you already trust — and nothing beyond
-it.</p>
-<p>The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships with password login switched on, in its
-demo posture: each roster user’s password is seeded into the repository’s
-<code class="docutils literal notranslate"><span class="pre">.env</span></code> by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> (<code class="docutils literal notranslate"><span class="pre">alice</span></code>/<code class="docutils literal notranslate"><span class="pre">alice</span></code>, <code class="docutils literal notranslate"><span class="pre">bob</span></code>/<code class="docutils literal notranslate"><span class="pre">bob</span></code>,
-<code class="docutils literal notranslate"><span class="pre">carol</span></code>/<code class="docutils literal notranslate"><span class="pre">carol</span></code> — change them there, or rotate with
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">passwd</span></code>), the ARIEL entry stays public
-via <code class="docutils literal notranslate"><span class="pre">login:</span> <span class="pre">false</span></code> (see below), and <code class="docutils literal notranslate"><span class="pre">allow_insecure_http:</span> <span class="pre">true</span></code> keeps the
-demo on plain HTTP. Those passwords authenticate a demo, not a facility: for
-any reachable host, set real passwords and serve TLS as described here.</p>
-<p>Set <code class="docutils literal notranslate"><span class="pre">auth.method</span></code> to <code class="docutils literal notranslate"><span class="pre">password</span></code> or <code class="docutils literal notranslate"><span class="pre">oidc</span></code> and every request under
-<code class="docutils literal notranslate"><span class="pre">/u/&lt;name&gt;/</span></code> — pages, APIs and the terminal’s live connection alike — is
-refused unless the browser holds a valid session for <em>that</em> user. The check
-happens at the front door: a small authentication service joins the stack in
-its own container, and nginx asks it about each request before proxying
-anything. Nothing depends on the per-user
-containers policing themselves.</p>
-<p>Note that the persona split is a <em>capability</em> boundary, enforced per project —
-it decides what a session may do, never who may open it. Login answers the
-separate question of who may open a session. In this multi-user stack that login
-is the per-user auth described above; note that even single-user <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>
-gates every request on a session cookie, handed out by the login URL it prints
-at startup, so “no login” is never the single-user default either.</p>
-<section id="choose-a-method">
-<h2>Choose a method<a class="headerlink" href="#choose-a-method" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">token</span></code> is described above and needs no stanza. The other three are here.</p>
-<p id="multi-user-open-mode"><strong>Open</strong> — no credential anywhere. For a control room whose console is already
-behind a locked door, and which may have no route to the internet to send a
-per-user link over:</p>
+<p>Send each person only their own URL, as you would a password. To rotate one,
+delete that user’s <code class="docutils literal notranslate"><span class="pre">OSPREY_TERMINAL_SECRET_*</span></code> line from <code class="docutils literal notranslate"><span class="pre">.env</span></code> and run
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> again. Token mode cannot tell one person from another — whoever
+holds a URL is that user — so it suits a single trusted host and nothing
+beyond it.</p>
+<p id="multi-user-open-mode"><strong>Open</strong> — no credential anywhere, for a console behind a locked door:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">auth</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">none</span>
 </pre></div>
 </div>
-<p>The landing page becomes pure navigation: click a card and the terminal opens.
-nginx vouches for the request itself, stamping that user’s operator secret onto
-every request it proxies, so no token URL exists — <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">login-url</span></code>
-refuses for those users and prints the terminal’s plain address instead.</p>
-<p>Open mode is only safe where nothing inside the deployment can reach it back.
-An agent’s own tools reach nginx over loopback and look exactly like the
-operator’s browser from there, so they would be served whichever terminal they
-asked for. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> therefore refuses to start an open deployment unless
-<strong>every</strong> persona’s shipped <code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code> denies all four of
-<code class="docutils literal notranslate"><span class="pre">Bash</span></code>, <code class="docutils literal notranslate"><span class="pre">WebFetch</span></code>, <code class="docutils literal notranslate"><span class="pre">WebSearch</span></code> and
-<code class="docutils literal notranslate"><span class="pre">mcp__plugin_playwright_playwright__*</span></code>; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span>
-<span class="pre">profile</span> <span class="pre">validate</span></code> report the same thing earlier, as the error
-<code class="docutils literal notranslate"><span class="pre">web_terminals.open_mode_egress</span></code>. Either way the message names the persona
-and the entries it is missing.</p>
-<p>All four are in OSPREY’s deny defaults, so a refusal almost always means a
-persona lifted one. Put it back in that persona’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block —</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
-<span class="w">  </span><span class="c1"># and nothing under remove_deny may name one of these four</span>
-<span class="w">  </span><span class="nt">claude_code.permissions.deny</span><span class="p">:</span>
-<span class="w">    </span><span class="p p-Indicator">[</span><span class="s">&quot;Bash&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;WebFetch&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;WebSearch&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;mcp__plugin_playwright_playwright__*&quot;</span><span class="p p-Indicator">]</span>
-</pre></div>
+<p>nginx stamps each user’s operator secret onto every request it proxies, so a
+card opens its terminal and no login URL exists. That is only safe if nothing
+inside the deployment can reach nginx back:</p>
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 276" role="img" aria-labelledby="open-mode-egress-title open-mode-egress-desc">
+  <title id="open-mode-egress-title">Why the open posture has conditions</title>
+  <desc id="open-mode-egress-desc">Under auth.method none an agent inside one terminal reaches nginx over loopback and looks like a browser, so nginx would stamp a neighbour's secret and serve that terminal. Two things stand in the way: every persona's deny defaults on Bash, WebFetch, WebSearch and Playwright, refused at osprey up otherwise, and — defence in depth behind them — the python executor's socket guard, which refuses connections from executed code to the deployment's own web ports.</desc>
+  <defs>
+    <marker id="open-mode-egress-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+
+  <text class="te" x="40" y="28">UNDER THE OPEN POSTURE · FROM INSIDE, THE AGENT LOOKS LIKE A BROWSER</text>
+
+  <!-- edges first -->
+  <line class="e-warn" x1="180" y1="84" x2="220" y2="84" marker-end="url(#open-mode-egress-arr)"/>
+  <path class="e-warn" d="M180,100 H196 Q204,100 204,108 V176 Q204,184 212,184 H220" marker-end="url(#open-mode-egress-arr)"/>
+  <line class="e-warn" x1="450" y1="84" x2="480" y2="84" marker-end="url(#open-mode-egress-arr)"/>
+  <line class="e-warn" x1="450" y1="184" x2="480" y2="184" marker-end="url(#open-mode-egress-arr)"/>
+  <line class="e-warn e-dash" x1="670" y1="84" x2="720" y2="84" marker-end="url(#open-mode-egress-arr)"/>
+  <path class="e-warn e-dash" d="M670,184 H700 Q708,184 708,176 V108 Q708,100 716,100 H720" marker-end="url(#open-mode-egress-arr)"/>
+  <line class="e-warn" x1="820" y1="112" x2="820" y2="156" marker-end="url(#open-mode-egress-arr)"/>
+
+  <!-- edge labels -->
+  <rect class="mask" x="673" y="64" width="44" height="12" rx="2"/>
+  <text class="ta ta-acc" x="695" y="73" text-anchor="middle">DENIED</text>
+  <rect class="mask" x="684" y="128" width="48" height="12" rx="2"/>
+  <text class="ta ta-acc" x="708" y="137" text-anchor="middle">REFUSED</text>
+  <rect class="mask" x="830" y="128" width="52" height="12" rx="2"/>
+  <text class="ta ta-warn" x="834" y="137">STAMPED</text>
+
+  <!-- nodes -->
+  <rect class="mask" x="40" y="56" width="140" height="56" rx="6"/>
+  <rect class="nb-in" x="40" y="56" width="140" height="56" rx="6"/>
+  <text class="tn" x="110" y="80" text-anchor="middle">alice's agent</text>
+  <text class="ts" x="110" y="96" text-anchor="middle">in its own container</text>
+
+  <rect class="mask" x="220" y="56" width="230" height="56" rx="6"/>
+  <rect class="nb" x="220" y="56" width="230" height="56" rx="6"/>
+  <text class="tn" x="335" y="80" text-anchor="middle">the agent's tools</text>
+  <text class="ts" x="335" y="96" text-anchor="middle">Bash · WebFetch · WebSearch · Playwright</text>
+
+  <rect class="mask" x="220" y="156" width="230" height="56" rx="6"/>
+  <rect class="nb" x="220" y="156" width="230" height="56" rx="6"/>
+  <text class="tn" x="335" y="180" text-anchor="middle">python executor</text>
+  <text class="ts" x="335" y="196" text-anchor="middle">host subprocess · no secrets in its env</text>
+
+  <rect class="mask" x="480" y="56" width="190" height="56" rx="6"/>
+  <rect class="nb-foc" x="480" y="56" width="190" height="56" rx="6"/>
+  <text class="tn" x="575" y="80" text-anchor="middle">deny defaults</text>
+  <text class="ts" x="575" y="96" text-anchor="middle">every persona · else up refuses</text>
+
+  <rect class="mask" x="480" y="156" width="190" height="56" rx="6"/>
+  <rect class="nb-bnd" x="480" y="156" width="190" height="56" rx="6"/>
+  <text class="tn" x="575" y="180" text-anchor="middle">executor socket guard</text>
+  <text class="ts" x="575" y="196" text-anchor="middle">web-port connect() refused</text>
+
+  <rect class="mask" x="720" y="56" width="200" height="56" rx="6"/>
+  <rect class="nb" x="720" y="56" width="200" height="56" rx="6"/>
+  <text class="tn" x="820" y="80" text-anchor="middle">nginx</text>
+  <text class="ts" x="820" y="96" text-anchor="middle">can't tell agent from browser</text>
+
+  <rect class="mask" x="720" y="156" width="200" height="56" rx="6"/>
+  <rect class="nb-warn" x="720" y="156" width="200" height="56" rx="6"/>
+  <text class="tn" x="820" y="180" text-anchor="middle">bob's terminal</text>
+  <text class="ts" x="820" y="196" text-anchor="middle">a neighbour's session, no login</text>
+
+  <!-- legend -->
+  <line class="divider" x1="40" y1="244" x2="920" y2="244"/>
+  <text class="te" x="40" y="262">LEGEND</text>
+  <rect x="120" y="254" width="10" height="10" rx="2" fill="var(--od-accent)"/>
+  <text class="ta" x="136" y="262">a gate that holds</text>
+  <rect class="nb-bnd" x="256" y="254" width="10" height="10" rx="2"/>
+  <text class="ta" x="272" y="262">defence in depth</text>
+  <line class="e-warn" x1="392" y1="259" x2="416" y2="259"/>
+  <text class="ta" x="424" y="262">a route a loopback caller has</text>
+  <line class="e-warn e-dash" x1="616" y1="259" x2="640" y2="259"/>
+  <text class="ta" x="648" y="262">what the gate refuses</text>
+</svg>
 </div>
-<p>— then <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> to render it and rebuild that persona’s image, because
-the settings file that runs is the one baked into the image. Where a persona
-genuinely needs one of the four, use <code class="docutils literal notranslate"><span class="pre">method:</span> <span class="pre">token</span></code> instead and keep the
-per-user login URLs.</p>
-<div class="admonition warning">
-<p class="admonition-title">Warning</p>
-<p>The python executor refuses connections from executed code to this
-deployment’s own web ports under <code class="docutils literal notranslate"><span class="pre">none</span></code>, but that guard runs inside the
-agent’s own process and is defence in depth rather than a boundary: an agent
-process determined enough to defeat it could still reach a terminal, so
-<code class="docutils literal notranslate"><span class="pre">none</span></code> is for rooms where everyone — the agents included — is trusted.</p>
-</div>
-<p><strong>Passwords</strong>, managed by OSPREY. Nothing extra to run or operate:</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses to start an open deployment unless every persona’s
+<code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code> denies <code class="docutils literal notranslate"><span class="pre">Bash</span></code>, <code class="docutils literal notranslate"><span class="pre">WebFetch</span></code>, <code class="docutils literal notranslate"><span class="pre">WebSearch</span></code> and
+<code class="docutils literal notranslate"><span class="pre">mcp__plugin_playwright_playwright__*</span></code> (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span>
+<span class="pre">lint</span></code> reports the same, as <code class="docutils literal notranslate"><span class="pre">web_terminals.open_mode_egress</span></code>). All four are
+in OSPREY’s deny defaults, so a refusal means a persona lifted one — put it
+back in that persona’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block and rebuild. The python executor’s
+own guard against executed code reaching the web ports is defence in depth,
+not a boundary: <code class="docutils literal notranslate"><span class="pre">none</span></code> is for rooms where the agents are trusted too.</p>
+<p><strong>Passwords</strong>, managed by OSPREY:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">tls</span><span class="p">:</span>
@@ -652,85 +726,47 @@ process determined enough to defeat it could still reach a terminal, so
 <span class="w">      </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">password</span>
 </pre></div>
 </div>
-<p><strong>OIDC</strong>, against the single sign-on your facility already runs. Each roster
-entry names the identity that maps to it, so a valid login as somebody else
-cannot open this user’s terminal:</p>
+<p><strong>OIDC</strong>, against your facility’s single sign-on. Each roster entry names the
+identity that maps to it, so a valid login as somebody else cannot open this
+user’s terminal:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">tls</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">      </span><span class="nt">host_cert_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/ssl/facility</span><span class="w">     </span><span class="c1"># host side; mounted for you</span>
-<span class="w">      </span><span class="nt">cert</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/osprey/tls/facility.crt</span><span class="w">   </span><span class="c1"># container side</span>
+<span class="w">      </span><span class="nt">host_cert_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/ssl/facility</span>
+<span class="w">      </span><span class="nt">cert</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/osprey/tls/facility.crt</span>
 <span class="w">      </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/osprey/tls/facility.key</span>
 <span class="w">    </span><span class="nt">auth</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">oidc</span>
 <span class="w">      </span><span class="nt">oidc</span><span class="p">:</span>
 <span class="w">        </span><span class="nt">issuer</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://sso.example.org/realms/accelerator</span>
-<span class="w">        </span><span class="nt">client_id_env</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OSPREY_AUTH_OIDC_CLIENT_ID</span>
+<span class="w">        </span><span class="nt">client_id_env</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OSPREY_AUTH_OIDC_CLIENT_ID</span><span class="w">      </span><span class="c1"># names in .env.auth</span>
 <span class="w">        </span><span class="nt">client_secret_env</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OSPREY_AUTH_OIDC_CLIENT_SECRET</span>
-<span class="w">        </span><span class="nt">claim</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sub</span><span class="w">                       </span><span class="c1"># ID-token claim to match on</span>
+<span class="w">        </span><span class="nt">claim</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sub</span>
 <span class="w">    </span><span class="nt">users</span><span class="p">:</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
 <span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
 <span class="w">        </span><span class="nt">oidc_subject</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;8f4c1e02-...&quot;</span><span class="w">     </span><span class="c1"># alice&#39;s value of that claim</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bob</span>
-<span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
-<span class="w">        </span><span class="nt">oidc_subject</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;b7d9a340-...&quot;</span>
 </pre></div>
 </div>
-<p>The <code class="docutils literal notranslate"><span class="pre">*_env</span></code> keys hold environment-variable <strong>names</strong>, not credentials: put the
-client id and secret in the project’s <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code> under those names — that is
-the only file the authentication service reads credentials from. The names
-shown are the ones OSPREY reads when you omit the keys, and <code class="docutils literal notranslate"><span class="pre">claim</span></code> falls back
-to <code class="docutils literal notranslate"><span class="pre">sub</span></code> in the authentication service itself. <code class="docutils literal notranslate"><span class="pre">oidc_subject</span></code> is not a
-secret — it is the identifier your provider already publishes for that person.</p>
+<p>Under <code class="docutils literal notranslate"><span class="pre">password</span></code> or <code class="docutils literal notranslate"><span class="pre">oidc</span></code> a small authentication service joins the stack
+and nginx asks it about every request under <code class="docutils literal notranslate"><span class="pre">/u/&lt;name&gt;/</span></code> before proxying
+anything. Optional keys: <code class="docutils literal notranslate"><span class="pre">auth.port</span></code> (default <code class="docutils literal notranslate"><span class="pre">9070</span></code>),
+<code class="docutils literal notranslate"><span class="pre">auth.session_lifetime</span></code> in whole seconds (default <code class="docutils literal notranslate"><span class="pre">43200</span></code>), and
+<code class="docutils literal notranslate"><span class="pre">auth.image</span></code>, required with <code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">registry</span></code>.</p>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
-<p><strong>No secret may contain a dollar sign</strong> — not in <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code>, and not in
-the <code class="docutils literal notranslate"><span class="pre">.env</span></code> and <code class="docutils literal notranslate"><span class="pre">.env.users</span></code> that carry your provider API key and
-facility passwords. Depending on which container stack reads these files,
-<code class="docutils literal notranslate"><span class="pre">$</span></code> sequences inside the <em>values</em> are substituted on the way through —
-with Docker Compose, <code class="docutils literal notranslate"><span class="pre">secret$abc</span></code> arrives as <code class="docutils literal notranslate"><span class="pre">secret</span></code> and <code class="docutils literal notranslate"><span class="pre">P&#64;$$w0rd</span></code>
-arrives as <code class="docutils literal notranslate"><span class="pre">P&#64;$w0rd</span></code>; other stacks mangle a different set. Either way the
-file on disk still reads correctly, so the only symptom is a login or a
-token exchange that refuses for no visible reason.</p>
-<p>This bites hardest with a client secret your identity provider generated for
-you, since you did not choose those characters. If yours contains a <code class="docutils literal notranslate"><span class="pre">$</span></code>,
-issue a new one rather than trying to escape it — escaping is not portable
-between container runtimes, so there is no spelling that works everywhere.</p>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses to start a stack whose secrets would be corrupted
-this way and names the offending variables, so you find out before the
-deployment is running rather than after someone cannot log in.</p>
-<p>The same rule extends to each user’s <code class="docutils literal notranslate"><span class="pre">oidc_subject</span></code>, which travels a
-different route (the rendered compose file rather than an env file) but is
-rewritten the same way: lint refuses a subject containing <code class="docutils literal notranslate"><span class="pre">$</span></code> and names
-the user. If your provider genuinely issues one, map a different claim via
-<code class="docutils literal notranslate"><span class="pre">auth.oidc.claim</span></code>.</p>
+<p>No secret may contain a <code class="docutils literal notranslate"><span class="pre">$</span></code> — not in <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code>, <code class="docutils literal notranslate"><span class="pre">.env</span></code> or
+<code class="docutils literal notranslate"><span class="pre">.env.users</span></code>, and not in an <code class="docutils literal notranslate"><span class="pre">oidc_subject</span></code>. Container stacks substitute
+<code class="docutils literal notranslate"><span class="pre">$</span></code> sequences on the way through, and the only symptom is a login that
+refuses for no visible reason. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses such a stack and names
+the variable; if a provider issued the secret, issue a new one.</p>
 </div>
-<p>Three more keys are optional. <code class="docutils literal notranslate"><span class="pre">auth.port</span></code> is the port the authentication
-service listens on (default <code class="docutils literal notranslate"><span class="pre">9070</span></code>); <code class="docutils literal notranslate"><span class="pre">auth.session_lifetime</span></code> is how long a
-session stays valid, in <strong>whole seconds</strong> (default <code class="docutils literal notranslate"><span class="pre">43200</span></code>, twelve hours); and
-<code class="docutils literal notranslate"><span class="pre">auth.image</span></code> names the service’s image, which is <strong>required</strong> when
-<code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">registry</span></code> — your CI publishes that image the same way it
-publishes the terminal images. In <code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">local</span></code> mode
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> builds it for you and <code class="docutils literal notranslate"><span class="pre">auth.image</span></code> is not needed.</p>
-<div class="admonition warning">
-<p class="admonition-title">Warning</p>
-<p><code class="docutils literal notranslate"><span class="pre">auth.port</span></code> and <code class="docutils literal notranslate"><span class="pre">auth.session_lifetime</span></code> must be plain positive integers.
-A duration string like <code class="docutils literal notranslate"><span class="pre">&quot;12h&quot;</span></code>, a decimal, zero or a negative number is
-<strong>silently replaced by the default</strong> — nothing warns you — so a deployment
-that meant eight-hour sessions would quietly keep twelve-hour ones.</p>
-</div>
-<p>The service listens on <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code> on the deploy host itself (the web stack
-uses host networking), so nginx reaches it and nothing off-host does. It is not
-published as a container port, and anyone with a shell on the deploy host can
-reach it — the same as every per-user terminal.</p>
 </section>
 <section id="let-single-sign-on-pick-the-tier">
 <span id="multi-user-role-from-sso"></span><h2>Let single sign-on pick the tier<a class="headerlink" href="#let-single-sign-on-pick-the-tier" title="Link to this heading">#</a></h2>
-<p>Each roster entry names the persona it runs as, and pinning that per user is
-the simplest thing to do. Where your provider already knows who is an operator
-and who is a visitor, you can state that mapping once instead:</p>
+<p>Instead of pinning a persona on every roster entry, name roles once and let
+the provider’s groups choose:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">authorization</span><span class="p">:</span>
@@ -739,7 +775,7 @@ and who is a visitor, you can state that mapping once instead:</p>
 <span class="w">        </span><span class="nt">viewer</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="nv">readonly</span><span class="p p-Indicator">}</span>
 <span class="w">      </span><span class="nt">claims</span><span class="p">:</span>
 <span class="w">        </span><span class="nt">claim</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">groups</span><span class="w">          </span><span class="c1"># the ID-token claim holding group membership</span>
-<span class="w">        </span><span class="nt">map</span><span class="p">:</span><span class="w">                   </span><span class="c1"># that claim&#39;s values, onto the roles above</span>
+<span class="w">        </span><span class="nt">map</span><span class="p">:</span>
 <span class="w">          </span><span class="nt">ca-operators</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">operator</span>
 <span class="w">          </span><span class="nt">ca-viewers</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">viewer</span>
 <span class="w">    </span><span class="nt">users</span><span class="p">:</span>
@@ -749,109 +785,33 @@ and who is a visitor, you can state that mapping once instead:</p>
 <span class="w">        </span><span class="nt">oidc_subject</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;8f4c1e02-...&quot;</span>
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">roles</span></code> is the static half, and it applies in every login mode: a role names
-one persona from the catalog, and a roster entry carries <code class="docutils literal notranslate"><span class="pre">role:</span></code> <strong>or</strong>
-<code class="docutils literal notranslate"><span class="pre">persona:</span></code> — never both, which lint refuses. (With both written down, nothing
-says which one governs, and a later edit to the role’s persona would silently
-not reach that entry.) A role that names no persona, a map entry naming a role
-you never declared, and half a <code class="docutils literal notranslate"><span class="pre">claims</span></code> stanza each stop the build with the
-offender named, rather than rendering a deployment whose privileges are not
-what the file says.</p>
-<p><code class="docutils literal notranslate"><span class="pre">claims</span></code> is the single sign-on half: it names the ID-token claim your
-provider puts group membership in, and maps that claim’s <strong>values</strong> onto the
-same role names. Real providers send a list, so the values are what is matched,
-not the claim as a whole. A login arriving with</p>
-<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="nt">&quot;groups&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;ca-operators&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;building-6&quot;</span><span class="p">]}</span>
-</pre></div>
-</div>
-<p>is granted <code class="docutils literal notranslate"><span class="pre">operator</span></code>: <code class="docutils literal notranslate"><span class="pre">ca-operators</span></code> is in the map and <code class="docutils literal notranslate"><span class="pre">building-6</span></code>
-matches nothing. Every value is matched rather than the first one that hits, so
-the role someone is granted never depends on the order the provider happened to
-list their groups in. Several values naming the <em>same</em> role are fine. The other
-two outcomes are refusals — a 403 at the front door, each recorded in the audit
-trail with its own reason:</p>
+<p>A roster entry carries <code class="docutils literal notranslate"><span class="pre">role:</span></code> or <code class="docutils literal notranslate"><span class="pre">persona:</span></code>, never both. The rules:</p>
 <ul class="simple">
-<li><p><strong>No value matches the map.</strong> The account holds none of the groups this
-deployment maps, so there is no role to grant.</p></li>
-<li><p><strong>Values name more than one role.</strong> Somebody is in an operator group <em>and</em> a
-viewer group; picking either one would be a guess about which privilege they
-meant to use.</p></li>
+<li><p>Every value of the claim is matched, in any order. Exactly one distinct role
+must result: none → refused (<code class="docutils literal notranslate"><span class="pre">unmapped_role_claim</span></code>), more than one →
+refused (<code class="docutils literal notranslate"><span class="pre">ambiguous_role_claim</span></code>).</p></li>
+<li><p>The role the token grants must be the role the roster named for the card
+that was clicked; otherwise the login is refused (<code class="docutils literal notranslate"><span class="pre">role_mismatch</span></code>). Fix
+whichever of roster or provider has drifted.</p></li>
+<li><p>A role is resolved at login and travels inside the session, so a change at
+the provider or in the roster reaches the <em>next</em> login. To withdraw a role
+now, end the session: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">decommission</span> <span class="pre">&lt;name&gt;</span></code>.</p></li>
 </ul>
-<p>Matching is exact: values are compared as written, with no case folding. The
-role a login resolves to travels with that session: it reaches the person’s
-terminal as an identity header, and is named on the login record in the
-audit trail.</p>
-<p><strong>The role a login carries has to be the role its terminal was built as.</strong> The
-roster’s <code class="docutils literal notranslate"><span class="pre">role:</span></code> does two jobs, and both are in force in every mode. It
-resolves to a persona at build time — that is what decides which project a
-card’s container is built from — and it is what the session carries. Under
-password login, that is the whole story.</p>
-<p>Under single sign-on it depends on whether you wrote a <code class="docutils literal notranslate"><span class="pre">claims</span></code> map:</p>
-<ul class="simple">
-<li><p><strong>No</strong> <code class="docutils literal notranslate"><span class="pre">claims</span></code> <strong>map.</strong> Nothing asked the provider about privilege, so the
-role is the roster’s, exactly as under a password.</p></li>
-<li><p><strong>A</strong> <code class="docutils literal notranslate"><span class="pre">claims</span></code> <strong>map.</strong> The validated ID token decides the role — and it has
-to be the one the roster named for the person whose card was clicked. If
-someone’s groups map to <code class="docutils literal notranslate"><span class="pre">operator</span></code> while their roster entry says
-<code class="docutils literal notranslate"><span class="pre">observer</span></code>, the login is refused: 403, recorded as <code class="docutils literal notranslate"><span class="pre">role_mismatch</span></code>, no
-session issued. Refusing grants nobody anything. It turns away a login whose
-asserted privilege describes a different terminal than the one behind the
-door, which is a roster and a provider that have drifted apart — fix it in
-whichever of the two is out of date.</p></li>
-</ul>
-<p>One case has nothing to cross-check: a roster entry that names no role at all,
-because it pins a <code class="docutils literal notranslate"><span class="pre">persona:</span></code> directly or just rides the default. Its container
-is not bound to a role, so there is nothing for the token to disagree with and
-the token’s role is what the session carries.</p>
-<p>The mirror does not hold: a <code class="docutils literal notranslate"><span class="pre">claims</span></code> stanza in a password deployment resolves
-nothing, because no ID token arrives to read it from. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> warns about
-that one rather than failing — it is what a facility writes while staging a move
-to single sign-on — but until the method is <code class="docutils literal notranslate"><span class="pre">oidc</span></code>, none of the roles in it is
-ever granted.</p>
-<p><strong>Every login is recorded.</strong> Successes and refusals alike land in
-<code class="docutils literal notranslate"><span class="pre">var/audit/sidecar/auth_sidecar.jsonl</span></code> on the deploy host: one line each,
-naming the user, the category (<code class="docutils literal notranslate"><span class="pre">password_login</span></code> and <code class="docutils literal notranslate"><span class="pre">oidc_login</span></code>, or a
-refusal such as <code class="docutils literal notranslate"><span class="pre">unmapped_role_claim</span></code> or <code class="docutils literal notranslate"><span class="pre">ambiguous_role_claim</span></code>), and the
-role granted. That file belongs to the authentication service — no terminal
-container mounts it, and only a shell on the host reads it. Three deliberate
-gaps in it: an attempt the rate limiter turned away records nothing, so an
-unauthenticated caller cannot make the trail grow at will; a failed password is
-one category whatever went wrong with it — a wrong password, a name not on
-the roster and an account with no password set are indistinguishable, so the
-trail cannot be read backwards to enumerate who exists; and a single sign-on
-refusal that an unauthenticated caller can reach for free (a user with no
-mapped provider identity, or one whose mapped identity cannot be carried) is
-filed once per window, with the ones it swallowed counted on the next record
-as <code class="docutils literal notranslate"><span class="pre">folded_refusals</span></code>.</p>
+<p>Every login and refusal is recorded in <code class="docutils literal notranslate"><span class="pre">var/audit/sidecar/auth_sidecar.jsonl</span></code>
+on the deploy host. A <code class="docutils literal notranslate"><span class="pre">claims</span></code> stanza under <code class="docutils literal notranslate"><span class="pre">password</span></code> resolves nothing;
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> warns rather than fails.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p><strong>Microsoft Entra ID: when the group claim goes missing.</strong> An account in
-more than a few dozen groups triggers <em>group overage</em> — Entra leaves
-<code class="docutils literal notranslate"><span class="pre">groups</span></code> out of the ID token altogether and puts a pointer to Microsoft
-Graph there instead (<code class="docutils literal notranslate"><span class="pre">_claim_names</span></code>, <code class="docutils literal notranslate"><span class="pre">_claim_sources</span></code>). That lands on
-a missing-claim refusal, which is the honest outcome: the authentication
-service reads identity only from the ID token it already validated, and
-following the pointer would not help anyway — it never calls the userinfo
-endpoint at all. The refusal is audited and names the claim it looked for,
-and the log line beside it lists the claim names that did arrive, which is
-how you recognize an overage.</p>
-<p>Two changes at the provider fix it, and both work by bounding the claim to
-this one application rather than to everything the account belongs to:</p>
-<ul class="simple">
-<li><p><strong>Emit fewer groups.</strong> In the app registration’s token configuration,
-emit the groups <em>assigned to this application</em> (or security groups only)
-rather than every group the account is in.</p></li>
-<li><p><strong>Map app roles instead.</strong> Define app roles on the registration, assign
-people to them, and point <code class="docutils literal notranslate"><span class="pre">claim</span></code> at <code class="docutils literal notranslate"><span class="pre">roles</span></code>. The map’s keys become
-your app-role values; nothing else about the block changes.</p></li>
-</ul>
+<p>Microsoft Entra ID leaves <code class="docutils literal notranslate"><span class="pre">groups</span></code> out of the token for accounts in many
+groups (<em>group overage</em>), which lands on a missing-claim refusal. Either
+emit only the groups assigned to this application, or define app roles and
+point <code class="docutils literal notranslate"><span class="pre">claim</span></code> at <code class="docutils literal notranslate"><span class="pre">roles</span></code>.</p>
 </div>
 </section>
 <section id="leave-one-entry-public">
 <h2>Leave one entry public<a class="headerlink" href="#leave-one-entry-public" title="Link to this heading">#</a></h2>
-<p>Not every card on the landing page is a person’s terminal. A roster entry that
-fronts a read-only service — the preset’s ARIEL logbook assistant, say — can
-opt out of the login wall:</p>
+<p>A roster entry that fronts a read-only service — the preset’s ARIEL logbook —
+can opt out of the login wall:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">users</span><span class="p">:</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ariel</span>
 <span class="w">    </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
@@ -859,78 +819,23 @@ opt out of the login wall:</p>
 <span class="w">    </span><span class="nt">login</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
 </pre></div>
 </div>
-<p>Under <code class="docutils literal notranslate"><span class="pre">password</span></code> or <code class="docutils literal notranslate"><span class="pre">oidc</span></code> that entry sits outside the login wall: nginx
-never asks the authentication service about it, and no password is provisioned
-for it (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">passwd</span></code> refuses the name and says why). Under <code class="docutils literal notranslate"><span class="pre">none</span></code>
-it is the one entry nginx does <em>not</em> vouch for. Outside is not the same as
-open, in either posture — the entry is gated the way every terminal is under
-<code class="docutils literal notranslate"><span class="pre">token</span></code>, by its own operator secret, so a browser still has to open
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">login-url</span> <span class="pre">ariel</span></code> once. Cookies from the login wall never reach
-its container.</p>
-<p>Only the literal <code class="docutils literal notranslate"><span class="pre">false</span></code> opts an entry out. Absence, <code class="docutils literal notranslate"><span class="pre">true</span></code>, and any typo
-all mean “login required” — a misspelling can lock an entry down, never open it
-up — and lint reports a non-boolean value. The key is inert while
-<code class="docutils literal notranslate"><span class="pre">auth.method</span></code> is <code class="docutils literal notranslate"><span class="pre">token</span></code>, where nginx stamps nothing for an entry to be
-exempt from; lint points that out as well.</p>
-<p>Opting out is for entries whose <em>content</em> is public by design. Anything that
-can reach a control system, write anywhere, or spend provider tokens belongs
-behind the wall.</p>
-<p>For the capability it would be worst to leave open, that is a check rather
-than advice: a <code class="docutils literal notranslate"><span class="pre">login:</span> <span class="pre">false</span></code> entry resolving to a persona holding either
-deployment-editing surface — the agent’s <code class="docutils literal notranslate"><span class="pre">setup_patch</span></code> tool or the web
-Config panel — fails <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">profile</span> <span class="pre">validate</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> with the
-user named, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses to start a stack whose render still
-carries one. It holds whether or not your profile floors those surfaces for
-its other tiers; see <a class="reference internal" href="tiers.html"><span class="doc">Privilege Tiers</span></a> for what the
-check reads and what it tells you to do about it. The
-preset’s own admin card sits behind the wall for exactly that reason, and is
-last in the roster so the operator cards keep their ports.</p>
+<p>Only the literal <code class="docutils literal notranslate"><span class="pre">false</span></code> opts out; anything else means “login required”. The
+entry is still gated the way every terminal is under <code class="docutils literal notranslate"><span class="pre">token</span></code>, by its own
+login URL. A <code class="docutils literal notranslate"><span class="pre">login:</span> <span class="pre">false</span></code> entry whose persona can edit the deployment
+(<code class="docutils literal notranslate"><span class="pre">setup_patch</span></code> or the Config panel) is refused at build and at <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>.</p>
 </section>
 <section id="serve-it-over-https">
 <span id="multi-user-https"></span><h2>Serve it over HTTPS<a class="headerlink" href="#serve-it-over-https" title="Link to this heading">#</a></h2>
-<p>A session cookie sent over plain HTTP is readable by anything on the path, so a
-deployment with a login page — <code class="docutils literal notranslate"><span class="pre">auth.method</span></code> of <code class="docutils literal notranslate"><span class="pre">password</span></code> or <code class="docutils literal notranslate"><span class="pre">oidc</span></code> —
-and <code class="docutils literal notranslate"><span class="pre">tls.enabled:</span> <span class="pre">false</span></code> <strong>refuses to render at all</strong> rather than hand out
-cookies in the clear. You
-therefore have to pick one of two ways to get the connection encrypted.</p>
-<p><strong>Let this nginx terminate TLS.</strong> Set <code class="docutils literal notranslate"><span class="pre">tls.enabled:</span> <span class="pre">true</span></code> with a certificate
-and key, and nginx serves HTTPS on 443, redirects the plain port to it, and marks
-session cookies — the login wall’s and each terminal’s own — so browsers only
-ever send them over HTTPS. Bringing the
-certificate is still your job, but getting it <em>into</em> the container is not:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">tls</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">  </span><span class="nt">host_cert_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/ssl/facility</span><span class="w">          </span><span class="c1"># on the deploy host</span>
-<span class="w">  </span><span class="nt">cert</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/osprey/tls/facility.crt</span><span class="w">        </span><span class="c1"># inside the container</span>
-<span class="w">  </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/osprey/tls/facility.key</span>
-</pre></div>
-</div>
-<p><code class="docutils literal notranslate"><span class="pre">host_cert_dir</span></code> is the only key here that names a path on the <strong>deploy host</strong>;
-<code class="docutils literal notranslate"><span class="pre">cert</span></code> and <code class="docutils literal notranslate"><span class="pre">key</span></code> are paths <strong>inside the nginx container</strong>. Setting
-<code class="docutils literal notranslate"><span class="pre">host_cert_dir</span></code> bind-mounts that directory, read-only, at the directory
-<code class="docutils literal notranslate"><span class="pre">cert</span></code> sits in — so the certificate is where nginx looks without you writing
-any compose of your own. Renewals need nothing extra: the mount is a directory,
-so a replaced file is picked up on the next nginx reload.</p>
-<p>Because one mount has to deliver both files, <code class="docutils literal notranslate"><span class="pre">cert</span></code> and <code class="docutils literal notranslate"><span class="pre">key</span></code> must sit in
-the same directory, and <code class="docutils literal notranslate"><span class="pre">host_cert_dir</span></code> must be absolute. A deployment that
-breaks either rule is refused at render time, naming the reason — rather than
-starting an nginx that immediately dies looking for a file nobody mounted.</p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p><code class="docutils literal notranslate"><span class="pre">host_cert_dir</span></code> is optional. Leave it out and nothing is mounted: the
-compose overlay renders exactly as it does without TLS, and supplying the
-certificate is yours to arrange — a bind mount from a small compose file of
-your own, listed after the web overlay in <code class="docutils literal notranslate"><span class="pre">runtime.compose_files</span></code>, or
-whatever your facility’s certificate management already does. That is the
-route to take when a plain directory bind cannot express how certificates
-reach this host.</p>
-</div>
-<p><strong>Or terminate TLS in front of this nginx.</strong> If a facility load balancer or
-ingress proxy already presents the certificate and forwards to this host, set
-<code class="docutils literal notranslate"><span class="pre">auth.allow_insecure_http:</span> <span class="pre">true</span></code> and leave <code class="docutils literal notranslate"><span class="pre">tls.enabled</span></code> off. This is a
-normal deployment, not a workaround: the browser’s connection is encrypted by
-the thing in front, and the hop it forwards over is yours to keep private.</p>
-<p>This shape needs one key more, and it is <strong>required</strong>, not optional:</p>
+<p>A login page hands out session cookies, so <code class="docutils literal notranslate"><span class="pre">password</span></code> and <code class="docutils literal notranslate"><span class="pre">oidc</span></code> refuse to
+render with <code class="docutils literal notranslate"><span class="pre">tls.enabled:</span> <span class="pre">false</span></code> unless something else encrypts the
+connection. Two shapes:</p>
+<p><strong>This nginx terminates TLS.</strong> Set <code class="docutils literal notranslate"><span class="pre">tls.enabled:</span> <span class="pre">true</span></code> with a certificate
+and key; nginx serves HTTPS on 443 and redirects the plain port.
+<code class="docutils literal notranslate"><span class="pre">host_cert_dir</span></code> is the only key that names a path on the deploy host — it is
+bind-mounted, read-only, where <code class="docutils literal notranslate"><span class="pre">cert</span></code> and <code class="docutils literal notranslate"><span class="pre">key</span></code> (paths inside the
+container) sit, so both must be in that one directory and the path must be
+absolute. Leave <code class="docutils literal notranslate"><span class="pre">host_cert_dir</span></code> out to mount the certificate your own way.</p>
+<p><strong>Something in front terminates TLS</strong> — a facility load balancer or ingress:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">external_origin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://terminals.example.org</span><span class="w">   </span><span class="c1"># what the browser reaches</span>
@@ -939,123 +844,52 @@ the thing in front, and the hop it forwards over is yours to keep private.</p>
 <span class="w">      </span><span class="nt">allow_insecure_http</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">external_origin</span></code> is the address <strong>browsers</strong> open, which here is the load
-balancer’s, not this host’s. Every terminal refuses a request that would change
-something — a chat message, an approval, a file write — unless the browser says
-it came from that address, and nothing in the rest of this configuration can
-work out what the thing in front answers on. Leave it unset and the
-deployment looks entirely healthy: the containers are up, the landing page
-renders, each terminal opens — and every action taken in one is refused.</p>
-<p>Write it as a bare origin: a scheme, a host, and a port if it is not the
-scheme’s default. No path, no trailing slash. Anything else is refused when you
-build, which is the point — the alternative is finding out from a browser.</p>
-<p>Set it in any deployment where the address people type is not this nginx’s own,
-including a plain reverse proxy or a DNS alias in front of it. When browsers
-reach this nginx directly — every other shape on this page — leave it out and
-the address is derived from <code class="docutils literal notranslate"><span class="pre">deploy.fqdn</span></code> and the published port.</p>
-<p>What <code class="docutils literal notranslate"><span class="pre">allow_insecure_http</span></code> is <em>not</em> is a way to postpone certificates on a
-reachable host. With it set and nothing terminating TLS, anyone who can watch
-the traffic can copy a session cookie and become that user. An isolated network
-where you accept that risk is the only other case for it.</p>
+<p><code class="docutils literal notranslate"><span class="pre">external_origin</span></code> is required here: every terminal refuses a state-changing
+request unless the browser says it came from that address, and nothing else
+in the configuration can work out what the thing in front answers on. Write
+it as a bare origin — scheme, host, port if non-default, no path.
+<code class="docutils literal notranslate"><span class="pre">allow_insecure_http</span></code> is not a way to postpone certificates on a reachable
+host; with nothing terminating TLS, anyone watching the traffic can become
+that user.</p>
 </section>
 <section id="passwords-and-where-they-live">
 <h2>Passwords, and where they live<a class="headerlink" href="#passwords-and-where-they-live" title="Link to this heading">#</a></h2>
-<p>In password mode <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> makes sure every user on the roster has a
-password hash before it starts anything, and aborts before a single container
-starts if it cannot — an unwritable file is caught here rather than becoming a
-stack nobody can log in to. The same check covers the keys used to sign session
-cookies, so an OIDC deployment can abort the same way even though it provisions
-no passwords at all. The usual cause either way is permissions on <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code>
-or on the project directory.</p>
-<p>The hashes and signing keys live in <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code> in the project root — mode
-<code class="docutils literal notranslate"><span class="pre">0600</span></code>, listed in the generated <code class="docutils literal notranslate"><span class="pre">.gitignore</span></code> next to <code class="docutils literal notranslate"><span class="pre">.env.users</span></code>,
-and handed to the authentication service alone. No terminal container ever sees
-it.</p>
-<p>For each user, in order:</p>
+<p>Password hashes and cookie-signing keys live in <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code> in the project
+root — mode <code class="docutils literal notranslate"><span class="pre">0600</span></code>, gitignored, mounted into the authentication service
+only. On every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>, for each user in order:</p>
 <ol class="arabic simple">
-<li><p>An existing hash in <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code> is kept. Deploying again never resets
-anyone’s password.</p></li>
-<li><p>Otherwise, a plaintext <code class="docutils literal notranslate"><span class="pre">OSPREY_AUTH_PW_&lt;USER&gt;</span></code> in the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> is
-hashed into <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code> — the way to set a password you already chose. The
-plaintext stays on the deploy host; only the hash reaches a container.</p></li>
-<li><p>Otherwise a password is generated, hashed, and <strong>printed once</strong>, on that
-deploy’s output. Nothing can recover it afterwards, so capture it and hand it
-to the person.</p></li>
+<li><p>An existing hash in <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code> is kept; deploying never resets a
+password.</p></li>
+<li><p>Otherwise a plaintext <code class="docutils literal notranslate"><span class="pre">OSPREY_AUTH_PW_&lt;USER&gt;</span></code> in <code class="docutils literal notranslate"><span class="pre">.env</span></code> is hashed in —
+the way to set a password you chose. <code class="docutils literal notranslate"><span class="pre">&lt;USER&gt;</span></code> is the name uppercased with
+<code class="docutils literal notranslate"><span class="pre">-</span></code> turned into <code class="docutils literal notranslate"><span class="pre">_</span></code>.</p></li>
+<li><p>Otherwise a password is generated, hashed, and printed once. Capture it.</p></li>
 </ol>
-<p><code class="docutils literal notranslate"><span class="pre">&lt;USER&gt;</span></code> is the username uppercased with <code class="docutils literal notranslate"><span class="pre">-</span></code> turned into <code class="docutils literal notranslate"><span class="pre">_</span></code>. That mapping
-is what keeps one user’s credentials out of another user’s terminal, and it keys
-each terminal’s operator secret as well as its password — so <em>every</em> deployment,
-authenticated or not, refuses to render when two roster names collide under it
-(<code class="docutils literal notranslate"><span class="pre">alice-b</span></code> and <code class="docutils literal notranslate"><span class="pre">alice_b</span></code>), or when a name falls outside
-<code class="docutils literal notranslate"><span class="pre">[a-z0-9][a-z0-9_-]*</span></code>.</p>
-<p>To change a password later:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>users<span class="w"> </span>passwd<span class="w"> </span>alice
-</pre></div>
-</div>
-<p>It prompts (never echoing), rewrites that one hash, and restarts the
-authentication service. Alice’s existing sessions stop working immediately, and
-nobody else’s are touched.</p>
+<p>To change one later, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">passwd</span> <span class="pre">alice</span></code> prompts, rewrites that hash
+and ends alice’s sessions; nobody else is touched. Password login is
+rate-limited per user but never locks anyone out — a control-room operator
+must not be shut out of the terminals.</p>
 </section>
-<section id="sessions-logging-out-and-rolling-back">
-<h2>Sessions, logging out, and rolling back<a class="headerlink" href="#sessions-logging-out-and-rolling-back" title="Link to this heading">#</a></h2>
-<p>This section is about the login page, so it applies to <code class="docutils literal notranslate"><span class="pre">password</span></code> and
-<code class="docutils literal notranslate"><span class="pre">oidc</span></code>; under <code class="docutils literal notranslate"><span class="pre">none</span></code> a card <em>is</em> the door, which is that posture’s whole
-point.</p>
-<p>The landing page stays public — it lists the roster so people can find their own
-card, and behind a login page a card is a prompt, not a door. One browser may
-hold several unlocked users at once, which is what a shared control-room machine
-needs; logging out ends that one user’s session and leaves the others alone.</p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>The list of logged-out sessions is held in the authentication service’s
-memory, so restarting that container forgets it. A cookie captured before a
-logout could be replayed until it expires on its own — within
-<code class="docutils literal notranslate"><span class="pre">auth.session_lifetime</span></code>.</p>
-</div>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p><strong>A role change takes effect at the next login.</strong> A session’s role is
-resolved when the session is minted and then travels inside the signed
-cookie, so editing a roster <code class="docutils literal notranslate"><span class="pre">role:</span></code> — or moving someone between groups at
-the provider — does not reach a session that is already open. It changes
-what their <em>next</em> login is granted. Where a role has to be withdrawn now,
-end the session rather than the role: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">decommission</span> <span class="pre">&lt;name&gt;</span></code>,
-or wait out <code class="docutils literal notranslate"><span class="pre">auth.session_lifetime</span></code>.</p>
-<p>Switching <code class="docutils literal notranslate"><span class="pre">auth.method</span></code> is the exception. Moving a deployment from
-passwords to single sign-on drops the role from every session minted under
-the old method straight away — that role was granted by a proof the
-deployment no longer accepts. Those sessions stay open until they expire;
-they just stop carrying a privilege.</p>
-</div>
-<p>Removing someone needs care, because a credential can outlive the person’s
-account in three different ways:</p>
-<p><strong>Use</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">remove</span> <span class="pre">alice</span></code> <strong>, not a hand-edit.</strong> Deleting a
-roster entry and running <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> removes alice’s container, and the
-authentication service stops answering for a name that is no longer on the
-roster — but her hash stays in <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code>. Add the name back months later and
-her old password works again. <code class="docutils literal notranslate"><span class="pre">decommission</span></code> (or <code class="docutils literal notranslate"><span class="pre">prune</span></code>, for names already
-edited out) is what actually retires the credential.</p>
-<p><strong>A plaintext password in</strong> <code class="docutils literal notranslate"><span class="pre">.env</span></code> <strong>survives decommission.</strong> If you seeded
-alice’s password by putting <code class="docutils literal notranslate"><span class="pre">OSPREY_AUTH_PW_ALICE</span></code> in the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>,
-decommissioning her clears the hash but leaves that line — and the next
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> for a new alice hashes it straight back in, handing the new
-person the departed one’s password. The decommission warns you, but the warning
-scrolls past in a deploy log weeks before anyone reuses the name. <strong>Delete the</strong>
-<code class="docutils literal notranslate"><span class="pre">.env</span></code> <strong>line by hand when the person leaves.</strong></p>
-<p><strong>In OIDC mode,</strong> <code class="docutils literal notranslate"><span class="pre">decommission</span></code> <strong>is the verb that ends a session.</strong>
-<code class="docutils literal notranslate"><span class="pre">prune</span></code> cleans up users already off the roster, but it only restarts the
-authentication service when it actually removed a password entry — and an OIDC
-user has none. Their container is gone either way, so the stale route just
-fails; but if what you need is that person’s <em>session</em> closed now, run
-<code class="docutils literal notranslate"><span class="pre">decommission</span></code>.</p>
-<p>To turn the login page back off, set <code class="docutils literal notranslate"><span class="pre">auth.method:</span> <span class="pre">token</span></code> and run <code class="docutils literal notranslate"><span class="pre">osprey</span>
-<span class="pre">up</span></code>. That re-renders nginx and the compose file, drops the authentication
-service, and returns the stack to the per-user login URLs described at the top
-of this page. <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code> is left in place, so turning login on again keeps
-everyone’s existing password. <code class="docutils literal notranslate"><span class="pre">auth.method:</span> <span class="pre">none</span></code> goes one step further and
-drops the URLs too — it is refused unless every persona denies the four egress
-tools, so read <a class="reference internal" href="#multi-user-open-mode"><span class="std std-ref">the open posture</span></a> before you switch
-to it.</p>
+<section id="removing-someone-and-turning-it-off">
+<h2>Removing someone, and turning it off<a class="headerlink" href="#removing-someone-and-turning-it-off" title="Link to this heading">#</a></h2>
+<p>A credential can outlive an account, so:</p>
+<ul class="simple">
+<li><p><strong>Use</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">remove</span> <span class="pre">alice</span></code>, not a hand-edit of the roster —
+removing the entry alone leaves her hash in <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code>, and adding the
+name back months later revives her password. <code class="docutils literal notranslate"><span class="pre">decommission</span></code> (or
+<code class="docutils literal notranslate"><span class="pre">prune</span></code>, for names already edited out) retires the credential and, under
+OIDC, ends the session.</p></li>
+<li><p><strong>A plaintext</strong> <code class="docutils literal notranslate"><span class="pre">OSPREY_AUTH_PW_ALICE</span></code> <strong>in</strong> <code class="docutils literal notranslate"><span class="pre">.env</span></code> <strong>survives
+decommission</strong> and would be hashed straight back in for the next alice.
+Delete the line by hand when the person leaves.</p></li>
+<li><p>Logging out is remembered in the authentication service’s memory only; a
+cookie captured before a logout can be replayed until it expires, within
+<code class="docutils literal notranslate"><span class="pre">auth.session_lifetime</span></code>.</p></li>
+</ul>
+<p>To turn the login page off, set <code class="docutils literal notranslate"><span class="pre">auth.method:</span> <span class="pre">token</span></code> and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>;
+<code class="docutils literal notranslate"><span class="pre">.env.auth</span></code> is kept, so turning it back on keeps everyone’s password.
+<code class="docutils literal notranslate"><span class="pre">auth.method:</span> <span class="pre">none</span></code> goes one step further and drops the login URLs too —
+read <a class="reference internal" href="#multi-user-open-mode"><span class="std std-ref">the open posture</span></a> first.</p>
 </section>
 </section>
 
@@ -1111,7 +945,7 @@ to it.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#leave-one-entry-public">Leave one entry public</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#serve-it-over-https">Serve it over HTTPS</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#passwords-and-where-they-live">Passwords, and where they live</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#sessions-logging-out-and-rolling-back">Sessions, logging out, and rolling back</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#removing-someone-and-turning-it-off">Removing someone, and turning it off</a></li>
 </ul>
   </nav></div>
 
