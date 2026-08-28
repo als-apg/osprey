@@ -20,8 +20,12 @@ from pathlib import Path
 
 import pytest
 
+from osprey.cli.templates.claude_code import DENY_DEFAULTS
 from osprey.deployment.web_terminals import provision
-from osprey.deployment.web_terminals.artifacts import BashLaunchTokenConflictError
+from osprey.deployment.web_terminals.artifacts import (
+    BashLaunchTokenConflictError,
+    OpenModeEgressError,
+)
 from osprey.deployment.web_terminals.auth_credentials import (
     AUTH_ENV_FILENAME,
     PW_HASH_VAR_PREFIX,
@@ -303,6 +307,29 @@ def _auth_config(method: str, users=("alice", "bob"), auth_image="reg/osprey-aut
     }
 
 
+def _write_deploy_project_settings(project_root: Path) -> None:
+    """Ship the deploy project's own `.claude/settings.json`, as a scaffold does.
+
+    A bare-string roster entry runs the deploy project itself, so that file is the
+    settings artifact the entry ships — and the open-mode gate fails closed on its
+    absence. Every real project root has one; a fixture root without one models a
+    deployment that cannot exist, and would make `auth.method: none` unreachable in
+    tests that are not about the gate at all.
+
+    A root this cannot be written to is left alone rather than failed on: the
+    unwritable-root cases below are about a different refusal entirely, and none of
+    them runs an open deployment.
+    """
+    import contextlib
+    import json
+
+    with contextlib.suppress(OSError):
+        (project_root / ".claude").mkdir(parents=True, exist_ok=True)
+        (project_root / ".claude" / "settings.json").write_text(
+            json.dumps({"permissions": {"deny": list(DENY_DEFAULTS)}}), encoding="utf-8"
+        )
+
+
 def _run_preflight(monkeypatch, project_root: Path, config: dict):
     """Run the preflight from `project_root` with the non-auth steps neutered.
 
@@ -310,6 +337,7 @@ def _run_preflight(monkeypatch, project_root: Path, config: dict):
     a registry-mode root with no .env.production); it is covered by
     test_env_production.py, so stub it out to keep these assertions about auth.
     """
+    _write_deploy_project_settings(project_root)
     monkeypatch.chdir(project_root)
     monkeypatch.setattr(provision, "ensure_env_production", lambda config, root: None)
     return provision.preflight_web_terminals(config)
@@ -1135,7 +1163,11 @@ def _persona_project(root: Path, name: str, *, writes: bool, denies_bash: bool) 
         ),
         encoding="utf-8",
     )
-    deny = ["Bash", "Edit"] if denies_bash else ["Edit"]
+    # The template's own `deny_defaults`, verbatim — what a rendered project really
+    # ships. These rosters run `auth.method: none`, and the open-mode gate refuses
+    # a persona that does not deny the whole host-network egress set, so a shorter
+    # list here would refuse every one of these tests for the wrong reason.
+    deny = [entry for entry in DENY_DEFAULTS if denies_bash or entry != "Bash"]
     (project_dir / ".claude" / "settings.json").write_text(
         json.dumps({"permissions": {"deny": deny}}), encoding="utf-8"
     )
@@ -1199,6 +1231,191 @@ def test_preflight_refuses_before_any_credential_is_minted(monkeypatch, tmp_path
         provision.preflight_web_terminals(_persona_roster_config(tmp_path, denies_bash=False))
 
     assert reached == []
+
+
+# ---------------------------------------------------------------------------
+# preflight_web_terminals -- the OPEN-mode egress gate
+#
+# The twin of the block above, and pinned in the same two places for the same
+# reason: the render seam's tests cover WHAT is refused, and only this placement
+# can cover WHEN. The gate sits immediately after the Bash guard and ahead of
+# `ensure_env_production`, so an open deployment whose personas can reach its own
+# terminals is refused before the image build and before a credential is minted.
+# ---------------------------------------------------------------------------
+
+
+def _egress_permitting_roster_config(root: Path, *, lift: str = "WebFetch") -> dict:
+    """The same open roster, whose persona denies the shell but ships one web tool.
+
+    `denies_bash=True` deliberately: the Bash/launch-token guard runs first and
+    would refuse this roster on its own terms, and a test that let it fire would
+    pin the placement of the wrong guard. What is left for the open-mode gate is
+    a single lifted egress entry.
+    """
+    import json
+
+    config = _persona_roster_config(root, denies_bash=True)
+    (root / "profiles" / "rw" / ".claude" / "settings.json").write_text(
+        json.dumps({"permissions": {"deny": [entry for entry in DENY_DEFAULTS if entry != lift]}}),
+        encoding="utf-8",
+    )
+    return config
+
+
+def test_preflight_refuses_an_egress_permitting_persona_under_open_mode(monkeypatch, tmp_path):
+    """The fail-fast gate for the open posture: a persona that still holds one
+    web tool stops the deploy in seconds, naming the persona and the entry.
+
+    `ensure_env_production` is deliberately NOT stubbed, exactly as in the Bash
+    twin above. It raises on this root too, so demanding specifically an
+    `OpenModeEgressError` proves the egress refusal is what the operator is told
+    about — a gate moved below it would surface the wrong error here."""
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(OpenModeEgressError) as excinfo:
+        provision.preflight_web_terminals(_egress_permitting_roster_config(tmp_path))
+
+    message = str(excinfo.value)
+    assert "'readwrite'" in message
+    assert "'WebFetch'" in message
+
+
+def test_preflight_refuses_the_open_deployment_before_any_credential_is_minted(
+    monkeypatch, tmp_path
+):
+    """The reason this gate sits where it does rather than merely somewhere in
+    the function. Open mode's remedy is often "turn auth on", which is exactly
+    the deployment whose passwords must not already have been minted and printed
+    for a stack that never comes up."""
+    monkeypatch.chdir(tmp_path)
+    reached: list[str] = []
+    monkeypatch.setattr(
+        provision, "ensure_env_production", lambda config, root: reached.append("env_production")
+    )
+    monkeypatch.setattr(
+        provision, "_provision_auth_secrets", lambda wt, root: reached.append("auth_secrets")
+    )
+
+    with pytest.raises(OpenModeEgressError):
+        provision.preflight_web_terminals(_egress_permitting_roster_config(tmp_path))
+
+    assert reached == []
+
+
+def test_preflight_passes_a_persona_that_denies_the_whole_egress_set(monkeypatch, tmp_path):
+    """The negative control: the shipped deny list clears this gate too, so the
+    guard cannot be passing by refusing every open deployment."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(provision, "ensure_env_production", lambda config, root: None)
+
+    provision.preflight_web_terminals(_persona_roster_config(tmp_path, denies_bash=True))
+
+
+# ---------------------------------------------------------------------------
+# Open mode requires the render the gate reads -- in BOTH image-source modes
+#
+# `check_open_mode_requirements` reads each persona's rendered
+# `.claude/settings.json` and fails closed on one it cannot read. On a pull-only
+# host nothing renders those projects, so without this every registry-mode open
+# deployment met a refusal whose remedy could not clear it. The render problem is
+# reported first so the operator meets the one thing they can act on.
+# ---------------------------------------------------------------------------
+
+
+def _registry_open_repo(root: Path, *, rendered: bool) -> dict:
+    """A registry-mode, open deployment repo; its one persona rendered or not."""
+    import json
+
+    import yaml
+
+    (root / "personas").mkdir(parents=True, exist_ok=True)
+    (root / "profile.yml").write_text("name: Facility\n", encoding="utf-8")
+    (root / ".env").write_text("ANTHROPIC_API_KEY=sk-facility\n", encoding="utf-8")
+    (root / "personas" / "operator.yml").write_text("name: operator\n", encoding="utf-8")
+    if rendered:
+        # Both copies a build leaves behind: the flat host render the catalog
+        # names, and the container repo its image is built from.
+        project = root / "build" / "op"
+        context = root / "build" / ".image" / "op" / "build"
+        (project / ".claude").mkdir(parents=True)
+        context.mkdir(parents=True)
+        for directory in (project, context):
+            (directory / "config.yml").write_text(
+                yaml.safe_dump({"project_name": "op"}), encoding="utf-8"
+            )
+            (directory / "Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
+        (project / ".claude" / "settings.json").write_text(
+            json.dumps({"permissions": {"deny": list(DENY_DEFAULTS)}}), encoding="utf-8"
+        )
+    return {
+        "facility": {"prefix": "als"},
+        "modules": {
+            "web_terminals": {
+                "enabled": True,
+                "image_source": "registry",
+                "auth": {"method": "none"},
+                "users": [{"name": "alice", "index": 0, "persona": "operator"}],
+                "personas": {
+                    "operator": {
+                        "project": "op",
+                        "project_path": "build/op",
+                        "build_profile": "personas/operator.yml",
+                    }
+                },
+            }
+        },
+    }
+
+
+def test_an_open_registry_deployment_is_asked_for_the_render_the_gate_reads(monkeypatch, tmp_path):
+    """The dead end this closes. Registry mode renders nothing on this host, and
+    the gate fails closed on the artifact it cannot read — so the operator was
+    told to restore deny entries in files that are not there, and no rebuild or
+    re-pull could clear it. The render requirement comes FIRST, and the refusal
+    that follows names the missing render rather than four entries."""
+    root = tmp_path.resolve()
+    monkeypatch.chdir(root)
+
+    findings, _advisories = provision.web_terminal_preflight_report(
+        _registry_open_repo(root, rendered=False), repo_root=root
+    )
+
+    problems = [problem for problem, _remedy in findings]
+    assert any(
+        "has no rendered project at build/op" in problem and "osprey build" in problem
+        for problem in problems
+    )
+    assert any(
+        "'operator' has no rendered .claude/settings.json on this host" in problem
+        for problem in problems
+    )
+
+
+def test_a_rendered_registry_deployment_still_starts_open(monkeypatch, tmp_path):
+    """The counterfactual that keeps the requirement honest: a registry-mode open
+    deployment whose personas ARE rendered here, denying the whole egress set,
+    draws no finding at all. The cost of gating on a shipped artifact is one
+    `osprey build`, not the end of open registry deployments."""
+    root = tmp_path.resolve()
+    monkeypatch.chdir(root)
+
+    findings, _advisories = provision.web_terminal_preflight_report(
+        _registry_open_repo(root, rendered=True), repo_root=root
+    )
+
+    assert findings == []
+
+
+def test_a_walled_registry_deployment_is_not_asked_for_a_render(monkeypatch, tmp_path):
+    """The scope of the requirement, pinned. Only OPEN mode reads a rendered
+    artifact to decide whether a start is safe; a token or password deployment
+    on a pull-only host has nothing here to render and must not be told to."""
+    root = tmp_path.resolve()
+    monkeypatch.chdir(root)
+    config = _registry_open_repo(root, rendered=False)
+    config["modules"]["web_terminals"]["auth"] = {"method": "token"}
+
+    assert provision.persona_render_problem(config, root) is None
 
 
 def test_preflight_passes_a_persona_that_denies_bash(monkeypatch, tmp_path):

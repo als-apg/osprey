@@ -87,13 +87,26 @@ _LOOPBACK_BIND_HOST = "127.0.0.1"
 # an absent config value renders the same image from either side.
 _DEFAULT_NGINX_IMAGE = "nginx:1.27-alpine"
 
-#: The authentication methods this deployment can actually serve: ``none`` (no
-#: auth at all), ``password`` (OSPREY-managed scrypt hashes) and ``oidc``
-#: (Authlib client against a facility IdP). Anything else is a hard config
-#: error rather than a forward-compatible passthrough — nginx would emit the
-#: ``auth_request`` seam against a sidecar that cannot answer for that method,
-#: which does fail closed but only as an unactionable 403 on every request.
-SUPPORTED_AUTH_METHODS = ("none", "password", "oidc")
+#: The TLS seam's listener port. A literal because the template makes it one:
+#: there is no ``tls.port`` key to read, the ``443`` is spelled inside
+#: nginx.conf.j2's block gated on ``tls_enabled``. Defined here, beside the
+#: render that stamps it into the perimeter deny-list, and imported by ``lint``
+#: for its port-collision check — never restated there, since two spellings of
+#: one hard-coded listener is exactly how a collision check comes to reserve a
+#: port the template does not use.
+TLS_LISTEN_PORT = 443
+
+#: The authentication methods this deployment can actually serve: ``none``
+#: (open — every terminal is navigation-only, nginx vouches for every request),
+#: ``token`` (the default: no login wall, each user's terminal is entered once
+#: through its own ``?token=`` magic link), ``password`` (OSPREY-managed scrypt
+#: hashes) and ``oidc`` (Authlib client against a facility IdP). Anything else
+#: is a hard config error rather than a forward-compatible passthrough — nginx
+#: would emit the ``auth_request`` seam against a sidecar that cannot answer for
+#: that method, which does fail closed but only as an unactionable 403 on every
+#: request. Consumers never compare against these names: they read the derived
+#: booleans :func:`_auth_tls_context` returns beside ``auth_method``.
+SUPPORTED_AUTH_METHODS = ("none", "token", "password", "oidc")
 
 #: Port the auth sidecar listens on when ``auth.port`` is unset. Deliberately
 #: outside the per-user port families (which start at ``*_base_port`` and grow
@@ -288,8 +301,8 @@ def _secret_template_content(username: str) -> str:
     return (
         f"# Rendered by OSPREY (osprey.deployment.web_terminals.render).\n"
         f"# Injects {username}'s operator secret into requests proxied to that\n"
-        f"# user's terminal. Included only from that user's authenticated\n"
-        f"# location, so no terminal ever sees another user's secret. The value\n"
+        f"# user's terminal. Included only from that user's own /u/ location,\n"
+        f"# so no terminal ever sees another user's secret. The value\n"
         f"# is substituted by nginx's entrypoint at container start from\n"
         f"# {terminal_secret_env_var(username)}, and appears in no rendered artifact.\n"
         f"proxy_set_header {TERMINAL_SECRET_HEADER} "
@@ -341,23 +354,25 @@ def clear_nginx_templates_dir(dest: Path | str) -> list[Path]:
 
 
 def _terminal_secret_artifacts(
-    services: list[dict[str, Any]], terminal_secrets: dict[str, str], *, auth_method: str
+    services: list[dict[str, Any]], terminal_secrets: dict[str, str], *, inject_secret: bool
 ) -> dict[str, str]:
-    """Build one nginx template snippet per roster user with a GATED location.
+    """Build one nginx template snippet per roster user whose location injects one.
 
     Every roster user is CHECKED — the four refusals below cover the whole
     roster, because every user's container reads its own secret whatever the
     perimeter does with it — but only a user whose ``/u/<user>/`` location
     actually ``include``s a snippet gets one written. That is exactly the
-    predicate nginx.conf.j2 emits the include under (``auth_method != "none"
-    and not svc.login_exempt``), spelled here so the two cannot disagree.
+    predicate nginx.conf.j2 emits the include under (``inject_secret and not
+    svc.login_exempt``), spelled here character-for-character so the two cannot
+    disagree: a snippet with no include is a dead secret, an include with no
+    snippet is a proxy that refuses to start.
 
     A snippet for anyone else is a plaintext operator secret substituted into
-    the nginx container's filesystem for no reader: with authentication off
-    nginx injects no header at all (the browser reaches the app through that
-    user's own ``?token=`` exchange), and a ``login: false`` entry is served
-    ungated with the header explicitly CLEARED. Not written, so the invariant
-    the nginx ``-T`` tests reason about — every file under
+    the nginx container's filesystem for no reader: under ``token`` nginx
+    injects no header at all (the browser reaches the app through that user's
+    own ``?token=`` exchange), and a ``login: false`` entry is served ungated
+    with the header explicitly CLEARED whatever the method. Not written, so the
+    invariant the nginx ``-T`` tests reason about — every file under
     ``/etc/nginx/osprey`` is included by exactly one location — holds by
     construction rather than by luck.
 
@@ -367,12 +382,15 @@ def _terminal_secret_artifacts(
         terminal_secrets: ``{username: secret}`` as provisioned into the deploy
             ``.env``. Only the KEYS are used — a value is read solely to refuse
             an absent one, and is never rendered anywhere.
-        auth_method: The parsed ``auth.method`` (see :func:`_auth_tls_context`).
-            ``"none"`` means no location is gated, so no snippet is written.
+        inject_secret: Whether nginx injects the operator secret on the
+            non-exempt ``/u/<user>/`` locations at all — the ``inject_secret``
+            boolean of :func:`_auth_tls_context` (true for ``none``,
+            ``password`` and ``oidc``; false for ``token``). ``False`` means no
+            location includes anything, so no snippet is written.
 
     Returns:
-        ``{output-relative path: content}``, one entry per gated roster user —
-        empty when nothing is gated.
+        ``{output-relative path: content}``, one entry per injecting roster
+        user — empty when nothing injects.
 
     Raises:
         ValueError: On any of four fail-closed conditions — a roster name that
@@ -452,7 +470,7 @@ def _terminal_secret_artifacts(
     return {
         _secret_template_path(service["user"]): _secret_template_content(service["user"])
         for service in services
-        if auth_method != "none" and not service.get("login_exempt")
+        if inject_secret and not service.get("login_exempt")
     }
 
 
@@ -793,7 +811,7 @@ def render_web_terminals(
             reason ``auth_env_digest`` is. Supplying it adds one
             ``nginx/templates/secret-<user>.conf.template`` to the returned
             mapping (see :data:`NGINX_TEMPLATES_OUTPUT_DIR`) for each roster
-            user whose location is GATED — the only ones an ``include`` ever
+            user whose location INJECTS one — the only ones an ``include`` ever
             reads (see :func:`_terminal_secret_artifacts`); the three artifacts
             render byte-identically either way. **Only the keys are used.** A value is read solely to refuse an absent one — no
             secret value enters any rendered artifact, which is why the snippet
@@ -812,7 +830,7 @@ def render_web_terminals(
         ``docker-compose.web.yml``, ``nginx/nginx.conf`` and
         ``nginx/landing.html``, plus — only when ``terminal_secrets`` is
         supplied — one ``nginx/templates/secret-<user>.conf.template`` per
-        roster user with a gated location. The write seam clears that directory
+        roster user whose location injects one. The write seam clears that directory
         first (see
         :func:`clear_nginx_templates_dir`), so a decommissioned user's snippet
         cannot survive a re-render.
@@ -1096,7 +1114,7 @@ def render_web_terminals(
         )
     _check_tls_host_cert_dir(auth_tls_ctx)
     if (
-        auth_tls_ctx["auth_method"] != "none"
+        auth_tls_ctx["sidecar_active"]
         and not auth_tls_ctx["tls_enabled"]
         and not auth_tls_ctx["auth_allow_insecure_http"]
     ):
@@ -1111,12 +1129,12 @@ def render_web_terminals(
     # both are right about it, but they explain it differently and only one of
     # them applies in both postures: with a login wall the name is the
     # authorization identity (the nginx location key, the `?user=` value), which
-    # is the more urgent thing to say, so that gate gets first refusal; with
-    # `auth.method: none` it returns and the audit gate refuses the same name as
-    # a directory. Reversing these two would leave the charset gate unreachable.
-    _check_roster_charset(services, auth_tls_ctx["auth_method"])
+    # is the more urgent thing to say, so that gate gets first refusal; without
+    # a sidecar it returns and the audit gate refuses the same name as a
+    # directory. Reversing these two would leave the charset gate unreachable.
+    _check_roster_charset(services, auth_tls_ctx)
     _check_roster_audit_identities(services)
-    _check_roster_env_var_collisions(services, auth_tls_ctx["auth_method"])
+    _check_roster_env_var_collisions(services, auth_tls_ctx)
     # Parsed on every render, authenticated or not: `roles:` binds privileges
     # through the roster in every posture, and an incoherent stanza must stop
     # the deployment rather than render artifacts that bind the wrong ones.
@@ -1125,9 +1143,13 @@ def render_web_terminals(
     # Built (and refused) ahead of the Jinja pass so a roster user with no
     # operator secret stops the render before any artifact exists, rather than
     # after three of them have been produced.
+    # Keyed on `inject_secret`, exactly as nginx.conf.j2 keys the `include`
+    # that reads the snippet. The two predicates must never move apart: a
+    # snippet nobody includes is a plaintext secret in the container for no
+    # reader, and an include with no snippet stops nginx at start.
     secret_templates = (
         _terminal_secret_artifacts(
-            services, terminal_secrets, auth_method=auth_tls_ctx["auth_method"]
+            services, terminal_secrets, inject_secret=auth_tls_ctx["inject_secret"]
         )
         if terminal_secrets is not None
         else {}
@@ -1136,11 +1158,11 @@ def render_web_terminals(
     tls_enabled = auth_tls_ctx["tls_enabled"]
     # The one origin every absolute URL in this deployment is built from (see
     # _external_origin). Derived only when something actually needs it: a
-    # roster-less config with no auth has no absolute URL to build, and must
+    # roster-less config with no sidecar has no absolute URL to build, and must
     # keep rendering without a deploy.fqdn.
     external_origin = (
         _external_origin(root, nginx_port, tls_enabled=tls_enabled)
-        if services or auth_tls_ctx["auth_method"] != "none"
+        if services or auth_tls_ctx["sidecar_active"]
         else ""
     )
     landing_url = _landing_url(root, nginx_port, tls_enabled=tls_enabled) if services else ""
@@ -1164,6 +1186,47 @@ def render_web_terminals(
     bundle_path = raw_bundle_path.strip() if isinstance(raw_bundle_path, str) else ""
     mirror_path = configured_ariel_mirror_path(root)
 
+    # The open posture, and the deployment's own web ports, stamped onto every
+    # per-user container so the code an agent runs inside one can be told which
+    # ports it must not open a connection to. Both are derived HERE, from the
+    # roster this render already resolved: a process inside the container could
+    # not re-derive the set (it knows its own port and nothing about its
+    # neighbours), and a sandbox that derived its own deny-list could equally
+    # derive an empty one.
+    #
+    # `open` is the ONE posture that needs it. There the perimeter is nginx —
+    # it injects each user's operator secret on every proxied location, so
+    # anything that reaches nginx from the deploy host is already authenticated
+    # as whoever that location belongs to. Under `token`/`password`/`oidc` a
+    # caller still has to present a credential the sandbox does not hold, so
+    # there is nothing to deny and no stamp is emitted at all.
+    #
+    # The set is the nginx port plus every roster user's WEB port: the terminals
+    # and the front door, which is exactly what the injected secret opens.
+    # Companion panel families (artifact, ariel, ...) are deliberately NOT in
+    # it — they are not what nginx grants; the in-container panel proxy
+    # addresses them legitimately, and none of them fronts a terminal, an agent
+    # session, or an approval prompt, which is what this deny-list guards.
+    perimeter_open = auth_tls_ctx["open_perimeter"]
+    # The TLS seam's listener (`TLS_LISTEN_PORT`) joins the set only when
+    # `tls.enabled` is on. There nginx.conf.j2 renders `listen 443 ssl` as the
+    # SOLE content server and demotes `nginx_port` to a redirect — so a list
+    # carrying only `nginx_port` would name the door that redirects and miss the
+    # one that serves. `nginx_port` stays in either way: the redirect listener
+    # still accepts the connection, and the redirect it answers with is the map
+    # to everything else.
+    #
+    # Sorted and de-duplicated, so the rendered line is a function of the
+    # roster and not of dict iteration order — this file is diffed between
+    # deploys.
+    perimeter_deny_ports = sorted(
+        {
+            nginx_port,
+            *([TLS_LISTEN_PORT] if tls_enabled else []),
+            *(service["web"] for service in services),
+        }
+    )
+
     compose_ctx = {
         "facility_prefix": facility_prefix,
         "registry_url": registry.get("url") or "",
@@ -1172,6 +1235,16 @@ def render_web_terminals(
         "nginx_port": nginx_port,
         "landing_url": landing_url,
         "facility_timezone": facility.get("timezone") or "UTC",
+        # The navigation-only perimeter stamp (see the derivation above).
+        # `open_perimeter` is the ONE gate the template reads for it, rather
+        # than the template re-combining `inject_secret`/`sidecar_active`
+        # itself: the posture is interpreted once, in `_auth_tls_context`,
+        # exactly as the method name is.
+        "perimeter_open": perimeter_open,
+        # Rendered as the comma-separated literal the container reads back.
+        # Joined HERE so the template holds no list formatting and the
+        # separator the parser splits on is spelled in one place.
+        "perimeter_deny_ports": ",".join(str(port) for port in perimeter_deny_ports),
         "bind_host": _LOOPBACK_BIND_HOST,
         # Read defensively (as everywhere else in this module); the template
         # carries the same default, so an absent/blank value still renders the
@@ -1211,7 +1284,7 @@ def render_web_terminals(
         "facility_bundle_gid": str(facility_bundle_gid) if facility_bundle_gid is not None else "",
         # The sidecar's own audit subdir, both ends of it. Emitted
         # unconditionally, like every other key here; the template uses them
-        # only inside the block it already gates on `auth_method != "none"`,
+        # only inside the block it already gates on `sidecar_active`,
         # because a deployment with no sidecar service has nothing to mount them
         # into.
         "auth_audit_identity": AUTH_SIDECAR_AUDIT_IDENTITY,
@@ -1728,12 +1801,42 @@ def _auth_tls_context(web_terminals: dict[str, Any]) -> dict[str, Any]:
     the templates turn ``tls_enabled``/``auth_method`` into actual `listen 443
     ssl` / `auth_request` directives.
 
-    Both stanzas remain entirely optional and default to the inert posture: no
-    authentication, no TLS. Every value is read defensively (wrong-typed entries
+    Both stanzas remain entirely optional. ``tls`` defaults to off; ``auth``
+    defaults to ``token``, today's magic-link posture. Every value is read defensively (wrong-typed entries
     fall back to their default, as everywhere else in this module — lint is the
     authoritative gate on schema well-formedness) with one exception: an
     ``auth.method`` string naming a method that does not exist raises, because
     the resulting deployment would emit an auth seam nothing can answer.
+
+    The four methods and what they mean:
+
+    * ``none`` — OPEN, navigation-only. Everyone who can reach nginx is
+      trusted; nginx vouches for every request to a non-exempt terminal by
+      injecting that user's terminal secret, so the landing page needs no
+      login and no token. No sidecar.
+    * ``token`` — the DEFAULT. No login wall and no sidecar; nginx injects
+      nothing, so each terminal's own ``?token=`` -> cookie exchange is the one
+      gate and a browser passes it once per user via the minted login URL.
+    * ``password`` / ``oidc`` — a login wall: the auth sidecar answers every
+      ``auth_request`` and nginx injects the secret only behind it.
+
+    Every consumer decides on the derived booleans below rather than on the
+    method name, so a new method cannot fork a branch somebody forgot:
+
+    * ``sidecar_active`` — a sidecar service is rendered and every non-exempt
+      location carries an ``auth_request`` (``password``/``oidc``).
+    * ``inject_secret`` — nginx injects the per-user terminal secret on
+      non-exempt locations (``password``/``oidc``/``none``; NOT ``token``).
+    * ``walled`` — a login wall stands in front of the roster. Identical to
+      ``sidecar_active``; spelled separately because its readers ask a
+      different question (who has a login) than the sidecar's do.
+    * ``token_exchange`` — the browser reaches every terminal through the
+      per-user magic link (``token`` only).
+    * ``open_perimeter`` — nginx vouches for every non-exempt terminal with no
+      wall in front of it (``none`` only). Derived here rather than recombined
+      as ``inject_secret and not sidecar_active`` by each reader, because it is
+      the posture the perimeter stamp, the egress deploy gate and the lint rule
+      all key on and a second spelling of it is a second thing to get wrong.
 
     Args:
         web_terminals: The already-unwrapped ``modules.web_terminals`` dict (as
@@ -1741,7 +1844,10 @@ def _auth_tls_context(web_terminals: dict[str, Any]) -> dict[str, Any]:
 
     Returns:
         A dict with the auth keys ``auth_method`` (one of
-        :data:`SUPPORTED_AUTH_METHODS`, defaults to ``"none"``), ``auth_port``
+        :data:`SUPPORTED_AUTH_METHODS`, defaults to ``"token"``), the derived
+        booleans
+        ``sidecar_active``/``inject_secret``/``walled``/``token_exchange``/``open_perimeter``
+        described above, ``auth_port``
         (int, the sidecar's listen port), ``auth_session_lifetime`` (int
         seconds), ``auth_allow_insecure_http`` (bool), ``auth_image`` (str or
         ``None`` — required only in registry image-source mode),
@@ -1763,15 +1869,22 @@ def _auth_tls_context(web_terminals: dict[str, Any]) -> dict[str, Any]:
     oidc = as_dict(auth.get("oidc"))
 
     method = auth.get("method")
-    auth_method = method if isinstance(method, str) and method else "none"
+    auth_method = method if isinstance(method, str) and method else "token"
     if auth_method not in SUPPORTED_AUTH_METHODS:
         raise ValueError(
             f"modules.web_terminals.auth.method {auth_method!r} is not a supported "
             f"authentication method; expected one of {', '.join(SUPPORTED_AUTH_METHODS)}"
         )
+    sidecar_active = auth_method in ("password", "oidc")
 
     return {
         "auth_method": auth_method,
+        # The ONLY place the method name is interpreted; see the docstring.
+        "sidecar_active": sidecar_active,
+        "inject_secret": sidecar_active or auth_method == "none",
+        "walled": sidecar_active,
+        "token_exchange": auth_method == "token",
+        "open_perimeter": auth_method == "none",
         "auth_port": _positive_int(auth.get("port"), _DEFAULT_AUTH_PORT),
         "auth_session_lifetime": _positive_int(
             auth.get("session_lifetime"), _DEFAULT_SESSION_LIFETIME
@@ -2143,7 +2256,7 @@ def _check_roster_audit_identities(services: list[dict[str, Any]]) -> None:
         )
 
 
-def _check_roster_charset(services: list[dict[str, Any]], auth_method: str) -> None:
+def _check_roster_charset(services: list[dict[str, Any]], auth_tls_ctx: dict[str, Any]) -> None:
     """Fail-closed render gate: with authentication on, every roster name must
     match the username charset.
 
@@ -2158,9 +2271,9 @@ def _check_roster_charset(services: list[dict[str, Any]], auth_method: str) -> N
     rather than produce a seam whose meaning depends on how the sidecar's query
     parser breaks a tie.
 
-    Scoped to authentication being on, deliberately — but no longer the only
-    gate on the charset. With ``auth.method: none`` the username is a routing
-    label rather than an authorization identity, so none of the reasoning above
+    Scoped to the sidecar being active, deliberately — but no longer the only
+    gate on the charset. Without a sidecar the username is a routing label
+    rather than an authorization identity, so none of the reasoning above
     applies and this function returns; what still applies in that posture is
     that the name is a DIRECTORY, and
     :func:`_check_roster_audit_identities` refuses it there on those grounds and
@@ -2170,14 +2283,16 @@ def _check_roster_charset(services: list[dict[str, Any]], auth_method: str) -> N
 
     Args:
         services: The resolved per-user service entries (each with a ``user``).
-        auth_method: The parsed ``auth.method`` (see :func:`_auth_tls_context`).
+        auth_tls_ctx: The parsed auth context (see :func:`_auth_tls_context`);
+            ``sidecar_active`` decides, ``auth_method`` names the posture.
 
     Raises:
-        ValueError: If authentication is on and any roster name is outside the
+        ValueError: If the sidecar is active and any roster name is outside the
             charset. The message names every offender.
     """
-    if auth_method == "none":
+    if not auth_tls_ctx["sidecar_active"]:
         return
+    auth_method = auth_tls_ctx["auth_method"]
     # fullmatch, not match: `$` also matches *before* a trailing newline, so
     # `match` would accept "alice\n" — a name that then renders into an nginx
     # location key mid-directive.
@@ -2198,7 +2313,9 @@ def _check_roster_charset(services: list[dict[str, Any]], auth_method: str) -> N
         )
 
 
-def _check_roster_env_var_collisions(services: list[dict[str, Any]], auth_method: str) -> None:
+def _check_roster_env_var_collisions(
+    services: list[dict[str, Any]], auth_tls_ctx: dict[str, Any]
+) -> None:
     """Fail-closed render gate: with authentication on, no two roster names may
     share one per-user env-var suffix.
 
@@ -2216,14 +2333,16 @@ def _check_roster_env_var_collisions(services: list[dict[str, Any]], auth_method
 
     Args:
         services: The resolved per-user service entries (each with a ``user``).
-        auth_method: The parsed ``auth.method`` (see :func:`_auth_tls_context`).
+        auth_tls_ctx: The parsed auth context (see :func:`_auth_tls_context`);
+            ``sidecar_active`` decides, ``auth_method`` names the posture.
 
     Raises:
-        ValueError: If authentication is on and two or more names collide. The
+        ValueError: If the sidecar is active and two or more names collide. The
             message names each colliding group and the suffix they share.
     """
-    if auth_method == "none":
+    if not auth_tls_ctx["sidecar_active"]:
         return
+    auth_method = auth_tls_ctx["auth_method"]
     collisions = env_var_suffix_collisions([service["user"] for service in services])
     if collisions:
         detail = "; ".join(

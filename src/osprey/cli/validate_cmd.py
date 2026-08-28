@@ -120,7 +120,7 @@ def check_profile_file(profile_file: Path) -> None:
         raise click.UsageError("Profile validation failed:\n  - " + "\n  - ".join(web_errors))
 
     # Advisory findings are printed rather than raised: they name real exposures
-    # (a privileged terminal in front of `auth.method: none`) that are not
+    # (a privileged terminal with no login wall — `auth.method: token` or `none`) that are not
     # mistakes every deployment has made, so they must not fail a CI gate — but
     # a finding nobody prints is a finding nobody has.
     for warning in deploy_aware_config_warnings(

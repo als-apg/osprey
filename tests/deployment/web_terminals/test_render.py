@@ -1589,8 +1589,9 @@ def test_nginx_mounts_resolve_into_the_repos_build_zone(tmp_path) -> None:
     assert {"nginx/nginx.conf", "nginx/landing.html"} <= set(artifacts)
 
 
-def test_auth_default_none() -> None:
-    """No `web_terminals.auth` stanza -> auth_method defaults to 'none' (v1 has no auth)."""
+def test_auth_default_token() -> None:
+    """No `web_terminals.auth` stanza -> auth_method defaults to 'token' (the magic-link
+    posture: no login wall, no sidecar, one ?token= exchange per user)."""
     # Arrange
     web_terminals = copy.deepcopy(_MULTI_USER_CONFIG)["modules"]["web_terminals"]
 
@@ -1598,10 +1599,10 @@ def test_auth_default_none() -> None:
     context = _auth_tls_context(web_terminals)
 
     # Assert
-    assert context["auth_method"] == "none"
+    assert context["auth_method"] == "token"
 
 
-def test_auth_default_none_reads_configured_method() -> None:
+def test_auth_default_token_reads_configured_method() -> None:
     """A configured `web_terminals.auth.method` is read through, not clobbered by the default."""
     # Arrange
     web_terminals = copy.deepcopy(_MULTI_USER_CONFIG)["modules"]["web_terminals"]
@@ -1614,10 +1615,10 @@ def test_auth_default_none_reads_configured_method() -> None:
     assert context["auth_method"] == "password"
 
 
-def test_auth_method_non_string_falls_back_to_none() -> None:
+def test_auth_method_non_string_falls_back_to_token() -> None:
     """A malformed (non-str) `auth.method` (well-formedness is lint's job, not this
     function's) must not leak into the rendered seam as-is — it falls back to the
-    same inert "none" default as an absent/empty method."""
+    same "token" default as an absent/empty method."""
     # Arrange
     web_terminals = copy.deepcopy(_MULTI_USER_CONFIG)["modules"]["web_terminals"]
     web_terminals["auth"] = {"method": {"nested": "not-a-string"}}
@@ -1626,7 +1627,7 @@ def test_auth_method_non_string_falls_back_to_none() -> None:
     context = _auth_tls_context(web_terminals)
 
     # Assert
-    assert context["auth_method"] == "none"
+    assert context["auth_method"] == "token"
 
 
 def test_tls_default_off() -> None:
@@ -1679,7 +1680,7 @@ def test_auth_context_defaults_are_inert_without_an_auth_stanza() -> None:
     context = _auth_tls_context(web_terminals)
 
     # Assert
-    assert context["auth_method"] == "none"
+    assert context["auth_method"] == "token"
     assert context["auth_allow_insecure_http"] is False
     assert context["auth_image"] is None
     assert context["auth_oidc_issuer"] is None
@@ -1885,7 +1886,7 @@ def test_render_auth_context_gate_does_not_fire_for_method_none() -> None:
     assert "auth_request" not in artifacts["nginx/nginx.conf"]
 
 
-def test_render_succeeds_with_auth_default_none_and_tls_default_off() -> None:
+def test_render_succeeds_with_auth_default_token_and_tls_default_off() -> None:
     """A config with no auth/tls stanzas at all still renders the full artifact set — 1.4 only
     establishes the config contract, it must not change Phase-1 render behavior."""
     # Arrange
@@ -1918,7 +1919,7 @@ def test_render_tolerates_non_dict_auth_and_tls_stanzas() -> None:
     context = _auth_tls_context(config["modules"]["web_terminals"])
 
     # Assert
-    assert context["auth_method"] == "none"
+    assert context["auth_method"] == "token"
     assert context["tls_enabled"] is False
     assert "docker-compose.web.yml" in artifacts
 
@@ -2012,9 +2013,9 @@ def test_nginx_seam_auth_method_set_gates_every_proxied_user_location() -> None:
     assert "return 200;" not in directives
 
 
-def test_nginx_seam_auth_none_omits_auth_request_even_with_tls_enabled() -> None:
+def test_nginx_seam_auth_token_omits_auth_request_even_with_tls_enabled() -> None:
     """The two seams are independently gated: TLS on with `auth.method` left at its
-    "none" default must still omit `auth_request` entirely."""
+    "token" default must still omit `auth_request` entirely."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
     config["modules"]["web_terminals"]["tls"] = {
@@ -2030,6 +2031,35 @@ def test_nginx_seam_auth_none_omits_auth_request_even_with_tls_enabled() -> None
     # Assert
     assert "listen 443 ssl;" in nginx_conf
     assert "auth_request" not in nginx_conf
+
+
+def test_nginx_seam_open_omits_auth_request_even_with_tls_enabled() -> None:
+    """`none` is the combination worth stating separately: it is the one
+    method that renders BOTH TLS and an injected credential and still stands no
+    wall.
+
+    Encrypting the transport says nothing about who may cross it, and injecting
+    a secret is the perimeter vouching for a request rather than checking one.
+    A seam that read either as authentication would put a login wall in front
+    of a deployment whose whole posture is that the network is the perimeter.
+    """
+    # Arrange
+    config = _open_config()
+    config["modules"]["web_terminals"]["tls"] = {
+        "enabled": True,
+        "cert": "/etc/nginx/certs/dls.crt",
+        "key": "/etc/nginx/certs/dls.key",
+    }
+
+    # Act
+    nginx_conf = render_web_terminals(config)["nginx/nginx.conf"]
+
+    # Assert
+    assert "listen 443 ssl;" in nginx_conf
+    assert "auth_request" not in nginx_conf
+
+    # Assert — non-vacuous: this render really is the injecting posture.
+    assert _secret_include("alice") in _directives(nginx_conf)
 
 
 # ---------------------------------------------------------------------------
@@ -2168,6 +2198,17 @@ def _auth_config(users: list[str] | None = None, **auth: object) -> dict:
     stanza: dict = {"method": "password", "allow_insecure_http": True}
     stanza.update(auth)
     config["modules"]["web_terminals"]["auth"] = stanza
+    return config
+
+
+def _open_config(users: list | None = None) -> dict:
+    """A rendering config in the open posture (`auth.method: none`).
+
+    No `allow_insecure_http`: the cleartext refusal guards a sidecar's session
+    cookies, and this posture mints none.
+    """
+    config = _config(users if users is not None else ["alice", "bob", "carol"])
+    config["modules"]["web_terminals"]["auth"] = {"method": "none"}
     return config
 
 
@@ -2317,13 +2358,15 @@ def test_auth_location_verify_subrequest_fails_fast() -> None:
     assert "proxy_read_timeout 3600s;" in _location_body(nginx_conf, "location /u/alice/")
 
 
-def test_auth_location_absent_when_method_is_none() -> None:
-    """`auth.method: none` renders no auth target, no `auth_request`, and no
-    reference to the sidecar's port — byte-for-byte the pre-auth output.
+def test_no_sidecar_surface_when_the_method_runs_no_sidecar() -> None:
+    """Neither method without a sidecar renders a verify target, an
+    `auth_request` or the sidecar's port — the login wall is `sidecar_active`'s
+    alone.
 
-    (The wider byte-equality guarantee is pinned by the golden fixtures in
-    test_golden_render.py; this asserts the property directly for the explicit
-    `method: none` spelling as well as the absent-stanza default.)
+    The two are no longer the same render, which is the point of `none`: the
+    absent-stanza default (`token`) injects nothing, while `none` includes each
+    non-exempt user's secret snippet. What they share is the whole sidecar
+    surface being missing, and that is what is asserted of both.
     """
     # Arrange
     default_config = copy.deepcopy(_MULTI_USER_CONFIG)
@@ -2335,10 +2378,39 @@ def test_auth_location_absent_when_method_is_none() -> None:
     explicit_conf = _render_nginx(explicit_none)
 
     # Assert
-    assert explicit_conf == default_conf
-    assert "_osprey_auth" not in default_conf
-    assert "auth_request" not in default_conf
-    assert "9070" not in default_conf
+    for conf in (default_conf, explicit_conf):
+        assert "_osprey_auth" not in conf
+        assert "auth_request" not in conf
+        assert "9070" not in conf
+
+    # Assert — and the one thing that DOES separate them. Read off the
+    # directives: the template names this very include in the prose above it.
+    assert _secret_include("alice") in _directives(explicit_conf)
+    assert "include " not in _directives(default_conf)
+
+
+def test_the_absent_auth_stanza_renders_exactly_the_explicit_token_posture() -> None:
+    """An unwritten `auth:` block is not a fourth posture — it IS `token`.
+
+    Asserted across every artifact rather than on the nginx fragment alone,
+    because the default is what every deployment that never opted into
+    authentication renders: a divergence between the absent spelling and the
+    written one would change those deployments on an upgrade, silently, in
+    whichever artifact happened to read the method rather than a derived
+    boolean.
+    """
+    # Arrange
+    absent = copy.deepcopy(_MULTI_USER_CONFIG)
+    explicit = copy.deepcopy(_MULTI_USER_CONFIG)
+    explicit["modules"]["web_terminals"]["auth"] = {"method": "token"}
+
+    # Act
+    secrets = _secrets_for(["alice", "bob", "carol"])
+
+    # Assert
+    assert render_web_terminals(absent, terminal_secrets=secrets) == render_web_terminals(
+        explicit, terminal_secrets=secrets
+    )
 
 
 def test_auth_location_zero_users_renders_no_auth_targets() -> None:
@@ -2449,9 +2521,10 @@ def test_auth_public_location_does_not_expose_the_verify_endpoint() -> None:
     assert all("/verify?user=" in line for line in verify_lines)
 
 
-def test_auth_public_location_absent_when_method_is_none() -> None:
-    """No sidecar, no public login surface — a `none` deployment renders no
-    `/auth/` location at all."""
+def test_auth_public_location_absent_when_method_is_token() -> None:
+    """No sidecar, no public login surface — a `token` deployment renders no
+    `/auth/` location at all. (`none` is held by the open-render tests in
+    test_nginx_auth_surface.py, which rule out the bare prefix as well.)"""
     # Act
     nginx_conf = _render_nginx(copy.deepcopy(_MULTI_USER_CONFIG))
 
@@ -2506,14 +2579,15 @@ def test_cookie_strip_spares_the_sidecar_locations() -> None:
     assert "Cookie" not in _directives(_location_body(nginx_conf, "location = /_osprey_auth/alice"))
 
 
-def test_cookie_strip_absent_when_method_is_none() -> None:
-    """Without authentication the cookie is not CUT — it is the only gate left.
+def test_cookie_strip_absent_when_method_is_token() -> None:
+    """Under `token` the cookie is not CUT — it is the only gate left.
 
     There is no sidecar session to keep out of a container here, but there is
     still a shared cookie jar: one origin serves every terminal, so the browser's
     raw `Cookie` header names every OTHER user's session this browser holds. So
-    the auth-off location forwards exactly one cookie — the one this user's own
-    app issued — and nothing else.
+    the location forwards exactly one cookie — the one this user's own app
+    issued, which under this method is the whole authorization — and nothing
+    else.
     """
     # Act
     nginx_conf = _render_nginx(copy.deepcopy(_MULTI_USER_CONFIG))
@@ -2691,8 +2765,8 @@ def test_negotiated_401_login_target_is_the_public_auth_prefix() -> None:
     assert "auth_request" not in _location_body(nginx_conf, "location /auth/")
 
 
-def test_negotiated_401_absent_when_method_is_none() -> None:
-    """Nothing to negotiate without authentication: no map, no `error_page`,
+def test_negotiated_401_absent_when_method_is_token() -> None:
+    """Nothing to negotiate without a wall: no map, no `error_page`,
     no handler."""
     # Act
     nginx_conf = _render_nginx(copy.deepcopy(_MULTI_USER_CONFIG))
@@ -2701,6 +2775,27 @@ def test_negotiated_401_absent_when_method_is_none() -> None:
     assert "$osprey_auth_wants_login_page" not in nginx_conf
     assert "error_page" not in nginx_conf
     assert "@osprey_auth_401" not in nginx_conf
+
+
+def test_negotiated_401_absent_when_the_method_is_open() -> None:
+    """Injecting a credential is not the same as being able to ask for one.
+
+    The negotiation exists to turn a denied subrequest into either a login page
+    or a bare 401, depending on what the client is. Under `none` no request is
+    ever denied at the perimeter, so a map, an `error_page` or the named
+    handler here would describe a login flow with no login behind it — and the
+    handler redirects to `/auth/login`, which this deployment does not serve.
+    """
+    # Act
+    nginx_conf = _render_nginx(_open_config())
+
+    # Assert
+    assert "$osprey_auth_wants_login_page" not in nginx_conf
+    assert "error_page" not in nginx_conf
+    assert "@osprey_auth_401" not in nginx_conf
+
+    # Assert — non-vacuous: this render is the injecting one, not an empty one.
+    assert _secret_include("alice") in _directives(nginx_conf)
 
 
 # ---------------------------------------------------------------------------
@@ -2868,12 +2963,27 @@ def _env_names(service: dict) -> list[str]:
     return [line.split("=", 1)[0] for line in service.get("environment", [])]
 
 
-def test_auth_sidecar_service_is_absent_for_method_none() -> None:
-    """The default posture renders the overlay it renders today: no sidecar service,
-    no auth environment, no reference to the credential file. Every deployment that
-    has not opted into authentication must be untouched by this feature."""
+@pytest.mark.parametrize(
+    "auth", [None, {"method": "token"}, {"method": "none"}], ids=["absent", "token", "open"]
+)
+def test_no_sidecar_service_is_rendered_for_a_method_that_stands_no_wall(
+    auth: dict | None,
+) -> None:
+    """Every wall-less posture renders the overlay it rendered before this
+    feature existed: no sidecar service, no auth environment, no reference to
+    the credential file.
+
+    `none` is the one worth stating rather than assuming. It DOES change the
+    nginx fragment — each non-exempt location injects that user's operator
+    secret — so it is the posture most likely to acquire a sidecar by
+    association. It must not: the whole content of `none` is that the network
+    is the perimeter, and a sidecar rendered beside it would be a login wall
+    nothing routes through, holding credentials nobody presents.
+    """
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
+    if auth is not None:
+        config["modules"]["web_terminals"]["auth"] = auth
 
     # Act
     rendered = render_web_terminals(config)["docker-compose.web.yml"]
@@ -2889,13 +2999,18 @@ def test_auth_sidecar_service_is_absent_for_method_none() -> None:
     assert AUTH_ENV_FILENAME not in rendered
 
 
-def test_auth_sidecar_service_is_the_only_service_authentication_adds() -> None:
+@pytest.mark.parametrize("method", ["password", "oidc"])
+def test_auth_sidecar_service_is_the_only_service_authentication_adds(method: str) -> None:
     """Turning auth on adds exactly one service — `auth` — and changes nothing about
     the per-user set. The name is deliberately not `web-auth`: usernames render as
     `web-<user>`, so a roster user named "auth" would collide with that spelling but
-    cannot collide with this one."""
+    cannot collide with this one.
+
+    Both sidecar methods, because the service is what `sidecar_active` renders
+    and neither method may reach that decision on its own.
+    """
     # Act
-    services = set(_compose(_auth_config())["services"])
+    services = set(_compose(_auth_config(method=method))["services"])
 
     # Assert
     assert services == {"auth", "nginx", "web-alice", "web-bob", "web-carol"}
@@ -3252,8 +3367,8 @@ def test_auth_sidecar_digest_label_is_omitted_when_no_digest_is_supplied() -> No
     assert AUTH_ENV_DIGEST_LABEL not in (auth.get("labels") or {})
 
 
-def test_method_none_render_is_byte_identical_with_and_without_a_digest() -> None:
-    """With authentication off there is no sidecar and no env_file to track:
+def test_method_token_render_is_byte_identical_with_and_without_a_digest() -> None:
+    """With no sidecar there is no env_file to track:
     a passed digest must leave the render untouched (and must not leak into
     any other service's definition)."""
     # Act
@@ -4160,10 +4275,10 @@ def test_no_secret_snippet_is_written_for_a_location_nothing_gates() -> None:
     """A snippet nothing `include`s is a plaintext secret in the nginx container
     for no reader.
 
-    nginx emits the include under exactly one predicate — `auth_method != "none"
-    and not svc.login_exempt` — so with authentication off nothing includes
-    anything, and a `login: false` entry is served ungated with the header
-    CLEARED. Neither gets a file. The roster REFUSALS still cover everyone: each
+    nginx emits the include under exactly one predicate — `inject_secret and
+    not svc.login_exempt` — so under `token` nothing includes anything, and a
+    `login: false` entry is served ungated with the header CLEARED whatever the
+    method. Neither gets a file. The roster REFUSALS still cover everyone: each
     user's own container reads its own secret whatever the perimeter does.
     """
     # Arrange
@@ -4450,7 +4565,7 @@ def test_the_secret_carrier_refuses_a_roster_name_that_is_not_one_snippet_filena
         _terminal_secret_artifacts(
             services,
             {"alice": "a", "../../etc/nginx/conf.d/evil": "b"},
-            auth_method="password",
+            inject_secret=True,
         )
 
 
@@ -4483,7 +4598,7 @@ def test_the_secret_carrier_refuses_a_dotted_name_that_derives_an_illegal_variab
     # Act / Assert
     with pytest.raises(ValueError, match=r"OSPREY_TERMINAL_SECRET_ALICE\.B"):
         _terminal_secret_artifacts(
-            [_secret_service("alice.b")], {"alice.b": "a-secret"}, auth_method="password"
+            [_secret_service("alice.b")], {"alice.b": "a-secret"}, inject_secret=True
         )
 
 
@@ -4526,7 +4641,7 @@ def test_the_secret_carrier_refuses_case_colliding_names_too() -> None:
         _terminal_secret_artifacts(
             [_secret_service("Alice"), _secret_service("alice")],
             _secrets_for(["Alice", "alice"]),
-            auth_method="password",
+            inject_secret=True,
         )
 
 
@@ -4578,6 +4693,17 @@ def _mixed_login_config(exempt: str) -> dict:
     )
 
 
+def _open_mixed_config(exempt: str) -> dict:
+    """The same roster in the open posture — the shape where the two ungated
+    locations differ from each other, one injected and one cleared."""
+    return _open_config(
+        [
+            {"name": "alice", "index": 0},
+            {"name": exempt, "index": 1, "login": False},
+        ]
+    )
+
+
 def test_nginx_gated_location_includes_only_its_own_users_secret_snippet() -> None:
     """Each authenticated location pulls in that user's snippet and no other's.
 
@@ -4619,17 +4745,48 @@ def test_nginx_secret_include_sits_inside_the_auth_guarded_branch() -> None:
     assert body.index(_secret_include("alice")) < body.index("proxy_pass ")
 
 
-def test_nginx_secret_include_absent_when_auth_method_is_none() -> None:
-    """With no gate in front of the app there is no authorized request for
-    nginx to vouch for, so it injects nothing and the app's own token->cookie
+def test_nginx_secret_include_absent_when_auth_method_is_token() -> None:
+    """`token` is the one method that injects nothing: the browser reaches each
+    app through that user's own `?token=` exchange and the app's own cookie
     session is the only gate — the posture the render had before this carrier
-    existed."""
+    existed. `none` is NOT this case; it injects without a login wall."""
     # Act
     nginx_conf = _render_nginx(copy.deepcopy(_MULTI_USER_CONFIG))
 
     # Assert
     assert "include " not in _directives(nginx_conf)
     assert "/etc/nginx/osprey/" not in nginx_conf
+
+
+def test_nginx_open_render_injects_the_secret_without_any_login_wall() -> None:
+    """The `none` method's whole shape, smoke-tested at the render seam.
+
+    Reaching this nginx IS the authorization, so every non-exempt location
+    carries its own user's snippet with no subrequest in front of it. An entry
+    that declared `login: false` opts out of that injection exactly as it opts
+    out of a login wall under `password`, and gets no snippet written for it.
+    """
+    # Arrange
+    config = _config([{"name": "alice", "index": 0}, {"name": "kiosk", "index": 1, "login": False}])
+    config["modules"]["web_terminals"]["auth"] = {"method": "none"}
+
+    # Act
+    artifacts = render_web_terminals(config, terminal_secrets=_secrets_for(["alice", "kiosk"]))
+    nginx_conf = artifacts["nginx/nginx.conf"]
+
+    # Assert — the non-exempt user is vouched for… (read off the directives:
+    # the template names this very include in the prose above it)
+    assert _secret_include("alice") in _directives(_location_body(nginx_conf, "location /u/alice/"))
+    # …the exempt one is not, and has the header cleared instead.
+    kiosk = _directives(_location_body(nginx_conf, "location /u/kiosk/"))
+    assert _secret_include("kiosk") not in kiosk
+    assert 'proxy_set_header X-Osprey-Terminal-Secret "";' in kiosk
+
+    # Assert — and no login wall was rendered anywhere.
+    assert "auth_request" not in nginx_conf
+    assert [path for path in artifacts if path.startswith("nginx/templates/")] == [
+        "nginx/templates/secret-alice.conf.template"
+    ]
 
 
 def test_nginx_login_exempt_location_gets_no_secret_and_keeps_its_cookie() -> None:
@@ -4653,17 +4810,26 @@ def test_nginx_login_exempt_location_gets_no_secret_and_keeps_its_cookie() -> No
 
 
 def test_nginx_secret_include_and_cookie_strip_share_one_predicate() -> None:
-    """The two effects are gated on one condition and must never diverge.
+    """Within a sidecar method the two effects move together and must never
+    diverge.
 
     A location with the strip but no header authenticates nothing and 401s
     every request; a location with the header but no strip lets an
     unauthenticated request carry an operator's session cookie into a container
     that runs agent-generated code. Asserted across every render shape rather
     than on one, because the divergence is what a later edit would reintroduce.
+
+    `none` is deliberately outside these shapes: it injects the header and
+    still narrows (rather than cuts) the cookie, because with no sidecar there
+    is no origin-wide `osprey_auth_session` for the strip to protect. Its own
+    pairing — the include beside the one forwarded session cookie — is pinned
+    by
+    `test_nginx_auth_surface.py::test_open_render_injects_each_non_exempt_users_own_secret_with_no_gate_in_front`,
+    which would fail if that render ever acquired the strip.
     """
     # Arrange
     shapes = {
-        "auth-off": (copy.deepcopy(_MULTI_USER_CONFIG), ["alice", "bob", "carol"]),
+        "token": (copy.deepcopy(_MULTI_USER_CONFIG), ["alice", "bob", "carol"]),
         "auth-on": (_auth_config(["alice", "bob"]), ["alice", "bob"]),
         "mixed": (_mixed_login_config("kiosk"), ["alice", "kiosk"]),
     }
@@ -4766,12 +4932,18 @@ def test_every_terminal_location_clears_the_authorization_header() -> None:
     costs nothing and closes the one route by which a caller could present a
     credential this proxy did not vouch for. Unconditional, unlike the cookie
     and secret headers: it is never legitimate here in any auth mode.
+
+    "Any auth mode" is the claim, so the open posture is one of the shapes: it
+    is the one where nginx DOES stamp a credential of its own, and a location
+    that forwarded the client's `Authorization` beside it would let a caller
+    add a second one the proxy never vouched for.
     """
     # Arrange
     shapes = {
-        "auth-off": (copy.deepcopy(_MULTI_USER_CONFIG), ["alice", "bob", "carol"]),
+        "token": (copy.deepcopy(_MULTI_USER_CONFIG), ["alice", "bob", "carol"]),
         "auth-on": (_auth_config(["alice", "bob"]), ["alice", "bob"]),
         "mixed": (_mixed_login_config("kiosk"), ["alice", "kiosk"]),
+        "open": (_open_mixed_config("kiosk"), ["alice", "kiosk"]),
     }
 
     # Act / Assert
@@ -4790,13 +4962,13 @@ def test_ungated_locations_clear_the_operator_secret_header() -> None:
     would let anyone who can reach the port authenticate as the operator.
     """
     # Arrange / Act
-    auth_off = _render_nginx(copy.deepcopy(_MULTI_USER_CONFIG))
+    token = _render_nginx(copy.deepcopy(_MULTI_USER_CONFIG))
     mixed = _render_nginx(_mixed_login_config("kiosk"))
     cleared = 'proxy_set_header X-Osprey-Terminal-Secret "";'
 
-    # Assert — every auth-off location clears it
+    # Assert — `token` injects nowhere, so every location clears it
     for user in ("alice", "bob", "carol"):
-        assert cleared in _directives(_location_body(auth_off, f"location /u/{user}/"))
+        assert cleared in _directives(_location_body(token, f"location /u/{user}/"))
 
     # Assert — with auth on, only the exempt location does; the gated one has
     # the include that SETS it and must not clear it afterwards.

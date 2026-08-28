@@ -1150,7 +1150,7 @@ def _candidate_image_tags(repo_root: Path, project: str) -> list[str]:
 
         auth_ctx = _auth_tls_context(web_terminals)
         if (
-            auth_ctx["auth_method"] != "none"
+            auth_ctx["sidecar_active"]
             and effective_image_source(web_terminals) == "local"
             and not auth_ctx["auth_image"]
         ):

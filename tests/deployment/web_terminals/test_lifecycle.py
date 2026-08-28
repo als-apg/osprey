@@ -10,15 +10,20 @@ container or volume is ever created or removed by these tests.
 
 from __future__ import annotations
 
+import json
 import subprocess
 
 import pytest
 import yaml
 from ruamel.yaml import YAML
 
+from osprey.cli.templates.claude_code import DENY_DEFAULTS
 from osprey.deployment.compose_generator import resolve_user_volume_names
 from osprey.deployment.web_terminals import lifecycle
-from osprey.deployment.web_terminals.artifacts import BashLaunchTokenConflictError
+from osprey.deployment.web_terminals.artifacts import (
+    BashLaunchTokenConflictError,
+    OpenModeEgressError,
+)
 from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME, PW_HASH_VAR_PREFIX
 from osprey.deployment.web_terminals.personas import resolve_personas
 from osprey.deployment.web_terminals.provision import AUTH_SERVICE_NAME
@@ -73,6 +78,15 @@ def _config(
 def _write_config(tmp_path, config):
     path = tmp_path / "config.yml"
     path.write_text(yaml.safe_dump(config), encoding="utf-8")
+    # The deploy project's own settings artifact, which a scaffolded root always
+    # ships. A bare-string roster entry runs the deploy project itself, so this is
+    # the file the open-mode gate reads for it — and that gate fails closed on an
+    # absent one, which would refuse every `auth.method: none` verb below for a
+    # reason none of them is about.
+    (tmp_path / ".claude").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".claude" / "settings.json").write_text(
+        json.dumps({"permissions": {"deny": list(DENY_DEFAULTS)}}), encoding="utf-8"
+    )
     return path
 
 
@@ -2392,6 +2406,73 @@ def test_decommission_refuses_before_touching_the_roster_when_a_survivor_is_conf
     assert [entry["name"] for entry in _reload_users(config_path)] == ["alice", "bob"]
     # And nothing downstream ran.
     assert [c for c in fake_runtime if c[1] == "rm"] == []
+
+
+def _open_mode_roster_config(tmp_path, users, *, personas):
+    """A roster running OPEN whose persona projects are really on disk.
+
+    `personas` maps a persona name to the tools its shipped settings LIFT from the
+    template's deny defaults, so a case can pair the open posture with a persona
+    that can still reach the host network and one that cannot.
+    """
+    catalog = {}
+    for name, lifted in personas.items():
+        project_dir = tmp_path / "profiles" / name
+        (project_dir / ".claude").mkdir(parents=True)
+        (project_dir / "config.yml").write_text(
+            yaml.safe_dump({"project_name": name, "control_system": {"writes_enabled": False}}),
+            encoding="utf-8",
+        )
+        (project_dir / ".claude" / "settings.json").write_text(
+            json.dumps({"permissions": {"deny": [e for e in DENY_DEFAULTS if e not in lifted]}}),
+            encoding="utf-8",
+        )
+        catalog[name] = {"project": name, "project_path": f"profiles/{name}"}
+    config = _config(users, personas=catalog)
+    config["modules"]["web_terminals"]["auth"] = {"method": "none"}
+    return config
+
+
+_OPEN_USERS = [
+    {"name": "alice", "index": 0, "persona": "reaching"},
+    {"name": "bob", "index": 1, "persona": "contained"},
+]
+_OPEN_PERSONAS = {"reaching": ("Bash",), "contained": ()}
+
+
+def test_decommission_refuses_before_touching_the_roster_when_open_mode_is_unsafe(
+    tmp_path, monkeypatch, fake_runtime
+):
+    """The open-mode gate is wired into decommission for the reason the Bash gate
+    is: the roster edit is what makes a failed decommission half-applied, so the
+    refusal has to land before it rather than at the re-render that follows."""
+    monkeypatch.chdir(tmp_path)
+    config_path = _write_config(
+        tmp_path, _open_mode_roster_config(tmp_path, _OPEN_USERS, personas=_OPEN_PERSONAS)
+    )
+
+    with pytest.raises(OpenModeEgressError) as excinfo:
+        lifecycle.decommission_user(str(config_path), "bob", assume_yes=True)
+
+    assert "reaching" in str(excinfo.value)
+    assert [entry["name"] for entry in _reload_users(config_path)] == ["alice", "bob"]
+    assert [c for c in fake_runtime if c[1] == "rm"] == []
+
+
+def test_decommission_of_the_open_mode_offenders_own_user_still_succeeds(
+    tmp_path, monkeypatch, fake_runtime
+):
+    """The same escape hatch, on the same POST-removal roster: removing the
+    offending persona's last user drops it from the referenced set, and that
+    removal is the one remediation needing no image rebuild."""
+    monkeypatch.chdir(tmp_path)
+    config_path = _write_config(
+        tmp_path, _open_mode_roster_config(tmp_path, _OPEN_USERS, personas=_OPEN_PERSONAS)
+    )
+
+    lifecycle.decommission_user(str(config_path), "alice", assume_yes=True)
+
+    assert [entry["name"] for entry in _reload_users(config_path)] == ["bob"]
 
 
 def test_decommission_of_the_conflicted_personas_own_user_still_succeeds(

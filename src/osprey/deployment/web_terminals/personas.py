@@ -1486,11 +1486,12 @@ def privileged_default_persona_problem(
 def auth_is_enforced(web_terminals: Any) -> bool:
     """Whether this deployment puts a login wall in front of its terminals at all.
 
-    ``auth.method: none`` (the default, and the whole ``auth`` stanza is
-    optional) means no entry has a login — which makes every terminal what
-    ``login: false`` makes one, and is why
-    :func:`unauthenticated_privileged_terminal_problems` takes this as a
-    parameter rather than reading ``login`` alone.
+    The render context's ``walled`` boolean: ``password``/``oidc`` stand a
+    sidecar in front of the roster; ``token`` (the default, and what an absent
+    ``auth`` stanza means) and ``none`` (open) do not, so under either no entry
+    has a login — which makes every terminal what ``login: false`` makes one,
+    and is why :func:`unauthenticated_privileged_terminal_problems` takes this
+    as a parameter rather than reading ``login`` alone.
 
     Routed through render's parsed auth context rather than re-reading
     ``auth.method`` here, so the guards cannot disagree with the nginx seam
@@ -1505,7 +1506,7 @@ def auth_is_enforced(web_terminals: Any) -> bool:
         context = _auth_tls_context(as_dict(web_terminals))
     except ValueError:
         return True
-    return bool(context["auth_method"] != "none")
+    return bool(context["walled"])
 
 
 def _privileged_entries(
@@ -1696,9 +1697,10 @@ def deployment_wide_privileged_exposure_problems(
         name = entry.get("name")
         problems.append(
             f"modules.web_terminals user {name!r} resolves to persona {persona!r}, which "
-            f"holds {privilege_phrase(privileges)}, and modules.web_terminals.auth.method is "
-            f"'none' — so anyone who can reach this deployment edits it. Turn "
-            f"authentication on (auth.method: password or oidc), or point {name!r} at a "
+            f"holds {privilege_phrase(privileges)}, and modules.web_terminals.auth.method "
+            f"puts no login wall in front of it — so anyone who can reach this deployment "
+            f"edits it. Turn authentication on (auth.method: password or oidc), or point "
+            f"{name!r} at a "
             f"persona that holds neither (the bundled stack's "
             f"{UNPRIVILEGED_TIER_EXAMPLE!r})"
         )
@@ -2202,8 +2204,8 @@ def resolve_personas(
 _BASH_DENY_ENTRY = "Bash"
 
 
-def settings_json_denies_bash(project_dir: Any) -> bool:
-    """True if ``<project_dir>/.claude/settings.json`` denies ``Bash`` outright.
+def settings_json_denies(project_dir: Any, tools: Iterable[str]) -> bool:
+    """True if ``<project_dir>/.claude/settings.json`` denies every tool in *tools*.
 
     Reads the **shipped build artifact**, not the ``config.yml`` that produced
     it, and that distinction is the whole point of this function. ``osprey up``
@@ -2225,7 +2227,13 @@ def settings_json_denies_bash(project_dir: Any) -> bool:
     would not close that window either — it is one step further from the image,
     not one step closer.
 
-    Only the exact ``"Bash"`` entry counts (see :data:`_BASH_DENY_ENTRY`).
+    Matching is by **exact entry**, never by tool-name resolution: a scoped deny
+    (``Bash(rm:*)``) constrains one command family and leaves the tool otherwise
+    usable, and a wildcard entry such as
+    ``mcp__plugin_playwright_playwright__*`` is compared as the literal string
+    the artifact carries. Callers therefore spell each tool exactly as
+    :data:`~osprey.cli.templates.claude_code.DENY_DEFAULTS` spells it, which is
+    what the ``settings.json.j2`` template writes.
 
     Fails **closed**: an artifact that cannot be read and parsed into a
     ``permissions.deny`` list is not evidence that anything is denied, so every
@@ -2237,12 +2245,44 @@ def settings_json_denies_bash(project_dir: Any) -> bool:
     Args:
         project_dir: The rendered persona project directory (the one holding
             ``config.yml`` and ``.claude/``).
+        tools: The ``permissions.deny`` entries that must **all** be present.
+            Asked as one question rather than one call per tool so a caller
+            wanting "denies the whole egress set" cannot accidentally accept a
+            persona that denies only part of it.
 
     Returns:
-        ``True`` only when the artifact was read, parsed, and lists ``"Bash"``
-        in ``permissions.deny``; ``False`` in every other case.
+        ``True`` only when the artifact was read, parsed, and lists every entry
+        in *tools*; ``False`` in every other case.
     """
-    settings_json = Path(project_dir) / ".claude" / "settings.json"
+    deny = settings_json_deny_entries(project_dir)
+    return deny is not None and deny.issuperset(tools)
+
+
+def settings_json_deny_entries(project_dir: Any) -> frozenset[str] | None:
+    """The ``permissions.deny`` entries the shipped artifact lists, or ``None``.
+
+    The read :func:`settings_json_denies` answers its yes/no question with, kept
+    separately for the caller that needs the whole set rather than one verdict:
+    a guard naming WHICH of several required entries a persona is missing would
+    otherwise re-read and re-parse the same small file once per entry.
+
+    Every property of the read — the shipped artifact rather than the config,
+    the BOM-tolerant decode, exact-entry matching, and failing closed on
+    anything it cannot turn into a deny list — is described on
+    :func:`settings_json_denies` and is unchanged here.
+
+    Args:
+        project_dir: The rendered persona project directory (the one holding
+            ``config.yml`` and ``.claude/``).
+
+    Returns:
+        The set of string ``permissions.deny`` entries, or ``None`` when the
+        artifact is absent, unreadable, unparseable, or carries no
+        ``permissions.deny`` list. ``None`` is deliberately distinct from an
+        empty set: "nothing is denied here" and "there is nothing to read" are
+        the same verdict for a guard but different sentences for an operator.
+    """
+    settings_json = settings_json_path(project_dir)
     try:
         # utf-8-sig, not utf-8: `json.load` does not strip a BOM, so a hand-edited
         # artifact saved with one would fail to parse and a genuinely Bash-denying
@@ -2251,11 +2291,122 @@ def settings_json_denies_bash(project_dir: Any) -> bool:
         with settings_json.open("r", encoding="utf-8-sig") as fh:
             settings = json.load(fh)
     except (OSError, ValueError):
-        return False
+        return None
     deny = as_dict(as_dict(settings).get("permissions")).get("deny")
     if not isinstance(deny, list):
-        return False
-    return _BASH_DENY_ENTRY in [entry for entry in deny if isinstance(entry, str)]
+        return None
+    return frozenset(entry for entry in deny if isinstance(entry, str))
+
+
+def settings_json_path(project_dir: Any) -> Path:
+    """Where a rendered persona project keeps the settings artifact this reads.
+
+    One spelling of ``.claude/settings.json``, so a guard asking whether the
+    artifact exists at all cannot look somewhere other than where the reads
+    above look.
+    """
+    return Path(project_dir) / ".claude" / "settings.json"
+
+
+def settings_json_is_rendered(project_dir: Any) -> bool:
+    """Whether *project_dir* holds a settings artifact at all.
+
+    Not a safety question — an artifact that exists proves nothing about what it
+    denies — but a phrasing one. A persona with no rendered project on this host
+    fails every deny check for a reason no ``permissions.deny`` edit can fix,
+    and telling that operator to add a deny entry sends them to a file that is
+    not there. Callers that fail closed ask this only to choose the sentence.
+    """
+    return settings_json_path(project_dir).is_file()
+
+
+def settings_json_denies_bash(project_dir: Any) -> bool:
+    """True if ``<project_dir>/.claude/settings.json`` denies ``Bash`` outright.
+
+    The one-tool case of :func:`settings_json_denies`, kept under its own name
+    because the Bash/launch-token guard asks exactly this question in four
+    places and reads better for saying so. Only the exact ``"Bash"`` entry
+    counts (see :data:`_BASH_DENY_ENTRY`); every other property — reading the
+    shipped artifact rather than the config, and failing closed on one it
+    cannot parse — belongs to :func:`settings_json_denies` and is described
+    there.
+
+    Args:
+        project_dir: The rendered persona project directory (the one holding
+            ``config.yml`` and ``.claude/``).
+
+    Returns:
+        ``True`` only when the artifact was read, parsed, and lists ``"Bash"``
+        in ``permissions.deny``; ``False`` in every other case.
+    """
+    return settings_json_denies(project_dir, (_BASH_DENY_ENTRY,))
+
+
+def personas_not_denying(config: Any, project_root: Any, tools: Iterable[str]) -> set[str]:
+    """Names of referenced personas whose shipped settings do **not** deny *tools*.
+
+    The roster-shaped form of :func:`settings_json_denies`, phrased as the
+    *unsafe* set so its caller can name every offending persona in one error
+    rather than re-deriving them.
+
+    Walks the roster itself rather than routing through the shared
+    ``config.yml`` engine the entitlement predicates use, because the question
+    is about the built artifact and not about intent — see
+    :func:`settings_json_denies`. Membership is inclusive for the same
+    fail-closed reason: a persona with no ``project_path``, or one whose project
+    is not rendered, is reported here as not denying anything.
+
+    Args:
+        config: The parsed deploy config.
+        project_root: Deploy project root; relative ``project_path`` values
+            resolve against it.
+        tools: The ``permissions.deny`` entries a persona must **all** ship to
+            stay out of the returned set.
+
+    Returns:
+        The subset of referenced persona names whose rendered
+        ``.claude/settings.json`` does not deny every named tool.
+    """
+    return {
+        persona_name
+        for persona_name, project_dir in referenced_persona_project_dirs(
+            config, project_root
+        ).items()
+        if project_dir is None or not settings_json_denies(project_dir, tools)
+    }
+
+
+def referenced_persona_project_dirs(config: Any, project_root: Any) -> dict[str, Path | None]:
+    """Every referenced persona's rendered project directory, ``None`` when it has none.
+
+    The roster walk behind :func:`personas_not_denying`, named on its own so a
+    caller asking several questions of the same artifact walks the roster once
+    and reads each persona's ``settings.json`` once. Both readers stay bound to
+    one definition of "referenced" and one resolution of ``project_path``, which
+    is what keeps a raising guard and an ask-only reader from disagreeing about
+    which personas a deployment even has.
+
+    Args:
+        config: The parsed deploy config.
+        project_root: Deploy project root; relative ``project_path`` values
+            resolve against it.
+
+    Returns:
+        ``{persona: directory}`` for every referenced persona, with ``None`` for
+        one whose catalog entry carries no usable ``project_path``. ``None`` is
+        not "clean": such a persona ships no artifact a guard can read, and
+        every fail-closed caller must treat it as denying nothing.
+    """
+    catalog, referenced = _referenced_personas(config)
+    dirs: dict[str, Path | None] = {}
+    for persona_name in sorted(referenced):
+        project_path = as_dict(catalog.get(persona_name)).get("project_path")
+        dirs[persona_name] = (
+            Path(project_root, project_path)
+            if isinstance(project_path, str) and project_path
+            else None
+        )
+    return dirs
 
 
 def personas_not_denying_bash(config: Any, project_root: Any) -> set[str]:
@@ -2271,14 +2422,10 @@ def personas_not_denying_bash(config: Any, project_root: Any) -> set[str]:
     :func:`personas_needing_launch_token_by_lane`
     therefore names exactly the personas a deploy must refuse.
 
-    Walks the roster itself rather than routing through the shared
-    ``config.yml`` engine the entitlement predicates use, because the question
-    is about the built artifact and not about intent — see
-    :func:`settings_json_denies_bash`. Membership is inclusive for the same
-    fail-closed reason: a persona with no ``project_path``, or one whose project
-    is not rendered, is reported here as not denying ``Bash``. That never
-    over-blocks a deploy, since a persona whose project is missing cannot
-    satisfy :func:`config_needs_launch_token` either and so drops out of the
+    The one-tool case of :func:`personas_not_denying`, which describes the walk
+    and the fail-closed membership rule. Being inclusive never over-blocks a
+    deploy here, since a persona whose project is missing cannot satisfy
+    :func:`config_needs_launch_token` either and so drops out of the
     intersection anyway.
 
     Args:
@@ -2290,14 +2437,4 @@ def personas_not_denying_bash(config: Any, project_root: Any) -> set[str]:
         The subset of referenced persona names whose rendered
         ``.claude/settings.json`` does not deny the shell.
     """
-    catalog, referenced = _referenced_personas(config)
-
-    permitting: set[str] = set()
-    for persona_name in sorted(referenced):
-        project_path = as_dict(catalog.get(persona_name)).get("project_path")
-        if not isinstance(project_path, str) or not project_path:
-            permitting.add(persona_name)
-            continue
-        if not settings_json_denies_bash(Path(project_root, project_path)):
-            permitting.add(persona_name)
-    return permitting
+    return personas_not_denying(config, project_root, (_BASH_DENY_ENTRY,))

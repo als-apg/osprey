@@ -160,7 +160,12 @@ def _three_problem_config(root: Path) -> dict:
             "web_terminals": {
                 "enabled": True,
                 "image_source": "local",
-                "auth": {"method": "none"},
+                # `token` — today's default posture, and what this fixture has always
+                # meant: no login wall, each terminal reached through its own magic
+                # link. `none` now means OPEN, which carries a collectable problem of
+                # its own (personas that can still reach the host network), and this
+                # deployment is about the other three.
+                "auth": {"method": "token"},
                 "default_persona": "readwrite",
                 "users": [
                     {"name": "alice", "index": 0, "persona": "unrendered"},
@@ -924,3 +929,57 @@ def test_a_privileged_default_persona_is_printed_and_the_start_proceeds(
 
     assert stubbed_start == ["build_image"]
     assert "default_persona" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# The open-mode egress refusal, as the collect-all pass reports it
+# ---------------------------------------------------------------------------
+# The pass ASKS the gate's predicate rather than raising on it, so its finding is
+# built from the same per-persona answer the gate would have raised with. Asking
+# only for the offender NAMES would report every deployment against the whole
+# four-entry egress set -- and the operator whose persona lifted exactly one of
+# them would go looking for four.
+
+
+def test_the_collect_all_preflight_reports_the_open_mode_refusal(
+    tmp_path, stubbed_start, monkeypatch
+):
+    """The refusal lands in the collect-all frame, and it names the ONE entry
+    this deployment is missing rather than the whole egress set."""
+    monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
+    config = _open_mode_terminal_config(tmp_path, lift="WebFetch")
+
+    with pytest.raises(UnmetPreconditionsError) as excinfo:
+        container_lifecycle._start_stack(config, [], tmp_path, detached=True)
+
+    problem = next(
+        problem
+        for problem, _remedy in excinfo.value.findings
+        if "may still reach the host network" in problem
+    )
+    headline = problem.split("\n")[0]
+    assert "'WebFetch'" in headline
+    # The three it DOES deny stay out of the headline: the report names what to
+    # restore, not what the posture requires in general.
+    assert "'Bash'" not in headline
+    assert stubbed_start == []  # nothing was built, nothing was started
+
+
+def _open_mode_terminal_config(root: Path, *, lift: str) -> dict:
+    """The rendered deployment above, opened up, with *lift* missing from one
+    persona's shipped deny list and every other persona clean."""
+    from osprey.cli.templates.claude_code import DENY_DEFAULTS
+
+    config = _open_terminal_config(root)
+    del config["modules"]["web_terminals"]["users"][1]["login"]
+    config["modules"]["web_terminals"]["auth"] = {"method": "none"}
+    for project, deny in (
+        ("readonly-app", list(DENY_DEFAULTS)),
+        ("admin-app", [entry for entry in DENY_DEFAULTS if entry != lift]),
+    ):
+        settings_dir = root / "build" / project / ".claude"
+        settings_dir.mkdir(parents=True)
+        (settings_dir / "settings.json").write_text(
+            json.dumps({"permissions": {"deny": deny}}), encoding="utf-8"
+        )
+    return config

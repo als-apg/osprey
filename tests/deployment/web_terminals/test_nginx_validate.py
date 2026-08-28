@@ -6,8 +6,9 @@ the strings happen to satisfy. This module closes that gap for real by actually
 invoking `nginx -t` inside `nginx:1.27-alpine` (the base image the deployed stack
 uses) against each render shape the auth/TLS seams can produce:
 
-- the default render (`auth.method` unset -> "none", `tls.enabled` unset -> False):
-  the seam is fully inert, matching the pre-auth plain-http posture.
+- the default render (`auth.method` unset -> "token", `tls.enabled` unset ->
+  False): no wall and no injection, each terminal reached through its own
+  `?token=` exchange — the pre-auth plain-http posture.
 - the fully enabled render (`tls.enabled: true` with a real self-signed cert/key
   pair generated fresh per test run, plus `auth.method: password`): two server
   blocks, the plain port's `return 301 https://…`, `listen 443 ssl` +
@@ -16,6 +17,11 @@ uses) against each render shape the auth/TLS seams can produce:
 - the cleartext-auth render (`auth.method: password` with
   `allow_insecure_http`, the shape a facility behind its own TLS terminator
   deploys): the same auth surface inside a *single* server block.
+- the open render (`auth.method: none`, with a `login: false` entry beside a
+  normal one): no sidecar surface at all, and yet the per-user `include` +
+  envsubst chain still runs — the only shape where a secret snippet is read at
+  start with no `auth_request` in front of it, and the only one whose two
+  ungated locations are shaped differently from each other.
 
 Every one of these tests asserts the constructs it means to validate are
 actually present in the rendered fragment before handing it to nginx — a
@@ -88,9 +94,9 @@ pytestmark = [
 ]
 
 
-def _config(
-    tls: dict | None = None, auth: dict | None = None, users: list[str] | None = None
-) -> dict:
+def _config(tls: dict | None = None, auth: dict | None = None, users: list | None = None) -> dict:
+    """A rendering config; *users* takes plain names or full roster entries (a
+    `login: false` one is what the open render's exempt case needs)."""
     web_terminals: dict = {
         "enabled": True,
         "nginx_port": 9080,
@@ -304,7 +310,7 @@ def _location_body(conf: str, user: str) -> str:
 
 
 def test_default_gated_off_render_passes_nginx_t() -> None:
-    """C1: the default (auth none / tls off) render is not just inert by
+    """C1: the default (auth token / tls off) render is not just inert by
     string-match — it's a config `nginx -t` actually accepts."""
     # Arrange
     artifacts = render_web_terminals(_config())
@@ -429,6 +435,93 @@ def test_cleartext_auth_render_passes_nginx_t() -> None:
 
     # Assert
     assert result.returncode == 0, result.stderr
+
+
+def test_open_render_with_an_exempt_entry_passes_nginx_t() -> None:
+    """C4: the open render (`auth.method: none`) — the only posture that reads a
+    per-user secret snippet at start with no `auth_request` in front of it.
+
+    Worth running real nginx against rather than string-matching, because what
+    is new here is a startup-time file dependency without the surface that used
+    to imply it. The `include` is a hard startup failure when the envsubst
+    output is missing, and under `none` there is no sidecar, no `/auth/` prefix
+    and no named 401 handler around it to fail first — so a template that got
+    the injection predicate and the artifact predicate even slightly out of
+    step would produce a config that renders cleanly and refuses to start.
+
+    A `login: false` entry sits beside the injected one deliberately: this is
+    the only render where two ungated locations are shaped differently from
+    each other, one carrying an include and the other the clear that replaces
+    it.
+
+    Asserted clean rather than merely accepted: a duplicate header name — which
+    is exactly what a clear written beside the include would be, and the
+    snippet is a separate file this test is the first to resolve — leaves nginx
+    exiting 0 with `could not build optimal proxy_headers_hash` on stderr, on
+    every start and every reload.
+    """
+    roster = [{"name": "alice", "index": 0}, {"name": "kiosk", "index": 1, "login": False}]
+    users = ["alice", "kiosk"]
+    secrets = _terminal_secrets(users)
+
+    # Arrange
+    artifacts = render_web_terminals(
+        _config(users=roster, auth={"method": "none"}), terminal_secrets=secrets
+    )
+    nginx_conf = artifacts["nginx/nginx.conf"]
+
+    # Arrange — guard against a vacuous green twice over: a render that had
+    # stopped injecting would pass `nginx -t` with nothing to validate, and one
+    # that had grown a login wall would not be this posture at all.
+    directives = _directives(nginx_conf)
+    assert "include /etc/nginx/osprey/secret-alice.conf;" in directives
+    assert "secret-kiosk.conf" not in nginx_conf
+    assert f'{TERMINAL_SECRET_HEADER} "";' in directives
+    assert "auth_request" not in directives
+    assert "location /auth/" not in directives
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        conf_dir = tmp_path / "conf"
+        templates_dir = tmp_path / "templates"
+        conf_dir.mkdir()
+        templates_dir.mkdir()
+        (conf_dir / "default.conf").write_text(nginx_conf)
+        # Under `none` the snippets ARE written — the artifact predicate is the
+        # injection predicate — so the same entrypoint chain the gated renders
+        # drive applies here, for the one non-exempt user.
+        _write_secret_templates(artifacts, templates_dir)
+        assert [path.name for path in sorted(templates_dir.iterdir())] == [
+            "secret-alice.conf.template"
+        ]
+        secret_env = {terminal_secret_env_var(user): value for user, value in secrets.items()}
+
+        # Act — `-T` so the resolved snippet is observable, not just accepted.
+        result = _run_nginx_t(
+            conf_dir,
+            certs_dir=None,
+            templates_dir=templates_dir,
+            secret_env=secret_env,
+            command=("nginx", "-T"),
+        )
+
+    # Assert — accepted, and accepted without complaint.
+    assert result.returncode == 0, result.stderr
+    assert "[warn]" not in result.stderr, result.stderr
+
+    # Assert — the injected user's secret is really in the resolved config, and
+    # the exempt user's is nowhere in it. Two occurrences of the header name:
+    # alice's snippet sets it, kiosk's location clears it.
+    dump = result.stdout
+    assert dump.count(TERMINAL_SECRET_HEADER) == 2
+    snippet = _config_file_sections(dump)[f"{_NGINX_ENVSUBST_OUTPUT_DIR}/secret-alice.conf"]
+    assert f'{TERMINAL_SECRET_HEADER} "{secrets["alice"]}";' in snippet
+    assert secrets["kiosk"] not in dump
+
+    # Assert — and the ungated entry claims the same name by clearing it, which
+    # is what keeps a client from supplying one.
+    kiosk_location = _location_body(_config_file_sections(dump)[_DEFAULT_CONF_PATH], "kiosk")
+    assert f'{TERMINAL_SECRET_HEADER} "";' in kiosk_location
 
 
 def test_secret_include_is_scoped_per_user_with_no_cross_leak() -> None:

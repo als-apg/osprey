@@ -23,6 +23,7 @@ through would be useless.
 from __future__ import annotations
 
 import copy
+import json
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,7 @@ import pytest
 import yaml
 
 from osprey.cli.build_profile import resolve_build_profile
+from osprey.cli.templates.claude_code import DENY_DEFAULTS
 from osprey.deployment.web_terminals.lint import (
     lint_profile_config,
     lint_web_terminals,
@@ -337,7 +339,10 @@ class TestAuthIsEnforced:
         "web_terminals,expected",
         [
             ({}, False),
+            # `none` is open and `token` is the magic-link posture: neither
+            # stands a login wall in front of the roster.
             ({"auth": {"method": "none"}}, False),
+            ({"auth": {"method": "token"}}, False),
             ({"auth": {"method": "password"}}, True),
             ({"auth": {"method": "oidc"}}, True),
             # An unknown method is lint's to reject; this guard does not pile on.
@@ -900,6 +905,24 @@ def _rendered_repo(tmp_path: Path, *, admin_config: dict[str, Any], login: Any) 
     }
 
 
+def _ship_persona_settings(root: Path, *projects: str, lifted: tuple[str, ...] = ()) -> None:
+    """Give each named rendered project the `.claude/settings.json` a build writes.
+
+    `_rendered_repo` writes only the `config.yml` the privilege rules read, which is
+    all those rules need. The open-mode egress gate reads this second artifact and
+    fails closed on its absence, so an `auth.method: none` deployment has to ship it
+    here too. `lifted` drops entries from the shipped deny list, the way a persona
+    whose config carried `remove_deny` would render.
+    """
+    for project in projects:
+        settings_dir = root / "build" / project / ".claude"
+        settings_dir.mkdir(parents=True, exist_ok=True)
+        deny = [entry for entry in DENY_DEFAULTS if entry not in lifted]
+        (settings_dir / "settings.json").write_text(
+            json.dumps({"permissions": {"deny": deny}}), encoding="utf-8"
+        )
+
+
 def _unrender(root: Path, project: str) -> None:
     """Remove a persona project's whole rendered directory.
 
@@ -1163,7 +1186,7 @@ class TestRenderedProjectBelt:
         assert UNKNOWN_PRIVILEGE_CODE in _codes(findings, "warn")
         message = _messages(findings, UNKNOWN_PRIVILEGE_CODE)[0]
         assert "'carol'" in message
-        assert "auth.method is 'none'" in message
+        assert "auth.method is not password or oidc" in message
         assert "turn authentication on" in message
         assert "[" not in message
 
@@ -1467,15 +1490,40 @@ class TestTheUpPreflightGate:
         assert self._problems(config, tmp_path, monkeypatch) == []
         assert any("default_persona" in message for message in self._advisories(config, tmp_path))
 
-    def test_auth_none_is_said_but_does_not_block(self, tmp_path: Path, monkeypatch):
-        """`auth.method: none` is the shipped default and a legitimate loopback
-        posture; a start refused over it would refuse deployments nobody
-        exposed."""
+    def test_open_mode_is_said_but_does_not_block_a_contained_deployment(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """`auth.method: none` (open) is a legitimate loopback posture, and the
+        privilege belt still only SAYS so: what a privileged terminal behind no wall
+        costs is an advisory, not a refusal, or a start would be refused over a
+        deployment nobody exposed.
+
+        What does refuse an open start is the separate egress gate, and only when a
+        persona can actually reach the deployment's own terminals — which is not the
+        case here, where both rendered projects ship the shipped deny list."""
         config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, login=None)
         config["modules"]["web_terminals"]["auth"] = {"method": "none"}
+        _ship_persona_settings(tmp_path, "ca-admin", "ca-readonly")
 
         assert self._problems(config, tmp_path, monkeypatch) == []
         assert any("auth.method" in message for message in self._advisories(config, tmp_path))
+
+    def test_open_mode_blocks_when_a_persona_may_reach_the_host_network(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """The other half of the same posture, and the promise this gate reversed:
+        open mode HAS a refusal. Nginx vouches for every terminal it proxies, so a
+        persona whose shipped settings lift the shell is one prompt away from a
+        neighbour's session — and that start is refused rather than advised."""
+        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, login=None)
+        config["modules"]["web_terminals"]["auth"] = {"method": "none"}
+        _ship_persona_settings(tmp_path, "ca-readonly")
+        _ship_persona_settings(tmp_path, "ca-admin", lifted=("Bash",))
+
+        problems = self._problems(config, tmp_path, monkeypatch)
+
+        assert any("may still reach the host network" in problem for problem in problems)
+        assert any("'admin'" in problem for problem in problems)
 
     def test_a_warn_with_a_blocking_code_is_printed_not_refused(self, tmp_path: Path, monkeypatch):
         """`persona_privileges_unknown` is in BOTH filter sets, because the same
@@ -1486,7 +1534,12 @@ class TestTheUpPreflightGate:
         A filter that matched on code alone would refuse this start over a
         posture the design deliberately does not block on."""
         config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, login=None)
-        config["modules"]["web_terminals"]["auth"] = {"method": "none"}
+        # `token` rather than `none`: this test is about the lint filter sets, and
+        # both postures stand no wall (`auth_is_enforced` reads `walled`), so they
+        # select the same finding. Under `none` the deliberately unrendered project
+        # would additionally trip the open-mode egress gate, which fails closed on a
+        # settings artifact it cannot read — a real refusal, but a different one.
+        config["modules"]["web_terminals"]["auth"] = {"method": "token"}
         _unrender(tmp_path, "ca-admin")
 
         assert self._problems(config, tmp_path, monkeypatch) == []

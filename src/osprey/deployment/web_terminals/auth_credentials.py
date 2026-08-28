@@ -167,7 +167,7 @@ class AuthCredentialsResult:
 #: What :func:`_validate_usernames` calls the thing it was about to provision,
 #: by default. Names the auth credentials because that is what the module's
 #: original caller mints; the terminal-secret caller passes its own, because it
-#: runs on EVERY deployment — ``auth.method: none`` included — and a refusal
+#: runs on EVERY deployment — sidecar or not — and a refusal
 #: naming "auth credentials" on an auth-off deployment describes a feature the
 #: operator did not turn on.
 _AUTH_CREDENTIALS_SUBJECT = "auth credentials"
@@ -565,7 +565,7 @@ class AuthSecretsResult:
 def ensure_auth_session_secrets(project_root: str | Path) -> AuthSecretsResult:
     """Mint the sidecar's cookie-signing secrets into ``.env.auth``.
 
-    Call on the deploy preflight path whenever ``auth.method != "none"``; the
+    Call on the deploy preflight path whenever the sidecar is active; the
     method itself is the caller's to read, exactly as it decides whether to
     call :func:`ensure_auth_credentials`.
 
@@ -783,7 +783,7 @@ def ensure_terminal_secrets(
     interpolates ``${OSPREY_TERMINAL_SECRET_<USER>}`` from for both services.
 
     Called on the deploy preflight path for EVERY deployment, including one with
-    ``auth.method: none``. Authentication decides who may reach a terminal
+    one without a sidecar. Authentication decides who may reach a terminal
     through the front door; this secret decides that the front door is the only
     way in at all, which an auth-off multi-user deployment needs just as much —
     arguably more, since nothing else stands between one user's browser and

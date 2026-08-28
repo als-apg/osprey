@@ -146,6 +146,38 @@
     nginx_port: int, required
       Host port nginx publishes for the landing page + per-user redirects.
 
+    perimeter_open: bool, required
+      True only under the OPEN posture (`auth.method: none`), where nginx
+      injects every user's operator secret and so authenticates every request
+      that reaches it. Resolved by render.py from `_auth_tls_context()` —
+      this template never recombines the derived booleans itself. False
+      suppresses BOTH perimeter lines below, byte for byte, so `token`,
+      `password` and `oidc` carry no stamp at all.
+
+    perimeter_deny_ports: str, required (never empty — always contains at
+    least the nginx port)
+      The deployment's own web ports as a comma-separated, ascending list of
+      integers ("9080,9091,9092") — nginx's published port, 443 when
+      `tls.enabled` puts the real content server behind the TLS listener, and
+      every roster user's terminal port. Nothing else: companion panel families
+      are excluded because they are not what the injected secret opens, the
+      in-container panel proxy addresses them legitimately, and none of them
+      fronts a terminal, an agent session, or an approval prompt — which is
+      what this deny-list guards. Emitted as OSPREY_WEB_PERIMETER_DENY_PORTS
+      beside the OSPREY_WEB_PERIMETER=open marker, gated on `perimeter_open`.
+
+      These are LITERALS, not credentials — a port list, held by a container
+      that already knows its own port — so they travel as plain
+      `environment:` values rather than through `.env.users` (see the
+      SECRETS section below, which is about values that must not be rendered
+      into this file).
+
+      Both are read by the MCP server PROCESS in this container, which passes
+      the parsed list to the execution sandbox it spawns and drops both names
+      from that child's environment. That is the point of stamping them: the
+      sandbox is told which ports are off limits by its parent and cannot
+      re-derive, widen or empty the list for itself.
+
     landing_url: str, required when `services` is non-empty
       The fully-qualified origin browsers use to reach nginx, e.g.
       "http://als-deploy.lbl.gov:9080" (scheme + deploy host + nginx_port, no
@@ -172,10 +204,20 @@
     AUTH SIDECAR (all from render.py's `_auth_tls_context()`, the single parser
     of `modules.web_terminals.auth`/`tls` — this template re-parses nothing):
 
-    auth_method: str, required ("none" | "password" | "oidc")
-      "none" (the default posture) renders NO `auth:` service at all — the
-      whole block below is suppressed, byte for byte, so a deployment that has
-      not opted into authentication carries no login surface.
+    auth_method: str, required ("none" | "token" | "password" | "oidc";
+      defaults to "token"). Informational — the gate below reads the derived
+      boolean, never the name.
+    sidecar_active: bool, required (auth_method is "password" or "oidc")
+      False renders NO `auth:` service at all — the whole block below is
+      suppressed, byte for byte, so a deployment without a login wall ("token"
+      or "none") carries no login surface.
+    inject_secret, walled, token_exchange: bool, required
+      The other derived booleans, passed for contract symmetry with
+      nginx.conf.j2; unread here. In particular `inject_secret` is TRUE for
+      "none", which renders no sidecar service at all — the secret carrier
+      below (the templates mount, the envsubst output tmpfs, the per-user
+      `OSPREY_TERMINAL_SECRET_*` reference) is emitted unconditionally and
+      already covers that method with no gate of its own.
     auth_port: int, required
       Host port the sidecar's uvicorn binds — on `bind_host` only, exactly like
       the per-user apps. nginx (same host netns) is the only thing that reaches
@@ -486,7 +528,9 @@ services:
        base image ships no `/etc/nginx/osprey`. Without this the per-user secret
        snippets are never rendered, and nginx then dies at start on the
        unconditional `include /etc/nginx/osprey/secret-<user>.conf` every
-       authenticated location carries (nginx.conf.j2). A tmpfs, not a bind or a
+       secret-injecting location carries (nginx.conf.j2 emits it under
+       `inject_secret`, so `none` needs this directory exactly as `password`
+       and `oidc` do). A tmpfs, not a bind or a
        named volume: the content is regenerated from the mounted templates on
        every start and must never outlive the container or touch disk — the
        secret VALUES are what land here after substitution. Emitted at every
@@ -531,7 +575,7 @@ services:
    that ended `start_period: 10s`. Service key "auth" cannot collide with a
    roster user — users render as `web-<user>` — nor with nginx or any base
    docker-compose.yml service. #}
-{%- if auth_method != "none" %}
+{%- if sidecar_active %}
 
   auth:
     {#- Registry mode pins `auth.image`; local mode leaves it unset and the
@@ -700,7 +744,7 @@ services:
    role.
 
    Ungated on the method, unlike the `claims:` family above: the enclosing
-   `auth_method != "none"` around this whole service is what keeps it out of a
+   `sidecar_active` around this whole service is what keeps it out of a
    login-free deployment, and there is no method that mints a session without a
    container behind it to have been rendered. #}
 {%- for svc in services %}
@@ -790,6 +834,28 @@ services:
       - OSPREY_TERMINAL_BIND_HOST={{ bind_host }}
       - OSPREY_TERMINAL_WEB_PORT={{ svc.web }}
       - OSPREY_WEB_PORT={{ svc.web }}
+{%- if perimeter_open %}
+      {#- The navigation-only perimeter, and the ports it fronts. Under
+         `auth.method: none` nginx injects this user's operator secret on every
+         proxied location, so anything that reaches a web port from THIS host
+         is already authenticated as whoever owns it — including a request made
+         by agent-generated code running inside this very container, which
+         shares the host network namespace with every other terminal.
+
+         The MCP server process reads these two, hands the parsed port list to
+         the execution sandbox as a constructor argument, and drops both names
+         from the sandbox's own environment: the deny-list is passed DOWN, never
+         re-derived inside the sandbox — a child that derived its own could
+         equally derive an empty one.
+
+         Emitted only under the open posture. The other three methods still
+         require a credential the sandbox does not hold, so there is nothing
+         here to deny and no line is rendered. Plain `environment:` values,
+         not `.env.users` entries: a list of the ports this deployment already
+         publishes is a literal, not a secret. #}
+      - OSPREY_WEB_PERIMETER=open
+      - OSPREY_WEB_PERIMETER_DENY_PORTS={{ perimeter_deny_ports }}
+{%- endif %}
       {#- Where the telemetry store is from inside this container. The agent's
          launch derives its OTLP endpoint from `claude_code.telemetry` with the
          host chosen for the running context, and the context it would sniff

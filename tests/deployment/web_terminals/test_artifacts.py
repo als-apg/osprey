@@ -8,12 +8,19 @@ import json
 import pytest
 import yaml
 
+from osprey.cli.templates.claude_code import DENY_DEFAULTS
 from osprey.deployment.web_terminals.artifacts import (
+    OPEN_MODE_EGRESS_TOOLS,
+    UNRENDERED_SETTINGS,
     ZERO_MIGRATION_OFFENDER,
     BashLaunchTokenConflictError,
+    OpenModeEgressError,
     auth_env_digest,
     bash_launch_token_offenders,
     check_bash_launch_token_conflict,
+    check_open_mode_requirements,
+    open_mode_missing_by_persona,
+    open_mode_offenders,
     write_web_terminal_artifacts,
 )
 from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
@@ -194,30 +201,39 @@ def test_auth_env_digest_reads_the_file_under_the_given_root(tmp_path):
 _LAUNCH_TOKEN_LINE = "BLUESKY_LAUNCH_TOKEN=${BLUESKY_LAUNCH_TOKEN:-}"
 
 
-#: The shell-relevant subset of `settings.json.j2`'s `deny_defaults` (the template also
-#: ships the playwright and context7 MCP wildcards, which no guard here reads). Every
-#: OSPREY project denies the shell unless its config removed the entry, so a persona
-#: project fixture that shipped no `.claude/settings.json` at all would be modelling a
-#: deployment that cannot exist — and would trip the Bash/launch-token conflict guard.
-_SHIPPED_DENY = ["Bash", "Edit", "WebFetch", "WebSearch"]
+#: What `settings.json.j2` actually writes into a rendered project: the template's
+#: `deny_defaults`, verbatim. Every OSPREY project denies these unless its config
+#: removed an entry, so a persona project fixture that shipped no
+#: `.claude/settings.json` at all would be modelling a deployment that cannot exist —
+#: and would trip both the Bash/launch-token conflict guard and the open-mode egress
+#: gate, each of which reads this artifact and fails closed on its absence.
+_SHIPPED_DENY = list(DENY_DEFAULTS)
 
 
 def _write_persona_project(
-    tmp_path, name: str, project_config: dict, *, denies_bash: bool = True
+    tmp_path,
+    name: str,
+    project_config: dict,
+    *,
+    denies_bash: bool = True,
+    deny: list[str] | None = None,
 ) -> str:
     """Render a persona project under *tmp_path*; return its relative project_path.
 
-    Writes both halves of what the guard reads: the `config.yml` the entitlement
-    predicates walk, and the built `.claude/settings.json` artifact the Bash check
-    reads. `denies_bash=False` renders the artifact a project whose config carried
-    `claude_code.permissions.remove_deny: ["Bash"]` would produce.
+    Writes both halves of what the guards read: the `config.yml` the entitlement
+    predicates walk, and the built `.claude/settings.json` artifact the deny checks
+    read. `denies_bash=False` renders the artifact a project whose config carried
+    `claude_code.permissions.remove_deny: ["Bash"]` would produce; `deny` sets the
+    whole list instead, for the open-mode gate, whose question is about four entries
+    rather than one.
     """
     project_dir = tmp_path / "profiles" / name
     project_dir.mkdir(parents=True)
     (project_dir / "config.yml").write_text(
         yaml.safe_dump({"project_name": name, **project_config}), encoding="utf-8"
     )
-    deny = [entry for entry in _SHIPPED_DENY if denies_bash or entry != "Bash"]
+    if deny is None:
+        deny = [entry for entry in _SHIPPED_DENY if denies_bash or entry != "Bash"]
     (project_dir / ".claude").mkdir()
     (project_dir / ".claude" / "settings.json").write_text(
         json.dumps({"permissions": {"allow": [], "deny": deny, "ask": []}}), encoding="utf-8"
@@ -839,3 +855,250 @@ def test_a_personaless_roster_armed_on_the_va_lane_alone_is_refused_by_lane(tmp_
     # The ask-only reader binds the same entry: one shared predicate, so the
     # collect-all preflight cannot clear what the raising guard refuses.
     assert bash_launch_token_offenders(config, tmp_path) == {ZERO_MIGRATION_OFFENDER}
+
+
+# ---------------------------------------------------------------------------
+# The OPEN-mode egress gate
+#
+# `auth.method: none` means nginx vouches for every terminal it proxies. An
+# agent inside one terminal reaches nginx over loopback and is indistinguishable
+# from the operator's browser, so open mode is refused unless every persona's
+# shipped settings deny the host-network egress tools the python executor's own
+# socket guard cannot cover.
+# ---------------------------------------------------------------------------
+
+#: A persona project that is entitled to no launch token at all — writes off and
+#: no bluesky server — so these tests exercise the open-mode gate alone and a
+#: failure here can never be the Bash/launch-token guard firing instead.
+_UNARMED_PROJECT: dict = {"control_system": {"writes_enabled": False}}
+
+
+def _open_roster_config(tmp_path, *, method: str = "none", deny: list[str] | None = None):
+    """A one-user roster on *method*, whose persona ships exactly *deny*."""
+    config = _config([{"name": "alice", "index": 0, "persona": "operator"}])
+    config["modules"]["web_terminals"]["auth"] = {"method": method}
+    config["modules"]["web_terminals"]["personas"] = {
+        "operator": {
+            "project": "op",
+            "project_path": _write_persona_project(
+                tmp_path, "op", _UNARMED_PROJECT, deny=deny or list(_SHIPPED_DENY)
+            ),
+        }
+    }
+    return config
+
+
+def _without(*tools: str) -> list[str]:
+    """The shipped deny list with *tools* lifted, as `remove_deny` would render it."""
+    return [entry for entry in _SHIPPED_DENY if entry not in tools]
+
+
+def test_the_open_mode_egress_tools_are_spelled_as_the_template_ships_them(tmp_path):
+    """The gate compares literal `permissions.deny` entries against the artifact
+    `settings.json.j2` writes from `deny_defaults`. A rename there that this tuple
+    did not follow would not fail loudly — it would silently stop matching, and the
+    gate would clear a persona that still holds the tool. So the subset relationship
+    is pinned rather than left to be noticed."""
+    assert set(OPEN_MODE_EGRESS_TOOLS) <= set(DENY_DEFAULTS)
+    # And it is a STRICT subset on purpose: `Edit` writes files and the context7
+    # server reaches a documentation host, neither of which is a route back to
+    # this deployment's own terminals.
+    assert set(DENY_DEFAULTS) - set(OPEN_MODE_EGRESS_TOOLS) == {
+        "Edit",
+        "mcp__plugin_context7_context7__*",
+    }
+
+
+def test_open_mode_refuses_a_persona_that_may_run_a_shell(tmp_path):
+    """The headline case. A shell reaches every port on the host, so it walks
+    straight past the executor's in-process socket guard into a neighbour's
+    terminal — which open mode hands out to anything that asks."""
+    config = _open_roster_config(tmp_path, deny=_without("Bash"))
+
+    with pytest.raises(OpenModeEgressError) as excinfo:
+        check_open_mode_requirements(config, tmp_path)
+
+    assert excinfo.value.personas == ["operator"]
+    message = str(excinfo.value)
+    assert "'operator'" in message
+    # The remedy an operator can take without touching any persona at all.
+    assert "modules.web_terminals.auth.method to 'token'" in message
+
+
+def test_open_mode_refuses_a_persona_that_lifted_only_one_web_tool(tmp_path):
+    """`Bash` is not the whole perimeter, and a gate that only asked about it would
+    clear a persona whose agent can still GET a neighbour's terminal. The refusal
+    names the one tool that is missing rather than sending the operator through all
+    four — three of which are already denied here."""
+    config = _open_roster_config(tmp_path, deny=_without("WebFetch"))
+
+    with pytest.raises(OpenModeEgressError) as excinfo:
+        check_open_mode_requirements(config, tmp_path)
+
+    assert excinfo.value.missing_by_persona == {"operator": ["WebFetch"]}
+    message = str(excinfo.value)
+    assert "may still reach the host network via 'WebFetch'." in message
+    assert "'Bash'," not in message.split("may still reach")[1].split("\n")[0]
+
+
+def test_open_mode_passes_when_every_persona_denies_the_whole_egress_set(tmp_path):
+    """The shipped default: a project rendered from `deny_defaults` denies all four,
+    so the ordinary open deployment starts. A gate that refused this would be a gate
+    nobody could satisfy without hand-editing an artifact."""
+    check_open_mode_requirements(_open_roster_config(tmp_path), tmp_path)
+
+    assert open_mode_offenders(_open_roster_config(tmp_path / "twin"), tmp_path / "twin") == set()
+
+
+@pytest.mark.parametrize("method", ["token", "password", "oidc"])
+def test_a_walled_or_token_deployment_is_not_asked_the_open_question(tmp_path, method):
+    """The gate is about what nginx vouches for, not about what a persona may run.
+    Under `token` the browser still has to present the per-user magic link, and
+    `password`/`oidc` put a login wall in front of the roster — so a persona with a
+    shell is a deliberate, documented posture there and must not be refused."""
+    config = _open_roster_config(tmp_path, method=method, deny=_without("Bash"))
+
+    check_open_mode_requirements(config, tmp_path)
+
+    assert open_mode_offenders(config, tmp_path) == set()
+
+
+def test_open_mode_fails_closed_on_a_settings_artifact_it_cannot_read(tmp_path):
+    """An unparseable artifact is not evidence of a deny. Answering "safe" here
+    would make a corrupt or truncated settings.json the easiest way through the
+    gate — and the operator would never see it happen."""
+    config = _open_roster_config(tmp_path)
+    (tmp_path / "profiles" / "op" / ".claude" / "settings.json").write_text(
+        "{ not json", encoding="utf-8"
+    )
+
+    with pytest.raises(OpenModeEgressError) as excinfo:
+        check_open_mode_requirements(config, tmp_path)
+
+    # Nothing was read, so every tool in the set is reported missing.
+    assert excinfo.value.missing_by_persona == {"operator": list(OPEN_MODE_EGRESS_TOOLS)}
+
+
+def test_open_mode_names_the_missing_render_rather_than_all_four_tools(tmp_path):
+    """A persona with no rendered project on this host fails every deny check for
+    a reason no `permissions.deny` edit can fix. Listing the four entries there
+    sends the operator to a file that is not on the disk — so that case is
+    reported as the render it actually is, with the remedy that clears it.
+
+    This is the state a registry-mode open deployment is in by default, which is
+    why `persona_render_problem` now demands the render in that mode too."""
+    config = _open_roster_config(tmp_path)
+    (tmp_path / "profiles" / "op" / ".claude" / "settings.json").unlink()
+
+    with pytest.raises(OpenModeEgressError) as excinfo:
+        check_open_mode_requirements(config, tmp_path)
+
+    assert excinfo.value.missing_by_persona == {"operator": list(UNRENDERED_SETTINGS)}
+    message = str(excinfo.value)
+    assert "'operator' has no rendered .claude/settings.json on this host" in message
+    assert "osprey build" in message
+    # The whole set is still what the deployment must eventually deny -- an
+    # unrendered persona denies nothing -- so the headline names all four.
+    assert "'Bash'" in message
+    # And the remedy no longer claims a re-pull alone clears this: what is read
+    # here is THIS host's render, in either image-source mode.
+    assert "a re-pull alone is not enough" in message
+
+
+def test_open_mode_reads_the_settings_artifact_once_per_offender(tmp_path, monkeypatch):
+    """The gate names four entries per offender off ONE read of the artifact,
+    not one roster walk per entry. Four reads of the same small JSON file per
+    persona is affordable, but it is also four chances for the walks to disagree
+    about which personas a deployment has."""
+    from osprey.deployment.web_terminals import artifacts as artifacts_module
+
+    reads: list[str] = []
+    real = artifacts_module.settings_json_deny_entries
+
+    def counted(project_dir):
+        reads.append(str(project_dir))
+        return real(project_dir)
+
+    monkeypatch.setattr(artifacts_module, "settings_json_deny_entries", counted)
+
+    assert open_mode_missing_by_persona(_open_roster_config(tmp_path), tmp_path) == {}
+    assert len(reads) == 1
+
+
+def test_open_mode_refuses_a_persona_that_denies_one_playwright_tool_by_name(tmp_path):
+    """The near miss that looks safe. The artifact is compared by EXACT entry, so
+    a persona denying `...__browser_navigate` still ships every other browser
+    tool — and any of them reaches a neighbour's terminal just as well. The
+    refusal names the wildcard, which is the entry that actually closes it."""
+    wildcard = "mcp__plugin_playwright_playwright__*"
+    config = _open_roster_config(
+        tmp_path,
+        deny=[
+            *_without(wildcard),
+            "mcp__plugin_playwright_playwright__browser_navigate",
+        ],
+    )
+
+    with pytest.raises(OpenModeEgressError) as excinfo:
+        check_open_mode_requirements(config, tmp_path)
+
+    assert excinfo.value.missing_by_persona == {"operator": [wildcard]}
+    assert f"via {wildcard!r}." in str(excinfo.value)
+
+
+def test_open_mode_binds_the_roster_entries_that_run_no_persona(tmp_path):
+    """The zero-migration path: a bare-string roster entry runs the deploy project
+    itself, so it appears in no persona set and would otherwise walk through the
+    gate untouched. Its artifact is the deploy project's own settings.json — absent
+    here, which fails closed under the sentinel name."""
+    config = _config(["alice"])
+    config["modules"]["web_terminals"]["auth"] = {"method": "none"}
+
+    with pytest.raises(OpenModeEgressError) as excinfo:
+        write_web_terminal_artifacts(config, tmp_path)
+
+    assert excinfo.value.personas == [ZERO_MIGRATION_OFFENDER]
+    assert "no persona" in str(excinfo.value)
+    # Refused BEFORE the render, so a rejected deploy leaves nothing half-written.
+    assert not (tmp_path / "build").exists()
+    # The ask-only reader binds the same entry: one shared predicate, so the
+    # collect-all preflight cannot clear what the raising gate refuses.
+    assert open_mode_offenders(config, tmp_path) == {ZERO_MIGRATION_OFFENDER}
+
+
+def test_the_render_seam_refuses_an_open_deployment_before_writing_anything(tmp_path):
+    """`force_recreate_auth_sidecar` re-renders through neither `osprey up`'s
+    preflight nor `decommission_user`, so the seam has to answer for itself — and
+    has to refuse before the first artifact lands."""
+    config = _open_roster_config(tmp_path, deny=_without("Bash"))
+
+    with pytest.raises(OpenModeEgressError):
+        write_web_terminal_artifacts(config, tmp_path)
+
+    assert not (tmp_path / "build").exists()
+
+
+def test_an_unknown_auth_method_is_not_treated_as_open(tmp_path):
+    """A method nothing supports renders no deployment at all — the render raises on
+    it and lint reports it. Reporting it here as well would give the operator a
+    second, confusing refusal about personas, and would put a raise inside the
+    ask-only reader its callers are promised will not raise."""
+    config = _open_roster_config(tmp_path, method="sso", deny=_without("Bash"))
+
+    check_open_mode_requirements(config, tmp_path)
+
+    assert open_mode_offenders(config, tmp_path) == set()
+
+
+def test_the_collect_all_preflight_reports_the_open_mode_refusal(tmp_path, monkeypatch):
+    """The gate refuses one deploy at a time; the preflight REPORT exists to say
+    everything wrong at once. It reads the same predicate without raising, so an
+    operator sees the open-mode problem in the same pass as the others."""
+    from osprey.deployment.web_terminals import provision
+
+    monkeypatch.chdir(tmp_path)
+    config = _open_roster_config(tmp_path, deny=_without("Bash"))
+
+    findings, _advisories = provision.web_terminal_preflight_report(config, repo_root=tmp_path)
+
+    assert any("may still reach the host network" in problem for problem, _ in findings)

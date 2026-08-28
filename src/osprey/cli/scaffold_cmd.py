@@ -1396,9 +1396,10 @@ def _print_web_terminals_lint_warnings(warnings: list[Any]) -> None:
     The sibling of :func:`_print_web_terminals_lint_errors`, and it exists
     because the render gate used to filter the findings to errors and drop the
     rest on the floor. Some of what it dropped is the only report an operator
-    ever gets: a privileged terminal in front of ``auth.method: none`` is
-    deliberately not build-failing (it is the shipped loopback posture, not a
-    mistake), so discarding it means the exposure is never named anywhere.
+    ever gets: a privileged terminal with no login wall (``auth.method: token``,
+    the default, or ``none``) is deliberately not build-failing (it is the
+    shipped loopback posture, not a mistake), so discarding it means the
+    exposure is never named anywhere.
     Advisory, never fatal \u2014 the caller decides what blocks.
     """
     console.print("  [dim]Warnings:[/dim]")

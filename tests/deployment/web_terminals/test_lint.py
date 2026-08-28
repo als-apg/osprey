@@ -494,8 +494,10 @@ def test_lint_non_boolean_user_login_is_an_error() -> None:
 
 
 def test_lint_login_false_without_auth_is_an_inert_key_warning() -> None:
-    """`login: false` with `auth.method: none` changes nothing — there is no
-    login wall to be exempt from — and the config should not claim otherwise."""
+    """`login: false` under the default `auth.method: token` changes nothing —
+    that method puts neither a login wall nor an injected operator secret in
+    front of the entry — and the config should not claim otherwise. Under
+    `none` the key is meaningful and no warning is due."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0, "login": False}]
@@ -2245,7 +2247,7 @@ def test_lint_unknown_auth_method_is_an_error() -> None:
 
 
 def test_lint_empty_auth_method_string_is_an_error() -> None:
-    """An empty `method` silently falls back to 'none' at render time (auth off),
+    """An empty `method` silently falls back to 'token' at render time (no login wall),
     so lint is where an operator learns the stanza is inert."""
     # Arrange
     config = _auth_config({"method": ""})
@@ -3302,7 +3304,7 @@ def _claims_config(method: str) -> dict:
     return config
 
 
-@pytest.mark.parametrize("method", ["password", "none"])
+@pytest.mark.parametrize("method", ["password", "token", "none"])
 def test_lint_a_claims_block_without_single_sign_on_is_a_warning(method: str) -> None:
     """No ID token arrives under either method, so the map is never read: the
     roles it names are silently never granted, and the config looks live."""
@@ -3361,3 +3363,132 @@ def test_lint_does_not_raise_on_an_incoherent_authorization_stanza_with_roles() 
 
     # Assert
     assert "web_terminals.invalid_authorization" in codes
+
+
+# ---------------------------------------------------------------------------
+# web_terminals.open_mode_egress
+#
+# The authoring-time voice of the deploy gate. Without it `osprey build` and
+# `osprey scaffold web-terminals lint|render` bless a deployment that cannot
+# come up, and the operator meets the refusal a step later than the edit that
+# caused it. The rule and the gate are driven by the SAME predicate, which is
+# what these tests are ultimately pinning: a lint that cleared what the gate
+# refuses would be the worst of both surfaces.
+# ---------------------------------------------------------------------------
+
+
+def _open_mode_config(tmp_path, *, method: str = "none", deny: list[str] | None = None) -> dict:
+    """A one-persona roster on *method* whose rendered project ships exactly *deny*."""
+    import json
+
+    from osprey.cli.templates.claude_code import DENY_DEFAULTS
+
+    project_dir = tmp_path / "als-assistant"
+    (project_dir / ".claude").mkdir(parents=True)
+    (project_dir / "Dockerfile").write_text("FROM scratch\n")
+    (project_dir / "config.yml").write_text("project_name: als-assistant\n")
+    (project_dir / ".claude" / "settings.json").write_text(
+        json.dumps({"permissions": {"deny": list(DENY_DEFAULTS) if deny is None else deny}}),
+        encoding="utf-8",
+    )
+    return _persona_config(
+        web_terminals={
+            "image_source": "local",
+            "auth": {"method": method},
+            "users": [{"name": "thellert", "index": 0, "persona": "assistant"}],
+            "personas": {
+                "assistant": {"project": "als-assistant", "project_path": str(project_dir)}
+            },
+        }
+    )
+
+
+def test_lint_open_mode_persona_that_may_reach_the_host_network_is_an_error(tmp_path) -> None:
+    """The headline. Under `auth.method: none` nginx vouches for every terminal it
+    proxies, so a persona whose shipped settings lift the shell is one prompt away
+    from a neighbour's session — and an authoring run must say so rather than
+    leaving it to the start."""
+    # Arrange
+    from osprey.cli.templates.claude_code import DENY_DEFAULTS
+
+    config = _open_mode_config(tmp_path, deny=[entry for entry in DENY_DEFAULTS if entry != "Bash"])
+
+    # Act
+    findings = lint_web_terminals(config, project_root=tmp_path)
+
+    # Assert
+    errors = [f for f in _errors(findings) if f.code == "web_terminals.open_mode_egress"]
+    assert len(errors) == 1
+    assert "'assistant' does not deny 'Bash'" in errors[0].message
+    assert "auth.method to 'token'" in errors[0].message
+
+
+def test_lint_open_mode_rule_and_the_deploy_gate_cannot_disagree(tmp_path) -> None:
+    """The property that makes the rule worth having: it is the deploy gate's own
+    predicate, not a second reading of it. A rule free to re-derive "which
+    personas may reach the network" is a rule free to bless a start nobody can
+    perform."""
+    # Arrange
+    from osprey.deployment.web_terminals.artifacts import (
+        OpenModeEgressError,
+        check_open_mode_requirements,
+    )
+
+    config = _open_mode_config(tmp_path, deny=["WebFetch"])
+
+    # Act
+    findings = lint_web_terminals(config, project_root=tmp_path)
+
+    # Assert
+    assert any(f.code == "web_terminals.open_mode_egress" for f in _errors(findings))
+    with pytest.raises(OpenModeEgressError):
+        check_open_mode_requirements(config, tmp_path)
+
+
+def test_lint_open_mode_unrendered_persona_is_told_to_render(tmp_path) -> None:
+    """The fail-closed case with the remedy that clears it. A persona with no
+    rendered settings.json denies nothing this rule can see, and telling that
+    operator to restore a deny entry points at a file that is not there."""
+    # Arrange
+    config = _open_mode_config(tmp_path)
+    (tmp_path / "als-assistant" / ".claude" / "settings.json").unlink()
+
+    # Act
+    findings = lint_web_terminals(config, project_root=tmp_path)
+
+    # Assert
+    errors = [f for f in _errors(findings) if f.code == "web_terminals.open_mode_egress"]
+    assert len(errors) == 1
+    assert "'assistant' has no rendered .claude/settings.json on this host" in errors[0].message
+
+
+def test_lint_a_walled_deployment_is_not_asked_the_open_question(tmp_path) -> None:
+    """The gate is about what nginx vouches for, not about what a persona may run:
+    behind the magic-link wall a persona with a shell is a deliberate, documented
+    posture and must not be flagged."""
+    # Arrange
+    from osprey.cli.templates.claude_code import DENY_DEFAULTS
+
+    config = _open_mode_config(
+        tmp_path, method="token", deny=[entry for entry in DENY_DEFAULTS if entry != "Bash"]
+    )
+
+    # Act
+    findings = lint_web_terminals(config, project_root=tmp_path)
+
+    # Assert
+    assert not any(f.code == "web_terminals.open_mode_egress" for f in findings)
+
+
+def test_lint_open_mode_with_the_shipped_deny_list_reports_nothing(tmp_path) -> None:
+    """The negative control: the ordinary open deployment, rendered from
+    `deny_defaults`, draws no finding — or this rule would refuse a posture
+    nobody could satisfy without hand-editing an artifact."""
+    # Arrange
+    config = _open_mode_config(tmp_path)
+
+    # Act
+    findings = lint_web_terminals(config, project_root=tmp_path)
+
+    # Assert
+    assert not any(f.code == "web_terminals.open_mode_egress" for f in findings)

@@ -2411,8 +2411,9 @@ def _build_repo(
             )
 
         # Advisory lint findings — real exposures that are deliberately not
-        # build-failing (a privileged terminal in front of `auth.method: none`
-        # is the shipped loopback posture, not a mistake). Printed here, beside
+        # build-failing (a privileged terminal with no login wall — `auth.method:
+        # token` or `none` — is the shipped loopback posture, not a mistake).
+        # Printed here, beside
         # the profile identity, because a finding nobody prints is a finding
         # nobody has: every surface that gates on the errors discards these.
         for web_warning in web_warnings:
