@@ -79,8 +79,12 @@ class ConnectorSettable(StandardReadable):
     reflects the current mediated state.
 
     When ``readback_pv`` is omitted, ``readback`` aliases ``setpoint_pv``:
-    there is no independent readback to settle against, so the deadband
-    wait matches on the first connector read of the PV just written.
+    there is no independent readback to settle against, and the write result
+    already carries the connector's post-write read of that PV, so that
+    value is the first settle sample and the poll loop only runs when it is
+    not yet within the deadband (or the connector could not read it). With a
+    separate ``readback_pv`` the result's readback is of the *setpoint*, not
+    the readback channel, so it is never taken as a sample there.
 
     The OSPREY connector instance is stored as ``self._osprey_connector``,
     not ``self._connector``: ophyd-async's own ``Device.__init__`` already
@@ -126,9 +130,19 @@ class ConnectorSettable(StandardReadable):
             through ``write_channel_checked`` instead of a bare
             ``write_channel``.
         """
-        await self._osprey_connector.write_channel_checked(
+        result = await self._osprey_connector.write_channel_checked(
             self._setpoint_pv, value, verification_level="callback"
         )
+
+        if self._readback_pv == self._setpoint_pv:
+            # The callback-level result carries the post-write readback of the
+            # PV just written; when that is the readback channel too, it is
+            # the first settle sample. None means the connector could not
+            # read it, which the poll loop below covers.
+            verification = getattr(result, "verification", None)
+            first_sample = getattr(verification, "readback_value", None)
+            if first_sample is not None and abs(first_sample - value) <= _READBACK_DEADBAND:
+                return
 
         deadline = time.monotonic() + _READBACK_SETTLE_TIMEOUT_S
         while True:

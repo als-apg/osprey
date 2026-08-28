@@ -21,23 +21,6 @@ mcp = FastMCP("channel-finder-ic")
 
 
 # ---------------------------------------------------------------------------
-# Structured error helper (same contract as osprey.mcp_server.server)
-# ---------------------------------------------------------------------------
-def make_error(
-    error_type: str,
-    error_message: str,
-    suggestions: list[str] | None = None,
-) -> dict:
-    """Build the cross-team standard error envelope."""
-    return {
-        "error": True,
-        "error_type": error_type,
-        "error_message": error_message,
-        "suggestions": suggestions or [],
-    }
-
-
-# ---------------------------------------------------------------------------
 # Server factory
 # ---------------------------------------------------------------------------
 def create_server() -> FastMCP:

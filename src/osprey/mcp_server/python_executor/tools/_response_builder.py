@@ -4,16 +4,75 @@ import json
 import logging
 
 import nbformat
-from fastmcp.exceptions import ToolError
 from mcp.types import CallToolResult, TextContent
 
-from osprey.mcp_server.python_executor.executor import ExecutionResult
+from osprey.mcp_server.errors import make_error
+from osprey.mcp_server.python_executor.executor import (
+    FAILURE_KIND_SETUP,
+    FAILURE_KIND_TIMEOUT,
+    ExecutionResult,
+)
 
 logger = logging.getLogger("osprey.mcp_server.tools.execute")
 
 # Maximum characters of stdout/stderr returned inline in the summary.
 _STDOUT_PREVIEW_LIMIT = 500
 _STDERR_PREVIEW_LIMIT = 500
+
+#: ``details.subsystem`` on every envelope this builder raises: the one word
+#: that says which part of OSPREY the failure belongs to, so the agent can name
+#: it instead of guessing between "the user's code" and "the control system".
+SUBSYSTEM = "python_executor"
+
+_SETUP_SUGGESTIONS = [
+    "The Python execution sandbox could not be started, so none of the submitted "
+    "code ran — this is not a fault in that code and rewriting it will not help.",
+    "Report that the python_executor service is unavailable. An operator needs to "
+    "check its MCP server (interpreter, workspace disk, config.yml execution "
+    "settings) and its logs.",
+]
+_TIMEOUT_SUGGESTIONS = [
+    "The sandbox killed the script at its configured timeout. Reduce the work one "
+    "call does — fewer channels, a shorter time range — or split it across calls.",
+    "Do not raise the timeout in config.yml; that is an operator decision.",
+]
+_SCRIPT_ERROR_SUGGESTIONS = [
+    "The submitted code raised. Read the traceback in stderr, fix the code, and run it again.",
+]
+
+
+def _raise_failure(exec_result: ExecutionResult, stderr_text: str, payload: dict) -> None:
+    """Raise the error envelope for a failed run, classed by who failed.
+
+    A run the sandbox never started (:data:`FAILURE_KIND_SETUP`) is an
+    infrastructure outage and goes out as ``service_unavailable`` — the type
+    the error-guidance hook classes as *Connection*, whose protocol is "report
+    the service as unavailable", not "help the user fix their code". A run
+    that started and failed is ``execution_error`` whether its own code raised
+    or the sandbox timed it out; ``details.kind`` tells those two apart.
+
+    ``details`` carries the response the success path would have returned, so
+    a failed run still surfaces its artifacts, plus :data:`SUBSYSTEM` and the
+    ``kind`` — the same "one shared error_type, identity in details" contract
+    the graph server documents on ``GraphStoreError``.
+    """
+    if exec_result.failure_kind == FAILURE_KIND_SETUP:
+        make_error(
+            "service_unavailable",
+            exec_result.error_message or "Execution setup failed.",
+            _SETUP_SUGGESTIONS,
+            details={**payload, "subsystem": SUBSYSTEM, "kind": "setup_failed"},
+        )
+    if exec_result.failure_kind == FAILURE_KIND_TIMEOUT:
+        kind, suggestions = "timeout", _TIMEOUT_SUGGESTIONS
+    else:
+        kind, suggestions = "script_error", _SCRIPT_ERROR_SUGGESTIONS
+    make_error(
+        "execution_error",
+        (stderr_text or "Execution reported an error.")[:_STDERR_PREVIEW_LIMIT],
+        suggestions,
+        details={**payload, "subsystem": SUBSYSTEM, "kind": kind},
+    )
 
 
 async def build_execution_response(
@@ -30,9 +89,10 @@ async def build_execution_response(
     Handles figure/artifact saving, notebook creation, summary building,
     ArtifactStore persistence, and gallery URL injection. When the execution
     reported errors, raises ``ToolError`` carrying the OSPREY error envelope
-    so fastmcp produces a wire-form ``CallToolResult(isError=True)`` (returning
-    a CallToolResult with ``isError`` set is silently dropped by fastmcp's
-    ``convert_result``).
+    (via :func:`~osprey.mcp_server.errors.make_error`, see :func:`_raise_failure`
+    for how the run's ``failure_kind`` picks the type) so fastmcp produces a
+    wire-form ``CallToolResult(isError=True)`` (returning a CallToolResult with
+    ``isError`` set is silently dropped by fastmcp's ``convert_result``).
 
     Args:
         code: Original source code (for notebook/metadata — not augmented).
@@ -147,20 +207,7 @@ async def build_execution_response(
         if artifact_ids:
             result["artifact_ids"] = artifact_ids
         if has_errors:
-            raise ToolError(
-                json.dumps(
-                    {
-                        "error": True,
-                        "error_type": "execution_error",
-                        "error_message": (stderr_text or "Execution reported an error.")[
-                            :_STDERR_PREVIEW_LIMIT
-                        ],
-                        "suggestions": [],
-                        "details": result,
-                    },
-                    default=str,
-                )
-            )
+            _raise_failure(exec_result, stderr_text, result)
         return CallToolResult(
             content=[TextContent(type="text", text=json.dumps(result, default=str))],
             isError=False,
@@ -212,20 +259,7 @@ async def build_execution_response(
     if notebook_artifact_id:
         response["notebook_artifact_id"] = notebook_artifact_id
     if has_errors:
-        raise ToolError(
-            json.dumps(
-                {
-                    "error": True,
-                    "error_type": "execution_error",
-                    "error_message": (stderr_text or "Execution reported an error.")[
-                        :_STDERR_PREVIEW_LIMIT
-                    ],
-                    "suggestions": [],
-                    "details": response,
-                },
-                default=str,
-            )
-        )
+        _raise_failure(exec_result, stderr_text, response)
     return CallToolResult(
         content=[TextContent(type="text", text=json.dumps(response, default=str))],
         isError=False,

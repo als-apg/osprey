@@ -24,6 +24,7 @@ from osprey_connectors.control_system.base import (
     ChannelWriteResult,
     ControlSystemConnector,
     WriteVerification,
+    readback_number,
 )
 from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation import engine_serves
@@ -237,6 +238,8 @@ class MockConnector(ControlSystemConnector):
                 self._state[readback_ch] = float(value) + offset
 
         if verification_level == "none":
+            # Fast path by contract: no wait and no read, so the result stays
+            # value-less — the same reasoning as the EPICS connector.
             logger.debug(f"Mock write (no verification): {channel_address} = {value}")
             return ChannelWriteResult(
                 channel_address=channel_address,
@@ -248,15 +251,33 @@ class MockConnector(ControlSystemConnector):
             )
 
         elif verification_level == "callback":
-            # Simulate callback confirmation (mock always succeeds)
+            # Simulate callback confirmation (mock always succeeds), then read
+            # once so the result carries what the channel holds now. The read
+            # is an enrichment: it never changes ``verified``, applies no
+            # tolerance, and a failure is not a ``readback_failed`` (that names
+            # a readback-level verification that could not complete).
             logger.debug(f"Mock write (callback simulated): {channel_address} = {value}")
+            try:
+                readback = await self.read_channel(channel_address)
+            except Exception as e:
+                logger.warning(f"Mock post-callback read failed for {channel_address}: {e}")
+                verification = WriteVerification(
+                    level="callback",
+                    verified=True,
+                    notes=f"Simulated callback confirmation; post-write read failed: {e} (mock)",
+                )
+            else:
+                verification = WriteVerification(
+                    level="callback",
+                    verified=True,
+                    readback_value=readback_number(readback.value),
+                    notes=f"Simulated callback confirmation; readback: {readback.value} (mock)",
+                )
             return ChannelWriteResult(
                 channel_address=channel_address,
                 value_written=value,
                 success=True,
-                verification=WriteVerification(
-                    level="callback", verified=True, notes="Simulated callback confirmation (mock)"
-                ),
+                verification=verification,
             )
 
         elif verification_level == "readback":

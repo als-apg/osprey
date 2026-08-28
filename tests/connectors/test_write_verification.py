@@ -75,6 +75,11 @@ class TestMockConnectorVerification:
         assert result.verification.level == "callback"
         assert result.verification.verified is True  # Mock always succeeds
         assert "callback" in result.verification.notes.lower()
+        # The result carries the post-write readback, noise and all; no tolerance
+        # is applied at this level, so none is reported.
+        assert result.verification.readback_value is not None
+        assert abs(result.verification.readback_value - 100.0) <= 1.0
+        assert result.verification.tolerance_used is None
 
     @pytest.mark.asyncio
     async def test_verification_readback_success(self, connector):

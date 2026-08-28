@@ -50,6 +50,25 @@ class _FakeChannelValue:
     timestamp: float = field(default_factory=time.time)
 
 
+@dataclass
+class _FakeVerification:
+    """The slice of ``WriteVerification`` the device reads: the readback it carries."""
+
+    level: str = "callback"
+    verified: bool = True
+    readback_value: float | None = None
+
+
+@dataclass
+class _FakeWriteResult:
+    """Stand-in for a ``ChannelWriteResult`` returned by ``write_channel_checked``."""
+
+    channel_address: str
+    value_written: Any
+    success: bool = True
+    verification: _FakeVerification | None = None
+
+
 class FakeConnector:
     """A minimal async double for ``ControlSystemConnector``.
 
@@ -70,6 +89,10 @@ class FakeConnector:
         # address it should echo into. Defaults to echoing into the same
         # address that was written.
         self.echo_target: dict[str, str] = {}
+        # Whether the write result carries a post-write readback of the channel
+        # just written (the callback-level contract). Off simulates a connector
+        # whose post-callback read failed and reports ``readback_value=None``.
+        self.result_carries_readback = True
 
     async def read_channel(self, channel_address: str, timeout: float | None = None):
         self.read_calls.append(channel_address)
@@ -82,7 +105,14 @@ class FakeConnector:
         if self.echo_readback:
             target = self.echo_target.get(channel_address, channel_address)
             self.readbacks[target] = value
-        return None
+        # Like a real connector, the readback the result carries is of the
+        # channel that was WRITTEN — not of any separate readback channel.
+        readback = self.readbacks.get(channel_address) if self.result_carries_readback else None
+        return _FakeWriteResult(
+            channel_address,
+            value,
+            verification=_FakeVerification(readback_value=readback),
+        )
 
 
 async def test_set_raises_on_blocked_write() -> None:
@@ -143,6 +173,63 @@ async def test_set_uses_separate_readback_pv_when_given() -> None:
     assert fake.write_calls[0][0] == "SP"
     assert "RB" in fake.read_calls
     assert fake.readbacks["RB"] == 2.0
+
+
+async def test_set_takes_the_write_results_readback_as_the_first_settle_sample() -> None:
+    """A settled readback in the write result means no separate poll is needed."""
+    fake = FakeConnector(readbacks={"SP": 0.0})
+    device = ConnectorSettable(fake, "SP", name="motor")
+
+    await device.set(3.5)
+
+    assert fake.read_calls == [], "the write result already carried the settled readback"
+
+
+async def test_set_polls_when_the_write_result_carries_no_readback() -> None:
+    """A connector whose post-write read failed reports None; the poll loop covers it."""
+    fake = FakeConnector(readbacks={"SP": 0.0})
+    fake.result_carries_readback = False
+    device = ConnectorSettable(fake, "SP", name="motor")
+
+    await device.set(3.5)
+
+    assert "SP" in fake.read_calls
+
+
+async def test_set_polls_when_the_write_results_readback_has_not_settled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A carried readback outside the deadband is only the first sample, not the verdict."""
+    monkeypatch.setattr(connector_module, "_READBACK_SETTLE_TIMEOUT_S", 0.5)
+    fake = FakeConnector(readbacks={"SP": 0.0})
+    fake.echo_readback = False  # the result carries the stale 0.0
+    device = ConnectorSettable(fake, "SP", name="motor")
+
+    async def settle_after_first_poll(channel_address: str, timeout: float | None = None):
+        fake.read_calls.append(channel_address)
+        fake.readbacks["SP"] = 3.5
+        return _FakeChannelValue(value=fake.readbacks["SP"])
+
+    fake.read_channel = settle_after_first_poll  # type: ignore[method-assign]
+
+    await device.set(3.5)  # must not raise
+
+    assert fake.read_calls == ["SP"]
+
+
+async def test_set_never_takes_the_setpoints_readback_for_a_separate_readback_pv(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The result's readback is of the setpoint; a separate readback PV must still be read."""
+    monkeypatch.setattr(connector_module, "_READBACK_SETTLE_TIMEOUT_S", 0.1)
+    fake = FakeConnector(readbacks={"SP": 0.0, "RB": 0.0})
+    # The setpoint echoes (so the result carries 2.0) but the readback never moves.
+    device = ConnectorSettable(fake, "SP", readback_pv="RB", name="motor")
+
+    with pytest.raises(TimeoutError):
+        await device.set(2.0)
+
+    assert fake.read_calls and set(fake.read_calls) == {"RB"}
 
 
 async def test_connector_readable_read_returns_live_connector_value() -> None:

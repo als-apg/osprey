@@ -23,7 +23,7 @@ from typing import Any
 import pytest
 
 from osprey.mcp_server.graph import server_context as graph_ctx
-from tests.mcp_server.conftest import get_tool_fn
+from tests.mcp_server.conftest import get_tool_fn, hook_error_class_map
 
 # ---------------------------------------------------------------------------
 # Fixtures and fakes
@@ -180,35 +180,6 @@ _ERROR_CLASSES = (
     graph_ctx.GraphReadOnlyViolation,
     graph_ctx.GraphQueryError,
 )
-
-
-def _hook_error_classes() -> dict[str, str]:
-    """Read ``ERROR_CLASS_MAP`` out of the error-guidance hook.
-
-    Parsed from source rather than imported: the hook is a standalone script
-    that inserts its own directory onto ``sys.path`` at import time, and a test
-    that pins its taxonomy should not have that side effect.
-
-    Returns:
-        The hook's ``error_type`` to error-class mapping.
-    """
-    import ast
-    import pathlib
-
-    import osprey
-
-    hook = (
-        pathlib.Path(osprey.__file__).parent
-        / "templates/claude_code/claude/hooks/osprey_error_guidance.py"
-    )
-    tree = ast.parse(hook.read_text(encoding="utf-8"))
-    for node in tree.body:
-        if isinstance(node, ast.Assign) and any(
-            isinstance(target, ast.Name) and target.id == "ERROR_CLASS_MAP"
-            for target in node.targets
-        ):
-            return ast.literal_eval(node.value)
-    raise AssertionError(f"ERROR_CLASS_MAP not found in {hook}")
 
 
 def _server_error(code: str, message: str) -> Exception:
@@ -665,16 +636,13 @@ class TestErrorTaxonomy:
     def test_error_types_are_hook_taxonomy_keys(self):
         """An unknown value classes as 'Internal' and mis-advises the agent.
 
-        The one deliberate exception is GraphNotConfigured: 'Internal' is the
-        correct class for it, because no rewording of the query adds a
-        services.graphdb block — an operator has to.
+        ``tests/mcp_server/test_error_type_conformance.py`` checks this for
+        every emitter under ``src/osprey/mcp_server``; this one keeps the graph
+        family's own reading of the rule next to the classes it is about.
         """
-        known = _hook_error_classes()
+        known = hook_error_class_map()
 
         for cls in _ERROR_CLASSES:
-            if cls is graph_ctx.GraphNotConfigured:
-                assert cls.error_type not in known
-                continue
             assert cls.error_type in known, (
                 f"{cls.__name__}.error_type={cls.error_type!r} is not in the hook's "
                 f"ERROR_CLASS_MAP, so the hook would class it as 'Internal'"
@@ -682,8 +650,11 @@ class TestErrorTaxonomy:
 
     def test_error_types_map_to_the_intended_classes(self):
         """Each cause lands in the hook class that matches its remedy."""
-        known = _hook_error_classes()
+        known = hook_error_class_map()
 
+        # Internal is the right class for a missing config block: no rewording
+        # of the query adds a services.graphdb block — an operator has to.
+        assert known[graph_ctx.GraphNotConfigured.error_type] == "Internal"
         assert known[graph_ctx.GraphUnreachable.error_type] == "Connection"
         assert known[graph_ctx.GraphAuthFailed.error_type] == "Connection"
         assert known[graph_ctx.GraphQueryTimeout.error_type] == "Connection"

@@ -1258,7 +1258,13 @@ class TestGeneralizedRulesContent:
         assert "direct hardware library write call" in content
 
     def test_error_handling_md_no_epics_references(self, tmp_path):
-        """error-handling.md does not reference EPICS-specific terminology."""
+        """error-handling.md does not reference EPICS-specific terminology.
+
+        Its Connection row names the service from the envelope and reserves
+        "control system" for errors the controls server itself emits — the
+        misattribution in #465 was every Connection-class error being reported
+        as a control-system outage.
+        """
         manager = TemplateManager()
         project_dir = manager.create_project(
             project_name="gen-errors",
@@ -1271,7 +1277,9 @@ class TestGeneralizedRulesContent:
         assert "EPICS channel disconnected" not in content
         assert "archiver appliance status" not in content
         assert "pyepics" not in content
-        assert "control system channel disconnected" in content
+        assert "control system service is unavailable" not in content
+        assert "details.active_target" in content
+        assert "details.subsystem" in content
         assert "archiver service status" in content
         assert "direct hardware library" in content
 

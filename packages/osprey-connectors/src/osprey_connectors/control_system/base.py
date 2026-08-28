@@ -8,6 +8,7 @@ subscribing to changes, and retrieving metadata from various control systems.
 
 import functools
 import logging
+import numbers
 import os
 import sys
 from abc import ABC, abstractmethod
@@ -121,6 +122,20 @@ class WriteVerification:
     # Structured failure classification, e.g. "readback_failed" when the readback
     # read itself raised. A plain value mismatch leaves this None.
     failure_kind: str | None = None
+
+
+def readback_number(value: Any) -> float | None:
+    """The readback as a float for ``WriteVerification.readback_value``, or ``None``.
+
+    The field is numeric, so a readback that is not a number — a string, an
+    enum label, a waveform — is reported as ``None`` ("no numeric value"),
+    never coerced into one. A string that happens to parse as a number is
+    still a string here: what the channel holds is text, and inventing a
+    number for it is the fabrication this helper exists to prevent.
+    """
+    if isinstance(value, bool) or not isinstance(value, numbers.Real):
+        return None
+    return float(value)
 
 
 @dataclass
