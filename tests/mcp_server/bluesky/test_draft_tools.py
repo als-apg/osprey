@@ -228,6 +228,7 @@ def test_permissions_ask_unchanged_by_draft_tools():
         "queue_add",
         "queue_start",
         "queue_stop",
+        "queue_remove",
         "stop_run",
         "write_plan",
         "validate_plan",
