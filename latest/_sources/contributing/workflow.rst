@@ -93,12 +93,16 @@ Pull Request Process
 Branch Protection on ``main``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Direct pushes to ``main`` are rejected. All changes land via PR. The ruleset
-enforces:
+Direct pushes to ``main`` are rejected. All changes land via PR. GitHub branch
+protection on ``main`` enforces:
 
-- All required CI checks must pass (no admin bypass).
-- Linear history (use ``gh pr merge --rebase``; merge commits are rejected).
+- The required status checks must pass: ``pre-commit.ci - pr`` and
+  ``All CI Checks Passed`` (the aggregate job every CI lane feeds). Admins
+  cannot bypass them.
 - Force-pushes and branch deletion on ``main`` are denied.
+
+Linear history is not enforced: a PR may land as a merge commit or a rebase,
+and both appear in ``main``'s history.
 
 If a required check turns out to be wrong, fix it forward — there is no
 escape hatch.

@@ -530,13 +530,16 @@ are folded into <code class="docutils literal notranslate"><span class="pre">CHA
 </section>
 <section id="branch-protection-on-main">
 <h2>Branch Protection on <code class="docutils literal notranslate"><span class="pre">main</span></code><a class="headerlink" href="#branch-protection-on-main" title="Link to this heading">#</a></h2>
-<p>Direct pushes to <code class="docutils literal notranslate"><span class="pre">main</span></code> are rejected. All changes land via PR. The ruleset
-enforces:</p>
+<p>Direct pushes to <code class="docutils literal notranslate"><span class="pre">main</span></code> are rejected. All changes land via PR. GitHub branch
+protection on <code class="docutils literal notranslate"><span class="pre">main</span></code> enforces:</p>
 <ul class="simple">
-<li><p>All required CI checks must pass (no admin bypass).</p></li>
-<li><p>Linear history (use <code class="docutils literal notranslate"><span class="pre">gh</span> <span class="pre">pr</span> <span class="pre">merge</span> <span class="pre">--rebase</span></code>; merge commits are rejected).</p></li>
+<li><p>The required status checks must pass: <code class="docutils literal notranslate"><span class="pre">pre-commit.ci</span> <span class="pre">-</span> <span class="pre">pr</span></code> and
+<code class="docutils literal notranslate"><span class="pre">All</span> <span class="pre">CI</span> <span class="pre">Checks</span> <span class="pre">Passed</span></code> (the aggregate job every CI lane feeds). Admins
+cannot bypass them.</p></li>
 <li><p>Force-pushes and branch deletion on <code class="docutils literal notranslate"><span class="pre">main</span></code> are denied.</p></li>
 </ul>
+<p>Linear history is not enforced: a PR may land as a merge commit or a rebase,
+and both appear in <code class="docutils literal notranslate"><span class="pre">main</span></code>’s history.</p>
 <p>If a required check turns out to be wrong, fix it forward — there is no
 escape hatch.</p>
 </section>
