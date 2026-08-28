@@ -349,6 +349,6 @@ commented blocks map everything it can become.
 - **How it works**: :doc:`conceptual-tutorial` explains the MCP server
   architecture, the connector system, and the safety mechanisms in depth.
 - **The profile format**: :doc:`../how-to/build-profiles` documents every key
-  those 13 commented blocks can hold.
+  those 12 commented blocks can hold.
 - **CLI reference**: :doc:`/reference/cli` covers all ``osprey``
   commands.

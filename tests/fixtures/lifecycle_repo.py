@@ -1142,10 +1142,13 @@ GITIGNORE = """\
 # `osprey reset` — anchored for the same reason the zones above are.
 /.osprey-compose.yml
 
-# OS / editor noise. Deliberately unanchored: these are junk at any depth.
+# OS / editor noise, and the bytecode Python leaves beside any server package
+# run in place. Deliberately unanchored: these are junk at any depth.
 .DS_Store
 *.swp
 *.swo
+__pycache__/
+*.py[co]
 """
 
 ENV_EXAMPLE = """\

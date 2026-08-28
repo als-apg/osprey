@@ -212,7 +212,10 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # The comment-only fixes that shipped alongside it (correcting the
     # mislabelled memory-guard/writes-check comments in the other presets)
     # contributed nothing to any digest, including this one.
-    "hello-world": "sha256:b737b03979d25bec8de1aa4d382fa07ebc64971a093b59e8b0be21f1197ef395",
+    # Moved again when the preset gained a live `mcp_servers.example_server`
+    # block, so a rebuilt project launches the seeded example MCP server and
+    # its `example_status` tool appears in the session.
+    "hello-world": "sha256:fdd41e470ce46d49f206640e558eaab9e909ce034b6bcc456ff50e3edb1e0436",
 }
 
 

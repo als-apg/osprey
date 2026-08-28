@@ -56,6 +56,9 @@ EXPECTED_TOOLS: dict[str, set[str]] = {
         "session_log",
     },
     "ariel": {"keyword_search", "entry_get", "sql_query", "semantic_search"},
+    # Seeded by the hello-world preset, not a framework server: the worked
+    # example a first-time user gets from `osprey init --preset hello-world`.
+    "example_server": {"example_status"},
 }
 # channel-finder: enumerated dynamically since which backend is enabled
 # (hierarchical | in_context | middle_layer) depends on preset config.

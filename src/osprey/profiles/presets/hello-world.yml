@@ -83,6 +83,35 @@ output_styles:
 
 web_panels: []   # Extra tabs in the web workspace, beside the terminal
 
+# Your own MCP servers, injected into the build's .mcp.json next to the
+# framework ones. An entry is either stdio (command/args/env) or remote (url,
+# or just port to derive http://localhost:<port>/mcp). transport defaults to
+# "http"; "sse" is the legacy event-stream wire and needs an explicit url.
+mcp_servers:
+  # A Python server's package lives at mcp_servers/<package>/ beside this file;
+  # the build copies it to build/_mcp_servers/<package>/ for `-m <package>`.
+  example_server:
+    command: "{current_python_env}"
+    args: [-m, example_server]
+    env:
+      OSPREY_CONFIG: "{project_root}/build/config.yml"
+      PYTHONPATH: "{project_root}/build/_mcp_servers"
+    # Tool names under permissions are bare — `allow` runs them unprompted, `ask`
+    # prompts the operator on every call.
+    permissions:
+      allow: [example_status]
+  # Delete this block and mcp_servers/example_server/ together: one without
+  # the other costs every session a 20 s wait for a server that cannot start.
+  # Editing either is a source change, not a build tweak: rebuild afterwards,
+  # since the directory enters the image context and the drift fingerprint.
+  #
+  #   lattice:
+  #     url: http://lattice.example.org:8400/mcp
+  #     port: 8400
+  #     transport: http
+  #     permissions:
+  #       allow: [get_twiss]
+
 # ── Everything else ──────────────────────────────────────────────────────────
 # One dotted `key.path` per line. Never write a nested block here: it would
 # replace the whole subtree and silently drop the keys beside it.
