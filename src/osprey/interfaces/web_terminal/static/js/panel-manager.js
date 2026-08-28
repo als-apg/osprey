@@ -41,7 +41,7 @@ import { applyConfigTabGate } from './config-tab.js';
 import { applyScaffoldWriteGate } from './scaffold/write-gate.js';
 import {
   initDockIframeAdapter, focusPanel, hidePanel, concealPanel,
-  setKnownServicePanels, setServerVisiblePanels, glowPanel,
+  setKnownServicePanels, setServerVisiblePanels,
 } from './dock-iframe.js';
 import { initPanelPlacement, dropPanelAt } from './panel-placement.js';
 import { createPanelIframe } from './panel-iframe-factory.js';
@@ -59,7 +59,7 @@ import {
   initPanelLifecycle, freshPanelState, renderRail, ensureRailMembership,
   initPanel, assumeHealthy, startHealthPolling,
 } from './panel-lifecycle.js';
-import { initAgentAttention, flashAgentGlow, clearBadge } from './panel-agent-attention.js';
+import { initAgentAttention, flashAgentTile, clearBadge } from './panel-agent-attention.js';
 import { subscribePanelEvents } from './panel-sse.js';
 
 // ---- Types ----
@@ -115,7 +115,7 @@ import { subscribePanelEvents } from './panel-sse.js';
  * @property {'agent'} [source]
  *
  * @typedef {object} AgentActivityEvent
- * @property {'agent_activity'} type
+ * @property {typeof import('./activity-format.js').AGENT_ACTIVITY_FRAME} type
  * @property {string} tool
  * @property {{ kind: 'panel' | 'channel' | 'run' | 'artifact' | 'config' | 'ui',
  *   panel?: string, detail?: string }} target
@@ -285,11 +285,11 @@ export async function initPanelManager(panelId) {
     getActive: getActiveTabId,
     clearActive: clearActivePanel,
     renderEmpty: renderEmptyState,
-    // An arranged tile is attributed on both surfaces: its rail entry flashes,
-    // and the tile body itself glows. Only the arrange path passes through
-    // here, which is the one placement verb an agent drives — the rail ⊞ and
-    // drag-and-drop are human gestures and never glow.
-    glow: (id) => { flashAgentGlow(id); glowPanel(id); },
+    // An arranged tile is attributed on both surfaces (rail entry flash + tile
+    // body glow, one gesture: flashAgentTile). Only the arrange path passes
+    // through here, which is the one placement verb an agent drives — the
+    // rail ⊞ and drag-and-drop are human gestures and never glow.
+    glow: flashAgentTile,
     openTerminal: openTerminalPanel,
   });
 

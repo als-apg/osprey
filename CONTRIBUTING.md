@@ -73,7 +73,7 @@ uv run osprey skills install osprey-contribute
 
 It walks you through branching, commits, push, PR, and CI iteration following
 the conventions on this page — including the protected-branch reality on
-`main` (no direct pushes; eight required CI checks; linear history). Once
+`main` (no direct pushes; required CI checks that admins cannot bypass). Once
 installed, just open Claude Code in the repo and describe what you want to
 contribute; the skill picks up wherever you are in the journey.
 

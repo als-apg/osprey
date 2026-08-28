@@ -19,6 +19,7 @@
 
 import { fetchJSON } from './api.js';
 import { getEntry, setEntryAttention } from './panel-rail.js';
+import { glowPanel } from './dock-iframe.js';
 import { flashElement } from '/design-system/js/highlight.js';
 
 /** @type {HTMLElement} */
@@ -38,6 +39,16 @@ export function initAgentAttention(el) { railEl = el; }
  * @param {string} panelId
  */
 export function flashAgentGlow(panelId) { const entry = getEntry(railEl, panelId); if (entry) flashElement(entry); }
+
+/**
+ * Attribute a tile the agent visibly changed on BOTH surfaces at once: the
+ * rail entry flashes (flashAgentGlow) and the tile body glows (glowPanel).
+ * The single owner of that pair — the agent switch and arrange paths. Paths
+ * that touch only the rail (a show, a hide, a register: no tile exists to
+ * attribute to) call flashAgentGlow alone, on purpose.
+ * @param {string} panelId
+ */
+export function flashAgentTile(panelId) { flashAgentGlow(panelId); glowPanel(panelId); }
 
 /** Newest badge-causing server ts seen this page lifetime, per panel.
  *  @type {Map<string, number>} */
