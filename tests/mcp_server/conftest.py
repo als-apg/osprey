@@ -28,6 +28,35 @@ from osprey.stores.artifact_store import reset_artifact_store
 from osprey.utils.workspace import reset_config_cache
 
 
+def hook_error_class_map() -> dict[str, str]:
+    """Read ``ERROR_CLASS_MAP`` out of the shipped error-guidance hook.
+
+    Parsed from source rather than imported: the hook is a standalone script
+    that inserts its own directory onto ``sys.path`` at import time, and a test
+    that pins its taxonomy should not have that side effect.
+
+    Returns:
+        The hook's ``error_type`` to error-class mapping.
+    """
+    import ast
+    import pathlib
+
+    import osprey
+
+    hook = (
+        pathlib.Path(osprey.__file__).parent
+        / "templates/claude_code/claude/hooks/osprey_error_guidance.py"
+    )
+    tree = ast.parse(hook.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "ERROR_CLASS_MAP"
+            for target in node.targets
+        ):
+            return ast.literal_eval(node.value)
+    raise AssertionError(f"ERROR_CLASS_MAP not found in {hook}")
+
+
 def get_tool_fn(tool_or_fn):
     """Extract the raw async function from a FastMCP FunctionTool.
 
