@@ -268,10 +268,13 @@ carry the mapping — ``operator: {persona: readwrite}`` written once, rather th
 a persona pinned on every entry. That changes nothing about that mechanism:
 a role resolves to a persona before anything is built, so which persona a card
 runs and which container it opens are the same either way. What the role adds is that
-it survives the login: it travels with the session, reaches the terminal as an
-identity header, is shown beside the user's name in the terminal's session
-menu, and is named on the login record in the audit trail. Where a facility
-runs single sign-on, the provider's own groups can be what decides it — see
+it survives the login: it travels with the session, reaches the terminal as
+identity headers, is shown beside the user's name in the terminal's session
+menu — together with where it came from, the roster entry or the identity
+provider's claim — and is named on the login record in the audit trail. A
+session that signed in before this was added goes on showing the role on its
+own, without its origin, until the person logs in again. Where a facility runs
+single sign-on, the provider's own groups can be what decides it — see
 :ref:`Let single sign-on pick the tier <multi-user-role-from-sso>`.
 
 What makes it hold
