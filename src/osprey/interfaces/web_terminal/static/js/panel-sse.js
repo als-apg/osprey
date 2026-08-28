@@ -23,9 +23,12 @@
  */
 
 import { fetchJSON, createEventSource } from './api.js';
-import { hidePanel, glowPanel } from './dock-iframe.js';
+import { hidePanel } from './dock-iframe.js';
 import { withEchoSuppressed } from './dock-sync.js';
-import { flashAgentGlow, badgePanelActivity, restoreAgentBadges } from './panel-agent-attention.js';
+import {
+  flashAgentGlow, flashAgentTile, badgePanelActivity, restoreAgentBadges,
+} from './panel-agent-attention.js';
+import { AGENT_ACTIVITY_FRAME } from './activity-format.js';
 import { PANELS } from './panel-catalog.js';
 import { ensureRailMembership, addPanel } from './panel-lifecycle.js';
 import { applyAgentSwitch, applyArrange } from './panel-placement.js';
@@ -147,13 +150,12 @@ export function subscribePanelEvents(sseDeps) {
           // Human focus is never broadcast (the server mirrors it silently and
           // the gesturing client applies it locally), so an unattributed frame
           // can only come from an out-of-contract caller; it keeps the plain
-          // activation. The glow runs after the switch so a just-added entry
-          // can flash, and the tile glow after the placement so it measures the
-          // tile the switch actually surfaced.
+          // activation. The attribution runs after the switch so a just-added
+          // entry can flash and the tile glow measures the tile the switch
+          // actually surfaced.
           if (data.source === 'agent') {
             applyAgentSwitch(data.panel);
-            flashAgentGlow(data.panel);
-            glowPanel(data.panel);
+            flashAgentTile(data.panel);
           } else {
             c.activate(data.panel);
           }
@@ -182,7 +184,7 @@ export function subscribePanelEvents(sseDeps) {
           // the user activates when they want it.
           if (data.source === 'agent') flashAgentGlow(data.id);
 
-        } else if (data.type === 'agent_activity' && data.target) {
+        } else if (data.type === AGENT_ACTIVITY_FRAME && data.target) {
           // kind 'panel' with a live rail entry → persistent badge + glow via
           // badgePanelActivity; everything the rail cannot anchor falls through
           // to the activity-strip seam (no-op until a handler registers).
@@ -234,7 +236,7 @@ function applyPanelVisibility(panel, visible, source) {
   // agent_activity branch's rail-anchor routing, so the two halves of the
   // agent's rail vocabulary read the same way on the strip.
   if (visible && source === 'agent') flashAgentGlow(panel);
-  if (source === 'agent') c.reportActivity({ type: 'agent_activity', ts: Date.now(),
+  if (source === 'agent') c.reportActivity({ type: AGENT_ACTIVITY_FRAME, ts: Date.now(),
     tool: visible ? 'add_panel_to_rail' : 'remove_panel_from_rail',
     target: { kind: 'panel', panel } });
 
@@ -289,7 +291,7 @@ function applyPanelClose(panel, source) {
   // is an entry left to glow — the operator can see which panel just went away.
   if (source === 'agent') {
     flashAgentGlow(panel);
-    ctx().reportActivity({ type: 'agent_activity', ts: Date.now(),
+    ctx().reportActivity({ type: AGENT_ACTIVITY_FRAME, ts: Date.now(),
       tool: 'close_panel', target: { kind: 'panel', panel } });
   }
 }
