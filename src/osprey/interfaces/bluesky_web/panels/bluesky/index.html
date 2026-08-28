@@ -90,6 +90,15 @@
     because arming a queue is a deliberate act, not an always-at-hand one.
   -->
   <div class="status-strip">
+    <!-- Plan-lane picker, hidden unless this deployment renders more than one
+         lane (panel.js fills it from GET /lanes). It lives HERE, beside the
+         queue badge and the two halts, because which machine this panel is
+         pointed at is safety-bearing context for all three: it must be
+         visible from every tab and in every UI mode, and the tile bar
+         survives neither. Switching lanes navigates to a fresh document — a
+         lane is a different machine, and one document never shows two (see
+         lane-client.js). -->
+    <span id="lane-strip" class="lane-strip" role="group" aria-label="Bluesky plan lane" hidden></span>
     <span id="queue-state-badge" class="badge warn">connecting&hellip;</span>
     <span class="status-strip-spacer"></span>
     <!-- NEVER add `disabled` here. The halt has no disabled state (see
@@ -118,6 +127,12 @@
        tab — a refusal sentence the operator cannot see is a refusal that did
        not happen as far as they know. -->
   <div id="queue-banner" class="banner" hidden></div>
+  <!-- Raised only when this document's URL names a lane the deployment does
+       not render: the sidecar is 404ing every request, and this is the one
+       place that says why (panel.js loadLaneRoster). Never auto-rerouted to
+       lane 1 — a silent wrong-machine reroute is the failure the lane axis
+       exists to remove. -->
+  <div id="lane-banner" class="banner banner-err" hidden></div>
 
   <!-- ==== Plans ==== -->
   <!--

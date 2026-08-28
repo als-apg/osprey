@@ -939,3 +939,175 @@ def test_the_queue_relay_shadows_no_pre_existing_sidecar_route() -> None:
     for path in ("/health", "/bridge/health", "/plans", "/runs", "/draft"):
         assert path in paths, f"queue relay displaced a pre-existing route: {path}"
     assert set(paths["/health"].keys()) == {"get"}
+
+
+# ---------------------------------------------------------------------------
+# The PLAN LANE axis on the write surface and the SSE stream
+# ---------------------------------------------------------------------------
+#
+# One vocabulary with the read proxy, by import: the same `?lane=` parameter,
+# the same resolver against `app.state.bridge_urls`, the same 404 body for a
+# lane this deployment does not render. The claims pinned here are the two
+# that matter for arming hardware: a write addressed to a lane reaches THAT
+# lane's bridge carrying THAT lane's token (URL and credential travel as one
+# decision), and an unknown lane is refused without ever falling back to lane
+# 1 -- the wrong-machine relay the axis exists to remove.
+
+_VA_BRIDGE_URL = "http://bridge-va.test"
+VA_TOKEN = "va-launch-token"  # noqa: S105 - test fixture value, not a real secret
+
+
+def _two_lane_app(
+    handler: Callable[[httpx.Request], httpx.Response],
+) -> FastAPI:
+    """A sidecar app shaped like a two-lane deployment's after its lifespan."""
+    app = _build_app(handler)
+    app.state.bridge_urls = {"bluesky": _BRIDGE_URL, "bluesky_va": _VA_BRIDGE_URL}
+    return app
+
+
+def _two_lane_recording_app() -> tuple[FastAPI, list[httpx.Request]]:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"success": True})
+
+    return _two_lane_app(handler), seen
+
+
+def test_a_write_addressed_to_a_lane_reaches_that_lanes_bridge_with_its_own_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """URL and credential travel as one decision.
+
+    The request must never reach one lane's bridge carrying another lane's
+    arming proof -- a launch a human approved against one machine, replayed
+    against the other, is exactly what per-lane tokens exist to prevent.
+    """
+    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", TOKEN)
+    monkeypatch.setenv("BLUESKY_VA_LAUNCH_TOKEN", VA_TOKEN)
+    app, seen = _two_lane_recording_app()
+
+    with TestClient(app) as client:
+        response = client.post("/queue/start?lane=bluesky_va")
+
+    assert response.status_code == 200
+    assert len(seen) == 1
+    assert str(seen[0].url).startswith(_VA_BRIDGE_URL)
+    assert seen[0].headers["X-Launch-Token"] == VA_TOKEN
+
+
+def test_a_lane_one_write_still_carries_lane_ones_token_on_a_two_lane_app(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", TOKEN)
+    monkeypatch.setenv("BLUESKY_VA_LAUNCH_TOKEN", VA_TOKEN)
+    app, seen = _two_lane_recording_app()
+
+    with TestClient(app) as client:
+        bare = client.post("/queue/start")
+        named = client.post("/queue/start?lane=bluesky")
+
+    assert bare.status_code == named.status_code == 200
+    for request in seen:
+        assert str(request.url).startswith(_BRIDGE_URL)
+        assert request.headers["X-Launch-Token"] == TOKEN
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("POST", "/queue/items"),
+        ("POST", "/queue/items/item-a/move"),
+        ("DELETE", "/queue/items/item-a"),
+        ("POST", "/queue/start"),
+        ("POST", "/queue/stop"),
+        ("POST", "/queue/abort"),
+    ],
+)
+def test_every_write_refuses_an_unknown_lane_without_touching_a_bridge(
+    method: str, path: str
+) -> None:
+    """404 with the read proxy's body -- never a relay from lane 1.
+
+    The emergency abort is deliberately in this list: an abort addressed to a
+    lane that does not exist aborts NOTHING, and relaying it to lane 1 would
+    halt a different machine than the caller named.
+    """
+    from osprey.interfaces.bluesky_web.read_proxy import UNKNOWN_LANE_BODY
+
+    app, seen, _ = _recording_app(200, {"success": True})
+    with TestClient(app) as client:
+        response = client.request(method, f"{path}?lane=bluesky_va")
+
+    assert response.status_code == 404
+    assert response.json() == UNKNOWN_LANE_BODY
+    assert seen == []
+
+
+def test_a_two_lane_app_still_refuses_the_lane_it_does_not_render() -> None:
+    from osprey.interfaces.bluesky_web.read_proxy import UNKNOWN_LANE_BODY
+
+    app, seen = _two_lane_recording_app()
+    with TestClient(app) as client:
+        response = client.post("/queue/start?lane=bluesky_live")
+
+    assert response.status_code == 404
+    assert response.json() == UNKNOWN_LANE_BODY
+    assert seen == []
+
+
+def test_the_lane_parameter_is_consumed_never_forwarded_to_the_bridge() -> None:
+    """The bridge has no parameter by that name; every other param survives."""
+    app, seen = _two_lane_recording_app()
+
+    with TestClient(app) as client:
+        response = client.post("/queue/stop?lane=bluesky_va&foo=1")
+
+    assert response.status_code == 200
+    assert seen[0].url.params.get("foo") == "1"
+    assert "lane" not in seen[0].url.params
+
+
+def test_an_empty_lane_parameter_names_no_lane_on_the_write_surface() -> None:
+    """``?lane=`` behaves as ``?lane`` omitted, exactly as the read proxy reads it."""
+    app, seen, _ = _recording_app(200, {"success": True})
+    with TestClient(app) as client:
+        response = client.post("/queue/start?lane=")
+
+    assert response.status_code == 200
+    assert str(seen[0].url).startswith(_BRIDGE_URL)
+
+
+def test_queue_events_streams_from_the_named_lanes_bridge() -> None:
+    """A queue stream labelled with the wrong machine is a wrong-machine write
+    waiting to happen -- the SSE hop takes the lane like every write does."""
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=b'data: {"type": "hello"}\n\n',
+        )
+
+    app = _two_lane_app(handler)
+    with TestClient(app) as client:
+        response = client.get("/queue/events?lane=bluesky_va")
+
+    assert response.status_code == 200
+    assert str(seen[0].url) == f"{_VA_BRIDGE_URL}/queue/events"
+
+
+def test_queue_events_refuses_an_unknown_lane() -> None:
+    from osprey.interfaces.bluesky_web.read_proxy import UNKNOWN_LANE_BODY
+
+    app, seen, _ = _recording_app(200, {})
+    with TestClient(app) as client:
+        response = client.get("/queue/events?lane=bluesky_va")
+
+    assert response.status_code == 404
+    assert response.json() == UNKNOWN_LANE_BODY
+    assert seen == []

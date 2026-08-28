@@ -37,7 +37,12 @@ from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 from starlette.staticfiles import StaticFiles
 
-from osprey.bluesky_bridge_connection import resolve_bridge_url, resolve_lane_bridge_urls
+from osprey.bluesky_bridge_connection import (
+    LANE_ONE,
+    lane_declared_target,
+    resolve_bridge_url,
+    resolve_lane_bridge_urls,
+)
 from osprey.interfaces._app_setup import configure_interface_app
 from osprey.interfaces.bluesky_web import channels, draft_relay, queue_relay, read_proxy
 from osprey.interfaces.vendor import vendor_url
@@ -53,6 +58,29 @@ _BLUESKY_PANEL_DIR = "bluesky"
 
 # (mount path, bundle directory).
 _PANEL_MOUNTS: tuple[tuple[str, str], ...] = (("/bluesky", _BLUESKY_PANEL_DIR),)
+
+#: The roster ``GET /lanes`` answers before the lifespan has resolved one —
+#: and the roster every single-lane deployment keeps: the one lane every
+#: deployment has had since the bridge shipped, declaring no target because
+#: its config block has never carried one (the panel labels it by the
+#: capability record its bridge publishes instead).
+_SINGLE_LANE_ROSTER: tuple[dict, ...] = ({"lane": LANE_ONE, "lane_target": None},)
+
+
+def _lane_roster(lane_urls: dict[str, str]) -> tuple[dict, ...]:
+    """The plan lanes this sidecar can address, as ``GET /lanes`` reports them.
+
+    One entry per lane the sidecar holds a bridge URL for — the same mapping
+    the read proxy and both relays route ``?lane=`` by, so the roster can
+    never claim a lane a request would then 404 on. ``lane_target`` is the
+    control target the lane's own ``services.<lane>`` block declares
+    (:func:`~osprey.bluesky_bridge_connection.lane_declared_target`), which a
+    two-lane render writes on every lane; ``None`` is the single-lane
+    deployment, whose block has never carried one.
+    """
+    if not lane_urls:
+        return _SINGLE_LANE_ROSTER
+    return tuple({"lane": key, "lane_target": lane_declared_target(key)} for key in lane_urls)
 
 
 @asynccontextmanager
@@ -79,6 +107,10 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     lane_urls = resolve_lane_bridge_urls()
     if lane_urls:
         _app.state.bridge_urls = lane_urls
+    # The roster the panel builds its lane picker from — computed once here,
+    # beside the URL map it mirrors, so the two cannot disagree at request
+    # time about which lanes exist.
+    _app.state.lanes = _lane_roster(lane_urls)
     try:
         yield
     finally:
@@ -114,6 +146,21 @@ async def _no_cache(request, call_next):  # type: ignore[no-untyped-def]
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/lanes")
+def lanes(request: Request) -> dict:
+    """The plan lanes this sidecar can address, in render order.
+
+    The panel builds its lane picker from this roster — lane keys plus the
+    control target each lane's own config block declares — and shows the
+    picker only when there is more than one entry, so a single-lane deployment
+    (every deployment until a second lane is opted in) renders exactly the
+    panel it always has. Whether a lane can *execute* is deliberately not
+    answered here: that is the bridge's own capability record, read per lane
+    through ``GET /bridge/health?lane=``.
+    """
+    return {"lanes": list(getattr(request.app.state, "lanes", _SINGLE_LANE_ROSTER))}
 
 
 # Wire the bridge read-proxy, the plan-draft relay, and the plan-queue relay

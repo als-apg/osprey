@@ -29,6 +29,13 @@ body ``read_proxy`` uses for its own bridge-unreachable case -- it never
 surfaces here as an uncaught 500. HTTP-level error responses from the bridge
 itself (404, 409, 422, ...) are not exceptions to httpx at all; they flow
 straight through and are relayed as-is.
+
+Every route takes the read proxy's optional ``lane`` query parameter naming
+which PLAN LANE's bridge holds the draft being read or edited -- each bridge
+keeps its own shared draft, so a second-lane plan cannot even be composed
+unless the draft surface takes the lane too. Consumed here and never
+forwarded, defaults to lane 1, and an unknown lane is the read proxy's 404
+rather than a relay from the other lane's draft.
 """
 
 from __future__ import annotations
@@ -40,6 +47,16 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from osprey.interfaces.bluesky_web._shared import UNREACHABLE_BODY, safe_json
+
+# One lane vocabulary for the whole sidecar: the read proxy's query-param
+# name, resolver and unknown-lane refusal body, imported rather than restated
+# so the draft surface cannot drift from the read surface on how a lane is
+# addressed or refused (the same sharing ``queue_relay`` does).
+from osprey.interfaces.bluesky_web.read_proxy import (
+    LANE_QUERY_PARAM,
+    UNKNOWN_LANE_BODY,
+    resolve_lane_bridge_url,
+)
 from osprey.utils.http_proxy import HOP_BY_HOP
 
 router = APIRouter()
@@ -49,13 +66,20 @@ async def _relay(request: Request, method: str) -> JSONResponse:
     """Relay ``method /draft`` onto the bridge and return its body/status verbatim.
 
     For ``PATCH``, the incoming request's raw JSON body is forwarded to the
-    bridge unchanged (byte-for-byte, not re-serialized). Query params (none
-    in the current bridge contract) are forwarded verbatim for the same
+    bridge unchanged (byte-for-byte, not re-serialized). Query params
+    (``client_id`` on the panel's PATCH) are forwarded verbatim for the same
     reason ``read_proxy._forward_get`` does: forward-compatibility without
-    special-casing.
+    special-casing -- except :data:`LANE_QUERY_PARAM`, which selects WHICH
+    lane's bridge holds the draft and is consumed here.
     """
     client: httpx.AsyncClient = request.app.state.client
-    bridge_url: str = request.app.state.bridge_url
+
+    # `or None`: an empty `?lane=` names no lane at all, exactly as the read
+    # proxy reads it -- see `_forward_get`.
+    lane = request.query_params.get(LANE_QUERY_PARAM) or None
+    bridge_url = resolve_lane_bridge_url(request, lane)
+    if bridge_url is None:
+        return JSONResponse(content=UNKNOWN_LANE_BODY, status_code=404)
 
     content: bytes | None = None
     headers: dict[str, str] | None = None
@@ -63,11 +87,15 @@ async def _relay(request: Request, method: str) -> JSONResponse:
         content = await request.body()
         headers = {"content-type": request.headers.get("content-type", "application/json")}
 
+    # multi_items(), not a dict: repeated query keys are preserved exactly as
+    # they arrived. The lane addresses the sidecar and is stripped.
+    params = [(k, v) for k, v in request.query_params.multi_items() if k != LANE_QUERY_PARAM]
+
     try:
         response = await client.request(
             method,
             f"{bridge_url}/draft",
-            params=request.query_params,
+            params=params,
             content=content,
             headers=headers,
         )
@@ -110,9 +138,18 @@ async def draft_events(request: Request) -> Response:
     sole hop. Uses a per-request ``httpx.Timeout(None, connect=5.0)`` to
     disable the shared client's 15s default read timeout, since the stream
     idles between the bridge's ~15s heartbeat comment frames.
+
+    Takes the lane parameter exactly as the other draft routes do: a draft
+    stream labelled with the wrong machine is the same wrong-machine
+    confusion as an edit to it, so an unknown lane is the read proxy's 404,
+    never the other lane's stream.
     """
     client: httpx.AsyncClient = request.app.state.client
-    bridge_url: str = request.app.state.bridge_url
+
+    lane = request.query_params.get(LANE_QUERY_PARAM) or None
+    bridge_url = resolve_lane_bridge_url(request, lane)
+    if bridge_url is None:
+        return JSONResponse(content=UNKNOWN_LANE_BODY, status_code=404)
 
     try:
         upstream = await client.send(

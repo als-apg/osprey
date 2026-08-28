@@ -141,6 +141,13 @@ quirks worth knowing:
    ``launch_token_required`` and the start stays with you, from the BLUESKY
    queue panel's own **Start queue** button.
 
+   On a two-lane deployment the BLUESKY panel carries a **lane picker** in its
+   status strip, labelled by the machine each lane drives. The panel is bound
+   to one lane at a time — plans, shared draft, queue and results all follow
+   the picked lane, and its Start queue button arms with that lane's own
+   token — so what you see and what a click starts can never belong to two
+   different machines.
+
 .. dropdown:: When something is refused
    :color: info
    :icon: alert

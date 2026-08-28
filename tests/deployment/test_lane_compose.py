@@ -1161,6 +1161,108 @@ def test_the_read_proxy_refuses_a_lane_it_does_not_serve() -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# The sidecar's half of the lane axis: the bluesky-web compose template
+# ---------------------------------------------------------------------------
+#
+# The panel path's sibling of the per-lane resources above. The sidecar is the
+# one service that relays every terminal's BLUESKY tab, and on a two-lane
+# deployment it must be able to reach the second bridge AND present that
+# lane's own token -- so its compose environment carries a `<PREFIX>_` pair
+# per second lane, spelled under the same env-prefix contract the mint and
+# the shared resolvers already speak. The single-lane render's byte identity
+# is pinned separately (tests/templates render_defaults + render_axis_shapes
+# goldens); here the claims are the two-lane additions and their gating.
+
+BLUESKY_WEB_TEMPLATE = "bluesky_web/docker-compose.yml.j2"
+
+
+def _web_context(
+    *,
+    deployed_services: list[str],
+    lanes: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """The bluesky_web render context, mirroring the generator's contract."""
+    return {
+        "services": {"bluesky_web": {}, **(lanes or {})},
+        "deployed_services": deployed_services,
+        "deployment": {},
+        "system": {"timezone": "UTC"},
+        "osprey_labels": {
+            "project_name": "proj",
+            "repo_id": "abc",
+            "project_root": "/deploy/proj",
+        },
+        "osprey_images": _image_defaults("proj"),
+        "osprey_audit_mount_source": "./var/audit",
+        "osprey_service_container_audit_dir": "/app/var/audit",
+    }
+
+
+def _render_web(context: dict[str, Any]) -> dict[str, Any]:
+    env = Environment(loader=FileSystemLoader(_LOADER_ROOTS), keep_trailing_newline=True)
+    return yaml.safe_load(env.get_template(BLUESKY_WEB_TEMPLATE).render(context))
+
+
+@pytest.mark.parametrize(("lane_key", "port"), [("bluesky_va", 8190), ("bluesky_live", 8190)])
+def test_a_two_lane_sidecar_render_carries_the_second_lanes_url_and_token(
+    lane_key: str, port: int
+) -> None:
+    """The gap the panel path had: the sidecar could neither reach the second
+    bridge nor present its token. The pair is spelled under the lane's env
+    prefix, so the shared resolvers pick both up env-first with no new
+    parser, and the URL names the lane's own in-network bridge service."""
+    rendered = _render_web(
+        _web_context(
+            deployed_services=["bluesky", lane_key, "bluesky_web"],
+            lanes={
+                "bluesky": _lane_block(8090, target="live"),
+                lane_key: _lane_block(port, target="va"),
+            },
+        )
+    )
+    environment = rendered["services"]["bluesky-web"]["environment"]
+    prefix = lane_key.upper()
+    lane_service = lane_key.replace("_", "-")
+
+    assert environment["BLUESKY_BRIDGE_URL"] == "http://bluesky-bridge:8090"
+    assert environment[f"{prefix}_BRIDGE_URL"] == f"http://{lane_service}-bridge:{port}"
+    assert environment[f"{prefix}_LAUNCH_TOKEN"] == f"${{{prefix}_LAUNCH_TOKEN}}"
+
+
+def test_a_two_lane_sidecar_waits_on_both_bridges() -> None:
+    """`depends_on: service_healthy` covered lane 1 only; a sidecar racing the
+    second bridge's startup would 502 that lane's panel reads."""
+    rendered = _render_web(
+        _web_context(
+            deployed_services=["bluesky", "bluesky_va", "bluesky_web"],
+            lanes={
+                "bluesky": _lane_block(8090, target="live"),
+                "bluesky_va": _lane_block(8190, target="va"),
+            },
+        )
+    )
+    depends = rendered["services"]["bluesky-web"]["depends_on"]
+    assert depends["bluesky-bridge"] == {"condition": "service_healthy"}
+    assert depends["bluesky-va-bridge"] == {"condition": "service_healthy"}
+
+
+def test_a_single_lane_sidecar_render_carries_no_second_lane_names() -> None:
+    """The gate: an undeployed lane leaves no trace -- no env pair, no
+    depends_on entry -- which is what keeps the byte-identity pins on the
+    single-lane goldens standing."""
+    rendered = _render_web(
+        _web_context(
+            deployed_services=["bluesky", "bluesky_web"],
+            lanes={"bluesky": _lane_block(8090)},
+        )
+    )
+    service = rendered["services"]["bluesky-web"]
+    assert list(service["depends_on"]) == ["bluesky-bridge"]
+    for name in service["environment"]:
+        assert not name.startswith(("BLUESKY_VA_", "BLUESKY_LIVE_"))
+
+
 def _regenerate() -> None:
     """Overwrite the single-lane goldens from today's template.
 
