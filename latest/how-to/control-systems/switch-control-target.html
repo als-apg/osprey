@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Aug 27, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 28, 2026"/>
   </head>
   
   
@@ -602,7 +602,9 @@ against. Setting it is you saying <em>“the gateways in this config really are 
 facility’s machine”</em>. Nothing infers that: the shipped example value looks like
 a real hostname, so no check could tell an operator’s answer from a placeholder.
 The key ships commented out, and a deployment that has not answered cannot
-switch to live.</p>
+switch to live. The build answers this itself for a deployment whose live target
+is a stand-in it deployed (<a class="reference internal" href="#rehearse-with-a-stand-in-live-machine">Rehearse with a stand-in live machine</a>): it knows
+exactly what the gateways dial, so it writes the answer in.</p>
 <p>There is one exemption. If the live machine <strong>is</strong> this deployment’s baseline —
 the target it was built for — a session that has wandered off to the simulator
 can always come home, with neither the posture nor the acknowledgment. Stranding
@@ -866,28 +868,49 @@ so a plan composed for the simulator cannot be started on the machine because
 the session moved in between. See <a class="reference internal" href="../bluesky/index.html"><span class="doc">Bluesky Plans</span></a> for the plan stack
 itself.</p>
 </section>
-<section id="see-the-whole-loop-run">
-<h2>See the whole loop run<a class="headerlink" href="#see-the-whole-loop-run" title="Link to this heading">#</a></h2>
-<p>The repository ships a script that drives one session across two Channel Access
-endpoints and prints an audit trail you read afterwards:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">PYTHONPATH</span><span class="o">=</span>src:packages/osprey-connectors/src<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>python<span class="w"> </span>scripts/demo_target_switch.py<span class="w"> </span>--self-provision
-</pre></div>
-</div>
-<p><code class="docutils literal notranslate"><span class="pre">--self-provision</span></code> stands the posture up locally: two virtual-accelerator
-containers on two ports, one of them seeded so the two serve <em>different</em> values
-for the same channel. The trail then shows, step by step, that the virtual
-accelerator is eligible before any switch has happened, that the probe channel
-reads one value before the switch and a different one after, that a python
-execution follows the session into its own subprocess, and that a write made on
-one target is not visible on the other. <code class="docutils literal notranslate"><span class="pre">--config</span> <span class="pre">&lt;path&gt;</span></code> runs the same
-narrative against a deployment you already have, and <code class="docutils literal notranslate"><span class="pre">--dry-run</span></code> prints the
-plan without touching anything.</p>
+<section id="rehearse-with-a-stand-in-live-machine">
+<h2>Rehearse with a stand-in live machine<a class="headerlink" href="#rehearse-with-a-stand-in-live-machine" title="Link to this heading">#</a></h2>
+<p>A generated project renders both connector blocks, but the live one points at a
+facility gateway — so on a laptop, or before the deployment is wired to your
+machine, the live half of this page cannot be tried at all. Setting
+<code class="docutils literal notranslate"><span class="pre">virtual_accelerator.live_standin:</span> <span class="pre">5074</span></code> in the build profile fixes that: the
+deploy brings up a <strong>second</strong> simulator container and makes it this deployment’s
+<code class="docutils literal notranslate"><span class="pre">live</span></code> target. <code class="docutils literal notranslate"><span class="pre">control_target_set</span> <span class="pre">live</span></code> then walks the whole go-live path —
+the probe, the acknowledgment, the strict limits posture, the approval prompts —
+straight out of <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>, with nothing to edit. The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code>
+preset ships it on.</p>
+<p>The two machines are not copies you cannot tell apart. They run one image over
+one lattice, but the stand-in’s BPM readouts carry a small fixed offset, so a
+read that comes back different is how you know which machine answered.</p>
+<p><strong>The label stays honest.</strong> Nothing calls the stand-in the live machine. The
+banner and the posture badge read <code class="docutils literal notranslate"><span class="pre">LIVE</span> <span class="pre">MACHINE</span> <span class="pre">(stand-in)</span></code>, and the target
+roster says the same. What the stand-in rehearses is the procedure, not the
+risk.</p>
+<p><strong>The archive belongs to the machine.</strong> The recorder records the stand-in, and
+the history seeded on the first deploy carries the same offsets the stand-in
+reads — so its past and its present describe one machine, the way a real
+machine’s do. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> reaches both machines too: a scenario changes
+the world, not one lane.</p>
+<p><strong>Going live for real is three steps</strong>, and the third is the one that is easy to
+miss:</p>
+<ol class="arabic simple">
+<li><p>Delete <code class="docutils literal notranslate"><span class="pre">virtual_accelerator.live_standin</span></code> from the build profile.</p></li>
+<li><p>Point <code class="docutils literal notranslate"><span class="pre">control_system.connector.epics.gateways</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> at your
+facility.</p></li>
+<li><p>Replace <code class="docutils literal notranslate"><span class="pre">control_system.target_switch.live_gateway_acknowledged</span></code> — the build
+wrote the stand-in’s loopback address there, because that is what the gateways
+were dialing — with your own live gateway’s hostname.</p></li>
+</ol>
+<p>On a laptop, delete the line sooner rather than later: the simulator image is
+amd64-only, so on Apple Silicon a second container doubles what QEMU has to
+emulate — one more emulated soft-IOC for the life of the deployment.</p>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <ul class="simple">
 <li><p><a class="reference internal" href="use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a> — the simulator itself, the archive it
 deploys, and the one configuration the stack refuses.</p></li>
+<li><p><a class="reference internal" href="../../reference/configuration/profile.html#profile-virtual-accelerator"><span class="std std-ref">The virtual_accelerator block</span></a> — the build-profile keys behind the
+simulator and the stand-in.</p></li>
 <li><p><a class="reference internal" href="../../architecture/python-executor.html"><span class="doc">Python Executor</span></a> — how executions are launched, and what the
 target stamp pins them to.</p></li>
 <li><p><a class="reference internal" href="../bluesky/index.html"><span class="doc">Bluesky Plans</span></a> — the plan stack that plan lanes belong to.</p></li>
@@ -955,7 +978,7 @@ target stamp pins them to.</p></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#failures-name-the-machine-they-happened-on">Failures name the machine they happened on</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#knowing-which-machine-you-are-on">Knowing which machine you are on</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#bluesky-plans-while-switched">Bluesky plans while switched</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#see-the-whole-loop-run">See the whole loop run</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#rehearse-with-a-stand-in-live-machine">Rehearse with a stand-in live machine</a></li>
 </ul>
   </nav></div>
 

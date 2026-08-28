@@ -101,7 +101,9 @@ against. Setting it is you saying *"the gateways in this config really are my
 facility's machine"*. Nothing infers that: the shipped example value looks like
 a real hostname, so no check could tell an operator's answer from a placeholder.
 The key ships commented out, and a deployment that has not answered cannot
-switch to live.
+switch to live. The build answers this itself for a deployment whose live target
+is a stand-in it deployed (`Rehearse with a stand-in live machine`_): it knows
+exactly what the gateways dial, so it writes the answer in.
 
 There is one exemption. If the live machine **is** this deployment's baseline —
 the target it was built for — a session that has wandered off to the simulator
@@ -346,31 +348,54 @@ so a plan composed for the simulator cannot be started on the machine because
 the session moved in between. See :doc:`../bluesky/index` for the plan stack
 itself.
 
-See the whole loop run
-======================
+Rehearse with a stand-in live machine
+=====================================
 
-The repository ships a script that drives one session across two Channel Access
-endpoints and prints an audit trail you read afterwards:
+A generated project renders both connector blocks, but the live one points at a
+facility gateway — so on a laptop, or before the deployment is wired to your
+machine, the live half of this page cannot be tried at all. Setting
+``virtual_accelerator.live_standin: 5074`` in the build profile fixes that: the
+deploy brings up a **second** simulator container and makes it this deployment's
+``live`` target. ``control_target_set live`` then walks the whole go-live path —
+the probe, the acknowledgment, the strict limits posture, the approval prompts —
+straight out of ``osprey up``, with nothing to edit. The ``control-assistant``
+preset ships it on.
 
-.. code-block:: bash
+The two machines are not copies you cannot tell apart. They run one image over
+one lattice, but the stand-in's BPM readouts carry a small fixed offset, so a
+read that comes back different is how you know which machine answered.
 
-   PYTHONPATH=src:packages/osprey-connectors/src \
-     python scripts/demo_target_switch.py --self-provision
+**The label stays honest.** Nothing calls the stand-in the live machine. The
+banner and the posture badge read ``LIVE MACHINE (stand-in)``, and the target
+roster says the same. What the stand-in rehearses is the procedure, not the
+risk.
 
-``--self-provision`` stands the posture up locally: two virtual-accelerator
-containers on two ports, one of them seeded so the two serve *different* values
-for the same channel. The trail then shows, step by step, that the virtual
-accelerator is eligible before any switch has happened, that the probe channel
-reads one value before the switch and a different one after, that a python
-execution follows the session into its own subprocess, and that a write made on
-one target is not visible on the other. ``--config <path>`` runs the same
-narrative against a deployment you already have, and ``--dry-run`` prints the
-plan without touching anything.
+**The archive belongs to the machine.** The recorder records the stand-in, and
+the history seeded on the first deploy carries the same offsets the stand-in
+reads — so its past and its present describe one machine, the way a real
+machine's do. ``osprey sim apply`` reaches both machines too: a scenario changes
+the world, not one lane.
+
+**Going live for real is three steps**, and the third is the one that is easy to
+miss:
+
+1. Delete ``virtual_accelerator.live_standin`` from the build profile.
+2. Point ``control_system.connector.epics.gateways`` in ``config.yml`` at your
+   facility.
+3. Replace ``control_system.target_switch.live_gateway_acknowledged`` — the build
+   wrote the stand-in's loopback address there, because that is what the gateways
+   were dialing — with your own live gateway's hostname.
+
+On a laptop, delete the line sooner rather than later: the simulator image is
+amd64-only, so on Apple Silicon a second container doubles what QEMU has to
+emulate — one more emulated soft-IOC for the life of the deployment.
 
 .. seealso::
 
    - :doc:`use-virtual-accelerator` — the simulator itself, the archive it
      deploys, and the one configuration the stack refuses.
+   - :ref:`profile-virtual-accelerator` — the build-profile keys behind the
+     simulator and the stand-in.
    - :doc:`/architecture/python-executor` — how executions are launched, and what the
      target stamp pins them to.
    - :doc:`../bluesky/index` — the plan stack that plan lanes belong to.

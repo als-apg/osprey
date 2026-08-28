@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Aug 27, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 28, 2026"/>
   </head>
   
   
@@ -570,20 +570,27 @@ convention directory instead.</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>Container services the deployment runs (see <a class="reference internal" href="#profile-services"><span class="std std-ref">Services</span></a>).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">va_archiver</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code></p></td>
+<td><p>mapping</p></td>
+<td><p>absent</p></td>
+<td><p>Declares a simulated machine the deployment runs — and, optionally, a
+second copy of it standing in for the live target
+(see <a class="reference internal" href="#profile-virtual-accelerator"><span class="std std-ref">The virtual_accelerator block</span></a>).</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">va_archiver</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p>absent</p></td>
 <td><p>Declares a stored archive for a simulated machine: a MongoDB store and a
 recorder the deploy stands up, seeds and records into
 (see <a class="reference internal" href="#profile-va-archiver"><span class="std std-ref">The va_archiver block</span></a>).</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">lifecycle</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">lifecycle</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>Commands to run at build phases (<code class="docutils literal notranslate"><span class="pre">pre_build</span></code>, <code class="docutils literal notranslate"><span class="pre">post_build</span></code>,
 <code class="docutils literal notranslate"><span class="pre">validate</span></code>).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">env</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">env</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>Variables the deployment needs: <code class="docutils literal notranslate"><span class="pre">required</span></code>, <code class="docutils literal notranslate"><span class="pre">defaults</span></code>, <code class="docutils literal notranslate"><span class="pre">file</span></code>,
@@ -592,34 +599,34 @@ host may not override; a deploy refuses rather than start on a
 contradicting value (see <a class="reference internal" href="../../how-to/deploy-project/env-chain.html#deployment-pinned-env"><span class="std std-ref">Pinning a variable to the chain</span></a>). Same name pattern
 as <code class="docutils literal notranslate"><span class="pre">required</span></code>, and a machine-minted name cannot be pinned.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">dependencies</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">dependencies</span></code></p></td>
 <td><p>list</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">[]</span></code></p></td>
 <td><p>Python packages to install into the project venv.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">environment</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">environment</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">{}</span></code></p></td>
 <td><p>Base interpreter the project environment is built from
 (see <a class="reference internal" href="#profile-environment"><span class="std std-ref">The execution environment</span></a>).</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">requires_osprey_version</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">requires_osprey_version</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
 <td><p>PEP 440 specifier (e.g. <code class="docutils literal notranslate"><span class="pre">&gt;=2026.5.0</span></code>). The build aborts if unsatisfied.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey_install</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey_install</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">local</span></code></p></td>
 <td><p>How to install OSPREY in the project venv: <code class="docutils literal notranslate"><span class="pre">local</span></code>, <code class="docutils literal notranslate"><span class="pre">pip</span></code>, or a
 PEP 508 spec.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">python_env</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">python_env</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">project</span></code></p></td>
 <td><p>Python used by MCP servers: <code class="docutils literal notranslate"><span class="pre">project</span></code>, <code class="docutils literal notranslate"><span class="pre">build</span></code>, or an absolute path.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">provenance</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">provenance</span></code></p></td>
 <td><p>mapping</p></td>
 <td><p><em>written</em></p></td>
 <td><p>Which preset this profile was materialized from, and that preset’s hash.
@@ -1005,6 +1012,82 @@ differs is named:</p>
 resolves every live client’s endpoint the way the client does and knocks on it
 (<a class="reference internal" href="../../how-to/health-and-monitoring/configure-health-checks.html"><span class="doc">Configure Health Checks</span></a>).</p>
 </section>
+<section id="the-virtual-accelerator-block">
+<span id="profile-virtual-accelerator"></span><h2>The <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> block<a class="headerlink" href="#the-virtual-accelerator-block" title="Link to this heading">#</a></h2>
+<p>Declaring <code class="docutils literal notranslate"><span class="pre">virtual_accelerator:</span></code> gives the deployment a simulated machine: a
+soft-IOC container that speaks EPICS over a real Channel Access port, brought up
+by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> and served from the lattice the build renders (see
+<a class="reference internal" href="../../how-to/control-systems/use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a>).</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">virtual_accelerator</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5064</span>
+<span class="w">  </span><span class="nt">live_standin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5074</span>
+</pre></div>
+</div>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 12.0%" />
+<col style="width: 58.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Default</p></th>
+<th class="head"><p>Meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">port</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">5064</span></code></p></td>
+<td><p>Channel Access port the simulator serves on. The connector block the
+build writes follows this value, so changing it moves both.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">live_standin</span></code></p></td>
+<td><p>absent</p></td>
+<td><p>Port for a <strong>second</strong> copy of the simulator, deployed as this
+deployment’s <code class="docutils literal notranslate"><span class="pre">live</span></code> target. Absent means one machine, as before.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<section id="the-live-stand-in">
+<h3>The live stand-in<a class="headerlink" href="#the-live-stand-in" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">live_standin</span></code> deploys a second simulator container on its own Channel Access
+port and points the deployment’s <code class="docutils literal notranslate"><span class="pre">epics</span></code> gateways at it on loopback — so the
+deployment’s <code class="docutils literal notranslate"><span class="pre">live</span></code> target is a machine you own. Both containers run one image
+over the same lattice and the same active scenarios; what differs is a small
+fixed offset on the stand-in’s BPM readouts, which is what lets you tell the two
+apart by reading them.</p>
+<p>What the stand-in rehearses is the procedure, not the risk:
+<code class="docutils literal notranslate"><span class="pre">control_target_set</span> <span class="pre">live</span></code> walks the real go-live path straight out of
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>, with no configuration edits. See
+<a class="reference internal" href="../../how-to/control-systems/switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a> for that rehearsal, and for
+the three steps that turn the stand-in into your own facility.</p>
+<p><strong>One fact, one home.</strong> The key is where the live target is described, and the
+build derives up to nine keys from it: the six
+<code class="docutils literal notranslate"><span class="pre">control_system.connector.epics.gateways.*</span></code> keys — address, port and
+name-server mode for each of the two roles —
+<code class="docutils literal notranslate"><span class="pre">control_system.connector.epics.probe_channel</span></code> (copied from the simulator’s
+own probe channel; a deployment that names none gets none), and the strict
+limits pair <code class="docutils literal notranslate"><span class="pre">control_system.limits_checking.enabled</span></code> and
+<code class="docutils literal notranslate"><span class="pre">control_system.limits_checking.allow_unlisted_channels</span></code>. It also writes
+<code class="docutils literal notranslate"><span class="pre">control_system.target_switch.live_gateway_acknowledged</span></code> with the stand-in’s
+loopback address, because that is what the gateways now dial, and leaves a note
+in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> saying so — unless that key already names something else, in
+which case the build leaves it alone and warns which key it skipped. A profile
+that spells any of the nine in its own
+<code class="docutils literal notranslate"><span class="pre">config:</span></code> block is refused by name at build time rather than silently having
+the derived copy win: two homes for one fact are free to disagree, and a real
+gateway hostname left in <code class="docutils literal notranslate"><span class="pre">config:</span></code> reads as the machine this deployment talks
+to while every session is on the stand-in.</p>
+<p>Turning the stand-in on therefore runs the <strong>whole deployment</strong> under the strict
+limits posture — limits checking on, unlisted channels refused, on the baseline
+simulator as much as on the stand-in — because that is what a switch to the live
+machine requires.</p>
+<p>On a laptop the second container is a real cost — the simulator image is
+amd64-only, so Apple Silicon emulates both — and deleting the line is the
+remedy; the how-to above says when that is worth it.</p>
+</section>
+</section>
 <section id="the-va-archiver-block">
 <span id="profile-va-archiver"></span><h2>The <code class="docutils literal notranslate"><span class="pre">va_archiver</span></code> block<a class="headerlink" href="#the-va-archiver-block" title="Link to this heading">#</a></h2>
 <p>A deployment that serves simulated channels still needs somewhere to keep what
@@ -1382,6 +1465,10 @@ what the stack looks like when it is up.</p>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#services">Services</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#graph-mode-channel-finding">Graph-mode channel finding</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-virtual-accelerator-block">The <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> block</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-live-stand-in">The live stand-in</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-va-archiver-block">The <code class="docutils literal notranslate"><span class="pre">va_archiver</span></code> block</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#one-fact-one-home">One fact, one home</a></li>
 </ul>

@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Aug 27, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 28, 2026"/>
   </head>
   
   
@@ -633,6 +633,32 @@ reachability proof that keeps a failed switch from stranding the session, the
 posture a move toward the live machine requires, what the switch refuses, and
 how Bluesky plans behave while a session is switched.</p>
 </section>
+<section id="rehearsing-against-a-live-target">
+<h2>Rehearsing against a live target<a class="headerlink" href="#rehearsing-against-a-live-target" title="Link to this heading">#</a></h2>
+<p>A deployment usually has nothing to switch <em>to</em>: the live connector points at a
+facility gateway that may not exist yet, or not from this laptop. Setting
+<code class="docutils literal notranslate"><span class="pre">virtual_accelerator.live_standin:</span> <span class="pre">5074</span></code> in the build profile gives it one —
+a <strong>second</strong> simulator container, deployed as this deployment’s <code class="docutils literal notranslate"><span class="pre">live</span></code> target.
+<code class="docutils literal notranslate"><span class="pre">control_target_set</span> <span class="pre">live</span></code> then rehearses the whole go-live ritual with nothing
+to edit and no real machine involved. The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships it
+on; delete the line to run one machine again.</p>
+<p>The two are told apart by reading them: one image over one lattice, but a small
+fixed offset on the stand-in’s BPM readouts. The label stays honest throughout —
+the banner and the posture badge read <code class="docutils literal notranslate"><span class="pre">LIVE</span> <span class="pre">MACHINE</span> <span class="pre">(stand-in)</span></code>.
+<a class="reference internal" href="switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a> has the ritual itself, and the three steps that
+turn the stand-in into your facility.</p>
+<p><strong>Scenarios reach both machines.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> writes one scenario file
+and both containers poll it, so a scenario changes the world rather than one
+lane. There is no scenario that applies to the simulator but not to the machine
+standing in for the live one, and switching targets does not undo one.</p>
+<p><strong>The archive belongs to the machine.</strong> The recorder records the stand-in when
+one is deployed, and the history seeded on the first deploy carries the same BPM
+offsets the stand-in reads — so its past and its present describe one machine,
+the way a real machine’s do. What the two halves share is the systematic error,
+not the individual samples: the seeded past carries the same systematic offsets
+as the stand-in’s readout, not the same numbers, because the seed’s values are
+generated rather than read off the running IOC.</p>
+</section>
 <section id="switching-back-to-the-mock">
 <h2>Switching back to the mock<a class="headerlink" href="#switching-back-to-the-mock" title="Link to this heading">#</a></h2>
 <p>An environment with no containers to depend on can run the tutorial on the
@@ -652,15 +678,19 @@ browse-only deployment with the exact command that flips it back. Everything
 that is not a plan — channel reads and writes, the archiver, the Channel
 Finder — works as before. The <code class="docutils literal notranslate"><span class="pre">epics</span></code> block keeps its production values
 throughout.</p>
-<p>The archive follows the flip on its own. The recorder records <strong>only</strong> a virtual
-accelerator, so on <code class="docutils literal notranslate"><span class="pre">mock</span></code> it stops writing and idles; it re-reads the project’s
-<code class="docutils literal notranslate"><span class="pre">config.yml</span></code> every 30 seconds, so the change takes effect within one poll and
-no restart or rebuild is involved. Nothing is deleted — the history already in
-the store stays readable, it simply stops growing, and it ages out under the
-retention window as usual. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> will report the archive as <strong>stale</strong>
-(a warning, not an error) once the newest sample is older than the freshness
-threshold, which is the honest answer to “is this archive still being written”.
-Flipping back to <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> restarts recording within a poll too.</p>
+<p>The archive follows the flip on its own. The recorder records <strong>only</strong> a machine
+this deployment owns, so with no stand-in deployed it stops writing on <code class="docutils literal notranslate"><span class="pre">mock</span></code>
+and idles; it re-reads the project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> every 30 seconds, so the
+change takes effect within one poll and no restart or rebuild is involved.
+Nothing is deleted — the history already in the store stays readable, it simply
+stops growing, and it ages out under the retention window as usual.
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> will report the archive as <strong>stale</strong> (a warning, not an error)
+once the newest sample is older than the freshness threshold, which is the
+honest answer to “is this archive still being written”. Flipping back to
+<code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> restarts recording within a poll too.</p>
+<p>A stand-in changes that answer, because the recorder follows the machine rather
+than the <code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> line: the stand-in keeps running and is still
+this deployment’s live machine, so it keeps being recorded on <code class="docutils literal notranslate"><span class="pre">mock</span></code> as well.</p>
 </section>
 <section id="connecting-to-the-ioc">
 <h2>Connecting to the IOC<a class="headerlink" href="#connecting-to-the-ioc" title="Link to this heading">#</a></h2>
@@ -755,10 +785,17 @@ they are gated in every deployment.</p>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>The tutorial runs the limits checker in permissive mode
-(<code class="docutils literal notranslate"><span class="pre">limits_checking.allow_unlisted_channels:</span> <span class="pre">true</span></code>), so a channel <em>absent</em>
-from <code class="docutils literal notranslate"><span class="pre">channel_limits.json</span></code> is not blocked. Range enforcement covers listed
-channels; it is not a closed allowlist here.</p>
+<p>The limits posture here follows the stand-in. Without one, the limits
+checker runs permissive (<code class="docutils literal notranslate"><span class="pre">limits_checking.allow_unlisted_channels:</span>
+<span class="pre">true</span></code>): a channel <em>absent</em> from <code class="docutils literal notranslate"><span class="pre">channel_limits.json</span></code> is not blocked,
+range enforcement covers the listed channels, and it is not a closed
+allowlist.</p>
+<p>Set <code class="docutils literal notranslate"><span class="pre">virtual_accelerator.live_standin</span></code> in the build profile — the
+<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset does — and the build runs the deployment
+strict instead: limits checking on, unlisted channels refused, on both
+machines. That is the posture a switch to the live machine requires, and
+rehearsing it is what the stand-in is for, so an unlisted channel is
+refused on the simulator too. See <a class="reference internal" href="#rehearsing-against-a-live-target">Rehearsing against a live target</a>.</p>
 </div>
 </section>
 </section>
@@ -862,6 +899,10 @@ answering, never a value carried forward.</p>
 samples land on the same timestamps and around the same baselines, so where the
 seed ends and recording begins there is noise, not a step an operator would
 rightly chase.</p>
+<p><strong>With a stand-in deployed, this is the stand-in’s archive.</strong> The recorder
+samples the stand-in and the seeded past carries its offsets, so the BPM history
+read out of the store — including by a session on the simulator target — is the
+stand-in’s. See <a class="reference internal" href="#rehearsing-against-a-live-target">Rehearsing against a live target</a>.</p>
 <p>Retention is enforced by the store itself: dense samples expire after the hot
 span, the coarse ones after the retention window, so a long-running deployment
 stays bounded rather than growing forever. The collection is zstd-compressed;
@@ -997,6 +1038,7 @@ reporting the key as merely unset.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quickstart">Quickstart</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#switching-a-running-session">Switching a running session</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#rehearsing-against-a-live-target">Rehearsing against a live target</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#switching-back-to-the-mock">Switching back to the mock</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#connecting-to-the-ioc">Connecting to the IOC</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-from-a-source-checkout">Running from a source checkout</a></li>
