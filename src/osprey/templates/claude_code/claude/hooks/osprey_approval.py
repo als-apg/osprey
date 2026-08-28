@@ -5,7 +5,7 @@ name: Human Approval Gate
 description: Requires human approval for dangerous operations based on per-tool policy
 summary: Requires human approval for dangerous operations
 event: PreToolUse
-tools: channel_write, execute, setup_patch, entry_create, queue_add, queue_start, queue_stop, stop_run
+tools: channel_write, execute, setup_patch, entry_create, queue_add, queue_start, queue_stop, queue_remove, stop_run
 safety_layer: 2
 ---
 
@@ -1746,6 +1746,49 @@ def _describe_queue_stop(
     return lines
 
 
+def _describe_queue_remove(
+    tool_input: dict, config: dict, hook_input=None, read_record=None
+) -> list[str]:
+    """Render the removal-approval prompt: name the item being dropped.
+
+    The queue server parks an interrupted plan at the front of the queue
+    precisely so a human decides its fate — this prompt IS that decision, so
+    it has to name the plan, not just the uid. Removal discards pending work
+    and runs nothing; the plan can only run again by being re-staged and
+    enqueued afresh, each with its own gate.
+    """
+    uid = tool_input.get("uid") if isinstance(tool_input, dict) else None
+    lines = [
+        "Removes ONE pending item from the queue — it will not run. This never "
+        "touches the plan already in motion (that is stop_run), and running the "
+        "removed plan again would need a fresh, separately-gated enqueue."
+    ]
+    base_url = _resolve_bridge_url(config)
+    snapshot = _queue_snapshot(base_url)
+    if isinstance(snapshot, dict) and uid:
+        for item in snapshot.get("items") or []:
+            if isinstance(item, dict) and item.get("item_uid") == uid:
+                name = item.get("name") or "?"
+                result = item.get("result")
+                exit_status = result.get("exit_status") if isinstance(result, dict) else None
+                if exit_status:
+                    lines.append(
+                        f"Item: {_sanitize_label(name)} (uid {uid}) — already ran and "
+                        f"ended {exit_status!r}; the queue server re-queued it for "
+                        f"exactly this decision, and removing it is what unblocks "
+                        f"every refused start."
+                    )
+                else:
+                    lines.append(f"Item: {_sanitize_label(name)} (uid {uid}) — pending, never ran.")
+                break
+        else:
+            lines.append(
+                f"Item uid {uid} is not in the pending queue right now — the removal "
+                f"will be refused by the manager unless the queue changes first."
+            )
+    return lines
+
+
 def _describe_stop_run(
     tool_input: dict, config: dict, hook_input=None, read_record=None
 ) -> list[str]:
@@ -1779,6 +1822,7 @@ _QUEUE_DESCRIBERS = {
     "queue_add": _describe_queue_add,
     "queue_start": _describe_queue_start,
     "queue_stop": _describe_queue_stop,
+    "queue_remove": _describe_queue_remove,
     "stop_run": _describe_stop_run,
 }
 

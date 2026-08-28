@@ -362,7 +362,7 @@ def test_kill_switch_gates_exactly_the_arming_tools() -> None:
 
 
 def test_stop_tools_are_approval_only_never_kill_switched() -> None:
-    """``queue_stop`` and ``stop_run`` = approval only, in both directions.
+    """``queue_stop``, ``queue_remove`` and ``stop_run`` = approval only, in both directions.
 
     Halting is the safe direction, so the kill switch must never be able to
     block it: attaching the writes-check to ``queue_stop`` would make a plain
@@ -370,11 +370,13 @@ def test_stop_tools_are_approval_only_never_kill_switched() -> None:
     likely to want the queue halted. ``queue_stop``'s one arming case
     (``cancel=true``, which withdraws a pending halt) is gated in-tool and again
     at the bridge instead, so the arming half is covered without taking the
-    halting half hostage.
+    halting half hostage. ``queue_remove`` discards pending work and is the
+    sole way past the interrupted-item start refusal — a kill switch that
+    blocked it would trap a wedged queue exactly when writes are disabled.
     """
     by_matcher = {r["matcher"]: r for r in _resolve_bluesky()["hooks_pre"]}
 
-    for tool in (bsky.QUEUE_STOP, bsky.STOP_RUN):
+    for tool in (bsky.QUEUE_STOP, bsky.QUEUE_REMOVE, bsky.STOP_RUN):
         cmds = _hook_commands(by_matcher, tool)
         assert any("osprey_approval.py" in c for c in cmds), f"{tool!r} must be approval-gated"
         assert not any("osprey_writes_check.py" in c for c in cmds), (

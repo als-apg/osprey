@@ -454,6 +454,10 @@ RESERVED_PATH_PATTERNS: tuple[ReservedPattern, ...] = (
 #: layer treats as writable. Pinned by test_every_runtime_write_path_key_is_protected.
 PROTECTED_CONFIG_KEYS: dict[str, tuple[str, ...]] = {
     "config.yml": (
+        # Trailing ``*`` on a scalar key, deliberately: it keeps the key
+        # descent-safe, so a writer cannot plant a *block* where the boolean
+        # goes and have the flatten lose the subtree past the gate.
+        "dangerously_allow_bash.*",
         "control_system.*",
         "approval.*",
         "hooks.*",
