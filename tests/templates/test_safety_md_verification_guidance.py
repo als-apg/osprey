@@ -5,9 +5,11 @@ Item 6 used to prescribe a level ("Default verification_level is
 channel limits entry, then the limits database ``defaults.verification``, then
 the connector config, then ``callback`` -- so a prompt-layer default is wrong
 wherever a project configures readback. The rule now *describes* that
-resolution and states the consequence the agent must respect: a
-``callback``-level result carries no readback value and no alarm state, so the
-agent must report ``write_state`` rather than the resulting machine state.
+resolution and tells the agent what to report: ``write_state``, plus the
+``readback_value`` and alarm state the result carries. Every verifying level
+carries the post-write readback, so the rule no longer declares it absent;
+when a result has none, rule 4 (read back after writing) covers the gap, and
+the two rules say the same thing.
 
 These tests exercise the real delivery path: ``safety.md`` is a non-Jinja
 template copied into ``.claude/rules/safety.md`` by the Claude Code
@@ -57,21 +59,25 @@ def test_rule_describes_the_resolution_order(rendered_safety_rule: str) -> None:
     assert positions == sorted(positions), f"resolution order out of sequence: {item6}"
 
 
-def test_rule_states_callback_carries_no_readback_or_alarm(rendered_safety_rule: str) -> None:
-    """A callback-level result has readback_value and alarm fields as None."""
+def test_rule_no_longer_declares_the_callback_result_value_less(rendered_safety_rule: str) -> None:
+    """The prompt patch is retired: callback-level results carry the readback now."""
     prose = " ".join(rendered_safety_rule.split())
-    assert "no readback value and no alarm state" in prose
-    assert "do NOT describe the machine state from it" in prose
+    assert "no readback value" not in prose
+    assert "do NOT describe the machine state" not in prose
 
 
-def test_rule_points_the_agent_at_write_state(rendered_safety_rule: str) -> None:
-    """The agent reports what the tool result says, not what it infers."""
+def test_rule_points_the_agent_at_write_state_and_readback_value(
+    rendered_safety_rule: str,
+) -> None:
+    """The agent reports what the tool result says -- state and carried value."""
     assert "`write_state`" in rendered_safety_rule
+    assert "`readback_value`" in rendered_safety_rule
 
 
-def test_rule_routes_legitimate_readback_to_rule_four(rendered_safety_rule: str) -> None:
-    """The prohibition is scoped to the write result -- rule 4 still covers explicit readback."""
+def test_rule_routes_a_value_less_result_to_rule_four(rendered_safety_rule: str) -> None:
+    """Rule 6 and rule 4 agree: a result with no readback means read back after writing."""
     prose = " ".join(rendered_safety_rule.split())
+    assert "If it carries none" in prose
     assert "read the channel back (rule 4)" in prose
 
     start = rendered_safety_rule.find("\n4. **")
