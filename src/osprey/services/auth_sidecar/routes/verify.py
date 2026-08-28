@@ -4,11 +4,11 @@ nginx calls this once for every request under ``/u/<user>/`` — page loads, API
 calls, websocket handshakes alike — and turns any non-2xx answer into a denial.
 It is therefore on the hot path of the whole deployment and says as little as
 possible: a bodyless 200 or a bare 401, with no redirect and no
-``WWW-Authenticate``. The only things an authorized answer may carry are the two
-identity headers of
+``WWW-Authenticate``. The only things an authorized answer may carry are the
+three identity headers of
 :mod:`~osprey.services.auth_sidecar.identity_headers` — the account behind the
-request and the role it holds, both opaque identifiers and never a credential —
-and each only when the session holds one.
+request, the role it holds and where that role came from, all opaque
+identifiers and never a credential — and each only when the session holds one.
 Where an unauthenticated browser should be *sent* is
 nginx's decision (``error_page 401``, content-negotiated), not this route's; a
 redirect issued here would be followed by the subrequest instead of the user.
@@ -40,11 +40,11 @@ from fastapi import APIRouter, Cookie, Depends, Query, Response
 
 from ..app import AuthSettings, get_revocation_store, get_session_codec, get_settings
 from ..exceptions import InvalidSessionError
-from ..identity_headers import ROLE_HEADER, SUBJECT_HEADER, is_header_safe
+from ..identity_headers import ROLE_HEADER, ROLE_SOURCE_HEADER, SUBJECT_HEADER, is_header_safe
 from ..passwords import verify_generation_tag
 from ..revocation import RevocationStore
 from ..sessions import SESSION_COOKIE_NAME, SessionCodec, UnlockedUser
-from .recheck import session_role, session_subject
+from .recheck import session_role, session_role_source, session_subject
 
 logger = logging.getLogger(__name__)
 
@@ -225,7 +225,7 @@ def _authorized(username: str, entry: UnlockedUser | None, settings: AuthSetting
     ``is_unlocked`` has already established that ``entry`` exists, so ``None`` is
     only a defensive guard.
 
-    Two headers may ride the 200. ``X-Osprey-Auth-Subject`` names the account —
+    Three headers may ride the 200. ``X-Osprey-Auth-Subject`` names the account —
     the provider subject under OIDC, the roster username otherwise — so a later
     layer can tell who is behind the request without re-reading the cookie.
     ``X-Osprey-Auth-Role`` names the role that account holds. Each is *omitted*
@@ -259,7 +259,15 @@ def _authorized(username: str, entry: UnlockedUser | None, settings: AuthSetting
     :func:`~osprey.services.auth_sidecar.routes.recheck.session_role` now grants
     it no role either.
 
-    **An uncarryable value denies.** Both values are checked against
+    **The source rides only beside the role.** ``X-Osprey-Auth-Role-Source``
+    names which authority resolved the role in the header above it — ``roster``
+    for the entry the render bound, ``claim`` for a validated ID token — and it
+    comes from the same matrix rather than off the entry, so it is absent on
+    every path the role is absent from: a session holding no role has no
+    provenance to explain. Unlike the role, it is display only: it says where a
+    privilege came from and confers none of its own.
+
+    **An uncarryable value denies.** Every value is checked against
     :func:`~osprey.services.auth_sidecar.identity_headers.is_header_safe` even
     though the session codec refuses to store one that fails — the roster
     username reaches here without passing through the codec at all, so a
@@ -274,8 +282,9 @@ def _authorized(username: str, entry: UnlockedUser | None, settings: AuthSetting
         settings: The deployment's frozen settings.
 
     Returns:
-        A 200 carrying zero, one or both identity headers — or a 401 if an
-        identity this deployment cannot carry was about to be reported.
+        A 200 carrying as many of the three identity headers as this session
+        can fill — or a 401 if an identity this deployment cannot carry was
+        about to be reported.
     """
     headers: dict[str, str] = {}
     subject = _subject_for(username, entry, settings)
@@ -289,5 +298,13 @@ def _authorized(username: str, entry: UnlockedUser | None, settings: AuthSetting
         if not is_header_safe(role):
             return _deny(username, "the session role cannot be carried in an identity header")
         headers[ROLE_HEADER] = role
+
+        source = session_role_source(method=settings.method, entry=entry)
+        if source:
+            if not is_header_safe(source):
+                return _deny(
+                    username, "the session role source cannot be carried in an identity header"
+                )
+            headers[ROLE_SOURCE_HEADER] = source
 
     return Response(status_code=200, headers=headers)

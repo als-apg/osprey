@@ -214,18 +214,31 @@ class TestSessionFooter:
 
 
 class TestAuthRole:
-    """``X-Osprey-Auth-Role`` -> the identity menu's who-line.
+    """``X-Osprey-Auth-Role`` and ``X-Osprey-Auth-Role-Source`` -> the who-line.
 
     nginx forwards the role the auth sidecar resolved on every gated request,
-    the page GET included, so ``root()`` reads it off the request rather than
-    off ``app.state``: it is a per-login fact, not a render-time one. The
-    header is decoded by the same bound the audit ledger applies, and a value
-    that fails it renders NOTHING — in a topology with no nginx in front, any
-    client can send the header, and the chip is a display, not an
-    authorization surface.
+    and beside it where that role came from, the page GET included — so
+    ``root()`` reads both off the request rather than off ``app.state``: they
+    are per-login facts, not render-time ones. Both headers are decoded by the
+    same bound the audit ledger applies, and a value that fails it renders
+    NOTHING — in a topology with no nginx in front, any client can send these
+    headers, and the chip is a display, not an authorization surface.
+
+    The source is shown only through ``root()``'s closed vocabulary and only
+    beside a role: a qualifier with nothing to qualify would be a separator
+    hanging off the end of the line.
     """
 
     ENV = {"OSPREY_TERMINAL_USER": "alice"}
+
+    #: The source span's full opening tag, asserted whole rather than by its
+    #: class alone — ``header-identity-who-role`` is a substring of
+    #: ``header-identity-who-role-source``, so a bare class check cannot tell
+    #: the pill from its qualifier.
+    SOURCE_SPAN = (
+        'class="header-identity-who-role-source" title="Where this session\'s role came from">'
+    )
+    ROLE_PILL = 'class="header-identity-who-role" title="Role for this session">operator<'
 
     def _body(self, workspace_dir, headers, env=None):
         cfg = {"watch_dir": str(workspace_dir)}
@@ -241,6 +254,9 @@ class TestAuthRole:
 
         assert 'class="header-identity-who-name">alice<' in body
         assert 'class="header-identity-who-role" title="Role for this session">operator<' in body
+        # A role with no source beside it — the shape every pre-upgrade session
+        # decodes to — shows the pill alone, with no qualifier span at all.
+        assert 'class="header-identity-who-role-source"' not in body
 
     @pytest.mark.parametrize(
         "headers",
@@ -297,6 +313,80 @@ class TestAuthRole:
         assert 'class="header-identity"' not in body
         assert "header-identity-who-role" not in body
 
+    @pytest.mark.parametrize(
+        ("source", "label"),
+        [
+            pytest.param("roster", "roster", id="roster"),
+            pytest.param("claim", "ID token", id="claim"),
+        ],
+    )
+    def test_the_source_is_shown_after_the_role(self, workspace_dir, source, label):
+        """The sidecar's word is translated for the reader: a login bound by
+        the roster says so in the roster's own term, while ``claim`` becomes
+        "ID token", which is what an operator sees named everywhere else."""
+        body = self._body(
+            workspace_dir,
+            {"X-Osprey-Auth-Role": "operator", "X-Osprey-Auth-Role-Source": source},
+        )
+
+        assert self.ROLE_PILL in body
+        assert self.SOURCE_SPAN + label + "<" in body
+
+    def test_a_source_without_a_role_renders_nothing(self, workspace_dir):
+        """The qualifier is gated on the role, not only on itself. A payload
+        shape the sidecar never mints could carry a source alone; the who-line
+        would then show a separator qualifying nothing."""
+        body = self._body(workspace_dir, {"X-Osprey-Auth-Role-Source": "roster"})
+
+        assert 'class="header-identity-who-name">alice<' in body
+        assert 'class="header-identity-who-role-source"' not in body
+
+    def test_a_source_outside_the_vocabulary_renders_nothing(self, workspace_dir):
+        """``ldap`` clears the header bound and is still not a source this
+        build can name. The role it qualifies is unaffected: the chip drops
+        the word it does not know, not the fact it does."""
+        body = self._body(
+            workspace_dir,
+            {"X-Osprey-Auth-Role": "operator", "X-Osprey-Auth-Role-Source": "ldap"},
+        )
+
+        assert self.ROLE_PILL in body
+        assert 'class="header-identity-who-role-source"' not in body
+        assert "ldap" not in body
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            pytest.param("ro ster", id="interior-space"),
+            pytest.param("a" * 129, id="over-long"),
+            pytest.param("ros\x7fter", id="control-char"),
+        ],
+    )
+    def test_a_source_the_sidecar_could_not_have_sent_renders_nothing(self, workspace_dir, value):
+        """Same bound as the role, and the same answer: the ledger's
+        ``<unsafe>`` sentinel is suppressed rather than rendered, here as
+        well."""
+        body = self._body(
+            workspace_dir,
+            {"X-Osprey-Auth-Role": "operator", "X-Osprey-Auth-Role-Source": value},
+        )
+
+        assert self.ROLE_PILL in body
+        assert 'class="header-identity-who-role-source"' not in body
+        assert "&lt;unsafe&gt;" not in body
+
+    def test_a_source_without_a_user_renders_no_chip(self, workspace_dir):
+        """Single-user terminals render no identity chip at all; a stray pair
+        of identity headers must not conjure one."""
+        body = self._body(
+            workspace_dir,
+            {"X-Osprey-Auth-Role": "operator", "X-Osprey-Auth-Role-Source": "roster"},
+            env={},
+        )
+
+        assert 'class="header-identity"' not in body
+        assert 'class="header-identity-who-role-source"' not in body
+
     def test_the_context_carries_the_role(self, workspace_dir):
         cfg = {"watch_dir": str(workspace_dir)}
         with (
@@ -313,8 +403,35 @@ class TestAuthRole:
                     return original(request, name, context, *args, **kwargs)
 
                 with patch.object(app_module.templates, "TemplateResponse", side_effect=_capture):
-                    assert c.get("/", headers={"X-Osprey-Auth-Role": "operator"}).status_code == 200
+                    assert (
+                        c.get(
+                            "/",
+                            headers={
+                                "X-Osprey-Auth-Role": "operator",
+                                "X-Osprey-Auth-Role-Source": "roster",
+                            },
+                        ).status_code
+                        == 200
+                    )
                     assert captured["auth_role"] == "operator"
+                    assert captured["auth_role_source_label"] == "roster"
                     captured.clear()
                     assert c.get("/").status_code == 200
                     assert captured["auth_role"] == ""
+                    assert captured["auth_role_source_label"] == ""
+
+    def test_the_source_vocabulary_is_the_sidecar_s_own(self):
+        """The label map's keys are the sidecar's own constants.
+
+        Importing them at module scope would put a service package in the
+        terminal's import closure for two string constants, so the drift check
+        is a test — the same trade ``test_http_audit_emitters.py`` makes for
+        the header names. Without it, renaming a value in ``recheck.py`` would
+        silently blank the qualifier instead of failing anything.
+        """
+        from osprey.services.auth_sidecar.routes.recheck import (
+            ROLE_SOURCE_CLAIM,
+            ROLE_SOURCE_ROSTER,
+        )
+
+        assert set(app_module._ROLE_SOURCE_LABELS) == {ROLE_SOURCE_ROSTER, ROLE_SOURCE_CLAIM}

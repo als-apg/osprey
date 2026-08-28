@@ -46,7 +46,11 @@ from fastapi.testclient import TestClient
 from osprey.deployment.web_terminals.personas import env_var_suffix
 from osprey.services.auth_sidecar import audit
 from osprey.services.auth_sidecar.app import STATE_COOKIE_NAME, create_app
-from osprey.services.auth_sidecar.identity_headers import ROLE_HEADER, SUBJECT_HEADER
+from osprey.services.auth_sidecar.identity_headers import (
+    ROLE_HEADER,
+    ROLE_SOURCE_HEADER,
+    SUBJECT_HEADER,
+)
 from osprey.services.auth_sidecar.passwords import hash_password
 from osprey.services.auth_sidecar.routes import recheck
 from osprey.services.auth_sidecar.routes import verify as verify_module
@@ -58,15 +62,22 @@ from osprey.services.auth_sidecar.routes.oidc import (
 from osprey.services.auth_sidecar.routes.recheck import (
     METHOD_OIDC,
     METHOD_PASSWORD,
+    ROLE_SOURCE_CLAIM,
+    ROLE_SOURCE_ROSTER,
     LoginGrant,
     RecheckRefused,
     RosterRoles,
     recheck_login,
     session_role,
+    session_role_source,
     session_subject,
 )
 from osprey.services.auth_sidecar.routes.verify import VERIFY_PATH
-from osprey.services.auth_sidecar.sessions import SESSION_COOKIE_NAME, UnlockedUser
+from osprey.services.auth_sidecar.sessions import (
+    SESSION_COOKIE_NAME,
+    SessionCodec,
+    UnlockedUser,
+)
 from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 
 SESSION_SECRET = "session-secret-value"
@@ -167,6 +178,18 @@ def _issued_cookie(response: httpx.Response) -> str:
         if header.startswith(f"{SESSION_COOKIE_NAME}="):
             return header.split(";", 1)[0].split("=", 1)[1]
     raise AssertionError("the login issued no session cookie")
+
+
+def _minted_entry(cookie: str, user: str) -> UnlockedUser:
+    """The entry a login actually signed, read back out of the cookie it issued.
+
+    The role a session carries is visible from verify's headers; the source it
+    carries is only visible beside a role, so the cookie itself is where the two
+    halves can be seen to have been minted together.
+    """
+    entry = SessionCodec(SESSION_SECRET).decode(cookie).entry(user)
+    assert entry is not None, "the login minted no entry for this user"
+    return entry
 
 
 def _verify(client: TestClient, user: str, cookie: str) -> httpx.Response:
@@ -273,7 +296,8 @@ class TestTheNoneRow:
 
 
 class TestThePasswordRow:
-    """The roster username is the subject; the roster entry's role is the role."""
+    """The roster username is the subject; the roster entry's role is the role,
+    and the grant says so — nothing else was asked."""
 
     def test_the_grant_names_the_roster_user_and_their_role(self) -> None:
         grant = recheck_login(
@@ -281,13 +305,13 @@ class TestThePasswordRow:
             user="alice",
             roster_roles=RosterRoles({"alice": "operator"}),
         )
-        assert grant == LoginGrant(subject="alice", role="operator")
+        assert grant == LoginGrant(subject="alice", role="operator", role_source=ROLE_SOURCE_ROSTER)
 
     def test_a_roster_entry_with_no_role_grants_none(self) -> None:
         grant = recheck_login(
             method=METHOD_PASSWORD, user="alice", roster_roles=RosterRoles({"bob": "operator"})
         )
-        assert grant == LoginGrant(subject="alice", role="")
+        assert grant == LoginGrant(subject="alice", role="", role_source="")
 
     def test_the_login_mints_the_roster_role_into_the_session(
         self, monkeypatch: pytest.MonkeyPatch
@@ -296,10 +320,12 @@ class TestThePasswordRow:
         with TestClient(create_app(PASSWORD_ENV), base_url="https://testserver") as client:
             login = _login(client)
             assert login.status_code == 303
-            response = _verify(client, "alice", _issued_cookie(login))
+            cookie = _issued_cookie(login)
+            response = _verify(client, "alice", cookie)
         assert response.status_code == 200
         assert response.headers[SUBJECT_HEADER] == "alice"
         assert response.headers[ROLE_HEADER] == "operator"
+        assert _minted_entry(cookie, "alice").role_source == ROLE_SOURCE_ROSTER
 
     def test_the_ledger_reports_the_role_the_login_granted(
         self, zone: Path, monkeypatch: pytest.MonkeyPatch
@@ -324,7 +350,8 @@ class TestThePasswordRow:
 class TestTheOidcRowWithoutAClaimsMap:
     """No claim binding: nothing asked the provider about privilege, so the role
     is the one the RENDER bound — the roster entry this user's persona came
-    from. Audited like every other login."""
+    from, which is what the grant names as its source. Audited like every other
+    login."""
 
     def test_the_grant_carries_the_provider_subject_and_the_roster_role(self) -> None:
         grant = recheck_login(
@@ -334,7 +361,9 @@ class TestTheOidcRowWithoutAClaimsMap:
             asserted_subject=ALICE_SUBJECT,
             claim_role="",
         )
-        assert grant == LoginGrant(subject=ALICE_SUBJECT, role="observer")
+        assert grant == LoginGrant(
+            subject=ALICE_SUBJECT, role="observer", role_source=ROLE_SOURCE_ROSTER
+        )
 
     def test_a_roster_entry_with_no_role_still_grants_none(self) -> None:
         grant = recheck_login(
@@ -344,7 +373,7 @@ class TestTheOidcRowWithoutAClaimsMap:
             asserted_subject=ALICE_SUBJECT,
             claim_role="",
         )
-        assert grant == LoginGrant(subject=ALICE_SUBJECT, role="")
+        assert grant == LoginGrant(subject=ALICE_SUBJECT, role="", role_source="")
 
     def test_the_session_carries_the_roster_role(
         self, zone: Path, monkeypatch: pytest.MonkeyPatch
@@ -356,6 +385,7 @@ class TestTheOidcRowWithoutAClaimsMap:
         response = _callback(_oidc_app())
         assert response.status_code == 303
         assert [record.get("role") for record in _records(zone)] == ["observer"]
+        assert _minted_entry(_issued_cookie(response), "alice").role_source == ROLE_SOURCE_ROSTER
 
     def test_the_login_is_recorded(self, zone: Path) -> None:
         assert _callback(_oidc_app()).status_code == 303
@@ -366,7 +396,8 @@ class TestTheOidcRowWithoutAClaimsMap:
 
 class TestTheOidcRowWithAClaimsMap:
     """The role comes from the validated token — and must be the one this user's
-    terminal was rendered as."""
+    terminal was rendered as. The token is what decided it, so the token is what
+    the grant credits."""
 
     def test_the_grant_carries_the_resolved_role(self) -> None:
         grant = recheck_login(
@@ -376,7 +407,9 @@ class TestTheOidcRowWithAClaimsMap:
             asserted_subject=ALICE_SUBJECT,
             claim_role="operator",
         )
-        assert grant == LoginGrant(subject=ALICE_SUBJECT, role="operator")
+        assert grant == LoginGrant(
+            subject=ALICE_SUBJECT, role="operator", role_source=ROLE_SOURCE_CLAIM
+        )
 
     def test_a_claim_role_that_is_not_the_rendered_one_refuses(self) -> None:
         """SC4's first clause. alice's container was built from ``observer``;
@@ -403,7 +436,9 @@ class TestTheOidcRowWithAClaimsMap:
             asserted_subject=ALICE_SUBJECT,
             claim_role="operator",
         )
-        assert grant == LoginGrant(subject=ALICE_SUBJECT, role="operator")
+        assert grant == LoginGrant(
+            subject=ALICE_SUBJECT, role="operator", role_source=ROLE_SOURCE_CLAIM
+        )
 
     def test_a_mapped_group_becomes_the_session_role(
         self, zone: Path, monkeypatch: pytest.MonkeyPatch
@@ -413,8 +448,10 @@ class TestTheOidcRowWithAClaimsMap:
             userinfo={"sub": ALICE_SUBJECT, GROUP_CLAIM: [OPERATOR_GROUP]},
             binding=RoleBinding(claim=GROUP_CLAIM, claim_map=CLAIM_MAP),
         )
-        assert _callback(app).status_code == 303
+        response = _callback(app)
+        assert response.status_code == 303
         assert [record.get("role") for record in _records(zone)] == ["operator"]
+        assert _minted_entry(_issued_cookie(response), "alice").role_source == ROLE_SOURCE_CLAIM
 
     def test_an_unmapped_group_fails_closed(self, zone: Path) -> None:
         app = _oidc_app(
@@ -470,13 +507,28 @@ class TestTheClaimIsCrossCheckedAgainstTheRenderedRole:
         self, zone: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The control: the same deployment, the same user, the group that maps
-        to the role her terminal was actually built from."""
+        to the role her terminal was actually built from.
+
+        The grant is watched as well as the ledger, because the two authorities
+        agreeing is exactly the case where the answer could plausibly be filed
+        under either one. It is the token's: the roster was the cross-check
+        here, not the decision.
+        """
         _bind_roster_roles(monkeypatch, alice="observer")
+        grants: list[LoginGrant] = []
+
+        def recording(**kwargs: Any) -> LoginGrant:
+            grant = recheck_login(**kwargs)
+            grants.append(grant)
+            return grant
+
+        monkeypatch.setattr("osprey.services.auth_sidecar.routes.oidc.recheck_login", recording)
 
         result = _callback(self._app("als-observers"))
 
         assert result.status_code == 303
         assert [(r["decision"], r.get("role")) for r in _records(zone)] == [("allowed", "observer")]
+        assert [(g.role, g.role_source) for g in grants] == [("observer", ROLE_SOURCE_CLAIM)]
 
     def test_the_admitted_role_reaches_the_verify_subrequest(
         self, monkeypatch: pytest.MonkeyPatch
@@ -495,6 +547,7 @@ class TestTheClaimIsCrossCheckedAgainstTheRenderedRole:
             response = _verify(client, "alice", _issued_cookie(login))
         assert response.status_code == 200
         assert response.headers[ROLE_HEADER] == "observer"
+        assert response.headers[ROLE_SOURCE_HEADER] == ROLE_SOURCE_CLAIM
 
 
 # --- fail closed ------------------------------------------------------------
@@ -649,6 +702,8 @@ class TestTheAntiLookupInvariant:
             "REASON_METHOD_MISMATCH",
             "REASON_ROLE_MISMATCH",
             "REASON_UNSUPPORTED_METHOD",
+            "ROLE_SOURCE_CLAIM",
+            "ROLE_SOURCE_ROSTER",
             "SUPPORTED_METHODS",
             "LoginGrant",
             "RecheckRefused",
@@ -656,6 +711,7 @@ class TestTheAntiLookupInvariant:
             "recheck_login",
             "roster_roles",
             "session_role",
+            "session_role_source",
             "session_subject",
         }
     )
@@ -933,9 +989,16 @@ class TestAMethodChangeUnderAnOutstandingCookie:
     """
 
     @staticmethod
-    def _password_entry(role: str = "operator") -> UnlockedUser:
+    def _password_entry(
+        role: str = "operator", role_source: str = ROLE_SOURCE_ROSTER
+    ) -> UnlockedUser:
         return UnlockedUser(
-            username="alice", expires_at=0, generation_tag="tag", oidc_subject="", role=role
+            username="alice",
+            expires_at=0,
+            generation_tag="tag",
+            oidc_subject="",
+            role=role,
+            role_source=role_source,
         )
 
     def test_a_password_session_keeps_its_role_under_password(self) -> None:
@@ -958,6 +1021,26 @@ class TestAMethodChangeUnderAnOutstandingCookie:
     def test_a_missing_entry_holds_no_role(self) -> None:
         assert session_role(method=METHOD_OIDC, entry=None) == ""
 
+    def test_a_password_session_keeps_its_source_under_password(self) -> None:
+        """The source rides with the role it explains, on the unchanged path."""
+        entry = self._password_entry()
+        assert session_role_source(method=METHOD_PASSWORD, entry=entry) == ROLE_SOURCE_ROSTER
+
+    def test_a_password_session_read_under_oidc_holds_no_source(self) -> None:
+        """Lockstep: the flip that retires the role retires its provenance too,
+        so nothing is left naming where a lapsed privilege came from."""
+        assert session_role_source(method=METHOD_OIDC, entry=self._password_entry()) == ""
+
+    def test_a_missing_entry_holds_no_source(self) -> None:
+        assert session_role_source(method=METHOD_OIDC, entry=None) == ""
+
+    def test_a_source_without_a_role_explains_nothing(self) -> None:
+        """No grant can mint this shape — only a payload signed by something
+        other than :func:`_grant` — and the derived reader drops it rather than
+        forwarding provenance for a role the session does not hold."""
+        entry = self._password_entry(role="", role_source=ROLE_SOURCE_ROSTER)
+        assert session_role_source(method=METHOD_PASSWORD, entry=entry) == ""
+
     def test_the_flipped_deployment_forwards_no_role_header(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -970,6 +1053,7 @@ class TestAMethodChangeUnderAnOutstandingCookie:
             cookie = _issued_cookie(login)
             before = _verify(client, "alice", cookie)
         assert before.headers[ROLE_HEADER] == "operator"
+        assert before.headers[ROLE_SOURCE_HEADER] == ROLE_SOURCE_ROSTER
 
         flipped = {**OIDC_ENV, "OSPREY_AUTH_SESSION_SECRET": SESSION_SECRET}
         with TestClient(create_app(flipped), base_url="https://testserver") as client:
@@ -977,6 +1061,9 @@ class TestAMethodChangeUnderAnOutstandingCookie:
 
         assert after.status_code == 200
         assert ROLE_HEADER.lower() not in after.headers
+        # The source is derived from the role, so it lapses in the same breath —
+        # never left naming where a retired privilege came from.
+        assert ROLE_SOURCE_HEADER.lower() not in after.headers
         # The subject half was already closed; asserted beside it so the two
         # halves of one identity cannot drift back apart.
         assert SUBJECT_HEADER.lower() not in after.headers

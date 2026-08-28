@@ -1,9 +1,11 @@
 """The identity headers the nginx perimeter forwards — and refuses to relay.
 
-The auth sidecar answers an authorized ``auth_request`` with two headers naming
-who the request belongs to (:data:`~osprey.services.auth_sidecar.identity_headers.SUBJECT_HEADER`)
-and what privilege they hold (:data:`~osprey.services.auth_sidecar.identity_headers.ROLE_HEADER`).
-nginx is what carries those two values from the subrequest's response into the
+The auth sidecar answers an authorized ``auth_request`` with three headers naming
+who the request belongs to (:data:`~osprey.services.auth_sidecar.identity_headers.SUBJECT_HEADER`),
+what privilege they hold (:data:`~osprey.services.auth_sidecar.identity_headers.ROLE_HEADER`)
+and where that privilege came from
+(:data:`~osprey.services.auth_sidecar.identity_headers.ROLE_SOURCE_HEADER`).
+nginx is what carries those values from the subrequest's response into the
 proxied request, and it is also the only thing standing between a client that
 simply *types* them and a terminal that would believe them. Both halves are
 rendered here, so both are pinned here.
@@ -15,8 +17,8 @@ silent rather than loud:
    or from the client.** nginx builds that table per location and copies the
    request's remaining headers around it, so naming a header — as a clear, or
    as a forward whose value happens to be empty — is what drops the client's
-   own. A location naming neither identity header is a hole; which of the two
-   directives claims the name is a separate question from whether it is
+   own. A location naming none of the identity headers is a hole; which of the
+   two directives claims a name is a separate question from whether it is
    claimed.
 2. **A ``proxy_set_header`` at location level replaces the entire inherited
    set.** A single server-level clear would therefore be discarded by every
@@ -27,9 +29,9 @@ silent rather than loud:
    ``/_osprey_auth/<user>`` needs its own clear too: without one, a client's
    forged subject reaches the sidecar as though the perimeter had put it there.
 
-The structural test (:func:`test_every_proxying_location_claims_both_identity_headers_with_auth_on`)
+The structural test (:func:`test_every_proxying_location_claims_every_identity_header_with_auth_on`)
 is the one that has to keep biting: it finds every location with a
-``proxy_pass`` and demands of each that it write both names ITSELF — the gated
+``proxy_pass`` and demands of each that it write every name ITSELF — the gated
 forward, or the clear, never nothing and never both — so a proxying location
 added later cannot quietly become a hole. The two wall-less postures are not
 exceptions — ``token`` (the default: each terminal's own ``?token=`` exchange
@@ -59,7 +61,11 @@ from osprey.deployment.web_terminals.render import (
     render_web_terminals,
     terminal_secret_env_var,
 )
-from osprey.services.auth_sidecar.identity_headers import ROLE_HEADER, SUBJECT_HEADER
+from osprey.services.auth_sidecar.identity_headers import (
+    ROLE_HEADER,
+    ROLE_SOURCE_HEADER,
+    SUBJECT_HEADER,
+)
 
 _BASE_PORTS = {"web": 9091, "artifact": 9291, "ariel": 9391, "lattice": 9491}
 
@@ -198,10 +204,15 @@ def _upstream_var(header: str) -> str:
 
 _SUBJECT_VAR = "$osprey_auth_subject"
 _ROLE_VAR = "$osprey_auth_role"
+_ROLE_SOURCE_VAR = "$osprey_auth_role_source"
 
-#: The two identity headers, each paired with the variable a gated location
+#: The three identity headers, each paired with the variable a gated location
 #: forwards it from.
-_IDENTITY = ((SUBJECT_HEADER, _SUBJECT_VAR), (ROLE_HEADER, _ROLE_VAR))
+_IDENTITY = (
+    (SUBJECT_HEADER, _SUBJECT_VAR),
+    (ROLE_HEADER, _ROLE_VAR),
+    (ROLE_SOURCE_HEADER, _ROLE_SOURCE_VAR),
+)
 
 
 def _forward(header: str, variable: str) -> str:
@@ -232,25 +243,27 @@ def _identity_writes(body: str) -> dict[str, list[str]]:
     }
 
 
-def _assert_claims_both_identity_headers(location: str, body: str) -> None:
-    """*location* writes both identity names itself, the same way, exactly once.
+def _assert_claims_every_identity_header(location: str, body: str) -> None:
+    """*location* writes every identity name itself, the same way, exactly once.
 
     The safety property is that the name is claimed at all — nginx answers a
     named header from the location's own table and never from the request, so
-    a clear and a forward are equally good at dropping a forged value, and
-    neither is optional. What is ruled out here is a location that writes one
-    name and not the other, one that writes neither (the client's own header
-    reaches the container), and one that writes a name twice (no extra safety,
-    a `proxy_headers_hash` warning on every reload).
+    a clear and a forward are equally good at dropping a forged value, and not
+    one of them is optional. What is ruled out here is a location that writes
+    some of the names and not the rest, one that writes none of them (the
+    client's own header reaches the container), and one that writes a name
+    twice (no extra safety, a `proxy_headers_hash` warning on every reload).
+
+    Written over whatever `_IDENTITY` holds rather than name by name, so a
+    header added to that tuple is *checked* the day it is added rather than
+    merely computed: a name nothing asserts on is no guard at all.
     """
     writes = _identity_writes(body)
-    assert writes[SUBJECT_HEADER] == writes[ROLE_HEADER], (
-        f"{location} claims the two identity headers differently: {writes}"
-    )
-    assert len(writes[SUBJECT_HEADER]) == 1, (
-        f"{location} must claim each identity header exactly once: {writes}"
-    )
-    if writes[SUBJECT_HEADER] == ["forward"]:
+    claimed = {tuple(claims) for claims in writes.values()}
+    assert len(claimed) == 1, f"{location} claims the identity headers differently: {writes}"
+    (claim,) = claimed
+    assert len(claim) == 1, f"{location} must claim each identity header exactly once: {writes}"
+    if claim == ("forward",):
         assert "auth_request /" in body, (
             f"{location} forwards an identity, but holds no auth_request that could establish one"
         )
@@ -274,8 +287,8 @@ _EXEMPT_ROSTER = [
 
 def test_rendered_header_names_are_the_sidecar_s_own_spelling() -> None:
     """The template writes the header names as literals — nginx conf has no way
-    to import a Python constant — so the two spellings are held together by this
-    assertion instead. A rename on the sidecar side that stopped here would
+    to import a Python constant — so the three spellings are held together by
+    this assertion instead. A rename on the sidecar side that stopped here would
     leave nginx forwarding a header nothing reads and clearing one nothing sets.
     """
     # Arrange / Act
@@ -284,8 +297,10 @@ def test_rendered_header_names_are_the_sidecar_s_own_spelling() -> None:
     # Assert
     assert SUBJECT_HEADER == "X-Osprey-Auth-Subject"
     assert ROLE_HEADER == "X-Osprey-Auth-Role"
+    assert ROLE_SOURCE_HEADER == "X-Osprey-Auth-Role-Source"
     assert _clear(SUBJECT_HEADER) in nginx_conf
     assert _clear(ROLE_HEADER) in nginx_conf
+    assert _clear(ROLE_SOURCE_HEADER) in nginx_conf
 
 
 # --------------------------------------------------------------------------
@@ -293,8 +308,8 @@ def test_rendered_header_names_are_the_sidecar_s_own_spelling() -> None:
 # --------------------------------------------------------------------------
 
 
-def test_gated_user_location_forwards_both_identity_headers_from_the_auth_answer() -> None:
-    """A gated `/u/<user>/` reads both values off its own `auth_request`'s
+def test_gated_user_location_forwards_every_identity_header_from_the_auth_answer() -> None:
+    """A gated `/u/<user>/` reads every value off its own `auth_request`'s
     response and sets them on the proxied request. `auth_request_set` is the
     only construct that can do this: the subrequest's response headers are
     otherwise not visible to the parent request at all."""
@@ -304,25 +319,30 @@ def test_gated_user_location_forwards_both_identity_headers_from_the_auth_answer
     # Assert — the values are lifted out of alice's own subrequest…
     assert f"auth_request_set {_SUBJECT_VAR} {_upstream_var(SUBJECT_HEADER)};" in body
     assert f"auth_request_set {_ROLE_VAR} {_upstream_var(ROLE_HEADER)};" in body
+    assert f"auth_request_set {_ROLE_SOURCE_VAR} {_upstream_var(ROLE_SOURCE_HEADER)};" in body
 
     # Assert — …and put on the request that reaches alice's container.
     assert f"proxy_set_header {SUBJECT_HEADER} {_SUBJECT_VAR};" in body
     assert f"proxy_set_header {ROLE_HEADER} {_ROLE_VAR};" in body
+    assert f"proxy_set_header {ROLE_SOURCE_HEADER} {_ROLE_SOURCE_VAR};" in body
 
 
 def test_the_forward_is_emitted_once_per_gated_user_and_nowhere_else() -> None:
-    """Two gated users, two forwards each — and nothing on the exempt entry, the
-    internal verify target, `/auth/`, or the landing page. The count is what
-    makes this bite: a forward hoisted somewhere shared would still satisfy a
-    plain substring check while handing one user's identity to another."""
+    """Two gated users, one forward per identity header each — and nothing on
+    the exempt entry, the internal verify target, `/auth/`, or the landing page.
+    The count is what makes this bite: a forward hoisted somewhere shared would
+    still satisfy a plain substring check while handing one user's identity to
+    another."""
     # Arrange / Act
     directives = _directives(_render_nginx(_auth_config(_TWO_USERS)))
 
     # Assert
     assert directives.count(f"proxy_set_header {SUBJECT_HEADER} {_SUBJECT_VAR};") == 2
     assert directives.count(f"proxy_set_header {ROLE_HEADER} {_ROLE_VAR};") == 2
+    assert directives.count(f"proxy_set_header {ROLE_SOURCE_HEADER} {_ROLE_SOURCE_VAR};") == 2
     assert directives.count(f"auth_request_set {_SUBJECT_VAR} ") == 2
     assert directives.count(f"auth_request_set {_ROLE_VAR} ") == 2
+    assert directives.count(f"auth_request_set {_ROLE_SOURCE_VAR} ") == 2
 
 
 def test_login_exempt_location_forwards_no_identity_at_all() -> None:
@@ -337,6 +357,7 @@ def test_login_exempt_location_forwards_no_identity_at_all() -> None:
     assert "auth_request_set" not in body
     assert _SUBJECT_VAR not in body
     assert _ROLE_VAR not in body
+    assert _ROLE_SOURCE_VAR not in body
 
 
 @pytest.mark.parametrize(
@@ -359,6 +380,7 @@ def test_a_wall_less_render_forwards_no_identity_and_has_no_auth_request_set(
     assert "auth_request_set" not in directives
     assert _SUBJECT_VAR not in directives
     assert _ROLE_VAR not in directives
+    assert _ROLE_SOURCE_VAR not in directives
 
 
 # --------------------------------------------------------------------------
@@ -366,9 +388,9 @@ def test_a_wall_less_render_forwards_no_identity_and_has_no_auth_request_set(
 # --------------------------------------------------------------------------
 
 
-def test_every_proxying_location_claims_both_identity_headers_with_auth_on() -> None:
+def test_every_proxying_location_claims_every_identity_header_with_auth_on() -> None:
     """The structural guard, auth on: every location that opens an upstream
-    connection writes both identity names itself — the gated one by forwarding
+    connection writes every identity name itself — the gated one by forwarding
     what the sidecar answered, the rest by clearing. Written against
     `proxy_pass` rather than against a list of known paths so a location added
     later is covered the day it is added, not the day someone remembers this
@@ -383,9 +405,10 @@ def test_every_proxying_location_claims_both_identity_headers_with_auth_on() -> 
     }
     assert set(proxying) == {"/u/alice/", "/u/ariel/", "= /_osprey_auth/alice", "/auth/"}
 
-    # Assert — and not one of them leaves either name for the client to supply.
+    # Assert — and not one of them leaves any of the names for the client to
+    # supply.
     for location, body in proxying.items():
-        _assert_claims_both_identity_headers(location, body)
+        _assert_claims_every_identity_header(location, body)
 
     # Assert — exactly one of them is entitled to forward, and it is the gated
     # user's own location. Everything else clears.
@@ -407,7 +430,7 @@ def test_every_proxying_location_claims_both_identity_headers_with_auth_on() -> 
     ],
     ids=["token", "token-exempt", "open", "open-exempt"],
 )
-def test_every_proxying_location_claims_both_identity_headers_without_a_login_wall(
+def test_every_proxying_location_claims_every_identity_header_without_a_login_wall(
     config: dict, proxying_locations: set[str]
 ) -> None:
     """The same guard with no login wall — the deliberate part, and the reason
@@ -434,13 +457,13 @@ def test_every_proxying_location_claims_both_identity_headers_without_a_login_wa
     }
     assert set(proxying) == proxying_locations
     for location, body in proxying.items():
-        _assert_claims_both_identity_headers(location, body)
+        _assert_claims_every_identity_header(location, body)
         assert _identity_writes(body)[SUBJECT_HEADER] == ["clear"], (
             f"{location} forwards an identity in a render that authorizes nobody"
         )
 
 
-def test_the_internal_verify_target_clears_both_identity_headers() -> None:
+def test_the_internal_verify_target_clears_every_identity_header() -> None:
     """Called out on its own because the reason is not the same as everywhere
     else: an auth subrequest INHERITS the parent request's headers, so without
     a clear here a client's forged subject arrives at the sidecar looking like
@@ -451,9 +474,10 @@ def test_the_internal_verify_target_clears_both_identity_headers() -> None:
     # Assert
     assert _clear(SUBJECT_HEADER) in body
     assert _clear(ROLE_HEADER) in body
+    assert _clear(ROLE_SOURCE_HEADER) in body
 
 
-def test_the_public_auth_prefix_clears_both_identity_headers() -> None:
+def test_the_public_auth_prefix_clears_every_identity_header() -> None:
     """`/auth/` is the one location deliberately outside `auth_request` — it is
     where a session comes from. That makes it reachable by anyone, so it is the
     one an unauthenticated client would forge into."""
@@ -463,6 +487,7 @@ def test_the_public_auth_prefix_clears_both_identity_headers() -> None:
     # Assert
     assert _clear(SUBJECT_HEADER) in body
     assert _clear(ROLE_HEADER) in body
+    assert _clear(ROLE_SOURCE_HEADER) in body
 
 
 def test_the_gated_location_forwards_instead_of_also_clearing() -> None:
@@ -482,14 +507,16 @@ def test_the_gated_location_forwards_instead_of_also_clearing() -> None:
     # Assert — claimed, by the forward…
     assert _forward(SUBJECT_HEADER, _SUBJECT_VAR) in body
     assert _forward(ROLE_HEADER, _ROLE_VAR) in body
+    assert _forward(ROLE_SOURCE_HEADER, _ROLE_SOURCE_VAR) in body
 
     # Assert — …and by nothing else.
     assert _clear(SUBJECT_HEADER) not in body
     assert _clear(ROLE_HEADER) not in body
+    assert _clear(ROLE_SOURCE_HEADER) not in body
 
 
 def test_no_location_writes_the_same_proxy_set_header_name_twice() -> None:
-    """Across every topology, and for EVERY header name — not just the two
+    """Across every topology, and for EVERY header name — not just the three
     identity ones.
 
     nginx hashes each location's `proxy_set_header` entries by name, and a
@@ -792,6 +819,7 @@ def test_real_nginx_reads_the_auth_on_render_without_a_single_warning() -> None:
     # emitting the forwarding half entirely would also warn about nothing.
     assert _forward(SUBJECT_HEADER, _SUBJECT_VAR) in nginx_conf
     assert _forward(ROLE_HEADER, _ROLE_VAR) in nginx_conf
+    assert _forward(ROLE_SOURCE_HEADER, _ROLE_SOURCE_VAR) in nginx_conf
     assert _clear(SUBJECT_HEADER) in nginx_conf
 
     # Only the gated users get a snippet — an exempt location includes none —

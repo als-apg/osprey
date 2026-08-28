@@ -745,8 +745,12 @@ async def login_submit(
         # The roster entry's own `role:`, resolved by the re-check above. Empty
         # is the deny-safe value: verify emits no role header for it and every
         # consumer reads that as "no privileges", which is what every password
-        # deployment written before roles existed keeps getting.
+        # deployment written before roles existed keeps getting. The source
+        # rides along from the same grant, so the session says where its role
+        # came from with the authority that decided it rather than a second
+        # reading of the method here.
         role=role,
+        role_source=grant.role_source,
     )
 
     response = RedirectResponse(target, status_code=303, headers=_NO_STORE_HEADERS)

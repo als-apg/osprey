@@ -23,13 +23,30 @@ host, brought up with a single ``osprey up``.
    - Day-to-day operations: adding, reseeding, and removing users
    - What each terminal records, and who can read it
 
-   Two subjects have pages of their own: :doc:`what each tier may do, and what
-   holds it <tiers>`, and :doc:`how to require a login <login>` — passwords
-   OSPREY manages, or your facility's single sign-on.
-
    **Prerequisites:** The concepts need none. To stand the stack up you'll
    want Docker (or Podman) and your model-provider credentials — the
    ``control-assistant`` preset ships the whole block pre-wired.
+
+Two subjects have pages of their own:
+
+.. grid:: 1 1 2 2
+   :gutter: 3
+
+   .. grid-item-card:: Privilege Tiers
+      :link: tiers
+      :link-type: doc
+      :shadow: md
+
+      What each login may do — read-only, read-write, admin — where a tier
+      comes from, and what stops a session doing more.
+
+   .. grid-item-card:: Require a Login
+      :link: login
+      :link-type: doc
+      :shadow: md
+
+      Token, open, passwords OSPREY manages or your facility's single sign-on,
+      HTTPS, and what happens when someone leaves.
 
 Single-user is the front door
 =============================
@@ -105,168 +122,171 @@ see :doc:`login`.
 The config block
 ================
 
-.. tab-set::
+.. dropdown:: Show the config block
+   :color: light
 
-   .. tab-item:: Switching it on
+   .. tab-set::
 
-      The whole feature is one config block. This is what a project built from
-      the ``control-assistant`` preset carries in its ``config.yml``:
+      .. tab-item:: Switching it on
 
-      .. code-block:: yaml
+         The whole feature is one config block. This is what a project built from
+         the ``control-assistant`` preset carries in its ``config.yml``:
 
-         modules:
-           web_terminals:
-             enabled: true
-             image_source: local       # osprey up builds persona images itself
-             nginx_port: 9080          # the landing page
-             web_base_port: 9100       # per-user ports: base + user index
-             artifact_base_port: 9200
-             ariel_base_port: 9300
-             lattice_base_port: 9400
-             channel_finder_base_port: 9500
-             default_persona: readonly
-             landing:
-               groups:
-               - type: users
-                 label: Users
-             users:
-             - name: alice
-               index: 0
-               persona: readwrite
-               display_name: "Control Room (Alice)"
-             - name: bob
-               index: 1
-               persona: readonly
-               display_name: "Read-Only View (Bob)"
-             - name: ariel
-               index: 2
-               persona: ariel
-               display_name: "ARIEL Logbook Research"
-             - name: carol
-               index: 3
-               persona: admin
-               display_name: "Deployment Admin (Carol)"
-             personas:
-               readonly:
-                 project: control-assistant-readonly
-                 project_path: build/control-assistant-readonly
-                 build_profile: personas/readonly.yml
-               readwrite:
-                 project: control-assistant-readwrite
-                 project_path: build/control-assistant-readwrite
-                 build_profile: personas/readwrite.yml
-               admin:
-                 project: control-assistant-admin
-                 project_path: build/control-assistant-admin
-                 build_profile: personas/admin.yml
-               ariel:
-                 project: control-assistant-ariel
-                 project_path: build/control-assistant-ariel
-                 build_profile: personas/ariel.yml
-                 landing_group: Standalone deployments
+         .. code-block:: yaml
 
-      Each ``build_profile`` names that persona's **delta** in the deployment
-      repository — the file ``osprey init`` writes under ``personas/`` and
-      points the catalog at. The delta merges over ``profile.yml``, so every
-      persona shares one data
-      tree, one set of secrets, and one set of your own artifacts. A bundled
-      preset name, an absolute path, or a path outside ``personas/`` is
-      rejected by both ``osprey scaffold web-terminals lint`` and
-      ``osprey up``.
+            modules:
+              web_terminals:
+                enabled: true
+                image_source: local       # osprey up builds persona images itself
+                nginx_port: 9080          # the landing page
+                web_base_port: 9100       # per-user ports: base + user index
+                artifact_base_port: 9200
+                ariel_base_port: 9300
+                lattice_base_port: 9400
+                channel_finder_base_port: 9500
+                default_persona: readonly
+                landing:
+                  groups:
+                  - type: users
+                    label: Users
+                users:
+                - name: alice
+                  index: 0
+                  persona: readwrite
+                  display_name: "Control Room (Alice)"
+                - name: bob
+                  index: 1
+                  persona: readonly
+                  display_name: "Read-Only View (Bob)"
+                - name: ariel
+                  index: 2
+                  persona: ariel
+                  display_name: "ARIEL Logbook Research"
+                - name: carol
+                  index: 3
+                  persona: admin
+                  display_name: "Deployment Admin (Carol)"
+                personas:
+                  readonly:
+                    project: control-assistant-readonly
+                    project_path: build/control-assistant-readonly
+                    build_profile: personas/readonly.yml
+                  readwrite:
+                    project: control-assistant-readwrite
+                    project_path: build/control-assistant-readwrite
+                    build_profile: personas/readwrite.yml
+                  admin:
+                    project: control-assistant-admin
+                    project_path: build/control-assistant-admin
+                    build_profile: personas/admin.yml
+                  ariel:
+                    project: control-assistant-ariel
+                    project_path: build/control-assistant-ariel
+                    build_profile: personas/ariel.yml
+                    landing_group: Standalone deployments
 
-      The ``users`` list is the roster — the single source of truth for who
-      exists. A name becomes a URL path segment and an environment-variable
-      suffix, so it has to match ``[a-z0-9][a-z0-9_-]*``; that is checked in
-      every auth mode, not only behind a login wall. A bare name (``- dave``)
-      resolves to ``default_persona`` —
-      read-only, so a hastily added user lands on the safe side; an entry with
-      an explicit ``persona`` picks its tier, and an optional ``display_name``
-      becomes that user's browser tab title. An entry may name a **role**
-      instead of a persona — one mapping written once rather than a persona
-      pinned per user, and the half a single sign-on provider's groups can
-      decide; see :ref:`multi-user-role-from-sso`. Each user's host ports are
-      ``base + index`` in every port family — one family per companion panel
-      (artifact gallery, ARIEL, channel finder, lattice dashboard, …) plus the
-      terminal itself — so alice (index 0) serves her terminal on ``9100``,
-      bob (index 1) on ``9101``, ariel (index 2) on ``9102`` and carol
-      (index 3) on ``9103``. A panel
-      whose ``*_base_port`` you don't set falls back to its built-in default,
-      so that ``modules.web_terminals`` block lists them only to make the
-      layout visible.
+         Each ``build_profile`` names that persona's **delta** in the deployment
+         repository — the file ``osprey init`` writes under ``personas/`` and
+         points the catalog at. The delta merges over ``profile.yml``, so every
+         persona shares one data
+         tree, one set of secrets, and one set of your own artifacts. A bundled
+         preset name, an absolute path, or a path outside ``personas/`` is
+         rejected by both ``osprey scaffold web-terminals lint`` and
+         ``osprey up``.
 
-      One optional key belongs beside these rather than in the roster:
-      ``external_origin``, the address browsers actually reach this deployment
-      on. Leave it out and that address is derived from ``deploy.fqdn`` and
-      ``nginx_port``, which is right whenever a browser talks to this nginx
-      directly. Set it when something else stands in front — a facility load
-      balancer terminating TLS, a reverse proxy, a DNS alias — because the
-      terminals check it before allowing any action, and nothing here can guess
-      what that front door answers on. See :ref:`multi-user-https`.
+         The ``users`` list is the roster — the single source of truth for who
+         exists. A name becomes a URL path segment and an environment-variable
+         suffix, so it has to match ``[a-z0-9][a-z0-9_-]*``; that is checked in
+         every auth mode, not only behind a login wall. A bare name (``- dave``)
+         resolves to ``default_persona`` —
+         read-only, so a hastily added user lands on the safe side; an entry with
+         an explicit ``persona`` picks its tier, and an optional ``display_name``
+         becomes that user's browser tab title. An entry may name a **role**
+         instead of a persona — one mapping written once rather than a persona
+         pinned per user, and the half a single sign-on provider's groups can
+         decide; see :ref:`multi-user-role-from-sso`. Each user's host ports are
+         ``base + index`` in every port family — one family per companion panel
+         (artifact gallery, ARIEL, channel finder, lattice dashboard, …) plus the
+         terminal itself — so alice (index 0) serves her terminal on ``9100``,
+         bob (index 1) on ``9101``, ariel (index 2) on ``9102`` and carol
+         (index 3) on ``9103``. A panel
+         whose ``*_base_port`` you don't set falls back to its built-in default,
+         so that ``modules.web_terminals`` block lists them only to make the
+         layout visible.
 
-      A persona may also name a landing-page section with ``landing_group``.
-      Its users are lifted out of the roster's default section into one of
-      that name, drawn as a panel — which is how the page shows a standalone
-      service as something other than another login. The ``users`` group takes
-      a ``label`` for the same reason: so both halves can be named. Neither
-      changes anything about a container.
+         One optional key belongs beside these rather than in the roster:
+         ``external_origin``, the address browsers actually reach this deployment
+         on. Leave it out and that address is derived from ``deploy.fqdn`` and
+         ``nginx_port``, which is right whenever a browser talks to this nginx
+         directly. Set it when something else stands in front — a facility load
+         balancer terminating TLS, a reverse proxy, a DNS alias — because the
+         terminals check it before allowing any action, and nothing here can guess
+         what that front door answers on. See :ref:`multi-user-https`.
 
-      .. tip::
+         A persona may also name a landing-page section with ``landing_group``.
+         Its users are lifted out of the roster's default section into one of
+         that name, drawn as a panel — which is how the page shows a standalone
+         service as something other than another login. The ``users`` group takes
+         a ``label`` for the same reason: so both halves can be named. Neither
+         changes anything about a container.
 
-         Give every roster entry an explicit ``index`` before you ever
-         *remove* one. Once indices are pinned, deleting an earlier user can
-         no longer shift a later user's ports out from under a running
-         deployment.
+         .. tip::
 
-   .. tab-item:: Day-to-day operations
+            Give every roster entry an explicit ``index`` before you ever
+            *remove* one. Once indices are pinned, deleting an earlier user can
+            no longer shift a later user's ports out from under a running
+            deployment.
 
-      The roster drives everything: edit it, then let the lifecycle verbs
-      reconcile reality against it.
+      .. tab-item:: Day-to-day operations
 
-      Edit it in the **source profile** — the ``modules.web_terminals.users``
-      entry under ``config:`` in ``profile.yml`` — and rebuild. A roster change
-      made directly in the built ``build/config.yml`` deploys, but the next
-      build overwrites it. Rebuilding also seeds an empty
-      ``web-terminal-context/<user>/`` slot for each new operator, which is
-      where their per-user context goes.
+         The roster drives everything: edit it, then let the lifecycle verbs
+         reconcile reality against it.
 
-      Beside those slots sits ``web-terminal-context/base.md`` — the shared
-      baseline every seeded user's ``CLAUDE.md`` starts from. ``osprey init``
-      materializes it from the preset so the text is visible and editable in
-      your repo; edit it there and rebuild, and every terminal picks up the
-      change. A profile without one falls back to a generic framework
-      baseline.
+         Edit it in the **source profile** — the ``modules.web_terminals.users``
+         entry under ``config:`` in ``profile.yml`` — and rebuild. A roster change
+         made directly in the built ``build/config.yml`` deploys, but the next
+         build overwrites it. Rebuilding also seeds an empty
+         ``web-terminal-context/<user>/`` slot for each new operator, which is
+         where their per-user context goes.
 
-      .. list-table::
-         :header-rows: 1
-         :widths: 34 66
+         Beside those slots sits ``web-terminal-context/base.md`` — the shared
+         baseline every seeded user's ``CLAUDE.md`` starts from. ``osprey init``
+         materializes it from the preset so the text is visible and editable in
+         your repo; edit it there and rebuild, and every terminal picks up the
+         change. A profile without one falls back to a generic framework
+         baseline.
 
-         * - Task
-           - Command
-         * - **Add a user**
-           - Add a roster entry with the next free ``index``, then
-             ``osprey up``. The new container comes up with freshly
-             allocated ports and a seeded workspace; existing users are
-             untouched.
-         * - **Reseed workspaces**
-           - ``osprey users seed [USER]`` re-applies the seeded configuration
-             for one user, or for everyone when ``USER`` is omitted.
-         * - **Remove one user**
-           - ``osprey users remove USER`` stops and removes the user's
-             container. Their volumes are **retained** by default; add
-             ``--archive`` to tarball them into ``web_terminal_archives/``
-             first, or ``--purge`` to delete them outright.
-         * - **Clean up leftovers**
-           - ``osprey users prune`` removes workspaces of users no longer on
-             the roster. ``--dry-run`` shows what it would do first, and the
-             same ``--archive`` / ``--purge`` policy applies.
-         * - **Tear it all down**
-           - ``osprey reset`` wipes the whole deployment back to a fresh state —
-             containers, volumes, and images, every user's workspace included —
-             after a typed confirmation. It prints the removal plan first;
-             ``--dry-run`` stops there.
+         .. list-table::
+            :header-rows: 1
+            :widths: 34 66
 
-      ``osprey status`` and ``osprey down`` work exactly as they
-      do for any other OSPREY service stack.
+            * - Task
+              - Command
+            * - **Add a user**
+              - Add a roster entry with the next free ``index``, then
+                ``osprey up``. The new container comes up with freshly
+                allocated ports and a seeded workspace; existing users are
+                untouched.
+            * - **Reseed workspaces**
+              - ``osprey users seed [USER]`` re-applies the seeded configuration
+                for one user, or for everyone when ``USER`` is omitted.
+            * - **Remove one user**
+              - ``osprey users remove USER`` stops and removes the user's
+                container. Their volumes are **retained** by default; add
+                ``--archive`` to tarball them into ``web_terminal_archives/``
+                first, or ``--purge`` to delete them outright.
+            * - **Clean up leftovers**
+              - ``osprey users prune`` removes workspaces of users no longer on
+                the roster. ``--dry-run`` shows what it would do first, and the
+                same ``--archive`` / ``--purge`` policy applies.
+            * - **Tear it all down**
+              - ``osprey reset`` wipes the whole deployment back to a fresh state —
+                containers, volumes, and images, every user's workspace included —
+                after a typed confirmation. It prints the removal plan first;
+                ``--dry-run`` stops there.
+
+         ``osprey status`` and ``osprey down`` work exactly as they
+         do for any other OSPREY service stack.
 
 Run the multi-user stack
 ========================
@@ -456,28 +476,6 @@ answered: ``grep -r alice var/audit/`` there sees every subdirectory, while the
 admin login inside a container sees only its own. :ref:`The audit trail
 <audit-trail-record>` has the record shape, and what append-only does and does
 not buy you.
-
-Going further
-=============
-
-.. grid:: 1 1 2 2
-   :gutter: 3
-
-   .. grid-item-card:: Privilege Tiers
-      :link: tiers
-      :link-type: doc
-      :shadow: md
-
-      What each login may do — read-only, read-write, admin — where a tier
-      comes from, and what stops a session doing more.
-
-   .. grid-item-card:: Require a Login
-      :link: login
-      :link-type: doc
-      :shadow: md
-
-      Passwords OSPREY manages or your facility's single sign-on, HTTPS, and
-      what happens when someone leaves.
 
 Related pages
 =============

@@ -1,13 +1,15 @@
-"""Tests for the role field, the identity headers, and what may travel in them.
+"""Tests for the role field and its source, the identity headers, and what may
+travel in them.
 
 Three things are pinned here, and they are one property seen from three sides:
 *an identity the deployment cannot carry across the nginx boundary is not an
 identity this sidecar will authorise with.*
 
-* **The payload carries a role.** ``UnlockedUser`` gained a ``role``, additively
-  and deny-safe: absent means ``""``, a cookie minted before the field existed
-  still decodes, and no payload version was burned.
-* **Both identity headers are emitted, or neither value is invented.** A
+* **The payload carries a role, and where it came from.** ``UnlockedUser``
+  gained a ``role`` and then a ``role_source``, both additively and deny-safe:
+  absent means ``""``, a cookie minted before either field existed still
+  decodes, and no payload version was burned for either.
+* **All three identity headers are emitted, or no value is invented.** A
   password session names the roster user in ``X-Osprey-Auth-Subject`` (presence
   still means a known account); an OIDC session names the provider subject; a
   session that holds neither leaves the header absent rather than blank.
@@ -41,6 +43,7 @@ from osprey.services.auth_sidecar.app import STATE_COOKIE_NAME, AuthSettings, cr
 from osprey.services.auth_sidecar.exceptions import InvalidSessionError
 from osprey.services.auth_sidecar.identity_headers import (
     ROLE_HEADER,
+    ROLE_SOURCE_HEADER,
     SUBJECT_HEADER,
     is_header_safe,
 )
@@ -122,18 +125,26 @@ def _raw_cookie(users: dict[str, dict[str, Any]]) -> str:
     return URLSafeSerializer(SESSION_SECRET, salt=SIGNATURE_SALT).dumps(payload)
 
 
-def _password_entry(username: str = "alice", *, role: str = "", ttl: float = 600.0) -> UnlockedUser:
+def _password_entry(
+    username: str = "alice", *, role: str = "", role_source: str = "", ttl: float = 600.0
+) -> UnlockedUser:
     """A password-mode entry: a generation tag, no subject."""
     return UnlockedUser(
         username=username,
         expires_at=SessionCodec(SESSION_SECRET).now() + ttl,
         generation_tag=generation_tag(ALICE_HASH),
         role=role,
+        role_source=role_source,
     )
 
 
 def _oidc_entry(
-    username: str = "alice", *, subject: str = ALICE_SUBJECT, role: str = "", ttl: float = 600.0
+    username: str = "alice",
+    *,
+    subject: str = ALICE_SUBJECT,
+    role: str = "",
+    role_source: str = "",
+    ttl: float = 600.0,
 ) -> UnlockedUser:
     """An OIDC entry: a subject, no generation tag."""
     return UnlockedUser(
@@ -142,6 +153,7 @@ def _oidc_entry(
         generation_tag="",
         oidc_subject=subject,
         role=role,
+        role_source=role_source,
     )
 
 
@@ -219,6 +231,14 @@ def recorded(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
 
 
 # --- what may travel in an identity header ----------------------------------
+
+
+def test_the_role_source_header_spelling() -> None:
+    """The nginx template writes the name as a literal and the terminal
+    re-spells it rather than importing it, so nothing but an assertion holds
+    the three copies together. A rename that stopped at the constant would
+    leave the provenance forwarded under a name nothing reads."""
+    assert ROLE_SOURCE_HEADER == "X-Osprey-Auth-Role-Source"
 
 
 class TestHeaderSafety:
@@ -308,6 +328,101 @@ class TestRoleOnThePayload:
             SessionCodec(SESSION_SECRET).decode(raw)
 
 
+class TestRoleSourceOnThePayload:
+    """``role_source`` is additive and deny-safe, on the role's own terms."""
+
+    def test_role_source_defaults_to_empty(self) -> None:
+        """Provenance for no role is no provenance — ``""``, never ``None`` and
+        never a guess at which end resolved a role the entry does not hold."""
+        entry = UnlockedUser(username="alice", expires_at=1.0)
+        assert entry.role_source == ""
+
+    def test_role_source_round_trips_through_the_cookie(self) -> None:
+        codec = SessionCodec(SESSION_SECRET)
+        state = codec.new_state().with_user(
+            "alice", expires_at=codec.now() + 600, role="operator", role_source="roster"
+        )
+        entry = codec.decode(codec.encode(state)).entry("alice")
+        assert entry is not None
+        assert entry.role == "operator"
+        assert entry.role_source == "roster"
+
+    def test_a_cookie_minted_before_the_field_existed_still_decodes(self) -> None:
+        """The upgrade case this field is shaped around: a session already open
+        keeps its role and simply shows no provenance until the next login."""
+        raw = _raw_cookie(
+            {
+                "alice": {
+                    "exp": SessionCodec(SESSION_SECRET).now() + 600,
+                    "tag": "0123456789abcdef",
+                    "role": "operator",
+                }
+            }
+        )
+        entry = SessionCodec(SESSION_SECRET).decode(raw).entry("alice")
+        assert entry is not None
+        assert entry.role == "operator"
+        assert entry.role_source == ""
+
+    def test_the_payload_version_was_not_bumped_for_the_source_either(self) -> None:
+        assert PAYLOAD_VERSION == 1
+
+    def test_a_fresh_login_replaces_the_role_source_wholesale(self) -> None:
+        """The source cannot outlive the role it qualifies: a login naming no
+        role clears both, so provenance never names the origin of a privilege
+        this session no longer holds."""
+        codec = SessionCodec(SESSION_SECRET)
+        state = (
+            codec.new_state()
+            .with_user("alice", expires_at=codec.now() + 600, role="operator", role_source="claim")
+            .with_user("alice", expires_at=codec.now() + 600)
+        )
+        entry = state.entry("alice")
+        assert entry is not None
+        assert entry.role == ""
+        assert entry.role_source == ""
+
+    def test_a_non_string_role_source_is_refused(self) -> None:
+        raw = _raw_cookie(
+            {
+                "alice": {
+                    "exp": SessionCodec(SESSION_SECRET).now() + 600,
+                    "tag": "",
+                    "role": "operator",
+                    "source": ["roster"],
+                }
+            }
+        )
+        with pytest.raises(InvalidSessionError):
+            SessionCodec(SESSION_SECRET).decode(raw)
+
+    def test_with_user_refuses_an_uncarryable_role_source(self) -> None:
+        """The mint-side half of the same guard the subject and the role get:
+        a value the boundary would mangle is refused where the caller can
+        still be told, not dropped at the end of a successful login."""
+        codec = SessionCodec(SESSION_SECRET)
+        with pytest.raises(ValueError, match="role source"):
+            codec.new_state().with_user(
+                "alice", expires_at=codec.now() + 600, role="operator", role_source="röster"
+            )
+
+    def test_decoding_refuses_an_uncarryable_role_source(self) -> None:
+        """And the read-side half. Only this sidecar could have signed such a
+        cookie, so it is refused rather than returned with the source dropped."""
+        raw = _raw_cookie(
+            {
+                "alice": {
+                    "exp": SessionCodec(SESSION_SECRET).now() + 600,
+                    "tag": "",
+                    "role": "operator",
+                    "source": NON_ASCII_SUBJECT,
+                }
+            }
+        )
+        with pytest.raises(InvalidSessionError):
+            SessionCodec(SESSION_SECRET).decode(raw)
+
+
 class TestOnlyCarryableIdentitiesAreStored:
     """The mint path refuses what the boundary cannot carry."""
 
@@ -382,13 +497,14 @@ class TestSubjectHeader:
         assert response.status_code == 200
         assert SUBJECT_HEADER.lower() not in response.headers
 
-    def test_a_denial_carries_neither_header(self) -> None:
-        cookie = _mint(_oidc_entry(role="operator"))
+    def test_a_denial_carries_no_identity_header(self) -> None:
+        cookie = _mint(_oidc_entry(role="operator", role_source="claim"))
         with TestClient(_oidc_app()) as client:
             response = _verify(client, "bob", cookie)
         assert response.status_code == 401
         assert SUBJECT_HEADER.lower() not in response.headers
         assert ROLE_HEADER.lower() not in response.headers
+        assert ROLE_SOURCE_HEADER.lower() not in response.headers
 
 
 class TestRoleHeader:
@@ -417,6 +533,74 @@ class TestRoleHeader:
         assert response.status_code == 200
         assert response.headers[SUBJECT_HEADER] == ALICE_SUBJECT
         assert response.headers[ROLE_HEADER] == "observer"
+
+
+class TestRoleSourceHeader:
+    """The source rides beside the role, and only beside it."""
+
+    def test_a_roster_role_names_its_source(self) -> None:
+        cookie = _mint(_password_entry(role="operator", role_source="roster"))
+        with TestClient(create_app(PASSWORD_ENV)) as client:
+            response = _verify(client, "alice", cookie)
+        assert response.status_code == 200
+        assert response.headers[ROLE_HEADER] == "operator"
+        assert response.headers[ROLE_SOURCE_HEADER] == "roster"
+
+    def test_a_claimed_role_names_its_source(self) -> None:
+        cookie = _mint(_oidc_entry(role="observer", role_source="claim"))
+        with TestClient(_oidc_app()) as client:
+            response = _verify(client, "alice", cookie)
+        assert response.status_code == 200
+        assert response.headers[ROLE_HEADER] == "observer"
+        assert response.headers[ROLE_SOURCE_HEADER] == "claim"
+
+    def test_an_entry_with_no_role_omits_the_source_too(self) -> None:
+        """Nothing to explain: the header names the origin of a privilege, so
+        it cannot be present where the privilege is not."""
+        cookie = _mint(_password_entry())
+        with TestClient(create_app(PASSWORD_ENV)) as client:
+            response = _verify(client, "alice", cookie)
+        assert response.status_code == 200
+        assert ROLE_HEADER.lower() not in response.headers
+        assert ROLE_SOURCE_HEADER.lower() not in response.headers
+
+    def test_a_source_signed_without_a_role_forwards_neither(self) -> None:
+        """A payload no login route can mint, signed by hand the way an older
+        cookie is: the reader derives the source from the role, so a source
+        standing alone authorises the same 200 and forwards nothing about it."""
+        raw = _raw_cookie(
+            {
+                "alice": {
+                    "exp": SessionCodec(SESSION_SECRET).now() + 600,
+                    "tag": generation_tag(ALICE_HASH),
+                    "source": "claim",
+                }
+            }
+        )
+        with TestClient(create_app(PASSWORD_ENV)) as client:
+            response = _verify(client, "alice", raw)
+        assert response.status_code == 200
+        assert ROLE_HEADER.lower() not in response.headers
+        assert ROLE_SOURCE_HEADER.lower() not in response.headers
+
+    def test_a_source_that_cannot_be_carried_is_refused(self) -> None:
+        """The source's own branch of the carriage guard, reached directly for
+        the reason the role's is: the codec refuses to decode such a value and
+        ``with_user`` refuses to mint one, and a guard no test reaches is one
+        refactor away from being deleted as dead code."""
+        settings = AuthSettings.from_env(PASSWORD_ENV)
+        entry = UnlockedUser(
+            username="alice",
+            expires_at=SessionCodec(SESSION_SECRET).now() + 600.0,
+            generation_tag=generation_tag(ALICE_HASH),
+            role="operator",
+            role_source="roster\r\nX-Osprey-Auth-Role: admin",
+        )
+        response = _authorized("alice", entry, settings)
+        assert response.status_code == 401
+        assert ROLE_SOURCE_HEADER.lower() not in response.headers
+        assert ROLE_HEADER.lower() not in response.headers
+        assert SUBJECT_HEADER.lower() not in response.headers
 
 
 class TestAnUncarryableIdentityDenies:

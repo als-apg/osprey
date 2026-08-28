@@ -5,8 +5,7 @@ Require a Login
 ===============
 
 The landing page lists the roster; ``modules.web_terminals.auth.method``
-decides what stands between a card and the terminal behind it. There are four
-postures:
+decides what stands between a card and the terminal behind it.
 
 .. list-table::
    :header-rows: 1
@@ -15,77 +14,44 @@ postures:
    * - ``method``
      - What a person meets
    * - ``token``
-     - **The default**, and what an absent ``auth`` stanza means. No login
-       page; each terminal is opened once from that user's own login URL.
+     - **The default.** No login page; each terminal is opened once from that
+       user's own login URL.
    * - ``none``
-     - **Open.** No login page and no URL either: the landing page is pure
-       navigation, and a card opens its terminal. Only for a room where
-       everyone who can reach the page is trusted.
+     - **Open.** A card opens its terminal. Only for a room where everyone who
+       can reach the page is trusted.
    * - ``password``
      - A login page, against passwords OSPREY manages.
    * - ``oidc``
      - A login page, against the single sign-on your facility already runs.
 
-This page covers all four: what ``open`` requires before OSPREY will start it,
-the HTTPS a login page needs, how a provider's groups can pick which tier a
-login lands on, where passwords live, and what to do when someone leaves.
+.. raw:: html
+   :file: ../../../_diagrams/auth-postures.html
 
-With no ``auth`` stanza the method is ``token``: nginx asks for no credentials
-and speaks plain HTTP, but the terminals behind it are not open. Each one
-authenticates every request against its own operator secret, which ``osprey
-up`` mints into the deployment's ``.env`` for every roster user in every
-posture. Clicking a card on the landing page therefore reaches a terminal that
-refuses you until you have opened that user's login URL once:
+Two things to read off the drawing. The front door is nginx, and
+``auth.method`` decides what it does there — nothing, vouch for the caller, or
+ask the authentication service. The terminal behind it always checks a
+credential of its own; the postures differ only in who supplies it.
+
+Choose a method
+===============
+
+**Token** needs no stanza. ``osprey up`` mints an operator secret for every
+roster user into the deployment's ``.env``; a terminal refuses you until you
+have opened that user's login URL once:
 
 .. code-block:: bash
 
    osprey users login-url alice
 
-The URL carries alice's secret and trades it for a session cookie. Send each
-person only their own, the way you would send a password; it stays valid until
-you rotate it, which means deleting that user's ``OSPREY_TERMINAL_SECRET_*``
-line from ``.env`` and running ``osprey up`` again. (``osprey up`` names the
-verb in its summary but never prints the URLs.)
-
-What ``token`` does *not* do is tell one person from another at the front
-door: whoever holds a URL is that user. It suits a **single trusted host** —
-a workstation or control-room machine you already trust — and nothing beyond
-it.
-
-The ``control-assistant`` preset ships with password login switched on, in its
-demo posture: each roster user's password is seeded into the repository's
-``.env`` by ``osprey init`` (``alice``/``alice``, ``bob``/``bob``,
-``carol``/``carol`` — change them there, or rotate with
-``osprey users passwd``), the ARIEL entry stays public
-via ``login: false`` (see below), and ``allow_insecure_http: true`` keeps the
-demo on plain HTTP. Those passwords authenticate a demo, not a facility: for
-any reachable host, set real passwords and serve TLS as described here.
-
-Set ``auth.method`` to ``password`` or ``oidc`` and every request under
-``/u/<name>/`` — pages, APIs and the terminal's live connection alike — is
-refused unless the browser holds a valid session for *that* user. The check
-happens at the front door: a small authentication service joins the stack in
-its own container, and nginx asks it about each request before proxying
-anything. Nothing depends on the per-user
-containers policing themselves.
-
-Note that the persona split is a *capability* boundary, enforced per project —
-it decides what a session may do, never who may open it. Login answers the
-separate question of who may open a session. In this multi-user stack that login
-is the per-user auth described above; note that even single-user ``osprey web``
-gates every request on a session cookie, handed out by the login URL it prints
-at startup, so "no login" is never the single-user default either.
-
-Choose a method
----------------
-
-``token`` is described above and needs no stanza. The other three are here.
+Send each person only their own URL, as you would a password. To rotate one,
+delete that user's ``OSPREY_TERMINAL_SECRET_*`` line from ``.env`` and run
+``osprey up`` again. Token mode cannot tell one person from another — whoever
+holds a URL is that user — so it suits a single trusted host and nothing
+beyond it.
 
 .. _multi-user-open-mode:
 
-**Open** — no credential anywhere. For a control room whose console is already
-behind a locked door, and which may have no route to the internet to send a
-per-user link over:
+**Open** — no credential anywhere, for a console behind a locked door:
 
 .. code-block:: yaml
 
@@ -94,46 +60,23 @@ per-user link over:
        auth:
          method: none
 
-The landing page becomes pure navigation: click a card and the terminal opens.
-nginx vouches for the request itself, stamping that user's operator secret onto
-every request it proxies, so no token URL exists — ``osprey users login-url``
-refuses for those users and prints the terminal's plain address instead.
+nginx stamps each user's operator secret onto every request it proxies, so a
+card opens its terminal and no login URL exists. That is only safe if nothing
+inside the deployment can reach nginx back:
 
-Open mode is only safe where nothing inside the deployment can reach it back.
-An agent's own tools reach nginx over loopback and look exactly like the
-operator's browser from there, so they would be served whichever terminal they
-asked for. ``osprey up`` therefore refuses to start an open deployment unless
-**every** persona's shipped ``.claude/settings.json`` denies all four of
-``Bash``, ``WebFetch``, ``WebSearch`` and
-``mcp__plugin_playwright_playwright__*``; ``osprey build`` and ``osprey
-profile validate`` report the same thing earlier, as the error
-``web_terminals.open_mode_egress``. Either way the message names the persona
-and the entries it is missing.
+.. raw:: html
+   :file: ../../../_diagrams/open-mode-egress.html
 
-All four are in OSPREY's deny defaults, so a refusal almost always means a
-persona lifted one. Put it back in that persona's ``config:`` block —
+``osprey up`` refuses to start an open deployment unless every persona's
+``.claude/settings.json`` denies ``Bash``, ``WebFetch``, ``WebSearch`` and
+``mcp__plugin_playwright_playwright__*`` (``osprey scaffold web-terminals
+lint`` reports the same, as ``web_terminals.open_mode_egress``). All four are
+in OSPREY's deny defaults, so a refusal means a persona lifted one — put it
+back in that persona's ``config:`` block and rebuild. The python executor's
+own guard against executed code reaching the web ports is defence in depth,
+not a boundary: ``none`` is for rooms where the agents are trusted too.
 
-.. code-block:: yaml
-
-   config:
-     # and nothing under remove_deny may name one of these four
-     claude_code.permissions.deny:
-       ["Bash", "WebFetch", "WebSearch", "mcp__plugin_playwright_playwright__*"]
-
-— then ``osprey build`` to render it and rebuild that persona's image, because
-the settings file that runs is the one baked into the image. Where a persona
-genuinely needs one of the four, use ``method: token`` instead and keep the
-per-user login URLs.
-
-.. warning::
-
-   The python executor refuses connections from executed code to this
-   deployment's own web ports under ``none``, but that guard runs inside the
-   agent's own process and is defence in depth rather than a boundary: an agent
-   process determined enough to defeat it could still reach a terminal, so
-   ``none`` is for rooms where everyone — the agents included — is trusted.
-
-**Passwords**, managed by OSPREY. Nothing extra to run or operate:
+**Passwords**, managed by OSPREY:
 
 .. code-block:: yaml
 
@@ -147,9 +90,9 @@ per-user login URLs.
        auth:
          method: password
 
-**OIDC**, against the single sign-on your facility already runs. Each roster
-entry names the identity that maps to it, so a valid login as somebody else
-cannot open this user's terminal:
+**OIDC**, against your facility's single sign-on. Each roster entry names the
+identity that maps to it, so a valid login as somebody else cannot open this
+user's terminal:
 
 .. code-block:: yaml
 
@@ -157,85 +100,42 @@ cannot open this user's terminal:
      web_terminals:
        tls:
          enabled: true
-         host_cert_dir: /etc/ssl/facility     # host side; mounted for you
-         cert: /etc/osprey/tls/facility.crt   # container side
+         host_cert_dir: /etc/ssl/facility
+         cert: /etc/osprey/tls/facility.crt
          key: /etc/osprey/tls/facility.key
        auth:
          method: oidc
          oidc:
            issuer: https://sso.example.org/realms/accelerator
-           client_id_env: OSPREY_AUTH_OIDC_CLIENT_ID
+           client_id_env: OSPREY_AUTH_OIDC_CLIENT_ID      # names in .env.auth
            client_secret_env: OSPREY_AUTH_OIDC_CLIENT_SECRET
-           claim: sub                       # ID-token claim to match on
+           claim: sub
        users:
          - name: alice
            index: 0
            oidc_subject: "8f4c1e02-..."     # alice's value of that claim
-         - name: bob
-           index: 1
-           oidc_subject: "b7d9a340-..."
 
-The ``*_env`` keys hold environment-variable **names**, not credentials: put the
-client id and secret in the project's ``.env.auth`` under those names — that is
-the only file the authentication service reads credentials from. The names
-shown are the ones OSPREY reads when you omit the keys, and ``claim`` falls back
-to ``sub`` in the authentication service itself. ``oidc_subject`` is not a
-secret — it is the identifier your provider already publishes for that person.
+Under ``password`` or ``oidc`` a small authentication service joins the stack
+and nginx asks it about every request under ``/u/<name>/`` before proxying
+anything. Optional keys: ``auth.port`` (default ``9070``),
+``auth.session_lifetime`` in whole seconds (default ``43200``), and
+``auth.image``, required with ``image_source: registry``.
 
 .. warning::
 
-   **No secret may contain a dollar sign** — not in ``.env.auth``, and not in
-   the ``.env`` and ``.env.users`` that carry your provider API key and
-   facility passwords. Depending on which container stack reads these files,
-   ``$`` sequences inside the *values* are substituted on the way through —
-   with Docker Compose, ``secret$abc`` arrives as ``secret`` and ``P@$$w0rd``
-   arrives as ``P@$w0rd``; other stacks mangle a different set. Either way the
-   file on disk still reads correctly, so the only symptom is a login or a
-   token exchange that refuses for no visible reason.
-
-   This bites hardest with a client secret your identity provider generated for
-   you, since you did not choose those characters. If yours contains a ``$``,
-   issue a new one rather than trying to escape it — escaping is not portable
-   between container runtimes, so there is no spelling that works everywhere.
-
-   ``osprey up`` refuses to start a stack whose secrets would be corrupted
-   this way and names the offending variables, so you find out before the
-   deployment is running rather than after someone cannot log in.
-
-   The same rule extends to each user's ``oidc_subject``, which travels a
-   different route (the rendered compose file rather than an env file) but is
-   rewritten the same way: lint refuses a subject containing ``$`` and names
-   the user. If your provider genuinely issues one, map a different claim via
-   ``auth.oidc.claim``.
-
-Three more keys are optional. ``auth.port`` is the port the authentication
-service listens on (default ``9070``); ``auth.session_lifetime`` is how long a
-session stays valid, in **whole seconds** (default ``43200``, twelve hours); and
-``auth.image`` names the service's image, which is **required** when
-``image_source: registry`` — your CI publishes that image the same way it
-publishes the terminal images. In ``image_source: local`` mode
-``osprey up`` builds it for you and ``auth.image`` is not needed.
-
-.. warning::
-
-   ``auth.port`` and ``auth.session_lifetime`` must be plain positive integers.
-   A duration string like ``"12h"``, a decimal, zero or a negative number is
-   **silently replaced by the default** — nothing warns you — so a deployment
-   that meant eight-hour sessions would quietly keep twelve-hour ones.
-
-The service listens on ``127.0.0.1`` on the deploy host itself (the web stack
-uses host networking), so nginx reaches it and nothing off-host does. It is not
-published as a container port, and anyone with a shell on the deploy host can
-reach it — the same as every per-user terminal.
+   No secret may contain a ``$`` — not in ``.env.auth``, ``.env`` or
+   ``.env.users``, and not in an ``oidc_subject``. Container stacks substitute
+   ``$`` sequences on the way through, and the only symptom is a login that
+   refuses for no visible reason. ``osprey up`` refuses such a stack and names
+   the variable; if a provider issued the secret, issue a new one.
 
 .. _multi-user-role-from-sso:
 
 Let single sign-on pick the tier
---------------------------------
+================================
 
-Each roster entry names the persona it runs as, and pinning that per user is
-the simplest thing to do. Where your provider already knows who is an operator
-and who is a visitor, you can state that mapping once instead:
+Instead of pinning a persona on every roster entry, name roles once and let
+the provider's groups choose:
 
 .. code-block:: yaml
 
@@ -247,7 +147,7 @@ and who is a visitor, you can state that mapping once instead:
            viewer: {persona: readonly}
          claims:
            claim: groups          # the ID-token claim holding group membership
-           map:                   # that claim's values, onto the roles above
+           map:
              ca-operators: operator
              ca-viewers: viewer
        users:
@@ -256,117 +156,35 @@ and who is a visitor, you can state that mapping once instead:
            role: operator         # in place of `persona: readwrite`
            oidc_subject: "8f4c1e02-..."
 
-``roles`` is the static half, and it applies in every login mode: a role names
-one persona from the catalog, and a roster entry carries ``role:`` **or**
-``persona:`` — never both, which lint refuses. (With both written down, nothing
-says which one governs, and a later edit to the role's persona would silently
-not reach that entry.) A role that names no persona, a map entry naming a role
-you never declared, and half a ``claims`` stanza each stop the build with the
-offender named, rather than rendering a deployment whose privileges are not
-what the file says.
+A roster entry carries ``role:`` or ``persona:``, never both. The rules:
 
-``claims`` is the single sign-on half: it names the ID-token claim your
-provider puts group membership in, and maps that claim's **values** onto the
-same role names. Real providers send a list, so the values are what is matched,
-not the claim as a whole. A login arriving with
+- Every value of the claim is matched, in any order. Exactly one distinct role
+  must result: none → refused (``unmapped_role_claim``), more than one →
+  refused (``ambiguous_role_claim``).
+- The role the token grants must be the role the roster named for the card
+  that was clicked; otherwise the login is refused (``role_mismatch``). Fix
+  whichever of roster or provider has drifted.
+- A role is resolved at login and travels inside the session — together with
+  its origin, the roster entry or the provider's claim — so a change at the
+  provider or in the roster reaches the *next* login. To withdraw a role now,
+  end the session: ``osprey users decommission <name>``.
 
-.. code-block:: json
-
-   {"groups": ["ca-operators", "building-6"]}
-
-is granted ``operator``: ``ca-operators`` is in the map and ``building-6``
-matches nothing. Every value is matched rather than the first one that hits, so
-the role someone is granted never depends on the order the provider happened to
-list their groups in. Several values naming the *same* role are fine. The other
-two outcomes are refusals — a 403 at the front door, each recorded in the audit
-trail with its own reason:
-
-* **No value matches the map.** The account holds none of the groups this
-  deployment maps, so there is no role to grant.
-* **Values name more than one role.** Somebody is in an operator group *and* a
-  viewer group; picking either one would be a guess about which privilege they
-  meant to use.
-
-Matching is exact: values are compared as written, with no case folding. The
-role a login resolves to travels with that session: it reaches the person's
-terminal as an identity header, and is named on the login record in the
-audit trail.
-
-**The role a login carries has to be the role its terminal was built as.** The
-roster's ``role:`` does two jobs, and both are in force in every mode. It
-resolves to a persona at build time — that is what decides which project a
-card's container is built from — and it is what the session carries. Under
-password login, that is the whole story.
-
-Under single sign-on it depends on whether you wrote a ``claims`` map:
-
-* **No** ``claims`` **map.** Nothing asked the provider about privilege, so the
-  role is the roster's, exactly as under a password.
-* **A** ``claims`` **map.** The validated ID token decides the role — and it has
-  to be the one the roster named for the person whose card was clicked. If
-  someone's groups map to ``operator`` while their roster entry says
-  ``observer``, the login is refused: 403, recorded as ``role_mismatch``, no
-  session issued. Refusing grants nobody anything. It turns away a login whose
-  asserted privilege describes a different terminal than the one behind the
-  door, which is a roster and a provider that have drifted apart — fix it in
-  whichever of the two is out of date.
-
-One case has nothing to cross-check: a roster entry that names no role at all,
-because it pins a ``persona:`` directly or just rides the default. Its container
-is not bound to a role, so there is nothing for the token to disagree with and
-the token's role is what the session carries.
-
-The mirror does not hold: a ``claims`` stanza in a password deployment resolves
-nothing, because no ID token arrives to read it from. ``osprey up`` warns about
-that one rather than failing — it is what a facility writes while staging a move
-to single sign-on — but until the method is ``oidc``, none of the roles in it is
-ever granted.
-
-**Every login is recorded.** Successes and refusals alike land in
-``var/audit/sidecar/auth_sidecar.jsonl`` on the deploy host: one line each,
-naming the user, the category (``password_login`` and ``oidc_login``, or a
-refusal such as ``unmapped_role_claim`` or ``ambiguous_role_claim``), and the
-role granted. That file belongs to the authentication service — no terminal
-container mounts it, and only a shell on the host reads it. Three deliberate
-gaps in it: an attempt the rate limiter turned away records nothing, so an
-unauthenticated caller cannot make the trail grow at will; a failed password is
-one category whatever went wrong with it — a wrong password, a name not on
-the roster and an account with no password set are indistinguishable, so the
-trail cannot be read backwards to enumerate who exists; and a single sign-on
-refusal that an unauthenticated caller can reach for free (a user with no
-mapped provider identity, or one whose mapped identity cannot be carried) is
-filed once per window, with the ones it swallowed counted on the next record
-as ``folded_refusals``.
+Every login and refusal is recorded in ``var/audit/sidecar/auth_sidecar.jsonl``
+on the deploy host. A ``claims`` stanza under ``password`` resolves nothing;
+``osprey up`` warns rather than fails.
 
 .. note::
 
-   **Microsoft Entra ID: when the group claim goes missing.** An account in
-   more than a few dozen groups triggers *group overage* — Entra leaves
-   ``groups`` out of the ID token altogether and puts a pointer to Microsoft
-   Graph there instead (``_claim_names``, ``_claim_sources``). That lands on
-   a missing-claim refusal, which is the honest outcome: the authentication
-   service reads identity only from the ID token it already validated, and
-   following the pointer would not help anyway — it never calls the userinfo
-   endpoint at all. The refusal is audited and names the claim it looked for,
-   and the log line beside it lists the claim names that did arrive, which is
-   how you recognize an overage.
-
-   Two changes at the provider fix it, and both work by bounding the claim to
-   this one application rather than to everything the account belongs to:
-
-   * **Emit fewer groups.** In the app registration's token configuration,
-     emit the groups *assigned to this application* (or security groups only)
-     rather than every group the account is in.
-   * **Map app roles instead.** Define app roles on the registration, assign
-     people to them, and point ``claim`` at ``roles``. The map's keys become
-     your app-role values; nothing else about the block changes.
+   Microsoft Entra ID leaves ``groups`` out of the token for accounts in many
+   groups (*group overage*), which lands on a missing-claim refusal. Either
+   emit only the groups assigned to this application, or define app roles and
+   point ``claim`` at ``roles``.
 
 Leave one entry public
-----------------------
+======================
 
-Not every card on the landing page is a person's terminal. A roster entry that
-fronts a read-only service — the preset's ARIEL logbook assistant, say — can
-opt out of the login wall:
+A roster entry that fronts a read-only service — the preset's ARIEL logbook —
+can opt out of the login wall:
 
 .. code-block:: yaml
 
@@ -376,90 +194,28 @@ opt out of the login wall:
        persona: ariel
        login: false
 
-Under ``password`` or ``oidc`` that entry sits outside the login wall: nginx
-never asks the authentication service about it, and no password is provisioned
-for it (``osprey users passwd`` refuses the name and says why). Under ``none``
-it is the one entry nginx does *not* vouch for. Outside is not the same as
-open, in either posture — the entry is gated the way every terminal is under
-``token``, by its own operator secret, so a browser still has to open
-``osprey users login-url ariel`` once. Cookies from the login wall never reach
-its container.
-
-Only the literal ``false`` opts an entry out. Absence, ``true``, and any typo
-all mean "login required" — a misspelling can lock an entry down, never open it
-up — and lint reports a non-boolean value. The key is inert while
-``auth.method`` is ``token``, where nginx stamps nothing for an entry to be
-exempt from; lint points that out as well.
-
-Opting out is for entries whose *content* is public by design. Anything that
-can reach a control system, write anywhere, or spend provider tokens belongs
-behind the wall.
-
-For the capability it would be worst to leave open, that is a check rather
-than advice: a ``login: false`` entry resolving to a persona holding either
-deployment-editing surface — the agent's ``setup_patch`` tool or the web
-Config panel — fails ``osprey profile validate`` and ``osprey build`` with the
-user named, and ``osprey up`` refuses to start a stack whose render still
-carries one. It holds whether or not your profile floors those surfaces for
-its other tiers; see :doc:`tiers` for what the
-check reads and what it tells you to do about it. The
-preset's own admin card sits behind the wall for exactly that reason, and is
-last in the roster so the operator cards keep their ports.
+Only the literal ``false`` opts out; anything else means "login required". The
+entry is still gated the way every terminal is under ``token``, by its own
+login URL. A ``login: false`` entry whose persona can edit the deployment
+(``setup_patch`` or the Config panel) is refused at build and at ``osprey up``.
 
 .. _multi-user-https:
 
 Serve it over HTTPS
--------------------
+===================
 
-A session cookie sent over plain HTTP is readable by anything on the path, so a
-deployment with a login page — ``auth.method`` of ``password`` or ``oidc`` —
-and ``tls.enabled: false`` **refuses to render at all** rather than hand out
-cookies in the clear. You
-therefore have to pick one of two ways to get the connection encrypted.
+A login page hands out session cookies, so ``password`` and ``oidc`` refuse to
+render with ``tls.enabled: false`` unless something else encrypts the
+connection. Two shapes:
 
-**Let this nginx terminate TLS.** Set ``tls.enabled: true`` with a certificate
-and key, and nginx serves HTTPS on 443, redirects the plain port to it, and marks
-session cookies — the login wall's and each terminal's own — so browsers only
-ever send them over HTTPS. Bringing the
-certificate is still your job, but getting it *into* the container is not:
+**This nginx terminates TLS.** Set ``tls.enabled: true`` with a certificate
+and key; nginx serves HTTPS on 443 and redirects the plain port.
+``host_cert_dir`` is the only key that names a path on the deploy host — it is
+bind-mounted, read-only, where ``cert`` and ``key`` (paths inside the
+container) sit, so both must be in that one directory and the path must be
+absolute. Leave ``host_cert_dir`` out to mount the certificate your own way.
 
-.. code-block:: yaml
-
-   tls:
-     enabled: true
-     host_cert_dir: /etc/ssl/facility          # on the deploy host
-     cert: /etc/osprey/tls/facility.crt        # inside the container
-     key: /etc/osprey/tls/facility.key
-
-``host_cert_dir`` is the only key here that names a path on the **deploy host**;
-``cert`` and ``key`` are paths **inside the nginx container**. Setting
-``host_cert_dir`` bind-mounts that directory, read-only, at the directory
-``cert`` sits in — so the certificate is where nginx looks without you writing
-any compose of your own. Renewals need nothing extra: the mount is a directory,
-so a replaced file is picked up on the next nginx reload.
-
-Because one mount has to deliver both files, ``cert`` and ``key`` must sit in
-the same directory, and ``host_cert_dir`` must be absolute. A deployment that
-breaks either rule is refused at render time, naming the reason — rather than
-starting an nginx that immediately dies looking for a file nobody mounted.
-
-.. note::
-
-   ``host_cert_dir`` is optional. Leave it out and nothing is mounted: the
-   compose overlay renders exactly as it does without TLS, and supplying the
-   certificate is yours to arrange — a bind mount from a small compose file of
-   your own, listed after the web overlay in ``runtime.compose_files``, or
-   whatever your facility's certificate management already does. That is the
-   route to take when a plain directory bind cannot express how certificates
-   reach this host.
-
-**Or terminate TLS in front of this nginx.** If a facility load balancer or
-ingress proxy already presents the certificate and forwards to this host, set
-``auth.allow_insecure_http: true`` and leave ``tls.enabled`` off. This is a
-normal deployment, not a workaround: the browser's connection is encrypted by
-the thing in front, and the hop it forwards over is yours to keep private.
-
-This shape needs one key more, and it is **required**, not optional:
+**Something in front terminates TLS** — a facility load balancer or ingress:
 
 .. code-block:: yaml
 
@@ -470,137 +226,51 @@ This shape needs one key more, and it is **required**, not optional:
          method: password
          allow_insecure_http: true
 
-``external_origin`` is the address **browsers** open, which here is the load
-balancer's, not this host's. Every terminal refuses a request that would change
-something — a chat message, an approval, a file write — unless the browser says
-it came from that address, and nothing in the rest of this configuration can
-work out what the thing in front answers on. Leave it unset and the
-deployment looks entirely healthy: the containers are up, the landing page
-renders, each terminal opens — and every action taken in one is refused.
-
-Write it as a bare origin: a scheme, a host, and a port if it is not the
-scheme's default. No path, no trailing slash. Anything else is refused when you
-build, which is the point — the alternative is finding out from a browser.
-
-Set it in any deployment where the address people type is not this nginx's own,
-including a plain reverse proxy or a DNS alias in front of it. When browsers
-reach this nginx directly — every other shape on this page — leave it out and
-the address is derived from ``deploy.fqdn`` and the published port.
-
-What ``allow_insecure_http`` is *not* is a way to postpone certificates on a
-reachable host. With it set and nothing terminating TLS, anyone who can watch
-the traffic can copy a session cookie and become that user. An isolated network
-where you accept that risk is the only other case for it.
+``external_origin`` is required here: every terminal refuses a state-changing
+request unless the browser says it came from that address, and nothing else
+in the configuration can work out what the thing in front answers on. Write
+it as a bare origin — scheme, host, port if non-default, no path.
+``allow_insecure_http`` is not a way to postpone certificates on a reachable
+host; with nothing terminating TLS, anyone watching the traffic can become
+that user.
 
 Passwords, and where they live
-------------------------------
+==============================
 
-In password mode ``osprey up`` makes sure every user on the roster has a
-password hash before it starts anything, and aborts before a single container
-starts if it cannot — an unwritable file is caught here rather than becoming a
-stack nobody can log in to. The same check covers the keys used to sign session
-cookies, so an OIDC deployment can abort the same way even though it provisions
-no passwords at all. The usual cause either way is permissions on ``.env.auth``
-or on the project directory.
+Password hashes and cookie-signing keys live in ``.env.auth`` in the project
+root — mode ``0600``, gitignored, mounted into the authentication service
+only. On every ``osprey up``, for each user in order:
 
-The hashes and signing keys live in ``.env.auth`` in the project root — mode
-``0600``, listed in the generated ``.gitignore`` next to ``.env.users``,
-and handed to the authentication service alone. No terminal container ever sees
-it.
+#. An existing hash in ``.env.auth`` is kept; deploying never resets a
+   password.
+#. Otherwise a plaintext ``OSPREY_AUTH_PW_<USER>`` in ``.env`` is hashed in —
+   the way to set a password you chose. ``<USER>`` is the name uppercased with
+   ``-`` turned into ``_``.
+#. Otherwise a password is generated, hashed, and printed once. Capture it.
 
-For each user, in order:
+To change one later, ``osprey users passwd alice`` prompts, rewrites that hash
+and ends alice's sessions; nobody else is touched. Password login is
+rate-limited per user but never locks anyone out — a control-room operator
+must not be shut out of the terminals.
 
-#. An existing hash in ``.env.auth`` is kept. Deploying again never resets
-   anyone's password.
-#. Otherwise, a plaintext ``OSPREY_AUTH_PW_<USER>`` in the project's ``.env`` is
-   hashed into ``.env.auth`` — the way to set a password you already chose. The
-   plaintext stays on the deploy host; only the hash reaches a container.
-#. Otherwise a password is generated, hashed, and **printed once**, on that
-   deploy's output. Nothing can recover it afterwards, so capture it and hand it
-   to the person.
+Removing someone, and turning it off
+====================================
 
-``<USER>`` is the username uppercased with ``-`` turned into ``_``. That mapping
-is what keeps one user's credentials out of another user's terminal, and it keys
-each terminal's operator secret as well as its password — so *every* deployment,
-authenticated or not, refuses to render when two roster names collide under it
-(``alice-b`` and ``alice_b``), or when a name falls outside
-``[a-z0-9][a-z0-9_-]*``.
+A credential can outlive an account, so:
 
-To change a password later:
+- **Use** ``osprey users remove alice``, not a hand-edit of the roster —
+  removing the entry alone leaves her hash in ``.env.auth``, and adding the
+  name back months later revives her password. ``decommission`` (or
+  ``prune``, for names already edited out) retires the credential and, under
+  OIDC, ends the session.
+- **A plaintext** ``OSPREY_AUTH_PW_ALICE`` **in** ``.env`` **survives
+  decommission** and would be hashed straight back in for the next alice.
+  Delete the line by hand when the person leaves.
+- Logging out is remembered in the authentication service's memory only; a
+  cookie captured before a logout can be replayed until it expires, within
+  ``auth.session_lifetime``.
 
-.. code-block:: bash
-
-   osprey users passwd alice
-
-It prompts (never echoing), rewrites that one hash, and restarts the
-authentication service. Alice's existing sessions stop working immediately, and
-nobody else's are touched.
-
-Sessions, logging out, and rolling back
----------------------------------------
-
-This section is about the login page, so it applies to ``password`` and
-``oidc``; under ``none`` a card *is* the door, which is that posture's whole
-point.
-
-The landing page stays public — it lists the roster so people can find their own
-card, and behind a login page a card is a prompt, not a door. One browser may
-hold several unlocked users at once, which is what a shared control-room machine
-needs; logging out ends that one user's session and leaves the others alone.
-
-.. note::
-
-   The list of logged-out sessions is held in the authentication service's
-   memory, so restarting that container forgets it. A cookie captured before a
-   logout could be replayed until it expires on its own — within
-   ``auth.session_lifetime``.
-
-.. note::
-
-   **A role change takes effect at the next login.** A session's role is
-   resolved when the session is minted and then travels inside the signed
-   cookie, so editing a roster ``role:`` — or moving someone between groups at
-   the provider — does not reach a session that is already open. It changes
-   what their *next* login is granted. Where a role has to be withdrawn now,
-   end the session rather than the role: ``osprey users decommission <name>``,
-   or wait out ``auth.session_lifetime``.
-
-   Switching ``auth.method`` is the exception. Moving a deployment from
-   passwords to single sign-on drops the role from every session minted under
-   the old method straight away — that role was granted by a proof the
-   deployment no longer accepts. Those sessions stay open until they expire;
-   they just stop carrying a privilege.
-
-Removing someone needs care, because a credential can outlive the person's
-account in three different ways:
-
-**Use** ``osprey users remove alice`` **, not a hand-edit.** Deleting a
-roster entry and running ``osprey up`` removes alice's container, and the
-authentication service stops answering for a name that is no longer on the
-roster — but her hash stays in ``.env.auth``. Add the name back months later and
-her old password works again. ``decommission`` (or ``prune``, for names already
-edited out) is what actually retires the credential.
-
-**A plaintext password in** ``.env`` **survives decommission.** If you seeded
-alice's password by putting ``OSPREY_AUTH_PW_ALICE`` in the project's ``.env``,
-decommissioning her clears the hash but leaves that line — and the next
-``osprey up`` for a new alice hashes it straight back in, handing the new
-person the departed one's password. The decommission warns you, but the warning
-scrolls past in a deploy log weeks before anyone reuses the name. **Delete the**
-``.env`` **line by hand when the person leaves.**
-
-**In OIDC mode,** ``decommission`` **is the verb that ends a session.**
-``prune`` cleans up users already off the roster, but it only restarts the
-authentication service when it actually removed a password entry — and an OIDC
-user has none. Their container is gone either way, so the stale route just
-fails; but if what you need is that person's *session* closed now, run
-``decommission``.
-
-To turn the login page back off, set ``auth.method: token`` and run ``osprey
-up``. That re-renders nginx and the compose file, drops the authentication
-service, and returns the stack to the per-user login URLs described at the top
-of this page. ``.env.auth`` is left in place, so turning login on again keeps
-everyone's existing password. ``auth.method: none`` goes one step further and
-drops the URLs too — it is refused unless every persona denies the four egress
-tools, so read :ref:`the open posture <multi-user-open-mode>` before you switch
-to it.
+To turn the login page off, set ``auth.method: token`` and run ``osprey up``;
+``.env.auth`` is kept, so turning it back on keeps everyone's password.
+``auth.method: none`` goes one step further and drops the login URLs too —
+read :ref:`the open posture <multi-user-open-mode>` first.
