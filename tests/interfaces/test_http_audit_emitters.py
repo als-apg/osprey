@@ -46,6 +46,7 @@ from osprey.interfaces.common_middleware import (
     AUDIT_ACCOUNT_KEY,
     AUDIT_EXPECTED_ACCOUNT_KEY,
     AUDIT_ROLE_HEADER,
+    AUDIT_ROLE_SOURCE_HEADER,
     AUDIT_SUBJECT_HEADER,
     AUDITED_REFUSAL_STATUSES,
     EXTERNAL_ORIGIN_ENV,
@@ -63,6 +64,7 @@ from osprey.interfaces.common_middleware import (
     WEB_AUTH_SURFACE,
     HttpAuditMiddleware,
     WebAuthMiddleware,
+    forwarded_identity,
 )
 from osprey.interfaces.web_auth import WebCredentials, reset_web_credentials
 from osprey.utils.identity import AUDIT_IDENTITY_ENV
@@ -418,6 +420,32 @@ class TestForwardedIdentity:
         assert AUDIT_ACCOUNT_KEY not in detail_parts(record)
         assert record["role"] is None
 
+    def test_the_decoder_returns_the_source_beside_the_subject_and_role(self):
+        """The third name is decoded under the same bound as the first two.
+
+        Asserted on the decoder directly, not through an emitter: the ledger
+        reads the tuple and records only its first two values, so a third name
+        that quietly stopped being decoded would leave every record in this
+        module exactly as it is today, and only the terminal's chip would go
+        blank.
+        """
+        base = {
+            AUDIT_SUBJECT_HEADER.lower(): "alice",
+            AUDIT_ROLE_HEADER.lower(): "operator",
+        }
+
+        assert forwarded_identity(base) == ("alice", "operator", None)
+        assert forwarded_identity({**base, AUDIT_ROLE_SOURCE_HEADER.lower(): "roster"}) == (
+            "alice",
+            "operator",
+            "roster",
+        )
+        assert forwarded_identity({**base, AUDIT_ROLE_SOURCE_HEADER.lower(): "ro ster"}) == (
+            "alice",
+            "operator",
+            UNSAFE_FORWARDED_VALUE,
+        )
+
     def test_a_subject_matching_this_container_is_not_flagged(self, app_stub, records, monkeypatch):
         monkeypatch.setenv(TERMINAL_USER_ENV, "alice")
         drive(
@@ -586,13 +614,18 @@ class TestForwardedIdentity:
         """The names are spelled locally; this is what keeps them in step.
 
         Importing them would put a service package in the interfaces' import
-        closure for two string constants, so the drift check is a test — the
+        closure for three string constants, so the drift check is a test — the
         same trade the rest of the audit work makes.
         """
-        from osprey.services.auth_sidecar.identity_headers import ROLE_HEADER, SUBJECT_HEADER
+        from osprey.services.auth_sidecar.identity_headers import (
+            ROLE_HEADER,
+            ROLE_SOURCE_HEADER,
+            SUBJECT_HEADER,
+        )
 
         assert AUDIT_SUBJECT_HEADER == SUBJECT_HEADER
         assert AUDIT_ROLE_HEADER == ROLE_HEADER
+        assert AUDIT_ROLE_SOURCE_HEADER == ROLE_SOURCE_HEADER
 
 
 # --------------------------------------------------------------------------- #
