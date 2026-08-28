@@ -3385,9 +3385,23 @@ jobs:
         docker rmi -f authe2e-operator:local || true
 
   terminal-auth-multiuser-e2e:
-    name: Terminal Auth Multi-User E2E (auth.method none, real persona image)
+    name: Terminal Auth Multi-User E2E (auth.method token + none, real persona image)
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # Raised from the 60 this lane carried while it stood up ONE deployment.
+    # What the second posture adds is a second render and a second `osprey up`
+    # — NOT a second image build, which the two lanes share — plus a third
+    # container to boot and the in-container guard probe. Measured on a
+    # developer machine with a warm layer cache: 6m55s for the whole module,
+    # of which the second deployment and its four assertions were well under a
+    # minute. That number does not size the cap on its own, because the runner
+    # builds cold and its neighbours measure a single such build at 7-11
+    # minutes; the +10 here is that estimate plus headroom, and the first cold
+    # runner wall clock should be recorded in the PR body so the margin gets
+    # resized from a measurement rather than from this estimate. Stays under
+    # full-chain-auth-e2e's 85/75, which the sibling relation
+    # `test_full_chain_auth_lane_outbudgets_the_single_build_lanes` pins: that
+    # lane builds two real images where this one builds one.
+    timeout-minutes: 70
     # Same PR scoping as the lifecycle and auth-perimeter lanes above: same-repo
     # PRs into main only, since this drives a real `osprey up` (container and
     # volume lifecycle) against the runtime.
@@ -3401,11 +3415,21 @@ jobs:
     # lane (which is why the module carries the `dockerbuild` marker and is
     # --ignore'd there).
     #
+    # TWO deployments, ONE build. The module proves both sidecar-less postures:
+    # `auth.method: token` (the DEFAULT, and what an absent `auth:` block
+    # renders) where nginx injects nothing and each terminal's own `?token=`
+    # exchange is the gate; and `auth.method: none` (OPEN, navigation-only)
+    # where nginx injects each user's operator secret, a `login: false` entry is
+    # left out of that injection, and executed code is refused the deployment's
+    # own web ports. Both lanes share one persona project and therefore one
+    # `:local` image, so the second `osprey up` re-runs the build against a
+    # byte-identical context and hits the runtime cache: the added cost over the
+    # single-posture lane this replaces is a second render plus a second deploy,
+    # not a second image build.
+    #
     # Complement, not duplicate, of auth-perimeter-e2e: that lane proves the
-    # AUTHENTICATED perimeter (sidecar + nginx auth_request + header injection);
-    # this one proves the DEFAULT posture `auth.method: none`, where nginx
-    # authenticates nothing and the terminal app's own WebAuthMiddleware is the
-    # only gate.
+    # AUTHENTICATED perimeter (sidecar + nginx auth_request + header injection),
+    # which is the one posture family this lane does not stand up.
     # Base-ref clause matches two-shape-boot-e2e below rather than the
     # lifecycle lanes above, and for the same reason: this lane certifies the
     # auth perimeter, which is built on epic phase branches whose PRs target an
@@ -3444,7 +3468,7 @@ jobs:
     # published release. No provider secret is needed: the fixture writes a fake
     # ANTHROPIC_API_KEY and the PTY never contacts a model.
     - name: Run terminal auth multi-user E2E
-      timeout-minutes: 55
+      timeout-minutes: 65
       run: |
         uv run pytest tests/e2e/web_terminals/test_terminal_auth_multiuser_e2e.py -v --tb=short
 
@@ -3465,13 +3489,22 @@ jobs:
       if: always()
       run: |
         for user in alice; do
-          docker rm -f "authoff-web-${user}" || true
-          docker volume rm "osprey-e2e-authoff-multiuser_${user}-claude-config" || true
-          docker volume rm "osprey-e2e-authoff-multiuser_${user}-agent-data" || true
+          docker rm -f "authtok-web-${user}" || true
+          docker volume rm "osprey-e2e-token-multiuser_${user}-claude-config" || true
+          docker volume rm "osprey-e2e-token-multiuser_${user}-agent-data" || true
         done
-        docker rm -f authoff-nginx || true
-        docker compose -p osprey-e2e-authoff-multiuser down || true
-        docker rmi -f authoff-operator-operator:local || true
+        docker rm -f authtok-nginx || true
+        docker compose -p osprey-e2e-token-multiuser down || true
+        for user in alice kiosk; do
+          docker rm -f "authopen-web-${user}" || true
+          docker volume rm "osprey-e2e-open-multiuser_${user}-claude-config" || true
+          docker volume rm "osprey-e2e-open-multiuser_${user}-agent-data" || true
+        done
+        docker rm -f authopen-nginx || true
+        docker compose -p osprey-e2e-open-multiuser down || true
+        # ONE image for both lanes: the persona catalog entry names its own
+        # `project`, so the tag is `<project>:local` with no persona suffix.
+        docker rmi -f authmulti-operator:local || true
 
   full-chain-auth-e2e:
     name: Full-Chain Auth E2E (real sidecar + role-resolved persona + audit ledgers)
