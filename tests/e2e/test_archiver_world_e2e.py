@@ -219,6 +219,14 @@ def _override_yaml() -> str:
     Nulling the key keeps the recorder on the VA under test, and keeps a second
     emulated container out of the build.
 
+    Trimming ``deployed_services`` does not switch off the preset's consumers
+    of what it trimmed away, and the build refuses a deploying render whose
+    consumer is on for a service it does not run — the ARIEL database and
+    hybrid search (``ariel:`` nulled, the section being both consumers'
+    switch), the OTLP exporter and the bluesky MCP server are switched off
+    here by the keys that refusal names. Nothing in this lane dials any of
+    them.
+
     That trim is not only about speed. The preset's full stack publishes
     postgres, openobserve, the bluesky bridge, Tiled and the panels on fixed
     host ports, and a developer box running any OSPREY demo stack already holds
@@ -232,6 +240,9 @@ def _override_yaml() -> str:
         "  archiver.type: mongodb_archiver\n"
         "  modules.web_terminals.enabled: false\n"
         "  deployed_services: []\n"
+        "  ariel:\n"
+        "  claude_code.telemetry.enabled: false\n"
+        "  claude_code.servers.bluesky.enabled: false\n"
         "va_archiver:\n"
         f"  port_host: {MONGO_PORT_HOST}\n"
         f"  freshness_channel: {FRESHNESS_CANARY}\n"
