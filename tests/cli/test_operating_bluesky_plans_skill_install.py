@@ -114,7 +114,14 @@ class TestOperatingBlueskyPlansSkillStructure:
     # --- the queue tool surface ---
 
     def test_documents_the_queue_tools(self, skill_text):
-        for tool in ("queue_add", "queue_list", "queue_start", "queue_stop", "queue_status"):
+        for tool in (
+            "queue_add",
+            "queue_list",
+            "queue_start",
+            "queue_stop",
+            "queue_remove",
+            "queue_status",
+        ):
             assert tool in skill_text, f"Missing queue tool: {tool}"
 
     def test_documents_enqueue_on_pinned_revision(self, skill_text):

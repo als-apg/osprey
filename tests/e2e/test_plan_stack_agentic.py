@@ -2348,7 +2348,7 @@ PANELS_IMAGE = _orm_stack.panels_image(PROJECT_NAME)
 #: dropping those flags there would silently take the Tiled sidecar out of this
 #: stack rather than fail loudly.
 #:
-#: The two ``approval.tools`` keys arm the approval hook for exactly the two
+#: The queue ``approval.tools`` keys disarm the approval hook for exactly the
 #: queue tools ``_REQUIRED_TOOLS`` already promotes, and only in this rendered
 #: test project. They are a SECOND gate, independent of the ``settings.json``
 #: promotion below: ``promote_ask_to_allow`` moves a tool between
@@ -2373,6 +2373,7 @@ _EXTRA_CONFIG: dict[str, Any] = {
         "services.openobserve.port": OPENOBSERVE_PORT,
         "approval.tools.queue_add": "skip",
         "approval.tools.queue_start": "skip",
+        "approval.tools.queue_remove": "skip",
         # The authoring pair, for the hysteresis test only in practice: this
         # disarms the HOOK gate stack-wide, but ``settings.json`` still lists
         # both in ``permissions.ask`` — a hard denial headless — so authoring
@@ -2403,6 +2404,11 @@ _EXTRA_CONFIG: dict[str, Any] = {
 _REQUIRED_TOOLS = (
     bluesky_tool_names.matcher(bluesky_tool_names.QUEUE_ADD),
     bluesky_tool_names.matcher(bluesky_tool_names.QUEUE_START),
+    # Removal is the sole way past the interrupted-item start refusal: a first
+    # attempt that errors on the machine leaves its item re-queued at the
+    # front, and without this promotion a headless agent can only hand the
+    # recovery back to an operator nobody is playing.
+    bluesky_tool_names.matcher(bluesky_tool_names.QUEUE_REMOVE),
     "mcp__python__execute",
 )
 

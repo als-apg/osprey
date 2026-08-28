@@ -422,6 +422,16 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
                 matcher=bsky.matcher(bsky.QUEUE_STOP),
                 hooks=[_APPROVAL],
             ),
+            # queue_remove drops one PENDING item — removing queued work arms
+            # nothing, and it is the sole way past the interrupted-item start
+            # refusal, so like the halting pair it must never be
+            # kill-switch-blocked: a wedged queue has to stay clearable with
+            # writes disabled. Approval only; the prompt is the human decision
+            # the queue server parked the item for.
+            HookRule(
+                matcher=bsky.matcher(bsky.QUEUE_REMOVE),
+                hooks=[_APPROVAL],
+            ),
             HookRule(
                 matcher=bsky.matcher(bsky.STOP_RUN),
                 hooks=[_APPROVAL],

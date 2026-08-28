@@ -161,7 +161,10 @@ def test_bluesky_stop_tools_never_denied_or_removed(tmp_path):
             claude_code_overrides={"servers": {"bluesky": {"enabled": True}}},
         )
         perms = ctx["facility_permissions"]
-        for tool in (bsky.QUEUE_STOP, bsky.STOP_RUN):
+        # queue_remove sits in the same tier: it only discards pending work and
+        # is the sole way past the interrupted-item start refusal, so a deny
+        # here would trap a wedged queue exactly when writes are off.
+        for tool in (bsky.QUEUE_STOP, bsky.QUEUE_REMOVE, bsky.STOP_RUN):
             assert f"mcp__bluesky__{tool}" not in _ks_deny(ctx)
             assert f"mcp__bluesky__{tool}" not in perms.get("remove_ask", [])
 
