@@ -1,0 +1,51 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 640 328" role="img" aria-labelledby="auth-postures-title auth-postures-desc">
+  <title id="auth-postures-title">The four auth postures</title>
+  <desc id="auth-postures-desc">What stands between a landing-page card and its terminal under each auth.method: none makes the card the door, nginx stamping that user's secret; token hands out a login URL and nginx stamps nothing; password and oidc put a login page in front, the authentication service checking it before nginx stamps. Behind every posture the terminal itself still checks one credential of its own on every request.</desc>
+  <defs>
+    <marker id="auth-postures-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+
+  <text class="te" x="112" y="24">FRONT DOOR · NGINX</text>
+  <text class="te" x="430" y="24">BEHIND IT · THE TERMINAL ITSELF</text>
+
+  <!-- edges first -->
+  <line class="e" x1="382" y1="68" x2="430" y2="68" marker-end="url(#auth-postures-arr)"/>
+  <line class="e" x1="382" y1="140" x2="430" y2="140" marker-end="url(#auth-postures-arr)"/>
+  <line class="e" x1="382" y1="212" x2="430" y2="212" marker-end="url(#auth-postures-arr)"/>
+  <line class="e" x1="382" y1="284" x2="430" y2="284" marker-end="url(#auth-postures-arr)"/>
+
+  <!-- one row per posture -->
+  <text class="tn" x="24" y="72">none</text>
+  <rect class="nb-warn" x="112" y="40" width="270" height="56" rx="6"/>
+  <text class="tn" x="247" y="64" text-anchor="middle">a card is the door</text>
+  <text class="ts" x="247" y="82" text-anchor="middle">nginx stamps the user's secret</text>
+
+  <text class="tn" x="24" y="144">token</text>
+  <rect class="nb" x="112" y="112" width="270" height="56" rx="6"/>
+  <text class="tn" x="247" y="136" text-anchor="middle">a login URL, once</text>
+  <text class="ts" x="247" y="154" text-anchor="middle">the default · nginx stamps nothing</text>
+
+  <text class="tn" x="24" y="216">password</text>
+  <rect class="nb" x="112" y="184" width="270" height="56" rx="6"/>
+  <text class="tn" x="247" y="208" text-anchor="middle">a login page</text>
+  <text class="ts" x="247" y="226" text-anchor="middle">auth service · then nginx stamps</text>
+
+  <text class="tn" x="24" y="288">oidc</text>
+  <rect class="nb" x="112" y="256" width="270" height="56" rx="6"/>
+  <text class="tn" x="247" y="280" text-anchor="middle">a login page</text>
+  <text class="ts" x="247" y="298" text-anchor="middle">your SSO · then nginx stamps</text>
+
+  <!-- the terminal's own gate -->
+  <rect class="mask" x="430" y="40" width="186" height="272" rx="6"/>
+  <rect class="nb-foc" x="430" y="40" width="186" height="272" rx="6"/>
+  <text class="tn" x="523" y="140" text-anchor="middle">every terminal</text>
+  <text class="tn" x="523" y="156" text-anchor="middle">checks one credential</text>
+  <text class="tn" x="523" y="172" text-anchor="middle">of its own, every request</text>
+  <text class="ts" x="523" y="196" text-anchor="middle">the operator secret</text>
+  <text class="ts" x="523" y="210" text-anchor="middle">nginx stamps, or the cookie</text>
+  <text class="ts" x="523" y="224" text-anchor="middle">a login URL traded it for</text>
+</svg>
+</div>

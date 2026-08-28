@@ -1,0 +1,78 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 960 276" role="img" aria-labelledby="open-mode-egress-title open-mode-egress-desc">
+  <title id="open-mode-egress-title">Why the open posture has conditions</title>
+  <desc id="open-mode-egress-desc">Under auth.method none an agent inside one terminal reaches nginx over loopback and looks like a browser, so nginx would stamp a neighbour's secret and serve that terminal. Two things stand in the way: every persona's deny defaults on Bash, WebFetch, WebSearch and Playwright, refused at osprey up otherwise, and — defence in depth behind them — the python executor's socket guard, which refuses connections from executed code to the deployment's own web ports.</desc>
+  <defs>
+    <marker id="open-mode-egress-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+    </marker>
+  </defs>
+
+  <text class="te" x="40" y="28">UNDER THE OPEN POSTURE · FROM INSIDE, THE AGENT LOOKS LIKE A BROWSER</text>
+
+  <!-- edges first -->
+  <line class="e-warn" x1="180" y1="84" x2="220" y2="84" marker-end="url(#open-mode-egress-arr)"/>
+  <path class="e-warn" d="M180,100 H196 Q204,100 204,108 V176 Q204,184 212,184 H220" marker-end="url(#open-mode-egress-arr)"/>
+  <line class="e-warn" x1="450" y1="84" x2="480" y2="84" marker-end="url(#open-mode-egress-arr)"/>
+  <line class="e-warn" x1="450" y1="184" x2="480" y2="184" marker-end="url(#open-mode-egress-arr)"/>
+  <line class="e-warn e-dash" x1="670" y1="84" x2="720" y2="84" marker-end="url(#open-mode-egress-arr)"/>
+  <path class="e-warn e-dash" d="M670,184 H700 Q708,184 708,176 V108 Q708,100 716,100 H720" marker-end="url(#open-mode-egress-arr)"/>
+  <line class="e-warn" x1="820" y1="112" x2="820" y2="156" marker-end="url(#open-mode-egress-arr)"/>
+
+  <!-- edge labels -->
+  <rect class="mask" x="673" y="64" width="44" height="12" rx="2"/>
+  <text class="ta ta-acc" x="695" y="73" text-anchor="middle">DENIED</text>
+  <rect class="mask" x="684" y="128" width="48" height="12" rx="2"/>
+  <text class="ta ta-acc" x="708" y="137" text-anchor="middle">REFUSED</text>
+  <rect class="mask" x="830" y="128" width="52" height="12" rx="2"/>
+  <text class="ta ta-warn" x="834" y="137">STAMPED</text>
+
+  <!-- nodes -->
+  <rect class="mask" x="40" y="56" width="140" height="56" rx="6"/>
+  <rect class="nb-in" x="40" y="56" width="140" height="56" rx="6"/>
+  <text class="tn" x="110" y="80" text-anchor="middle">alice's agent</text>
+  <text class="ts" x="110" y="96" text-anchor="middle">in its own container</text>
+
+  <rect class="mask" x="220" y="56" width="230" height="56" rx="6"/>
+  <rect class="nb" x="220" y="56" width="230" height="56" rx="6"/>
+  <text class="tn" x="335" y="80" text-anchor="middle">the agent's tools</text>
+  <text class="ts" x="335" y="96" text-anchor="middle">Bash · WebFetch · WebSearch · Playwright</text>
+
+  <rect class="mask" x="220" y="156" width="230" height="56" rx="6"/>
+  <rect class="nb" x="220" y="156" width="230" height="56" rx="6"/>
+  <text class="tn" x="335" y="180" text-anchor="middle">python executor</text>
+  <text class="ts" x="335" y="196" text-anchor="middle">host subprocess · no secrets in its env</text>
+
+  <rect class="mask" x="480" y="56" width="190" height="56" rx="6"/>
+  <rect class="nb-foc" x="480" y="56" width="190" height="56" rx="6"/>
+  <text class="tn" x="575" y="80" text-anchor="middle">deny defaults</text>
+  <text class="ts" x="575" y="96" text-anchor="middle">every persona · else up refuses</text>
+
+  <rect class="mask" x="480" y="156" width="190" height="56" rx="6"/>
+  <rect class="nb-bnd" x="480" y="156" width="190" height="56" rx="6"/>
+  <text class="tn" x="575" y="180" text-anchor="middle">executor socket guard</text>
+  <text class="ts" x="575" y="196" text-anchor="middle">web-port connect() refused</text>
+
+  <rect class="mask" x="720" y="56" width="200" height="56" rx="6"/>
+  <rect class="nb" x="720" y="56" width="200" height="56" rx="6"/>
+  <text class="tn" x="820" y="80" text-anchor="middle">nginx</text>
+  <text class="ts" x="820" y="96" text-anchor="middle">can't tell agent from browser</text>
+
+  <rect class="mask" x="720" y="156" width="200" height="56" rx="6"/>
+  <rect class="nb-warn" x="720" y="156" width="200" height="56" rx="6"/>
+  <text class="tn" x="820" y="180" text-anchor="middle">bob's terminal</text>
+  <text class="ts" x="820" y="196" text-anchor="middle">a neighbour's session, no login</text>
+
+  <!-- legend -->
+  <line class="divider" x1="40" y1="244" x2="920" y2="244"/>
+  <text class="te" x="40" y="262">LEGEND</text>
+  <rect x="120" y="254" width="10" height="10" rx="2" fill="var(--od-accent)"/>
+  <text class="ta" x="136" y="262">a gate that holds</text>
+  <rect class="nb-bnd" x="256" y="254" width="10" height="10" rx="2"/>
+  <text class="ta" x="272" y="262">defence in depth</text>
+  <line class="e-warn" x1="392" y1="259" x2="416" y2="259"/>
+  <text class="ta" x="424" y="262">a route a loopback caller has</text>
+  <line class="e-warn e-dash" x1="616" y1="259" x2="640" y2="259"/>
+  <text class="ta" x="648" y="262">what the gate refuses</text>
+</svg>
+</div>
