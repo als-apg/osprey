@@ -567,10 +567,10 @@ which tells you to set <code class="docutils literal notranslate"><span class="p
   <text class="ts" x="32" y="70">osprey-network — the compose project network</text>
   <rect class="nb" x="48" y="84" width="380" height="48" rx="6"/>
   <text class="tn" x="238" y="106" text-anchor="middle">event_dispatcher</text>
-  <text class="ts" x="238" y="122" text-anchor="middle">publishes 8020</text>
+  <text class="ts" x="238" y="122" text-anchor="middle">publishes 9900</text>
   <rect class="nb" x="48" y="148" width="380" height="48" rx="6"/>
   <text class="tn" x="238" y="170" text-anchor="middle">dispatch_worker</text>
-  <text class="ts" x="238" y="186" text-anchor="middle">publishes 9190</text>
+  <text class="ts" x="238" y="186" text-anchor="middle">publishes 9901</text>
   <rect class="nb" x="48" y="212" width="380" height="48" rx="6"/>
   <text class="tn" x="238" y="234" text-anchor="middle">chat bridge</text>
   <text class="ts" x="238" y="250" text-anchor="middle">no published port</text>
@@ -584,13 +584,13 @@ which tells you to set <code class="docutils literal notranslate"><span class="p
   <text class="ts" x="516" y="70">the host's own network namespace — network_mode: host</text>
   <rect class="nb" x="532" y="84" width="380" height="48" rx="6"/>
   <text class="tn" x="722" y="106" text-anchor="middle">event_dispatcher</text>
-  <text class="ts" x="722" y="122" text-anchor="middle">listens on 127.0.0.1:8020</text>
+  <text class="ts" x="722" y="122" text-anchor="middle">listens on 127.0.0.1:9900</text>
   <rect class="nb" x="532" y="148" width="380" height="48" rx="6"/>
   <text class="tn" x="722" y="170" text-anchor="middle">dispatch_worker</text>
-  <text class="ts" x="722" y="186" text-anchor="middle">listens on 127.0.0.1:9190</text>
+  <text class="ts" x="722" y="186" text-anchor="middle">listens on 127.0.0.1:9901</text>
   <rect class="nb" x="532" y="212" width="380" height="48" rx="6"/>
   <text class="tn" x="722" y="234" text-anchor="middle">chat bridge</text>
-  <text class="ts" x="722" y="250" text-anchor="middle">reaches localhost:8020</text>
+  <text class="ts" x="722" y="250" text-anchor="middle">reaches localhost:9900</text>
 
   <text class="ts" x="500" y="302">no ports: block — the listening socket is already a host socket</text>
   <text class="ta ta-warn" x="500" y="318">binds 127.0.0.1 only — off-host access is a deliberate act</text>
@@ -637,7 +637,7 @@ restarting a running stack stays quiet.</p>
 their host bindings are worked out from the rendered configuration instead of
 read out of a <code class="docutils literal notranslate"><span class="pre">ports:</span></code> block. That covers the case most likely to catch you
 out — two projects whose dispatch pairs are both on the host network take the
-same default ports (<code class="docutils literal notranslate"><span class="pre">8020</span></code> for the dispatcher, <code class="docutils literal notranslate"><span class="pre">9190</span></code> upward for the
+same default ports (<code class="docutils literal notranslate"><span class="pre">9900</span></code> for the dispatcher, <code class="docutils literal notranslate"><span class="pre">9901</span></code> upward for the
 workers), and no <code class="docutils literal notranslate"><span class="pre">ports:</span></code> line anywhere would have shown it. Give the second
 project its own <code class="docutils literal notranslate"><span class="pre">dispatch.dispatcher_port</span></code> and <code class="docutils literal notranslate"><span class="pre">dispatch.worker_port_base</span></code>.
 A facility service you place on the host network is covered the same way,

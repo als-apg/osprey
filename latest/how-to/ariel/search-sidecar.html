@@ -562,7 +562,7 @@ the internet can supply the models itself — see <a class="reference internal" 
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">services</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">qmd</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/qmd</span>
-<span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8180</span><span class="w">      </span><span class="c1"># host port clients talk to</span>
+<span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9800</span><span class="w">      </span><span class="c1"># host port clients talk to</span>
 <span class="w">    </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span><span class="w">    </span><span class="c1"># fallback corpus-sweep period, seconds</span>
 
 <span class="nt">deployed_services</span><span class="p">:</span>
@@ -719,7 +719,7 @@ entry count rather than with entry length.</p>
 </section>
 <section id="where-the-sidecar-listens">
 <span id="qmd-where-the-sidecar-listens"></span><h2>Where the sidecar listens<a class="headerlink" href="#where-the-sidecar-listens" title="Link to this heading">#</a></h2>
-<p>The sidecar publishes port <strong>8180</strong>. qmd’s own daemon runs on <strong>8181</strong> on the
+<p>The sidecar publishes port <strong>9800</strong>. qmd’s own daemon runs on <strong>8181</strong> on the
 container’s internal loopback and is fronted by a small forwarder. That split is
 not cosmetic: qmd hardcodes a loopback-only bind with no option to change it,
 which makes it unreachable from any other container. Only the forwarder owns a

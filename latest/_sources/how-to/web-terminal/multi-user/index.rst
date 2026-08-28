@@ -139,11 +139,11 @@ The config block
                 enabled: true
                 image_source: local       # osprey up builds persona images itself
                 nginx_port: 9080          # the landing page
-                web_base_port: 9091       # per-user ports: base + user index
-                artifact_base_port: 9291
-                ariel_base_port: 9391
-                lattice_base_port: 9491
-                channel_finder_base_port: 9591
+                web_base_port: 9100       # per-user ports: base + user index
+                artifact_base_port: 9200
+                ariel_base_port: 9300
+                lattice_base_port: 9400
+                channel_finder_base_port: 9500
                 default_persona: readonly
                 landing:
                   groups:
@@ -207,9 +207,9 @@ The config block
          decide; see :ref:`multi-user-role-from-sso`. Each user's host ports are
          ``base + index`` in every port family — one family per companion panel
          (artifact gallery, ARIEL, channel finder, lattice dashboard, …) plus the
-         terminal itself — so alice (index 0) serves her terminal on ``9091``,
-         bob (index 1) on ``9092``, ariel (index 2) on ``9093`` and carol
-         (index 3) on ``9094``. A panel
+         terminal itself — so alice (index 0) serves her terminal on ``9100``,
+         bob (index 1) on ``9101``, ariel (index 2) on ``9102`` and carol
+         (index 3) on ``9103``. A panel
          whose ``*_base_port`` you don't set falls back to its built-in default,
          so that ``modules.web_terminals`` block lists them only to make the
          layout visible.
@@ -352,9 +352,9 @@ What ``osprey build`` and ``osprey up`` do for the web tier
 
 #. **Brings up the web tier.** An nginx reverse proxy (container ``ca-nginx``)
    serves the landing page on ``http://127.0.0.1:9080``, and one Web Terminal
-   container comes up per user — ``ca-web-alice`` on host port ``9091``,
-   ``ca-web-bob`` on ``9092``, ``ca-web-ariel`` on ``9093`` and
-   ``ca-web-carol`` on ``9094`` — each reached
+   container comes up per user — ``ca-web-alice`` on host port ``9100``,
+   ``ca-web-bob`` on ``9101``, ``ca-web-ariel`` on ``9102`` and
+   ``ca-web-carol`` on ``9103`` — each reached
    through the landing page. (The
    ``ca-`` prefix is the preset's ``facility.prefix``; change it for your
    site.)

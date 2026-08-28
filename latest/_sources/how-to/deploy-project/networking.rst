@@ -89,7 +89,7 @@ Host-mode services are part of that check even though they publish no ports:
 their host bindings are worked out from the rendered configuration instead of
 read out of a ``ports:`` block. That covers the case most likely to catch you
 out — two projects whose dispatch pairs are both on the host network take the
-same default ports (``8020`` for the dispatcher, ``9190`` upward for the
+same default ports (``9900`` for the dispatcher, ``9901`` upward for the
 workers), and no ``ports:`` line anywhere would have shown it. Give the second
 project its own ``dispatch.dispatcher_port`` and ``dispatch.worker_port_base``.
 A facility service you place on the host network is covered the same way,

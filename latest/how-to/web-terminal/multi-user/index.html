@@ -703,11 +703,11 @@ the <code class="docutils literal notranslate"><span class="pre">control-assista
 <span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">    </span><span class="nt">image_source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span><span class="w">       </span><span class="c1"># osprey up builds persona images itself</span>
 <span class="w">    </span><span class="nt">nginx_port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9080</span><span class="w">          </span><span class="c1"># the landing page</span>
-<span class="w">    </span><span class="nt">web_base_port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9091</span><span class="w">       </span><span class="c1"># per-user ports: base + user index</span>
-<span class="w">    </span><span class="nt">artifact_base_port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9291</span>
-<span class="w">    </span><span class="nt">ariel_base_port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9391</span>
-<span class="w">    </span><span class="nt">lattice_base_port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9491</span>
-<span class="w">    </span><span class="nt">channel_finder_base_port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9591</span>
+<span class="w">    </span><span class="nt">web_base_port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9100</span><span class="w">       </span><span class="c1"># per-user ports: base + user index</span>
+<span class="w">    </span><span class="nt">artifact_base_port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9200</span>
+<span class="w">    </span><span class="nt">ariel_base_port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9300</span>
+<span class="w">    </span><span class="nt">lattice_base_port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9400</span>
+<span class="w">    </span><span class="nt">channel_finder_base_port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9500</span>
 <span class="w">    </span><span class="nt">default_persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readonly</span>
 <span class="w">    </span><span class="nt">landing</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">groups</span><span class="p">:</span>
@@ -771,9 +771,9 @@ pinned per user, and the half a single sign-on provider’s groups can
 decide; see <a class="reference internal" href="login.html#multi-user-role-from-sso"><span class="std std-ref">Let single sign-on pick the tier</span></a>. Each user’s host ports are
 <code class="docutils literal notranslate"><span class="pre">base</span> <span class="pre">+</span> <span class="pre">index</span></code> in every port family — one family per companion panel
 (artifact gallery, ARIEL, channel finder, lattice dashboard, …) plus the
-terminal itself — so alice (index 0) serves her terminal on <code class="docutils literal notranslate"><span class="pre">9091</span></code>,
-bob (index 1) on <code class="docutils literal notranslate"><span class="pre">9092</span></code>, ariel (index 2) on <code class="docutils literal notranslate"><span class="pre">9093</span></code> and carol
-(index 3) on <code class="docutils literal notranslate"><span class="pre">9094</span></code>. A panel
+terminal itself — so alice (index 0) serves her terminal on <code class="docutils literal notranslate"><span class="pre">9100</span></code>,
+bob (index 1) on <code class="docutils literal notranslate"><span class="pre">9101</span></code>, ariel (index 2) on <code class="docutils literal notranslate"><span class="pre">9102</span></code> and carol
+(index 3) on <code class="docutils literal notranslate"><span class="pre">9103</span></code>. A panel
 whose <code class="docutils literal notranslate"><span class="pre">*_base_port</span></code> you don’t set falls back to its built-in default,
 so that <code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code> block lists them only to make the
 layout visible.</p>
@@ -921,9 +921,9 @@ is reported as a stale or partial build, with a rebuild as the remedy.</p></li>
 no registry, no CI.</p></li>
 <li><p><strong>Brings up the web tier.</strong> An nginx reverse proxy (container <code class="docutils literal notranslate"><span class="pre">ca-nginx</span></code>)
 serves the landing page on <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:9080</span></code>, and one Web Terminal
-container comes up per user — <code class="docutils literal notranslate"><span class="pre">ca-web-alice</span></code> on host port <code class="docutils literal notranslate"><span class="pre">9091</span></code>,
-<code class="docutils literal notranslate"><span class="pre">ca-web-bob</span></code> on <code class="docutils literal notranslate"><span class="pre">9092</span></code>, <code class="docutils literal notranslate"><span class="pre">ca-web-ariel</span></code> on <code class="docutils literal notranslate"><span class="pre">9093</span></code> and
-<code class="docutils literal notranslate"><span class="pre">ca-web-carol</span></code> on <code class="docutils literal notranslate"><span class="pre">9094</span></code> — each reached
+container comes up per user — <code class="docutils literal notranslate"><span class="pre">ca-web-alice</span></code> on host port <code class="docutils literal notranslate"><span class="pre">9100</span></code>,
+<code class="docutils literal notranslate"><span class="pre">ca-web-bob</span></code> on <code class="docutils literal notranslate"><span class="pre">9101</span></code>, <code class="docutils literal notranslate"><span class="pre">ca-web-ariel</span></code> on <code class="docutils literal notranslate"><span class="pre">9102</span></code> and
+<code class="docutils literal notranslate"><span class="pre">ca-web-carol</span></code> on <code class="docutils literal notranslate"><span class="pre">9103</span></code> — each reached
 through the landing page. (The
 <code class="docutils literal notranslate"><span class="pre">ca-</span></code> prefix is the preset’s <code class="docutils literal notranslate"><span class="pre">facility.prefix</span></code>; change it for your
 site.)</p></li>
