@@ -557,6 +557,10 @@ polling loop will then grow the gallery without bound.</p>
 </tbody>
 </table>
 </div>
+<p>A <code class="docutils literal notranslate"><span class="pre">callback</span></code>-level result also carries the post-write readback – the
+connector reads the channel once after the callback confirms and fills
+<code class="docutils literal notranslate"><span class="pre">readback_value</span></code> and the alarm fields – but the callback alone decides
+<code class="docutils literal notranslate"><span class="pre">verified</span></code>; only <code class="docutils literal notranslate"><span class="pre">readback</span></code> level compares against a tolerance.</p>
 <p><strong>Global default</strong> (in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>) and <strong>per-channel configuration</strong> (in
 the limits database):</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
