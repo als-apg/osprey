@@ -5068,7 +5068,7 @@ def _bake_graph_prompt_snapshot(session, project_dir: Path) -> None:
         )
         return
     if patched:
-        _report_step(f"graph schema baked into {len(patched)} agent prompt(s)")
+        _report_step(f"graph schema baked into {prompt_snapshot.describe_patched(patched)}")
 
 
 def _stage_graphdb_store(config, compose_files, env, project_dir, *, provider=None) -> None:

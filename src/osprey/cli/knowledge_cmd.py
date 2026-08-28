@@ -450,7 +450,7 @@ def _bake_prompt_snapshot(session: Any) -> None:
         )
         return
     if patched:
-        note(f"Schema snapshot baked into {len(patched)} agent prompt(s).")
+        note(f"Schema snapshot baked into {prompt_snapshot.describe_patched(patched)}.")
 
 
 @knowledge.command("seed-graph")

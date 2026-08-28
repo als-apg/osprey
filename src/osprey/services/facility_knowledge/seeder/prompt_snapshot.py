@@ -583,6 +583,19 @@ def apply_snapshot(render_dir: Path, blocks: Mapping[str, str]) -> list[Path]:
     return patched
 
 
+def describe_patched(patched: Sequence[Path]) -> str:
+    """A bake result as humans count it: distinct prompts × renders, not files.
+
+    The raw file count multiplies the handful of agent prompts by every render
+    of the deployment (the render itself, attached personas, image build
+    contexts — :func:`snapshot_targets`), so "16 agent prompt(s)" reads as
+    sixteen distinct agents when it is two prompts in eight places.
+    """
+    prompts = len({path.name for path in patched})
+    renders = len({path.parent for path in patched})
+    return f"{prompts} agent prompt(s) across {renders} render(s)"
+
+
 def bake_snapshot(session: Any, render_dir: Path) -> list[Path]:
     """Capture the live store's schema and bake it into *render_dir*'s prompts.
 
