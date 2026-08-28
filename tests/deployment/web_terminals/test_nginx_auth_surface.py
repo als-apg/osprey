@@ -31,8 +31,11 @@ The structural test (:func:`test_every_proxying_location_claims_both_identity_he
 is the one that has to keep biting: it finds every location with a
 ``proxy_pass`` and demands of each that it write both names ITSELF — the gated
 forward, or the clear, never nothing and never both — so a proxying location
-added later cannot quietly become a hole. The auth-off case is not an exception
-— a deployment with no login flow still must not let a client name itself.
+added later cannot quietly become a hole. The two wall-less postures are not
+exceptions — ``token`` (the default: each terminal's own ``?token=`` exchange
+is the gate) and ``none`` (open: reaching this nginx IS the authorization)
+render no sidecar whose answer could contradict a forged header, so a client
+that named itself there would simply be believed.
 
 "Never both" is not pedantry: a name entered twice in one location's table
 makes real nginx log ``could not build optimal proxy_headers_hash`` on every
@@ -52,6 +55,7 @@ import pytest
 
 from osprey.deployment.web_terminals.render import (
     NGINX_TEMPLATES_OUTPUT_DIR,
+    TERMINAL_SECRET_HEADER,
     render_web_terminals,
     terminal_secret_env_var,
 )
@@ -96,6 +100,20 @@ def _auth_config(users: list) -> dict:
         "method": "password",
         "allow_insecure_http": True,
     }
+    return config
+
+
+def _open_config(users: list) -> dict:
+    """`_config` with the open posture on (`auth.method: none`).
+
+    The one render shape where a non-exempt location carries the operator
+    secret with NO subrequest in front of it: reaching this nginx is the
+    authorization, so the perimeter vouches for the request itself. No
+    `allow_insecure_http` is needed — the cleartext refusal guards the sidecar
+    methods' session cookies, and this posture mints no session.
+    """
+    config = copy.deepcopy(_config(users))
+    config["modules"]["web_terminals"]["auth"] = {"method": "none"}
     return config
 
 
@@ -188,6 +206,16 @@ _IDENTITY = ((SUBJECT_HEADER, _SUBJECT_VAR), (ROLE_HEADER, _ROLE_VAR))
 
 def _forward(header: str, variable: str) -> str:
     return f"proxy_set_header {header} {variable};"
+
+
+def _secret_include(user: str) -> str:
+    """The per-user snippet an injecting location pulls the secret header in from.
+
+    The header is SET by that file rather than by a directive in this fragment,
+    which is why the open render's assertions look for the include and for the
+    ABSENCE of a clear beside it.
+    """
+    return f"include /etc/nginx/osprey/secret-{user}.conf;"
 
 
 def _identity_writes(body: str) -> dict[str, list[str]]:
@@ -311,11 +339,21 @@ def test_login_exempt_location_forwards_no_identity_at_all() -> None:
     assert _ROLE_VAR not in body
 
 
-def test_auth_off_render_forwards_no_identity_and_has_no_auth_request_set() -> None:
+@pytest.mark.parametrize(
+    "config", [_config(_TWO_USERS), _open_config(_TWO_USERS)], ids=["token", "open"]
+)
+def test_a_wall_less_render_forwards_no_identity_and_has_no_auth_request_set(
+    config: dict,
+) -> None:
     """With no login flow there is no subrequest to read an identity from, so
-    the whole forwarding half is absent — while the clears below are not."""
+    the whole forwarding half is absent — while the clears below are not.
+
+    True of `none` as much as of `token`: the open posture injects an operator
+    secret, which is a credential the perimeter vouches for, but it establishes
+    no identity and so has none to name.
+    """
     # Arrange / Act
-    directives = _directives(_render_nginx(_config(_TWO_USERS)))
+    directives = _directives(_render_nginx(config))
 
     # Assert
     assert "auth_request_set" not in directives
@@ -359,20 +397,42 @@ def test_every_proxying_location_claims_both_identity_headers_with_auth_on() -> 
     assert forwarding == {"/u/alice/"}
 
 
-def test_every_proxying_location_claims_both_identity_headers_with_auth_off() -> None:
-    """The same guard with the login flow off — the deliberate part. An
-    auth-off deployment has no sidecar to contradict a forged header, so a
-    terminal that read one would be taking the client's word for who it is.
-    With no subrequest anywhere in the render there is nothing to forward, so
-    every claim here has to be a clear."""
+@pytest.mark.parametrize(
+    "config,proxying_locations",
+    [
+        (_config(_TWO_USERS), {"/u/alice/", "/u/bob/"}),
+        (_config(_EXEMPT_ROSTER), {"/u/alice/", "/u/ariel/"}),
+        (_open_config(_TWO_USERS), {"/u/alice/", "/u/bob/"}),
+        (_open_config(_EXEMPT_ROSTER), {"/u/alice/", "/u/ariel/"}),
+    ],
+    ids=["token", "token-exempt", "open", "open-exempt"],
+)
+def test_every_proxying_location_claims_both_identity_headers_without_a_login_wall(
+    config: dict, proxying_locations: set[str]
+) -> None:
+    """The same guard with no login wall — the deliberate part, and the reason
+    both wall-less postures are run through it rather than just the default one.
+
+    Neither `token` nor `none` renders a sidecar, so neither has an answer that
+    could contradict a forged header: a terminal reading one would be taking
+    the client's word for who it is. With no subrequest anywhere in either
+    render there is nothing to forward, so every claim here has to be a clear —
+    including in the `none` render, whose non-exempt locations DO carry an
+    injected credential and could otherwise look authorized enough to forward
+    an identity nobody checked.
+
+    The exempt roster is run through both because `login: false` is the entry
+    that changes shape under `none` (it is the one opted out of the injection),
+    and a claim must not be what the opt-out drops.
+    """
     # Arrange / Act
-    nginx_conf = _render_nginx(_config(_TWO_USERS))
+    nginx_conf = _render_nginx(config)
 
     # Assert
     proxying = {
         header: body for header, body in _locations(nginx_conf).items() if "proxy_pass " in body
     }
-    assert set(proxying) == {"/u/alice/", "/u/bob/"}
+    assert set(proxying) == proxying_locations
     for location, body in proxying.items():
         _assert_claims_both_identity_headers(location, body)
         assert _identity_writes(body)[SUBJECT_HEADER] == ["clear"], (
@@ -442,9 +502,12 @@ def test_no_location_writes_the_same_proxy_set_header_name_twice() -> None:
     # Arrange
     configs = (
         _config(_TWO_USERS),
+        _config(_EXEMPT_ROSTER),
         _auth_config(_ONE_USER),
         _auth_config(_TWO_USERS),
         _auth_config(_EXEMPT_ROSTER),
+        _open_config(_TWO_USERS),
+        _open_config(_EXEMPT_ROSTER),
     )
     name_of = re.compile(r"^\s*proxy_set_header\s+(\S+)", re.MULTILINE)
 
@@ -470,12 +533,188 @@ def test_no_identity_header_directive_is_written_at_server_level() -> None:
     them set `Host` at minimum) would discard a server-level clear entirely,
     while the config would read as though the perimeter were covered."""
     # Arrange / Act
-    for config in (_config(_TWO_USERS), _auth_config(_EXEMPT_ROSTER)):
+    for config in (
+        _config(_TWO_USERS),
+        _auth_config(_EXEMPT_ROSTER),
+        _open_config(_EXEMPT_ROSTER),
+    ):
         outside_locations = _directives(_server_level(_render_nginx(config)))
 
         # Assert
         assert "proxy_set_header X-Osprey-Auth-" not in outside_locations
         assert "auth_request_set" not in outside_locations
+
+
+# --------------------------------------------------------------------------
+# The open posture: injection with no wall in front of it
+# --------------------------------------------------------------------------
+
+
+def test_open_render_injects_each_non_exempt_users_own_secret_with_no_gate_in_front() -> None:
+    """`none` is the one posture where a location carries the operator secret
+    with nothing standing in front of it.
+
+    Under `password`/`oidc` the `include` sits behind an `auth_request`, so a
+    request that failed the gate never reaches the `proxy_pass`. Under `none`
+    the include IS the whole mechanism — reaching this port is the
+    authorization — so the three halves that make it safe are asserted
+    together: the location injects that user's own snippet, it does so without
+    pretending a subrequest authorized it, and it pairs that injection with the
+    NARROWED cookie rather than with the sidecar methods' outright strip.
+
+    That last pairing is this posture's own, and it is asserted here because
+    nowhere else does: `test_render.py`'s shared-predicate test holds the
+    sidecar methods, where the header and the blanket `Cookie ""` strip move
+    together. They must not move together here. With no sidecar there is no
+    origin-wide `osprey_auth_session` for a strip to protect, and cutting the
+    jar would take the app's own session cookie with it — the cookie that
+    carries this user's per-terminal state. What must still be cut is the rest
+    of the jar: one jar serves this whole origin, so a bare `$http_cookie`
+    forward would hand this container every OTHER terminal this browser has
+    unlocked, inside a container that runs agent-generated code.
+    """
+    # Arrange / Act
+    nginx_conf = _render_nginx(_open_config(_TWO_USERS))
+
+    # Assert — each non-exempt location pulls in its OWN user's snippet…
+    for index, (user, other) in enumerate((("alice", "bob"), ("bob", "alice"))):
+        body = _directives(_location_body(nginx_conf, f"/u/{user}/"))
+        assert _secret_include(user) in body
+        assert _secret_include(other) not in body
+
+        # …holds no gate that could be mistaken for one…
+        assert "auth_request" not in body
+        assert "error_page 401" not in body
+
+        # …and forwards exactly this user's own app session cookie: not the
+        # strip (which would leave the app with no session at all), and not the
+        # whole jar.
+        cookie = f"osprey_terminal_session_{_BASE_PORTS['web'] + index}"
+        assert f'proxy_set_header Cookie "{cookie}=$cookie_{cookie}";' in body
+        assert 'proxy_set_header Cookie "";' not in body
+        assert "$http_cookie" not in body
+
+
+@pytest.mark.parametrize(
+    "config", [_open_config(_ONE_USER), _open_config(_EXEMPT_ROSTER)], ids=["plain", "exempt"]
+)
+def test_open_injecting_location_leaves_the_secret_name_to_the_include_alone(
+    config: dict,
+) -> None:
+    """No clear beside the include, and the absence is load-bearing.
+
+    The included snippet SETS `X-Osprey-Terminal-Secret`, which already claims
+    the name in this location's header table — nginx answers a named header
+    from that table and never from the request, so an arriving value is
+    overwritten exactly as a clear would overwrite it. A clear written as well
+    would drop no additional forgery and would enter one name twice, which is
+    what makes nginx log `could not build optimal proxy_headers_hash` on every
+    start and reload.
+
+    Invisible to the duplicate-name guard above, which reads this fragment
+    only: the second directive lives in a file `nginx -T` resolves at start.
+
+    Run on the exempt roster as well: that render is the one where the OTHER
+    arm of the split branch is live next door, and an edit that hoisted the
+    clear out of it would land it here.
+    """
+    # Arrange / Act
+    body = _directives(_location_body(_render_nginx(config), "/u/alice/"))
+
+    # Assert — claimed, by the include…
+    assert _secret_include("alice") in body
+
+    # Assert — …and by no directive in this fragment at all.
+    assert TERMINAL_SECRET_HEADER not in body
+
+
+def test_open_login_exempt_location_is_injected_nothing_and_clears_the_secret_header() -> None:
+    """`login: false` opts an entry out of the open posture's injection exactly
+    as it opts one out of a login wall — and the clear is what makes that safe.
+
+    Nothing is vouched for here, so nothing sets the header; a value arriving
+    in it therefore came from the client, and forwarding it would let anyone
+    who can reach this port present the credential the app trusts absolutely.
+    This is the one arm of the split branch that must write the clear.
+    """
+    # Arrange / Act
+    nginx_conf = _render_nginx(_open_config(_EXEMPT_ROSTER))
+    exempt = _directives(_location_body(nginx_conf, "/u/ariel/"))
+
+    # Assert
+    assert _secret_include("ariel") not in exempt
+    assert _clear(TERMINAL_SECRET_HEADER) in exempt
+
+    # Assert — and the roster's other entry is still injected, so the opt-out
+    # is the entry's own and not the render's.
+    assert _secret_include("alice") in _directives(_location_body(nginx_conf, "/u/alice/"))
+
+
+def test_the_exempt_entry_is_served_the_same_directives_under_open_as_under_token() -> None:
+    """A `login: false` entry gets the ungated treatment whatever the posture
+    around it is.
+
+    Compared as the directives alone, in the same order, rather than as text:
+    the open render explains the opt-out in prose the token render has no
+    reason to carry, so the two bodies differ by design in every way except the
+    one that matters. What has to match is what nginx executes — same clears,
+    same single forwarded cookie, no include on either side — and order is kept
+    in the comparison because a location's header table is built in the order
+    it is written.
+    """
+    # Arrange / Act
+    served = {
+        posture: [
+            line.strip()
+            for line in _directives(_location_body(_render_nginx(config), "/u/ariel/")).splitlines()
+            if line.strip()
+        ]
+        for posture, config in (
+            ("open", _open_config(_EXEMPT_ROSTER)),
+            ("token", _config(_EXEMPT_ROSTER)),
+        )
+    }
+
+    # Assert
+    assert served["open"] == served["token"]
+    # Guard against a vacuous green: an empty body would compare equal to an
+    # empty body, and this location is one of the two the render exists for.
+    assert "proxy_pass " in " ".join(served["open"])
+
+
+def test_the_open_render_holds_no_login_surface_anywhere() -> None:
+    """Open means open: no sidecar, so nothing that would talk to one.
+
+    Each of these is a separate way for the wall to half-exist. A `/auth/`
+    prefix with no sidecar behind it is a public 502; an `internal`
+    `/_osprey_auth/<user>` target is the endpoint an `auth_request` would name;
+    the named 401 handler is where a denied request would be sent. A render
+    that emitted any of them would be describing a gate this deployment does
+    not have.
+    """
+    # Arrange / Act
+    directives = _directives(_render_nginx(_open_config(_EXEMPT_ROSTER)))
+
+    # Assert
+    assert "auth_request" not in directives
+    assert "/_osprey_auth/" not in directives
+    # The bare prefix, not `location /auth/`: a proxy_pass, a rewrite or a
+    # return naming it would be just as public as a location would.
+    assert "/auth/" not in directives
+    assert "osprey_auth_401" not in directives
+    # And no variable the sidecar's half of the template feeds — the maps and
+    # the `auth_request_set` targets alike. One left behind would be forever
+    # empty, which is how an identity forward fails OPEN.
+    assert "$osprey_auth_" not in directives
+
+    # Assert — and every location the render DOES hold is one of the roster's.
+    assert set(_locations(directives)) == {
+        "/u/alice/",
+        "/u/ariel/",
+        "= /",
+        "= /u/alice",
+        "= /u/ariel",
+    }
 
 
 # --------------------------------------------------------------------------

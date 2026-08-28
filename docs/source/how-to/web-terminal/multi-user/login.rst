@@ -4,18 +4,37 @@
 Require a Login
 ===============
 
-The landing page lists the roster; a login decides who may open a card. This
-page covers the two ways to require one — passwords OSPREY manages, or the
-single sign-on your facility already runs — the HTTPS that either needs, how a
-provider's groups can pick which tier a login lands on, where passwords live,
-what a login leaves in the audit trail, and what to do when someone leaves.
+The landing page lists the roster; ``modules.web_terminals.auth.method``
+decides what stands between a card and the terminal behind it. There are four
+postures:
 
+.. list-table::
+   :header-rows: 1
+   :widths: 15 85
 
-With no ``auth`` stanza nginx asks for no credentials and speaks plain HTTP —
-but the terminals behind it are not open. Each one authenticates every request
-against its own operator secret, which ``osprey up`` mints into the
-deployment's ``.env`` for every roster user whether or not authentication is
-on. Clicking a card on the landing page therefore reaches a terminal that
+   * - ``method``
+     - What a person meets
+   * - ``token``
+     - **The default**, and what an absent ``auth`` stanza means. No login
+       page; each terminal is opened once from that user's own login URL.
+   * - ``none``
+     - **Open.** No login page and no URL either: the landing page is pure
+       navigation, and a card opens its terminal. Only for a room where
+       everyone who can reach the page is trusted.
+   * - ``password``
+     - A login page, against passwords OSPREY manages.
+   * - ``oidc``
+     - A login page, against the single sign-on your facility already runs.
+
+This page covers all four: what ``open`` requires before OSPREY will start it,
+the HTTPS a login page needs, how a provider's groups can pick which tier a
+login lands on, where passwords live, and what to do when someone leaves.
+
+With no ``auth`` stanza the method is ``token``: nginx asks for no credentials
+and speaks plain HTTP, but the terminals behind it are not open. Each one
+authenticates every request against its own operator secret, which ``osprey
+up`` mints into the deployment's ``.env`` for every roster user in every
+posture. Clicking a card on the landing page therefore reaches a terminal that
 refuses you until you have opened that user's login URL once:
 
 .. code-block:: bash
@@ -28,7 +47,7 @@ you rotate it, which means deleting that user's ``OSPREY_TERMINAL_SECRET_*``
 line from ``.env`` and running ``osprey up`` again. (``osprey up`` names the
 verb in its summary but never prints the URLs.)
 
-What this posture does *not* do is tell one person from another at the front
+What ``token`` does *not* do is tell one person from another at the front
 door: whoever holds a URL is that user. It suits a **single trusted host** —
 a workstation or control-room machine you already trust — and nothing beyond
 it.
@@ -42,11 +61,12 @@ via ``login: false`` (see below), and ``allow_insecure_http: true`` keeps the
 demo on plain HTTP. Those passwords authenticate a demo, not a facility: for
 any reachable host, set real passwords and serve TLS as described here.
 
-Set ``auth.method`` and every request under ``/u/<name>/`` — pages, APIs and
-the terminal's live connection alike — is refused unless the browser holds a
-valid session for *that* user. The check happens at the front door: a small
-authentication service joins the stack in its own container, and nginx asks it
-about each request before proxying anything. Nothing depends on the per-user
+Set ``auth.method`` to ``password`` or ``oidc`` and every request under
+``/u/<name>/`` — pages, APIs and the terminal's live connection alike — is
+refused unless the browser holds a valid session for *that* user. The check
+happens at the front door: a small authentication service joins the stack in
+its own container, and nginx asks it about each request before proxying
+anything. Nothing depends on the per-user
 containers policing themselves.
 
 Note that the persona split is a *capability* boundary, enforced per project —
@@ -58,6 +78,60 @@ at startup, so "no login" is never the single-user default either.
 
 Choose a method
 ---------------
+
+``token`` is described above and needs no stanza. The other three are here.
+
+.. _multi-user-open-mode:
+
+**Open** — no credential anywhere. For a control room whose console is already
+behind a locked door, and which may have no route to the internet to send a
+per-user link over:
+
+.. code-block:: yaml
+
+   modules:
+     web_terminals:
+       auth:
+         method: none
+
+The landing page becomes pure navigation: click a card and the terminal opens.
+nginx vouches for the request itself, stamping that user's operator secret onto
+every request it proxies, so no token URL exists — ``osprey users login-url``
+refuses for those users and prints the terminal's plain address instead.
+
+Open mode is only safe where nothing inside the deployment can reach it back.
+An agent's own tools reach nginx over loopback and look exactly like the
+operator's browser from there, so they would be served whichever terminal they
+asked for. ``osprey up`` therefore refuses to start an open deployment unless
+**every** persona's shipped ``.claude/settings.json`` denies all four of
+``Bash``, ``WebFetch``, ``WebSearch`` and
+``mcp__plugin_playwright_playwright__*``; ``osprey build`` and ``osprey
+profile validate`` report the same thing earlier, as the error
+``web_terminals.open_mode_egress``. Either way the message names the persona
+and the entries it is missing.
+
+All four are in OSPREY's deny defaults, so a refusal almost always means a
+persona lifted one. Put it back in that persona's ``config:`` block —
+
+.. code-block:: yaml
+
+   config:
+     # and nothing under remove_deny may name one of these four
+     claude_code.permissions.deny:
+       ["Bash", "WebFetch", "WebSearch", "mcp__plugin_playwright_playwright__*"]
+
+— then ``osprey build`` to render it and rebuild that persona's image, because
+the settings file that runs is the one baked into the image. Where a persona
+genuinely needs one of the four, use ``method: token`` instead and keep the
+per-user login URLs.
+
+.. warning::
+
+   The python executor refuses connections from executed code to this
+   deployment's own web ports under ``none``, but that guard runs inside the
+   agent's own process and is defence in depth rather than a boundary: an agent
+   process determined enough to defeat it could still reach a terminal, so
+   ``none`` is for rooms where everyone — the agents included — is trusted.
 
 **Passwords**, managed by OSPREY. Nothing extra to run or operate:
 
@@ -302,18 +376,20 @@ opt out of the login wall:
        persona: ariel
        login: false
 
-With authentication on, that entry sits outside the login wall: nginx never
-asks the authentication service about it, and no password is provisioned for it
-(``osprey users passwd`` refuses the name and says why). Outside the wall is not
-the same as open — the entry is gated exactly as the whole deployment is with
-authentication off, by its own operator secret, so a browser still has to open
+Under ``password`` or ``oidc`` that entry sits outside the login wall: nginx
+never asks the authentication service about it, and no password is provisioned
+for it (``osprey users passwd`` refuses the name and says why). Under ``none``
+it is the one entry nginx does *not* vouch for. Outside is not the same as
+open, in either posture — the entry is gated the way every terminal is under
+``token``, by its own operator secret, so a browser still has to open
 ``osprey users login-url ariel`` once. Cookies from the login wall never reach
 its container.
 
 Only the literal ``false`` opts an entry out. Absence, ``true``, and any typo
 all mean "login required" — a misspelling can lock an entry down, never open it
 up — and lint reports a non-boolean value. The key is inert while
-``auth.method`` is ``none``, which lint points out as well.
+``auth.method`` is ``token``, where nginx stamps nothing for an entry to be
+exempt from; lint points that out as well.
 
 Opting out is for entries whose *content* is public by design. Anything that
 can reach a control system, write anywhere, or spend provider tokens belongs
@@ -336,8 +412,9 @@ Serve it over HTTPS
 -------------------
 
 A session cookie sent over plain HTTP is readable by anything on the path, so a
-deployment with ``auth.method`` other than ``none`` and ``tls.enabled: false``
-**refuses to render at all** rather than hand out cookies in the clear. You
+deployment with a login page — ``auth.method`` of ``password`` or ``oidc`` —
+and ``tls.enabled: false`` **refuses to render at all** rather than hand out
+cookies in the clear. You
 therefore have to pick one of two ways to get the connection encrypted.
 
 **Let this nginx terminate TLS.** Set ``tls.enabled: true`` with a certificate
@@ -462,10 +539,14 @@ nobody else's are touched.
 Sessions, logging out, and rolling back
 ---------------------------------------
 
+This section is about the login page, so it applies to ``password`` and
+``oidc``; under ``none`` a card *is* the door, which is that posture's whole
+point.
+
 The landing page stays public — it lists the roster so people can find their own
-card, and a card is a prompt, not a door. One browser may hold several unlocked
-users at once, which is what a shared control-room machine needs; logging out
-ends that one user's session and leaves the others alone.
+card, and behind a login page a card is a prompt, not a door. One browser may
+hold several unlocked users at once, which is what a shared control-room machine
+needs; logging out ends that one user's session and leaves the others alone.
 
 .. note::
 
@@ -515,8 +596,11 @@ user has none. Their container is gone either way, so the stale route just
 fails; but if what you need is that person's *session* closed now, run
 ``decommission``.
 
-To turn login back off, set ``auth.method: none`` and run ``osprey up``.
-That re-renders nginx and the compose file, drops the authentication service,
-and returns the stack to the open posture described at the top of this section.
-``.env.auth`` is left in place, so turning login on again keeps everyone's
-existing password.
+To turn the login page back off, set ``auth.method: token`` and run ``osprey
+up``. That re-renders nginx and the compose file, drops the authentication
+service, and returns the stack to the per-user login URLs described at the top
+of this page. ``.env.auth`` is left in place, so turning login on again keeps
+everyone's existing password. ``auth.method: none`` goes one step further and
+drops the URLs too — it is refused unless every persona denies the four egress
+tools, so read :ref:`the open posture <multi-user-open-mode>` before you switch
+to it.

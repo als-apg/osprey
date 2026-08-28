@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from osprey.mcp_server.sandbox_env import scrub_sensitive_env
+from osprey.mcp_server.sandbox_env import scrub_sandbox_child_env
 from osprey.services.python_executor.execution.fs_guard import (
     SANDBOX_PATCH_TARGETS,
     SANDBOX_WRITE_MODES_ONLY_TARGETS,
@@ -479,7 +479,12 @@ async def execute_sandbox_code(
     script_path.write_text(wrapped_code, encoding="utf-8")
 
     start_time = time.time()
-    sandbox_env = scrub_sensitive_env(os.environ.copy())
+    # The same environment the python-executor sandbox gets, built by the same
+    # shared helper: the credential scrub plus the web-terminal address book and
+    # the navigation-only perimeter stamp. This child renders visualizations and
+    # has no more business resolving a terminal URL — or reading the deny-list it
+    # is not the one enforcing — than the general-purpose sandbox does.
+    sandbox_env = scrub_sandbox_child_env(os.environ)
 
     try:
         proc = await asyncio.create_subprocess_exec(

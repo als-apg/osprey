@@ -218,10 +218,11 @@ class ClosingFacts:
         :func:`~osprey.deployment.web_terminals.auth_credentials.seeded_logins`.
     :param token_login_users: Roster users who can only be reached by opening
         their own ``?token=`` URL, in roster order. These are the entries no
-        login wall stands in front of -- the whole roster when
-        ``auth.method`` is ``none``, and the ``login: false`` entries otherwise
-        -- so the terminal's own gate is the only one and the URL is the only
-        way through it. NOT the URLs themselves: each carries that user's
+        login wall stands in front of -- the whole roster when ``auth.method``
+        is ``token`` (the default), and the ``login: false`` entries under
+        ``password``, ``oidc``, or ``none`` -- so the terminal's own gate is
+        the only one and the URL is the only way through it. NOT the URLs
+        themselves: each carries that user's
         operator secret, and a deploy's closing output is read over shoulders,
         pasted into tickets and captured by CI logs. The verb that prints one
         (``osprey users login-url <user>``) is what goes here instead.
@@ -288,8 +289,9 @@ def _seeded_logins(root: Path, config: dict) -> list[tuple[str, str]]:
     """The profile-seeded logins of this deployment's roster, in roster order.
 
     Gated on there being a login to have: with ``auth.method`` at anything but
-    ``password`` no OSPREY-held credential exists (``none`` has none at all, and
-    under ``oidc`` the facility's identity provider holds them), so a password
+    ``password`` no OSPREY-held credential exists (``none``/``token`` have no
+    login at all, and under ``oidc`` the facility's identity provider holds
+    them), so a password
     named here would be one nothing ever checks. Roster entries carrying
     ``login: false`` sit outside the wall and are skipped for the same reason --
     the same predicate credential provisioning itself uses.
@@ -312,20 +314,22 @@ def _seeded_logins(root: Path, config: dict) -> list[tuple[str, str]]:
 
 
 def token_login_users(config: dict) -> list[str]:
-    """The roster users whose terminal has no login wall in front of it.
+    """The roster users whose terminal is entered through its ``?token=`` URL.
 
-    The complement of :func:`_seeded_logins`, and derived from the same two
-    predicates so the two cannot disagree about who has a login. Public because
-    ``osprey users login-url`` asks the same question before it prints anything:
-    the URL is inert for a user behind the wall, so the verb refuses there, and
-    a second spelling of "who has a login page" could send an operator a live
-    secret the deployment would then ignore. With
-    ``auth.method`` at ``none`` that is everybody: nginx runs no login flow and
-    injects no operator secret, so the per-user app's own token->cookie gate is
-    the only one and a browser gets past it exactly once, by opening that user's
-    ``?token=`` URL. With authentication on it is the ``login: false`` entries,
-    which sit outside the wall for the same reason and reach their terminal the
-    same way.
+    The complement of :func:`_seeded_logins`, and derived from the same
+    predicates nginx renders under so the two cannot disagree about who needs a
+    login URL. Public because ``osprey users login-url`` asks the same question
+    before it prints anything: the URL is inert for a user nginx vouches for, so
+    the verb refuses there, and a second spelling of "who has a login page"
+    could send an operator a live secret the deployment would then ignore.
+    Exactly the users whose location nginx injects no operator secret into:
+    with ``auth.method`` at ``token`` that is everybody — nginx runs no login
+    flow and injects nothing, so the per-user app's own token->cookie gate is
+    the only one and a browser gets past it exactly once, by opening that
+    user's ``?token=`` URL. Under every other method it is the ``login: false``
+    entries, which sit outside nginx's vouching for the same reason and reach
+    their terminal the same way; under ``none`` (open) a non-exempt terminal
+    needs no URL at all, which is the point of that posture.
 
     Returns names, never URLs. The URL carries a live credential; the closing
     card is not a place to put one.
@@ -336,11 +340,11 @@ def token_login_users(config: dict) -> list[str]:
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
     if not web_terminals.get("enabled"):
         return []
-    walled = _auth_tls_context(web_terminals).get("auth_method") != "none"
+    inject_secret = _auth_tls_context(web_terminals)["inject_secret"]
     return [
         entry["name"]
         for entry in normalize_users(web_terminals.get("users"))
-        if not (walled and entry_requires_login(entry))
+        if not (inject_secret and entry_requires_login(entry))
     ]
 
 

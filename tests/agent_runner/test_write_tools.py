@@ -349,12 +349,11 @@ def test_read_only_blocks_extends_clone_drive(tmp_path: Path) -> None:
         )
 
 
-def test_read_only_blocks_extends_clone_extra_tools(tmp_path: Path) -> None:
-    """The hard-coded ``_EXTRA_SIDE_EFFECT_TOOLS`` (unlisted side-effect tools
-    like the python server's execute_file) must follow an extends clone with
-    the rewritten prefix: the clone launches the SAME tool module, and SDK
-    disallow matching is by exact name, so blocking mcp__python__execute_file
-    does NOT cover mcp__python2__execute_file."""
+def test_read_only_blocks_extends_clone_exec_tools(tmp_path: Path) -> None:
+    """Both python exec tools must follow an extends clone with the rewritten
+    prefix: the clone launches the SAME tool modules, and SDK disallow matching
+    is by exact name, so blocking mcp__python__execute_file does NOT cover
+    mcp__python2__execute_file."""
     (tmp_path / "config.yml").write_text(
         "claude_code:\n  servers:\n    python2:\n      extends: python\n"
     )
@@ -362,8 +361,8 @@ def test_read_only_blocks_extends_clone_extra_tools(tmp_path: Path) -> None:
     result = read_only_disallowed_tools(tmp_path)
 
     assert "mcp__python2__execute" in result  # via the shared classifier (ask)
-    assert "mcp__python2__execute_file" in result  # via the rewritten extras
-    assert "mcp__python__execute_file" in result  # template extras unchanged
+    assert "mcp__python2__execute_file" in result  # same classifier, same ask list
+    assert "mcp__python__execute_file" in result  # template unchanged
 
 
 def test_read_only_extends_override_cannot_narrow(tmp_path: Path) -> None:
@@ -510,15 +509,10 @@ def test_registry_walk_matches_shared_classifier() -> None:
 def test_extends_clone_classifies_like_template(tmp_path: Path) -> None:
     """Drift guard (extends-aware variant of the registry guard): a clone of
     each framework server must land in the read-only disallow set exactly like
-    its template with the mcp__<template>__ prefix rewritten — INCLUDING the
-    template's ``_EXTRA_SIDE_EFFECT_TOOLS`` entries (tools in no permission
-    list, e.g. python's execute_file), which the per-server classifier cannot
-    see. Compares the full production output (read_only_disallowed_tools), not
-    the classifier internals, so a blind spot in either path fails here."""
-    from osprey.agent_runner.write_tools import (
-        _EXTRA_SIDE_EFFECT_TOOLS,
-        _server_side_effect_tools,
-    )
+    its template with the mcp__<template>__ prefix rewritten. Compares the full
+    production output (read_only_disallowed_tools), not the classifier
+    internals, so a blind spot in either path fails here."""
+    from osprey.agent_runner.write_tools import _server_side_effect_tools
     from osprey.registry.mcp import FRAMEWORK_SERVERS, build_extended_server
 
     for template_name, template in FRAMEWORK_SERVERS.items():
@@ -529,9 +523,7 @@ def test_extends_clone_classifies_like_template(tmp_path: Path) -> None:
         assert clone is not None, f"extends of {template_name!r} unexpectedly rejected"
 
         old, new = f"mcp__{template_name}__", f"mcp__{clone_name}__"
-        template_surface = _server_side_effect_tools(template) + [
-            t for t in _EXTRA_SIDE_EFFECT_TOOLS if t.startswith(old)
-        ]
+        template_surface = _server_side_effect_tools(template)
         expected = {new + t[len(old) :] if t.startswith(old) else t for t in template_surface}
 
         (tmp_path / "config.yml").write_text(

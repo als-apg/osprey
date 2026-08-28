@@ -418,9 +418,10 @@ move anything".
    persona is the single delta that removes that deny. Writing the floor is
    not only a convention. A web terminal served without a login by a persona
    that can edit the deployment is refused by ``osprey validate``, ``osprey
-   build`` and ``osprey up`` alike, wherever the deployment has a login wall
-   at all — with ``auth.method: none`` there is no wall to be exempt from, and
-   the same exposure is reported as an advisory instead. On a profile that
+   build`` and ``osprey up`` alike, wherever the deployment has a login page
+   at all — with ``auth.method`` at ``token`` (the default) or ``none`` there
+   is no wall to be exempt from, and the same exposure is reported as an
+   advisory instead. On a profile that
    wrote no floor at all, where every persona holds everything, the only
    remedy that refusal can offer is to write one. See
    :doc:`/how-to/web-terminal/multi-user/tiers`.

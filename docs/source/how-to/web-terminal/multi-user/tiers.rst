@@ -449,10 +449,11 @@ starts anything. Each refusal names the user, or the persona, and the remedy.
    whatever the profile floors, so long as the deployment has a login wall for
    the entry to have opted out of.
 
-   With ``auth.method: none`` there is no wall for an entry to be exempt from,
-   so the exposure belongs to the deployment rather than to any one entry: it
-   is reported as an advisory naming every privileged terminal instead of
-   failing the build, and it is the one of these rules measured against the
+   Where the deployment has no login page at all — ``auth.method`` of
+   ``token`` (the default) or ``none`` — there is no wall for an entry to be
+   exempt from, so the exposure belongs to the deployment rather than to any
+   one entry: it is reported as an advisory naming every privileged terminal
+   instead of failing the build, and it is the one of these rules measured against the
    profile's own floor — a deployment that never drew a split would otherwise
    hear about every terminal it has, every time, for a posture it has always
    had. Both commands print advisories like this one with a ``⚠``, above their
