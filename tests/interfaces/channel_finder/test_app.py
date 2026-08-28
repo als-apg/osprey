@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
+from tests.interfaces.channel_finder.graph_fixture import FakeGraphContext
+
 _APP_LOGGER = "osprey.interfaces.channel_finder.app"
 _IC_INIT = "osprey.mcp_server.channel_finder_in_context.server_context.initialize_cf_ic_context"
 
@@ -124,11 +126,42 @@ class TestGraphParadigmState:
     """The graph paradigm is served from the mode, without a channel database."""
 
     @staticmethod
-    def _graph_config(pipelines=None):
+    def _graph_config(pipelines=None, graphdb=None):
+        graphdb_block = {"uri": "bolt://localhost:7687"}
+        if graphdb is not None:
+            graphdb_block.update(graphdb)
         return {
             "channel_finder": {"pipeline_mode": "graph", "pipelines": pipelines},
-            "services": {"graphdb": {"uri": "bolt://localhost:7687"}},
+            "services": {"graphdb": graphdb_block},
         }
+
+    @staticmethod
+    def _fake_context(monkeypatch, error=None):
+        """Serve a fake store context from the lifespan's factory.
+
+        The real context reads config and resolves a connection; none of that
+        is what the lifespan is on the hook for, so the tests hand the app the
+        shared fake and assert only that it is stored and closed.
+
+        Args:
+            monkeypatch: The pytest fixture the factory is replaced through.
+            error: Raise this instead of returning a context, standing in for a
+                store whose ``initialize()`` failed.
+
+        Returns:
+            The context the lifespan will be handed.
+        """
+        from osprey.interfaces.channel_finder import app as app_module
+
+        context = FakeGraphContext()
+
+        def _make():
+            if error is not None:
+                raise error
+            return context
+
+        monkeypatch.setattr(app_module, "_make_graph_context", _make)
+        return context
 
     def test_graph_mode_is_served_with_no_database(self, caplog):
         # A graph render writes the ``pipelines`` key with nothing under it.
@@ -173,6 +206,54 @@ class TestGraphParadigmState:
         assert app.state.databases == {}
         init_mock.assert_not_called()
 
+    def test_graph_mode_puts_the_store_context_on_state(self, monkeypatch):
+        context = self._fake_context(monkeypatch)
+        app = _start_app(self._graph_config())
+        assert app.state.graph_context is context
+
+    def test_the_store_context_is_shut_down_with_the_app(self, monkeypatch):
+        context = self._fake_context(monkeypatch)
+        _start_app(self._graph_config())
+        assert context.shutdowns == 1
+
+    def test_a_store_that_fails_to_come_up_leaves_no_context(self, monkeypatch, caplog):
+        """A store that is down is a 503 at the routes, not a dead app."""
+        from osprey.mcp_server.graph.server_context import GraphUnreachable
+
+        self._fake_context(monkeypatch, error=GraphUnreachable("store did not answer"))
+        with caplog.at_level(logging.DEBUG, logger=_APP_LOGGER):
+            app = _start_app(self._graph_config())
+
+        assert app.state.pipeline_type == "graph"
+        assert getattr(app.state, "graph_context", None) is None
+        warnings = [r.getMessage() for r in _records(caplog, logging.WARNING)]
+        assert any("graph" in m.lower() for m in warnings), warnings
+
+    def test_the_seeded_corpus_is_named_by_its_filename(self, monkeypatch):
+        self._fake_context(monkeypatch)
+        app = _start_app(self._graph_config(graphdb={"ttl_path": "corpora/als/facility.ttl"}))
+        assert app.state.graph_ttl_filename == "facility.ttl"
+
+    def test_no_configured_corpus_names_no_file(self, monkeypatch):
+        self._fake_context(monkeypatch)
+        app = _start_app(self._graph_config())
+        assert app.state.graph_ttl_filename is None
+
+    def test_an_absent_graphdb_block_names_no_file(self, monkeypatch):
+        self._fake_context(monkeypatch)
+        app = _start_app({"channel_finder": {"pipeline_mode": "graph", "pipelines": None}})
+        assert app.state.graph_ttl_filename is None
+
+    def test_a_malformed_graphdb_block_names_no_file_and_still_serves(self, monkeypatch, caplog):
+        self._fake_context(monkeypatch)
+        with caplog.at_level(logging.DEBUG, logger=_APP_LOGGER):
+            app = _start_app(self._graph_config(graphdb={"port_host": "not-a-port"}))
+
+        assert app.state.pipeline_type == "graph"
+        assert app.state.graph_ttl_filename is None
+        warnings = [r.getMessage() for r in _records(caplog, logging.WARNING)]
+        assert any("graphdb" in m for m in warnings), warnings
+
     def test_file_backed_mode_reports_not_graph_backed(self, mock_config, mock_registry):
         app = _start_app(mock_config)
         assert app.state.graph_backed is False
@@ -194,7 +275,14 @@ class TestGraphParadigmState:
                 assert info["db_path"] is None
                 assert "read_cypher" in info["tools"]
 
-                assert c.get("/api/statistics").status_code == 501
+                # Statistics is served from the store, and no store answers in
+                # a test process: the route reports that rather than pretending
+                # the paradigm has no implementation.
+                stats = c.get("/api/statistics")
+                assert stats.status_code == 503
+                assert stats.json()["error_type"]
+                assert stats.json()["suggestions"]
+
                 assert c.post("/api/validate", json={"channels": []}).status_code == 501
                 switched = c.put("/api/pipeline", json={"pipeline_type": "in_context"})
                 assert switched.status_code == 400
