@@ -22,6 +22,7 @@ from osprey_connectors.control_system.base import (
     ControlSystemConnector,
     WriteVerification,
     is_readonly_run,
+    readback_number,
 )
 from osprey_connectors.logger import get_logger
 from osprey_connectors.types import writes_enabled_key
@@ -1005,9 +1006,12 @@ class EPICSConnector(ControlSystemConnector):
 
         success = payload
 
-        # Step 4: Build the per-level result (observable output identical to before)
+        # Step 4: Build the per-level result
         if verification_level == "none":
-            # Fast path - no verification, no wait for callback
+            # Fast path: no wait for the IOC callback, and no read either. The
+            # level is documented as the one with no round trip after the put,
+            # and a read here would give it exactly the wait it promises not to
+            # have — the result stays value-less by design.
             if not success:
                 return ChannelWriteResult(
                     channel_address=channel_address,
@@ -1047,9 +1051,7 @@ class EPICSConnector(ControlSystemConnector):
                 channel_address=channel_address,
                 value_written=value,
                 success=True,
-                verification=WriteVerification(
-                    level="callback", verified=True, notes="IOC callback confirmed"
-                ),
+                verification=await self._callback_verification(channel_address, timeout),
             )
 
         elif verification_level == "readback":
@@ -1114,6 +1116,40 @@ class EPICSConnector(ControlSystemConnector):
                     ),
                     error_message=f"Readback verification failed: {str(e)}",
                 )
+
+    async def _callback_verification(
+        self, channel_address: str, timeout: float | None
+    ) -> WriteVerification:
+        """The callback-level result: the IOC's verdict plus one post-write read.
+
+        The callback already confirmed the write, so ``verified`` is settled
+        before the read starts and the read cannot change it. It only fills in
+        what the channel holds now — ``readback_value`` and the alarm fields —
+        so a consumer does not need a second round trip to describe the
+        machine. No tolerance is applied: comparing against the setpoint is
+        what ``readback`` level is for. A read that fails leaves the value
+        unset and says so in ``notes``; it is not a ``readback_failed``, which
+        names a readback-level verification that could not complete.
+        """
+        try:
+            readback = await self.read_channel(channel_address, timeout=timeout)
+        except Exception as e:
+            logger.warning(f"EPICS post-callback read failed for {channel_address}: {e}")
+            return WriteVerification(
+                level="callback",
+                verified=True,
+                notes=f"IOC callback confirmed; post-write read failed: {e}",
+            )
+
+        alarm_status, alarm_severity = _readback_alarm_fields(readback)
+        return WriteVerification(
+            level="callback",
+            verified=True,
+            readback_value=readback_number(readback.value),
+            notes=f"IOC callback confirmed; readback: {readback.value}",
+            readback_alarm_status=alarm_status,
+            readback_alarm_severity=alarm_severity,
+        )
 
     async def read_multiple_channels(
         self, channel_addresses: list[str], timeout: float | None = None

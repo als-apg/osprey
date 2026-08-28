@@ -315,16 +315,20 @@ class TestWriteVerification:
         assert result.error_message is not None
 
     @pytest.mark.asyncio
-    async def test_callback_success(self):
+    async def test_callback_success(self, monkeypatch):
         epics = MagicMock()
         epics.caput.return_value = True
         connector = _connector(epics=epics)
+
+        readback = ChannelValue(value=1.0, timestamp=None, metadata=ChannelMetadata())
+        monkeypatch.setattr(connector, "read_channel", AsyncMock(return_value=readback))
 
         result = await connector.write_channel("SR:CH", 1.0, verification_level="callback")
 
         assert result.success is True
         assert result.verification.verified is True
         assert "IOC callback confirmed" in result.verification.notes
+        assert result.verification.readback_value == pytest.approx(1.0)
         assert epics.caput.call_args.kwargs["wait"] is True
 
     @pytest.mark.asyncio
@@ -1074,3 +1078,111 @@ class TestExplicitLevelToleranceResolution:
         result = await connector.write_channel("SR:CH", 1.0, verification_level="none")
 
         assert result.verification.level == "none"
+
+
+@pytest.mark.usefixtures("writes_enabled")
+class TestCallbackReadback:
+    """A callback-level result carries the post-write readback as an enrichment.
+
+    The IOC callback is the verdict. The read that follows it fills in what the
+    channel holds now — value and alarm state — so the tool result can say so
+    without a second round trip. No tolerance is applied: comparing against
+    the setpoint is what ``readback`` level is for, and a read that fails is
+    not a verification failure, so it carries no ``failure_kind``.
+    """
+
+    @pytest.mark.asyncio
+    async def test_callback_result_carries_the_readback_value(self, monkeypatch):
+        connector = _write_connector(monkeypatch, readback=_readback(5.0004))
+
+        result = await connector.write_channel("SR:CH", 5.0, verification_level="callback")
+
+        assert result.success is True
+        assert result.verification.level == "callback"
+        assert result.verification.verified is True
+        assert result.verification.readback_value == pytest.approx(5.0004)
+        assert result.verification.tolerance_used is None
+        assert result.verification.failure_kind is None
+        connector.read_channel.assert_awaited_once()
+        assert connector.read_channel.await_args.args[0] == "SR:CH"
+
+    @pytest.mark.asyncio
+    async def test_callback_result_carries_the_alarm_state(self, monkeypatch):
+        """The alarm fields ride along, so ``verified_with_alarm`` is reachable here."""
+        connector = _write_connector(monkeypatch, readback=_readback(5.0, alarm="HIHI", severity=2))
+
+        result = await connector.write_channel("SR:CH", 5.0, verification_level="callback")
+
+        assert result.verification.verified is True
+        assert result.verification.readback_alarm_status == "HIHI"
+        assert result.verification.readback_alarm_severity == 2
+
+    @pytest.mark.asyncio
+    async def test_callback_readback_is_not_compared_against_the_setpoint(self, monkeypatch):
+        """A readback far from the setpoint stays verified: the callback is the verdict."""
+        connector = _write_connector(monkeypatch, readback=_readback(9.9))
+
+        result = await connector.write_channel("SR:CH", 5.0, verification_level="callback")
+
+        assert result.verification.verified is True
+        assert result.verification.readback_value == pytest.approx(9.9)
+        assert result.verification.tolerance_used is None
+
+    @pytest.mark.asyncio
+    async def test_failed_post_callback_read_keeps_the_callback_verdict(self, monkeypatch):
+        """The IOC confirmed the write; only the enrichment is missing."""
+        connector = _write_connector(monkeypatch, raises=TimeoutError("ca timeout"))
+
+        result = await connector.write_channel("SR:CH", 5.0, verification_level="callback")
+
+        assert result.success is True
+        assert result.error_message is None
+        assert result.verification.level == "callback"
+        assert result.verification.verified is True
+        assert result.verification.readback_value is None
+        assert result.verification.readback_alarm_status is None
+        assert result.verification.readback_alarm_severity is None
+        # "readback_failed" means a readback-level verification broke; this did not.
+        assert result.verification.failure_kind is None
+        assert "ca timeout" in result.verification.notes
+
+    @pytest.mark.asyncio
+    async def test_non_numeric_readback_leaves_the_value_unset(self, monkeypatch):
+        """A string readback is never coerced into the numeric field."""
+        connector = _write_connector(monkeypatch, readback=_readback("ON"))
+
+        result = await connector.write_channel("SR:CH", "ON", verification_level="callback")
+
+        assert result.verification.verified is True
+        assert result.verification.readback_value is None
+        assert result.verification.failure_kind is None
+        assert "ON" in result.verification.notes
+
+    @pytest.mark.asyncio
+    async def test_failed_callback_does_not_read(self, monkeypatch):
+        epics = MagicMock()
+        epics.caput.return_value = False
+        connector = _connector(epics=epics)
+        read = AsyncMock()
+        monkeypatch.setattr(connector, "read_channel", read)
+
+        result = await connector.write_channel("SR:CH", 5.0, verification_level="callback")
+
+        assert result.success is False
+        assert result.verification.readback_value is None
+        read.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_none_level_does_not_read(self, monkeypatch):
+        """``none`` is the fast path: no wait, and no read either."""
+        epics = MagicMock()
+        epics.caput.return_value = True
+        connector = _connector(epics=epics)
+        read = AsyncMock()
+        monkeypatch.setattr(connector, "read_channel", read)
+
+        result = await connector.write_channel("SR:CH", 5.0, verification_level="none")
+
+        assert result.success is True
+        assert result.verification.readback_value is None
+        read.assert_not_called()
