@@ -159,7 +159,7 @@ def _app_template_lookup(data_bundle: str, dotted_path: str) -> Any:
         reporting it twice would not help. ``None`` when the path heads a
         nested mapping and so carries no scalar of its own. Otherwise the
         scalar's source text, inline comment removed, exactly as the template
-        spells it — ``true``, ``8180``, ``{{ default_model }}``.
+        spells it — ``true``, ``9800``, ``{{ default_model }}``.
     """
     template = _APP_TEMPLATE_ROOT / data_bundle / "config.yml.j2"
     try:

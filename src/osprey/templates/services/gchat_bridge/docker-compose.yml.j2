@@ -51,8 +51,8 @@
     keys are ABSENT under bridge, so the defaults live here — in the boolean
     form, for the reason spelled out above the worker timeout. #}
 {%- set bridge_on_host = ((services.gchat_bridge | default({}, true)).network | default('bridge', true)) == 'host' %}
-{%- set dispatcher_port = (services.event_dispatcher | default({})).port | default(8020, true) %}
-{%- set worker_port_base = (services.dispatch_worker | default({})).worker_port_base | default(9190, true) %}
+{%- set dispatcher_port = (services.event_dispatcher | default({})).port | default(9900, true) %}
+{%- set worker_port_base = (services.dispatch_worker | default({})).worker_port_base | default(9901, true) %}
 {%- set worker_port_stride = (services.dispatch_worker | default({})).worker_port_stride | default(1, true) %}
 {#- The instance the dispatcher routes to. Multi-worker routing is not
     implemented, so this bridge observes worker 1's runs and no others'. #}

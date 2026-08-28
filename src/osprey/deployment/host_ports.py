@@ -116,8 +116,8 @@ _HOST_MODE_PORTLESS_SERVICES = frozenset({"nextcloud_bridge", "gchat_bridge"})
 # Config values the host-mode templates fall back on. Both worker keys are
 # absent from a bridge-mode render, and a hand-authored config may omit any of
 # them, so the defaults are spelled here exactly as the templates spell theirs.
-_DEFAULT_DISPATCHER_PORT = 8020
-_DEFAULT_WORKER_PORT_BASE = 9190
+_DEFAULT_DISPATCHER_PORT = 9900
+_DEFAULT_WORKER_PORT_BASE = 9901
 _DEFAULT_WORKER_PORT_STRIDE = 1
 _DEFAULT_WORKER_COUNT = 1
 

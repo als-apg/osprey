@@ -329,8 +329,8 @@ class DispatchConfig:
     workspace_mode: Literal["isolated", "shared"] = "isolated"
     max_concurrent_runs: int = 2
     max_queue_depth: int = 50
-    dispatcher_port: int = 8020
-    worker_port_base: int = 9190
+    dispatcher_port: int = 9900
+    worker_port_base: int = 9901
     timeout_sec: int = 300
     inactivity_sec: int = 120
     facility_name: str = ""

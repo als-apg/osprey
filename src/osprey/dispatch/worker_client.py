@@ -116,7 +116,7 @@ async def dispatch_to_worker(
     """POST a prompt to a dispatch worker's /dispatch endpoint.
 
     Args:
-        url: Base URL of the dispatch worker service (e.g. "http://dispatch-worker-1:9190").
+        url: Base URL of the dispatch worker service (e.g. "http://dispatch-worker-1:9901").
         prompt: The prompt text to dispatch.
         allowed_tools: List of tool names the agent is allowed to use.
         token: Bearer token for authentication.
@@ -204,7 +204,7 @@ async def fetch_worker_runs(url: str, token: str, timeout: float = 10.0) -> list
     so the dispatcher's worker token is forwarded.
 
     Args:
-        url: Base URL of the worker service (e.g. "http://dispatch-worker-1:9190").
+        url: Base URL of the worker service (e.g. "http://dispatch-worker-1:9901").
         token: Bearer token for the worker (DISPATCH_WORKER_TOKEN).
         timeout: Request timeout in seconds.
 
@@ -238,7 +238,7 @@ async def cancel_worker_run(
     """DELETE /dispatch/{run_id} on the worker to request cancellation.
 
     Args:
-        url: Base URL of the worker service (e.g. "http://dispatch-worker-1:9190").
+        url: Base URL of the worker service (e.g. "http://dispatch-worker-1:9901").
         token: Bearer token for authentication.
         run_id: The run ID to cancel.
         timeout: Request timeout in seconds.
@@ -277,7 +277,7 @@ async def clear_worker_history(
     """DELETE /dispatch/runs on the worker to drop finished run records.
 
     Args:
-        url: Base URL of the worker service (e.g. "http://dispatch-worker-1:9190").
+        url: Base URL of the worker service (e.g. "http://dispatch-worker-1:9901").
         token: Bearer token for authentication.
         older_than_days: Age floor in days. ``0`` (the default) clears every
             finished run; a positive value clears only those older than it,

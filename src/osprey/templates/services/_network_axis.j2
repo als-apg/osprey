@@ -101,7 +101,7 @@
 {#- Published ports, suppressed entirely under `host`.
 
     `entries` is a list of compose port mappings as bare strings
-    (`127.0.0.1:8020:8020`); each is emitted double-quoted, since an unquoted
+    (`127.0.0.1:9900:9900`); each is emitted double-quoted, since an unquoted
     `hh:mm`-shaped mapping is a YAML sexagesimal trap. Under `host` there is no
     port map to publish — compose rejects `ports:` alongside
     `network_mode: host` on some runtimes and ignores it on others — so nothing

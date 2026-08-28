@@ -60,8 +60,11 @@ class WebServerDefinition:
             ``deployment/web_terminals/ports.py``). Every entry MUST set it —
             per-user containers share the host network namespace, so a server
             without its own family collides with itself across users. Config
-            overrides it via ``<family>_base_port``. Convention: ×100 spacing
-            in the 9091+ range.
+            overrides it via ``<family>_base_port``. Convention: one hundred
+            per family with the base ending in ``00``, so the user index reads
+            off the port — ``91xx`` is the terminal itself, ``92xx``–``97xx``
+            the companion families here, ``98xx``/``99xx`` the singleton
+            services (qmd, dispatcher + workers).
     """
 
     name: str
@@ -100,7 +103,7 @@ FRAMEWORK_WEB_SERVERS: dict[str, WebServerDefinition] = {
         panel_id="artifacts",
         port_default=8086,
         pass_workspace=True,
-        multi_user_base_port=9291,
+        multi_user_base_port=9200,
     ),
     "ariel": WebServerDefinition(
         name="ARIEL server",
@@ -109,7 +112,7 @@ FRAMEWORK_WEB_SERVERS: dict[str, WebServerDefinition] = {
         panel_id="ariel",
         config_web_subkey="web",
         port_default=8085,
-        multi_user_base_port=9391,
+        multi_user_base_port=9300,
     ),
     "channel_finder": WebServerDefinition(
         name="Channel Finder",
@@ -119,7 +122,7 @@ FRAMEWORK_WEB_SERVERS: dict[str, WebServerDefinition] = {
         config_web_subkey="web",
         port_default=8092,
         require_section=True,
-        multi_user_base_port=9591,
+        multi_user_base_port=9500,
     ),
     "lattice_dashboard": WebServerDefinition(
         name="Lattice dashboard",
@@ -130,7 +133,7 @@ FRAMEWORK_WEB_SERVERS: dict[str, WebServerDefinition] = {
         pass_workspace=True,
         require_section=True,
         port_family="lattice",
-        multi_user_base_port=9491,
+        multi_user_base_port=9400,
     ),
     # OKF "KNOWLEDGE" panel. config_key is the shared facility_knowledge section
     # (also read by the MCP server + CLI); require_section gates auto-launch on
@@ -146,7 +149,7 @@ FRAMEWORK_WEB_SERVERS: dict[str, WebServerDefinition] = {
         port_default=8093,
         require_section=True,
         factory_config_kwargs={"bundle_path": "facility_knowledge.bundle_path"},
-        multi_user_base_port=9691,
+        multi_user_base_port=9600,
     ),
     # System-health dashboard panel. Port/host live under the nested `web`
     # subkey (config is `health.web.host`/`health.web.port`); env override is
@@ -161,7 +164,7 @@ FRAMEWORK_WEB_SERVERS: dict[str, WebServerDefinition] = {
         config_web_subkey="web",
         port_default=8094,
         require_section=False,
-        multi_user_base_port=9791,
+        multi_user_base_port=9700,
     ),
 }
 

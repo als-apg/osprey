@@ -173,7 +173,7 @@ services:
   # cost, and raise `interval` (see below) once it is up.
   qmd:
     path: ./services/qmd
-    port: 8180      # Host port clients talk to. Deliberately NOT qmd's own
+    port: 9800      # Host port clients talk to. Deliberately NOT qmd's own
                     # 8181: the daemon binds IPv6 loopback only, hardcoded, so
                     # the container runs it on an internal 8181 and fronts it
                     # with a forwarder that owns this port.

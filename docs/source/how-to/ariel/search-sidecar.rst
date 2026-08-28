@@ -59,7 +59,7 @@ Configuration
    services:
      qmd:
        path: ./services/qmd
-       port: 8180      # host port clients talk to
+       port: 9800      # host port clients talk to
        interval: 30    # fallback corpus-sweep period, seconds
 
    deployed_services:
@@ -210,7 +210,7 @@ entry count rather than with entry length.
 Where the sidecar listens
 -------------------------
 
-The sidecar publishes port **8180**. qmd's own daemon runs on **8181** on the
+The sidecar publishes port **9800**. qmd's own daemon runs on **8181** on the
 container's internal loopback and is fronted by a small forwarder. That split is
 not cosmetic: qmd hardcodes a loopback-only bind with no option to change it,
 which makes it unreachable from any other container. Only the forwarder owns a

@@ -830,7 +830,7 @@ def _web_probes(profile: dict[str, Any]) -> tuple[Probe, ...]:
         )
     ]
 
-    base = _as_port(web.get("web_base_port"), 9091)
+    base = _as_port(web.get("web_base_port"), 9100)
     users = web.get("users")
     for position, entry in enumerate(users if isinstance(users, list) else []):
         if isinstance(entry, str):
@@ -874,7 +874,7 @@ def _dispatch_probes(profile: dict[str, Any]) -> tuple[Probe, ...]:
         Probe(
             kind="http",
             label="dispatcher health",
-            port=_as_port(configured, 8020),
+            port=_as_port(configured, 9900),
             path="/health",
         ),
     )
