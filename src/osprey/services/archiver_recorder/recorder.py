@@ -15,7 +15,8 @@ written to avoid:
 * **Enablement is polled, and a torn read changes nothing.** Config writes are
   truncate-in-place rather than atomic, so a poll can land mid-write and see a
   half file. Treating that as an answer would stop and restart recording on a
-  write that changed nothing at all.
+  write that changed nothing at all. The poll asks who is on the other end, not
+  merely what the config calls them — see :data:`RECORDING_CONTROL_SYSTEM`.
 """
 
 from __future__ import annotations
@@ -26,16 +27,40 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .config import RecorderConfigError, RecorderSettings, read_control_system_type
+from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY
+
+from .config import RecorderConfigError, RecorderSettings, read_recording_facts
 from .store import ArchiveWriter
 
 logger = logging.getLogger(__name__)
 
-#: The one control system whose readings belong in this archive. A simulated
-#: machine's history is synthesized for the past and recorded for the present,
-#: and the two halves are the same kind of thing. A real machine's readings are
-#: not: splicing them onto a synthesized past would produce exactly the
-#: two-world archive this service exists to prevent.
+#: The control-system type that, on its own, makes this deployment's machine one
+#: whose past this deployment authored.
+#:
+#: **The archive belongs to the machine, and a model has no past.** This service
+#: samples whatever machine the deployment calls its machine, and stores it in
+#: the collection that already holds that machine's history. For a virtual
+#: accelerator — the type named here — the past was synthesized and the present
+#: is recorded, and the two halves are the same kind of thing on one timeline.
+#: A sandbox model nobody calls their machine has no archive of its own to be
+#: written into. And a real machine's readings are never spliced onto a
+#: synthesized past: that two-world archive is what this gate exists to prevent.
+#:
+#: Which is why this constant is only half the gate. A deployment can stand a
+#: *stand-in* up — a second virtual accelerator wired in as the ``live`` target,
+#: with its own physics state and its own history seeded to match — and that
+#: stand-in is as much this deployment's machine as the baseline is. It is also
+#: reached through the ``epics`` connector, so ``osprey set connector=epics``
+#: rewrites the rendered ``control_system.type`` to something that does not
+#: match here while the machine on the other end of the Channel Access
+#: connection has not changed at all. Recording follows the machine, not the
+#: spelling, so the second half of the gate asks
+#: :func:`~osprey_connectors.standin.live_standin_active` — through
+#: :func:`~osprey.services.archiver_recorder.config.read_recording_facts`, and
+#: through the same resolver the roster's label uses — whether the live endpoint
+#: is that stand-in. The build refuses the combination that would make this
+#: matter; this is the layer behind it, so a machine that is still the stand-in
+#: cannot be quietly dropped out of its own archive.
 RECORDING_CONTROL_SYSTEM = "virtual_accelerator"
 
 #: Reads a set of addresses and returns the ones that answered.
@@ -73,7 +98,7 @@ class Recorder:
         return self._recording
 
     def refresh_enablement(self, now: datetime) -> bool:
-        """Re-read ``control_system.type`` if the poll interval has elapsed.
+        """Re-read who is on the other end, if the poll interval has elapsed.
 
         Returns the enablement state in force after this call — unchanged when
         the interval has not elapsed yet, and unchanged when the read failed.
@@ -86,7 +111,7 @@ class Recorder:
         self._last_poll = stamp
 
         try:
-            control_system = read_control_system_type(self._config_path)
+            facts = read_recording_facts(self._config_path)
         except RecorderConfigError as exc:
             # Keep the last known answer. See the module docstring: this is
             # very likely a config write in progress, and the next poll will
@@ -94,25 +119,35 @@ class Recorder:
             logger.debug("enablement poll could not read the config, keeping last state: %s", exc)
             return self._recording
 
-        should_record = control_system == RECORDING_CONTROL_SYSTEM
+        # Two ways for the machine on the other end to be one whose past this
+        # deployment authored, and neither implies the other: a deployment whose
+        # own type is the virtual accelerator, and a deployment whose live target
+        # is the stand-in it stood up. See RECORDING_CONTROL_SYSTEM.
+        should_record = facts.control_system_type == RECORDING_CONTROL_SYSTEM or facts.live_standin
         if should_record != self._recording or not self._announced:
             if should_record:
                 logger.info(
-                    "Recording %d channels every %ds into %s.%s (control_system.type=%s).",
+                    "Recording %d channels every %ds into %s.%s "
+                    "(control_system.type=%s, live target is the stand-in: %s).",
                     len(self._addresses),
                     self._settings.cadence_sec,
                     self._settings.database,
                     self._settings.collection,
-                    control_system,
+                    facts.control_system_type or "<unset>",
+                    facts.live_standin,
                 )
             else:
                 logger.info(
-                    "Idle, writing nothing: control_system.type=%s, and only %s is recorded. "
-                    "Flipping it in %s takes effect within %ds — no restart needed.",
-                    control_system or "<unset>",
+                    "Idle, writing nothing: control_system.type=%s is not %s, and the live "
+                    "target is not this deployment's stand-in. History is recorded for a "
+                    "machine whose past this deployment authored, and either of those two "
+                    "makes it one. Setting either in %s takes effect within %ds — no "
+                    "restart needed; a stand-in is named by `%s`.",
+                    facts.control_system_type or "<unset>",
                     RECORDING_CONTROL_SYSTEM,
                     self._config_path,
                     self._settings.poll_sec,
+                    LIVE_STANDIN_PORT_KEY,
                 )
             self._recording = should_record
             self._announced = True

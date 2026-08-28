@@ -182,6 +182,7 @@ _FALLBACK_WRITE_TOOLS: list[str] = [
     "mcp__bluesky__queue_start",
     "mcp__controls__channel_write",
     "mcp__python__execute",
+    "mcp__python__execute_file",
 ]
 
 #: The read/write tools excluded from the floor clamp. Task 1.8's drift guard
@@ -194,7 +195,7 @@ _FALLBACK_WRITE_TOOLS: list[str] = [
 #: list: the two always degrade together. A loaded write list minus this floor
 #: would clamp whatever the deployment renders as mixed, and a readonly
 #: ``execute`` would stop working under exactly the posture it exists for.
-_FALLBACK_MIXED_TOOLS: list[str] = ["mcp__python__execute"]
+_FALLBACK_MIXED_TOOLS: list[str] = ["mcp__python__execute", "mcp__python__execute_file"]
 
 #: The clamp set used whenever the render cannot be trusted.
 _FLOOR_CLAMP: frozenset[str] = frozenset(_FALLBACK_WRITE_TOOLS) - frozenset(_FALLBACK_MIXED_TOOLS)

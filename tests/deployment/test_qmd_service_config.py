@@ -267,6 +267,27 @@ def test_model_filenames_match_the_dockerfile_pins() -> None:
         assert name in text, f"{name} is not the cache name the Dockerfile writes"
 
 
+def test_model_fetches_retry_a_dropped_stream() -> None:
+    """Every model fetch carries ``--retry-all-errors``.
+
+    The three GGUF downloads total ~2.1 GB, and the CDN drops a stream
+    mid-transfer often enough to fail a whole image build (``curl: (92) HTTP/2
+    stream was not closed cleanly``). curl retries neither that nor an HTTP
+    error body unless asked: ``--retry`` covers transient transfer failures and
+    ``--retry-connrefused`` only adds a refused connection, so without this flag
+    the configured retry budget is never spent on the failure that actually
+    happens. Pinned as text because the fetch only runs during a real image
+    build — no unit test can reach it.
+    """
+    dockerfile = (
+        Path(__file__).resolve().parents[2] / "src/osprey/templates/services/qmd/Dockerfile"
+    )
+    fetches = [line for line in dockerfile.read_text().splitlines() if "curl -fSL" in line]
+    assert len(fetches) == len(MODEL_FILENAMES), "one fetch per pinned model"
+    for line in fetches:
+        assert "--retry-all-errors" in line, f"fetch retries only some errors: {line.strip()}"
+
+
 def test_port_conflict_preflight_knows_the_sidecar() -> None:
     """The deploy-time port sweep can name the key that moves the qmd port."""
     assert _SERVICE_REMEDY_KEYS["qmd"] == PORT_CONFIG_KEY == "services.qmd.port"

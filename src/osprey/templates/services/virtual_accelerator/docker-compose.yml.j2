@@ -4,6 +4,32 @@
     way. With none declared it emits nothing and this file renders exactly
     as it did before the axis existed. -#}
 {%- import "services/_env_axis.j2" as hostenv -%}
+{#- The INSTANCE axis. An instance is one soft-IOC container — one simulated
+    machine, on its own Channel Access port — and this file renders one per
+    instance.
+
+    A project has ONE unless its build profile set
+    `virtual_accelerator.live_standin`, in which case the build wrote a second
+    `services.live_standin` block beside `services.virtual_accelerator` and
+    appended it to `deployed_services`. Instance 1 keeps the historical
+    `virtual_accelerator` key so a single-instance deployment renders
+    byte-for-byte what it rendered before this axis existed; instance 2 is
+    named for what it SERVES — it stands in for the `live` target, so that a
+    deployment can rehearse against the live machine's shape without touching
+    it — rather than for its index, because every reader of a rendered name (an
+    operator at `docker ps`, the host-port preflight, the approval prompt)
+    needs to know which machine the container is.
+
+    The membership test is about the STAND-IN alone. Instance 1 is
+    unconditional here because this fragment only reaches compose at all when
+    the VA is deployed: `find_existing_compose_files` walks `deployed_services`
+    and maps each name to its declared `path`'s compose file, so nothing renders
+    from this template for a project that deploys no VA. The stand-in is read
+    off `deployed_services` rather than off `services` so a block left in
+    config.yml but not deployed cannot conjure a second container; that is the
+    same membership rule every other service here is gated on. -#}
+{%- set instance_keys = ['virtual_accelerator'] -%}
+{%- if 'live_standin' in deployed_services %}{% set _ = instance_keys.append('live_standin') %}{% endif -%}
 # The virtual-accelerator service owns the PyAT-backed EPICS soft-IOC (see
 # src/osprey/services/virtual_accelerator/). `osprey up` builds its
 # image locally on first run; subsequent runs reuse the local tag. To use a
@@ -32,11 +58,57 @@
 # OSPREY_VA_PLATFORM overrides it, for the one case the pin would otherwise
 # get wrong: a published multi-arch OSPREY_VA_IMAGE that does have a native
 # arm64 variant worth resolving to (`OSPREY_VA_PLATFORM=linux/arm64`).
+{%- if instance_keys | length > 1 %}
+#
+# THIS DEPLOYMENT RENDERS TWO INSTANCES. `virtual-accelerator` is the machine
+# this project runs against; `live-standin` stands in for the live target, so
+# a session can rehearse against that machine's shape without touching it. They
+# are one image built once, on distinct Channel Access ports, reading the same
+# model and the same active scenarios — what differs is the BPM perturbation
+# the stand-in carries (VA_STANDIN_BPM_ERRORS below).
+{%- endif %}
 
 services:
-  virtual-accelerator:
-    image: ${OSPREY_VA_IMAGE:-{{ services.virtual_accelerator.image | default(osprey_images.va) }}}
+{%- for instance_key in instance_keys %}
+{#- Everything below addresses the instance through these three names, so its
+    spelling is decided once, here, instead of in a dozen interpolations.
+
+    `instance` is the compose-safe form of the service key
+    (`virtual-accelerator`, `live-standin`) and names both the compose service
+    — which is how in-network consumers reach the IOC over Channel Access — and
+    the container.
+
+    `port` is the one name the instances deliberately DISAGREE about. Instance
+    1 keeps the defaulting the single-instance template always had — a null or
+    portless block still lands on 5064, because `svc.port` on either is
+    undefined and the filter answers. (A block missing ENTIRELY has never
+    rendered this file, since the image line below needs it too, so the shorter
+    spelling gives up no tolerance the longer one had.)
+
+    A LATER instance gets no default, and that is the whole point: 5064 is
+    instance 1's port, so defaulting to it would render two containers
+    publishing one host port and serving Channel Access on it — a document
+    compose accepts, and docker then rejects at run time with a bind error
+    naming neither the service nor the key that was missing. `| int` refuses
+    at RENDER time instead, because `int()` of an undefined raises rather than
+    falling back to its default; a real port passes through unchanged. -#}
+{%- set svc = services[instance_key] %}
+{%- set instance = instance_key | replace('_', '-') %}
+{%- set port = svc.port | default(5064) if loop.first else svc.port | int %}
+{#- A blank line BETWEEN instances and none before the first: the rendered
+    file is read and diffed by operators, and two hundred-line service
+    definitions run together read as one. Nothing is emitted on a
+    single-instance render. #}
+{%- if not loop.first %}
+{% endif %}
+  {{ instance }}:
+    image: ${OSPREY_VA_IMAGE:-{{ svc.image | default(osprey_images.va) }}}
     platform: ${OSPREY_VA_PLATFORM:-linux/amd64}
+{#- INSTANCE 1 ONLY owns the build: every instance runs the SAME image off the
+    same tag, and two services building one tag race each other. Compose builds
+    every buildable service before it creates any container, so the stand-in's
+    image is on the host by the time it is needed. #}
+{%- if instance_key == 'virtual_accelerator' %}
     build:
       # EVERY relative path here resolves against the pinned compose project
       # directory — the deployment REPO ROOT (`--project-directory <repo>`, see
@@ -51,12 +123,21 @@ services:
 {% if dev_mode | default(false) %}
         OSPREY_DEV: "1"
 {% endif %}
+{%- endif %}
+{%- if loop.first %}
     # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
     # so two OSPREY projects can deploy the VA on one host without colliding on
     # one name. In-network consumers reach this service by its compose service
     # key `virtual-accelerator` (EPICS_CA_NAME_SERVERS, depends_on) — unchanged
     # here — so unlike postgres this rename needs no network alias.
-    container_name: {{ osprey_labels.project_name }}-virtual-accelerator
+{%- else %}
+    # Same host-global namespacing as instance 1 above, and for the same
+    # reason: two OSPREY projects may each run a stand-in on one host. In-network
+    # consumers reach this one by its compose service key `{{ instance }}`
+    # (EPICS_CA_NAME_SERVERS, depends_on) — the name that says which of the two
+    # machines they are addressing.
+{%- endif %}
+    container_name: {{ osprey_labels.project_name }}-{{ instance }}
     labels:
       osprey.project.name: "{{ osprey_labels.project_name }}"
       com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
@@ -72,13 +153,13 @@ services:
       osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
     restart: unless-stopped
     ports:
-      - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ (services.virtual_accelerator | default({})).port | default(5064) }}:{{ (services.virtual_accelerator | default({})).port | default(5064) }}/tcp"
+      - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ port }}:{{ port }}/tcp"
     environment:
       # EPICS_CA_SERVER_PORT is the standard EPICS server-side CA port
       # override, read directly by the CA library at iocInit — no
-      # entrypoint.py change needed to make services.virtual_accelerator.port
+      # entrypoint.py change needed to make services.{{ instance_key }}.port
       # actually control what the IOC binds to.
-      EPICS_CA_SERVER_PORT: "{{ (services.virtual_accelerator | default({})).port | default(5064) }}"
+      EPICS_CA_SERVER_PORT: "{{ port }}"
       # Build-time stuck-readback apply fault (entrypoint.py reads it): a
       # comma-separated list of :SP addresses whose readback is frozen (SP still
       # latches, RB never follows). Passthrough from the project .env; unset →
@@ -86,8 +167,19 @@ services:
       VA_STUCK_SETPOINTS: "${VA_STUCK_SETPOINTS:-}"
       # FR4 physics-fault apply faults (entrypoint.py parses and bounds each):
       # a per-BPM readout error and per-corrector calibration gain.
+{%- if instance_key == 'virtual_accelerator' %}
       # Passthrough from the project .env; unset -> no fault.
       VA_BPM_ERRORS: "${VA_BPM_ERRORS:-}"
+{%- else %}
+      # The BPM offsets are the ONE fault this instance does not share: they
+      # come from its own host variable, and they carry a default rather than
+      # starting clean. An instance that perturbs nothing reads identically to
+      # the machine beside it, and being able to tell the two apart is what
+      # makes this one a stand-in; sharing VA_BPM_ERRORS would instead apply
+      # one operator's fault to both machines at once. The gain below stays
+      # shared, so a fault set there is set on both.
+      VA_BPM_ERRORS: "${VA_STANDIN_BPM_ERRORS:-{{ standin_bpm_errors_default | default('') }}}"
+{%- endif %}
       VA_CORR_GAIN: "${VA_CORR_GAIN:-}"
       # Facility-neutral source configuration (entrypoint.py + Dockerfile CMD
       # read these; empty means default): the entrypoint module to run, the
@@ -101,7 +193,7 @@ services:
       # build-owned data dir.
       VA_STATE_DIR: /state/simulation
       TZ: {{ system.timezone }}
-{{- hostenv.passthrough(services.virtual_accelerator) }}
+{{- hostenv.passthrough(svc) }}
     # Bind-mount sources are relative to the pinned compose project directory —
     # the deployment repo root — so each is spelled from there. Both read-only:
     # the IOC only ever reads.
@@ -124,6 +216,13 @@ services:
     # `osprey sim apply` on the host and polled here. That second source is
     # rendered from agent_data.base_dir rather than hardcoded, so it follows a
     # project that relocates its agent-data root.
+{#- BOTH instances mount the SAME two directories, and that is deliberate
+    rather than an oversight of the instance axis. The model is one machine
+    description, and the active-scenario state is written once on the host by
+    `osprey sim apply` — a scenario is meant to be observable on every machine
+    this deployment runs, so the stand-in reads the same state file the
+    baseline does. What separates the two is the perturbation above, not the
+    model underneath. #}
     volumes:
       - ./build/data/simulation:/data/simulation:ro
       - {{ osprey_state_mount_source }}:/state/simulation:ro
@@ -139,7 +238,7 @@ services:
       # So: a raw TCP
       # connect to the CA port — enough to prove the IOC's listener is up and
       # accepting connections, short of an actual PV read.
-      test: ["CMD-SHELL", "python -c \"import socket,sys; s=socket.socket(); s.settimeout(3); r=s.connect_ex(('localhost', {{ (services.virtual_accelerator | default({})).port | default(5064) }})); sys.exit(0 if r == 0 else 1)\""]
+      test: ["CMD-SHELL", "python -c \"import socket,sys; s=socket.socket(); s.settimeout(3); r=s.connect_ex(('localhost', {{ port }})); sys.exit(0 if r == 0 else 1)\""]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -148,6 +247,7 @@ services:
       # (PyAT lattice load + CA server startup) takes a few seconds longer
       # than the framework's other native-arch services.
       start_period: 20s
+{%- endfor %}
 
 networks:
   osprey-network:

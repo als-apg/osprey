@@ -13,6 +13,7 @@ from osprey.services.python_executor.execution.fs_guard import (
     EXECUTOR_PATCH_TARGETS,
     render_fs_guard,
 )
+from osprey.services.python_executor.execution.net_guard import render_net_guard
 from osprey.utils.logger import get_logger
 
 logger = get_logger("execution_wrapper")
@@ -213,6 +214,7 @@ class ExecutionWrapper:
         execution_mode: str = "readonly",
         protected_roots: Iterable[str | Path] = (),
         permitted_roots: Iterable[str | Path] = (),
+        perimeter_denied_ports: Iterable[int] = (),
     ):
         """
         Initialize the wrapper.
@@ -243,11 +245,26 @@ class ExecutionWrapper:
                 folder is added to this in :meth:`_get_filesystem_guard`, since
                 that is the one root the wrapper knows and the parent does not
                 until the folder exists.
+            perimeter_denied_ports: Host ports on this machine that executed code
+                may not connect to — the web ports of a deployment whose
+                perimeter authenticates on the caller's behalf, where a request
+                made from inside a terminal container would arrive already
+                credentialed as whoever owns the port. Resolved by the parent
+                (:func:`osprey.mcp_server.python_executor.executor._perimeter_denied_ports`,
+                which reads the deployment's stamp) and passed as literals for
+                the same reason ``protected_roots`` is: a child that re-derived
+                the set could equally derive an empty one. Empty — the default,
+                and what every non-open posture yields — means no ports are
+                denied and no network guard is emitted at all
+                (:meth:`_get_net_guard`); a non-empty set puts the guard in
+                front of user code in **every** execution mode, because the
+                perimeter is orthogonal to the write posture.
         """
         self.limits_validator = limits_validator
         self.execution_mode = execution_mode
         self.protected_roots = tuple(str(root) for root in protected_roots)
         self.permitted_roots = tuple(str(root) for root in permitted_roots)
+        self.perimeter_denied_ports = tuple(perimeter_denied_ports)
 
     def create_wrapper(self, user_code: str, execution_folder: Path | None = None) -> str:
         """
@@ -267,6 +284,7 @@ class ExecutionWrapper:
         limits_checking = self._get_limits_checking_monkeypatch()
         readonly_guard = self._get_readonly_guard()
         filesystem_guard = self._get_filesystem_guard(execution_folder)
+        net_guard = self._get_net_guard()
         metadata_init = self._get_metadata_init()
         save_artifact_injection = self._get_save_artifact_injection()
         output_capture_start = self._get_output_capture_start()
@@ -281,6 +299,7 @@ class ExecutionWrapper:
                 limits_checking,
                 readonly_guard,
                 filesystem_guard,
+                net_guard,
                 metadata_init,
                 save_artifact_injection,
                 output_capture_start,
@@ -791,6 +810,39 @@ if not _execution_dir.exists():
             refusal_prefix=prefix,
         ).strip()
 
+    def _get_net_guard(self) -> str:
+        """Generate the perimeter network guard; empty when no ports are denied.
+
+        Emitted in **every** execution mode, exactly like the filesystem guard
+        and deliberately unlike the readonly guard: the mode answers "may this
+        run touch the control system", while the perimeter answers "may this
+        run talk to the deployment's own web edge" — a readwrite run has human
+        approval to move a magnet, not to originate requests that nginx would
+        credential on the caller's behalf. What gates emission is solely
+        whether the parent handed this wrapper a non-empty deny-list, which
+        only an open-perimeter deployment does.
+
+        Splice position (kept deterministic by :meth:`create_wrapper`'s
+        assembly list): directly **after** the filesystem guard and before the
+        wrapper's own metadata/artifact machinery, so both guards form one
+        contiguous block installed ahead of any code that could open a
+        connection. Order between the two guards carries no dependency — they
+        patch disjoint entry points — but a fixed position keeps the emitted
+        script diffable. The readonly ``_READONLY_WRITE_TARGETS`` spawn/ctypes
+        table is untouched by this guard: multiprocessing and h5py-style
+        compute keep working in every mode, which the net-guard test suite
+        pins with a real ``Pool``.
+
+        Returns:
+            The guard source ready to splice, or ``""`` when
+            ``perimeter_denied_ports`` is empty — the renderer refuses an
+            empty set rather than emitting an inert guard, so skipping here is
+            the one honest spelling of "no perimeter is open".
+        """
+        if not self.perimeter_denied_ports:
+            return ""
+        return render_net_guard(denied_ports=self.perimeter_denied_ports).strip()
+
     def _get_metadata_init(self) -> str:
         """Initialize execution metadata tracking."""
         return textwrap.dedent(
@@ -1008,6 +1060,16 @@ if not _execution_dir.exists():
             """
             # Filesystem guard: put every patched entry point back.
             _restore_patched_targets()
+
+            # Network guard, same point for the same reason — looked up via
+            # globals() because it is only emitted when the deployment's
+            # perimeter denies ports, and this cleanup tail is shared by every
+            # wrapper. The persistence section below touches only the local
+            # filesystem, so nothing here depends on the restore; it exists so
+            # both guards come off together at a single documented point.
+            _osprey_net_restore = globals().get('_restore_net_patched_targets')
+            if _osprey_net_restore is not None:
+                _osprey_net_restore()
         """
         ).strip()
 

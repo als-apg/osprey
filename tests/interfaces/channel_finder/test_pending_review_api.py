@@ -26,6 +26,40 @@ def test_status_unavailable(client):
     assert data["available"] is False
 
 
+def test_status_reports_whether_items_can_be_promoted(pending_review_client):
+    """The queue and the ability to promote out of it are separate axes.
+
+    The capture hook fills this queue for every paradigm; approve and reject
+    write into the feedback store, which not every deployment has. A client
+    that could only see ``available`` had to either hide a queue that has real
+    items in it or draw buttons the server refuses.
+    """
+    data = pending_review_client.get("/api/pending-reviews/status").json()
+    assert data["available"] is True
+    assert data["can_promote"] is True
+
+    pending_review_client.app.state.feedback_store = None
+    data = pending_review_client.get("/api/pending-reviews/status").json()
+    assert data["available"] is True
+    assert data["can_promote"] is False
+
+
+def test_approve_without_a_feedback_store_says_why_under_graph(pending_review_client):
+    """The refusal names the paradigm's reason, not just "not available"."""
+    pending_review_client.app.state.feedback_store = None
+    pending_review_client.app.state.pipeline_type = "graph"
+    store = pending_review_client.app.state.pending_review_store
+    item_id = store.capture({"query": "correctors", "facility": "ALS"})
+
+    resp = pending_review_client.post(f"/api/pending-reviews/{item_id}/approve")
+    assert resp.status_code == 404
+    detail = resp.json()["detail"]
+    assert "facility graph" in detail
+    assert "Dismiss" in detail
+    # Operator language throughout: no dotted config key in a user-facing error.
+    assert "channel_finder." not in detail
+
+
 # ------------------------------------------------------------------
 # 2. List endpoint
 # ------------------------------------------------------------------

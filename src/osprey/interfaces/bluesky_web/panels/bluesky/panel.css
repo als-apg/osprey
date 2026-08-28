@@ -145,6 +145,42 @@ html:not([data-ui-mode="simple"]) body.embedded .panel-tabs { display: none; }
 }
 .status-strip-spacer { flex: 1 1 auto; }
 
+/* ---- Plan-lane picker ----
+ * Hidden unless the deployment renders more than one plan lane (panel.js).
+ * A segmented group rather than tabs: it sits inside the status strip and
+ * names WHICH MACHINE this panel is pointed at, so the current lane reads as
+ * a held-down state (`aria-pressed`), not as navigation chrome. Clicking the
+ * other lane navigates to a fresh document — see lane-client.js. */
+.lane-strip {
+  display: inline-flex;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.lane-tab {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  padding: 4px 10px;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.lane-tab + .lane-tab { border-left: 1px solid var(--border-default); }
+.lane-tab:hover { color: var(--text-primary); }
+.lane-tab.active {
+  color: var(--color-accent-light);
+  background: var(--bg-inset, transparent);
+  cursor: default;
+}
+.lane-tab:focus-visible {
+  outline: none;
+  color: var(--text-primary);
+}
+
 /* WIDTH FLOORS on the two halt buttons. The strip is a right-anchored cluster
  * (leading spacer), so a member's position depends only on the widths of the
  * members AFTER it — which makes the rightmost button, Abort, the thing that

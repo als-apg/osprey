@@ -26,35 +26,28 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from osprey.mcp_server.sandbox_env import scrub_sensitive_env
+from osprey.mcp_server.sandbox_env import (
+    PERIMETER_DENY_PORTS_ENV,
+    PERIMETER_MARKER_ENV,
+    scrub_sandbox_child_env,
+)
 from osprey.stores.artifact_manifest import collect_artifacts
 from osprey.utils.config import EXECUTION_METHOD_SUBPROCESS
 
 logger = logging.getLogger("osprey.mcp_server.python_executor.executor")
 
-# scrub_sensitive_env and its deny-list constants live in
-# osprey.mcp_server.sandbox_env (imported above), never here: this module and
-# the workspace sandbox (osprey.mcp_server.workspace.execution.sandbox_executor)
-# must share one deny-list rather than two that can drift.
+# The sandbox child's environment policy lives in osprey.mcp_server.sandbox_env
+# (imported above), never here. Two processes spawn agent-authored Python — this
+# module and the lighter visualization sandbox in
+# osprey.mcp_server.workspace.execution.sandbox_executor — and both must hand
+# their child the same environment, so the credential scrub, the web-terminal
+# address book and the perimeter-stamp names are defined once, there, and used
+# under that one spelling here.
 
-# The web-terminal address family, dropped from the sandbox child on top of the
-# shared credential scrub. The child's only callback surface is the
-# `save_artifact` helper the execution wrapper injects, which writes to the
-# filesystem: nothing in the child resolves a terminal URL or calls a
-# web-terminal route, so these names buy it nothing and only tell agent code
-# where a surface it must not reach is listening. OSPREY_TERMINAL_SECRET is
-# already gone via scrub_sensitive_env; dropping the whole family is still
-# right, because the rest of it (bind host, landing URL, external origin, the
-# per-user OSPREY_TERMINAL_SECRET_<USER> names) is the same address book.
-#
-# Deliberately local to this module rather than added to the shared deny-list
-# in osprey.utils.sensitive_env: that set is shared with the PTY child, and the
-# PTY child *is* the web terminal — it must keep these (see the sandbox_env
-# module docstring). This is a per-sandbox narrowing, not a credential policy.
-_WEB_TERMINAL_ENV_NAMES_TO_DROP: tuple[str, ...] = ("OSPREY_WEB_PORT",)
-#: Matched by prefix so a terminal variable added later is covered without a
-#: code change here — the same reasoning as SENSITIVE_ENV_SUFFIXES.
-_WEB_TERMINAL_ENV_PREFIXES_TO_DROP: tuple[str, ...] = ("OSPREY_TERMINAL_",)
+#: The one marker value that means "open"; anything else leaves the stamp inert.
+#: Local to the reader, not the shared module: this is how the stamp is PARSED,
+#: and the parse has exactly one call site.
+_PERIMETER_OPEN_VALUE = "open"
 
 #: The profile SOURCE zone, as repo-root-relative entries: ``profile.yml`` and
 #: everything a build reads to produce a project — the convention directories
@@ -541,6 +534,58 @@ def _in_flight_marker(control_target: str):
                 logger.warning("Could not remove the in-flight execution marker %s", path)
 
 
+def _perimeter_denied_ports(env: Mapping[str, str]) -> tuple[int, ...]:
+    """Read the navigation-only perimeter deny-list off the parent's environment.
+
+    The stamp is a pair (see :data:`PERIMETER_MARKER_ENV`): a marker naming the
+    posture and a comma-separated list of the deployment's own web ports. The
+    marker is what arms it — a deny-list without the posture that justifies it
+    means the container was rendered under a method whose perimeter still asks
+    callers for a credential, and denying ports there would only break panel
+    traffic that is entitled to them.
+
+    Parsed defensively rather than trusted: this is deployment-rendered input
+    read at execution time, and a malformed entry must narrow the guard, never
+    raise inside the run it is protecting. Unparseable and out-of-range entries
+    are skipped individually, so one bad token cannot empty an otherwise valid
+    list.
+
+    Args:
+        env: The parent process's environment (``os.environ``), read BEFORE the
+            sandbox scrub — the child never receives either name.
+
+    Returns:
+        The denied ports, de-duplicated and ascending. Empty when the marker is
+        absent or not ``"open"``, when no list is set, or when nothing in the
+        list parsed — an empty tuple is the inert value, and the sandbox
+        installs no port guard for it.
+
+    What this function returns is the deny-list, not the guard: the guard
+    itself is source rendered by the net-guard renderer and consumed via
+    ``ExecutionWrapper.perimeter_denied_ports``, which emits nothing at all for
+    an empty tuple. So the same caveat the wrapper documents applies here — the
+    ports named below are refused to code that goes through the emitted guard,
+    which is the sandbox's own socket layer and not a kernel-level boundary.
+    """
+    if (env.get(PERIMETER_MARKER_ENV) or "").strip() != _PERIMETER_OPEN_VALUE:
+        return ()
+    ports: set[int] = set()
+    for entry in (env.get(PERIMETER_DENY_PORTS_ENV) or "").split(","):
+        token = entry.strip()
+        if not token:
+            continue
+        try:
+            port = int(token)
+        except ValueError:
+            logger.warning("Ignoring non-numeric entry %r in %s", token, PERIMETER_DENY_PORTS_ENV)
+            continue
+        if 1 <= port <= 65535:
+            ports.add(port)
+        else:
+            logger.warning("Ignoring out-of-range port %d in %s", port, PERIMETER_DENY_PORTS_ENV)
+    return tuple(sorted(ports))
+
+
 async def _execute_via_local(
     code: str,
     execution_mode: str,
@@ -565,6 +610,19 @@ async def _execute_via_local(
         execution_mode=execution_mode,
         protected_roots=resolve_protected_roots(project_root, osprey_config),
         permitted_roots=resolve_permitted_roots(project_root, osprey_config),
+        # Resolved by the parent and passed down as literals, exactly like the
+        # guard roots above and for the same reason: the child is handed the
+        # boundary rather than left to work out for itself which ports it is
+        # sharing a network namespace with. Read from THIS process's
+        # environment, which is where the deployment stamped it; the sandbox's
+        # own environment carries neither name.
+        #
+        # This hands over the list only. The guard that enforces it is rendered
+        # by the net-guard renderer and consumed via
+        # `ExecutionWrapper.perimeter_denied_ports`, so it carries that
+        # renderer's caveat rather than any stronger one this module could
+        # claim.
+        perimeter_denied_ports=_perimeter_denied_ports(os.environ),
     )
     wrapped_code = wrapper.create_wrapper(code, execution_folder)
 
@@ -577,12 +635,9 @@ async def _execute_via_local(
 
     python_bin = str(resolve_agent_interpreter(project_root))
 
-    sandbox_env = scrub_sensitive_env(os.environ.copy())
-    for name in tuple(sandbox_env):
-        if name in _WEB_TERMINAL_ENV_NAMES_TO_DROP or name.startswith(
-            _WEB_TERMINAL_ENV_PREFIXES_TO_DROP
-        ):
-            sandbox_env.pop(name, None)
+    # Credential scrub plus the sandbox-only narrowing, in one shared helper, so
+    # this path and the visualization sandbox cannot drop different sets.
+    sandbox_env = scrub_sandbox_child_env(os.environ)
     # The declared mode becomes a runtime property of the subprocess: the
     # connector base class refuses writes and the EPICS connector stays on
     # the read_only gateway when this says readonly, so a readonly run cannot

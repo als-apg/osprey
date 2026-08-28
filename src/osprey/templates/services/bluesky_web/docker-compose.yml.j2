@@ -39,6 +39,16 @@ services:
     depends_on:
       bluesky-bridge:
         condition: service_healthy
+{%- for lane_key in ['bluesky_va', 'bluesky_live'] %}
+{%- if lane_key in deployed_services %}
+      # The second plan lane's own bridge, for the same reason: the sidecar
+      # relays this lane's reads, draft and queue too, and must not race its
+      # startup either. Gated on deployed_services exactly like the lane's
+      # whole stack, so a single-lane render carries no second entry.
+      {{ lane_key | replace('_', '-') }}-bridge:
+        condition: service_healthy
+{%- endif %}
+{%- endfor %}
 {% endif %}
     # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
     # so two OSPREY projects can deploy the sidecar on one host without colliding
@@ -91,6 +101,21 @@ services:
       # project .env when unset (see container_lifecycle.py's per-service
       # token-mint map).
       BLUESKY_LAUNCH_TOKEN: ${BLUESKY_LAUNCH_TOKEN}
+{%- for lane_key in ['bluesky_va', 'bluesky_live'] %}
+{%- if lane_key in deployed_services %}
+      # The SECOND plan lane, when this deployment renders one: its own
+      # bridge by its own in-network service key, and its own launch token —
+      # one token shared across two lanes would let a launch a human approved
+      # against one machine be replayed against the other. Spelled under the
+      # lane's env prefix (bluesky_bridge_connection.lane_env_prefix), the
+      # same three-way contract the mint (container_lifecycle) and the shared
+      # resolvers already speak, so the sidecar's per-lane resolution needs no
+      # new parser. Gated on deployed_services so a single-lane deployment
+      # renders byte-for-byte what it always rendered.
+      {{ lane_key | upper }}_BRIDGE_URL: http://{{ lane_key | replace('_', '-') }}-bridge:{{ services[lane_key].port }}
+      {{ lane_key | upper }}_LAUNCH_TOKEN: ${{ '{' }}{{ lane_key | upper }}_LAUNCH_TOKEN}
+{%- endif %}
+{%- endfor %}
       # The operator credential for this sidecar's own web gate
       # (WebAuthMiddleware): a browser logs in through the `?token=` exchange,
       # a non-browser client sends it as `X-Osprey-Terminal-Secret`. No

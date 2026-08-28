@@ -44,10 +44,14 @@ from osprey.deployment.web_terminals.personas import (
     personas_needing_graphdb_password,
     personas_needing_launch_token_by_lane,
     personas_not_denying_bash,
+    referenced_persona_project_dirs,
     rendered_persona_configs,
     settings_json_denies_bash,
+    settings_json_deny_entries,
+    settings_json_is_rendered,
 )
 from osprey.deployment.web_terminals.render import (
+    _auth_tls_context,
     clear_nginx_templates_dir,
     render_web_terminals,
 )
@@ -59,8 +63,9 @@ from osprey_connectors.types import WRITES_ENABLED_KEY
 #: :func:`~osprey.deployment.web_terminals.render.render_web_terminals` keys it.
 WEB_COMPOSE_FILENAME = "docker-compose.web.yml"
 
-#: The offender :class:`BashLaunchTokenConflictError` names for the roster
-#: entries that run no persona (the zero-migration path). Those entries share
+#: The offender :class:`BashLaunchTokenConflictError` and
+#: :class:`OpenModeEgressError` name for the roster entries that run no persona
+#: (the zero-migration path). Those entries share
 #: the deploy project's own image, config and ``.claude/settings.json``, so
 #: they are one offender however many of them there are — and a spelling no
 #: persona catalog key can collide with.
@@ -401,6 +406,403 @@ def _roster_has_personaless_entries(config: Any) -> bool:
     return False
 
 
+# ---------------------------------------------------------------------------
+# The OPEN-mode egress gate
+#
+# A twin of the Bash/launch-token guard above, and deliberately shaped like it:
+# same fail-closed read of the same image-baked artifact, same non-raising twin
+# for the collect-all preflight, same persona-less sentinel, same call sites.
+# The question it asks is different — not "may this persona arm hardware from a
+# shell?" but "may this persona reach the deployment's own terminals?" — but a
+# second shape for a second gate is how two guards drift into disagreeing about
+# what a rendered settings.json says.
+# ---------------------------------------------------------------------------
+
+
+#: The ``permissions.deny`` entries every persona must ship before a deployment
+#: may run OPEN (``modules.web_terminals.auth.method: none``). Each is a
+#: host-network egress path an agent can take from *outside* the python
+#: executor, which is where the open-mode socket guard sits: a shell, the two
+#: web tools, and the Playwright browser server.
+#:
+#: Every entry is spelled exactly as
+#: :data:`~osprey.cli.templates.claude_code.DENY_DEFAULTS` spells it — that
+#: tuple is what ``settings.json.j2`` writes into the artifact this gate reads,
+#: and the comparison is literal (see
+#: :func:`~osprey.deployment.web_terminals.personas.settings_json_denies`).
+#: A strict subset of it, deliberately: ``Edit`` writes files rather than
+#: reaching the network, and the context7 MCP server reaches a documentation
+#: host rather than this deployment's own terminals. Written out rather than
+#: derived by filtering ``DENY_DEFAULTS``, so that a rename there fails a test
+#: loudly instead of silently dropping an entry from this gate and weakening it
+#: (``test_the_open_mode_egress_tools_are_spelled_as_the_template_ships_them``).
+OPEN_MODE_EGRESS_TOOLS: tuple[str, ...] = (
+    "Bash",
+    "WebFetch",
+    "WebSearch",
+    "mcp__plugin_playwright_playwright__*",
+)
+
+#: The :func:`open_mode_missing_by_persona` value meaning "there is no rendered
+#: ``.claude/settings.json`` for this offender on this host at all" — as opposed
+#: to a rendered artifact that lifts particular entries, which is reported as
+#: the tuple of entries it lifts.
+#:
+#: Empty rather than a marker string, so the two cases can never be confused for
+#: a tool name and the ordinary "which tools are missing" read stays a plain
+#: tuple. The distinction exists because the two states have different remedies:
+#: a lifted entry is fixed by restoring it and rebuilding, while a missing
+#: render is fixed by rendering the project first (``osprey build``) — and an
+#: operator told to add a deny entry to a file that does not exist is told
+#: nothing they can act on.
+UNRENDERED_SETTINGS: tuple[str, ...] = ()
+
+
+class OpenModeEgressError(DeploymentError):
+    """An OPEN deployment ships a persona that may still reach the host network.
+
+    Under ``auth.method: none`` nginx vouches for every request it proxies: it
+    injects each user's operator secret on every non-exempt location, so
+    *anything* that can reach nginx is served that user's terminal. That is the
+    posture's whole point for a human — no login, no magic link — and its whole
+    danger for an agent, because the agent's own tools reach nginx from inside
+    the deployment, over loopback, indistinguishable by source address from the
+    operator's browser.
+
+    The python executor's open-mode socket guard refuses the deployment's own
+    web ports from executed code, but it covers exactly that one path. A shell,
+    ``WebFetch``/``WebSearch`` or a Playwright browser reaches those ports
+    straight past it, in-process guard or not. So open mode is refused unless
+    every persona's shipped settings deny all of
+    :data:`OPEN_MODE_EGRESS_TOOLS` — the deploy stops before a single
+    web-terminal artifact is written, while the operator still has the context
+    to choose between the two real remedies.
+
+    Deliberately not a ``ValueError``, for the reason
+    :class:`BashLaunchTokenConflictError` spells out:
+    ``force_recreate_auth_sidecar`` catches ``(ValueError, OSError)`` around its
+    best-effort re-render and downgrades it to a warning, and a safety refusal a
+    credential rotation can swallow is not a refusal.
+
+    Persona-less roster entries are bound the same way they are there: an entry
+    naming no persona runs the deploy project itself, so the settings artifact
+    read for it is the deploy project's own ``.claude/settings.json`` and it is
+    reported under :data:`ZERO_MIGRATION_OFFENDER`.
+
+    Two boundaries carried forward from the Bash guard unchanged, because this
+    gate reads the same artifact:
+
+    * **The check is render-scoped, not image-scoped.** It reads the rendered
+      project directory, which equals the image's ``.claude/settings.json``
+      only as of that image's last build: ``COPY . /app/<project>/`` bakes the
+      directory in, and the per-user compose services declare only ``image:``,
+      with no ``build:`` stanza to rebuild one at start. A render that *adds*
+      the denies without an image rebuild therefore passes this gate while the
+      running image is still permissive — which is why the remedy says rebuild.
+    * **It assumes the agent does not run in bypass-permissions mode**, where a
+      deny list is ignored wholesale and proves nothing. No such flag appears
+      on the web-terminal launch path today.
+
+    Args:
+        missing_by_persona: :func:`open_mode_missing_by_persona`'s answer — the
+            subset of :data:`OPEN_MODE_EGRESS_TOOLS` each offender fails to
+            deny, keyed by offender, with :data:`ZERO_MIGRATION_OFFENDER`
+            standing for the persona-less entries and
+            :data:`UNRENDERED_SETTINGS` for an offender with no rendered
+            artifact at all (which gets the render remedy instead of a deny
+            list it cannot edit). Every offender is named, so an operator
+            fixing one at a time does not redeploy once per offender to
+            discover the next, and each is named with the entry it actually
+            lifted rather than the whole set. :attr:`personas` is its key set,
+            exposed because that is the shape callers compare against.
+    """
+
+    def __init__(self, missing_by_persona: Mapping[str, Iterable[str]]) -> None:
+        self.missing_by_persona = {
+            persona: list(tools) for persona, tools in sorted(missing_by_persona.items())
+        }
+        self.personas = sorted(self.missing_by_persona)
+        named = ", ".join(repr(name) for name in self.personas)
+        # The union of what the offenders are actually missing, so the tools
+        # named in the headline are the tools named in the remedy.
+        reaching = [
+            tool
+            for tool in OPEN_MODE_EGRESS_TOOLS
+            # An offender with no rendered artifact denies nothing, so it puts
+            # the WHOLE set back in reach rather than none of it.
+            if any(not tools or tool in tools for tools in self.missing_by_persona.values())
+        ]
+        tools_named = ", ".join(repr(tool) for tool in reaching)
+        breakdown = "".join(
+            (
+                f"\n  - {persona!r} does not deny: {', '.join(repr(tool) for tool in tools)}"
+                if tools
+                else (
+                    f"\n  - {persona!r} has no rendered .claude/settings.json on this "
+                    f"host — run `osprey build` to render it, then rebuild its image"
+                )
+            )
+            for persona, tools in self.missing_by_persona.items()
+        )
+        zero_migration_note = (
+            (
+                f" {ZERO_MIGRATION_OFFENDER!r} stands for the roster entries that run "
+                f"no persona at all: they run the deploy project itself, so the "
+                f"settings.json read for them is the deploy project's own "
+                f".claude/settings.json."
+            )
+            if ZERO_MIGRATION_OFFENDER in self.personas
+            else ""
+        )
+        super().__init__(
+            f"Refusing to deploy: auth.method 'none' (open) lets nginx vouch for every "
+            f"terminal, and persona(s) {named} may still reach the host network via "
+            f"{tools_named}.{breakdown}\n"
+            f"Open mode injects each user's operator secret on every non-exempt "
+            f"location, so anything that reaches nginx is served that user's terminal "
+            f"— including an agent running inside another user's terminal, which "
+            f"arrives over loopback and is indistinguishable from the operator's own "
+            f"browser. The python executor refuses the deployment's own web ports from "
+            f"executed code, but that guard covers only executed code: a shell, a web "
+            f"fetch or a Playwright browser reaches those ports straight past it. Every "
+            f"persona's shipped .claude/settings.json must therefore list all of "
+            f"{', '.join(repr(tool) for tool in OPEN_MODE_EGRESS_TOOLS)} in "
+            f"permissions.deny (a missing or unparseable settings.json counts the same "
+            f"— it is not evidence of a deny). Set "
+            f"modules.web_terminals.auth.method to 'token' to keep the magic-link wall, "
+            f"or deny {tools_named} in those personas, RENDER them on this host "
+            f"(`osprey build`) and rebuild their images — in registry mode, republish "
+            f"the images from a render that carries the denies and re-pull them, and "
+            f"keep this host's render in step. A re-render alone is not enough, "
+            f"because the settings.json that RUNS is the one baked into the image and "
+            f"the per-user services declare only `image:`, so nothing rebuilds at "
+            f"start; a re-pull alone is not enough either, because the settings.json "
+            f"read HERE is this host's render, which open mode requires in both "
+            f"image-source modes.{zero_migration_note}"
+        )
+
+
+def check_open_mode_requirements(config: Any, project_root: Path | str) -> None:
+    """Refuse an OPEN deploy whose personas can still reach the host network.
+
+    The twin of :func:`check_bash_launch_token_conflict`, wired into the same
+    three call points for the same reasons, so the two gates cannot come to
+    disagree about which deploys are allowed to start:
+
+    * :func:`~osprey.deployment.web_terminals.provision.preflight_web_terminals`
+      — the fail-fast gate, ahead of
+      :func:`~osprey.deployment.web_terminals.provision.ensure_env_production`,
+      so a deployment that will be refused never pays for the project-image
+      build or has credentials minted and printed for it.
+    * :func:`~osprey.deployment.web_terminals.lifecycle.decommission_user` —
+      ahead of its roster edit, handed the **post-removal** roster. That is
+      load-bearing rather than incidental here too: decommissioning the
+      offending persona's own last user drops it from the referenced set, so
+      that removal must still succeed. It is the one remediation that needs no
+      image rebuild.
+    * :func:`resolve_render_inputs` — the render seam, and so the cover for
+      every writer of this deployment's artifacts that reaches a render without
+      passing the preflight above: :func:`write_web_terminal_artifacts` routes
+      through it, which is how
+      :func:`~osprey.deployment.web_terminals.provision.deploy_up_web_terminals`'
+      own re-render is answered for. The Bash guard's third caller,
+      :func:`~osprey.deployment.web_terminals.provision.force_recreate_auth_sidecar`'s
+      pre-recreate re-render, is unreachable under this posture — open mode runs
+      no auth sidecar to recreate — and the gate sits at the shared seam anyway
+      rather than teaching one seam which of its two guards each caller needs.
+
+    The claim is scoped to that seam, which is the path that writes THIS
+    deployment's artifacts. ``osprey scaffold web-terminals render``
+    (:mod:`osprey.cli.scaffold_cmd`) calls
+    :func:`~osprey.deployment.web_terminals.render.render_web_terminals`
+    directly, into an output directory of the operator's choosing, and stays
+    ungated — an inspection surface, exactly as it is for the Bash twin. It is
+    not silent there: the lint rule ``web_terminals.open_mode_egress`` runs on
+    that path off the same predicate and refuses the render unless ``--no-lint``
+    is passed.
+
+    Every other auth method returns immediately: ``token`` keeps the magic-link
+    exchange, ``password``/``oidc`` put a login wall in front of the roster, and
+    in none of the three is nginx vouching for whoever reaches it. The posture is
+    read through
+    :func:`~osprey.deployment.web_terminals.render._auth_tls_context`'s derived
+    booleans rather than off the method name, so a fifth method cannot fork a
+    branch nobody updated.
+
+    Like
+    :func:`~osprey.deployment.web_terminals.personas.settings_json_denies`, this
+    reads the **rendered** project directory, which equals the image's
+    ``.claude/settings.json`` only as of that image's last build — a render
+    newer than its image can report a deny the running image does not yet
+    carry, which is why the refusal says rebuild rather than merely "add the
+    deny".
+
+    Args:
+        config: The parsed deploy config.
+        project_root: Deploy project root; relative ``project_path`` values
+            resolve against it, and it is itself the settings artifact the
+            persona-less roster entries ship.
+
+    Raises:
+        OpenModeEgressError: The deployment is open and at least one referenced
+            persona — or the deploy project itself, on behalf of the
+            persona-less entries — ships settings that do not deny every tool in
+            :data:`OPEN_MODE_EGRESS_TOOLS`.
+    """
+    if missing := open_mode_missing_by_persona(config, project_root):
+        raise OpenModeEgressError(missing)
+
+
+def open_mode_offenders(config: Any, project_root: Path | str) -> set[str]:
+    """The personas an OPEN deploy would be refused for, computed without raising.
+
+    The same predicate :func:`check_open_mode_requirements` refuses on, split
+    out so a caller can ASK the question without raising on the answer — a
+    second reader of one predicate, never a second definition of what an
+    offender is. The names alone; :func:`open_mode_missing_by_persona` is the
+    same answer with the per-offender detail attached, and this is that answer's
+    key set.
+
+    Reads rendered directories and nothing else: no file is written, no process
+    is started, and nothing about the deployment changes. That purity is what
+    licenses calling it from the middle of a start sequence, and from lint.
+
+    Args:
+        config: The parsed deploy config.
+        project_root: Deploy project root; relative ``project_path`` values
+            resolve against it.
+
+    Returns:
+        Every persona whose shipped settings do not deny the whole of
+        :data:`OPEN_MODE_EGRESS_TOOLS` — including one with no rendered
+        settings artifact at all — plus :data:`ZERO_MIGRATION_OFFENDER` when the
+        roster's persona-less entries are in that state. Empty when the
+        deployment is not open, and empty when it is open and clean.
+    """
+    return set(open_mode_missing_by_persona(config, project_root))
+
+
+def open_mode_missing_by_persona(
+    config: Any, project_root: Path | str
+) -> dict[str, tuple[str, ...]]:
+    """Per offender, the egress entries its shipped settings fail to deny.
+
+    The one place the raising gate and the ask-only readers get their answer, so
+    they cannot disagree — including about whether the deployment is open at
+    all, which is settled here rather than at each caller. It is also what a
+    caller building an :class:`OpenModeEgressError` of its own passes as
+    ``missing_by_persona`` so its message names the same entries the raising
+    gate would have named. Asking :func:`open_mode_offenders` instead and
+    phrasing the refusal against the whole set is supported, but sends the
+    operator through four entries to find the one that is lifted.
+
+    Pure in the same sense as :func:`open_mode_offenders`, which is derived from
+    this.
+
+    Args:
+        config: The parsed deploy config.
+        project_root: Deploy project root; relative ``project_path`` values
+            resolve against it, and it is itself the artifact the persona-less
+            roster entries ship.
+
+    Returns:
+        ``{offender: entries}``, each tuple in :data:`OPEN_MODE_EGRESS_TOOLS`
+        order, and :data:`UNRENDERED_SETTINGS` (the empty tuple) for an offender
+        with no rendered artifact on this host. ``{}`` when the deployment is
+        not open, or when every offender-to-be denies the whole set.
+    """
+    if not deployment_is_open(config):
+        return {}
+    missing: dict[str, tuple[str, ...]] = {}
+    # One roster walk, and one read of each persona's settings.json diffed
+    # against the whole tuple — not one walk per entry. The offender still has
+    # to be named with the entries IT is missing (a persona that lifted only
+    # `WebFetch` is a different problem, and a different remedy, from one
+    # shipping no settings.json at all), and the diff answers that from the same
+    # single read.
+    for persona, project_dir in referenced_persona_project_dirs(config, project_root).items():
+        if (gap := _open_mode_gap(project_dir)) is not None:
+            missing[persona] = gap
+    # The persona walk above is keyed on persona names and so cannot see roster
+    # entries that run no persona; they ship the deploy project's own artifact.
+    if (
+        _roster_has_personaless_entries(config)
+        and (gap := _open_mode_gap(Path(project_root))) is not None
+    ):
+        missing[ZERO_MIGRATION_OFFENDER] = gap
+    return missing
+
+
+def _open_mode_gap(project_dir: Path | None) -> tuple[str, ...] | None:
+    """What one rendered project fails to deny, or ``None`` when it denies it all.
+
+    Fails closed on every artifact it cannot read, exactly as
+    :func:`~osprey.deployment.web_terminals.personas.settings_json_denies` does,
+    and splits that failure in two so the refusal can be acted on: an artifact
+    that is simply not there on this host reports
+    :data:`UNRENDERED_SETTINGS` — render it — while one that is there and
+    unreadable, or there and permissive, reports the entries it does not deny.
+
+    Args:
+        project_dir: The rendered project directory whose
+            ``.claude/settings.json`` this offender ships, or ``None`` for a
+            persona whose catalog entry names no ``project_path`` — which ships
+            no artifact at all and is reported the same way an unrendered one
+            is.
+
+    Returns:
+        ``None`` when every entry in :data:`OPEN_MODE_EGRESS_TOOLS` is denied;
+        :data:`UNRENDERED_SETTINGS` when there is no artifact on this host; else
+        the entries that are missing, in :data:`OPEN_MODE_EGRESS_TOOLS` order.
+    """
+    if project_dir is None or not settings_json_is_rendered(project_dir):
+        return UNRENDERED_SETTINGS
+    denied = settings_json_deny_entries(project_dir)
+    gap = tuple(tool for tool in OPEN_MODE_EGRESS_TOOLS if denied is None or tool not in denied)
+    return gap or None
+
+
+def deployment_is_open(config: Any) -> bool:
+    """Whether this deployment runs OPEN — nginx vouching for every terminal.
+
+    The gate's own posture question, and exported because one other decision
+    hangs off the same answer: open mode requires a local persona render on this
+    host (it is the artifact this gate reads), so
+    :func:`~osprey.deployment.web_terminals.provision.persona_render_problem`
+    demands one in BOTH image-source modes when this returns ``True``. Routed
+    here rather than re-derived there, so the mode that requires the render and
+    the gate that reads it can never disagree about which deployments are open.
+
+    Asked through
+    :func:`~osprey.deployment.web_terminals.render._auth_tls_context`, the
+    single definition of what an ``auth`` stanza means, and off its
+    ``open_perimeter`` boolean rather than the method name — the same boolean
+    the compose render stamps the perimeter from, so the gate and the stamp
+    cannot come to disagree about which deployments are open.
+
+    Degrades to ``False`` on the one input that function rejects — an
+    ``auth.method`` naming a method that does not exist. Such a config renders
+    nothing at all: the render raises on it and lint reports
+    ``web_terminals.unknown_auth_method``, both independently of this gate. It
+    is not an open deployment, and answering the question with a ``ValueError``
+    would put a raise inside :func:`open_mode_offenders`, whose callers are
+    promised one that does not raise.
+
+    Args:
+        config: The parsed deploy config.
+
+    Returns:
+        ``True`` only for a deployment whose ``auth.method`` resolves to the
+        open posture.
+    """
+    web_terminals = as_dict(as_dict(as_dict(config).get("modules")).get("web_terminals"))
+    try:
+        context = _auth_tls_context(web_terminals)
+    except ValueError:
+        return False
+    return bool(context["open_perimeter"])
+
+
 def web_artifacts_dir(repo_root: Path | str) -> Path:
     """Where a repo's rendered web-terminal artifacts live: ``<repo>/build``.
 
@@ -540,6 +942,7 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
 
     Raises:
         BashLaunchTokenConflictError: See :func:`check_bash_launch_token_conflict`.
+        OpenModeEgressError: See :func:`check_open_mode_requirements`.
     """
     from osprey.deployment.compose_generator import (
         resolve_ariel_mirror_dir,
@@ -549,6 +952,10 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
 
     root = Path(repo_root)
     launch_token_personas_by_lane = check_bash_launch_token_conflict(config, root)
+    # The second fail-closed gate, in the same position and for the same reason:
+    # an open deployment whose personas can still reach its own terminals must
+    # leave no half-written artifacts behind either.
+    check_open_mode_requirements(config, root)
     return {
         "auth_env_digest": auth_env_digest(root),
         "dispatcher_personas": personas_needing_dispatcher_token(config, root),
@@ -644,6 +1051,13 @@ def write_web_terminal_artifacts(config: Any, repo_root: Path | str | None = Non
             those refuse earlier still (see
             :func:`check_bash_launch_token_conflict`); this is the backstop that
             makes the property hold for all of them.
+        OpenModeEgressError: The deployment is open (``auth.method: none``) and
+            some referenced persona's shipped ``.claude/settings.json`` does not
+            deny every tool in :data:`OPEN_MODE_EGRESS_TOOLS` — including the
+            case where there is no rendered artifact to read at all, which open
+            mode requires on this host. Raised before the render on every
+            writer, for the same reason and with the same backstop role as the
+            conflict above (see :func:`check_open_mode_requirements`).
         ValueError: From the render — including, once this deployment has any
             operator secret provisioned at all, a roster user that has none of
             its own (see :func:`_terminal_secrets`). Raised before any file is

@@ -258,16 +258,23 @@ def build_records(
             continue
 
         factory = get_core_category_factory(name)
-        if name == "file_system":
-            # Repo-root things: the `.env`, a `registry_path` the config states
-            # relative to project_root, the disk the deployment lives on.
+        # Three categories take a `cwd`, and the anchor follows the ZONE the
+        # material they look for lives in — not a house style. Getting it wrong
+        # is silent: the check reports a present file as missing.
+        if name in ("file_system", "systemd_unit"):
+            # Repo-root things. `file_system`: the `.env`, a `registry_path` the
+            # config states relative to project_root, the disk the deployment
+            # lives on. `systemd_unit`: `osprey scaffold systemd` writes
+            # `osprey.service` beside the profile, in the tracked source zone —
+            # it is not build output, so the render zone would never hold it and
+            # the row would skip on every deployment that has one.
             func = factory(expanded, context=None, cwd=project_path)
         elif name == "channel_finder":
             # NOT the repo root. A channel database is build-owned output, and
             # the rendered config states its path relative to the config's own
             # directory (`<repo>/build`), so anchoring it on the repo root looks
             # one zone too high and reports a present database as missing. The
-            # two categories take DIFFERENT anchors on purpose.
+            # three categories do not all take the same anchor on purpose.
             func = factory(expanded, context=None, cwd=render_path)
         else:
             func = factory(expanded, context=None)

@@ -121,6 +121,24 @@ virtual_accelerator:
   # EPICS port the simulator serves on. The agent follows this value, so
   # changing it moves both.
   port: 5064
+  # A second copy of the simulator, wired in as this deployment's `live`
+  # target with a small fixed offset on its readouts, so `control_target_set
+  # live` rehearses the real go-live ritual — probe, acknowledgment, strict
+  # limits, approval prompts, LIVE MACHINE (stand-in) banner — on `osprey up`,
+  # with no config edits.
+  # Delete the line on a laptop: the simulator image is amd64-only, so a
+  # second emulated container on Apple Silicon doubles what QEMU has to run —
+  # one more emulated soft-IOC for the life of the deployment.
+  # Going live for real is three steps: delete the line, point
+  # `control_system.connector.epics.gateways` in your config.yml at your
+  # facility, and replace
+  # `control_system.target_switch.live_gateway_acknowledged` (the build wrote
+  # the stand-in's loopback address there) with your own live gateway's
+  # hostname.
+  # `osprey sim apply` moves both machines — a scenario changes the world, not
+  # one lane. The archiver records the stand-in, and its seeded history carries
+  # the same offsets: the archive belongs to the machine.
+  live_standin: 5074
 
 bluesky_web:
   port: 8095

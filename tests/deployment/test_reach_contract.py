@@ -34,6 +34,7 @@ from osprey.deployment.reach import (
     SHARED_PATHS,
     dotted_get,
     live_consumers,
+    project_attached_overrides,
     reach_errors,
 )
 from osprey.deployment.web_terminals.artifacts import resolve_render_inputs
@@ -79,8 +80,13 @@ def _injected_services() -> set[str]:
     A second plan lane (``bluesky.second_lane``) is written by the bluesky
     injector beside lane 1's block, reusing lane 1's service template — so
     neither scan above sees it, and without this it could never be missing.
+
+    The live stand-in (``virtual_accelerator.live_standin``) is the same case:
+    the VA injector writes a second ``services.live_standin`` block beside
+    ``services.virtual_accelerator``, and the second container renders from the
+    virtual_accelerator template, so no scan above names it either.
     """
-    return set(SECOND_LANE_KEYS.values())
+    return set(SECOND_LANE_KEYS.values()) | {"live_standin"}
 
 
 def _deployable_services() -> set[str]:
@@ -126,6 +132,124 @@ def test_every_projected_key_lives_under_a_known_prefix():
                 assert projected.key.startswith(f"web.panels.{projected.panel}."), projected
             else:
                 assert projected.key.startswith(f"services.{contract.service}."), projected
+
+
+# ---------------------------------------------------------------------------
+# The live stand-in, whose port every render is told
+# ---------------------------------------------------------------------------
+
+_STANDIN_PORT = 5074
+
+
+def _standin_config(port: int = _STANDIN_PORT) -> dict:
+    """A render shaped the way the build leaves one that stood a stand-in up.
+
+    The gateways are the overwrite the VA injector performs: the ``epics``
+    connector — the live target — dials the second virtual accelerator on
+    loopback instead of the facility's gateway.
+    """
+    config: dict = {
+        "control_system": {
+            "type": "epics",
+            "connector": {
+                "epics": {
+                    "gateways": {
+                        "read_only": {
+                            "address": "localhost",
+                            "port": port,
+                            "use_name_server": True,
+                        },
+                        "write_access": {
+                            "address": "localhost",
+                            "port": port,
+                            "use_name_server": True,
+                        },
+                    }
+                }
+            },
+        },
+        "services": {
+            "live_standin": {"path": "./services/virtual_accelerator", "port": port},
+        },
+    }
+    return config
+
+
+def _standin_contract():
+    return REACH_CONTRACTS["live_standin"]
+
+
+def test_the_live_standin_port_is_projected_ungated():
+    """Every render is told the port, because the LABEL reads it.
+
+    ``osprey_connectors.standin.live_standin_active`` decides from this one key
+    whether an operator is shown ``LIVE MACHINE`` or ``LIVE MACHINE (stand-in)``,
+    and a persona render carries no ``services:`` block of its own. A gate here
+    would label the same machine two different ways depending on whether it was
+    seen through a persona.
+    """
+    projected = _standin_contract().projected
+    assert [key.key for key in projected] == ["services.live_standin.port"]
+    assert projected[0].gate is None
+    assert projected[0].panel is None
+
+
+def test_the_standin_port_reaches_a_render_with_no_epics_connector():
+    """The ungated projection, exercised through the build's own function.
+
+    An attached project built from a template with no ``epics`` connector
+    (hello_world, ariel_standalone) has no client for the stand-in and is still
+    told where it is: its roster labels the same machine as everyone else's.
+    """
+    attached = {"services": {}}
+    overrides = project_attached_overrides(_standin_config(), attached)
+
+    assert overrides["services.live_standin.port"] == _STANDIN_PORT
+    # ... and that render is not refused for a consumer it does not have.
+    assert (
+        reach_errors({**attached, **{"services": {"live_standin": {"port": _STANDIN_PORT}}}}) == []
+    )
+
+
+def test_a_host_without_a_standin_projects_nothing():
+    host = _standin_config()
+    del host["services"]["live_standin"]
+
+    assert project_attached_overrides(host, {"services": {}}) == {}
+
+
+def test_the_standin_consumer_dials_the_epics_read_only_gateway():
+    contract = _standin_contract()
+    (consumer,) = contract.consumers
+    config = _standin_config()
+
+    assert consumer.is_on(config)
+    assert consumer.resolves(config)
+    assert consumer.dial is not None
+    assert consumer.dial(config) == ("localhost", _STANDIN_PORT)
+    assert reach_errors(config) == []
+
+
+def test_the_standin_consumer_has_nothing_to_dial_without_gateways():
+    config = _standin_config()
+    del config["control_system"]["connector"]["epics"]["gateways"]
+    (consumer,) = _standin_contract().consumers
+
+    assert consumer.dial is not None
+    assert consumer.dial(config) is None
+    # On with nothing to dial is the state the build refuses: the stand-in was
+    # stood up and the connector that reaches it was left pointing nowhere.
+    assert consumer.is_on(config) and not consumer.resolves(config)
+    assert any("live stand-in" in error for error in reach_errors(config))
+
+
+def test_a_deployment_with_no_standin_switches_the_consumer_off():
+    config = _standin_config()
+    del config["services"]["live_standin"]
+    (consumer,) = _standin_contract().consumers
+
+    assert not consumer.is_on(config)
+    assert reach_errors(config) == []
 
 
 # ---------------------------------------------------------------------------

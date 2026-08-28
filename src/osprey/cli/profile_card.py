@@ -326,6 +326,9 @@ def _machine_group(profile: BuildProfile) -> CardGroup | None:
     if profile.virtual_accelerator is not None:
         port = profile.virtual_accelerator.port
         control.append([("EPICS ", None), (f":{port}", Styles.ACCENT)])
+        standin_port = profile.virtual_accelerator.live_standin
+        if standin_port is not None:
+            control.append([("live stand-in ", None), (f":{standin_port}", Styles.ACCENT)])
     if control:
         rows.append([[("control", Styles.DIM)], _joined(control)])
 

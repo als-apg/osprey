@@ -1,23 +1,37 @@
 """The audit-and-roles feature must be INVISIBLE to a deployment that asked for
 neither authentication nor roles — except for the audit trail itself.
 
-This is the line-level pin behind that promise (PROPOSAL success criterion SC6).
-A facility whose ``modules.web_terminals`` declares ``auth.method: none`` (or no
-``auth:`` block at all) and no ``authorization:`` block must render
+This is the line-level pin behind that promise (PROPOSAL success criterion SC6),
+and it is also what makes ``auth.method: token`` the default rather than a new
+posture nobody has run. ``token`` carries what ``auth.method: none`` used to
+mean — a per-user ``?token=`` magic link, no sidecar, no injected secret — and
+it is what an absent ``auth:`` block renders. The frozen golden below is that
+posture's output, copied out of a commit that predates the four-method scheme,
+so "``token`` is today's shipped behaviour under a new name" is a claim these
+tests check byte by byte rather than a claim the PROPOSAL merely makes. That is
+the argument for defaulting to it: writing no ``auth:`` block gets a facility
+the one posture whose bytes have been pinned all along.
+
+``none`` now means *open* — navigation-only, nginx injects each user's terminal
+secret — and renders something deliberately different. Nothing in this module
+describes ``none``; its render is pinned by ``test_nginx_auth_surface.py``.
+
+So: a facility whose ``modules.web_terminals`` declares ``auth.method: token``
+(or no ``auth:`` block at all) and no ``authorization:`` block must render
 byte-for-byte what it rendered before this feature, with exactly two exceptions:
 
   1. **the audit emitters and mounts** — ``OSPREY_AUDIT_IDENTITY``,
      ``OSPREY_AUDIT_DIR`` and the per-identity ``./var/audit/<identity>`` bind,
-     which are unconditional by design: an unauthenticated deployment still
+     which are unconditional by design: a deployment with no login wall still
      records what its agents did, and a posture that only writes a trail when
      someone opted into logins would have the trail missing exactly where it is
      least supervised.
   2. **the identity-header clears** — ``proxy_set_header X-Osprey-Auth-Subject
-     ""``/``X-Osprey-Auth-Role ""`` in every proxying location. With
-     authentication off there is no sidecar to answer for a subject, so nginx
-     must claim both names anyway: a location that names neither would hand a
-     client's own ``X-Osprey-Auth-Subject: root`` straight to a terminal
-     container, which reads that header to learn who is on the other end.
+     ""``/``X-Osprey-Auth-Role ""`` in every proxying location. Under ``token``
+     there is no sidecar to answer for a subject, so nginx must claim both names
+     anyway: a location that names neither would hand a client's own
+     ``X-Osprey-Auth-Subject: root`` straight to a terminal container, which
+     reads that header to learn who is on the other end.
 
 Everything else — every port, volume, header, ``location`` block, comment and
 blank line — must be untouched, with one REPLACEMENT the feature makes rather
@@ -33,17 +47,20 @@ the three artifacts as ``render_web_terminals(EXAMPLE_CONFIG)`` produced them
 Unlike ``golden/`` proper (see ``test_golden_render.py``, which tracks today's
 output and is re-generated with every deliberate template change), this
 directory is a historical record and must NEVER be refreshed from the current
-renderer — doing so would delete the very thing being compared against and turn
-this module into a test that passes unconditionally.
+renderer — doing so would delete the very thing being compared against, turn
+this module into a test that passes unconditionally, and destroy the evidence
+that ``token`` reproduces the old ``none``.
 ``test_the_frozen_baseline_really_predates_the_feature`` exists to make that
 mistake fail loudly rather than silently.
 
 **When a hunk here fails**, the question is not "how do I widen the allowlist".
-It is: does the new line belong in an auth-off, roles-off render at all? If it
+It is: does the new line belong in a ``token``, roles-off render at all? If it
 carries authorization, a role, a claim or a login, the answer is no and the
-template is wrong. If it is a genuine third exception to SC6, add it to the
-allowlist below *and* say so in the PROPOSAL — SC6 is a promise to operators
-who never asked for any of this, and it is worth exactly as much as the list.
+template is wrong. If it is an injected terminal secret, the ``none`` work has
+leaked into ``token`` and the fix is in the template's predicate, not here. If
+it is a genuine third exception to SC6, add it to the allowlist below *and* say
+so in the PROPOSAL — SC6 is a promise to operators who never asked for any of
+this, and it is worth exactly as much as the list.
 """
 
 from __future__ import annotations
@@ -95,7 +112,7 @@ _ALLOWED_COMPOSE_LINES = Counter(
 #: The interim per-user audit bind the pre-feature render carried — mounted at
 #: the container's audit ROOT, for the executor's old refusal ledger — which the
 #: identity-addressed bind above replaces. These, and ONLY these, may vanish
-#: from the auth-off render; anything else that disappears is still a failure.
+#: from the `token` render; anything else that disappears is still a failure.
 _REPLACED_COMPOSE_LINES = frozenset(
     {
         "      # This user's refusal audit log (`var/audit/<user>/` on the host), bound",
@@ -131,9 +148,21 @@ def _baseline(name: str) -> str:
     return (_BASELINE_DIR / name).read_text().replace(_REPO_ID_SENTINEL, _rendered_repo_id())
 
 
-def _auth_off_render() -> dict[str, str]:
-    """Today's render of the SC6 shape: no ``auth:``, no ``authorization:``."""
+def _token_render() -> dict[str, str]:
+    """Today's render of the SC6 shape: no ``auth:``, no ``authorization:``.
+
+    The absent stanza is the ``token`` posture, because that is the default
+    `_auth_tls_context` supplies. The explicit spelling is
+    :func:`_explicit_token_render`, and the two are pinned equal below.
+    """
     return render_web_terminals(EXAMPLE_CONFIG)
+
+
+def _explicit_token_render() -> dict[str, str]:
+    """The same posture written out: ``auth: {method: token}``, roles off."""
+    explicit = copy.deepcopy(EXAMPLE_CONFIG)
+    explicit["modules"]["web_terminals"]["auth"] = {"method": "token"}
+    return render_web_terminals(explicit)
 
 
 def _is_comment(line: str) -> bool:
@@ -142,10 +171,17 @@ def _is_comment(line: str) -> bool:
     return not stripped or stripped.startswith("#")
 
 
-def _opcodes(name: str) -> tuple[list[str], list[str], list[tuple]]:
-    """Baseline lines, current lines, and the line-level edit script between them."""
+def _opcodes(
+    name: str, artifacts: dict[str, str] | None = None
+) -> tuple[list[str], list[str], list[tuple]]:
+    """Baseline lines, current lines, and the line-level edit script between them.
+
+    ``artifacts`` defaults to the absent-stanza render; pass the explicit-token
+    render to hold that spelling to the same frozen baseline.
+    """
+    rendered = _token_render() if artifacts is None else artifacts
     old = _baseline(name).splitlines()
-    new = _auth_off_render()[_ARTIFACTS[name]].splitlines()
+    new = rendered[_ARTIFACTS[name]].splitlines()
     return old, new, difflib.SequenceMatcher(a=old, b=new, autojunk=False).get_opcodes()
 
 
@@ -176,15 +212,40 @@ def test_the_frozen_baseline_really_predates_the_feature() -> None:
     assert "X-Osprey-Auth-Role" not in nginx
 
 
-def test_an_explicit_auth_method_none_renders_what_an_absent_auth_block_renders() -> None:
-    """SC6 names ``auth.method: none``; ``EXAMPLE_CONFIG`` omits ``auth:``
-    entirely. `_auth_tls_context` defaults the missing block to ``"none"``, so
-    the two are the same posture — pinned here rather than assumed, because if
-    they ever diverge the allowlist below would be guarding only one of them."""
-    explicit = copy.deepcopy(EXAMPLE_CONFIG)
-    explicit["modules"]["web_terminals"]["auth"] = {"method": "none"}
+def test_the_frozen_golden_holds_todays_token_bytes_under_both_spellings() -> None:
+    """Why ``token`` is the default, stated as a test rather than as an argument.
 
-    assert render_web_terminals(explicit) == _auth_off_render()
+    ``EXAMPLE_CONFIG`` omits ``auth:`` entirely, and `_auth_tls_context` defaults
+    the missing block to ``"token"`` — so the first assertion is that the written
+    and the defaulted spelling are one posture, not two. It is pinned rather than
+    assumed because everything else in this module renders the DEFAULTED
+    spelling: if the two ever forked, the whole allowlist would be guarding only
+    one of them.
+
+    The loop then holds the EXPLICIT spelling to the frozen pre-feature golden
+    through the same allowlist, which proves one direction only — that this
+    render ADDS nothing beyond the two SC6 exceptions.
+    `test_no_pre_feature_line_is_removed_or_reworded` supplies the other
+    direction (nothing is removed or reworded) for the defaulted spelling, and
+    the asserted equality above is what extends that half to this one.
+
+    Together they say the golden is unchanged. It was copied out of a commit
+    where the only posture that could produce it was ``auth.method: none`` — so
+    the bytes ``none`` shipped are the bytes ``token`` renders, and defaulting
+    the absent stanza to ``token`` hands a facility a posture that has been
+    running all along.
+
+    When this fails, read WHICH half failed. A failed equality means the
+    explicit and defaulted paths through `_auth_tls_context` have forked. A
+    failed loop means the ``token`` render grew a line — most likely because
+    ``none``'s open-mode secret injection reached a branch that is not gated on
+    ``inject_secret``, which is a bug in the template, not in this pin.
+    """
+    explicit = _explicit_token_render()
+    assert explicit == _token_render()
+
+    for name in _ARTIFACTS:
+        _assert_added_directives_are_exactly_allowed(name, explicit)
 
 
 def test_no_pre_feature_line_is_removed_or_reworded() -> None:
@@ -202,7 +263,7 @@ def test_no_pre_feature_line_is_removed_or_reworded() -> None:
             if tag in ("delete", "replace") and not set(old[i1:i2]) <= replaceable
         ]
         assert not lost, (
-            f"{name}: the auth-off render no longer contains lines the pre-feature "
+            f"{name}: the `token` render no longer contains lines the pre-feature "
             f"render had. SC6 permits additions only: {lost}"
         )
 
@@ -210,7 +271,7 @@ def test_no_pre_feature_line_is_removed_or_reworded() -> None:
 def test_landing_page_is_byte_identical_to_the_pre_feature_render() -> None:
     """The strictest form of SC6, available for the one artifact with no
     exception: an operator's landing page must not have moved by one byte."""
-    assert _auth_off_render()["nginx/landing.html"] == _baseline("landing.html")
+    assert _token_render()["nginx/landing.html"] == _baseline("landing.html")
 
 
 def test_compose_adds_exactly_the_audit_emitters_and_mounts() -> None:
@@ -234,7 +295,7 @@ def test_no_authorization_vocabulary_reaches_a_roles_off_render() -> None:
     artifact: not a role claim, not a role map, not a sidecar recheck. This
     catches a whole class of leak in one assertion, including in the comment
     text the line allowlist deliberately ignores."""
-    artifacts = _auth_off_render()
+    artifacts = _token_render()
     for key, text in artifacts.items():
         for marker in (
             "OSPREY_AUTH_ROLE_CLAIM",
@@ -252,29 +313,36 @@ def test_no_authorization_vocabulary_reaches_a_roles_off_render() -> None:
             )
 
 
-def test_the_auth_off_render_has_no_auth_sidecar_service_at_all() -> None:
+def test_the_token_render_has_no_auth_sidecar_service_at_all() -> None:
     """The structural reason the allowlist above stays short, pinned so it cannot
     quietly stop being true.
 
     Everything the sidecar carries — its password hashes, its mapped subjects,
     its OIDC settings, its role claim/map, its per-user
     ``OSPREY_AUTH_ROSTER_ROLE_<suffix>`` bindings — lives inside a service that
-    ``auth.method: none`` never renders. So work on the sidecar's environment
-    block cannot move this render, and lines from it must never be added to the
-    SC6 allowlist: the allowlist asserts equality in BOTH directions, so an entry
-    that never renders here would fail as a missing exception rather than pass as
-    a permitted one.
+    ``auth.method: token`` never renders (only ``password``/``oidc`` stand one
+    up). So work on the sidecar's environment block cannot move this render, and
+    lines from it must never be added to the SC6 allowlist: the allowlist asserts
+    equality in BOTH directions, so an entry that never renders here would fail
+    as a missing exception rather than pass as a permitted one.
 
-    If this test ever fails, an auth-off deployment has grown a login service it
-    did not ask for, and that is the finding — not the allowlist's shortness."""
-    compose = yaml.safe_load(_auth_off_render()["docker-compose.web.yml"])
+    If this test ever fails, a deployment that asked for no login wall has grown
+    a login service anyway, and that is the finding — not the allowlist's
+    shortness."""
+    compose = yaml.safe_load(_token_render()["docker-compose.web.yml"])
 
     assert set(compose["services"]) == {"nginx", "web-alice", "web-bob"}
 
 
-def _assert_added_directives_are_exactly_allowed(name: str) -> None:
+def _assert_added_directives_are_exactly_allowed(
+    name: str, artifacts: dict[str, str] | None = None
+) -> None:
     """Every inserted non-comment line is in the allowlist for ``name``, at the
     expected multiplicity, and every allowlisted line was actually inserted.
+
+    ``artifacts`` defaults to the absent-stanza render; the explicit-token
+    spelling is held to the same allowlist by
+    `test_the_frozen_golden_holds_todays_token_bytes_under_both_spellings`.
 
     Comments are excluded on purpose: pinning prose line by line would duplicate
     the golden fixture without adding a guarantee, and reworded prose is already
@@ -282,7 +350,7 @@ def _assert_added_directives_are_exactly_allowed(name: str) -> None:
     comments) plus `test_no_authorization_vocabulary_reaches_a_roles_off_render`
     (which reads the comment text for the vocabulary that must not appear).
     """
-    _old, new, opcodes = _opcodes(name)
+    _old, new, opcodes = _opcodes(name, artifacts)
     inserted = Counter(
         line
         for tag, _i1, _i2, j1, j2 in opcodes
@@ -294,7 +362,7 @@ def _assert_added_directives_are_exactly_allowed(name: str) -> None:
     unexpected = inserted - _ALLOWED[name]
     missing = _ALLOWED[name] - inserted
     assert not unexpected, (
-        f"{name}: line(s) added to the auth-off render that SC6 does not allow. "
+        f"{name}: line(s) added to the `token` render that SC6 does not allow. "
         f"Add them to the allowlist only if they genuinely belong in a render "
         f"that asked for neither logins nor roles: {sorted(unexpected.elements())}"
     )

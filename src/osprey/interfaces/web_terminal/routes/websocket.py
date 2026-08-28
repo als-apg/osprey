@@ -484,6 +484,36 @@ def _persist_postures(app, store: dict[str, str]) -> None:
 _UNREADABLE_SECTION = object()
 
 
+def _rendered_config(config_path: Path | None) -> Any:
+    """The WHOLE parsed render, or :data:`_UNREADABLE_SECTION`.
+
+    The whole file rather than the ``control_system:`` block alone because the
+    target labels are derived from more than that block — a deployment running a
+    stand-in for its live machine says so under ``services:`` — and
+    :func:`_posture_render_facts` still gets to read the file exactly once.
+    Blocking; never call it from the event loop.
+    """
+    try:
+        if not config_path or not Path(config_path).exists():
+            return _UNREADABLE_SECTION
+        return yaml.safe_load(Path(config_path).read_text(encoding="utf-8")) or {}
+    except Exception:  # noqa: BLE001 — an unreadable config is not a writes-on render
+        logger.warning("Could not read the rendered config at %s", config_path)
+        return _UNREADABLE_SECTION
+
+
+def _section_of(config: Any) -> Any:
+    """The ``control_system:`` block of an ALREADY-READ render.
+
+    A render that could not be read stays :data:`_UNREADABLE_SECTION`; one that
+    parsed to something that is not a mapping has no section, which is a
+    different (and non-failing) answer the predicates below already handle.
+    """
+    if config is _UNREADABLE_SECTION:
+        return _UNREADABLE_SECTION
+    return config.get("control_system") if isinstance(config, dict) else None
+
+
 def _control_system_section(config_path: Path | None) -> Any:
     """The rendered ``control_system:`` section, or :data:`_UNREADABLE_SECTION`.
 
@@ -492,14 +522,7 @@ def _control_system_section(config_path: Path | None) -> Any:
     :func:`_posture_render_facts` is the reason this is separate from the
     predicates below. Blocking; never call it from the event loop.
     """
-    try:
-        if not config_path or not Path(config_path).exists():
-            return _UNREADABLE_SECTION
-        config = yaml.safe_load(Path(config_path).read_text(encoding="utf-8")) or {}
-    except Exception:  # noqa: BLE001 — an unreadable config is not a writes-on render
-        logger.warning("Could not read the control-system section from %s", config_path)
-        return _UNREADABLE_SECTION
-    return config.get("control_system") if isinstance(config, dict) else None
+    return _section_of(_rendered_config(config_path))
 
 
 def _rendered_writes_enabled(config_path: Path | None) -> bool:
@@ -556,26 +579,95 @@ def _posture_render_facts(config_path: Path | None, pty_pid: int | None) -> dict
     """Everything the badge needs from the render and the process table.
 
     **Blocking, and deliberately so**: it reads ``config.yml`` and — through
-    :func:`~osprey.mcp_server.control_system.target_banner.session_target_for_pid`
+    :func:`~osprey.mcp_server.control_system.target_banner.session_target_meta_for_pid`
     — walks the process table, which on a platform without ``/proc`` means
     forking ``ps``. The GET route hands the whole thing to a worker thread
     (``run_in_threadpool``) rather than doing any of it on the event loop, where
     a wedged process table would stall every other request, the terminal
     websocket included.
 
-    One read of the config serves both render questions. The route used to call
+    One read of the config serves every render question. The route used to call
     :func:`_rendered_writes_enabled` and the target lookup separately, which
     parsed the same YAML twice per request — now twice per five seconds per
-    open card, thanks to the badge's refresh poll.
+    open card, thanks to the badge's refresh poll. The whole parsed render is
+    what travels down, not just its ``control_system:`` block: the target labels
+    are derived from the render as a whole, and re-reading the file for them
+    would put that second parse straight back.
     """
-    section = _control_system_section(config_path)
+    config = _rendered_config(config_path)
+    section = _section_of(config)
     return {
         "rendered_writes_enabled": _any_target_writes_enabled(section),
-        **_session_target_posture(section, pty_pid),
+        **_session_target_posture(section, config, pty_pid),
     }
 
 
-def _session_target_posture(section: Any, pty_pid: int | None) -> dict[str, Any]:
+def _published_target(pty_pid: int | None) -> tuple[str | None, str | None]:
+    """The target this PTY's controls server published, and the label it minted.
+
+    Both facts off ONE resolution, deliberately. Resolving is the expensive half
+    of this request — a scan of the state directory plus an ancestor walk that,
+    on a platform without ``/proc``, forks ``ps`` — and the badge polls it every
+    few seconds per open card. Asking twice would also open a window in which
+    the two answers came from different records: a switch landing between them
+    would put one target's name beside another target's label, which is the
+    exact confusion the label exists to prevent.
+
+    The label is minted ONCE, by the server that wrote the record, and every
+    reader shows what it was handed. A badge that derived its own name from
+    ``config.yml`` would be a second opinion about which machine an operator is
+    pointed at.
+
+    Returns:
+        ``(target, label)``, either of which may be ``None``: no PTY, no
+        matching record, an ambiguous one, or an unreadable process table all
+        answer ``(None, None)``, and a record that carries no label answers with
+        the target alone. The caller falls back to the baseline for the first
+        and to the bare target name for the second.
+    """
+    if not pty_pid:
+        return None, None
+    try:
+        from osprey.mcp_server.control_system.target_banner import session_target_meta_for_pid
+
+        meta = session_target_meta_for_pid(pty_pid)
+    except Exception:  # noqa: BLE001 — the badge must render, not 500
+        logger.warning("Could not resolve the session's control target", exc_info=True)
+        return None, None
+    if not isinstance(meta, dict):
+        return None, None
+    target = meta.get("target")
+    if not isinstance(target, str) or not target:
+        return None, None
+    return target, str(meta.get("label") or "") or None
+
+
+def _baseline_target_label(config: Any, target: str) -> str:
+    """The label *target* carries on this render, or its bare name.
+
+    The baseline is the DEFAULT state — a card whose session has not started a
+    controls server yet has no published record to read — so the badge still has
+    to name the target. It names it with the derivation the state file's writer
+    uses, over the same render, rather than a second rule of its own.
+
+    Falls back to the bare target name on anything unreadable: a badge that
+    cannot name a target must still render.
+    """
+    if config is _UNREADABLE_SECTION or not isinstance(config, dict):
+        return target
+    try:
+        from osprey.mcp_server.control_system.connector_host_manager import (
+            target_display_metadata,
+        )
+
+        meta = target_display_metadata(config).get(target) or {}
+        return str(meta.get("label") or "") or target
+    except Exception:  # noqa: BLE001 — the badge must render, not 500
+        logger.warning("Could not derive the label for control target %s", target, exc_info=True)
+        return target
+
+
+def _session_target_posture(section: Any, config: Any, pty_pid: int | None) -> dict[str, Any]:
     """Which control target this session is on, and whether THAT target is armed.
 
     ``rendered_writes_enabled`` is a union over every target a session here can
@@ -591,7 +683,12 @@ def _session_target_posture(section: Any, pty_pid: int | None) -> dict[str, Any]
     * ``target_writes_enabled`` — the per-type posture for *that* target;
     * ``target_source`` — ``session`` when a live record matched, ``baseline``
       otherwise, so the badge can mark a fallback as one rather than presenting
-      a guess as fact.
+      a guess as fact;
+    * ``session_target_label`` — what to CALL that target. ``live`` is the
+      target's name, not its identity: a deployment running a stand-in for its
+      real machine publishes a label that says so, and the badge shows the
+      published one rather than deriving a second answer of its own (see
+      :func:`_published_target` and :func:`_baseline_target_label`).
 
     Every unknowable case is the baseline: no controls server yet, a record
     another session owns, two ambiguous records, a dead server, an unreadable
@@ -600,8 +697,9 @@ def _session_target_posture(section: Any, pty_pid: int | None) -> dict[str, Any]
     on. An absent or unreadable render answers "baseline, and no writes", the
     same posture the rest of this module gives it.
 
-    Takes an already-read *section* (see :func:`_posture_render_facts`), not a
-    path. Blocking; never call it from the event loop.
+    Takes an already-read *section* and the whole already-read *config* it came
+    from (see :func:`_posture_render_facts`), not a path. Blocking; never call
+    it from the event loop.
     """
     readable = section is not _UNREADABLE_SECTION
 
@@ -614,16 +712,12 @@ def _session_target_posture(section: Any, pty_pid: int | None) -> dict[str, Any]
         except Exception:  # noqa: BLE001 — a render we cannot classify is `live`
             logger.warning("Could not resolve the deployment's baseline control target")
 
-    resolved: str | None = None
-    if pty_pid:
-        try:
-            from osprey.mcp_server.control_system.target_banner import session_target_for_pid
-
-            resolved = session_target_for_pid(pty_pid)
-        except Exception:  # noqa: BLE001 — the badge must render, not 500
-            logger.warning("Could not resolve the session's control target", exc_info=True)
+    # One resolution, both facts: which target was published, and what its
+    # writer calls it. See :func:`_published_target` for why not two.
+    resolved, published_label = _published_target(pty_pid)
 
     target = resolved or baseline
+    label = published_label or (target if resolved else _baseline_target_label(config, target))
     armed = False
     if readable:
         try:
@@ -635,6 +729,7 @@ def _session_target_posture(section: Any, pty_pid: int | None) -> dict[str, Any]
 
     return {
         "session_target": target,
+        "session_target_label": label,
         "target_writes_enabled": armed,
         "target_source": "session" if resolved else "baseline",
     }
@@ -1165,12 +1260,16 @@ async def get_terminal_posture(session_id: str, request: Request):
       posture is ``writes`` and the effective write capability is still nil,
       because the render, not the toggle, is the binding constraint there. The
       badge says so rather than implying the session can write.
-    * ``session_target`` / ``target_writes_enabled`` / ``target_source`` — the
-      control target this session is pointed at and whether *that* target is
-      armed (see :func:`_session_target_posture`). ``rendered_writes_enabled``
-      is a union and cannot answer this: on a render that arms the virtual
-      accelerator alone it is ``True`` for a session sitting on a live machine
-      every write to which is refused. The POST contract is unchanged — stepping
+    * ``session_target`` / ``session_target_label`` / ``target_writes_enabled``
+      / ``target_source`` — the control target this session is pointed at, what
+      to call it, and whether *that* target is armed (see
+      :func:`_session_target_posture`). The label is the one the controls server
+      published for that target, or — on the baseline — the one this render
+      derives; ``session_target`` stays the bare name, because that is the key
+      the rest of the system uses. ``rendered_writes_enabled`` is a union and
+      cannot answer any of this: on a render that arms the virtual accelerator
+      alone it is ``True`` for a session sitting on a live machine every write
+      to which is refused. The POST contract is unchanged — stepping
       out of the sandbox stays keyed on the union, because an operator may
       legitimately leave the sandbox before switching to the target they intend
       to write on.

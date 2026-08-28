@@ -459,7 +459,7 @@ these verbs act on that roster, which lives in the profile. Every verb takes
    * - ``login-url USER``
      - Print the URL that opens that user's terminal. Only the URL goes to
        stdout, so it can be piped or copied. Refuses for a user who signs in
-       through the login page.
+       through a login page, and for every user of an open deployment.
      - —
    * - ``env``
      - Render ``.env.users``, the env file every per-user container runs
@@ -477,15 +477,19 @@ these verbs act on that roster, which lives in the profile. Every verb takes
 ``osprey users login-url`` builds the URL from that user's operator secret in
 the repository's ``.env``, which ``osprey up`` mints for every roster user in
 every auth mode. Opening it once trades the token for a session cookie. It is
-how someone gets in when nginx authenticates nobody — ``auth.method: none``, or
-a roster entry with ``login: false`` — and it is a password: send each person
-only their own. Rotate one by deleting that user's ``OSPREY_TERMINAL_SECRET_*``
-line from ``.env`` and running ``osprey up`` again.
+how someone gets in when nginx stamps no credential on the request —
+``auth.method: token``, the default, or a roster entry with ``login: false``
+— and it is a password: send each person only their own. Rotate one by deleting
+that user's ``OSPREY_TERMINAL_SECRET_*`` line from ``.env`` and running
+``osprey up`` again.
 
-For a user who *is* behind the login wall the command refuses and names their
-login page instead. The URL would not work for them — the authentication
-service turns the request away before the terminal can read the token — and
-printing it would put a live credential in someone's inbox for nothing.
+The command refuses in the two cases where the URL would accomplish nothing,
+rather than putting a live credential in someone's inbox for it. A user behind
+a login page (``password``/``oidc``) is named their login page instead: the
+authentication service turns the request away before the terminal can read the
+token. A user of an open deployment (``auth.method: none``) is named their
+terminal's plain address instead, because nginx vouches for that terminal on
+every request and there is no token to trade.
 
 ``osprey users env`` renders the same subset a deploy would generate, from the
 same two inputs — the rendered deploy config and the repository root's env
@@ -1046,8 +1050,9 @@ All subcommands accept a common flag:
    pipeline includes it.
 
 ``osprey scaffold systemd [--force]``
-   Emit a systemd user unit that starts this deployment at boot: ``osprey.service``
-   at the repository root, plus the commands to install it. The unit runs
+   Emit the files that start this deployment at boot: a systemd user unit,
+   ``osprey.service`` at the repository root, and a boot hook,
+   ``scripts/osprey-boot-hook.sh``, plus the commands to install the unit. The unit runs
    ``osprey up -d`` from this repository and ``osprey down`` on stop, with both
    the repository and the ``osprey`` program written in as full paths — systemd
    starts a unit with no working directory and a short ``PATH``. Run it on the
@@ -1057,9 +1062,11 @@ All subcommands accept a common flag:
    write needs ``--force``. Refuses when no ``osprey`` program can be found to
    name. Starting at boot also needs ``loginctl enable-linger $USER`` once —
    see :doc:`/how-to/deploy-a-facility`. When ``$HOME`` is on an NFS or autofs
-   mount it also warns that linger alone will not survive a reboot there, and
-   prints the root-only ``user@<uid>.service`` drop-in that orders the user
-   manager after the mount.
+   mount it also warns that linger alone will not survive a reboot there, prints
+   the root-only ``user@<uid>.service`` drop-in that orders the user manager
+   after a systemd-managed mount, and shows the two crontab lines that run the
+   boot hook at boot — the route for a daemon-managed autofs home, and the
+   no-root fallback elsewhere.
 
 ``osprey scaffold list``
    List all build artifacts and their ownership status (framework vs.

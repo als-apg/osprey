@@ -81,6 +81,7 @@ from typing import Any
 from osprey_connectors.control_system.base import is_readonly_run
 from osprey_connectors.control_system.va_connector import fill_gateway_ports
 from osprey_connectors.honesty import VA_MOCK_ARCHIVER_WHY, pairing_for_target
+from osprey_connectors.standin import live_standin_active
 from osprey_connectors.types import (
     TARGET_LIVE,
     VIRTUAL_ACCELERATOR,
@@ -403,6 +404,44 @@ def derive_endpoints(
     )
 
 
+def endpoint_is_live_standin(config: Any, endpoint: Endpoint | None) -> bool:
+    """Whether a derived *endpoint* is this deployment's own live stand-in.
+
+    The step between :func:`derive_endpoints` — which says where a session would
+    land — and :func:`~osprey_connectors.standin.live_standin_active`, which says
+    whether landing there is landing on the stand-in. It lives beside the
+    derivation because both of its callers reach it from one: the roster, which
+    labels the target an operator is told they are on, and the archiver
+    recorder, which decides from the same fact whether the readings it samples
+    belong in this deployment's archive. Two copies of this step could coerce
+    the port differently and answer differently, and a recorder that believed it
+    was sampling a stand-in while an operator was being told ``LIVE MACHINE``
+    would file model readings into a real machine's archive.
+
+    Args:
+        config: The full rendered config mapping.
+        endpoint: The row the connector would configure — typically
+            :meth:`TargetDerivation.selected_endpoint`. ``None`` when the
+            deployment resolved none.
+
+    Returns:
+        ``True`` only for an endpoint the config proves is the stand-in.
+        Everything else — no endpoint, a config that is not a mapping, a port
+        value that names no port — answers ``False``, the direction every
+        honesty predicate in this stack fails: an endpoint is a real machine
+        until the config proves otherwise.
+    """
+    if endpoint is None or not isinstance(config, dict):
+        return False
+    try:
+        port = int(endpoint.port)
+    except (TypeError, ValueError):
+        # The endpoint's port is whatever config carried, and a value that names
+        # no port names no stand-in either.
+        return False
+    return bool(live_standin_active(config, endpoint_host=str(endpoint.host), endpoint_port=port))
+
+
 # ---------------------------------------------------------------------------
 # (b) ELIGIBILITY
 # ---------------------------------------------------------------------------
@@ -533,9 +572,12 @@ def evaluate_eligibility(
             return Eligibility(
                 False,
                 REASON_INVENTED_HISTORY,
-                f"Refusing target {target!r}: {VA_MOCK_ARCHIVER_WHY} This deployment's "
-                f"archiver.type is {pairing.archiver_phrase}. Configure a real archiver "
-                "to point a session at the virtual accelerator.",
+                f"Refusing target {target!r}: the archive belongs to the machine. A "
+                "session pointed at the virtual accelerator needs an archiver that "
+                f"recorded that machine: {VA_MOCK_ARCHIVER_WHY} This deployment's "
+                f"archiver.type is {pairing.archiver_phrase}. Set `archiver.type` to "
+                "a real archiver — this deployment's own store — before switching a "
+                "session onto this target.",
             )
 
     if target == TARGET_LIVE and direction != DIRECTION_BACK:

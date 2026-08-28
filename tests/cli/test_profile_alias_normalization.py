@@ -211,6 +211,10 @@ _ALLOWED_YAML_READS = {
     # The emitter's ruamel round-trip is a comment source; it must keep the
     # YAML-surface spelling rather than normalize it.
     ("build_profile_emit.py", "emit_standalone_profile_yaml", "_yaml.load"),
+    # Not a profile document at all: this reopens the RENDERED config.yml to
+    # retruth one end-of-line comment the stand-in's override falsified. It
+    # reads no key by name, so there is no alias to normalize.
+    ("build_profile_standin.py", "rewrite_strict_limits_comment", "_yaml.load"),
 }
 
 

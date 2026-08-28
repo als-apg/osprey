@@ -40,7 +40,13 @@ def _bundle_data_dir() -> Path:
     return Path(osprey.__file__).parent / "templates" / "apps" / "control_assistant" / "data"
 
 
-def _write_profile(repo_dir: Path, *, deploy_va: bool = False, config: dict | None = None) -> Path:
+def _write_profile(
+    repo_dir: Path,
+    *,
+    deploy_va: bool = False,
+    live_standin: int | None = None,
+    config: dict | None = None,
+) -> Path:
     """A profile sourcing its own copy of the bundled control-assistant tree.
 
     ``hierarchical`` resolves to tier 3, the tier whose three paradigm
@@ -55,6 +61,9 @@ def _write_profile(repo_dir: Path, *, deploy_va: bool = False, config: dict | No
     here but the mount one is about the files and the ``.env`` keys, both of
     which the build produces whether or not the IOC is deployed, and rendering
     a service costs each of them a template copy.
+
+    ``live_standin`` adds that block's stand-in port, which deploys a SECOND
+    soft-IOC as the deployment's ``live`` target. It implies ``deploy_va``.
 
     ``config`` carries dotted overrides into the rendered ``config.yml`` — the
     profile's own escape hatch for a value the bundle's template pins, used
@@ -72,8 +81,10 @@ def _write_profile(repo_dir: Path, *, deploy_va: bool = False, config: dict | No
         "model": "haiku",
         "channel_finder_mode": "hierarchical",
     }
-    if deploy_va:
+    if deploy_va or live_standin is not None:
         profile["virtual_accelerator"] = {"port": 5064}
+        if live_standin is not None:
+            profile["virtual_accelerator"]["live_standin"] = live_standin
     if config:
         profile["config"] = config
     path = repo_dir / "profile.yml"
@@ -336,3 +347,80 @@ class TestCorruptFacilityDataFailsTheBuild:
         assert str(corrupt) in caplog.text
         assert "Build error" in caplog.text
         assert "Unexpected error" not in caplog.text
+
+
+class TestLiveStandinReachesTheRender:
+    """``virtual_accelerator.live_standin`` has to survive a whole real build.
+
+    tests/cli/test_inject_va_gateways.py covers the injector against a template
+    render; only a real ``osprey build`` shows that nothing between the profile
+    parser and the written ``config.yml`` drops the second instance — and that
+    the compose file the operator ends up with describes two containers rather
+    than one.
+    """
+
+    STANDIN_PORT = 5074
+
+    def test_the_render_carries_both_instances_and_the_acknowledgment(self, tmp_path):
+        repo_dir = tmp_path / "repo"
+        _write_profile(repo_dir, live_standin=self.STANDIN_PORT)
+
+        config = yaml.safe_load((_build(repo_dir) / "config.yml").read_text())
+
+        assert config["services"]["live_standin"] == {
+            "path": "./services/virtual_accelerator",
+            "port": self.STANDIN_PORT,
+        }
+        assert "live_standin" in config["deployed_services"]
+        # Without this the deployment's own `live` target refuses itself.
+        assert config["control_system"]["target_switch"]["live_gateway_acknowledged"] == (
+            f"localhost:{self.STANDIN_PORT}"
+        )
+
+    def test_the_compose_file_describes_a_second_container(self, tmp_path):
+        """One template directory, two soft-IOCs, named for what each serves."""
+        repo_dir = tmp_path / "repo"
+        _write_profile(repo_dir, live_standin=self.STANDIN_PORT)
+
+        project_dir = _build(repo_dir)
+
+        compose = (
+            project_dir / "services" / "virtual_accelerator" / "docker-compose.yml"
+        ).read_text()
+        assert "live-standin" in compose
+        assert f"{self.STANDIN_PORT}" in compose
+        # And no second copy of the template tree was staged for it.
+        assert not (project_dir / "services" / "live_standin").exists()
+
+    def test_compose_is_handed_the_shared_file_once(self, tmp_path):
+        """Two instances, one compose file, one ``-f``.
+
+        Both service blocks carry the same ``path``, and the file that path
+        resolves to describes both containers already. The lookup walks
+        ``deployed_services``, so it reports that file once per instance — the
+        same shape a two-lane Bluesky deployment produces, and the reason
+        ``as_built_compose_files`` dedupes what it returns. Pinned here through
+        the function ``osprey up`` actually builds its ``-f`` list from, because
+        that is where the claim "compose sees it once" is true.
+        """
+        from osprey.deployment.container_lifecycle import as_built_compose_files
+
+        repo_dir = tmp_path / "repo"
+        _write_profile(repo_dir, live_standin=self.STANDIN_PORT)
+        config = yaml.safe_load((_build(repo_dir) / "config.yml").read_text())
+
+        compose_files = as_built_compose_files(config, repo_dir)
+
+        va_files = [path for path in compose_files if "virtual_accelerator" in path]
+        assert len(va_files) == 1, compose_files
+        assert len(compose_files) == len(set(compose_files))
+
+    def test_a_build_without_the_key_deploys_one_instance(self, tmp_path):
+        repo_dir = tmp_path / "repo"
+        _write_profile(repo_dir, deploy_va=True)
+
+        config = yaml.safe_load((_build(repo_dir) / "config.yml").read_text())
+
+        assert "live_standin" not in config["services"]
+        assert "live_standin" not in config["deployed_services"]
+        assert "live_gateway_acknowledged" not in config["control_system"]["target_switch"]

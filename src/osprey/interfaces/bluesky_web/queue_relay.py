@@ -30,11 +30,22 @@ classifies on ``detail.code`` (``launch_token_required``,
 is the bridge's, and a relay that reshaped it would be a second, drifting copy
 of the contract.
 
+Every route takes the read proxy's optional ``lane`` query parameter naming
+which PLAN LANE the request is addressed to -- a two-lane deployment runs two
+bridges answering these same paths about two different machines. It is
+consumed here and never forwarded, defaults to lane 1, and a lane this
+deployment does not render is answered with the read proxy's 404 rather than
+relayed from the other lane: a write armed against the wrong machine is the
+confusion the lane axis exists to remove, and this refusal is addressing, not
+policy.
+
 The launch token is the one thing this module adds to a request. It is
 resolved in-process on every write via the shared
 ``osprey.bluesky_bridge_connection.resolve_launch_token`` -- the same resolver
 the Bluesky MCP server uses, so the two agent-facing paths to a bridge never
-drift on which token arms which one. It is never accepted from the incoming request
+drift on which token arms which one -- and it is resolved FOR THE LANE the
+write is addressed to, so a second lane's write carries that lane's own token
+and never lane 1's. It is never accepted from the incoming request
 (the forwarded header set is built from scratch, so a browser-supplied
 ``X-Launch-Token`` is dropped, not proxied) and never echoed back.
 
@@ -92,8 +103,16 @@ from osprey.interfaces.bluesky_web._shared import UNREACHABLE_BODY, safe_json
 # (verbatim body + status, query params forwarded, 502 on an unreachable
 # bridge), and a private-but-same-package import keeps the two from drifting.
 # The write routes live here instead of there because ``read_proxy`` is
-# GET-only by documented invariant.
-from osprey.interfaces.bluesky_web.read_proxy import _forward_get
+# GET-only by documented invariant. The lane vocabulary is shared the same
+# way: one query-param name, one resolver, one unknown-lane refusal body, so
+# the write surface cannot drift from the read surface on how a lane is
+# addressed or refused.
+from osprey.interfaces.bluesky_web.read_proxy import (
+    LANE_QUERY_PARAM,
+    UNKNOWN_LANE_BODY,
+    _forward_get,
+    resolve_lane_bridge_url,
+)
 from osprey.utils.http_proxy import HOP_BY_HOP
 
 router = APIRouter()
@@ -103,7 +122,7 @@ _LAUNCH_TOKEN_HEADER = "X-Launch-Token"
 logger = logging.getLogger("osprey.interfaces.bluesky_web.queue_relay")
 
 
-def _resolve_token_or_none() -> str | None:
+def _resolve_token_or_none(lane: str | None = None) -> str | None:
     """``resolve_launch_token`` that degrades to "no token" instead of raising.
 
     The resolver reads the project config on the miss path, so an unreadable or
@@ -112,9 +131,16 @@ def _resolve_token_or_none() -> str | None:
     which needs no token at all. Omitting the header is the already-documented
     unarmed path: the bridge refuses what needs arming and permits what does
     not, which is the correct answer either way.
+
+    Per lane, because the token is what ARMS a launch and each lane carries
+    its own: the caller passes the lane the write is addressed to (already
+    held against the sidecar's lane map, so an unknown lane never gets here)
+    and the shared resolver answers with THAT lane's token -- env-first
+    (``<PREFIX>_LAUNCH_TOKEN``, the compose-injected spelling), never another
+    lane's.
     """
     try:
-        return resolve_launch_token()
+        return resolve_launch_token(lane)
     except Exception:
         logger.warning(
             "could not resolve the bridge launch token; relaying this queue write "
@@ -174,17 +200,39 @@ async def _forward_write(
     ``timeout`` overrides the shared client's default for this one request, the
     way ``queue_events`` does for the SSE stream. Only the abort needs it; every
     other queue write is a single manager call and keeps the shared 15s.
+
+    The optional :data:`~osprey.interfaces.bluesky_web.read_proxy.LANE_QUERY_PARAM`
+    names which PLAN LANE's bridge the write is addressed to, exactly as it
+    does on every read: consumed here (the bridge has no parameter by that
+    name), resolved through the read proxy's own resolver, and answered with
+    the read proxy's 404 for a lane this deployment does not render -- never
+    relayed to another lane's bridge, because a write armed against the wrong
+    machine is the failure the lane axis exists to prevent. The launch token
+    is then THAT lane's token: URL and credential travel as one decision, so
+    the request can never reach one lane's bridge carrying another lane's
+    arming proof. This refusal is addressing, not policy -- which writes need
+    arming, and whether this one is permitted, stays entirely the bridge's.
     """
     client: httpx.AsyncClient = request.app.state.client
-    bridge_url: str = request.app.state.bridge_url
+
+    # `or None`: an empty `?lane=` names no lane at all, exactly as the read
+    # proxy reads it -- see `_forward_get`.
+    lane = request.query_params.get(LANE_QUERY_PARAM) or None
+    bridge_url = resolve_lane_bridge_url(request, lane)
+    if bridge_url is None:
+        return JSONResponse(content=UNKNOWN_LANE_BODY, status_code=404)
 
     content = await request.body()
     headers: dict[str, str] = {}
     if content:
         headers["content-type"] = request.headers.get("content-type", "application/json")
-    token = _resolve_token_or_none()
+    token = _resolve_token_or_none(lane)
     if token:
         headers[_LAUNCH_TOKEN_HEADER] = token
+
+    # multi_items(), not a dict: repeated query keys are preserved exactly as
+    # they arrived. The lane addresses the sidecar and is stripped.
+    params = [(k, v) for k, v in request.query_params.multi_items() if k != LANE_QUERY_PARAM]
 
     # Passed through only when set: httpx reads an explicit ``timeout=None`` as
     # "no timeout at all", not as "use the client's default".
@@ -194,7 +242,7 @@ async def _forward_write(
         response = await client.request(
             method,
             f"{bridge_url}{path}",
-            params=request.query_params,
+            params=params,
             content=content or None,
             headers=headers,
             **overrides,
@@ -287,9 +335,18 @@ async def queue_events(request: Request) -> Response:
     shared client's 15s default read timeout, since the stream idles between
     the bridge's ~15s heartbeat comment frames. Mirrors
     ``draft_relay.draft_events``; a buffering relay would defeat the stream.
+
+    Takes the lane parameter exactly as the writes do: a queue stream labelled
+    with the wrong machine is the same wrong-machine confusion as a write to
+    it, so an unknown lane is the read proxy's 404, never the other lane's
+    stream.
     """
     client: httpx.AsyncClient = request.app.state.client
-    bridge_url: str = request.app.state.bridge_url
+
+    lane = request.query_params.get(LANE_QUERY_PARAM) or None
+    bridge_url = resolve_lane_bridge_url(request, lane)
+    if bridge_url is None:
+        return JSONResponse(content=UNKNOWN_LANE_BODY, status_code=404)
 
     try:
         upstream = await client.send(

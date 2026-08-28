@@ -48,8 +48,12 @@ from osprey.deployment.runtime_helper import (
 from osprey.deployment.subprocess_capture import run_captured
 from osprey.deployment.web_terminals.artifacts import (
     BashLaunchTokenConflictError,
+    OpenModeEgressError,
     bash_launch_token_offenders,
     check_bash_launch_token_conflict,
+    check_open_mode_requirements,
+    deployment_is_open,
+    open_mode_missing_by_persona,
     web_compose_file,
     write_web_terminal_artifacts,
 )
@@ -157,6 +161,10 @@ def preflight_web_terminals(config: dict, *, repo_root: Path | str | None = None
     # again — see check_bash_launch_token_conflict for why all three call sites
     # are load-bearing.
     check_bash_launch_token_conflict(config, root)
+    # Immediately after, and ahead of the same steps: an OPEN deployment whose
+    # personas can still reach the host network is refused on the same terms —
+    # before the image build, and before any credential is minted or printed.
+    check_open_mode_requirements(config, root)
     ensure_env_production(config, str(root))
     # BEFORE the mint, deliberately: a registry-mode deploy that forgot
     # auth.image is already doomed, and minting here first would write (and
@@ -193,16 +201,28 @@ def persona_render_problem(config: dict, repo_root: Path | str) -> str | None:
     ``config.yml`` (expanding ``${VAR}`` against the repo root's ``.env``), and
     neither writes a file, starts a process, or touches the container runtime.
 
-    Registry-mode deploys answer ``None`` unconditionally: nothing on this host
-    renders their persona projects, so there is no render to have a problem
-    with — the same gate :func:`preflight_web_terminals` applies.
+    Registry-mode deploys answer ``None`` unconditionally — nothing on this
+    host renders their persona projects, so there is no render to have a problem
+    with — with one deliberate exception: an OPEN deployment
+    (``auth.method: none``) is asked the question in registry mode too, because
+    it is refused without those renders anyway.
+    :func:`~osprey.deployment.web_terminals.artifacts.check_open_mode_requirements`
+    reads each persona's rendered ``.claude/settings.json`` to decide whether an
+    agent can reach the deployment's own terminals, and fails closed on an
+    artifact it cannot read — so on a pull-only host every open deployment meets
+    a refusal whose remedy (restore the deny entries and rebuild) cannot clear
+    it. Requiring the render here turns that dead end into the one problem the
+    operator can act on, and in the order they can act on it: render first
+    (``osprey build``), and the gate then reads what the render produced. Open
+    mode is therefore a render-requiring posture in both image-source modes,
+    which is the deliberate cost of gating on a shipped artifact.
 
     :param config: Raw deploy config.
     :param repo_root: The deployment repo whose ``build/`` holds the renders.
     :return: The refusal sentence, or ``None`` when every persona is usable.
     """
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
-    if effective_image_source(web_terminals) != "local":
+    if effective_image_source(web_terminals) != "local" and not deployment_is_open(config):
         return None
     facility_prefix = (config.get("facility") or {}).get("prefix") or ""
     registry_cfg = config.get("registry") or {}
@@ -380,6 +400,14 @@ def web_terminal_preflight_report(
     # and an operator reading top-down should meet it first.
     if offenders := bash_launch_token_offenders(config, root):
         findings.append((str(BashLaunchTokenConflictError(offenders)), ""))
+    # Next, in the gate's own order: an open deployment whose personas can reach
+    # its terminals is the other refusal an operator must see before being told
+    # about anything the deploy merely needs. Reported through the gate's own
+    # error, so the report an operator reads BEFORE the refusal names the one
+    # entry that is lifted rather than the whole egress set — and says "no
+    # render here" where that is the actual problem.
+    if open_missing := open_mode_missing_by_persona(config, root):
+        findings.append((str(OpenModeEgressError(open_missing)), ""))
     if (problem := users_env_generation_problem(config, root)) is not None:
         findings.append((problem, ""))
 
@@ -396,11 +424,11 @@ def web_terminal_preflight_report(
 def _provision_terminal_secrets(web_terminals: dict, repo_root: str) -> None:
     """Mint every roster user's terminal secret, then gate the deploy on it.
 
-    Runs in EVERY auth method, ``none`` included. The per-user secret nginx
+    Runs in EVERY auth method, sidecar or not. The per-user secret nginx
     stamps onto a proxied request is what lets a terminal refuse everything that
-    did not come through nginx; turning authentication off decides who may walk
-    through the front door, not whether the back ones are open. An auth-off
-    multi-user deployment is precisely the one with nothing else in the way.
+    did not come through nginx; the auth method decides who may walk through
+    the front door, not whether the back ones are open. A deployment with no
+    login wall is precisely the one with nothing else in the way.
 
     The whole roster is provisioned, ``login: false`` entries included — unlike
     the auth credentials, where such an entry has no login for a password to
@@ -414,7 +442,7 @@ def _provision_terminal_secrets(web_terminals: dict, repo_root: str) -> None:
 
     Because this runs in every auth method, so does the roster gate inside it:
     ``ensure_terminal_secrets`` refuses a name outside ``USERNAME_CHARSET_RE``
-    on an ``auth.method: none`` deployment as well, where nothing checked it
+    on a deployment without a sidecar as well, where nothing checked it
     before. That is a real tightening — ``Alice`` and ``alice.b`` are refused by
     a deploy that used to accept them — and it is the right one: the name is an
     nginx location key and a URL path segment whatever the auth method. The
@@ -496,9 +524,13 @@ def _provision_auth_secrets(web_terminals: dict, repo_root: str) -> None:
         usernames colliding onto one credential variable, both raised by
         ``ensure_auth_credentials``).
     """
-    auth_method = _auth_tls_context(web_terminals)["auth_method"]
-    if auth_method == "none":
+    auth_ctx = _auth_tls_context(web_terminals)
+    if not auth_ctx["sidecar_active"]:
+        # Everything below is the sidecar's: password hashes and the session
+        # signing secret it checks. Terminal secrets are minted for every
+        # method by _provision_terminal_secrets, not here.
         return
+    auth_method = auth_ctx["auth_method"]
 
     _warn_if_env_auth_not_gitignored(Path(repo_root))
 
@@ -608,7 +640,8 @@ def _raise_if_auth_provisioning_incomplete(
     sidecar answers every request with 503 and the whole deployment is locked
     out.
 
-    :param auth_method: The parsed ``auth.method`` (never ``"none"`` here).
+    :param auth_method: The parsed ``auth.method`` (a sidecar method — the
+        caller returns early otherwise).
     :param credentials: The :func:`ensure_auth_credentials` result, or ``None``
         when the method provisions no password hashes.
     :param secrets: The :func:`ensure_auth_session_secrets` result.
@@ -749,12 +782,12 @@ def _require_auth_sidecar_image(web_terminals: dict) -> None:
     Publishing the image is the facility CI's contract, exactly like
     ``.env.users``; OSPREY only checks that the deployment names one.
 
-    A no-op when authentication is off (no sidecar is rendered at all) and in
-    local mode (:func:`build_auth_sidecar_image` produces the tag there).
+    A no-op when no sidecar is rendered at all and in local mode
+    (:func:`build_auth_sidecar_image` produces the tag there).
 
-    :raises RuntimeError: Registry mode, authentication on, ``auth.image`` unset.
+    :raises RuntimeError: Registry mode, sidecar active, ``auth.image`` unset.
     """
-    if _auth_tls_context(web_terminals)["auth_method"] == "none":
+    if not _auth_tls_context(web_terminals)["sidecar_active"]:
         return
     if effective_image_source(web_terminals) == "local":
         return
@@ -818,7 +851,7 @@ def build_auth_sidecar_image(
 
     Three no-op cases, each deliberate:
 
-    * authentication off — no sidecar service is rendered, so nothing to build;
+    * no sidecar method — no sidecar service is rendered, so nothing to build;
     * registry mode — the image comes from ``auth.image`` (preflight already
       required it);
     * ``auth.image`` set in local mode — the deployment pinned an external
@@ -833,7 +866,7 @@ def build_auth_sidecar_image(
     """
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
     auth_ctx = _auth_tls_context(web_terminals)
-    if auth_ctx["auth_method"] == "none":
+    if not auth_ctx["sidecar_active"]:
         return
     if effective_image_source(web_terminals) != "local":
         return
@@ -920,7 +953,7 @@ def _audit_identities(config: dict) -> list[str]:
         entry["name"]
         for entry in resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=False)
     ]
-    if _auth_tls_context(web_terminals)["auth_method"] != "none":
+    if _auth_tls_context(web_terminals)["sidecar_active"]:
         identities.append(AUTH_SIDECAR_AUDIT_IDENTITY)
     return identities
 

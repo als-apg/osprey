@@ -298,7 +298,7 @@ async def test_executor_sandbox_subprocess_sees_no_sensitive_credential(
     _assert_negative_controls(env_keys, "python_executor sandbox", controls=("PATH",))
     assert "OSPREY_WEB_PORT" not in set(env_keys), (
         "python_executor sandbox: OSPREY_WEB_PORT must be dropped from the executor "
-        "child env (see _WEB_TERMINAL_ENV_NAMES_TO_DROP in executor.py)"
+        "child env (see SANDBOX_CHILD_ENV_DROP_NAMES in mcp_server/sandbox_env.py)"
     )
     for secret in sensitive_parent_env.values():
         assert secret not in result.stdout
@@ -329,7 +329,15 @@ async def test_workspace_sandbox_subprocess_sees_no_sensitive_credential(
     assert result.success, f"sandbox execution failed: {result.error_message}\n{result.stderr}"
     env_keys = _extract_env_keys(result.stdout)
     _assert_no_sensitive_names(env_keys, sensitive_parent_env, "workspace sandbox")
-    _assert_negative_controls(env_keys, "workspace sandbox")
+    # Same override as the python_executor probe above, and for the same reason:
+    # both sandbox children now build their environment with the shared
+    # scrub_sandbox_child_env, which drops OSPREY_WEB_PORT. PATH is the negative
+    # control; the drop itself is pinned below as expected behaviour.
+    _assert_negative_controls(env_keys, "workspace sandbox", controls=("PATH",))
+    assert "OSPREY_WEB_PORT" not in set(env_keys), (
+        "workspace sandbox: OSPREY_WEB_PORT must be dropped from the visualization "
+        "child env (see SANDBOX_CHILD_ENV_DROP_NAMES in mcp_server/sandbox_env.py)"
+    )
     for secret in sensitive_parent_env.values():
         assert secret not in result.stdout
         assert secret not in result.stderr

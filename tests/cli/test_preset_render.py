@@ -161,11 +161,15 @@ class TestControlAssistantRenderedConfig:
         flip must not drop or gate any of them. Mirrors
         ``TestControlAssistantTurnkeyPlanServices`` in test_build_profile.py,
         which asserted the same membership before this preset defaulted to the
-        VA."""
+        VA. ``live_standin`` joined the list when the preset shipped
+        ``virtual_accelerator.live_standin: 5074`` active: the second simulator
+        copy is deployed by default, so a fresh build has a ``live`` target to
+        switch to."""
         deployed = rendered_preset_config["deployed_services"]
         assert "bluesky" in deployed
         assert "virtual_accelerator" in deployed
         assert "bluesky_web" in deployed
+        assert "live_standin" in deployed
 
 
 class TestControlAssistantTierFloor:

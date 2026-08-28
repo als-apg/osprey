@@ -708,16 +708,19 @@ def login_url(user: str, repo: Path | None) -> None:
 
     Every web terminal authenticates each request against that user's own
     operator secret, which nginx stamps on requests it has authenticated. With
-    web_terminals.auth.method at 'none' — the default — nginx authenticates
+    web_terminals.auth.method at 'token' — the default — nginx authenticates
     nobody and stamps nothing, so the terminal's own gate is the only one: a
     browser gets in by opening this URL once, which trades the token for a
     session cookie and redirects to the plain address. The same is true for a
     roster entry that set 'login: false' while auth is on.
 
-    A user who signs in through the login page has no token URL, and this verb
-    refuses for them: nginx denies the request before the app can read the
-    token, so the URL would only bounce them to that page. It names the login
-    page instead of printing a live secret that accomplishes nothing.
+    A user behind a login wall ('password'/'oidc') has no token URL, and this
+    verb refuses for them: nginx denies the request before the app can read
+    the token, so the URL would only bounce them to that page. Under 'none',
+    nginx vouches for every non-exempt terminal itself, so there is no login
+    page and no token URL either; this verb refuses and names the terminal's
+    plain address instead. Either way, it names the real address rather than
+    printing a live secret that accomplishes nothing.
 
     The URL carries that user's secret. Treat it like a password: send it to the
     person it belongs to, over something you would send a password over, and
@@ -739,6 +742,7 @@ def login_url(user: str, repo: Path | None) -> None:
         from osprey.deployment.deploy_summary import token_login_users
         from osprey.deployment.web_terminals.auth_credentials import terminal_secret_var
         from osprey.deployment.web_terminals.render import (
+            _auth_tls_context,
             deployment_external_origin,
             terminal_login_url,
         )
@@ -761,31 +765,47 @@ def login_url(user: str, repo: Path | None) -> None:
             )
             raise click.Abort()
 
-        # A user BEHIND the login wall has no use for this URL, and the URL
-        # would not work if they tried it: nginx's `auth_request` denies the
-        # request before the app ever sees the `?token=`, and even after a
-        # successful sidecar login the gated location forwards `Cookie ""`, so
-        # the token->cookie exchange the URL exists to trigger can never apply.
-        # Refused rather than caveated: a live operator secret should not leave
-        # the deployment to accomplish nothing. The predicate is the deploy
-        # summary's own, so the verb and the closing card cannot disagree about
-        # who has a login page.
+        # A user with no use for this URL has no use for it in one of two
+        # shapes, and the URL would not work if they tried it either way:
+        # nginx's `auth_request` denies the request before the app ever sees
+        # the `?token=` under a login wall, and even after a successful
+        # sidecar login the gated location forwards `Cookie ""`, so the
+        # token->cookie exchange the URL exists to trigger can never apply.
+        # Under `none`, nginx vouches for the terminal itself before the app
+        # sees the request, so the same exchange is equally moot -- there is
+        # no login page to name instead, only the terminal's own address.
+        # Refused rather than caveated either way: a live operator secret
+        # should not leave the deployment to accomplish nothing. The
+        # predicate is the deploy summary's own, so the verb and the closing
+        # card cannot disagree about who has a login page.
         config = load_project_config(session.config)
         if user not in token_login_users(config):
             try:
                 origin = deployment_external_origin(config)
             except ValueError:
                 origin = ""
-            login_page = f"{origin}/auth/login" if origin else "this deployment's /auth/login"
-            fail(
-                f"{user} signs in through the login page, so no token URL applies",
-                f"This deployment authenticates {user} at {login_page}; nginx refuses "
-                "the request before the app can read a ?token=, so the URL would only "
-                "land them back on that page. Set their password with "
-                f"`osprey users passwd {user}` (or, under OIDC, have them sign in "
-                "with the identity their roster entry names).",
-                "send them the login page, not a token URL",
-            )
+            web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
+            walled = _auth_tls_context(web_terminals)["walled"]
+            if walled:
+                login_page = f"{origin}/auth/login" if origin else "this deployment's /auth/login"
+                fail(
+                    f"{user} signs in through the login page, so no token URL applies",
+                    f"This deployment authenticates {user} at {login_page}; nginx refuses "
+                    "the request before the app can read a ?token=, so the URL would only "
+                    "land them back on that page. Set their password with "
+                    f"`osprey users passwd {user}` (or, under OIDC, have them sign in "
+                    "with the identity their roster entry names).",
+                    "send them the login page, not a token URL",
+                )
+            else:
+                terminal_url = f"{origin}/u/{user}/" if origin else f"this deployment's /u/{user}/"
+                fail(
+                    f"{user} is reached directly, so no token URL applies",
+                    f"This deployment is open (auth.method: none): nginx vouches for "
+                    f"{user}'s terminal on every request, so there is no login page and "
+                    f"no ?token= to trade. Open {terminal_url} directly.",
+                    "open the terminal's own address, not a token URL",
+                )
             raise click.Abort()
 
         variable = terminal_secret_var(user)

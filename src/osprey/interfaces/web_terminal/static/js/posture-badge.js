@@ -60,6 +60,13 @@ import { getCurrentSessionId, onSessionChange, startTerminal, stopTerminal } fro
  * @property {string|null} [session_target]  the control target this session is
  *   pointed at ('live' / 'va'), or the deployment baseline when none has been
  *   published yet. Absent from an older server — the line then renders nothing.
+ *   This is the STATE KEY, not display text: it stays on the badge as a data
+ *   attribute so styling and tests can key off it, whatever the label says.
+ * @property {string} [session_target_label]  what to call that target — the
+ *   label the controls server published for it, or the one the render derives
+ *   on the baseline. A deployment whose live target is a stand-in for the real
+ *   machine says so here, and 'live' alone would not. Absent from an older
+ *   server, which reads as "no label": the line then shows the bare name.
  * @property {boolean} [target_writes_enabled]  whether writes are armed for
  *   THAT target specifically, which is the fact `rendered_writes_enabled` is
  *   unable to carry.
@@ -334,6 +341,12 @@ function renderBadge() {
  * a colour or a missing word — it is the case an operator must not skim past —
  * and a baseline fallback is labelled as one so a default is never mistaken
  * for a published target.
+ *
+ * The target is named by its LABEL, which is the server's word for it and may
+ * say more than the target name does: a deployment pointed at a stand-in for
+ * its real machine reads "LIVE MACHINE (stand-in)" here. A server that sends no
+ * label — an older one — falls back to the bare target name rather than to a
+ * name this module made up.
  * @returns {string} the long form, for the tooltip and the accessible name;
  *   empty when the server reported no target (an older server, or a render it
  *   could not read).
@@ -351,18 +364,24 @@ function renderTargetLine() {
   }
   const armed = state?.target_writes_enabled === true;
   const baseline = state?.target_source !== 'session';
+  const label = typeof state?.session_target_label === 'string' && state.session_target_label
+    ? state.session_target_label
+    : target;
 
   badgeTarget.hidden = false;
-  badgeTarget.textContent = `${target}${baseline ? ' (baseline)' : ''} · ${
+  badgeTarget.textContent = `${label}${baseline ? ' (baseline)' : ''} · ${
     armed ? 'armed' : 'not armed'
   }`;
+  // The RAW target name, deliberately: it is the state key the colour map and
+  // the tests read, and it stays stable while the label above is free to say
+  // whatever the deployment calls that machine.
   badge.dataset.target = target;
   badge.dataset.targetArmed = String(armed);
   badge.dataset.targetSource = baseline ? 'baseline' : 'session';
 
   const posture = armed
-    ? `writes are armed for the ${target} target.`
-    : `writes are NOT armed for the ${target} target — every write to it is refused.`;
+    ? `writes are armed for the ${label} target.`
+    : `writes are NOT armed for the ${label} target — every write to it is refused.`;
   // Says what is KNOWN, not why. `baseline` covers "no controls server has
   // published a target yet" and "one was published but could not be resolved"
   // alike — a record another session owns, two ambiguous records, a dead

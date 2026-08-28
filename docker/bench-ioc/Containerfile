@@ -119,10 +119,12 @@ ENV EPICS_CA_SERVER_PORT=5064
 # variable and does not fall back to the client-side one, so an image whose CAS
 # port were frozen at build time would keep binding 5064 while a
 # `-e EPICS_CA_SERVER_PORT=...` run told its clients some other port. The
-# resulting symptom is an unexplained boot timeout, which is why two harnesses
-# (tests/va/e2e/test_target_switch.py and scripts/demo_target_switch.py) inspect
-# this Cmd for the literal string EPICS_CAS_SERVER_PORT and refuse to start
-# without it. Keep the name spelled out here.
+# resulting symptom is an unexplained boot timeout. The sister osprey-va-full
+# image derives the same pair, and tests/va/e2e/test_target_switch.py and
+# tests/va/e2e/test_serving_parity.py inspect *that* image's Cmd for the
+# literal string EPICS_CAS_SERVER_PORT. No test inspects this image's Cmd --
+# tests/fixtures/bench_ioc.py checks only that it can run softIoc -- so keep
+# the name spelled out here.
 #
 # EPICS_CAS_BEACON_PORT is derived alongside it. In a container network
 # namespace with only a TCP port published, beacons reach nobody and the

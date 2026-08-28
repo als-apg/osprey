@@ -361,3 +361,113 @@ def test_all_verbs_present_on_draft_path(path: str) -> None:
     app.include_router(draft_relay.router)
     operations = app.openapi()["paths"][path]
     assert {"get", "patch", "delete"} <= set(operations.keys())
+
+
+# ---------------------------------------------------------------------------
+# The PLAN LANE axis on the draft surface
+# ---------------------------------------------------------------------------
+#
+# Each bridge keeps its own shared draft, so a second-lane plan cannot even
+# be composed unless the draft surface takes the lane too. Same vocabulary as
+# the read proxy and the queue relay, by import: `?lane=` consumed here, an
+# unknown lane answered 404 -- never the other lane's draft, which would show
+# an operator (and hand the enqueue path) a plan composed for a different
+# machine.
+
+_VA_BRIDGE_URL = "http://bridge-va.test"
+
+
+def _two_lane_recording_app() -> tuple[FastAPI, list[httpx.Request]]:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"draft": None, "revision": 0})
+
+    app = _build_app(handler)
+    app.state.bridge_urls = {"bluesky": _BRIDGE_URL, "bluesky_va": _VA_BRIDGE_URL}
+    return app, seen
+
+
+def test_a_draft_read_addressed_to_a_lane_reaches_that_lanes_bridge() -> None:
+    app, seen = _two_lane_recording_app()
+    with TestClient(app) as client:
+        response = client.get("/draft?lane=bluesky_va")
+
+    assert response.status_code == 200
+    assert str(seen[0].url).startswith(_VA_BRIDGE_URL)
+
+
+def test_a_draft_patch_keeps_its_own_params_and_sheds_the_lane() -> None:
+    """`client_id` is the bridge's parameter and survives; `lane` is the
+    sidecar's address and must not leak onto a bridge that has no such name."""
+    app, seen = _two_lane_recording_app()
+    with TestClient(app) as client:
+        response = client.patch(
+            "/draft?client_id=abc&lane=bluesky_va",
+            json={"plan_name": "grid_scan"},
+        )
+
+    assert response.status_code == 200
+    assert str(seen[0].url).startswith(_VA_BRIDGE_URL)
+    assert seen[0].url.params.get("client_id") == "abc"
+    assert "lane" not in seen[0].url.params
+
+
+@pytest.mark.parametrize("method", ["GET", "PATCH", "DELETE"])
+def test_every_draft_verb_refuses_an_unknown_lane_without_touching_a_bridge(
+    method: str,
+) -> None:
+    from osprey.interfaces.bluesky_web.read_proxy import UNKNOWN_LANE_BODY
+
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={})
+
+    app = _build_app(handler)
+    with TestClient(app) as client:
+        response = client.request(method, "/draft?lane=bluesky_va")
+
+    assert response.status_code == 404
+    assert response.json() == UNKNOWN_LANE_BODY
+    assert seen == []
+
+
+def test_draft_events_streams_from_the_named_lanes_bridge() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=b'data: {"type": "hello"}\n\n',
+        )
+
+    app = _build_app(handler)
+    app.state.bridge_urls = {"bluesky": _BRIDGE_URL, "bluesky_va": _VA_BRIDGE_URL}
+    with TestClient(app) as client:
+        response = client.get("/draft/events?lane=bluesky_va")
+
+    assert response.status_code == 200
+    assert str(seen[0].url) == f"{_VA_BRIDGE_URL}/draft/events"
+
+
+def test_draft_events_refuses_an_unknown_lane() -> None:
+    from osprey.interfaces.bluesky_web.read_proxy import UNKNOWN_LANE_BODY
+
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={})
+
+    app = _build_app(handler)
+    with TestClient(app) as client:
+        response = client.get("/draft/events?lane=bluesky_va")
+
+    assert response.status_code == 404
+    assert response.json() == UNKNOWN_LANE_BODY
+    assert seen == []

@@ -118,7 +118,10 @@ def test_create_project_path_emits_every_key(tmp_path):
 
     assert set(config) == _EXPECTED_KEYS
     assert "mcp__python__" in config["server_prefixes"]
-    assert config["mixed_read_write_tools"] == ["mcp__python__execute"]
+    assert config["mixed_read_write_tools"] == [
+        "mcp__python__execute",
+        "mcp__python__execute_file",
+    ]
 
 
 def test_regenerate_path_emits_every_key(tmp_path):
@@ -128,7 +131,10 @@ def test_regenerate_path_emits_every_key(tmp_path):
 
     assert set(config) == _EXPECTED_KEYS
     assert "mcp__python__" in config["server_prefixes"]
-    assert config["mixed_read_write_tools"] == ["mcp__python__execute"]
+    assert config["mixed_read_write_tools"] == [
+        "mcp__python__execute",
+        "mcp__python__execute_file",
+    ]
 
 
 def test_both_render_paths_render_the_same_file(tmp_path):
@@ -171,7 +177,12 @@ def test_keys_are_unconditional_in_both_writes_states(tmp_path, writes_enabled):
     _reconfigure(project_dir, writes_enabled=writes_enabled, claude_code_servers=_MULTI_SERVER)
     config = _regenerate(manager, project_dir)
 
-    assert config["mixed_read_write_tools"] == ["mcp__python__execute", "mcp__python2__execute"]
+    assert config["mixed_read_write_tools"] == [
+        "mcp__python__execute",
+        "mcp__python__execute_file",
+        "mcp__python2__execute",
+        "mcp__python2__execute_file",
+    ]
     assert "mcp__sitectl__.*" in config["write_tools"]
     assert "mcp__sitectl__" in config["server_prefixes"]
 
@@ -230,7 +241,12 @@ def test_mixed_read_write_tools_covers_clones_and_excludes_pure_writes(tmp_path)
     config = _regenerate(manager, project_dir)
 
     mixed = config["mixed_read_write_tools"]
-    assert mixed == ["mcp__python__execute", "mcp__python2__execute"]
+    assert mixed == [
+        "mcp__python__execute",
+        "mcp__python__execute_file",
+        "mcp__python2__execute",
+        "mcp__python2__execute_file",
+    ]
     for pure_write in ("mcp__controls__channel_write", "mcp__bluesky__queue_add"):
         assert pure_write not in mixed
     assert set(mixed).issubset(set(config["write_tools"]))

@@ -4072,6 +4072,132 @@ def _preflight_archiver_pymongo(config: dict) -> None:
         ) from exc
 
 
+#: The BPM readout fields the seed can reproduce, and the readback axis each one
+#: displaces. Offsets only, and that is the whole design: with the rest of the
+#: readout chain at identity, a reading is exactly ``truth - offset``, so the
+#: seed reproduces the stand-in's systematic error by arithmetic on the value it
+#: already synthesized rather than by running a second copy of the readout. The
+#: same two fields are the only ones the shipped default may carry
+#: (``osprey.cli.build_profile_va_faults.STANDIN_BPM_ERROR_FIELDS``).
+_STANDIN_OFFSET_AXES = {"offset_x": "X", "offset_y": "Y"}
+
+#: The BPM position readback an offset shows up on, as
+#: ``physics_bridge._bpm_address`` spells it. The device id is the stand-in
+#: fam_name (``BPM`` + id) with its family prefix removed.
+_BPM_POSITION_ADDRESS = "SR:DIAG:BPM:{device}:POSITION:{axis}"
+
+#: Family prefix of a BPM fam_name in ``VA_BPM_ERRORS`` grammar.
+_BPM_FAM_PREFIX = "BPM"
+
+#: How the fingerprint names this transform. One kind today; the field exists so
+#: a later transform is a different value here rather than a silent MATCH.
+_STANDIN_TRANSFORM_KIND = "bpm_offsets"
+
+
+def _standin_bpm_error_spec(project_dir: Path) -> str:
+    """The ``VA_BPM_ERRORS`` value the stand-in container will actually run.
+
+    The compose template renders the stand-in's variable as
+    ``"${VA_STANDIN_BPM_ERRORS:-<shipped default>}"``, so this mirrors that
+    interpolation exactly: an override that is unset *or empty* leaves the
+    shipped default in force, because that is what the container gets. Reading
+    it any other way would seed a past for a perturbation the live half is not
+    serving.
+
+    The project's own ``.env`` is consulted first and the ambient environment
+    second, the same order and for the same reason
+    :func:`_archiver_seed_inputs` resolves ``VA_CHANNELS_FILE``: the build wrote
+    the project's value there, and an exported one is the fallback for a deploy
+    whose environment carries it instead.
+    """
+    from osprey.cli.build_profile_va_faults import STANDIN_BPM_ERRORS_ENV
+    from osprey.services.virtual_accelerator.manifest.standin_defaults import (
+        STANDIN_BPM_ERRORS_DEFAULT,
+    )
+
+    env = parse_dotenv_file(project_dir / ".env") if (project_dir / ".env").is_file() else {}
+    override = env.get(STANDIN_BPM_ERRORS_ENV, os.environ.get(STANDIN_BPM_ERRORS_ENV, "")).strip()
+    return override or STANDIN_BPM_ERRORS_DEFAULT
+
+
+def _standin_seed_transform(config: dict, project_dir: Path, addresses: Sequence[str]):
+    """The transform that makes the seeded past belong to the *stand-in*.
+
+    The archive belongs to the machine, and a model has no past. Where a
+    deployment's ``live`` target is a stand-in, the recorder samples the
+    stand-in — so the deploy-time seed has to carry the stand-in's systematic
+    BPM offsets too, or the store would hold a clean machine's history under a
+    displaced machine's present and every trend across the seam would show a
+    step no operator caused.
+
+    **Offset level, not sample level.** The seeded past carries the same
+    systematic offsets as the stand-in's readout, not the same samples: the
+    seed's own values come from the simulation engine and the procedural
+    generator, not from pyAT, so a seeded sample and a recorded one agree about
+    the machine's systematic error and not about any individual number.
+
+    Offsets are the only reproducible field, which is why the shipped default
+    carries nothing else: with unit gain and calibration, positive polarity,
+    zero roll and no noise, ``lattice.errors.bpm_read`` reduces to
+    ``reading = truth - offset``. An operator override naming any other field
+    is applied by the container and skipped here, with a warning that names it.
+
+    :param config: The rendered deploy config, read only through
+        :func:`~osprey_connectors.standin.live_standin_port` so the seed and the
+        roster's label answer "is there a stand-in" from one place.
+    :param addresses: The channel set being seeded. Offsets are kept only for
+        addresses in it, so the recorded fingerprint describes what the store
+        actually holds rather than what the spec asked for.
+    :returns: ``(value_transform, transform_fingerprint)`` for
+        :func:`~osprey_connectors.simulation.archiver_seed.seed_base`, both
+        ``None`` when the deployment has no stand-in or the stand-in perturbs
+        none of the seeded channels — in which case the seed and its fingerprint
+        are byte-identical to a deployment without one.
+    """
+    from osprey.services.virtual_accelerator.manifest.standin_defaults import (
+        parse_bpm_error_spec,
+    )
+    from osprey_connectors.standin import live_standin_port
+
+    if live_standin_port(config) is None:
+        return None, None
+
+    served = set(addresses)
+    offsets: dict[str, float] = {}
+    unreproducible: set[str] = set()
+    for fam_name, fields in parse_bpm_error_spec(_standin_bpm_error_spec(project_dir)).items():
+        device = fam_name[len(_BPM_FAM_PREFIX) :] if fam_name.startswith(_BPM_FAM_PREFIX) else ""
+        for field, value in fields.items():
+            axis = _STANDIN_OFFSET_AXES.get(field)
+            if axis is None:
+                unreproducible.add(field)
+                continue
+            address = _BPM_POSITION_ADDRESS.format(device=device, axis=axis)
+            if address in served:
+                offsets[address] = value
+
+    if unreproducible:
+        logger.warning(
+            "The live stand-in's readout perturbation sets "
+            f"{', '.join(sorted(unreproducible))}, which the archive seed cannot reproduce: "
+            "only offsets are a pure subtraction of the synthesized value. The seeded "
+            "history carries the stand-in's offsets and none of those fields, so the "
+            "recorded present and the seeded past will differ by them."
+        )
+
+    if not offsets:
+        return None, None
+
+    def subtract_offsets(address: str, values: Sequence[Any]) -> Sequence[Any]:
+        """``reading = truth - offset`` for a perturbed BPM, others untouched."""
+        offset = offsets.get(address)
+        if offset is None:
+            return values
+        return [float(value) - offset for value in values]
+
+    return subtract_offsets, {"kind": _STANDIN_TRANSFORM_KIND, "offsets": dict(offsets)}
+
+
 def _archiver_seed_inputs(config: dict, project_dir: Path):
     """The channel set, engine and boot values one base seed is built from.
 
@@ -4088,9 +4214,16 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
     it; the ambient value is the fallback for a deploy whose environment carries
     it instead.
 
-    :returns: ``(channels, engine, boot_values)``. ``engine`` is ``None`` and
-        ``boot_values`` empty for a project with no machine model — every channel
-        is then procedural, which is a valid configuration, not a fault.
+    The value transform rides along because it is decided from the same two
+    things this already has in hand — the config and the project's env chain —
+    and because a seed built without it would describe a different machine than
+    the recorder is sampling (see :func:`_standin_seed_transform`).
+
+    :returns: ``(channels, engine, boot_values, value_transform,
+        transform_fingerprint)``. ``engine`` is ``None`` and ``boot_values``
+        empty for a project with no machine model — every channel is then
+        procedural, which is a valid configuration, not a fault. The last two
+        are ``None`` unless the deployment's ``live`` target is a stand-in.
     """
     from osprey.services.virtual_accelerator.manifest.build import build_manifest
     from osprey.services.virtual_accelerator.manifest.loaders import (
@@ -4115,9 +4248,13 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
     else:
         channels = build_manifest()["channels"]
 
+    transform, transform_fingerprint = _standin_seed_transform(
+        config, project_dir, [str(channel["address"]) for channel in channels]
+    )
+
     machine_path, _, _, _ = resolve_simulation_file(config, project_dir)
     if machine_path is None or not machine_path.is_file():
-        return channels, None, {}
+        return channels, None, {}, transform, transform_fingerprint
 
     engine = SimulationEngine.from_file(
         machine_path, state_dir=resolve_state_dir(config, project_dir)
@@ -4131,7 +4268,7 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
         for address, entry in load_machine_json_channels(machine_path).items()
         if "value" in entry
     }
-    return channels, engine, boot_values
+    return channels, engine, boot_values, transform, transform_fingerprint
 
 
 def _reapply_active_scenarios(config: dict, project_dir: Path, engine) -> None:
@@ -4412,9 +4549,14 @@ def _stage_archiver_store(
     # reads a manifest and a machine model off disk, and charging that time
     # against the store's start-up allowance would make a slow disk look like an
     # unreachable server.
-    channels, engine, boot_values = _archiver_seed_inputs(config, project_dir)
+    channels, engine, boot_values, value_transform, transform_fingerprint = _archiver_seed_inputs(
+        config, project_dir
+    )
     fingerprint = seed_fingerprint(
-        knobs, (str(channel["address"]) for channel in channels), compression=compression
+        knobs,
+        (str(channel["address"]) for channel in channels),
+        compression=compression,
+        transform_fingerprint=transform_fingerprint,
     )
 
     store_hint = f"{store['username']}@{store['host']}:{store['port']}"
@@ -4482,6 +4624,8 @@ def _stage_archiver_store(
             boot_values=boot_values,
             compression=compression,
             progress=_seed_progress_reporter(),
+            value_transform=value_transform,
+            transform_fingerprint=transform_fingerprint,
         )
         _report_step(f"archive base: {report.describe()}")
 

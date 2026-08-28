@@ -32,8 +32,6 @@ _MODULE = "osprey.mcp_server.http"
 # SSRF check passes without real DNS (same pattern as test_web_custom_panels).
 _LAN_ADDR = [(2, 1, 6, "", ("10.0.0.5", 0))]
 _GETADDRINFO_TARGET = "osprey.interfaces.web_terminal.routes.panels.socket.getaddrinfo"
-
-
 # ---- Route-side: source passthrough into broadcast frames ---- #
 
 

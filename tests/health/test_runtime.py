@@ -9,11 +9,15 @@ disconnects it exactly once on exit. Mirrors the spy-connector shape from
 - never-constructed: a runtime whose ``get_connector`` is never called neither
   registers connector types nor constructs anything, and disconnects nothing;
 - best-effort teardown: a ``disconnect()`` that raises is swallowed so context
-  exit never propagates it.
+  exit never propagates it;
+- serialized construction: probes run concurrently inside a health category, so
+  two gathered ``get_connector``/``get_archiver`` calls must still construct a
+  single connector rather than orphaning the loser of the race.
 """
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import pytest
@@ -240,3 +244,170 @@ async def test_double_shutdown_is_safe_after_construction(
     assert runtime.closed is True
     assert runtime.ever_constructed is True
     assert spy.disconnect_calls == 1
+
+
+class _SpyArchiver:
+    """Minimal async-``disconnect``-only stand-in for an archiver connector."""
+
+    def __init__(self) -> None:
+        self.disconnect_calls = 0
+
+    async def disconnect(self) -> None:
+        self.disconnect_calls += 1
+
+
+def _patch_archiver_factory(
+    monkeypatch: pytest.MonkeyPatch,
+    connector: Any,
+    construct_calls: list[Any],
+) -> None:
+    """Spy `create_archiver_connector`, yielding once inside the construction.
+
+    The ``await asyncio.sleep(0)`` is the whole point: it hands control back to
+    the event loop while the cache slot is still empty, which is exactly the
+    window a second concurrent probe used to slip through.
+    """
+
+    async def fake_create(config: dict[str, Any]) -> Any:
+        construct_calls.append(config)
+        await asyncio.sleep(0)
+        return connector
+
+    monkeypatch.setattr(factory.ConnectorFactory, "create_archiver_connector", fake_create)
+    monkeypatch.setattr(factory, "register_builtin_connectors", lambda: None)
+
+
+def _patch_slow_factory(
+    monkeypatch: pytest.MonkeyPatch,
+    connector: Any,
+    construct_calls: list[Any],
+) -> None:
+    """Like `_patch_factory`, but yields to the loop mid-construction.
+
+    Without the runtime's lock, the yield lets a second gathered caller observe
+    the still-empty cache and build a connector of its own — the orphan
+    ``shutdown()`` would never disconnect.
+    """
+
+    async def fake_create(config: dict[str, Any]) -> Any:
+        construct_calls.append(config)
+        await asyncio.sleep(0)
+        return connector
+
+    monkeypatch.setattr(
+        factory.ConnectorFactory,
+        "create_control_system_connector",
+        fake_create,
+    )
+    monkeypatch.setattr(factory, "register_builtin_connectors", lambda: None)
+
+
+async def test_concurrent_get_connector_constructs_exactly_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    construct_calls: list[Any] = []
+    spy = _SpyConnector()
+    _patch_slow_factory(monkeypatch, spy, construct_calls)
+
+    async with HealthRuntime({"type": "mock"}) as runtime:
+        first, second = await asyncio.gather(
+            runtime.get_connector(),
+            runtime.get_connector(),
+        )
+
+        # One construction between them, and the waiter got the winner's
+        # instance rather than an orphan of its own.
+        assert construct_calls == [{"type": "mock"}]
+        assert first is spy
+        assert second is spy
+
+    # The single connector is disconnected once; nothing was left behind.
+    assert spy.disconnect_calls == 1
+
+
+async def test_many_concurrent_get_connector_calls_construct_exactly_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    construct_calls: list[Any] = []
+    spy = _SpyConnector()
+    _patch_slow_factory(monkeypatch, spy, construct_calls)
+
+    # A realistic category fan-out: several channel_read-style probes at once.
+    async with HealthRuntime({"type": "mock"}) as runtime:
+        results = await asyncio.gather(*(runtime.get_connector() for _ in range(8)))
+
+    assert len(construct_calls) == 1
+    assert all(result is spy for result in results)
+
+
+async def test_shutdown_during_construction_does_not_orphan_the_connector(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The closed check runs before the lock, so it can be passed and then
+    overtaken: ``shutdown()`` finds the slot still empty, disconnects nothing,
+    and the construction completes into a runtime that has already torn down.
+    Nothing would ever disconnect that connector — the orphan the lock exists
+    to prevent, reached through a different window. The construction has to
+    re-check inside the lock and close what it just built."""
+    construct_calls: list[Any] = []
+    spy = _SpyConnector()
+    _patch_slow_factory(monkeypatch, spy, construct_calls)
+    runtime = HealthRuntime({"type": "mock"})
+
+    getter = asyncio.create_task(runtime.get_connector())
+    await asyncio.sleep(0)  # getter passes the closed check and enters construction
+    assert construct_calls == [{"type": "mock"}]
+    await runtime.shutdown()
+
+    with pytest.raises(RuntimeError, match="closed while its connector was being constructed"):
+        await getter
+    assert spy.disconnect_calls == 1
+    assert runtime.closed
+    assert not runtime.ever_constructed
+
+
+async def test_concurrent_get_archiver_constructs_exactly_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    construct_calls: list[Any] = []
+    spy = _SpyArchiver()
+    _patch_archiver_factory(monkeypatch, spy, construct_calls)
+
+    archiver_config = {"type": "epics_archiver", "epics_archiver": {}}
+
+    async with HealthRuntime({"type": "mock"}) as runtime:
+        first, second = await asyncio.gather(
+            runtime.get_archiver(archiver_config),
+            runtime.get_archiver(archiver_config),
+        )
+
+        assert construct_calls == [archiver_config]
+        assert first is spy
+        assert second is spy
+        assert runtime.archiver_ever_constructed is True
+
+    assert spy.disconnect_calls == 1
+
+
+async def test_closed_runtime_refuses_without_waiting_on_the_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    construct_calls: list[Any] = []
+    spy = _SpyConnector()
+    _patch_slow_factory(monkeypatch, spy, construct_calls)
+
+    runtime = HealthRuntime({"type": "mock"})
+    await runtime.shutdown()
+
+    # The closed guard sits outside the lock, so the refusal does not depend on
+    # the lock being free: it is raised even while another task holds it.
+    await runtime._lock.acquire()
+    try:
+        with pytest.raises(RuntimeError):
+            await asyncio.wait_for(runtime.get_connector(), timeout=1)
+        with pytest.raises(RuntimeError):
+            await asyncio.wait_for(runtime.get_archiver({"type": "mock"}), timeout=1)
+    finally:
+        runtime._lock.release()
+
+    assert construct_calls == []

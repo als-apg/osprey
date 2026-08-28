@@ -1285,12 +1285,19 @@ class TestMixedReadWriteTools:
             for rule in FRAMEWORK_SERVERS["python"].hooks_pre
             if _WRITES_CHECK in rule.hooks
         ]
-        assert writes_check_matchers("python") == expected == ["mcp__python__execute"]
+        assert (
+            writes_check_matchers("python")
+            == expected
+            == ["mcp__python__execute", "mcp__python__execute_file"]
+        )
 
     def test_writes_check_matchers_rewrite_the_clone_prefix(self):
         """An ``extends`` clone's tools are named for the clone, not the
         template — the same anchored splice build_extended_server applies."""
-        assert writes_check_matchers("python", "python2") == ["mcp__python2__execute"]
+        assert writes_check_matchers("python", "python2") == [
+            "mcp__python2__execute",
+            "mcp__python2__execute_file",
+        ]
 
     def test_writes_check_matchers_unknown_template_is_empty(self):
         """A custom (non-framework) server has no template to read rules from."""
@@ -1299,7 +1306,10 @@ class TestMixedReadWriteTools:
     def test_framework_floor_is_the_fully_qualified_mixed_set(self):
         """The floor the hook/middleware fall back to when a render is
         degraded: every mixed template's write-gated tools, fully qualified."""
-        assert framework_mixed_read_write_tools() == ["mcp__python__execute"]
+        assert framework_mixed_read_write_tools() == [
+            "mcp__python__execute",
+            "mcp__python__execute_file",
+        ]
         for tool in framework_mixed_read_write_tools():
             assert tool.startswith("mcp__")
 
@@ -1307,7 +1317,10 @@ class TestMixedReadWriteTools:
         """python ships enabled by default; a disabled mixed server
         contributes nothing to the render's list."""
         servers = resolve_servers({}, _base_ctx())
-        assert mixed_read_write_tools(servers) == ["mcp__python__execute"]
+        assert mixed_read_write_tools(servers) == [
+            "mcp__python__execute",
+            "mcp__python__execute_file",
+        ]
 
         off = resolve_servers({"servers": {"python": {"enabled": False}}}, _base_ctx())
         assert mixed_read_write_tools(off) == []
@@ -1341,4 +1354,9 @@ class TestMixedReadWriteTools:
         )
         tools = mixed_read_write_tools(servers)
         assert tools == list(dict.fromkeys(tools))
-        assert tools == ["mcp__python__execute", "mcp__python2__execute"]
+        assert tools == [
+            "mcp__python__execute",
+            "mcp__python__execute_file",
+            "mcp__python2__execute",
+            "mcp__python2__execute_file",
+        ]
