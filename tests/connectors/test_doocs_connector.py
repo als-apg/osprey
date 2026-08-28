@@ -334,6 +334,7 @@ class TestWriteFailureKind:
 
         assert result.verification.verified is False
         assert result.verification.failure_kind is None
+        assert result.verification.readback_value is None
 
     async def test_successful_readback_leaves_failure_kind_null(self, connector):
         conn, mock_d4py = connector
@@ -362,6 +363,107 @@ class TestWriteFailureKind:
         first, second = results
         assert first.verification.notes != second.verification.notes
         assert _structured_write_facts(first) == _structured_write_facts(second)
+
+
+class _Incomparable:
+    """A readback whose equality test raises — nothing sensible to compare."""
+
+    def __eq__(self, other):
+        raise TypeError("no comparison defined")
+
+    __hash__ = object.__hash__
+
+
+class TestNonNumericReadback:
+    """``readback_value`` is numeric or absent — never a stand-in number.
+
+    A string readback used to report ``readback_value=0.0``: a fabricated
+    number in the machine-readable field. Non-numeric readbacks now compare by
+    equality where the types allow, carry no value, and say why in ``notes``.
+    """
+
+    async def test_matching_string_readback_carries_no_fabricated_value(self, connector):
+        conn, mock_d4py = connector
+        mock_d4py.get.return_value = _make_eq_data(value="DESIRED")
+
+        result = await conn.write_channel(
+            "FAC/DEV/LOC/PROP", "DESIRED", verification_level="readback", tolerance=0.1
+        )
+
+        assert result.success is True
+        assert result.verification.verified is True
+        assert result.verification.readback_value is None
+        assert result.verification.failure_kind is None
+        assert "DESIRED" in result.verification.notes
+
+    async def test_sequence_readback_compares_by_equality(self, connector):
+        conn, mock_d4py = connector
+        mock_d4py.get.return_value = _make_eq_data(value=[1, 2, 3])
+
+        result = await conn.write_channel(
+            "FAC/DEV/LOC/PROP", [1, 2, 3], verification_level="readback", tolerance=0.1
+        )
+
+        assert result.verification.verified is True
+        assert result.verification.readback_value is None
+        assert result.verification.failure_kind is None
+        assert "equality" in result.verification.notes
+
+    async def test_sequence_mismatch_is_unverified_without_a_value(self, connector):
+        conn, mock_d4py = connector
+        mock_d4py.get.return_value = _make_eq_data(value=[1, 2, 4])
+
+        result = await conn.write_channel(
+            "FAC/DEV/LOC/PROP", [1, 2, 3], verification_level="readback", tolerance=0.1
+        )
+
+        assert result.success is True
+        assert result.verification.verified is False
+        assert result.verification.readback_value is None
+        assert result.verification.failure_kind is None
+
+    async def test_array_readback_compares_elementwise(self, connector):
+        np = pytest.importorskip("numpy")
+        conn, mock_d4py = connector
+        mock_d4py.get.return_value = _make_eq_data(value=np.array([1.0, 2.0]))
+
+        result = await conn.write_channel(
+            "FAC/DEV/LOC/PROP", np.array([1.0, 2.0]), verification_level="readback", tolerance=0.1
+        )
+
+        assert result.verification.verified is True
+        assert result.verification.readback_value is None
+
+    async def test_incomparable_readback_is_unverified_and_says_why(self, connector):
+        conn, mock_d4py = connector
+        mock_d4py.get.return_value = _make_eq_data(value=_Incomparable())
+
+        result = await conn.write_channel(
+            "FAC/DEV/LOC/PROP", 10.0, verification_level="readback", tolerance=0.1
+        )
+
+        assert result.success is True
+        assert result.verification.verified is False
+        assert result.verification.readback_value is None
+        # The readback itself worked; only the comparison has no meaning.
+        assert result.verification.failure_kind is None
+        assert "cannot be compared" in result.verification.notes
+
+    async def test_numeric_readback_for_a_non_numeric_setpoint_is_not_a_readback_failure(
+        self, connector
+    ):
+        """``float("ON")`` raising must not masquerade as the read having failed."""
+        conn, mock_d4py = connector
+        mock_d4py.get.return_value = _make_eq_data(value=1.0)
+
+        result = await conn.write_channel(
+            "FAC/DEV/LOC/PROP", "ON", verification_level="readback", tolerance=0.1
+        )
+
+        assert result.success is True
+        assert result.verification.verified is False
+        assert result.verification.failure_kind is None
+        assert result.verification.readback_value == pytest.approx(1.0)
 
 
 class TestWriteLevelReporting:
