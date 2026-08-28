@@ -3,7 +3,8 @@
  * OSPREY Channel Finder — Explore View (dispatcher)
  *
  * Detects pipeline type and mounts the correct explore renderer.
- * Shows database source path and schema diagram for structured pipelines.
+ * Shows database source path and schema diagram for structured pipelines; the
+ * graph paradigm carries neither, and its renderer names its own store.
  */
 
 import { state } from './state.js';
@@ -11,6 +12,7 @@ import { esc, renderSchema } from './utils.js';
 import { mountHierarchical, unmountHierarchical, setShowDescriptions as setHierDescriptions } from './explore-hierarchical.js';
 import { mountInContext, unmountInContext } from './explore-in-context.js';
 import { mountMiddleLayer, unmountMiddleLayer, setShowDescriptions as setMLDescriptions } from './explore-middle-layer.js';
+import { mountGraph, unmountGraph } from './explore-graph.js';
 
 /** @type {string|null} */
 let currentRenderer = null;
@@ -45,29 +47,7 @@ function mountUnknown(content, pipelineType) {
   `;
 }
 
-/**
- * Show the graph paradigm's static pane. Not a failure: the graph paradigm
- * ships no browser at all, so there is nothing to render and nothing to fix.
- * Shares the pane box with the unknown-pipeline notice above, but wears the
- * informational modifier: a correctly configured deployment must not be
- * tinted like the pane that reports a rejected configuration.
- * @param {HTMLElement} content
- */
-function mountGraph(content) {
-  content.innerHTML = `
-    <div class="explore-unknown explore-unknown--info" data-pipeline="graph">
-      <div class="explore-unknown-title">
-        This paradigm has no browser &mdash; channels are resolved by querying the facility graph
-      </div>
-      <div class="explore-unknown-body">
-        Ask the assistant for the channels you need: it answers from the graph
-        store with <code>read_cypher</code> instead of a channel database.
-      </div>
-    </div>
-  `;
-}
-
-/** Clear whichever static pane is mounted (unknown pipeline or graph). */
+/** Clear the unknown-pipeline pane. */
 function clearStaticPane() {
   const content = document.getElementById('explore-content');
   if (content) content.innerHTML = '';
@@ -91,12 +71,14 @@ export function mountExplore(container) {
        </label>`
     : '';
 
+  // Graph mode names its own provenance inside the panel (the graph store, not
+  // a database file), so the db-source badge is left to the file-backed modes.
   container.innerHTML = `
     <div class="section-header">
       <div>
         <div class="section-title">Explore Channels</div>
         <div class="section-subtitle">${subtitle}</div>
-        ${_dbSourceBadge()}
+        ${pt === 'graph' ? '' : _dbSourceBadge()}
         ${descToggle}
       </div>
     </div>
@@ -133,7 +115,7 @@ export function mountExplore(container) {
     mountInContext(content);
   } else if (pt === 'graph') {
     currentRenderer = 'graph';
-    mountGraph(content);
+    void mountGraph(content);
   } else {
     currentRenderer = 'unknown';
     mountUnknown(content, pt);
@@ -144,6 +126,7 @@ export function unmountExplore() {
   if (currentRenderer === 'hierarchical') unmountHierarchical();
   else if (currentRenderer === 'middle_layer') unmountMiddleLayer();
   else if (currentRenderer === 'in_context') unmountInContext();
-  else if (currentRenderer === 'graph' || currentRenderer === 'unknown') clearStaticPane();
+  else if (currentRenderer === 'graph') unmountGraph();
+  else if (currentRenderer === 'unknown') clearStaticPane();
   currentRenderer = null;
 }

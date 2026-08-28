@@ -26,6 +26,12 @@
 
   --shadow-md: 0 4px 12px var(--overlay-black-50);
 
+  /* Warning tints. tokens.css emits accent/error/success tint ramps but no
+     warning one, so these are composited from the canonical --color-warning
+     the same way (they theme with it and need no per-theme override). */
+  --cf-warning-tint-08: color-mix(in srgb, var(--color-warning) 8%, transparent);
+  --cf-warning-tint-30: color-mix(in srgb, var(--color-warning) 30%, transparent);
+
   --cf-text-xs: 0.7rem;
   --cf-text-sm: 0.8125rem;
   --cf-text-base: 0.875rem;
@@ -1912,4 +1918,213 @@ html[data-ui-mode="simple"] .filter-input {
 
 .explore-unknown--info .explore-unknown-title {
   color: var(--text-accent);
+}
+
+/* ================================================================
+   Graph Explore
+   The graph paradigm's explorer: a panel of class-tree chrome plus a
+   hand-rendered SVG of the ontology. Two conventions worth knowing:
+
+   - The panel body deliberately has no max-height and no inner vertical
+     scroller. The page itself scrolls (html,body { overflow: auto }
+     near the top of this file), so a tall tree grows the page like every
+     other section does instead of trapping the reader in a nested
+     scrollbar. Only overflow-x is handled here, for a tree wider than
+     the panel.
+   - Per-class colour arrives as an inline `--c` custom property the
+     renderer sets on the legend chip and on the matching node, so the
+     markup stays declarative and this file stays colour-literal free.
+     Every read of it carries a token fallback, so an un-tinted element
+     still renders in the neutral/accent default.
+   ================================================================ */
+
+.graph-panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--neutral-tint-10);
+  border-radius: var(--cf-radius-md);
+  margin-top: var(--cf-space-4);
+}
+
+/* Title and subtitle stack; the store badge (and anything else the head
+   carries) sits to their right and drops below on a narrow viewport. */
+.graph-panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--cf-space-2) var(--cf-space-4);
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--neutral-tint-10);
+  border-radius: var(--cf-radius-md) var(--cf-radius-md) 0 0;
+  padding: var(--cf-space-3) var(--cf-space-4);
+}
+
+.graph-panel-title {
+  flex: 1 1 auto;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--cf-text-base);
+  color: var(--text-primary);
+}
+
+.graph-panel-sub {
+  flex: 1 1 100%;
+  color: var(--text-muted);
+  font-size: var(--cf-text-sm);
+  line-height: 1.5;
+}
+
+.graph-panel-body {
+  padding: var(--cf-space-4);
+  overflow-x: auto;
+}
+
+/* Store badge — same visual family as .db-source-badge, mirrored rather
+   than shared so the graph panel can carry it inside its own head. */
+.graph-store-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cf-space-1);
+  padding: 2px 8px;
+  border-radius: var(--cf-radius-sm);
+  background: var(--bg-secondary);
+  font-size: var(--cf-text-xs);
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.graph-store-badge code {
+  font-family: var(--font-mono);
+  font-size: var(--cf-text-xs);
+}
+
+/* Legend: one chip per class colour. The renderer sets `--c` inline. */
+.graph-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--cf-space-2) var(--cf-space-4);
+  margin-bottom: var(--cf-space-3);
+}
+
+.graph-legend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cf-space-1);
+  font-size: var(--cf-text-xs);
+  color: var(--text-secondary);
+}
+
+.graph-legend-chip::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  border-radius: var(--cf-radius-sm);
+  background: var(--c, var(--color-accent));
+}
+
+/* MCP tool name, as offered next to the legend. */
+.graph-tool-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cf-space-1);
+  padding: 1px 6px;
+  border: 1px solid var(--neutral-tint-10);
+  border-radius: var(--cf-radius-full);
+  background: var(--bg-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--cf-text-xs);
+  color: var(--text-accent);
+}
+
+/* Row above the tree, shown when the store held more than the query
+   returned: a caution, not an error — the panel below it is still valid. */
+.graph-truncated {
+  display: flex;
+  align-items: center;
+  gap: var(--cf-space-2);
+  margin-bottom: var(--cf-space-3);
+  padding: var(--cf-space-2) var(--cf-space-3);
+  background: var(--cf-warning-tint-08);
+  border: 1px solid var(--cf-warning-tint-30);
+  border-left: 3px solid var(--color-warning);
+  border-radius: var(--cf-radius-sm);
+  color: var(--text-secondary);
+  font-size: var(--cf-text-sm);
+  line-height: 1.4;
+}
+
+/* --- SVG tree ------------------------------------------------------ */
+
+/* Node box. The class tint colours the outline rather than the fill, so
+   the label keeps full contrast against the panel in every theme. */
+.g-node > rect {
+  fill: var(--bg-elevated);
+  stroke: var(--c, var(--neutral-tint-20));
+  stroke-width: 1;
+  rx: 4;
+  ry: 4;
+  transition: fill var(--transition-fast);
+}
+
+.g-node:hover > rect {
+  fill: var(--surface-hover);
+}
+
+.g-node-name {
+  fill: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--cf-text-sm);
+  dominant-baseline: middle;
+}
+
+/* Instance count, in a soft pill at the right edge of the box. */
+.g-node-count-pill {
+  fill: var(--neutral-tint-10);
+  stroke: none;
+  rx: 7;
+  ry: 7;
+}
+
+.g-node-count {
+  fill: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--cf-text-xs);
+  dominant-baseline: middle;
+  text-anchor: middle;
+}
+
+/* Root of the tree: accented, so the eye finds the top of the hierarchy. */
+.g-node.root > rect {
+  fill: var(--accent-tint-08);
+  stroke: var(--border-accent);
+}
+
+.g-node.root .g-node-name {
+  fill: var(--text-accent);
+  font-weight: 600;
+}
+
+.g-node.root .g-node-count-pill {
+  fill: var(--accent-tint-20);
+}
+
+.g-edge {
+  fill: none;
+  stroke: var(--neutral-tint-20);
+  stroke-width: 1;
+}
+
+/* SUBCLASSOF is a taxonomy link, not a data link — dashed and neutral so
+   it reads as structure behind the boxes. */
+.g-edge.subclassof {
+  stroke-dasharray: 4 3;
+}
+
+/* Simple mode drops dense pipeline chrome, exactly as it does for the
+   .db-source-badge on the file-backed pipelines. */
+html[data-ui-mode="simple"] .graph-store-badge,
+html[data-ui-mode="simple"] .graph-tool-chip {
+  display: none;
 }
