@@ -23,6 +23,24 @@ class TestFeedbackStatus:
         data = resp.json()
         assert data["available"] is False
 
+    def test_available_reports_the_paradigm(self, feedback_client):
+        """The served paradigm rides along on the available answer too."""
+        data = feedback_client.get("/api/feedback/status").json()
+        assert data["paradigm"] == "in_context"
+
+    def test_unavailable_reports_the_paradigm(self, client):
+        """``available: false`` alone cannot be acted on.
+
+        A paradigm that keeps no feedback store and one whose operator has not
+        switched feedback on both answer false, and the advice differs: the
+        first has no setting to switch. The UI needs the paradigm to tell them
+        apart, so it is reported on the unavailable answer as well.
+        """
+        client.app.state.pipeline_type = "graph"
+        data = client.get("/api/feedback/status").json()
+        assert data["available"] is False
+        assert data["paradigm"] == "graph"
+
 
 # ------------------------------------------------------------------
 # List entries

@@ -329,10 +329,14 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
     "virtual_accelerator": """
 # --- Virtual accelerator -----------------------------------------------------
 # Containerized soft-IOC serving simulated channels, so the deployment can be
-# exercised without touching the machine.
+# exercised without touching the machine. live_standin runs a second copy of it
+# as the deployment's live target, so operators rehearse switching lanes before
+# any of it reaches the machine; delete the key to go live for real, or to save
+# the second container.
 #
 # virtual_accelerator:
 #   port: 5064
+#   live_standin: 5074
 """,
     "va_archiver": """
 # --- Stored archive ----------------------------------------------------------

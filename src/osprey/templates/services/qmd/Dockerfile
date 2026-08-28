@@ -138,6 +138,14 @@ ENV OSPREY_QMD_EMBED_SHA256=${OSPREY_QMD_EMBED_SHA256} \
 #
 # One RUN per model so a network failure on the 1.2 GB file does not discard the
 # two already-verified layers.
+#
+# ``--retry-all-errors`` is load-bearing, not belt-and-braces. The CDN drops a
+# stream mid-transfer often enough to redden a lane (``curl: (92) HTTP/2 stream
+# was not closed cleanly``), and curl retries neither that nor an HTTP error
+# body by default — ``--retry`` covers transient *transfer* failures and
+# ``--retry-connrefused`` only adds a refused connection, so without this flag
+# the retry budget is never spent on the failure that actually happens and a
+# 318 MB download that dies at 62% fails the whole image build on the spot.
 
 # Embeddings (318 MB). Needed to BUILD an index — the fail-closed startup pass
 # in the entrypoint depends on this one.
@@ -147,7 +155,7 @@ RUN set -eu; \
     fi; \
     dest="$OSPREY_QMD_MODEL_DIR/hf_ggml-org_embeddinggemma-300M-Q8_0.gguf"; \
     want="$OSPREY_QMD_EMBED_SHA256"; \
-    curl -fSL --retry 5 --retry-delay 5 --retry-connrefused -o "$dest" \
+    curl -fSL --retry 5 --retry-delay 5 --retry-connrefused --retry-all-errors -o "$dest" \
       "https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF/resolve/0f741b5a6585bd53aeb15cd1372c56f2a0f65e12/embeddinggemma-300M-Q8_0.gguf"; \
     got="$(sha256sum "$dest" | cut -d' ' -f1)"; \
     [ "$got" = "$want" ] || { echo "ERROR: SHA256 mismatch for embedding model: want $want, got $got" >&2; exit 1; }; \
@@ -160,7 +168,7 @@ RUN set -eu; \
     fi; \
     dest="$OSPREY_QMD_MODEL_DIR/hf_ggml-org_qwen3-reranker-0.6b-q8_0.gguf"; \
     want="$OSPREY_QMD_RERANK_SHA256"; \
-    curl -fSL --retry 5 --retry-delay 5 --retry-connrefused -o "$dest" \
+    curl -fSL --retry 5 --retry-delay 5 --retry-connrefused --retry-all-errors -o "$dest" \
       "https://huggingface.co/ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF/resolve/a02f48bb4f057028298c21fa033da2b30d7742d5/qwen3-reranker-0.6b-q8_0.gguf"; \
     got="$(sha256sum "$dest" | cut -d' ' -f1)"; \
     [ "$got" = "$want" ] || { echo "ERROR: SHA256 mismatch for rerank model: want $want, got $got" >&2; exit 1; }; \
@@ -173,7 +181,7 @@ RUN set -eu; \
     fi; \
     dest="$OSPREY_QMD_MODEL_DIR/hf_tobil_qmd-query-expansion-1.7B-q4_k_m.gguf"; \
     want="$OSPREY_QMD_GENERATE_SHA256"; \
-    curl -fSL --retry 5 --retry-delay 5 --retry-connrefused -o "$dest" \
+    curl -fSL --retry 5 --retry-delay 5 --retry-connrefused --retry-all-errors -o "$dest" \
       "https://huggingface.co/tobil/qmd-query-expansion-1.7B-gguf/resolve/7816de0b72572c6c860ca1eddf97ba9e7fb8cc65/qmd-query-expansion-1.7B-q4_k_m.gguf"; \
     got="$(sha256sum "$dest" | cut -d' ' -f1)"; \
     [ "$got" = "$want" ] || { echo "ERROR: SHA256 mismatch for generate model: want $want, got $got" >&2; exit 1; }; \

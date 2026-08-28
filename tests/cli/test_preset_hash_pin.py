@@ -112,12 +112,21 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # is NOT among them — it pinned no address to lose — and its digest below
     # is main's, unmoved, which is the check that the contract touched only
     # the attached tiers.
-    "control-assistant": "sha256:cb3ea6aecf66e90326c0be0dcead918c98a30fb3fe606ada26e07187ac2f2f64",
+    # Moved once more, and this time ALL SIX control-assistant entries at once
+    # — base and every tier — when the base preset gained
+    # `virtual_accelerator.live_standin: 5074`. A rebuilt project now deploys a
+    # second copy of the simulator on that port as its `live` target, so
+    # `control_target_set live` rehearses the real go-live ritual instead of
+    # refusing for want of a live machine. Deploy-visible in the plainest way
+    # there is — the rebuilt deployment runs one more container and answers on
+    # one more port — so the staleness advisory firing on already-deployed
+    # control-assistant projects is the correct signal.
+    "control-assistant": "sha256:b678471cb0ffac3f2c7b194aff237010f03ce30d672144d0ecca726ee61ba780",
     "control-assistant-admin": (
-        "sha256:ff2492ee9f5001ed3b385f987b6cff882834dd8fcd4d53130c8cdc7e6186c24b"
+        "sha256:d4aa537b1322ca5ee804c4c2b5facfc5798eaf2921eb9ee55fcbf18d7d2aced2"
     ),
     "control-assistant-ariel": (
-        "sha256:646df29c8945900f8535191a3a496df86b83d09ff23ad7f4e87746fe8ce4e16f"
+        "sha256:b52bd3783e3a36621d750216c3d4195b79dd8028051f25e135130e8c73162930"
     ),
     # The two operator tiers below moved together, and alone, when each gained
     # the single dotted key `services.graphdb.port_host: 7687` in its `config:`
@@ -175,10 +184,10 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # same commit contributed nothing, which is the digest being comment-blind
     # exactly as the note at the top of this table says.
     "control-assistant-readonly": (
-        "sha256:a56b66057ff54c8fb7853c7e09b5d6b2863da8f030d4eab6ea9f33d3294873ec"
+        "sha256:be5951a146fdd4c438221c502dc17ba35113c769a5824eb63683ceede9eb221a"
     ),
     "control-assistant-readwrite": (
-        "sha256:b5c68c2b9f64bf83eec5902ffb3cdf3697f9ae4b9d88d39a2afc400d4f6073b7"
+        "sha256:dd6f02774a5fb0ec4b3f41f2ea95d0bcf98c1cd26b7fc535b145f46ef85cec4e"
     ),
     # New with per-target write posture, not a moved entry: the rung between
     # the two flat tiers, armed on the virtual accelerator alone. It pins the
@@ -187,7 +196,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # it, so which machine the session is pointed at decides whether its writes
     # land.
     "control-assistant-va-readwrite": (
-        "sha256:7b14d6fdfb8deb58379f72fcd3130ba95c4fc6374ae2a480a55d73bbcfce38c6"
+        "sha256:cffb2ef8d4342fd614f3e4eea4a18234a6d4ae7237d9aee105df011f53f2a307"
     ),
     # Moved when the onboarding rewrite dropped the `facility` rule. The
     # wholesale comment rewrite that shipped alongside it contributed nothing:

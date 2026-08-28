@@ -1,0 +1,173 @@
+# The archiver-recorder service samples the live control system over Channel
+# Access and writes what it reads into the archiver store (see
+# src/osprey/services/archiver_recorder/). It is what makes deployed history
+# REAL: the base seeder materializes synthesized history once per deploy, and
+# from then on this service records the machine as it actually behaves, into
+# the same collection, on the same timeline.
+#
+# It records only while `control_system.type` is `virtual_accelerator` —
+# read from the mounted CONFIG_FILE below and re-read on an interval, not
+# latched at boot, so the documented post-build flip takes effect without a
+# restart. On any other control system it idles with a one-line log and writes
+# nothing; recording a real machine's readings into a simulated archive would
+# be exactly the kind of two-world dishonesty this feature exists to remove.
+#
+# There is deliberately NO Dockerfile here and no `build:` block: this service
+# runs the VIRTUAL ACCELERATOR's image with a different command, so it adds no
+# image build to any deploy or CI lane, and the two services can never disagree
+# about their Channel Access stack. The `virtual_accelerator` service owns that
+# tag — two services building one tag race each other (the bluesky queueserver
+# carries the same note).
+
+
+services:
+  archiver-recorder:
+
+    # No co-deployed Virtual Accelerator means nothing in this deploy BUILDS
+    # the VA image, so the local tag would not exist and compose would fail
+    # trying to pull it ("pull access denied for <project>-va") without ever
+    # naming the real problem. `:?` says it instead. An external-IOC deploy
+    # that wants a recorder supplies a published image here — the same
+    # variable a project would set to use a prebuilt VA image anyway.
+    image: ${OSPREY_VA_IMAGE:?set OSPREY_VA_IMAGE to a published osprey VA image when the virtual_accelerator service is not co-deployed}
+
+    # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
+    # so two OSPREY projects can deploy a recorder on one host without colliding
+    # on one name. Nothing reaches this service in-network (it only makes
+    # outbound CA reads and Mongo writes), so the rename needs no network alias.
+    container_name: proj-a-archiver-recorder
+    # Replaces the VA image's CMD outright (the image declares no ENTRYPOINT).
+    # `-u` for the same reason the VA uses it: unbuffered output, so the
+    # idling/recording state lines reach `docker logs` when they happen rather
+    # than a block later.
+    command: ["python", "-u", "-m", "osprey.services.archiver_recorder"]
+    labels:
+      osprey.project.name: "proj-a"
+      com.osprey.repo-id: ""
+      osprey.project.root: "/r/proj-a"
+      # Content fingerprint of the rendered config this deploy built
+      # (runtime_helper's as_built_config_digest, carried in by
+      # OSPREY_CONFIG_DIGEST). The same recreate trigger as the env digest, for
+      # the other file a container reads its settings from: this service mounts
+      # the rendered config.yml, so `osprey set` changes a file the compose
+      # document never mentions and compose would leave the container running on
+      # the settings it parsed at startup. Empty when the invocation did not set
+      # the variable (a hand-run `docker compose up`).
+      osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
+    restart: unless-stopped
+    # No `ports:` and no `healthcheck:` — deliberately. This service opens no
+    # listening socket, so it has nothing to publish and nothing an HTTP or TCP
+    # probe could ask. Its liveness question ("is history still arriving?") is
+    # answered where it belongs, by the `archiver_freshness` health probe
+    # reading the store itself.
+    depends_on:
+      # Always: the recorder's first write would otherwise race the store's
+      # startup, and on a fresh volume mongod's admin-user creation makes that
+      # window seconds long. Health-gated rather than start-gated because
+      # "container started" is not "answering commands".
+      mongodb:
+        condition: service_healthy
+
+    # Deliberately NO bulk .env passthrough (the gchat/nextcloud bridge
+    # convention): this service talks to exactly two things, an IOC and the
+    # archiver store, and never calls an LLM. Everything it reads arrives by
+    # explicit interpolation below, resolved from the project .env because
+    # `osprey up` runs compose with `--env-file .env`.
+    environment:
+      # The recorder reads control_system.type (its own enablement), the
+      # va_archiver cadence/retention knobs and the archiver connection block
+      # from config.yml at runtime. CWD is the image WORKDIR (/app), not the
+      # project dir, so without CONFIG_FILE this falls back to /app/config.yml
+      # and every lookup errors "No config.yml found" — the same CONFIG_FILE
+      # convention the dispatch worker and bluesky bridge follow.
+      CONFIG_FILE: /app/project/build/config.yml
+      # In-network overrides for the archiver connection, following the
+      # OSPREY_OTEL_OPENOBSERVE_HOST precedent. The connection block in
+      # config.yml is written for the HOST side — `localhost` and the
+      # host-published `port_host` — which is unreachable from inside the
+      # compose network and would point at this container's own loopback. The
+      # recorder reads these two as overrides over the config values.
+      # `archiver-mongodb` is the store's network alias (pinned there
+      # precisely so this name survives the per-project container_name), and
+      # 27017 is its CONTAINER port, never the host publish.
+      OSPREY_ARCHIVER_MONGODB_HOST: archiver-mongodb
+      OSPREY_ARCHIVER_MONGODB_PORT: "27017"
+      # The store's minted root password, read through the same variable the
+      # agent connector's `password_env` names, so container, recorder, seeder
+      # and agent all authenticate with one value. `osprey up` mints it
+      # into the project .env when unset. The literal fallback matches the
+      # mongodb template's own MONGO_INITDB_ROOT_PASSWORD default line for
+      # line: an unset password must mean the SAME thing on both sides, or a
+      # bare `docker compose up` brings up a store the recorder cannot
+      # authenticate against.
+      MONGO_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-osprey}
+      # The channel list to record. Passthrough of the same build-derived
+      # variable the VA reads, resolved against the same /data/simulation
+      # mount, so the recorder covers exactly the channels the IOC serves. It
+      # must be the channel MANIFEST — channel_limits.json is a write-safety
+      # PROJECTION of that manifest (one entry per address, read-only ones
+      # included, plus top-level metadata keys), so its key set is not a
+      # channel list and reading it as one would ask the IOC for names that
+      # are not channels. Unset/empty means the image's built-in manifest,
+      # exactly as for the VA.
+      VA_CHANNELS_FILE: "${VA_CHANNELS_FILE:-}"
+
+      # External IOC: the address has to come from the deploy environment, and
+      # is REQUIRED (`:?`) rather than a bare reference. Compose resolves an
+      # unset bare ${VAR} to the empty string, so the recorder would come up
+      # with no route to any IOC and fail every read with a CA timeout — for
+      # minutes, quietly, looking exactly like a slow machine. `:?` turns that
+      # into a startup abort naming the missing variable. Set it (host:port),
+      # or co-deploy the virtual_accelerator service and this branch renders
+      # the address itself.
+      EPICS_CA_NAME_SERVERS: ${EPICS_CA_NAME_SERVERS:?set EPICS_CA_NAME_SERVERS to <host>:<port> of the IOC to record, or co-deploy the virtual_accelerator service}
+      # Defaulted rather than pinned, unlike the co-deployed branch: an
+      # external IOC may sit on a network where broadcast discovery genuinely
+      # works, and that is the operator's call. NO is the default because it
+      # is what pairs with the name-server transport above.
+      EPICS_CA_AUTO_ADDR_LIST: "${EPICS_CA_AUTO_ADDR_LIST:-NO}"
+
+      TZ: UTC
+    volumes:
+      # Bind-mount sources are relative to the pinned compose project
+      # directory, which is the deployment REPO ROOT — so `.` is the repo and
+      # `./build/data/simulation` the build-owned data tree.
+      #
+      # The REPO ROOT, read-only, and a deliberate exception to the convention
+      # every other service follows. The bluesky bridge and the dispatch
+      # worker mount the flattened config.yml the compose generator stages
+      # into their own build dir; this service must not. That staged copy is
+      # written once per `osprey build`, so an enablement poll re-reading it
+      # could only ever re-read a stale copy, and a flip made in the rendered
+      # config.yml would never arrive. CONFIG_FILE above names
+      # /app/project/build/config.yml — the deployment's as-built config,
+      # reached through the directory mount, so an edit to it on the host is
+      # what this service's own log line ("Flipping it in
+      # /app/project/build/config.yml takes effect within 30s") re-reads.
+      #
+      # A DIRECTORY rather than the single file, and this is the load-bearing
+      # part: a single-file bind resolves to an inode when the container
+      # starts. Editors that save by writing a temp file and renaming it over
+      # the original — vim and VS Code both do — leave a NEW inode behind, and
+      # the container goes on reading the old one silently, forever. The flip
+      # would then work for truncate-in-place writers and fail for exactly the
+      # hand edit this feature documents: a green test over a broken operator
+      # flow. Mounting the directory re-resolves the path on every read, so any
+      # editor's save is seen.
+      #
+      # Read-only, so the repo's .env is also visible to this container.
+      # Accepted: it is first-party and already receives the store credential
+      # by env. The in-network connection values still come from the
+      # OSPREY_ARCHIVER_MONGODB_* overrides above — the config's own connection
+      # block stays host-side and is not what this service connects with.
+      - .:/app/project:ro
+      # The simulation data dir, read-only, mounted at the SAME container path
+      # the VA uses so a relative VA_CHANNELS_FILE resolves identically on both
+      # sides. The recorder only reads the channel manifest from here; it never
+      # writes into the build-owned data tree.
+      - ./build/data/simulation:/data/simulation:ro
+    networks:
+      - osprey-network
+
+networks:
+  osprey-network:

@@ -123,6 +123,36 @@ reachability proof that keeps a failed switch from stranding the session, the
 posture a move toward the live machine requires, what the switch refuses, and
 how Bluesky plans behave while a session is switched.
 
+Rehearsing against a live target
+================================
+
+A deployment usually has nothing to switch *to*: the live connector points at a
+facility gateway that may not exist yet, or not from this laptop. Setting
+``virtual_accelerator.live_standin: 5074`` in the build profile gives it one —
+a **second** simulator container, deployed as this deployment's ``live`` target.
+``control_target_set live`` then rehearses the whole go-live ritual with nothing
+to edit and no real machine involved. The ``control-assistant`` preset ships it
+on; delete the line to run one machine again.
+
+The two are told apart by reading them: one image over one lattice, but a small
+fixed offset on the stand-in's BPM readouts. The label stays honest throughout —
+the banner and the posture badge read ``LIVE MACHINE (stand-in)``.
+:doc:`switch-control-target` has the ritual itself, and the three steps that
+turn the stand-in into your facility.
+
+**Scenarios reach both machines.** ``osprey sim apply`` writes one scenario file
+and both containers poll it, so a scenario changes the world rather than one
+lane. There is no scenario that applies to the simulator but not to the machine
+standing in for the live one, and switching targets does not undo one.
+
+**The archive belongs to the machine.** The recorder records the stand-in when
+one is deployed, and the history seeded on the first deploy carries the same BPM
+offsets the stand-in reads — so its past and its present describe one machine,
+the way a real machine's do. What the two halves share is the systematic error,
+not the individual samples: the seeded past carries the same systematic offsets
+as the stand-in's readout, not the same numbers, because the seed's values are
+generated rather than read off the running IOC.
+
 Switching back to the mock
 ==========================
 
@@ -146,15 +176,20 @@ that is not a plan — channel reads and writes, the archiver, the Channel
 Finder — works as before. The ``epics`` block keeps its production values
 throughout.
 
-The archive follows the flip on its own. The recorder records **only** a virtual
-accelerator, so on ``mock`` it stops writing and idles; it re-reads the project's
-``config.yml`` every 30 seconds, so the change takes effect within one poll and
-no restart or rebuild is involved. Nothing is deleted — the history already in
-the store stays readable, it simply stops growing, and it ages out under the
-retention window as usual. ``osprey health`` will report the archive as **stale**
-(a warning, not an error) once the newest sample is older than the freshness
-threshold, which is the honest answer to "is this archive still being written".
-Flipping back to ``virtual_accelerator`` restarts recording within a poll too.
+The archive follows the flip on its own. The recorder records **only** a machine
+this deployment owns, so with no stand-in deployed it stops writing on ``mock``
+and idles; it re-reads the project's ``config.yml`` every 30 seconds, so the
+change takes effect within one poll and no restart or rebuild is involved.
+Nothing is deleted — the history already in the store stays readable, it simply
+stops growing, and it ages out under the retention window as usual.
+``osprey health`` will report the archive as **stale** (a warning, not an error)
+once the newest sample is older than the freshness threshold, which is the
+honest answer to "is this archive still being written". Flipping back to
+``virtual_accelerator`` restarts recording within a poll too.
+
+A stand-in changes that answer, because the recorder follows the machine rather
+than the ``control_system.type`` line: the stand-in keeps running and is still
+this deployment's live machine, so it keeps being recorded on ``mock`` as well.
 
 Connecting to the IOC
 =====================
@@ -263,10 +298,18 @@ exactly that pair of keys.
 
 .. note::
 
-   The tutorial runs the limits checker in permissive mode
-   (``limits_checking.allow_unlisted_channels: true``), so a channel *absent*
-   from ``channel_limits.json`` is not blocked. Range enforcement covers listed
-   channels; it is not a closed allowlist here.
+   The limits posture here follows the stand-in. Without one, the limits
+   checker runs permissive (``limits_checking.allow_unlisted_channels:
+   true``): a channel *absent* from ``channel_limits.json`` is not blocked,
+   range enforcement covers the listed channels, and it is not a closed
+   allowlist.
+
+   Set ``virtual_accelerator.live_standin`` in the build profile — the
+   ``control-assistant`` preset does — and the build runs the deployment
+   strict instead: limits checking on, unlisted channels refused, on both
+   machines. That is the posture a switch to the live machine requires, and
+   rehearsing it is what the stand-in is for, so an unlisted channel is
+   refused on the simulator too. See `Rehearsing against a live target`_.
 
 The archive
 ===========
@@ -319,6 +362,11 @@ The join between the two is meant to be invisible: seeded samples and recorded
 samples land on the same timestamps and around the same baselines, so where the
 seed ends and recording begins there is noise, not a step an operator would
 rightly chase.
+
+**With a stand-in deployed, this is the stand-in's archive.** The recorder
+samples the stand-in and the seeded past carries its offsets, so the BPM history
+read out of the store — including by a session on the simulator target — is the
+stand-in's. See `Rehearsing against a live target`_.
 
 Retention is enforced by the store itself: dense samples expire after the hot
 span, the coarse ones after the retention window, so a long-running deployment

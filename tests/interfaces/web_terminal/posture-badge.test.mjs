@@ -70,8 +70,8 @@ let postureBadge;
 
 /** What GET /api/terminal/posture answers; mutated by a successful POST. */
 /** @type {{session_id: string, posture: string, rendered_writes_enabled: boolean,
- *           session_target: string|null, target_writes_enabled: boolean,
- *           target_source: string}} */
+ *           session_target: string|null, session_target_label?: string,
+ *           target_writes_enabled: boolean, target_source: string}} */
 let served = {
   session_id: SESSION,
   posture: 'writes',
@@ -191,9 +191,12 @@ async function confirmModal() {
 
 /**
  * Boot the badge for a given server state.
+ * `session_target_label` is left ABSENT unless a case asks for one — that is
+ * what an older server sends, and it is the fallback the line has to keep
+ * working under.
  * @param {{posture?: string, rendered_writes_enabled?: boolean, sessionId?: string|null,
- *          session_target?: string|null, target_writes_enabled?: boolean,
- *          target_source?: string}} [opts]
+ *          session_target?: string|null, session_target_label?: string,
+ *          target_writes_enabled?: boolean, target_source?: string}} [opts]
  */
 async function boot(opts = {}) {
   served = {
@@ -204,6 +207,9 @@ async function boot(opts = {}) {
     target_writes_enabled: opts.target_writes_enabled ?? true,
     target_source: opts.target_source ?? 'session',
   };
+  if (opts.session_target_label !== undefined) {
+    served.session_target_label = opts.session_target_label;
+  }
   term.sessionId = opts.sessionId === undefined ? SESSION : opts.sessionId;
   postureBadge.initPostureBadge();
   await flush();
@@ -442,6 +448,103 @@ describe('the control-target line', () => {
     expect(badgeEl()?.disabled).toBe(false);
     await clickBadge();
     expect(overlayEl()).not.toBeNull();
+  });
+
+  // ── what the target is CALLED ──────────────────────────────────────────
+  //
+  // `live` is the target's key, not its identity. A deployment running a
+  // stand-in for its real machine publishes a label that says so, and the
+  // badge shows the published one — it never works a name out for itself.
+
+  test('names the target by the label the server published', async () => {
+    await boot({
+      session_target: 'live',
+      session_target_label: 'LIVE MACHINE (stand-in)',
+      target_source: 'session',
+    });
+
+    expect(targetEl()?.textContent).toContain('LIVE MACHINE (stand-in)');
+    // The tooltip and the accessible name say the same word as the chip.
+    const spoken = `${badgeEl()?.title} ${badgeEl()?.getAttribute('aria-label')}`;
+    expect(spoken).toContain('LIVE MACHINE (stand-in)');
+  });
+
+  test('keeps the raw target name as the state key it styles from', async () => {
+    // The label is display text and free to change; `data-target` is what the
+    // stylesheet and the rest of the system key off, so it stays the bare name.
+    await boot({ session_target: 'live', session_target_label: 'LIVE MACHINE (stand-in)' });
+
+    expect(badgeEl()?.dataset.target).toBe('live');
+  });
+
+  test('falls back to the target name when the server sends no label', async () => {
+    // An older server sends no label at all. Show the name it did send rather
+    // than inventing one here — a second opinion about identity is the bug.
+    await boot({ session_target: 'va', target_source: 'session' });
+
+    expect(targetEl()?.textContent).toContain('va');
+    expect(targetEl()?.textContent?.toLowerCase()).toContain('armed');
+  });
+
+  test('an empty label reads as no label', async () => {
+    await boot({ session_target: 'va', session_target_label: '' });
+
+    expect(targetEl()?.textContent).toContain('va');
+  });
+
+  test('a labelled baseline is still marked as the deployment default', async () => {
+    await boot({
+      session_target: 'live',
+      session_target_label: 'LIVE MACHINE (stand-in)',
+      target_source: 'baseline',
+    });
+
+    expect(targetEl()?.textContent).toContain('LIVE MACHINE (stand-in)');
+    expect(targetEl()?.textContent?.toLowerCase()).toContain('baseline');
+  });
+
+  test('the label does not move the writes/sandbox direction', async () => {
+    await boot({
+      posture: 'sandbox',
+      session_target: 'live',
+      session_target_label: 'LIVE MACHINE (stand-in)',
+    });
+
+    expect(badgeEl()?.disabled).toBe(false);
+    await clickBadge();
+    expect(overlayEl()).not.toBeNull();
+  });
+});
+
+describe('the colour state the badge hands the stylesheet', () => {
+  // No colour name lives in this module: the (target, posture) pair travels as
+  // data attributes and terminal.css maps it — grey for a sandboxed simulator,
+  // green for one being driven, amber for a sandboxed live machine, red for a
+  // live machine this session can write to. Asserting the attributes rather
+  // than computed colours keeps the test about the contract between the two.
+  test.each([
+    ['va', 'writes'],
+    ['va', 'sandbox'],
+    ['live', 'writes'],
+    ['live', 'sandbox'],
+  ])('publishes (%s, %s) for the stylesheet to map', async (target, posture) => {
+    await boot({
+      posture,
+      session_target: target,
+      session_target_label: target === 'live' ? 'LIVE MACHINE (stand-in)' : 'sim',
+    });
+
+    expect(badgeEl()?.dataset.target).toBe(target);
+    expect(badgeEl()?.dataset.posture).toBe(posture);
+  });
+
+  test('drops the target attribute when there is no target to colour', async () => {
+    // Nothing published and nothing derived: the badge falls back to the plain
+    // posture colours rather than styling a target it does not know.
+    await boot({ session_target: null });
+
+    expect(badgeEl()?.dataset.target).toBeUndefined();
+    expect(badgeEl()?.dataset.posture).toBe('writes');
   });
 });
 

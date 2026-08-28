@@ -2,13 +2,12 @@
 /**
  * Dispatch contract for the Explore view (explore.js).
  *
- * Every known pipeline type must reach its own renderer, the graph paradigm
- * must reach its own static "no browser" pane, and a pipeline type this view
- * does not know about must land on the explicit "unknown" pane — never on the
- * in-context renderer as a silent catch-all.
+ * Every known pipeline type — graph included — must reach its own renderer, and
+ * a pipeline type this view does not know about must land on the explicit
+ * "unknown" pane, never on the in-context renderer as a silent catch-all.
  *   npx vitest run tests/interfaces/channel_finder/explore-graph.test.mjs
  *
- * Runs under happy-dom (vitest.config.js). The three renderer modules are
+ * Runs under happy-dom (vitest.config.js). The four renderer modules are
  * mocked so the dispatch is tested on its own, without their network calls.
  */
 
@@ -25,6 +24,8 @@ const mocks = vi.hoisted(() => ({
   unmountMiddleLayer: vi.fn(),
   mountInContext: vi.fn(),
   unmountInContext: vi.fn(),
+  mountGraph: vi.fn(),
+  unmountGraph: vi.fn(),
 }));
 
 vi.mock('../../../src/osprey/interfaces/channel_finder/static/js/explore-hierarchical.js', () => ({
@@ -42,6 +43,11 @@ vi.mock('../../../src/osprey/interfaces/channel_finder/static/js/explore-middle-
 vi.mock('../../../src/osprey/interfaces/channel_finder/static/js/explore-in-context.js', () => ({
   mountInContext: mocks.mountInContext,
   unmountInContext: mocks.unmountInContext,
+}));
+
+vi.mock('../../../src/osprey/interfaces/channel_finder/static/js/explore-graph.js', () => ({
+  mountGraph: mocks.mountGraph,
+  unmountGraph: mocks.unmountGraph,
 }));
 
 import { state } from '../../../src/osprey/interfaces/channel_finder/static/js/state.js';
@@ -62,6 +68,7 @@ const KNOWN_TYPES = [
   { type: 'hierarchical', mount: mocks.mountHierarchical, unmount: mocks.unmountHierarchical },
   { type: 'middle_layer', mount: mocks.mountMiddleLayer, unmount: mocks.unmountMiddleLayer },
   { type: 'in_context', mount: mocks.mountInContext, unmount: mocks.unmountInContext },
+  { type: 'graph', mount: mocks.mountGraph, unmount: mocks.unmountGraph },
 ];
 
 const ALL_MOUNTS = KNOWN_TYPES.map(t => t.mount);
@@ -70,12 +77,13 @@ const ALL_MOUNTS = KNOWN_TYPES.map(t => t.mount);
  * Put a pipeline type on the shared state and mount Explore into a fresh
  * document, returning the container.
  * @param {string|null} pipelineType
+ * @param {string|null} [dbPath] - Database path the header may badge.
  * @returns {HTMLElement}
  */
-function mountWith(pipelineType) {
+function mountWith(pipelineType, dbPath = null) {
   state.pipelineType = pipelineType;
   state.pipelineMetadata = {};
-  state.dbPath = null;
+  state.dbPath = dbPath;
   document.body.innerHTML = '<div id="explore-root"></div>';
   const container = /** @type {HTMLElement} */ (document.getElementById('explore-root'));
   mountExplore(container);
@@ -87,12 +95,6 @@ function mountWith(pipelineType) {
  * @returns {HTMLElement|null}
  */
 const unknownPane = () => document.querySelector('.explore-unknown:not([data-pipeline])');
-
-/**
- * The graph paradigm's static pane — same pane style, expected posture.
- * @returns {HTMLElement|null}
- */
-const graphPane = () => document.querySelector('[data-pipeline="graph"]');
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -166,26 +168,36 @@ test('unmounting an unknown pipeline clears the pane and calls no renderer unmou
   for (const row of KNOWN_TYPES) expect(row.unmount).not.toHaveBeenCalled();
 });
 
-// ---- Graph paradigm: a static pane, not a renderer ----
+// ---- Graph paradigm: a renderer like the others, with its own chrome ----
 
-test('the graph paradigm mounts its static pane and no renderer', () => {
+test('the graph paradigm reaches its renderer and not the unknown pane', () => {
   mountWith('graph');
 
-  const pane = graphPane();
-  expect(pane, 'graph pane is mounted').not.toBeNull();
-  expect(pane?.textContent).toContain(
-    'This paradigm has no browser \u2014 channels are resolved by querying the facility graph'
-  );
-
-  // No renderer module ran: the graph paradigm ships no browser at all.
-  for (const mount of ALL_MOUNTS) expect(mount).not.toHaveBeenCalled();
-  // And it is not the unknown-pipeline notice: graph is a configuration the
-  // server accepts, so nothing here may read as "the server rejected this".
+  expect(mocks.mountGraph).toHaveBeenCalledTimes(1);
+  // Graph is a configuration the server accepts, so nothing here may read as
+  // "the server rejected this".
   expect(unknownPane(), 'not the unknown-pipeline pane').toBeNull();
   expect(document.body.textContent).not.toContain('Unknown pipeline');
-  // Including the tint: the pane wears the informational modifier, which is
-  // what keeps a correctly configured deployment from looking like an error.
-  expect(pane?.classList.contains('explore-unknown--info')).toBe(true);
+});
+
+test('the graph header keeps the paradigm subtitle', () => {
+  const container = mountWith('graph');
+
+  expect(container.querySelector('.section-subtitle')?.textContent).toBe(
+    'Channels are resolved from the facility graph'
+  );
+});
+
+test('the graph header shows no db-source badge \u2014 the renderer names the store', () => {
+  // A db path left on the shared state by a previously mounted mode must not
+  // surface here: graph channels come from the store the panel badges itself,
+  // so a file path in the header would name a source this mode never reads.
+  const container = mountWith('graph', '/var/lib/osprey/channels.db');
+  expect(container.querySelector('.db-source-badge'), 'no db-source badge').toBeNull();
+
+  // The badge is not gone for everyone: the file-backed modes still carry it.
+  const withDb = mountWith('hierarchical', '/var/lib/osprey/channels.db');
+  expect(withDb.querySelector('.db-source-badge')).not.toBeNull();
 });
 
 test('the unknown-pipeline pane keeps the error posture', () => {
@@ -205,16 +217,6 @@ test('the graph pane comes with no schema diagram and no description toggle', ()
   expect(container.querySelector('#show-desc-toggle'), 'no description toggle').toBeNull();
 });
 
-test('unmounting the graph paradigm clears the pane and calls no renderer unmount', () => {
-  mountWith('graph');
-  expect(graphPane()).not.toBeNull();
-
-  unmountExplore();
-
-  expect(graphPane(), 'pane is cleared on unmount').toBeNull();
-  for (const row of KNOWN_TYPES) expect(row.unmount).not.toHaveBeenCalled();
-});
-
 test("renderSchema draws nothing for graph, and clears a previous mode's diagram", () => {
   document.body.innerHTML = '<div id="schema"></div>';
   const host = /** @type {HTMLElement} */ (document.getElementById('schema'));
@@ -229,35 +231,75 @@ test("renderSchema draws nothing for graph, and clears a previous mode's diagram
   expect(host.querySelectorAll('.schema-node').length).toBe(0);
 });
 
-test('the stats badges make no request in graph mode and stay empty', async () => {
+/**
+ * The badge labels currently rendered into #stats-badges, in document order.
+ * @returns {string[]}
+ */
+const badgeLabels = () =>
+  [...document.querySelectorAll('#stats-badges .badge-label')].map(el => el.textContent ?? '');
+
+test('the stats badges render the graph statistics in table order', async () => {
   document.body.innerHTML = '<div id="stats-badges"></div>';
   const container = /** @type {HTMLElement} */ (document.getElementById('stats-badges'));
-  container.innerHTML = '<span class="stats-badge">stale</span>';
-  const fetchSpy = vi.fn();
+  const fetchSpy = vi.fn(async () => ({
+    ok: true,
+    json: async () => ({
+      total_devices: 512,
+      total_channels: 2908,
+      total_classes: 19,
+      total_signals: 113,
+      total_sections: 3,
+    }),
+  }));
   vi.stubGlobal('fetch', fetchSpy);
   state.pipelineType = 'graph';
 
   try {
     await refreshStatsBadges();
-    // /api/statistics is a documented 501 in graph mode — never asked for.
-    expect(fetchSpy).not.toHaveBeenCalled();
+    // Graph mode counts what it can and asks for /api/statistics like every
+    // other paradigm — it is no longer the one mode that skips the request.
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.stringContaining('/api/statistics'),
+      expect.anything()
+    );
+    // Exactly the five reported statistics, in the render order the module
+    // owns — not the payload's key order.
+    expect(container.querySelectorAll('.stats-badge')).toHaveLength(5);
+    expect(badgeLabels()).toEqual(['devices', 'channels', 'classes', 'signals', 'sections']);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+test('a 503 from /api/statistics clears the badges instead of throwing', async () => {
+  document.body.innerHTML = '<div id="stats-badges"></div>';
+  const container = /** @type {HTMLElement} */ (document.getElementById('stats-badges'));
+  container.innerHTML = '<span class="stats-badge">stale</span>';
+  vi.stubGlobal('fetch', vi.fn(async () => ({
+    ok: false,
+    status: 503,
+    statusText: 'Service Unavailable',
+    json: async () => ({ detail: 'the facility graph is unreachable' }),
+  })));
+  state.pipelineType = 'graph';
+
+  try {
+    await expect(refreshStatsBadges()).resolves.toBeUndefined();
     expect(container.innerHTML).toBe('');
   } finally {
     vi.unstubAllGlobals();
   }
 });
 
-test('a 501 from /api/statistics clears the badges instead of throwing', async () => {
+test('a rejected /api/statistics fetch clears the badges instead of throwing', async () => {
   document.body.innerHTML = '<div id="stats-badges"></div>';
   const container = /** @type {HTMLElement} */ (document.getElementById('stats-badges'));
   container.innerHTML = '<span class="stats-badge">stale</span>';
-  vi.stubGlobal('fetch', vi.fn(async () => ({
-    ok: false,
-    status: 501,
-    statusText: 'Not Implemented',
-    json: async () => ({ detail: 'statistics are not available for the graph paradigm' }),
-  })));
-  state.pipelineType = 'in_context';
+  vi.stubGlobal('fetch', vi.fn(async () => {
+    throw new TypeError('Failed to fetch');
+  }));
+  state.pipelineType = 'graph';
 
   try {
     await expect(refreshStatsBadges()).resolves.toBeUndefined();

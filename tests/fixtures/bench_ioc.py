@@ -7,16 +7,15 @@ suite that cannot tell the two apart on the wire proves nothing about switching
 between targets, which is why booting one is worth a shared module rather than
 a per-suite copy.
 
-Two things here are deliberately not the copy-paste of
-``tests/va/e2e/test_target_switch.py``'s container helpers, even though they
-look like it:
+Two things here look like a copy-paste of
+``tests/va/e2e/test_target_switch.py``'s container helpers and are not:
 
-* ``tests/va/e2e/test_target_switch.py`` and ``scripts/demo_target_switch.py``
-  each keep their own ``_free_port``/``_docker``/``_serving`` because neither may
-  import from the other's tree. This module exists precisely so the *bench*
-  IOC's version of that trio is spelled once and imported, so new callers get
-  the boot contract (ephemeral port, port-suffixed name, stale cleanup,
-  readiness gate, ``rm -f`` in ``finally``) rather than re-deriving it.
+* ``tests/va/e2e/test_target_switch.py`` keeps its own
+  ``_free_port``/``_docker``/``_serving`` trio, predating this module and not
+  yet folded into it. This module exists precisely so the *bench* IOC's
+  version of that trio is spelled once and imported, so new callers get the
+  boot contract (ephemeral port, port-suffixed name, stale cleanup, readiness
+  gate, ``rm -f`` in ``finally``) rather than re-deriving it.
 * The image precondition is different in kind. The virtual accelerator's
   ``_require_image()`` greps the image's ``Cmd`` for a variable name; this one
   asserts that the image can actually *run* ``softIoc``, because that -- not a

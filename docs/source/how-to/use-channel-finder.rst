@@ -202,6 +202,10 @@ report what the store is and which commands act on it. Health reports the store
 instead of a database: whether it is reachable, and how many resources it holds
 (:doc:`health-and-monitoring/configure-health-checks`).
 
+The web explorer opens on this pipeline too, and reads the same store: its
+Explore view draws the device classes the corpus holds rather than a channel
+tree. See `Web Interface`_ below.
+
 
 Web Interface
 =============
@@ -213,13 +217,21 @@ Launch the browser-based channel explorer:
    osprey channel-finder web
    osprey channel-finder web --port 9000
 
-The explorer browses a channel database, so on the graph pipeline it shows a
-short pane saying so instead of a tree; database statistics and validation are
-not offered there. Ask the OSPREY agent for the channels you need — it answers
-from the graph. The channel-suggestion typeahead in the web panels still
-works in graph mode: ``osprey build`` reads the channel names out of the
-Turtle corpus named by ``services.graphdb.ttl_path`` and writes them into the
-snapshot the panels use.
+The explorer browses a channel database. On the graph pipeline there is no such
+file, so its Explore view shows the facility ontology instead: the store's
+device classes drawn as a tree, each class carrying the number of devices under
+it and its subclasses, below a legend of the relationship types the store uses.
+A badge names the corpus file and the store it was loaded into, and chips name
+the tools the OSPREY agent queries that same store with. The header counts
+devices, channels, classes, signals and sections read live from the store; if
+the store is unreachable the view says so and offers a Retry, and if it is
+reachable but empty it names the ``osprey knowledge seed-graph`` command that
+fills it. Channel validation is not offered on this pipeline. Ask the OSPREY
+agent for the channels you need — it answers from the graph. The
+channel-suggestion typeahead in the web panels still works in graph mode:
+``osprey build`` reads the channel names out of the Turtle corpus named by
+``services.graphdb.ttl_path`` and writes them into the snapshot the panels
+use.
 
 
 The ``config.yml`` keys for every pipeline, and how the active one is served to

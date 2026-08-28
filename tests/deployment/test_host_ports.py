@@ -250,6 +250,25 @@ class TestReport:
         # Nothing here binds on the host namespace, so that paragraph stays out.
         assert "host network namespace" not in report
 
+    def test_a_live_standin_collision_names_the_standin_key(self):
+        """A deployment with a stand-in publishes two virtual-accelerator ports,
+        so the remedy has to name the one that moves the contested container."""
+        conflicts = [
+            PortConflict(
+                host_port=5074,
+                bind_address="127.0.0.1",
+                service="live-standin",
+                kind="duplicate",
+                holder="service 'virtual-accelerator'",
+                remedy=host_ports._remedy_for_service("live-standin"),
+            )
+        ]
+        report = format_conflict_report(conflicts)
+
+        assert "Set a different services.live_standin.port." in report
+        # Never the other instance's key: moving it would leave this collision.
+        assert "services.virtual_accelerator.port" not in report
+
     def test_the_report_carries_no_em_dash_asides(self):
         """The house style for printed copy, pinned where the guard cannot see it.
 
@@ -590,6 +609,10 @@ class TestTwoPortRemedyResolution:
             ("tiled", 8000, "services.bluesky.tiled_port"),
             ("bluesky-web", 3000, "services.bluesky_web.port"),
             ("virtual-accelerator", 5064, "services.virtual_accelerator.port"),
+            # The stand-in is the second VA container, on its own key: sending
+            # its operator to services.virtual_accelerator.port would move the
+            # other machine and leave this collision exactly where it was.
+            ("live-standin", 5074, "services.live_standin.port"),
             ("my_ioc_gw", 5075, "services.my_ioc_gw.port"),
         ]
         for service, container_port, expected in cases:

@@ -308,9 +308,9 @@ def deploy_aware_config_warnings(
     validates must build, and a profile that draws an advisory from one command
     must draw the same one from the other. Both command surfaces print these
     above their success line — an exposure nobody prints is an exposure nobody
-    has, and the whole-deployment one (``auth.method: none`` in front of a
-    privileged terminal) is deliberately not an error, so printing is the only
-    way it reaches an operator at all.
+    has, and the whole-deployment one (no login wall — ``auth.method: token`` or
+    ``none`` — in front of a privileged terminal) is deliberately not an error,
+    so printing is the only way it reaches an operator at all.
     """
     from osprey.deployment.web_terminals.lint import profile_config_warnings
 

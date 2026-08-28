@@ -3385,9 +3385,23 @@ jobs:
         docker rmi -f authe2e-operator:local || true
 
   terminal-auth-multiuser-e2e:
-    name: Terminal Auth Multi-User E2E (auth.method none, real persona image)
+    name: Terminal Auth Multi-User E2E (auth.method token + none, real persona image)
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # Raised from the 60 this lane carried while it stood up ONE deployment.
+    # What the second posture adds is a second render and a second `osprey up`
+    # — NOT a second image build, which the two lanes share — plus a third
+    # container to boot and the in-container guard probe. Measured on a
+    # developer machine with a warm layer cache: 6m55s for the whole module,
+    # of which the second deployment and its four assertions were well under a
+    # minute. That number does not size the cap on its own, because the runner
+    # builds cold and its neighbours measure a single such build at 7-11
+    # minutes; the +10 here is that estimate plus headroom, and the first cold
+    # runner wall clock should be recorded in the PR body so the margin gets
+    # resized from a measurement rather than from this estimate. Stays under
+    # full-chain-auth-e2e's 85/75, which the sibling relation
+    # `test_full_chain_auth_lane_outbudgets_the_single_build_lanes` pins: that
+    # lane builds two real images where this one builds one.
+    timeout-minutes: 70
     # Same PR scoping as the lifecycle and auth-perimeter lanes above: same-repo
     # PRs into main only, since this drives a real `osprey up` (container and
     # volume lifecycle) against the runtime.
@@ -3401,11 +3415,21 @@ jobs:
     # lane (which is why the module carries the `dockerbuild` marker and is
     # --ignore'd there).
     #
+    # TWO deployments, ONE build. The module proves both sidecar-less postures:
+    # `auth.method: token` (the DEFAULT, and what an absent `auth:` block
+    # renders) where nginx injects nothing and each terminal's own `?token=`
+    # exchange is the gate; and `auth.method: none` (OPEN, navigation-only)
+    # where nginx injects each user's operator secret, a `login: false` entry is
+    # left out of that injection, and executed code is refused the deployment's
+    # own web ports. Both lanes share one persona project and therefore one
+    # `:local` image, so the second `osprey up` re-runs the build against a
+    # byte-identical context and hits the runtime cache: the added cost over the
+    # single-posture lane this replaces is a second render plus a second deploy,
+    # not a second image build.
+    #
     # Complement, not duplicate, of auth-perimeter-e2e: that lane proves the
-    # AUTHENTICATED perimeter (sidecar + nginx auth_request + header injection);
-    # this one proves the DEFAULT posture `auth.method: none`, where nginx
-    # authenticates nothing and the terminal app's own WebAuthMiddleware is the
-    # only gate.
+    # AUTHENTICATED perimeter (sidecar + nginx auth_request + header injection),
+    # which is the one posture family this lane does not stand up.
     # Base-ref clause matches two-shape-boot-e2e below rather than the
     # lifecycle lanes above, and for the same reason: this lane certifies the
     # auth perimeter, which is built on epic phase branches whose PRs target an
@@ -3444,7 +3468,7 @@ jobs:
     # published release. No provider secret is needed: the fixture writes a fake
     # ANTHROPIC_API_KEY and the PTY never contacts a model.
     - name: Run terminal auth multi-user E2E
-      timeout-minutes: 55
+      timeout-minutes: 65
       run: |
         uv run pytest tests/e2e/web_terminals/test_terminal_auth_multiuser_e2e.py -v --tb=short
 
@@ -3465,13 +3489,22 @@ jobs:
       if: always()
       run: |
         for user in alice; do
-          docker rm -f "authoff-web-${user}" || true
-          docker volume rm "osprey-e2e-authoff-multiuser_${user}-claude-config" || true
-          docker volume rm "osprey-e2e-authoff-multiuser_${user}-agent-data" || true
+          docker rm -f "authtok-web-${user}" || true
+          docker volume rm "osprey-e2e-token-multiuser_${user}-claude-config" || true
+          docker volume rm "osprey-e2e-token-multiuser_${user}-agent-data" || true
         done
-        docker rm -f authoff-nginx || true
-        docker compose -p osprey-e2e-authoff-multiuser down || true
-        docker rmi -f authoff-operator-operator:local || true
+        docker rm -f authtok-nginx || true
+        docker compose -p osprey-e2e-token-multiuser down || true
+        for user in alice kiosk; do
+          docker rm -f "authopen-web-${user}" || true
+          docker volume rm "osprey-e2e-open-multiuser_${user}-claude-config" || true
+          docker volume rm "osprey-e2e-open-multiuser_${user}-agent-data" || true
+        done
+        docker rm -f authopen-nginx || true
+        docker compose -p osprey-e2e-open-multiuser down || true
+        # ONE image for both lanes: the persona catalog entry names its own
+        # `project`, so the tag is `<project>:local` with no persona suffix.
+        docker rmi -f authmulti-operator:local || true
 
   full-chain-auth-e2e:
     name: Full-Chain Auth E2E (real sidecar + role-resolved persona + audit ledgers)
@@ -4163,16 +4196,18 @@ jobs:
     # host where BOTH images are pinned linux/amd64 and therefore emulated:
     #   - virtual accelerator image, cold (`--no-cache`):     226 s
     #   - bench IOC image, cold, base layers already resident:  1 s
-    #   - the two test modules, images already built:         147 s
-    #     (40 tests, 0 skipped, one pytest invocation)
-    # i.e. 6.2 min end to end on the slowest machine this work has run on.
+    #   - the three test modules, images already built:       214 s
+    #     (54 tests, 0 skipped, one pytest invocation — the same invocation
+    #      the run step below makes. 147 s of it was the first two modules,
+    #      measured alone before the live-stand-in module joined the lane.)
+    # i.e. 7.4 min end to end on the slowest machine this work has run on.
     # GitHub's runners are amd64-native, so every container second above is
     # emulation this lane will not pay; the honest direction of the error is
     # "faster there", with one exception in the other direction — a cold runner
     # must also PULL what was already resident here (python:3.11-slim plus the
     # two epics-containers bases, one of which is the full developer image),
     # which the local measurement did not include.
-    # 30 is that 6.2 min with roughly 5x headroom, which is deliberate for a
+    # 30 is that 7.4 min with roughly 4x headroom, which is deliberate for a
     # lane that has never run in GHA: the first PR must not be reddened by a
     # cap tuned to a laptop. It is also materially tighter than the lanes it
     # sits beside (va-substrate-equivalence 45, qmd-sidecar 60) because this
@@ -4202,10 +4237,10 @@ jobs:
       run: uv sync --extra dev
 
     - name: Assert a container runtime is present
-      # Both modules drive real containers, and their fixtures fail rather than
-      # skip when the image is missing — but nothing in them checks that a
-      # runtime exists at all. Failing here makes that state loud, and does it
-      # before the multi-minute build rather than after.
+      # Every module in this lane drives real containers, and their fixtures
+      # fail rather than skip when the image is missing — but nothing in them
+      # checks that a runtime exists at all. Failing here makes that state
+      # loud, and does it before the multi-minute build rather than after.
       run: |
         set -euo pipefail
         docker info > /dev/null
@@ -4325,7 +4360,7 @@ jobs:
     - name: Run the control-target switch E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
       # capture step below room to run. A job-level timeout is a hard cancel
-      # that takes the container logs with it. 15 against a measured 2.5 min
+      # that takes the container logs with it. 15 against a measured 3.6 min
       # leaves the two image builds the remaining half of the job cap, and
       # still bounds the realistic hang here — a read of a channel nobody
       # serves, which the connector itself gives up on after 120 s.
@@ -4336,11 +4371,16 @@ jobs:
         # zero-skip gate below is what turns a lost flag into a red lane
         # instead of a green one over nothing.
         OSPREY_VA_E2E_ENABLE: "1"
-      # Named by path rather than by marker: these two modules are the whole
+      # Named by path rather than by marker: these three modules are the whole
       # subject of this lane, and a path that stops existing exits pytest 4 and
       # reds the step, whereas a renamed marker would silently select nothing.
+      #
+      # Each module carries its own collection floor (`MIN_COLLECTED_TESTS`,
+      # asserted by its final test), so a file that survives a refactor while
+      # losing half its tests reds the step rather than passing on what is left.
       run: |
         uv run pytest tests/va/e2e/test_target_switch.py tests/va/e2e/test_bench_ioc_live.py \
+          tests/va/e2e/test_live_standin.py \
           -v --tb=short --junitxml=junit-target-switch-e2e.xml
 
     - name: Fail the lane on any skipped test
@@ -4348,8 +4388,8 @@ jobs:
         # Same gate, same argument as scan-agentic-e2e: every way this lane can
         # skip is a CI misconfiguration rather than a legitimate environment
         # gap, and pytest's exit code cannot express the difference. The live
-        # one here is `OSPREY_VA_E2E_ENABLE`: unset, both modules collect
-        # cleanly and skip in full, and the job goes green having built two
+        # one here is `OSPREY_VA_E2E_ENABLE`: unset, every module collects
+        # cleanly and skips in full, and the job goes green having built two
         # images and measured nothing. The other is the Bluesky lane scenario,
         # which skips when the queueserver client stack is not importable —
         # it is a core dependency, so a skip there means the install step

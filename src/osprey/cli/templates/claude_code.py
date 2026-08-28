@@ -469,6 +469,43 @@ def _renders_the_target_switch(control_system: dict) -> bool:
     return switch_capable(control_system)
 
 
+def _policy_unit_of(tool: str, units: dict[str, tuple[str, frozenset[str]]]) -> list[str]:
+    """Every matcher that shares *tool*'s policy unit: same server, same gate.
+
+    Two matchers belong to one policy unit when they come from the same server
+    **instance** — the same ``mcp__<server>__`` prefix, after clone rewriting,
+    so a ``python2`` clone is its own unit — and are gated by exactly the same
+    PreToolUse hooks. Past that point the permission layer has no way to tell
+    them apart: the hooks, not the prompt, are what actually decides each call,
+    and they run identically for both.
+
+    WHY the unit has to move together. The writes-off / mixed render pulls
+    these matchers out of ``ask`` and the rescue puts back, via ``allow``, the
+    ones an enabled agent hard-requires. But ``requires_ask_tools`` is an honest
+    declaration of what an agent calls, not of what shares its gate: the
+    pyat-specialist names ``mcp__python__execute`` and genuinely never calls
+    ``mcp__python__execute_file``, though both run arbitrary Python through the
+    same kernels behind the same writes-check + approval pair. Promoting only
+    the declared half would leave the other pulled from ``ask`` and in no list
+    at all — which is not a policy but a fall-through to the SDK's interactive
+    ``can_use_tool`` prompt, the very prompt this block exists to close.
+    Splitting the pair reopens it.
+
+    Args:
+        tool: A matcher already known to be a key of *units*.
+        units: matcher -> (server-instance prefix, hook-command set). Built
+            over the read/write-mixed matchers only, so no pure-write matcher
+            is in scope and none can be dragged into ``allow`` as a companion.
+
+    Returns:
+        The matchers to promote, *tool* included, sorted for a stable render.
+    """
+    prefix, gate = units[tool]
+    return sorted(
+        m for m, (m_prefix, m_gate) in units.items() if m_prefix == prefix and m_gate == gate
+    )
+
+
 def build_claude_code_context(
     template_root: Path,
     jinja_env,
@@ -807,7 +844,11 @@ def build_claude_code_context(
         # also holds the pure-write matchers (and which a profile can seed with
         # anything at all): a pure-write tool in `allow` is an unguarded write,
         # so the rescue must never be able to reach one.
-        mixed_remove_ask: set[str] = set()
+        #
+        # Keyed matcher -> (server-instance prefix, hook-command set) rather
+        # than a bare set, because the rescue promotes whole policy units and
+        # needs both halves of that identity — see `_policy_unit_of`.
+        mixed_policy_units: dict[str, tuple[str, frozenset[str]]] = {}
         # Cover extends clones too, not just the literal template names: the
         # runtime hook templates (osprey_writes_check.py, osprey_approval.py)
         # exact-match template tool names and are clone-unaware — they are the
@@ -828,7 +869,10 @@ def build_claude_code_context(
                 if matcher.startswith(old_prefix):
                     matcher = new_prefix + matcher[len(old_prefix) :]
                 if template in MIXED_READ_WRITE_TEMPLATES:
-                    mixed_remove_ask.add(matcher)
+                    mixed_policy_units[matcher] = (
+                        new_prefix,
+                        frozenset(h.command for h in rule.hooks),
+                    )
                     if matcher not in remove_ask:
                         remove_ask.append(matcher)
                 elif mixed:
@@ -840,12 +884,18 @@ def build_claude_code_context(
         # hard-requires that the kill-switch just pulled from `ask`. `allow`
         # (not `ask`) keeps it off the approval-prompt path the writes-check
         # kill switch guards, so the read-only agent keeps its compute without
-        # reopening a write-access bypass. Drawn from `mixed_remove_ask` and not
-        # from `remove_ask`: a pure-write tool is denied on an all-off render and
-        # hook-gated on a mixed one, and must reach `allow` from neither.
+        # reopening a write-access bypass. Drawn from `mixed_policy_units` and
+        # not from `remove_ask`: a pure-write tool is denied on an all-off render
+        # and hook-gated on a mixed one, and must reach `allow` from neither.
+        #
+        # Promoted a whole policy unit at a time — `_policy_unit_of` says why a
+        # tool the agent never names still has to travel with the one it does.
         for tool in sorted(required_ask):
-            if tool in mixed_remove_ask and tool not in allow:
-                allow.append(tool)
+            if tool not in mixed_policy_units:
+                continue
+            for matcher in _policy_unit_of(tool, mixed_policy_units):
+                if matcher not in allow:
+                    allow.append(matcher)
         facility_perms["remove_ask"] = remove_ask
         facility_perms["allow"] = allow
         ctx["facility_permissions"] = facility_perms

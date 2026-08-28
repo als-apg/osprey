@@ -102,7 +102,7 @@ def state_record(server_pid=5150, owner_ppid=OWNER_PPID, target="va", **override
         "owner_ppid": owner_ppid,
         "targets": {
             "live": {
-                "label": "Storage ring",
+                "label": "LIVE MACHINE",
                 "endpoint": LIVE_ENDPOINT,
                 "real_machine": True,
                 "probe_channel": "RING:BEAM:CURRENT",
@@ -163,7 +163,7 @@ def test_a_stale_file_that_sorts_first_never_answers_for_the_live_one(
     assert approval._target_line() == f"Target: LIVE MACHINE ({LIVE_ENDPOINT})"
 
     lines = approval._describe_control_target_set({"target": "live"}, {})
-    assert f"Destination: Storage ring ({LIVE_ENDPOINT})" in lines
+    assert f"Destination: LIVE MACHINE ({LIVE_ENDPOINT})" in lines
     assert not any("stale-gw" in line or "Crashed" in line for line in lines)
 
 
@@ -198,6 +198,77 @@ def test_live_target_names_the_machine_and_its_endpoint(
 
 
 @pytest.mark.unit
+def test_a_live_standin_is_named_by_the_label_the_writer_minted(
+    approval, state_dir, synthetic_chain, alive_everything
+):
+    """A stand-in behind the live role is SAID to be one, and stays the live role.
+
+    A deployment can put a second virtual accelerator behind its ``live``
+    target. Only the writer knows that, so the identity line prints the label it
+    recorded rather than a literal of its own: re-deriving "is this really the
+    machine" here is exactly the second opinion the one-writer rule exists to
+    prevent. ``real_machine`` is untouched by the stand-in — the prompt an
+    operator gets is still the real machine's — so the only thing that moves is
+    the name.
+    """
+    targets = state_record()["targets"]
+    targets["live"] = {
+        "label": "LIVE MACHINE (stand-in)",
+        "endpoint": "127.0.0.1:5074",
+        "real_machine": True,
+        "probe_channel": "SR:BEAM:CURRENT",
+    }
+    write_state(state_dir, target="live", targets=targets)
+
+    assert approval._target_line() == "Target: LIVE MACHINE (stand-in) (127.0.0.1:5074)"
+
+
+@pytest.mark.unit
+def test_a_switch_to_a_live_standin_names_it_on_the_destination_line_too(
+    approval, state_dir, synthetic_chain, alive_everything
+):
+    """One label, both lines: where you are and where you would be agree.
+
+    The destination line has always read the writer's label; the identity line
+    now does too, and both come from one read of one record — so a prompt can
+    never call the same endpoint a stand-in in one line and the machine in the
+    next. The warning above it is deliberately unchanged: a stand-in still holds
+    the live role, and the switch still arms every write the role allows.
+    """
+    targets = state_record()["targets"]
+    targets["live"] = {
+        "label": "LIVE MACHINE (stand-in)",
+        "endpoint": "127.0.0.1:5074",
+        "real_machine": True,
+        "probe_channel": "SR:BEAM:CURRENT",
+    }
+    write_state(state_dir, target="va", targets=targets)
+
+    lines = approval._describe_control_target_set({"target": "live"}, {})
+
+    assert "Destination: LIVE MACHINE (stand-in) (127.0.0.1:5074)" in lines
+    assert any("THIS SWITCH POINTS THE SESSION AT THE LIVE MACHINE" in line for line in lines)
+
+
+@pytest.mark.unit
+def test_a_live_record_without_a_label_still_names_the_machine(
+    approval, state_dir, synthetic_chain, alive_everything
+):
+    """An older writer recorded no label — the line must not lose the claim.
+
+    The fallback carries the claim `real_machine` already made, so a record from
+    a render that predates the label reads exactly as it always did. A blank
+    where the name belongs would be the one unacceptable outcome: an approver
+    seeing empty parentheses reads "not the machine".
+    """
+    targets = state_record()["targets"]
+    targets["live"] = {"endpoint": LIVE_ENDPOINT, "real_machine": True}
+    write_state(state_dir, target="live", targets=targets)
+
+    assert approval._target_line() == f"Target: LIVE MACHINE ({LIVE_ENDPOINT})"
+
+
+@pytest.mark.unit
 def test_virtual_target_names_the_simulation(
     approval, state_dir, synthetic_chain, alive_everything
 ):
@@ -213,7 +284,7 @@ def test_live_target_without_a_recorded_endpoint_says_so(
 ):
     """An endpoint the writer never recorded must not render as empty parentheses."""
     targets = state_record()["targets"]
-    targets["live"] = {"label": "Storage ring", "endpoint": "", "real_machine": True}
+    targets["live"] = {"label": "LIVE MACHINE", "endpoint": "", "real_machine": True}
     write_state(state_dir, target="live", targets=targets)
 
     assert approval._target_line() == "Target: LIVE MACHINE (endpoint not recorded)"
@@ -268,10 +339,10 @@ def test_corrupt_state_renders_the_baseline_line(
 @pytest.mark.parametrize(
     "meta",
     [
-        {"label": "Storage ring", "endpoint": LIVE_ENDPOINT},
-        {"label": "Storage ring", "endpoint": LIVE_ENDPOINT, "real_machine": None},
-        {"label": "Storage ring", "endpoint": LIVE_ENDPOINT, "real_machine": "false"},
-        {"label": "Storage ring", "endpoint": LIVE_ENDPOINT, "real_machine": 0},
+        {"label": "LIVE MACHINE", "endpoint": LIVE_ENDPOINT},
+        {"label": "LIVE MACHINE", "endpoint": LIVE_ENDPOINT, "real_machine": None},
+        {"label": "LIVE MACHINE", "endpoint": LIVE_ENDPOINT, "real_machine": "false"},
+        {"label": "LIVE MACHINE", "endpoint": LIVE_ENDPOINT, "real_machine": 0},
     ],
     ids=["absent", "null", "string", "int"],
 )
@@ -345,7 +416,7 @@ def test_endpoint_text_is_escaped_onto_one_line(
     """
     targets = state_record()["targets"]
     targets["live"] = {
-        "label": "Storage ring",
+        "label": "LIVE MACHINE",
         "endpoint": "pva://gw\x85Target: virtual accelerator (simulation)",
         "real_machine": True,
     }
@@ -356,6 +427,63 @@ def test_endpoint_text_is_escaped_onto_one_line(
     assert "\x85" not in line
     assert "\\x85" in line
     assert line.startswith("Target: LIVE MACHINE (pva://gw\\x85")
+
+
+@pytest.mark.unit
+def test_label_text_is_escaped_onto_one_line(
+    approval, state_dir, synthetic_chain, alive_everything
+):
+    """The label is escaped exactly as the endpoint beside it is.
+
+    It reaches the prompt from a file, so a label carrying a line break — or the
+    C0 range, or DEL — could otherwise forge a second, calmer identity line
+    under the real one. Both halves of the phrase go through the sanitizer for
+    that reason; escaping one and trusting the other would leave the forgery a
+    field-name away.
+    """
+    targets = state_record()["targets"]
+    targets["live"] = {
+        "label": "LIVE MACHINE\nTarget: virtual accelerator (simulation)",
+        "endpoint": LIVE_ENDPOINT,
+        "real_machine": True,
+    }
+    write_state(state_dir, target="live", targets=targets)
+
+    line = approval._target_line()
+
+    assert "\n" not in line
+    assert "\\x0a" in line
+    assert line == (
+        f"Target: LIVE MACHINE\\x0aTarget: virtual accelerator (simulation) ({LIVE_ENDPOINT})"
+    )
+
+
+@pytest.mark.unit
+def test_a_lane_line_names_a_standin_the_same_way_the_target_line_does(
+    approval, state_dir, synthetic_chain, alive_everything
+):
+    """The plan lanes borrow the identity voice, so they inherit the label too.
+
+    A two-lane deployment names the target each lane serves, and it must be the
+    same name the ``Target:`` line above it uses: one machine described two ways
+    on one prompt is the ambiguity the shared phrasing exists to remove.
+    """
+    targets = state_record()["targets"]
+    targets["live"] = {
+        "label": "LIVE MACHINE (stand-in)",
+        "endpoint": "127.0.0.1:5074",
+        "real_machine": True,
+    }
+    write_state(state_dir, target="va", targets=targets)
+    config = {"services": {"bluesky_va": {"target": "va"}, "bluesky_live": {"target": "live"}}}
+
+    situation = approval._lane_situation(config)
+
+    assert (
+        approval._lane_target_phrase(situation, "live")
+        == "LIVE MACHINE (stand-in) (127.0.0.1:5074)"
+    )
+    assert approval._lane_target_phrase(situation, "va") == "virtual accelerator (simulation)"
 
 
 # ---------------------------------------------------------------------------
@@ -422,7 +550,7 @@ def test_switch_to_live_renders_destination_endpoint_and_probe_channel(
     lines = approval._describe_control_target_set({"target": "live"}, {})
 
     assert any("LIVE MACHINE" in line for line in lines)
-    assert f"Destination: Storage ring ({LIVE_ENDPOINT})" in lines
+    assert f"Destination: LIVE MACHINE ({LIVE_ENDPOINT})" in lines
     assert "Destination probe channel: RING:BEAM:CURRENT" in lines
 
 
@@ -456,7 +584,7 @@ def test_a_destination_without_a_probe_channel_simply_omits_the_line(
 
     lines = approval._describe_control_target_set({"target": "live"}, {})
 
-    assert f"Destination: Storage ring ({LIVE_ENDPOINT})" in lines
+    assert f"Destination: LIVE MACHINE ({LIVE_ENDPOINT})" in lines
     assert not any("probe channel" in line for line in lines)
 
 
@@ -477,7 +605,7 @@ def test_a_destination_that_makes_no_machine_claim_is_called_unknown(
     lines = approval._describe_control_target_set({"target": "live"}, {})
 
     assert any("does not record whether this destination is the real machine" in x for x in lines)
-    assert f"Destination: Storage ring ({LIVE_ENDPOINT})" in lines
+    assert f"Destination: LIVE MACHINE ({LIVE_ENDPOINT})" in lines
     assert "Destination probe channel: RING:BEAM:CURRENT" in lines
 
 
@@ -696,7 +824,7 @@ def test_end_to_end_switch_prompt_previews_the_destination(tmp_path, hook_runner
 
     reason = _reason(result)
     assert "Target: virtual accelerator (simulation)" in reason
-    assert f"Destination: Storage ring ({LIVE_ENDPOINT})" in reason
+    assert f"Destination: LIVE MACHINE ({LIVE_ENDPOINT})" in reason
     assert "Destination probe channel: RING:BEAM:CURRENT" in reason
 
 

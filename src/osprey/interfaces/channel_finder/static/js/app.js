@@ -65,6 +65,7 @@ async function init() {
     state.setPipelineInfo(info.pipeline_type, info.metadata);
     state.availablePipelines = info.available_pipelines || [info.pipeline_type];
     state.dbPath = info.db_path || null;
+    state.setGraphInfo(info.tools, info.graph_store);
     updatePipelineBadge(info.pipeline_type);
     buildPipelineDropdown();
   } catch (e) {

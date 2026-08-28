@@ -7,6 +7,13 @@
 
 /** @typedef {(data: any) => void} StateListener */
 
+/**
+ * Where the graph store this panel reads was loaded from: the bolt URI it is
+ * served on and the TTL file it was seeded from. Reported by GET /api/info on
+ * the graph paradigm only.
+ * @typedef {{ uri: string|null, ttl_filename: string|null }} GraphStoreInfo
+ */
+
 class ChannelFinderState {
   constructor() {
     /** @type {Record<string, StateListener[]>} */
@@ -21,6 +28,13 @@ class ChannelFinderState {
     this.availablePipelines = [];
     /** @type {string|null} */
     this.dbPath = null;
+
+    // Graph provenance (populated from GET /api/info; file-backed paradigms
+    // report neither field and keep the empty defaults).
+    /** @type {string[]} */
+    this.tools = [];
+    /** @type {GraphStoreInfo|null} */
+    this.graphStore = null;
 
     // Current view
     /** @type {string} */
@@ -68,6 +82,18 @@ class ChannelFinderState {
     this.pipelineType = type;
     this.pipelineMetadata = metadata;
     this.emit('pipelineChanged', { type, metadata });
+  }
+
+  /**
+   * Record the tool names and graph-store provenance reported by GET /api/info.
+   * Both are absent on the file-backed paradigms, where the missing values fall
+   * back to the empty defaults rather than carrying over a previous answer.
+   * @param {string[]|null|undefined} tools
+   * @param {GraphStoreInfo|null|undefined} graphStore
+   */
+  setGraphInfo(tools, graphStore) {
+    this.tools = tools || [];
+    this.graphStore = graphStore || null;
   }
 
   /**

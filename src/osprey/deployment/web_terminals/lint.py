@@ -58,6 +58,7 @@ from osprey.deployment.web_terminals.render import (
     _RESERVED_AUDIT_IDENTITY_RE,
     AUTH_SIDECAR_AUDIT_IDENTITY,
     SUPPORTED_AUTH_METHODS,
+    TLS_LISTEN_PORT,
     _auth_tls_context,
     _authorization_context,
     _configured_external_origin,
@@ -65,11 +66,13 @@ from osprey.deployment.web_terminals.render import (
 )
 from osprey_connectors.types import TYPE_WRITES_ENABLED_LEAF, WRITES_ENABLED_KEY
 
-# The TLS seam's listener port (`listen 443 ssl` in the gated nginx block). The
-# auth sidecar's listener has no constant here: it is config-driven
+# The TLS seam's listener port (`listen 443 ssl` in the gated nginx block) is
+# `render.TLS_LISTEN_PORT`, imported above rather than restated: the render
+# stamps the same port into the perimeter deny-list, and a second literal here
+# could come to reserve a port the template does not listen on. The auth
+# sidecar's listener needs no constant at all: it is config-driven
 # (`auth.port`), and its effective value is read from render's parsed auth
-# context rather than restated.
-_TLS_LISTEN_PORT = 443
+# context.
 
 # The credential env-var stem a roster username is keyed into
 # (`OSPREY_AUTH_PW_HASH_<SUFFIX>`), quoted only inside this module's collision
@@ -219,6 +222,12 @@ def lint_web_terminals(
         # Resolves notice paths against the project directory, so it rides the
         # same gate: a profile has no rendered project to look in yet.
         findings.extend(_check_notice_docs(root, web_terminals))
+        # Reads each persona's rendered `.claude/settings.json`, so it rides the
+        # same gate for the same reason — and rides it honestly: at profile
+        # altitude there is no shipped artifact to read, and a rule that
+        # answered anyway would be guessing at the one file the deploy gate
+        # refuses on.
+        findings.extend(_check_open_mode_egress(root, project_root=project_root))
     findings.extend(_check_registry_mode_build_profile(web_terminals, users))
     findings.extend(_check_persona_extra_mounts(web_terminals))
     findings.extend(_check_unknown_mcp_topology(web_terminals))
@@ -499,8 +508,8 @@ def _check_user_theme(users: list[Any]) -> list[Finding]:
 
 
 def _check_user_login(web_terminals: dict[str, Any], users: list[Any]) -> list[Finding]:
-    """An object-form entry's optional ``login`` must be a boolean, and only
-    does anything while authentication is on.
+    """An object-form entry's optional ``login`` must be a boolean, and only does
+    anything where the perimeter puts something in front of that entry.
 
     Two findings, for the two ways the key can lie:
 
@@ -508,9 +517,11 @@ def _check_user_login(web_terminals: dict[str, Any], users: list[Any]) -> list[F
       the literal ``false`` as "login required" — deliberately fail-closed —
       so the typo can never open an entry to the world, but the author who
       wrote ``login: no-thanks`` believes the opposite of what deploys.
-    * ``login: false`` with ``auth.method: none`` is a WARN. The key is inert
-      (there is no login wall to be exempt from), so the config claims a
-      distinction the deployment does not have.
+    * ``login: false`` with ``auth.method: token`` is a WARN. That is the one
+      method whose perimeter puts nothing in front of any entry — no login
+      wall and no injected operator secret — so the key is inert and the
+      config claims a distinction the deployment does not have. Under ``none``
+      it is meaningful: it withholds the injected secret from that entry.
     """
     findings: list[Finding] = []
     login_declared = False
@@ -536,16 +547,22 @@ def _check_user_login(web_terminals: dict[str, Any], users: list[Any]) -> list[F
         )
 
     context = _auth_context(web_terminals)
-    auth_off = context is None or context["auth_method"] == "none"
-    if login_declared and auth_off:
+    # `inject_secret`, not `walled`: under `none` there is no login wall either,
+    # but the key still decides whether nginx injects that entry's operator
+    # secret — so it is inert under `token` alone.
+    inert = context is None or not context["inject_secret"]
+    if login_declared and inert:
+        method = "unset" if context is None else repr(context["auth_method"])
         findings.append(
             Finding(
                 severity="warn",
                 code="web_terminals.user_login_inert",
                 message=(
                     "a modules.web_terminals.users entry sets login: false, but "
-                    "auth.method is 'none' so no entry has a login to be exempt "
-                    "from; the key changes nothing until authentication is enabled"
+                    f"auth.method is {method} so there is nothing for an entry to be "
+                    "exempt from — no login wall, and no injected operator secret; "
+                    "the key changes nothing until auth.method is none, password "
+                    "or oidc"
                 ),
             )
         )
@@ -726,13 +743,13 @@ def _check_port_overlap(
                 entries.append((value, f"test_ioc.{field}"))
 
     # S5: the gated auth/TLS seam's port(s) — only join the collision set when
-    # the seam is actually enabled by config; the default (tls disabled, auth
-    # "none") must not reserve 443 or the sidecar port against ordinary configs.
+    # the seam is actually enabled by config; the default (tls disabled, no
+    # sidecar) must not reserve 443 or the sidecar port against ordinary configs.
     tls = as_dict(web_terminals.get("tls"))
     if bool(tls.get("enabled", False)):
-        entries.append((_TLS_LISTEN_PORT, "web_terminals.tls (listen 443 ssl)"))
+        entries.append((TLS_LISTEN_PORT, "web_terminals.tls (listen 443 ssl)"))
     auth_context = _auth_context(web_terminals)
-    if auth_context is not None and auth_context["auth_method"] != "none":
+    if auth_context is not None and auth_context["sidecar_active"]:
         # The sidecar's own listener, published on the host beside every other
         # service in the stack. Unlike `nginx_port` it has no `ports.*` mirror
         # to be covered by S3 — `auth.port` is where it is declared — so it is
@@ -1307,7 +1324,7 @@ def _check_unreadable_persona_privileges(
             [
                 f"{'users' if len(names) > 1 else 'user'} {_named_users(names)} "
                 f"{'are' if len(names) > 1 else 'is'} served with no login wall at all "
-                f"(modules.web_terminals.auth.method is 'none') and "
+                f"(modules.web_terminals.auth.method is not password or oidc) and "
                 f"{'resolve' if len(names) > 1 else 'resolves'} to it"
             ],
             f"{altitude_remedy(persona_name)}, or turn authentication on "
@@ -2602,6 +2619,91 @@ def _auth_context(web_terminals: dict[str, Any]) -> dict[str, Any] | None:
         return None
 
 
+def _check_open_mode_egress(root: dict[str, Any], *, project_root: Path | None) -> list[Finding]:
+    """An OPEN deployment whose personas can still reach the host network.
+
+    The authoring-time voice of the deploy gate
+    :func:`~osprey.deployment.web_terminals.artifacts.check_open_mode_requirements`,
+    which refuses this deployment at ``osprey up``, at ``decommission``, and at
+    the render seam. Without this rule the whole posture is discovered only when
+    a start is attempted: ``osprey build`` and ``osprey profile validate`` would
+    render and bless a deployment that cannot come up, and the operator would
+    meet the refusal one step later than the edit that caused it.
+
+    Driven by
+    :func:`~osprey.deployment.web_terminals.artifacts.open_mode_missing_by_persona`
+    — the SAME predicate the gate raises on, not a second reading of the same
+    idea. A lint rule that re-derived "which personas may reach the network"
+    would be free to clear a deployment the gate refuses, which is the worst of
+    both surfaces: a green authoring run and a start nobody can perform.
+
+    ERROR rather than WARN, and for the gate's reason rather than lint's usual
+    one: under ``auth.method: none`` nginx vouches for every terminal it
+    proxies, so a persona that keeps one of these entries is one prompt away
+    from a neighbour's session.
+
+    Imported at call time. This module is static validation of a config file,
+    and ``artifacts`` pulls the deploy-time artifact writer — and the credential
+    provisioner behind it — in with it; the same reason ``_PW_HASH_VAR_PREFIX``
+    is quoted here rather than imported.
+
+    Args:
+        root: The whole parsed config — the gate reads the ``auth`` posture off
+            ``modules.web_terminals`` itself, so it takes the config rather than
+            that stanza.
+        project_root: The deployment repo whose ``build/`` holds the renders a
+            ``project_path`` resolves against. ``None`` falls back to the
+            working directory, as everywhere else in this module.
+
+    Returns:
+        One finding naming every offender and what each is missing, or none.
+    """
+    from osprey.deployment.web_terminals.artifacts import (
+        OPEN_MODE_EGRESS_TOOLS,
+        ZERO_MIGRATION_OFFENDER,
+        open_mode_missing_by_persona,
+    )
+
+    missing = open_mode_missing_by_persona(root, project_root or Path("."))
+    if not missing:
+        return []
+    detail = "; ".join(
+        (
+            f"{persona!r} does not deny {', '.join(repr(tool) for tool in tools)}"
+            if tools
+            # The empty tuple is the gate's "there is nothing rendered here to
+            # read", whose remedy is a render rather than a deny entry.
+            else f"{persona!r} has no rendered .claude/settings.json on this host"
+        )
+        for persona, tools in sorted(missing.items())
+    )
+    zero_migration_note = (
+        f". {ZERO_MIGRATION_OFFENDER!r} stands for the roster entries that run no persona "
+        "at all: they run the deploy project itself, so the settings.json read for them "
+        "is the deploy project's own .claude/settings.json"
+        if ZERO_MIGRATION_OFFENDER in missing
+        else ""
+    )
+    return [
+        Finding(
+            severity="error",
+            code="web_terminals.open_mode_egress",
+            message=(
+                f"modules.web_terminals.auth.method is 'none' (open), so nginx vouches "
+                f"for every terminal it proxies — but {detail}. An agent in one terminal "
+                f"reaches nginx over loopback and is served a neighbour's session, and "
+                f"the python executor's socket guard covers only executed code. Every "
+                f"persona's shipped .claude/settings.json must deny all of "
+                f"{', '.join(repr(tool) for tool in OPEN_MODE_EGRESS_TOOLS)} (a missing "
+                f"or unparseable settings.json counts the same). Set auth.method to "
+                f"'token' to keep the magic-link wall, or restore those deny entries, "
+                f"render with `osprey build` and rebuild the images this deployment "
+                f"runs{zero_migration_note}"
+            ),
+        )
+    ]
+
+
 def _check_auth_method(web_terminals: dict[str, Any]) -> list[Finding]:
     """``modules.web_terminals.auth.method`` must name a supported method.
 
@@ -2648,8 +2750,8 @@ def _check_auth_method(web_terminals: dict[str, Any]) -> list[Finding]:
                 message=(
                     f"modules.web_terminals.auth.method {method!r} is not a string; "
                     f"expected one of {', '.join(SUPPORTED_AUTH_METHODS)}. A non-string "
-                    "value falls back to 'none' at render time, which would render the "
-                    "deployment with authentication silently disabled"
+                    "value falls back to 'token' at render time, which would render the "
+                    "deployment with the login wall silently disabled"
                 ),
             )
         ]
@@ -2686,7 +2788,7 @@ def _check_auth_transport(root: dict[str, Any], web_terminals: dict[str, Any]) -
     the WARN back with the config change that creates the exposure.
     """
     context = _auth_context(web_terminals)
-    if context is None or context["auth_method"] == "none":
+    if context is None or not context["sidecar_active"]:
         return []
     if context["tls_enabled"]:
         return []

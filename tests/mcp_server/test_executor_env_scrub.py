@@ -6,6 +6,11 @@ prevents agent-generated code running in the local-execution sandbox from
 reading write-arming secrets (e.g. ``BLUESKY_LAUNCH_TOKEN``) and calling a
 write-gated endpoint directly, bypassing the ``writes_enabled`` re-check
 inside the Bluesky queue's arming tools.
+
+It also covers the navigation-only perimeter stamp the same seam reads: the
+deny-list of the deployment's own web ports is consumed by THIS process and
+handed to the sandbox as a constructor argument, never left in the child's
+environment for executed code to read, widen or empty.
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -13,12 +18,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import yaml
 
-from osprey.mcp_server.python_executor.executor import execute_code
+from osprey.mcp_server.python_executor.executor import _perimeter_denied_ports, execute_code
 from osprey.mcp_server.sandbox_env import (
     SENSITIVE_ENV_EXACT,
     SENSITIVE_ENV_SUFFIXES,
     scrub_sensitive_env,
 )
+from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 
 
 @pytest.fixture(autouse=True)
@@ -231,3 +237,150 @@ async def test_local_subprocess_env_keeps_config_file(tmp_path, monkeypatch):
     assert mock_spawn.await_count == 1
     passed_env = mock_spawn.await_args.kwargs["env"]
     assert passed_env.get("CONFIG_FILE") == str(tmp_path / "config.yml")
+
+
+# ---------------------------------------------------------------------------
+# _execute_via_local — the navigation-only perimeter stamp
+# ---------------------------------------------------------------------------
+#
+# Under `auth.method: none` the deployment renders OSPREY_WEB_PERIMETER=open and
+# OSPREY_WEB_PERIMETER_DENY_PORTS onto every per-user container (the render half
+# is pinned by tests/deployment/web_terminals/test_perimeter_stamp.py). This
+# process reads both, hands the parsed ports to the ExecutionWrapper, and drops
+# the two names from the sandbox child's environment: the sandbox is TOLD what
+# it may not reach, and cannot re-derive, widen or empty the list.
+
+
+async def _run_with_stubbed_subprocess() -> dict[str, str]:
+    """Run one local execution against a stubbed spawn; return the child's env.
+
+    Same stub shape as the scrub tests above — the sandbox process is never
+    really started, so the assertions are about what the seam WOULD hand it.
+    """
+    mock_proc = AsyncMock()
+    mock_proc.communicate = AsyncMock(return_value=(b"", b""))
+    mock_proc.returncode = 0
+    mock_proc.kill = MagicMock()
+    mock_proc.wait = MagicMock()  # not awaited on this path; avoids an unawaited-coroutine warning
+
+    with patch(
+        "osprey.mcp_server.python_executor.executor.asyncio.create_subprocess_exec",
+        new_callable=AsyncMock,
+        return_value=mock_proc,
+    ) as mock_spawn:
+        await execute_code("print(42)", "readonly", "test")
+
+    assert mock_spawn.await_count == 1
+    return mock_spawn.await_args.kwargs["env"]
+
+
+@pytest.mark.unit
+def test_perimeter_ports_parse_when_the_marker_is_open():
+    """Marker plus a well-formed list yields the ports, ascending and de-duplicated."""
+    env = {"OSPREY_WEB_PERIMETER": "open", "OSPREY_WEB_PERIMETER_DENY_PORTS": "9092,9080,9091"}
+    assert _perimeter_denied_ports(env) == (9080, 9091, 9092)
+
+
+@pytest.mark.unit
+def test_perimeter_ports_empty_without_the_marker():
+    """A deny-list with no marker is inert.
+
+    The marker names the posture that justifies the guard. A list rendered
+    without it would mean a credentialed method, where denying these ports
+    guards nothing and only breaks traffic entitled to them.
+    """
+    env = {"OSPREY_WEB_PERIMETER_DENY_PORTS": "9080,9091"}
+    assert _perimeter_denied_ports(env) == ()
+
+
+@pytest.mark.unit
+def test_perimeter_ports_empty_when_the_marker_is_not_open():
+    """Only the exact value "open" arms it — anything else stays inert."""
+    env = {"OSPREY_WEB_PERIMETER": "token", "OSPREY_WEB_PERIMETER_DENY_PORTS": "9080"}
+    assert _perimeter_denied_ports(env) == ()
+
+
+@pytest.mark.unit
+def test_perimeter_ports_empty_when_nothing_is_stamped():
+    """A host with no deployment stamp at all gets the inert default."""
+    assert _perimeter_denied_ports({}) == ()
+
+
+@pytest.mark.unit
+def test_perimeter_ports_ignore_junk_entries():
+    """Unparseable and out-of-range entries are skipped, not fatal.
+
+    This is deployment-rendered input read at execution time; one bad token
+    must narrow the list, never raise inside the run the guard protects — and
+    never discard the entries that did parse.
+    """
+    env = {
+        "OSPREY_WEB_PERIMETER": "open",
+        "OSPREY_WEB_PERIMETER_DENY_PORTS": "9080, ,not-a-port,,0,70000,-1,9091",
+    }
+    assert _perimeter_denied_ports(env) == (9080, 9091)
+
+
+@pytest.mark.unit
+def test_perimeter_ports_empty_when_every_entry_is_junk():
+    """A list that parses to nothing is the inert value, not a partial guard."""
+    env = {"OSPREY_WEB_PERIMETER": "open", "OSPREY_WEB_PERIMETER_DENY_PORTS": "abc,,-3"}
+    assert _perimeter_denied_ports(env) == ()
+
+
+@pytest.mark.unit
+async def test_local_wrapper_receives_the_denied_ports(tmp_path, monkeypatch):
+    """The stamped ports reach the ExecutionWrapper as a constructor argument.
+
+    The wrapper is what renders the sandbox script, so this is the seam where
+    "passed down explicitly" is either true or not.
+    """
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OSPREY_WEB_PERIMETER", "open")
+    monkeypatch.setenv("OSPREY_WEB_PERIMETER_DENY_PORTS", "9091,9080")
+    _write_subprocess_config(tmp_path)
+
+    with patch(
+        "osprey.services.python_executor.execution.wrapper.ExecutionWrapper",
+        wraps=ExecutionWrapper,
+    ) as mock_wrapper:
+        await _run_with_stubbed_subprocess()
+
+    assert mock_wrapper.call_args.kwargs["perimeter_denied_ports"] == (9080, 9091)
+
+
+@pytest.mark.unit
+async def test_local_wrapper_receives_no_ports_without_a_stamp(tmp_path, monkeypatch):
+    """No stamp, no guard: the wrapper is built with the inert empty tuple."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("OSPREY_WEB_PERIMETER", raising=False)
+    monkeypatch.delenv("OSPREY_WEB_PERIMETER_DENY_PORTS", raising=False)
+    _write_subprocess_config(tmp_path)
+
+    with patch(
+        "osprey.services.python_executor.execution.wrapper.ExecutionWrapper",
+        wraps=ExecutionWrapper,
+    ) as mock_wrapper:
+        await _run_with_stubbed_subprocess()
+
+    assert mock_wrapper.call_args.kwargs["perimeter_denied_ports"] == ()
+
+
+@pytest.mark.unit
+async def test_local_subprocess_env_excludes_the_perimeter_stamp(tmp_path, monkeypatch):
+    """The child never sees either name.
+
+    This is the "never re-derived inside the sandbox" half of the contract: the
+    sandbox receives the deny-list as a literal from its parent, so leaving the
+    source variables in its environment would hand executed code both the list
+    it must not widen and the port map of every neighbouring terminal.
+    """
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OSPREY_WEB_PERIMETER", "open")
+    monkeypatch.setenv("OSPREY_WEB_PERIMETER_DENY_PORTS", "9080,9091")
+    _write_subprocess_config(tmp_path)
+
+    passed_env = await _run_with_stubbed_subprocess()
+
+    assert "OSPREY_WEB_PERIMETER" not in passed_env
+    assert "OSPREY_WEB_PERIMETER_DENY_PORTS" not in passed_env

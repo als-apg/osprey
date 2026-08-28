@@ -6,6 +6,8 @@ Exposes:
   GET  /dispatch/{id}/stream          — SSE stream of run events
   GET  /dispatch/{id}/artifacts       — descriptors of the artifacts the run produced
   GET  /dispatch/{id}/artifacts/{aid} — resolved (renderable) bytes of one artifact the run produced
+  DELETE /dispatch/{id}               — cancel an in-flight run
+  DELETE /dispatch/runs               — delete finished runs from the history
   GET  /health                        — liveness check with run statistics
   GET  /dashboard/runs                — JSON feed consumed by the dispatcher dashboard (token-gated)
 
@@ -31,7 +33,7 @@ from typing import Any
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from osprey.agent_runner.artifact_resolve import (
     deployed_config_path,
@@ -770,6 +772,73 @@ async def dispatch(request: DispatchRequest) -> DispatchResponse:
     # Use create_task (not BackgroundTasks) so we retain a handle for cancellation.
     _tasks[run_id] = asyncio.create_task(_run_dispatch_task(run_id, request))
     return DispatchResponse(status="accepted", run_id=run_id)
+
+
+class ClearRunsRequest(BaseModel):
+    """Body of ``DELETE /dispatch/runs``. Optional; an absent body clears all."""
+
+    older_than_days: int = Field(default=0, ge=0)
+
+
+# Declared BEFORE ``/dispatch/{run_id}``: Starlette matches routes in
+# registration order, so the parameterised cancel route below would otherwise
+# swallow this path as a cancel of a run literally named "runs".
+@app.delete("/dispatch/runs", dependencies=[Depends(_verify_token)])
+async def clear_dispatch_runs(body: ClearRunsRequest | None = None) -> dict[str, Any]:
+    """Delete finished runs from the history — the dashboard's clear action.
+
+    Unlinks every persisted ``{run_id}.json`` the retention sweep would consider
+    eligible AND drops the matching in-memory entries, so the run list comes
+    back empty instead of repopulating from disk on the next reload.
+
+    Both layers are cleared against the same predicate rather than against each
+    other's results: a run can live in ``_runs`` with no file (a persist that
+    failed) and on disk with no ``_runs`` entry (evicted by the cap), and either
+    one left behind would keep showing up.
+
+    A run still in flight is never touched, at either layer. Eligibility is
+    ``retention.record_is_deletable`` plus the worker's own pending set — the
+    same pair the periodic sweep uses. With ``older_than_days`` set this is that
+    sweep's horizon on demand; without it there is no age floor.
+
+    Run records only. The artifacts those runs produced stay in the artifact
+    store — clearing a history should not silently delete a plot someone is
+    still looking at. Ageing artifacts out is the retention sweep's job.
+    """
+    older_than_days = body.older_than_days if body is not None else 0
+    in_flight = _in_flight_run_ids()
+    now = time.time()
+
+    cleared_ids = set(
+        retention.delete_run_records(
+            _log_dir(),
+            now,
+            older_than_days=older_than_days,
+            in_flight_run_ids=in_flight,
+        )
+    )
+    records_deleted = len(cleared_ids)
+
+    for run_id, run in list(_runs.items()):
+        if run_id in in_flight:
+            continue
+        if not retention.record_is_deletable(run, now, older_than_days):
+            continue
+        del _runs[run_id]
+        _queues.pop(run_id, None)
+        cleared_ids.add(run_id)
+
+    logger.info(
+        "Cleared %d finished run(s) from history (%d persisted record(s), older_than_days=%d)",
+        len(cleared_ids),
+        records_deleted,
+        older_than_days,
+    )
+    return {
+        "cleared": len(cleared_ids),
+        "records_deleted": records_deleted,
+        "older_than_days": older_than_days,
+    }
 
 
 @app.delete("/dispatch/{run_id}", dependencies=[Depends(_verify_token)])

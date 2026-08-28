@@ -213,10 +213,22 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "CONFIG_FILE": RENDERED_CONFIG_ENV_VALUE,
         },
         permissions_allow=[],
-        permissions_ask=["execute"],
+        # execute_file carries the same policy as execute, deliberately: it runs
+        # arbitrary Python through the same kernels and the same execution-mode
+        # gates, so a ladder that moves one and not the other (writes-off deny,
+        # mixed-posture remove_ask, headless read-only disallow) would leave the
+        # file form falling through to an interactive prompt with no gate behind
+        # it. Two explicit rules rather than one regex matcher: the hooks and the
+        # SDK's disallow engine match tool names exactly, so a regex would gate
+        # nothing there.
+        permissions_ask=["execute", "execute_file"],
         hooks_pre=[
             HookRule(
                 matcher="mcp__python__execute",
+                hooks=[_WRITES_CHECK, _APPROVAL],
+            ),
+            HookRule(
+                matcher="mcp__python__execute_file",
                 hooks=[_WRITES_CHECK, _APPROVAL],
             ),
         ],

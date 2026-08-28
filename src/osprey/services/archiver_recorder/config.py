@@ -25,6 +25,13 @@ That override is NOT defined here. It is read through
 where the contract is stated, so this service and the agent's connector cannot
 drift apart on the variable names, on what an empty value means, or on how the
 port is typed. Two readers of one convention have to agree on its edges.
+
+Settings are resolved once. The one thing re-read on every poll is
+:class:`RecordingFacts` — who is on the other end of the Channel Access
+connection — and it is read out of the same file through the same resolvers the
+roster and the target switch use, for the same reason: a guard that works out
+privately what the reader it guards resolves can disagree with it, and the
+disagreement is the bypass.
 """
 
 from __future__ import annotations
@@ -38,6 +45,18 @@ from typing import Any
 import yaml
 
 from osprey.connectors.archiver.mongodb_archiver_connector import address_overrides
+
+# The live endpoint is derived, never re-read: `derive_endpoints` is the same
+# resolver the roster's label and the target switch use, so this service and the
+# surfaces an operator reads cannot come to different answers about which
+# machine `live` names. Imported at module scope because it costs nothing this
+# service does not already pay — it pulls in `osprey_connectors` and the standard
+# library and nothing else, no Channel Access stack, no PVA, no Mongo driver.
+from osprey.mcp_server.control_system.target_eligibility import (
+    derive_endpoints,
+    endpoint_is_live_standin,
+)
+from osprey_connectors.types import TARGET_LIVE
 
 #: Where the compose template mounts the project's ``data/simulation`` tree,
 #: matching the virtual accelerator's own mount so a relative
@@ -58,7 +77,7 @@ class RecorderConfigError(RuntimeError):
 
     Raised only from startup paths. Once the recorder is running, a config that
     goes unreadable is a torn read to be waited out, not a reason to stop
-    recording — see :func:`read_control_system_type`.
+    recording — see :func:`read_recording_facts`.
     """
 
 
@@ -68,9 +87,9 @@ class RecorderSettings:
 
     Deliberately not re-read on the poll interval: a cadence or retention
     change alters the shape of the archive, so it goes through the seeder's
-    fingerprint check and a redeploy, which restarts this service anyway. The
-    one setting that IS re-read is ``control_system.type``, which changes only
-    who is being recorded, not what the record looks like.
+    fingerprint check and a redeploy, which restarts this service anyway. What
+    IS re-read is :class:`RecordingFacts`, which changes only *who* is being
+    recorded, not what the record looks like.
     """
 
     host: str
@@ -135,28 +154,62 @@ def load_settings(config_path: Path) -> RecorderSettings:
     )
 
 
-def read_control_system_type(config_path: Path) -> str:
-    """Read ``control_system.type`` from the mounted config, right now.
+@dataclass(frozen=True)
+class RecordingFacts:
+    """What the mounted config says about the machine on the other end.
+
+    Two facts rather than one, because a deployment can name the same machine
+    two ways and only one of them moves when an operator runs ``osprey set
+    connector=epics``. See :data:`~osprey.services.archiver_recorder.recorder.RECORDING_CONTROL_SYSTEM`
+    for what the recorder does with the pair.
+
+    Both are derived from a single parse of a single file. Two reads could
+    straddle a config write and answer from two different configs, and the
+    machine described by neither of them would be the one being recorded.
+    """
+
+    #: ``control_system.type`` exactly as written, stripped, ``''`` when unset.
+    control_system_type: str
+    #: Whether the endpoint a ``live`` session would dial is this deployment's
+    #: own stand-in, per :func:`~osprey_connectors.standin.live_standin_active`.
+    live_standin: bool
+
+
+def read_recording_facts(config_path: Path) -> RecordingFacts:
+    """Read the enablement facts out of the mounted config, right now.
 
     This is the enablement question, asked again on every poll rather than
-    answered once at startup, because flipping ``control_system.type`` is a
-    documented post-build step and it must not need a redeploy to take effect.
+    answered once at startup, because both flipping ``control_system.type`` and
+    repointing the live gateways are documented post-build steps and neither
+    must need a redeploy to take effect.
 
     Raises:
         RecorderConfigError: if the file cannot be read or parsed *at this
-            moment*. Callers keep their last known answer instead of acting on
-            it: config writes are truncate-in-place, not atomic, so a poll that
-            lands mid-write sees a torn file — and treating that as "the
-            control system changed" would stop and restart recording on a file
-            write that changed nothing.
+            moment*, or has no ``control_system:`` block. Callers keep their
+            last known answer instead of acting on it: config writes are
+            truncate-in-place, not atomic, so a poll that lands mid-write sees a
+            torn file — and treating that as "the machine changed" would stop
+            and restart recording on a file write that changed nothing.
     """
     config = _load_mapping(config_path)
-    control_system = config.get("control_system")
-    if not isinstance(control_system, dict):
-        raise RecorderConfigError(
-            f"{config_path} has no `control_system:` block; cannot tell what is being recorded"
-        )
-    return str(control_system.get("type", "")).strip()
+    return RecordingFacts(
+        control_system_type=_control_system_type(config, config_path),
+        live_standin=_live_target_is_standin(config),
+    )
+
+
+def read_control_system_type(config_path: Path) -> str:
+    """Read ``control_system.type`` from the mounted config, right now.
+
+    The narrow question, for a caller that wants only the type. Enablement is
+    decided from :func:`read_recording_facts`, which answers this one alongside
+    the live endpoint's identity out of the same parse; asking here and there
+    would be two reads of a file that is rewritten under both of them.
+
+    Raises:
+        RecorderConfigError: on the same terms as :func:`read_recording_facts`.
+    """
+    return _control_system_type(_load_mapping(config_path), config_path)
 
 
 def resolve_channel_addresses(data_dir: Path | None = None) -> list[str]:
@@ -212,6 +265,40 @@ def resolve_channel_addresses(data_dir: Path | None = None) -> list[str]:
 # ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------
+
+
+def _control_system_type(config: dict[str, Any], config_path: Path) -> str:
+    """``control_system.type`` as written, or an error naming what is missing."""
+    control_system = config.get("control_system")
+    if not isinstance(control_system, dict):
+        raise RecorderConfigError(
+            f"{config_path} has no `control_system:` block; cannot tell what is being recorded"
+        )
+    return str(control_system.get("type", "")).strip()
+
+
+def _live_target_is_standin(config: dict[str, Any]) -> bool:
+    """Whether the endpoint a ``live`` session would dial is our own stand-in.
+
+    Both halves come from elsewhere on purpose. The endpoint is derived by
+    :func:`~osprey.mcp_server.control_system.target_eligibility.derive_endpoints`,
+    which restates the connector's own gateway selection, and the verdict is
+    :func:`~osprey.mcp_server.control_system.target_eligibility.endpoint_is_live_standin`,
+    the same step the roster's label is minted through. A recorder that worked
+    either out privately could believe it was sampling a stand-in while an
+    operator was being told ``LIVE MACHINE``.
+
+    A deployment that has never named a real machine has no live endpoint at
+    all, and that is the ordinary state of a mock- or VA-only project rather
+    than an error — so the resolver's refusal to guess one becomes ``False``
+    here, which is also the direction every honesty predicate in this stack
+    fails: an endpoint is a real machine until the config proves otherwise.
+    """
+    try:
+        derivation = derive_endpoints(config, TARGET_LIVE)
+    except ValueError:
+        return False
+    return endpoint_is_live_standin(config, derivation.selected_endpoint())
 
 
 def _load_mapping(config_path: Path) -> dict[str, Any]:

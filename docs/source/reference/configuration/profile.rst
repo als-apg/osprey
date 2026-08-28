@@ -91,6 +91,12 @@ Profile YAML reference
      - mapping
      - ``{}``
      - Container services the deployment runs (see :ref:`profile-services`).
+   * - ``virtual_accelerator``
+     - mapping
+     - absent
+     - Declares a simulated machine the deployment runs — and, optionally, a
+       second copy of it standing in for the live target
+       (see :ref:`profile-virtual-accelerator`).
    * - ``va_archiver``
      - mapping
      - absent
@@ -412,9 +418,10 @@ move anything".
    persona is the single delta that removes that deny. Writing the floor is
    not only a convention. A web terminal served without a login by a persona
    that can edit the deployment is refused by ``osprey validate``, ``osprey
-   build`` and ``osprey up`` alike, wherever the deployment has a login wall
-   at all — with ``auth.method: none`` there is no wall to be exempt from, and
-   the same exposure is reported as an advisory instead. On a profile that
+   build`` and ``osprey up`` alike, wherever the deployment has a login page
+   at all — with ``auth.method`` at ``token`` (the default) or ``none`` there
+   is no wall to be exempt from, and the same exposure is reported as an
+   advisory instead. On a profile that
    wrote no floor at all, where every persona holds everything, the only
    remedy that refusal can offer is to write one. See
    :doc:`/how-to/web-terminal/multi-user/tiers`.
@@ -544,6 +551,81 @@ The same facts are checked again at run time: the ``reach`` category of
 ``osprey health`` (and of the system-health tab, inside each user's container)
 resolves every live client's endpoint the way the client does and knocks on it
 (:doc:`/how-to/health-and-monitoring/configure-health-checks`).
+
+.. _profile-virtual-accelerator:
+
+The ``virtual_accelerator`` block
+=================================
+
+Declaring ``virtual_accelerator:`` gives the deployment a simulated machine: a
+soft-IOC container that speaks EPICS over a real Channel Access port, brought up
+by ``osprey up`` and served from the lattice the build renders (see
+:doc:`/how-to/control-systems/use-virtual-accelerator`).
+
+.. code-block:: yaml
+
+   virtual_accelerator:
+     port: 5064
+     live_standin: 5074
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 12 58
+
+   * - Key
+     - Default
+     - Meaning
+   * - ``port``
+     - ``5064``
+     - Channel Access port the simulator serves on. The connector block the
+       build writes follows this value, so changing it moves both.
+   * - ``live_standin``
+     - absent
+     - Port for a **second** copy of the simulator, deployed as this
+       deployment's ``live`` target. Absent means one machine, as before.
+
+The live stand-in
+-----------------
+
+``live_standin`` deploys a second simulator container on its own Channel Access
+port and points the deployment's ``epics`` gateways at it on loopback — so the
+deployment's ``live`` target is a machine you own. Both containers run one image
+over the same lattice and the same active scenarios; what differs is a small
+fixed offset on the stand-in's BPM readouts, which is what lets you tell the two
+apart by reading them.
+
+What the stand-in rehearses is the procedure, not the risk:
+``control_target_set live`` walks the real go-live path straight out of
+``osprey up``, with no configuration edits. See
+:doc:`/how-to/control-systems/switch-control-target` for that rehearsal, and for
+the three steps that turn the stand-in into your own facility.
+
+**One fact, one home.** The key is where the live target is described, and the
+build derives up to nine keys from it: the six
+``control_system.connector.epics.gateways.*`` keys — address, port and
+name-server mode for each of the two roles —
+``control_system.connector.epics.probe_channel`` (copied from the simulator's
+own probe channel; a deployment that names none gets none), and the strict
+limits pair ``control_system.limits_checking.enabled`` and
+``control_system.limits_checking.allow_unlisted_channels``. It also writes
+``control_system.target_switch.live_gateway_acknowledged`` with the stand-in's
+loopback address, because that is what the gateways now dial, and leaves a note
+in ``config.yml`` saying so — unless that key already names something else, in
+which case the build leaves it alone and warns which key it skipped. A profile
+that spells any of the nine in its own
+``config:`` block is refused by name at build time rather than silently having
+the derived copy win: two homes for one fact are free to disagree, and a real
+gateway hostname left in ``config:`` reads as the machine this deployment talks
+to while every session is on the stand-in.
+
+Turning the stand-in on therefore runs the **whole deployment** under the strict
+limits posture — limits checking on, unlisted channels refused, on the baseline
+simulator as much as on the stand-in — because that is what a switch to the live
+machine requires.
+
+On a laptop the second container is a real cost — the simulator image is
+amd64-only, so Apple Silicon emulates both — and deleting the line is the
+remedy; the how-to above says when that is worth it.
 
 .. _profile-va-archiver:
 

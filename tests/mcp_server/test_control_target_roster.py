@@ -21,6 +21,7 @@ import json
 import pytest
 
 from osprey.mcp_server.control_system import target_state
+from osprey.mcp_server.control_system.connector_host_manager import target_display_metadata
 from osprey.mcp_server.control_system.target_eligibility import (
     REASON_ALREADY_ACTIVE,
     REASON_PROBE_CHANNEL_MISSING,
@@ -30,6 +31,7 @@ from tests.mcp_server import test_switch_lifecycle as switch_suite
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 from tests.mcp_server.test_control_target_set import config_with_gateways, install_context
 
+LIVE_PROBE = switch_suite.LIVE_PROBE
 VA_PROBE = switch_suite.VA_PROBE
 raw_config = switch_suite.raw_config
 started_on = switch_suite.started_on
@@ -73,6 +75,56 @@ def install_prober(monkeypatch, snapshot):
     prober = StubProber(snapshot)
     monkeypatch.setattr(server_mod, "_prober", prober)
     return prober
+
+
+STANDIN_PORT = 5074
+#: The port a tunnel forwards a *real* gateway to. Loopback, and nothing else.
+TUNNELLED_PORT = 5064
+REAL_GATEWAY_HOST = "gw.example.org"
+
+
+def standin_config(
+    *,
+    standin_port=STANDIN_PORT,
+    gateway_host="localhost",
+    gateway_port=STANDIN_PORT,
+    deployed=True,
+    writes_enabled=False,
+):
+    """A deployment whose ``live`` target routes through an ``epics`` block.
+
+    The shape the build renders for a stand-in: the sandbox simulator is the
+    deployment's own type, and the ``epics`` block — the single non-simulated
+    entry in the connector table, which is what makes ``live`` resolve to it —
+    carries the gateways the build pointed at ``localhost:<stand-in port>``.
+
+    Each argument is one conjunct of the stand-in predicate, so a case can
+    fail exactly one of them: *standin_port* ``None`` omits the ``services:``
+    block entirely, *gateway_host* moves the endpoint off loopback, and
+    *gateway_port* moves it off the stand-in's port.
+    """
+    gateway = {"address": gateway_host, "port": gateway_port, "use_name_server": True}
+    raw = {
+        "control_system": {
+            "type": "virtual_accelerator",
+            "writes_enabled": writes_enabled,
+            "connector": {
+                "epics": {
+                    "probe_channel": LIVE_PROBE,
+                    "gateways": {
+                        "read_only": dict(gateway),
+                        "write_access": dict(gateway),
+                    },
+                },
+                "virtual_accelerator": {"probe_channel": VA_PROBE},
+            },
+        }
+    }
+    if standin_port is not None:
+        raw["services"] = {"live_standin": {"port": standin_port}}
+        if deployed:
+            raw["deployed_services"] = ["virtual_accelerator", "live_standin"]
+    return raw
 
 
 # ----------------------------------------------- correct before any switch
@@ -135,10 +187,6 @@ class TestCorrectBeforeAnySwitch:
         and the state file the prompt hook reads cannot disagree about which
         target is the real machine.
         """
-        from osprey.mcp_server.control_system.connector_host_manager import (
-            target_display_metadata,
-        )
-
         raw = config_with_gateways()
         manager = make_manager(raw=raw)
         install_context(manager, monkeypatch)
@@ -412,3 +460,87 @@ class TestDegradation:
         assert rows["live"]["available_now"] is False
         assert rows["live"]["reason"] == "target_unresolvable"
         assert "connector_type" not in rows["live"]
+
+
+# ----------------------------------------------------- the stand-in's label
+
+
+class TestLiveStandinLabel:
+    """What the label says when the live target is the deployment's stand-in.
+
+    Pinned on :func:`target_display_metadata` rather than through the tool,
+    because that function is the single writer every reader of the label — the
+    roster row, the prompt hook, the approval banner, the web badge — renders
+    from. A case that failed here would reach all of them at once.
+
+    ``real_machine`` is asserted beside the label precisely because it does
+    *not* move: the stand-in keeps the real machine's whole ritual, and only
+    the name an operator is shown changes. The ``va`` row is asserted in every
+    case for the same reason — the simulator is described by its own branch,
+    which the stand-in must not disturb.
+    """
+
+    def test_a_deployed_standin_is_named_as_one(self):
+        metadata = target_display_metadata(standin_config())
+
+        assert metadata["live"]["label"] == "LIVE MACHINE (stand-in)"
+        assert metadata["live"]["real_machine"] is True
+        assert metadata["live"]["endpoint"] == f"localhost:{STANDIN_PORT}"
+        assert metadata["va"]["label"] == "virtual accelerator (simulation)"
+        assert metadata["va"]["real_machine"] is False
+
+    def test_a_deployment_without_a_standin_is_the_live_machine(self):
+        raw = standin_config(
+            standin_port=None, gateway_host=REAL_GATEWAY_HOST, gateway_port=TUNNELLED_PORT
+        )
+
+        metadata = target_display_metadata(raw)
+
+        assert metadata["live"]["label"] == "LIVE MACHINE"
+        assert metadata["live"]["real_machine"] is True
+        assert metadata["va"]["label"] == "virtual accelerator (simulation)"
+
+    def test_an_ssh_tunnel_to_loopback_is_still_the_live_machine(self):
+        """Loopback alone proves nothing: the operator is one hop from hardware."""
+        metadata = target_display_metadata(
+            standin_config(standin_port=None, gateway_port=TUNNELLED_PORT)
+        )
+
+        assert metadata["live"]["label"] == "LIVE MACHINE"
+        assert metadata["live"]["endpoint"] == f"localhost:{TUNNELLED_PORT}"
+        assert metadata["va"]["label"] == "virtual accelerator (simulation)"
+
+    def test_a_leftover_standin_block_does_not_rename_a_moved_endpoint(self):
+        """The label follows the endpoint, never the stale ``services:`` block."""
+        metadata = target_display_metadata(standin_config(gateway_port=TUNNELLED_PORT))
+
+        assert metadata["live"]["label"] == "LIVE MACHINE"
+        assert metadata["live"]["real_machine"] is True
+        assert metadata["va"]["label"] == "virtual accelerator (simulation)"
+
+    def test_a_persona_render_says_the_same_word_as_the_deployment(self):
+        """Multi-user parity: the projected port is the whole evidence.
+
+        An attached project's render carries ``services: {}`` except for the
+        keys its reach contract projects, and no ``deployed_services`` at all.
+        One word of label for a single-user session and a different word for
+        the same machine seen through a persona would be the bug.
+        """
+        raw = standin_config(deployed=False)
+        assert "deployed_services" not in raw
+        assert raw["services"] == {"live_standin": {"port": STANDIN_PORT}}
+
+        metadata = target_display_metadata(raw)
+
+        assert metadata["live"]["label"] == "LIVE MACHINE (stand-in)"
+        assert metadata["live"]["real_machine"] is True
+        assert metadata["va"]["label"] == "virtual accelerator (simulation)"
+
+    def test_an_armed_deployment_names_the_standin_through_its_write_gateway(self):
+        """Arming writes selects the other gateway row, and both point at it."""
+        metadata = target_display_metadata(standin_config(writes_enabled=True))
+
+        assert metadata["live"]["label"] == "LIVE MACHINE (stand-in)"
+        assert metadata["live"]["real_machine"] is True
+        assert metadata["live"]["endpoint"] == f"localhost:{STANDIN_PORT}"
+        assert metadata["va"]["label"] == "virtual accelerator (simulation)"

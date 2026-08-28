@@ -45,7 +45,7 @@ from osprey.interfaces.web_terminal.operator_session import (
 )
 from osprey.interfaces.web_terminal.routes import chat as chat_routes
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
-from osprey.mcp_server.control_system import target_banner, target_state
+from osprey.mcp_server.control_system import connector_host_manager, target_banner, target_state
 
 SESSION_A = "aaaaaaaa-1111-2222-3333-444444444444"
 SESSION_B = "bbbbbbbb-1111-2222-3333-444444444444"
@@ -187,6 +187,47 @@ def _write_shaped_config(tmp_path, section):
     return path
 
 
+#: The Channel Access port a stand-in serves, and the port the build points the
+#: ``epics`` gateways at when it stands one up.
+STANDIN_PORT = 5074
+
+
+def _write_standin_config(tmp_path, *, control_type):
+    """Write the config.yml shape a deployment running a stand-in renders.
+
+    The sandbox simulator is the deployment's own ``type``, and the ``epics``
+    block — the one non-simulated entry, which is what makes ``live`` resolve to
+    it — carries gateways pointed at ``localhost:<stand-in port>``. Whether the
+    BASELINE is ``live`` or ``va`` is exactly what *control_type* moves, which
+    is what lets one shape cover both baseline labels.
+    """
+    gateway = {"address": "localhost", "port": STANDIN_PORT, "use_name_server": True}
+    path = tmp_path / "config.yml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "control_system": {
+                    "type": control_type,
+                    "writes_enabled": False,
+                    "connector": {
+                        "epics": {
+                            "gateways": {
+                                "read_only": dict(gateway),
+                                "write_access": dict(gateway),
+                            }
+                        },
+                        "virtual_accelerator": {"simulation_file": "data/sim.json"},
+                    },
+                },
+                "services": {"live_standin": {"port": STANDIN_PORT}},
+                "deployed_services": ["virtual_accelerator", "live_standin"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
 @contextmanager
 def attached_pty(client, session_id, pid=PTY_PID):
     """Make the registry report a running PTY with *pid* for *session_id*.
@@ -220,8 +261,31 @@ def only_alive(*pids):
         yield
 
 
-def write_target_state(shared_root, *, target, owner_ppid, server_pid):
-    """Publish one controls-server target-state record under *shared_root*."""
+#: The per-target display metadata a plain deployment's controls server mints.
+DEFAULT_TARGET_META = {
+    "live": {"label": "live machine", "endpoint": "gw:5064", "real_machine": True},
+    "va": {"label": "virtual accelerator", "endpoint": "localhost:5074"},
+}
+
+#: What that server mints instead where the deployment's live target is the
+#: stand-in: a live target in every respect but the name on the label.
+STANDIN_TARGET_META = {
+    "live": {
+        "label": "LIVE MACHINE (stand-in)",
+        "endpoint": "localhost:5074",
+        "real_machine": True,
+    },
+    "va": {"label": "virtual accelerator (simulation)", "endpoint": "localhost:5064"},
+}
+
+
+def write_target_state(shared_root, *, target, owner_ppid, server_pid, targets=DEFAULT_TARGET_META):
+    """Publish one controls-server target-state record under *shared_root*.
+
+    *targets* is the display metadata block the writing server minted, which is
+    where the badge's label comes from — pass ``None`` for a record that carries
+    no metadata at all.
+    """
     directory = shared_root / target_state.STATE_DIR_NAME
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{target_state.STATE_FILE_PREFIX}{server_pid}.json"
@@ -232,10 +296,7 @@ def write_target_state(shared_root, *, target, owner_ppid, server_pid):
                 "generation": 1,
                 "server_pid": server_pid,
                 "owner_ppid": owner_ppid,
-                "targets": {
-                    "live": {"label": "live machine", "endpoint": "gw:5064", "real_machine": True},
-                    "va": {"label": "virtual accelerator", "endpoint": "localhost:5074"},
-                },
+                "targets": targets,
                 "children": [],
             }
         ),
@@ -617,6 +678,7 @@ class TestGetPosture:
             "posture": "sandbox",
             "rendered_writes_enabled": True,
             "session_target": "live",
+            "session_target_label": "live machine (not configured)",
             "target_writes_enabled": True,
             "target_source": "baseline",
         }
@@ -638,6 +700,9 @@ class TestGetPosture:
             "posture": "writes",
             "rendered_writes_enabled": True,
             "session_target": "live",
+            # This render names no real machine at all, and the label says so
+            # rather than asserting a machine nobody configured.
+            "session_target_label": "live machine (not configured)",
             "target_writes_enabled": True,
             "target_source": "baseline",
         }
@@ -1082,7 +1147,7 @@ class TestSessionTargetPosture:
             attached_pty(client, SESSION_A),
             patch.object(
                 target_banner,
-                "session_target_for_pid",
+                "session_target_meta_for_pid",
                 side_effect=RuntimeError("process table unreadable"),
             ),
         ):
@@ -1203,6 +1268,190 @@ class TestSessionTargetPosture:
 
         assert resp.status_code == 200
         assert resp.json() == {"status": "ok", "session_id": SESSION_A, "posture": "writes"}
+
+
+class TestSessionTargetLabel:
+    """``session_target_label`` — what the badge CALLS the target it names.
+
+    ``session_target`` is a key: ``live`` and ``va``, the words the rest of the
+    system switches on. It is not an identity. A deployment whose ``live``
+    target is a stand-in — a second virtual accelerator the ``epics`` gateways
+    really dial — is still on ``live`` in every respect that matters for safety,
+    and telling an operator only "live" there would be true but not honest.
+
+    So the label travels separately, and it is never derived twice. Where a
+    controls server has published a record, the badge shows the label THAT
+    server minted; on the baseline, where no record exists yet, it derives one
+    from the render with the same function the writer uses. Everything that can
+    go wrong falls back to the bare target name, which is truthful and invents
+    nothing.
+    """
+
+    def test_a_matched_record_carries_the_label_its_writer_minted(
+        self, client, tmp_path, shared_root
+    ):
+        """The published label, not a name this route worked out for itself."""
+        client.app.state.config_path = _write_shaped_config(tmp_path, MIXED_RENDER)
+        write_target_state(
+            shared_root,
+            target="live",
+            owner_ppid=CLAUDE_PID,
+            server_pid=5150,
+            targets=STANDIN_TARGET_META,
+        )
+
+        with attached_pty(client, SESSION_A), synthetic_process_tree(), only_alive(5150):
+            body = client.get("/api/terminal/posture", params={"session_id": SESSION_A}).json()
+
+        assert body["session_target_label"] == "LIVE MACHINE (stand-in)"
+        assert body["target_source"] == "session"
+        # The key the rest of the system switches on is untouched by the label.
+        assert body["session_target"] == "live"
+
+    def test_a_record_without_metadata_falls_back_to_the_target_name(
+        self, client, tmp_path, shared_root
+    ):
+        """A half-written record names the target and claims nothing more."""
+        client.app.state.config_path = _write_shaped_config(tmp_path, MIXED_RENDER)
+        write_target_state(
+            shared_root, target="va", owner_ppid=PTY_PID, server_pid=5150, targets=None
+        )
+
+        with attached_pty(client, SESSION_A), synthetic_process_tree(), only_alive(5150):
+            body = client.get("/api/terminal/posture", params={"session_id": SESSION_A}).json()
+
+        assert body["session_target"] == "va"
+        assert body["session_target_label"] == "va"
+        assert body["target_source"] == "session"
+
+    def test_the_baseline_label_is_derived_from_the_render(self, client, tmp_path, shared_root):
+        """The DEFAULT state: a card whose session has started no controls server.
+
+        There is no record to read, so the badge derives the label from the
+        render — the same derivation the writer would have used. A stand-in
+        deployment's baseline is its simulator, and it is named as one.
+        """
+        client.app.state.config_path = _write_standin_config(
+            tmp_path, control_type="virtual_accelerator"
+        )
+
+        with attached_pty(client, SESSION_A), synthetic_process_tree(), only_alive():
+            body = client.get("/api/terminal/posture", params={"session_id": SESSION_A}).json()
+
+        assert body["session_target"] == "va"
+        assert body["target_source"] == "baseline"
+        assert body["session_target_label"] == "virtual accelerator (simulation)"
+
+    def test_a_live_baseline_on_a_standin_render_says_so(self, client, tmp_path, shared_root):
+        """The case the whole label exists for, reached without any record.
+
+        The gateways dial ``localhost:<stand-in port>``, so the target an
+        operator would be on at spawn is the stand-in — and the fresh badge says
+        ``LIVE MACHINE (stand-in)`` before a single prompt has been sent.
+        """
+        client.app.state.config_path = _write_standin_config(tmp_path, control_type="epics")
+
+        with attached_pty(client, SESSION_A), synthetic_process_tree(), only_alive():
+            body = client.get("/api/terminal/posture", params={"session_id": SESSION_A}).json()
+
+        assert body["session_target"] == "live"
+        assert body["target_source"] == "baseline"
+        assert body["session_target_label"] == "LIVE MACHINE (stand-in)"
+
+    def test_a_render_that_is_not_a_mapping_falls_back_to_the_target_name(self, client, tmp_path):
+        """A malformed config still renders a badge, naming what it can."""
+        path = tmp_path / "config.yml"
+        path.write_text("- not\n- a mapping\n", encoding="utf-8")
+        client.app.state.config_path = path
+
+        with attached_pty(client, SESSION_A), synthetic_process_tree(), only_alive():
+            resp = client.get("/api/terminal/posture", params={"session_id": SESSION_A})
+
+        assert resp.status_code == 200
+        assert resp.json()["session_target_label"] == resp.json()["session_target"]
+
+    def test_a_broken_label_derivation_falls_back_to_the_target_name(self, client, tmp_path):
+        """The derivation reads the whole render; a failure must not 500 the badge."""
+        client.app.state.config_path = _write_standin_config(tmp_path, control_type="epics")
+
+        with (
+            attached_pty(client, SESSION_A),
+            synthetic_process_tree(),
+            only_alive(),
+            patch.object(
+                connector_host_manager,
+                "target_display_metadata",
+                side_effect=RuntimeError("render unreadable"),
+            ),
+        ):
+            resp = client.get("/api/terminal/posture", params={"session_id": SESSION_A})
+
+        assert resp.status_code == 200
+        assert resp.json()["session_target_label"] == "live"
+
+    def test_the_label_is_read_from_the_same_config_read_as_everything_else(self, client, tmp_path):
+        """One parse of config.yml per request, label included.
+
+        The badge polls this route every few seconds per open card, and the
+        label is derived from the WHOLE render (the stand-in lives under
+        ``services:``) — which is exactly the shape that invites a second read.
+        """
+        config_path = _write_standin_config(tmp_path, control_type="epics")
+        client.app.state.config_path = config_path
+        reads = []
+        real_read_text = Path.read_text
+
+        def _counting_read_text(self, *args, **kwargs):
+            if self == config_path:
+                reads.append(str(self))
+            return real_read_text(self, *args, **kwargs)
+
+        with (
+            attached_pty(client, SESSION_A),
+            synthetic_process_tree(),
+            only_alive(),
+            patch.object(Path, "read_text", _counting_read_text),
+        ):
+            body = client.get("/api/terminal/posture", params={"session_id": SESSION_A}).json()
+
+        assert body["session_target_label"] == "LIVE MACHINE (stand-in)"
+        assert reads == [str(config_path)], f"config.yml was read {len(reads)} times"
+
+    def test_the_target_is_resolved_once_per_request(self, client, tmp_path, shared_root):
+        """The name and the label come off ONE resolution of the process tree.
+
+        Resolving is the expensive half of this request — a scan of the state
+        directory plus an ancestor walk that forks ``ps`` where there is no
+        ``/proc`` — and the badge polls the route every few seconds per open
+        card. Asking twice would also let a switch land between the two answers,
+        putting one target's name beside another target's label.
+        """
+        client.app.state.config_path = _write_shaped_config(tmp_path, MIXED_RENDER)
+        write_target_state(
+            shared_root,
+            target="live",
+            owner_ppid=CLAUDE_PID,
+            server_pid=5150,
+            targets=STANDIN_TARGET_META,
+        )
+        scans = []
+        real_live_records = target_banner._live_records
+
+        def _counting_live_records():
+            scans.append(1)
+            return real_live_records()
+
+        with (
+            attached_pty(client, SESSION_A),
+            synthetic_process_tree(),
+            only_alive(5150),
+            patch.object(target_banner, "_live_records", _counting_live_records),
+        ):
+            body = client.get("/api/terminal/posture", params={"session_id": SESSION_A}).json()
+
+        assert body["session_target"] == "live"
+        assert body["session_target_label"] == "LIVE MACHINE (stand-in)"
+        assert len(scans) == 1, f"the target was resolved {len(scans)} times"
 
 
 # ── SDK-topology parity ──────────────────────────────────────────────────────
@@ -1748,8 +1997,10 @@ class TestGetPostureForChatKeys:
             "posture": "writes",
             "rendered_writes_enabled": True,
             # A chat key holds no PTY, so there is no process tree to find a
-            # control-target record against: the badge gets the baseline.
+            # control-target record against: the badge gets the baseline, and
+            # the baseline's label is derived from the render.
             "session_target": "live",
+            "session_target_label": "live machine (not configured)",
             "target_writes_enabled": True,
             "target_source": "baseline",
         }

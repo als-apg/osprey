@@ -16,8 +16,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from osprey.mcp_server.sandbox_env import (
+    PERIMETER_DENY_PORTS_ENV,
+    PERIMETER_MARKER_ENV,
     SENSITIVE_ENV_EXACT,
     SENSITIVE_ENV_SUFFIXES,
+    scrub_sandbox_child_env,
     scrub_sensitive_env,
 )
 from osprey.mcp_server.workspace.execution.sandbox_executor import execute_sandbox_code
@@ -125,13 +128,67 @@ def test_sensitive_env_constants_are_reexports_of_canonical_module():
 
 @pytest.mark.unit
 def test_scrub_shared_with_python_executor():
-    """Both sandboxes import the SAME scrub from osprey.mcp_server.sandbox_env
+    """Both sandboxes build the child env with the SAME helper.
 
-    (not independent copies), so the deny-lists cannot drift by construction.
+    ``scrub_sandbox_child_env`` from osprey.mcp_server.sandbox_env, not
+    independent copies, so the credential scrub and the sandbox-only narrowing
+    cannot drift between the two spawn paths by construction.
     """
     from osprey.mcp_server.python_executor import executor as python_executor_module
+    from osprey.mcp_server.workspace.execution import sandbox_executor
 
-    assert python_executor_module.scrub_sensitive_env is scrub_sensitive_env
+    assert python_executor_module.scrub_sandbox_child_env is scrub_sandbox_child_env
+    assert sandbox_executor.scrub_sandbox_child_env is scrub_sandbox_child_env
+
+
+@pytest.mark.unit
+def test_drop_lists_have_a_single_definition():
+    """Neither spawn path holds a drop list of its own.
+
+    Both import the shared module's names and call the shared helper, so there
+    is no second literal tuple to drift: a name added for one spawn path is
+    added for both, or neither sees it. A local ``*_TO_DROP`` reappearing in
+    either module is exactly that drift starting.
+    """
+    from osprey.mcp_server.python_executor import executor as python_executor_module
+    from osprey.mcp_server.workspace.execution import sandbox_executor
+
+    for module in (python_executor_module, sandbox_executor):
+        assert not [name for name in vars(module) if name.endswith("_TO_DROP")]
+
+
+@pytest.mark.unit
+def test_shared_helper_drops_the_web_terminal_address_book():
+    """The pure helper drops OSPREY_WEB_PORT and the whole OSPREY_TERMINAL_ family."""
+    env = {
+        "OSPREY_WEB_PORT": "8080",
+        "OSPREY_TERMINAL_LANDING_URL": "http://deploy:9080/",
+        "OSPREY_TERMINAL_SECRET_ALICE": "secret",
+        "PATH": "/usr/bin",
+    }
+    scrubbed = scrub_sandbox_child_env(env)
+    assert scrubbed == {"PATH": "/usr/bin"}
+
+
+@pytest.mark.unit
+def test_shared_helper_drops_the_perimeter_stamp():
+    """The pure helper drops both stamp names: the parent has already read them."""
+    env = {
+        PERIMETER_MARKER_ENV: "open",
+        PERIMETER_DENY_PORTS_ENV: "9080,9091",
+        "PATH": "/usr/bin",
+    }
+    scrubbed = scrub_sandbox_child_env(env)
+    assert scrubbed == {"PATH": "/usr/bin"}
+
+
+@pytest.mark.unit
+def test_shared_helper_does_not_mutate_input():
+    """os.environ is passed directly at both call sites, so this must be a copy."""
+    env = {PERIMETER_MARKER_ENV: "open", "PATH": "/usr/bin"}
+    original = dict(env)
+    scrub_sandbox_child_env(env)
+    assert env == original
 
 
 # ---------------------------------------------------------------------------
@@ -245,6 +302,83 @@ async def test_sandbox_subprocess_env_keeps_unrelated_vars(
     assert mock_spawn.await_count == 1
     passed_env = mock_spawn.await_args.kwargs["env"]
     assert passed_env.get("HOME") == "/home/testuser"
+
+
+# ---------------------------------------------------------------------------
+# execute_sandbox_code — the web-terminal address book and the perimeter stamp
+# ---------------------------------------------------------------------------
+#
+# Mirrors the perimeter-absence coverage in test_executor_env_scrub.py against
+# the OTHER spawn seam. This sandbox renders visualizations; it has no more
+# business resolving a terminal URL, or reading a deny-list it is not the one
+# enforcing, than the general-purpose sandbox does — and it is the path that
+# was silently inheriting both.
+
+
+async def _sandbox_child_env(execution_folder, workspace_root) -> dict[str, str]:
+    """Run one visualization execution against a stubbed spawn; return the child env."""
+    mock_proc = AsyncMock()
+    mock_proc.communicate = AsyncMock(return_value=(b"", b""))
+    mock_proc.returncode = 0
+    mock_proc.kill = MagicMock()
+    mock_proc.wait = MagicMock()  # not awaited on this path; avoids an unawaited-coroutine warning
+
+    with (
+        patch(
+            "osprey.utils.workspace.resolve_workspace_root",
+            return_value=workspace_root,
+        ),
+        patch(
+            "osprey.mcp_server.workspace.execution.sandbox_executor.asyncio.create_subprocess_exec",
+            new_callable=AsyncMock,
+            return_value=mock_proc,
+        ) as mock_spawn,
+    ):
+        await execute_sandbox_code(code="print(42)", execution_folder=execution_folder)
+
+    assert mock_spawn.await_count == 1
+    return mock_spawn.await_args.kwargs["env"]
+
+
+@pytest.mark.unit
+async def test_sandbox_subprocess_env_excludes_the_perimeter_stamp(
+    execution_folder, workspace_root, monkeypatch
+):
+    """The visualization child never sees either stamp name.
+
+    Under `auth.method: none` the deployment stamps both onto the container.
+    Leaving them in this child's environment would hand agent-authored plotting
+    code the port map of every neighbouring terminal — and the very list it is
+    not the one enforcing, which is precisely what "told, not derived" rules
+    out.
+    """
+    monkeypatch.setenv("OSPREY_WEB_PERIMETER", "open")
+    monkeypatch.setenv("OSPREY_WEB_PERIMETER_DENY_PORTS", "9080,9091")
+
+    passed_env = await _sandbox_child_env(execution_folder, workspace_root)
+
+    assert "OSPREY_WEB_PERIMETER" not in passed_env
+    assert "OSPREY_WEB_PERIMETER_DENY_PORTS" not in passed_env
+
+
+@pytest.mark.unit
+async def test_sandbox_subprocess_env_excludes_the_web_terminal_address_book(
+    execution_folder, workspace_root, monkeypatch
+):
+    """OSPREY_WEB_PORT and the OSPREY_TERMINAL_ family are dropped here too.
+
+    These predate the perimeter stamp and were reaching this sandbox all along:
+    the python executor dropped them, its sibling did not. One shared helper is
+    what makes that a single fact rather than two.
+    """
+    monkeypatch.setenv("OSPREY_WEB_PORT", "8080")
+    monkeypatch.setenv("OSPREY_TERMINAL_LANDING_URL", "http://deploy:9080/")
+    monkeypatch.setenv("OSPREY_TERMINAL_SECRET_ALICE", "super-secret-value")
+
+    passed_env = await _sandbox_child_env(execution_folder, workspace_root)
+
+    assert "OSPREY_WEB_PORT" not in passed_env
+    assert not [name for name in passed_env if name.startswith("OSPREY_TERMINAL_")]
 
 
 # ---------------------------------------------------------------------------

@@ -1,16 +1,17 @@
-"""Seven-interface "loads clean in a real browser" smoke suite.
+"""Per-interface "loads clean in a real browser" smoke suite.
 
-Boots each of the seven OSPREY interface ``create_app()`` factories on a real
-uvicorn server (see ``_run_app_server`` in ``conftest.py``) and drives a real
-Chromium page against ``GET /``, asserting via :func:`assert_page_loads_clean`
-that the page loaded without an uncaught JS exception or a failed same-origin
+Boots each OSPREY interface ``create_app()`` factory on a real uvicorn server
+(see ``_run_app_server`` in ``conftest.py``) and drives a real Chromium page
+against ``GET /``, asserting via :func:`assert_page_loads_clean` that the page
+loaded without an uncaught JS exception or a failed same-origin
 script/stylesheet fetch. This is the negative-space complement to
 ``test_app_setup_parametrized.py`` (which only inspects the assembled FastAPI
 app object, never a live page): here the browser is the oracle.
 
-Web Terminal additionally asserts the hub shell actually rendered its DOM
-(the artifacts tab button), since a page can load "clean" by the above
-signals while its JS silently no-ops before building any UI.
+Two targets additionally assert their DOM actually rendered, since a page can
+load "clean" by the above signals while its JS silently no-ops before building
+any UI: Web Terminal checks the hub shell's artifacts tab button, and the
+graph-mode Channel Finder checks that the explore view's class tree drew nodes.
 
 Run:
     uv run pytest tests/interfaces/test_load_smokes.py -v
@@ -29,7 +30,7 @@ import pytest
 
 from tests.interfaces._browser import assert_page_loads_clean
 from tests.interfaces._panel_launch import publish_artifact_url
-from tests.interfaces.conftest import _run_app_server
+from tests.interfaces.conftest import _run_app_server, launch_graph_channel_finder
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -112,6 +113,16 @@ def _launch_channel_finder(tmp_path, monkeypatch) -> Iterator[str]:
 
 
 @contextmanager
+def _launch_channel_finder_graph(tmp_path, monkeypatch) -> Iterator[str]:
+    # Same interface, second paradigm: the graph mode serves a different
+    # explore view off the same factory, so it gets its own target. The
+    # launcher (shared with the visual lane) writes the graph config and
+    # points the app's store seam at the demo corpus -- no database is dialled.
+    with launch_graph_channel_finder(tmp_path, monkeypatch) as base_url:
+        yield base_url
+
+
+@contextmanager
 def _launch_lattice_dashboard(tmp_path, monkeypatch) -> Iterator[str]:
     monkeypatch.chdir(tmp_path)
     from osprey.interfaces.lattice_dashboard.app import create_app
@@ -145,6 +156,7 @@ _ALLOWLISTS: dict[str, object] = {
     "artifacts": None,
     "ariel": None,
     "channel_finder": None,
+    "channel_finder_graph": None,
     "lattice_dashboard": None,
     "okf_panel": None,
     "web_terminal_session": None,
@@ -156,6 +168,7 @@ INTERFACE_LAUNCHERS = [
     ("artifacts", _launch_artifacts),
     ("ariel", _launch_ariel),
     ("channel_finder", _launch_channel_finder),
+    ("channel_finder_graph", _launch_channel_finder_graph),
     ("lattice_dashboard", _launch_lattice_dashboard),
     ("okf_panel", _launch_okf_panel),
 ]
@@ -186,6 +199,13 @@ def test_interface_loads_clean(
             # test_panels_browser.py) once panel-manager.js finishes its
             # async init (fetch /api/panels, then per-panel config).
             expect(page.locator('button[data-panel-id="artifacts"]')).to_be_visible(timeout=10_000)
+
+        if name == "channel_finder_graph":
+            # Explore is the default route (no hash), and its graph renderer
+            # draws the class tree only after /api/graph/ontology answers --
+            # so a drawn node is the DOM proof the page did more than load.
+            page.wait_for_selector(".g-node", timeout=10_000)
+            assert page.locator(".g-node").count() >= 1
 
         page.close()
 

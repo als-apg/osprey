@@ -1070,7 +1070,10 @@ class TestSpellings:
 
     def test_the_mixed_floor_is_pinned_literally(self):
         """Task 1.8's drift guard imports this exact list."""
-        assert am._FALLBACK_MIXED_TOOLS == ["mcp__python__execute"]
+        assert am._FALLBACK_MIXED_TOOLS == [
+            "mcp__python__execute",
+            "mcp__python__execute_file",
+        ]
 
     def test_the_write_floor_is_the_registry_floor(self):
         """Every ``_WRITES_CHECK``-gated tool the framework ships, not the ones

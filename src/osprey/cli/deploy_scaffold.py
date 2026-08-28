@@ -12,12 +12,13 @@ to key them off.
 time. One engine, called twice, so a repo created today and a repo
 re-scaffolded a year later carry the same two files.
 
-``osprey scaffold systemd`` emits a third file through the same engine: the
-boot unit at :data:`SYSTEMD_OUTPUT_NAME`. It is not part of what ``init``
-writes, because it is rendered for a HOST rather than for the repo — the two
-absolute paths in it are properties of the machine that will run the
-deployment, so it is emitted when an operator is standing on that machine and
-asks for it.
+``osprey scaffold systemd`` emits two more files through the same engine: the
+boot unit at :data:`SYSTEMD_OUTPUT_NAME`, and the boot hook at
+:data:`BOOT_HOOK_OUTPUT_PATH` that starts that unit on a host whose home is a
+late mount. Neither is part of what ``init`` writes, because both are rendered
+for a HOST rather than for the repo — the two absolute paths in them are
+properties of the machine that will run the deployment, so they are emitted
+when an operator is standing on that machine and asks for them.
 
 Re-emission is the whole difficulty. A generated file that lands in a git
 repository is read, diffed and eventually edited by people, so the engine has
@@ -54,6 +55,9 @@ from .build_profile_deploy import SUPPORTED_CI_PLATFORMS, DeployConfig, parse_de
 from .build_profile_document import _read_profile_document
 from .build_profile_merge import resolve_profile_document
 from .deploy_scaffold_templates import (
+    BOOT_HOOK_MARKER,
+    BOOT_HOOK_PATH,
+    BOOT_HOOK_TEMPLATE,
     CI_MARKER,
     CI_TEMPLATES,
     SYSTEMD_MARKER,
@@ -62,6 +66,7 @@ from .deploy_scaffold_templates import (
     VERIFY_MARKER,
     VERIFY_PATH,
     VERIFY_TEMPLATE,
+    build_boot_hook_context,
     build_ci_context,
     build_systemd_context,
     build_verify_context,
@@ -97,9 +102,30 @@ VERIFY_OUTPUT_PATH: tuple[str, ...] = tuple(VERIFY_PATH.split("/"))
 #: the emitted header plus the verb's own output say to copy it across.
 SYSTEMD_OUTPUT_NAME: str = SYSTEMD_UNIT_NAME
 
+#: Where the boot hook is emitted, as path segments relative to the repo root.
+#: Derived from the emitted script's own spelling of it
+#: (:data:`~.deploy_scaffold_templates.BOOT_HOOK_PATH`), the same way
+#: :data:`VERIFY_OUTPUT_PATH` is: the hook's header prints the ``@reboot``
+#: crontab line an operator pastes, and that line is this path under the repo
+#: root, so a second literal here could move the file out from under the line
+#: that installs it.
+#:
+#: Under ``scripts/`` rather than at the repo root, and deliberately so.
+#: :mod:`osprey.cli.profile_conventions` keeps ``_SOURCE_ZONE_ENTRIES``, the set
+#: of repo-root entries ``osprey build``'s unknown-root-entry warning knows
+#: about. A new root file would not be in it, so a build would warn about a file
+#: OSPREY itself told the operator to create — the exact thing that module's
+#: docstring says must not happen. ``scripts`` is already covered (it is where
+#: ``verify.sh`` lands), so emitting the hook there needs no edit to that table,
+#: nor to the python-executor write-guard that mirrors it.
+BOOT_HOOK_OUTPUT_PATH: tuple[str, ...] = tuple(BOOT_HOOK_PATH.split("/"))
+
 #: The health check is meant to be runnable by hand (``./scripts/verify.sh``),
 #: as its own header advertises. The post-up hook runs it through ``bash`` and
-#: would not care, but an operator following the header would.
+#: would not care, but an operator following the header would. The boot hook is
+#: the same case one directory over: cron invokes the ``@reboot`` line its
+#: header prints as a command, not through an interpreter, so a hook without
+#: the bit set is a boot that silently never happens.
 _EXECUTABLE_MODE = 0o755
 _REGULAR_MODE = 0o644
 
@@ -241,48 +267,75 @@ def scaffold_systemd_unit(
     force: bool = False,
     osprey_bin: str | None = None,
     osprey_version: str | None = None,
-) -> ScaffoldedFile:
-    """Emit the boot unit that brings this deployment up after a reboot.
+) -> list[ScaffoldedFile]:
+    """Emit the boot unit that brings this deployment up after a reboot, and
+    the hook that starts that unit on a host whose home is a late mount.
 
-    Rendered from the profile's ``name:`` and from two paths on the machine the
-    unit will run on: the repo, and the ``osprey`` executable. No ``deploy:``
-    block is read, because none of it applies — a unit runs the deployment where
-    it already is, rather than shipping it anywhere.
+    Both are rendered from the profile's ``name:`` and from two paths on the
+    machine they will run on: the repo, and the ``osprey`` executable. No
+    ``deploy:`` block is read, because none of it applies — a unit runs the
+    deployment where it already is, rather than shipping it anywhere.
+
+    The hook is emitted beside the unit rather than on request, because the
+    situation it exists for is not one an operator can see while scaffolding:
+    it is a boot that does not come back, several reboots from now. A file
+    already sitting in the repo is one somebody can read when that happens.
 
     Args:
         repo_root: The deployment repo. Also the unit's ``WorkingDirectory``,
-            resolved absolute.
-        force: Overwrite a file that carries no marker of ours.
+            resolved absolute, and the path the hook waits for.
+        force: Overwrite files that carry no marker of ours.
         osprey_bin: Absolute path to the ``osprey`` executable the unit invokes.
             Defaults to the one resolvable here.
         osprey_version: Version for the provenance stamp. Defaults to the
             installed framework's; tests pass a frozen value.
 
     Returns:
-        What the emission did to the one file it writes.
+        One :class:`ScaffoldedFile` per emitted file, in emission order — the
+        unit at :data:`SYSTEMD_OUTPUT_NAME`, then the hook at
+        :data:`BOOT_HOOK_OUTPUT_PATH`. A refusal is reported here rather than
+        raised, for the same reason the CI pair reports one: the two files have
+        independent histories, and a hand-edited unit is no reason to leave the
+        hook stale.
 
     Raises:
         ConfigurationError: If the repo holds no profile, or holds one that is
             not a YAML mapping.
         FileNotFoundError: If no ``osprey`` executable can be found and none was
-            given. A unit naming a command that is not there fails at boot,
-            where nobody is watching, so it is not written.
+            given. A unit naming a command that is not there fails at boot, and
+            a hook waiting on a path that will never exist gives up every boot
+            — both where nobody is watching, so neither file is written.
     """
     repo_root = repo_root.resolve()
     profile, _ = _load_profile(repo_root / PROFILE_FILENAME, command="osprey scaffold systemd")
 
-    text = render(
+    unit_text = render(
         SYSTEMD_TEMPLATE,
         build_systemd_context(profile, repo_root, osprey_bin, osprey_version),
     )
-    return _emit(
-        repo_root / SYSTEMD_OUTPUT_NAME,
-        text,
-        SYSTEMD_MARKER,
-        mode=_REGULAR_MODE,
-        force=force,
-        command="osprey scaffold systemd",
+    hook_text = render(
+        BOOT_HOOK_TEMPLATE,
+        build_boot_hook_context(profile, repo_root, osprey_bin, osprey_version),
     )
+
+    return [
+        _emit(
+            repo_root / SYSTEMD_OUTPUT_NAME,
+            unit_text,
+            SYSTEMD_MARKER,
+            mode=_REGULAR_MODE,
+            force=force,
+            command="osprey scaffold systemd",
+        ),
+        _emit(
+            repo_root.joinpath(*BOOT_HOOK_OUTPUT_PATH),
+            hook_text,
+            BOOT_HOOK_MARKER,
+            mode=_EXECUTABLE_MODE,
+            force=force,
+            command="osprey scaffold systemd",
+        ),
+    ]
 
 
 def detect_network_home(home: Path) -> str | None:

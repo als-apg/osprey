@@ -65,6 +65,54 @@ def _init_in_context_registry():
     return initialize_cf_ic_context()
 
 
+def _make_graph_context():
+    """Build the graph-store context this app reads the graph paradigm through.
+
+    The import is local because it pulls in the graph stack, which a deployment
+    serving a file-backed paradigm has no use for. ``initialize()`` only resolves
+    config — it dials nothing — so a store that is down costs startup nothing and
+    surfaces as a failed read later, where the route can say so.
+
+    Returns:
+        An initialized graph-store context.
+
+    Raises:
+        GraphStoreError: The store's settings could not be resolved.
+    """
+    from osprey.mcp_server.graph.server_context import GraphContext
+
+    context = GraphContext()
+    context.initialize()
+    return context
+
+
+def _graph_ttl_filename(config) -> str | None:
+    """Name the corpus the graph store was seeded from, for the UI to show.
+
+    Only the file name travels: the configured path is relative to the config
+    file's directory, so the rest of it names a location on the deployment host
+    that means nothing to a browser.
+
+    Args:
+        config: The loaded project config.
+
+    Returns:
+        The corpus file name, or ``None`` when no ``services.graphdb`` block
+        names one — including when the block is malformed, which is the graph
+        store's problem to report and not a reason to refuse to serve.
+    """
+    from osprey.deployment.graphdb_service import resolve_graphdb_service_config
+
+    try:
+        graphdb_config = resolve_graphdb_service_config(config)
+    except ValueError as exc:
+        logger.warning("Could not read the services.graphdb block (%s)", exc)
+        return None
+    if graphdb_config is None or not graphdb_config.ttl_path:
+        return None
+    return Path(graphdb_config.ttl_path).name
+
+
 #: How the web app brings up each channel-finder paradigm it can serve, in the
 #: order the UI offers them. A paradigm is attempted only when the config has a
 #: ``channel_finder.pipelines.<paradigm>`` block for it, so the absence of a
@@ -133,6 +181,23 @@ def _create_lifespan(project_cwd: str | None = None):
                 "queried with the read_cypher and get_schema tools, so no channel database "
                 "is opened here",
             )
+
+            # The store is the paradigm's only source, so the app holds one
+            # context for it rather than resolving the connection per request.
+            # A context that cannot be built leaves no attribute behind: the
+            # routes answer 503 from its absence, and everything the app serves
+            # that is not the graph keeps working.
+            from osprey.mcp_server.graph.server_context import GraphStoreError
+
+            try:
+                app.state.graph_context = _make_graph_context()
+            except GraphStoreError:
+                logger.warning(
+                    "The graph store context could not be built; graph queries will be "
+                    "answered as unavailable",
+                    exc_info=True,
+                )
+            app.state.graph_ttl_filename = _graph_ttl_filename(config)
         else:
             # ``pipelines`` is a key every rendered config carries, and a graph
             # render leaves it empty — so read it as "whichever blocks are
@@ -226,6 +291,9 @@ def _create_lifespan(project_cwd: str | None = None):
 
         yield
 
+        graph_context = getattr(app.state, "graph_context", None)
+        if graph_context is not None:
+            graph_context.shutdown()
         await app.state.http_client.aclose()
 
     return lifespan

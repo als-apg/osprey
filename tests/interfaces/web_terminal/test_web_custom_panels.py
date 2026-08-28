@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -14,9 +15,15 @@ from osprey.interfaces.web_terminal.app import (
     _load_panel_presets,
     create_app,
 )
+from osprey.interfaces.web_terminal.routes import panels as panels_module
 from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS
 
-from .conftest import StubWorkspaceWatcher
+from .conftest import HOST_ADDRS_TARGET, StubWorkspaceWatcher
+
+#: The real probe, bound at import time — before the autouse stub replaces the
+#: module attribute — so the memoization tests can drive the implementation the
+#: stub stands in for.
+_real_host_interface_addresses = panels_module._host_interface_addresses
 
 
 @pytest.fixture
@@ -392,6 +399,42 @@ class TestPanelsAPI:
 _LAN_ADDR = [(2, 1, 6, "", ("10.0.0.5", 0))]
 _LOOPBACK_ADDR = [(2, 1, 6, "", ("127.0.0.1", 0))]
 _GETADDRINFO_TARGET = "osprey.interfaces.web_terminal.routes.panels.socket.getaddrinfo"
+#: Aliased from the shared conftest, where the autouse stub that neutralizes
+#: this probe lives. The tests below that exercise the deploy-host check patch
+#: the same target again from the inside, and that inner patch wins.
+_HOST_ADDRS_TARGET = HOST_ADDRS_TARGET
+
+
+@pytest.mark.parametrize("run", ["first", "second"])
+def test_host_interface_probe_is_memoized_and_its_cache_does_not_leak(run):
+    """The own-address probe runs once per TTL window, and once per test.
+
+    ``_host_interface_addresses`` resolves the host's own name, which has no
+    timeout of its own — on a host with a slow or unreachable resolver that is
+    an unbounded stall, and it sits on the panel-registration path. So it is
+    memoized, and a second call inside the TTL must not re-resolve.
+
+    Running the identical body twice under the parametrization is the leak
+    guard: the cache is a module global, so if the shared conftest fixture
+    stopped resetting it, the ``second`` run would find the ``first`` run's
+    entry still fresh and observe no resolution at all — the failure mode where
+    one test's machine picture silently answers another test's question.
+    """
+    # Arrange: the hostname resolves to one LAN address; the UDP-connect probes
+    # are refused, which the helper treats as an expected non-answer.
+    with (
+        patch(_GETADDRINFO_TARGET, return_value=_LAN_ADDR) as resolve,
+        patch("osprey.interfaces.web_terminal.routes.panels.socket.socket", side_effect=OSError),
+    ):
+        # Act
+        first = _real_host_interface_addresses()
+        second = _real_host_interface_addresses()
+
+    # Assert
+    assert first == second == frozenset({ipaddress.ip_address("10.0.0.5")})
+    assert resolve.call_count == 1, (
+        f"{run}: the probe must be memoized within its TTL and reset between tests"
+    )
 
 
 def _make_client_with_runtime_panels(workspace_dir, allowlist=None):
@@ -868,6 +911,80 @@ class TestPanelRegisterAPI:
 
         # Assert
         assert resp.status_code == 200
+
+    def test_register_deploy_host_own_address_returns_422(self, client_runtime_panels):
+        """A host resolving to one of THIS host's interface addresses is rejected.
+
+        The panel proxy fetches server-side from inside the deployment, so a
+        panel pointed at the deploy host's own LAN address is a route back into
+        the deployment's web terminals — and under the ``open`` auth posture
+        nginx injects a per-user terminal secret on every request, making that
+        a route into a neighbour's terminal. Loopback alone does not catch it:
+        the address is an ordinary routable LAN address.
+        """
+        # Arrange — the host resolves to 10.0.0.5, which is also ours.
+        own = frozenset({ipaddress.ip_address("10.0.0.5")})
+
+        # Act
+        with (
+            patch(_GETADDRINFO_TARGET, return_value=_LAN_ADDR),
+            patch(_HOST_ADDRS_TARGET, return_value=own),
+        ):
+            resp = client_runtime_panels.post(
+                "/api/panels/register",
+                json={"id": "selfie", "label": "SELF", "url": "http://myself.lan:3000"},
+            )
+
+        # Assert
+        assert resp.status_code == 422
+        assert "deployment host itself" in resp.json()["detail"]
+
+    def test_register_ordinary_private_lan_host_still_succeeds(self, client_runtime_panels):
+        """A genuine private-LAN dashboard on another host is still accepted.
+
+        The deploy-host check must not degrade into a blanket RFC1918 refusal:
+        real Grafana dashboards live on 10/8, and only THIS host's own
+        addresses are off limits.
+        """
+        # Arrange — we are 192.168.1.20; the panel host is 10.0.0.5.
+        own = frozenset({ipaddress.ip_address("192.168.1.20")})
+
+        # Act
+        with (
+            patch(_GETADDRINFO_TARGET, return_value=_LAN_ADDR),
+            patch(_HOST_ADDRS_TARGET, return_value=own),
+        ):
+            resp = client_runtime_panels.post(
+                "/api/panels/register",
+                json={"id": "grafana", "label": "GRAFANA", "url": "http://grafana.lan:3000"},
+            )
+
+        # Assert
+        assert resp.status_code == 200
+
+    def test_register_loopback_rejected_when_interface_probe_fails_open(
+        self, client_runtime_panels
+    ):
+        """Loopback stays refused even when the interface probe yields nothing.
+
+        The probe fails open (an offline host with no default route and an
+        unresolvable hostname returns an empty set), so the categorical
+        loopback / link-local / unspecified checks must stand on their own.
+        """
+        # Arrange — probe returns nothing at all.
+
+        # Act
+        with (
+            patch(_GETADDRINFO_TARGET, return_value=_LOOPBACK_ADDR),
+            patch(_HOST_ADDRS_TARGET, return_value=frozenset()),
+        ):
+            resp = client_runtime_panels.post(
+                "/api/panels/register",
+                json={"id": "internal", "label": "INT", "url": "http://grafana.lan:3000"},
+            )
+
+        # Assert
+        assert resp.status_code == 422
 
 
 class TestConfigDefinedPanelReservation:

@@ -712,7 +712,13 @@ def _target_identity_phrase(record, target):
         # picking a role here would be a second opinion about which gateway
         # this session actually holds.
         endpoint = _sanitize_label(meta.get("endpoint") or "endpoint not recorded")
-        return f"LIVE MACHINE ({endpoint})"
+        # The label is the writer's too, for the same reason the destination
+        # line below reads it rather than re-deriving one: a deployment may put
+        # a stand-in behind the live role, and only the writer knows that. The
+        # fallback covers a record from a writer that recorded no label at all;
+        # it never softens the claim, which stays `real_machine`'s to make.
+        label = _sanitize_label(meta.get("label") or "LIVE MACHINE")
+        return f"{label} ({endpoint})"
     return "virtual accelerator (simulation)"
 
 

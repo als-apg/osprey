@@ -71,10 +71,18 @@ def test_mixed_read_write_tools_key_is_always_present(tmp_path):
         assert isinstance(ctx["mixed_read_write_tools"], list)
 
 
-def test_mixed_read_write_tools_names_python_execute(tmp_path):
-    """The one documented read/write-mixed tool in a default control project."""
+def test_mixed_read_write_tools_names_both_python_exec_tools(tmp_path):
+    """The documented read/write-mixed tools in a default control project.
+
+    Both python-executor tools: they run the same arbitrary Python through the
+    same kernels, so a readonly posture has to keep both reachable and let the
+    writes-check hook decide per call.
+    """
     ctx = _build_ctx(tmp_path)
-    assert ctx["mixed_read_write_tools"] == ["mcp__python__execute"]
+    assert ctx["mixed_read_write_tools"] == [
+        "mcp__python__execute",
+        "mcp__python__execute_file",
+    ]
 
 
 def test_mixed_read_write_tools_matches_the_registry_floor(tmp_path):

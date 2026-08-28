@@ -276,6 +276,14 @@ def init_project(
     mock control system with the mock archiver claims nothing is real, so
     nothing lies. Tests that want recorded history deploy a store of their own.
 
+    ``virtual_accelerator.live_standin`` is nulled as the third of those pins.
+    The preset ships a live stand-in on, which is a second VA container this
+    harness never starts — and, before any read of it times out, the build
+    derives the posture that container is meant to be met with: the ``epics``
+    gateways move to it and limits checking goes strict, so a write to a
+    channel absent from a test's own limits fixture is refused where it used
+    to pass. A project that wants the stand-in deploys it.
+
     Tier selection follows a per-mode default: tier 1 is in_context-only, while
     every other paradigm requires tier 3. When ``tier`` is left ``None`` and a
     ``channel_finder_mode`` is given, the tier is derived from it (in_context
@@ -347,12 +355,12 @@ def init_project(
     # is decided by key order — which the build refuses outright rather than
     # render. A ``-O`` layer replaces the dotted key in the spelling the
     # profile already uses.
-    archiver_override = tmp_path / "_archiver-pin.yml"
-    archiver_override.write_text(
-        f"config:\n  archiver.type: {archiver}\n",
+    preset_pins = tmp_path / "_archiver-pin.yml"
+    preset_pins.write_text(
+        f"config:\n  archiver.type: {archiver}\nvirtual_accelerator:\n  live_standin: null\n",
         encoding="utf-8",
     )
-    init_args.extend(["-O", str(archiver_override)])
+    init_args.extend(["-O", str(preset_pins)])
     if effective_tier is not None:
         init_args.extend(["--set", f"tier={effective_tier}"])
     if channel_finder_mode is not None:

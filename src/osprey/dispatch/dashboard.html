@@ -798,6 +798,7 @@ a.btn {
         <span class="search-box">
           <input class="text-input" id="run-search" placeholder="Search runs…" spellcheck="false" autocomplete="off">
         </span>
+        <button class="btn danger" id="clear-history" title="Delete every finished run from the dispatcher's history. Runs still in flight are kept.">Clear history</button>
       </div>
     </div>
     <div id="run-list"></div>
@@ -1991,6 +1992,49 @@ async function cancelRun(runId) {
   }
 }
 
+/* Clearing the history is destructive and cannot be undone, so the button asks
+ * twice: the first click arms it, the second fires, and it disarms itself after
+ * a few seconds. Deliberately NOT `confirm()` — a modal inside the web
+ * terminal's panel iframe blocks the whole terminal tab (see the note above
+ * `bearer()`), so the confirmation lives in the button instead. */
+const CLEAR_ARM_MS = 5000;
+let clearArmTimer = null;
+
+function disarmClearHistory() {
+  clearTimeout(clearArmTimer);
+  clearArmTimer = null;
+  const btn = $('#clear-history');
+  if (!btn) return;
+  delete btn.dataset.armed;
+  btn.textContent = 'Clear history';
+}
+
+async function clearHistory() {
+  const btn = $('#clear-history');
+  if (btn && !btn.dataset.armed) {
+    btn.dataset.armed = '1';
+    btn.textContent = 'Delete finished runs?';
+    clearArmTimer = setTimeout(disarmClearHistory, CLEAR_ARM_MS);
+    return;
+  }
+  disarmClearHistory();
+  if (btn) btn.disabled = true;
+  try {
+    const res = await apiPost('/dashboard/clear-history', {}, bearer());
+    if (res.ok) {
+      const n = res.data?.cleared ?? 0;
+      showToast(n ? `Cleared ${n} finished run${n === 1 ? '' : 's'}` : 'No finished runs to clear', n ? 'ok' : '');
+      fetchState();
+    } else if (!explainIfUnauthorized(res)) {
+      showToast(`Clear failed: ${res.data?.detail || res.status}`, 'err');
+    }
+  } catch (e) {
+    showToast('Clear error: ' + e.message, 'err');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 async function toggleTrigger(name, currentStatus) {
   const next = currentStatus === 'disabled' ? 'active' : 'disabled';
   try {
@@ -2052,6 +2096,8 @@ function wire() {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(() => { filters.search = search.value; saveUrl(); renderRunList(); }, 180);
   });
+
+  $('#clear-history').addEventListener('click', clearHistory);
 
   $('#trigger-filter').addEventListener('input', () => renderTriggerList());
 

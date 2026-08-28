@@ -477,9 +477,25 @@ RENDERED_CONFIG_WALLED = RENDERED_CONFIG_WITH_FQDN.replace(
 )
 
 
+#: The same deployment thrown OPEN: nginx vouches for every non-exempt
+#: terminal itself, so there is no login page and no `?token=` URL either.
+RENDERED_CONFIG_OPEN = RENDERED_CONFIG_WITH_FQDN.replace(
+    "    users:\n",
+    "    auth:\n      method: none\n    users:\n",
+)
+
+
 @pytest.fixture
 def repo_with_origin(tmp_path, monkeypatch):
     root = _make_repo(tmp_path, RENDERED_CONFIG_WITH_FQDN)
+    monkeypatch.chdir(root)
+    return root
+
+
+@pytest.fixture
+def open_repo(tmp_path, monkeypatch):
+    """An `auth.method: none` deployment: open, navigation-only."""
+    root = _make_repo(tmp_path, RENDERED_CONFIG_OPEN)
     monkeypatch.chdir(root)
     return root
 
@@ -493,12 +509,12 @@ def walled_repo(tmp_path, monkeypatch):
 
 
 class TestLoginUrl:
-    """``osprey users login-url`` — the only way into an auth-off terminal.
+    """``osprey users login-url`` — the only way into a token-gated terminal.
 
-    With `auth.method: none` (the default) nginx injects no operator secret and
-    runs no login flow, so the per-user app's own gate is the only one and a
-    browser gets past it exactly once, by opening that user's `?token=` URL.
-    Nothing else in the multi-user shape hands that URL out.
+    With `auth.method: token` (the default) nginx injects no operator secret
+    and runs no login flow, so the per-user app's own gate is the only one
+    and a browser gets past it exactly once, by opening that user's `?token=`
+    URL. Nothing else in the multi-user shape hands that URL out.
     """
 
     def test_prints_the_users_own_login_url(self, cli_runner, repo_with_origin, stub_engines):
@@ -645,6 +661,27 @@ class TestLoginUrl:
         # its path rather than on the query it would have carried.)
         assert "/u/alice/" not in combined
         assert read_env(walled_repo)[ALICE_SECRET] not in combined
+
+    def test_a_user_on_an_open_deployment_is_refused_and_told_the_plain_address(
+        self, cli_runner, open_repo, stub_engines
+    ):
+        """`auth.method: none` vouches for every non-exempt terminal itself, so
+        there is neither a login page nor a `?token=` exchange to trade — the
+        refusal must name the terminal's own address, not the login page a
+        walled deployment would.
+        """
+        cli_runner.invoke(users, ["seed"])
+
+        result = cli_runner.invoke(users, ["login-url", "alice"])
+
+        assert result.exit_code != 0
+        combined = result.stdout + result.stderr
+        assert "http://dls-deploy.example.org:8080/u/alice/" in combined
+        assert "/auth/login" not in combined
+        # No live secret anywhere: refusing is the whole point. (The
+        # explanation names the `?token=` mechanism, so the URL is matched on
+        # its path rather than on the query it would have carried.)
+        assert read_env(open_repo)[ALICE_SECRET] not in combined
 
     def test_a_login_exempt_entry_still_gets_its_url_with_auth_on(
         self, cli_runner, walled_repo, stub_engines

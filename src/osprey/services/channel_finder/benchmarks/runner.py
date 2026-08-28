@@ -33,6 +33,7 @@ from osprey.services.channel_finder.benchmarks.models import (
     QueryResult,
 )
 from osprey.services.channel_finder.core.exceptions import PipelineModeError
+from osprey.services.channel_finder.graph_queries import GRAPH_CHANNEL_COUNT_CYPHER
 
 logger = logging.getLogger(__name__)
 
@@ -68,25 +69,6 @@ PARADIGM_CONFIG_KEYS: dict[str, list[str]] = {
         "path",
     ],
 }
-
-
-# Cypher for the graph paradigm's channel census.
-#
-# ``ChannelBinding`` is the graph's channel: one node per address the facility
-# exposes, so counting them answers the same question the file paradigms answer
-# by counting rows in their database.
-#
-# This census is the one place in the graph paradigm that deliberately does NOT
-# go through :class:`osprey.mcp_server.graph.server_context.GraphContext`. That
-# context resolves the *ambient* process configuration and primes the
-# ConfigBuilder singleton — right for a server running inside a rendered
-# project, wrong here: the benchmark runner is a tool acting *on* a project
-# directory it was handed, from a working directory that is usually the repo
-# root. So the census reads the project's own ``services.graphdb`` block and
-# opens a session through the seeder's connection helper instead, which takes
-# the three connection fields as plain arguments and closes the driver behind
-# it.
-GRAPH_CHANNEL_COUNT_CYPHER = "MATCH (b:ChannelBinding) RETURN count(b) AS n"
 
 
 def read_db_path_from_config(project_dir: Path, paradigm: str) -> Path:
@@ -263,6 +245,18 @@ class BenchmarkRunner:
         The ``neo4j`` driver is imported inside
         :func:`~osprey.services.facility_knowledge.seeder.graph_seeder.open_session`,
         which also closes it, so importing this module costs no driver.
+
+        This census is the one place in the graph paradigm that deliberately
+        does NOT go through
+        :class:`osprey.mcp_server.graph.server_context.GraphContext`. That
+        context resolves the *ambient* process configuration and primes the
+        ConfigBuilder singleton — right for a server running inside a rendered
+        project, wrong here: the benchmark runner is a tool acting *on* a
+        project directory it was handed, from a working directory that is
+        usually the repo root. So the census reads the project's own
+        ``services.graphdb`` block and opens a session through the seeder's
+        connection helper instead, which takes the three connection fields as
+        plain arguments and closes the driver behind it.
 
         Returns:
             The store's ``ChannelBinding`` count.

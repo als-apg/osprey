@@ -287,7 +287,6 @@ def test_recent_route_registered_on_composite_router():
 # real DNS (the pattern test_panels_source_tag.py uses).
 _LAN_ADDR = [(2, 1, 6, "", ("10.0.0.5", 0))]
 _GETADDRINFO_TARGET = "osprey.interfaces.web_terminal.routes.panels.socket.getaddrinfo"
-
 #: Panel already in the launcher rail, so focusing it adds no membership.
 _MEMBER_PANEL = "ariel"
 #: Enabled panel deliberately left OUT of the rail, so focusing it takes the

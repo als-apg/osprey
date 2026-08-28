@@ -8,7 +8,7 @@ A freshly scaffolded Control Assistant project must:
      (real ConnectorFactory resolution using the scaffolded connector.mock
      config block, not just a string check) — the documented fallback for
      environments with no containers to depend on.
-  3. Leave the epics block's production values untouched by that switch.
+  3. Leave the epics block untouched by that switch.
 
 Complements tests/templates/test_preset_va_block.py (which renders the raw
 .j2 template in isolation) by exercising the real lifecycle end to end:
@@ -37,23 +37,28 @@ from osprey.connectors.factory import (
     register_builtin_connectors,
 )
 
-# The epics block's values as committed prior to the VA feature — the
-# untouched ALS production configuration (mirrors
-# tests/templates/test_preset_va_block.py's ORIGINAL_EPICS_BLOCK).
-ORIGINAL_EPICS_BLOCK = {
+# The epics block a scaffolded Control Assistant renders. The template's own
+# values are the untouched ALS production configuration — still pinned, on the
+# raw render, by tests/templates/test_preset_va_block.py's
+# ORIGINAL_EPICS_BLOCK — but the preset asks for a live stand-in, and the build
+# retargets the live gateways onto it after the render. So what a scaffolded
+# repo carries here is the stand-in's own address, and the probe channel the
+# switch to live checks.
+SCAFFOLDED_EPICS_BLOCK = {
     "timeout": 5.0,
     "gateways": {
         "read_only": {
-            "address": "cagw-alsdmz.als.lbl.gov",
-            "port": 5064,
-            "use_name_server": False,
+            "address": "localhost",
+            "port": 5074,
+            "use_name_server": True,
         },
         "write_access": {
-            "address": "cagw-alsdmz.als.lbl.gov",
-            "port": 5084,
-            "use_name_server": False,
+            "address": "localhost",
+            "port": 5074,
+            "use_name_server": True,
         },
     },
+    "probe_channel": "SR:VAC:GAUGE:SR01:PRESSURE:RB",
 }
 
 
@@ -180,11 +185,11 @@ class TestSwitchingToMockEngagesTheConnector:
 
 
 class TestEpicsBlockRemainsUntouched:
-    """State 3: the epics block still holds untouched production values."""
+    """State 3: the epics block still reads exactly as it was scaffolded."""
 
     def test_epics_block_unchanged_before_switch(self, scaffolded_repo: Path):
         epics = _load_config(scaffolded_repo)["control_system"]["connector"]["epics"]
-        assert epics == ORIGINAL_EPICS_BLOCK
+        assert epics == SCAFFOLDED_EPICS_BLOCK
 
     def test_epics_block_unchanged_after_switching_to_mock(
         self, runner: CliRunner, scaffolded_repo: Path
@@ -195,4 +200,4 @@ class TestEpicsBlockRemainsUntouched:
         _switch_to_mock(runner, scaffolded_repo)
 
         epics = _load_config(scaffolded_repo)["control_system"]["connector"]["epics"]
-        assert epics == ORIGINAL_EPICS_BLOCK
+        assert epics == SCAFFOLDED_EPICS_BLOCK

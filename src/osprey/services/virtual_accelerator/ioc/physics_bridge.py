@@ -28,6 +28,7 @@ injected through ``model=`` without this module changing.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -38,6 +39,13 @@ from osprey.services.virtual_accelerator.model.pyat import PyATRingModel, Unknow
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from lume.model import LUMEModel
+
+# The serving layer's convention (see serving/pvdb.py, serving/write_path.py):
+# a module logger, never a print. `entrypoint.main()` calls
+# `configure_logging()` before it builds this bridge, so these records reach
+# the container's stderr alongside the rest of the serving layer's, while an
+# import of this module from a library path still configures nothing.
+LOG = logging.getLogger(__name__)
 
 _CURRENT_FIELD = "CURRENT"
 _BPM_SYSTEM_FAMILY = ("DIAG", "BPM")
@@ -116,6 +124,8 @@ class PhysicsBridge:
                 `errors.bpm_read`'s keyword args; missing fields fall back to
                 identity (see `_IDENTITY_BPM_ERROR`). A BPM absent from this
                 dict reads with identity error (i.e. exactly its true position).
+                A fam_name the ring has no BPM for is not fatal -- it perturbs
+                nothing, and warns once at construction so the typo is visible.
             corrector_gains: magnet fam_name (e.g. "HCM01", "QF07") -> a
                 partial override of `errors.magnet_cal`'s `factor`/`offset`;
                 missing fields default to `factor=1.0, offset=0.0` (identity).
@@ -168,6 +178,7 @@ class PhysicsBridge:
         self._bpm_device_ids: list[str] = sorted(
             {address.split(":")[3] for address in self._bpm_output_addresses}
         )
+        self._warn_unknown_bpm_error_ids()
         self._refresh_bpm_positions()
 
     def bind(self, pyat_coupled_records: dict[str, Any]) -> None:
@@ -246,6 +257,25 @@ class PhysicsBridge:
         return dict(self._bpm_positions)
 
     # -- internals ---------------------------------------------------------
+
+    def _warn_unknown_bpm_error_ids(self) -> None:
+        """Warn once per seeded BPM fam_name this ring has no BPM for.
+
+        `_push_bpm_readbacks` merges the seeded state per *served* device, so
+        an id the ring does not carry is dropped by that `.get()` and
+        perturbs nothing. Silently: a typo'd device would serve a perfectly
+        unperturbed machine while looking configured, which is exactly the
+        failure a stand-in target must not have. Sorted, so the boot log
+        reads the same on every start.
+        """
+        known = {f"BPM{device}" for device in self._bpm_device_ids}
+        for fam_name in sorted(set(self._bpm_error_state) - known):
+            LOG.warning(
+                "VA_BPM_ERRORS names %s, which this lattice has no BPM for; "
+                "its readout errors apply to nothing (on the live stand-in the "
+                "same value arrives through VA_STANDIN_BPM_ERRORS)",
+                fam_name,
+            )
 
     def _refresh_bpm_positions(self) -> None:
         """Re-read the model's BPM truth into `_bpm_positions`.

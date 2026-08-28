@@ -4,8 +4,11 @@ Panels
 A **panel** is a self-contained, themed mini-app the Web Terminal shows as a tab
 beside the chat. OSPREY's own tools — Channel Finder, ARIEL, the lattice
 dashboard, the artifact gallery — are all panels, and you can add your own.
-Because panels use the shared design tokens (:doc:`theming`), they match your
-theme automatically, in light and dark, with no extra work.
+A panel that takes its colors from the shared design tokens (:doc:`theming`)
+matches your theme automatically, in light and dark, with no extra work. A
+service that brings its own colors — most facility dashboards do — follows
+the theme only once it opts in; `Theming a URL-backed panel`_ is what it needs
+to do.
 
 Enable OSPREY's built-in panels in ``config.yml``:
 
@@ -48,6 +51,76 @@ the entries for you):
 
 The hub shows the service as a tab and proxies requests to it from the same
 origin, so the browser never needs direct access to the backing port.
+
+Theming a URL-backed panel
+--------------------------
+
+A service you did not write for OSPREY keeps its own colors when you hang it
+in a tab, and the terminal will not restyle it for you. What the terminal does
+do is tell the service, at every moment, which theme the operator is looking
+at — and it is then a small change in the service to follow along. This is the
+whole of what it is told. Everything below is **version 1** of the contract
+(``CONTRACT_VERSION`` in the design system's ``frame-params.js``), so a service
+that follows it keeps working as later versions add to it.
+
+**The theme arrives in the address.** The terminal opens the panel at the URL
+you configured with three parameters added:
+
+.. code-block:: text
+
+   ?embedded=true&theme=retro-dark&mode=expert
+
+``theme`` is the theme to paint with. ``embedded=true`` says the page is
+running inside the terminal rather than on its own, which is the cue to hide
+your own logo and page chrome — the terminal already draws a header around the
+tab, and without this you get two. ``mode`` is the operator's Expert or Simple
+preference. Read all three *before the page first paints*, or the operator sees
+your default colors flash before yours settle on theirs.
+
+**The theme is one of eight names.** ``light`` and ``dark`` for the main
+family, then ``desy-light``, ``desy-dark``, ``high-contrast-light``,
+``high-contrast-dark``, ``retro-light`` and ``retro-dark`` (:doc:`theming`
+describes the families). OSPREY's own pages put the name on the ``<html>``
+element as ``data-theme="retro-dark"`` and let their stylesheet key off it;
+a service is free to map the eight names onto whatever its own styling
+expects, and to treat an unfamiliar name as its nearest light or dark default.
+
+**A change while the tab is open arrives as a message.** When the operator
+switches theme, the terminal posts to the panel's frame:
+
+.. code-block:: javascript
+
+   { type: 'osprey-theme-change', theme: 'high-contrast-dark' }
+
+A panel is always served from the terminal's own address, so the message is
+same-origin. Check that before acting on it — ``if (event.origin !==
+window.location.origin) return;`` — and repaint. The Expert/Simple toggle
+broadcasts the same way, as ``{ type: 'osprey-mode-change', mode }``.
+
+**The tokens come from the terminal, not from your copy.** A page embedded as
+a panel can load OSPREY's design tokens with a plain root-absolute reference:
+
+.. code-block:: html
+
+   <link rel="stylesheet" href="/design-system/css/tokens.css">
+
+The proxy rewrites that to the terminal's own copy of the design system, so
+the colors a panel paints with are the ones the terminal is running — not
+whichever ones the service's own build happened to ship. Every OSPREY color is
+a CSS variable there, and all eight themes are defined in that one file, so a
+service that restates its colors in terms of those variables gets the whole
+theme switch for free.
+
+Two boundaries are worth saying out loud:
+
+- **Nothing happens on its own.** The terminal only *tells* the panel the
+  theme. A service that never reads the parameter, the message, or the tokens
+  is embedded successfully and stays exactly the color it always was.
+- **No credentials cross the proxy.** The terminal strips the operator's
+  cookies and ``Authorization`` header on the way to your service, and strips
+  headers that would act on the terminal's address on the way back — see the
+  note under `Adding your own panel`_. A service that authenticates its own
+  callers that way cannot be driven as a panel, themed or not.
 
 The Bluesky panel
 -----------------

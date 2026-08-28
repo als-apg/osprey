@@ -977,6 +977,114 @@ def _allowlist_matches(host: str, port: int | None, scheme: str, allowlist: list
     return False
 
 
+def _normalize_ip(raw_addr: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    """Parse one resolved address into a comparable :mod:`ipaddress` object.
+
+    A scope id (``fe80::1%en0``, as ``getsockname`` reports it on a link-local
+    interface) is dropped and an IPv4-mapped IPv6 address (``::ffff:10.0.0.5``)
+    is unwrapped, so the two spellings of one address compare equal wherever
+    they meet.
+
+    Args:
+        raw_addr: The address string from a ``sockaddr``.
+
+    Returns:
+        The parsed address, or ``None`` when the string is not an IP literal.
+    """
+    try:
+        ip = ipaddress.ip_address(raw_addr.split("%", 1)[0])
+    except ValueError:
+        return None
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        return ip.ipv4_mapped
+    return ip
+
+
+#: How long a probe result stands before the interfaces are re-read. A host's
+#: own addresses change on the timescale of a DHCP lease or a VPN coming up,
+#: not of a panel registration, so a minute is short enough to follow a real
+#: change and long enough that a burst of registrations pays for one probe.
+_HOST_ADDRS_TTL_SECONDS = 60.0
+
+#: ``(monotonic timestamp, addresses)`` of the last probe, or ``None`` before
+#: the first one. Monotonic because this is an age, not a wall-clock date: a
+#: clock step must not make a fresh entry look expired or an old one fresh.
+_host_addrs_cache: tuple[float, frozenset[ipaddress.IPv4Address | ipaddress.IPv6Address]] | None = (
+    None
+)
+
+
+def _host_interface_addresses() -> frozenset[ipaddress.IPv4Address | ipaddress.IPv6Address]:
+    """Best-effort, dependency-free discovery of this host's own addresses.
+
+    Two independent, zero-traffic probes (the idiom the loopback-chokepoint
+    e2e test uses, brought into production for panel validation):
+
+    1. ``getaddrinfo(gethostname(), None)`` — every address the host's own
+       name resolves to, which catches interfaces with no default route.
+    2. The UDP-connect trick — ``connect()`` on a ``SOCK_DGRAM`` socket only
+       makes the kernel pick a route and sends no packet, and
+       ``getsockname()`` then reports the local address that route would use.
+       Run once per family so a v6-only interface is seen too.
+
+    Either probe failing (offline host, no default route, unresolvable
+    hostname) is expected rather than exceptional, so both are wrapped: the
+    function fails OPEN with an empty set, and the loopback / link-local /
+    unspecified checks in :func:`_validate_panel_url` still apply.
+
+    The result is memoized for :data:`_HOST_ADDRS_TTL_SECONDS`. Probe 1 is a
+    name resolution with no timeout of its own — on a host whose resolver is
+    slow or unreachable it blocks for however long the system resolver takes —
+    and running that unconditionally on every registration would put an
+    unbounded stall in the request path. The cache lives INSIDE this function
+    rather than around it so that tests, which patch this module attribute
+    wholesale, replace the caching along with the probing.
+
+    Blocking (it resolves and opens sockets), so callers on the event loop run
+    it in a thread pool. It is a module attribute so tests patch it directly.
+
+    Returns:
+        The discovered addresses, normalized by :func:`_normalize_ip`.
+    """
+    global _host_addrs_cache
+
+    cached = _host_addrs_cache
+    if cached is not None and (time.monotonic() - cached[0]) < _HOST_ADDRS_TTL_SECONDS:
+        return cached[1]
+
+    addresses: set[ipaddress.IPv4Address | ipaddress.IPv6Address] = set()
+
+    try:
+        for *_prefix, sockaddr in socket.getaddrinfo(socket.gethostname(), None):
+            ip = _normalize_ip(sockaddr[0])
+            if ip is not None:
+                addresses.add(ip)
+    except OSError:
+        pass
+
+    # RFC 5737 / RFC 3849 documentation addresses. Route selection works the
+    # same for them as for any off-link destination and no packet is sent, so
+    # nothing here depends on the destination existing — a documentation
+    # address just makes that explicit, where a real public resolver's address
+    # reads like traffic to a third party that never happens.
+    for family, destination in (
+        (socket.AF_INET, ("192.0.2.1", 80)),
+        (socket.AF_INET6, ("2001:db8::1", 80)),
+    ):
+        try:
+            with socket.socket(family, socket.SOCK_DGRAM) as probe:
+                probe.connect(destination)
+                ip = _normalize_ip(probe.getsockname()[0])
+            if ip is not None:
+                addresses.add(ip)
+        except OSError:
+            pass
+
+    resolved = frozenset(addresses)
+    _host_addrs_cache = (time.monotonic(), resolved)
+    return resolved
+
+
 async def _validate_panel_url(raw_url: str, allowlist: list[str] | None) -> str | None:
     """Validate a panel URL for SSRF-relevant categories.
 
@@ -990,17 +1098,31 @@ async def _validate_panel_url(raw_url: str, allowlist: list[str] | None) -> str 
     - Any resolved address that is loopback (127.0.0.0/8, ::1),
       link-local / cloud-metadata (169.254.0.0/16 incl. 169.254.169.254,
       fe80::/10), or unspecified (0.0.0.0/::).
+    - Any resolved address that is one of the deploy host's OWN interface
+      addresses (:func:`_host_interface_addresses`). The panel proxy fetches
+      server-side from inside the deployment, so a panel pointed at this
+      host's LAN address is a route back into the deployment's own web
+      terminals — nginx injects a per-user terminal secret on every request
+      under the ``open`` auth posture, which would make that a route into a
+      neighbour's terminal. The refusal is deliberately host-wide rather than
+      port-scoped: it costs an operator the ability to register an unrelated
+      dashboard that happens to be co-hosted with the deployment (the error
+      names the workarounds), and buys not having to trust a port number to
+      stay pointed at something other than the deployment's own front door.
     - IPv4-mapped IPv6 addresses (e.g. ``::ffff:169.254.169.254``) are
       unwrapped and then classified as their IPv4 equivalents.
 
-    Permits: ordinary private LAN ranges (10/8, 172.16/12, 192.168/16) —
-    real Grafana dashboards live there.
+    Permits: ordinary private LAN ranges (10/8, 172.16/12, 192.168/16) on
+    hosts other than this one — real Grafana dashboards live there.
 
     Out of scope: DNS rebinding *after* registration (host is validated at
-    registration time only; rebinding is a network-layer concern).
+    registration time only; rebinding is a network-layer concern); other
+    hosts inside the same deployment fleet, which are not distinguishable
+    from a genuine dashboard host from here.
 
-    ``getaddrinfo`` is executed in a thread pool so the async event loop is
-    not blocked.  Tests can mock ``socket.getaddrinfo`` directly.
+    ``getaddrinfo`` and the interface-address probes are executed in a thread
+    pool so the async event loop is not blocked.  Tests can mock
+    ``socket.getaddrinfo`` and ``_host_interface_addresses`` directly.
 
     Args:
         raw_url: The user-supplied URL to inspect.
@@ -1035,16 +1157,31 @@ async def _validate_panel_url(raw_url: str, allowlist: list[str] | None) -> str 
     if not results:
         return f"Could not resolve host: {host!r}"
 
+    # Probed lazily, and at most once per call: an address rejected by a
+    # categorical check below never reaches the own-address comparison, so the
+    # common refusals (loopback, metadata) cost no interface probe at all.
+    own_addresses: frozenset[ipaddress.IPv4Address | ipaddress.IPv6Address] | None = None
+
     for _family, _type, _proto, _canonname, sockaddr in results:
         raw_addr = sockaddr[0]
-        ip = ipaddress.ip_address(raw_addr)
-        # Unwrap IPv4-mapped IPv6 (e.g. ::ffff:169.254.169.254).
-        if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
-            ip = ip.ipv4_mapped
+        ip = _normalize_ip(raw_addr)
+        if ip is None:
+            return f"Resolved address {raw_addr!r} for host {host!r} is not an IP address"
         if ip.is_loopback or ip.is_link_local or ip.is_unspecified:
             return (
                 f"Resolved address {raw_addr!r} for host {host!r} is not permitted "
                 "(loopback, link-local, cloud-metadata, or unspecified)"
+            )
+        if own_addresses is None:
+            # Fails open (empty set) when the host cannot be probed; the
+            # categorical checks above stand on their own.
+            own_addresses = await loop.run_in_executor(None, _host_interface_addresses)
+        if ip in own_addresses:
+            return (
+                f"Resolved address {raw_addr!r} for host {host!r} is the deployment "
+                "host itself; a panel proxied back into this deployment is not "
+                "permitted. Host the dashboard on another machine, or use the "
+                "deployment's landing page entries instead."
             )
 
     # Allowlist enforcement (after address validation so blocked IPs are always caught).
