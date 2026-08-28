@@ -13,6 +13,14 @@
 /** @typedef {import('./panel-manager.js').AgentActivityEvent} AgentActivityFrame */
 
 /**
+ * The `type` discriminator an agent_activity SSE frame carries. Spelled once
+ * here so the session page's forwarder, panel-sse's dispatcher and the panel
+ * frames it synthesizes cannot drift apart on a rename; the AgentActivityEvent
+ * typedef in panel-manager.js derives its literal from this constant too.
+ */
+export const AGENT_ACTIVITY_FRAME = 'agent_activity';
+
+/**
  * The tool name the panel routes mirror an agent arrange under. Its subject is
  * the workspace itself rather than a single panel, so it is worded apart from
  * the PANEL_VERBS table — and the strip keys its burst coalescing on it.

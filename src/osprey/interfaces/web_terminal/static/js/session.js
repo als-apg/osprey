@@ -16,6 +16,7 @@ import '/design-system/js/components/osprey-theme-switcher.js';
 import { renderAgents, renderToolLog, renderArtifacts, renderConversation } from './session-views.js';
 import { withPrefix, createEventSource } from './api.js';
 import { bootActivityStrip } from './activity-strip.js';
+import { AGENT_ACTIVITY_FRAME } from './activity-format.js';
 
 /** @typedef {'agents'|'toollog'|'artifacts'|'conversation'} ViewName */
 /** @typedef {import('./panel-manager.js').AgentActivityEvent} AgentActivityEvent */
@@ -170,7 +171,7 @@ export function wireActivityStrip(strip, eventSourceFactory = createEventSource)
   return eventSourceFactory('/api/files/events', {
     onMessage: (data) => {
       if (!data || typeof data !== 'object') return;
-      if (data.type !== 'agent_activity' || !data.target) return;
+      if (data.type !== AGENT_ACTIVITY_FRAME || !data.target) return;
       strip.handleActivity(data);
     },
   });
