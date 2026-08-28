@@ -52,6 +52,7 @@ from tests.interfaces._panel_launch import publish_artifact_url
 from tests.interfaces.conftest import (
     _apply_all,
     _run_app_server,
+    launch_graph_channel_finder,
     use_process_web_credentials,
 )
 
@@ -268,6 +269,22 @@ def _channel_finder_server(tmp_path: Path):
     return _run_app_server(create_app(project_cwd=str(tmp_path / "cf_ws")))
 
 
+def _channel_finder_graph_server(tmp_path: Path):
+    """The Channel Finder in graph mode, over the shared fake demo corpus.
+
+    Unlike ``_channel_finder_server`` above — which boots with no config at all
+    and so photographs the unconfigured shell — the graph paradigm is selected
+    by config alone and reads its numbers over the network. The launcher in
+    ``tests/interfaces/conftest.py`` supplies both halves (a config on disk that
+    resolves to ``pipeline_mode: graph``, and the app's ``_make_graph_context``
+    seam repointed at the demo store), so nothing is dialled and this target
+    runs anywhere the other targets do. Its ``monkeypatch`` argument is optional
+    precisely so a ``VisualTarget`` factory, which is handed only a path, can
+    call it.
+    """
+    return launch_graph_channel_finder(tmp_path)
+
+
 def _lattice_dashboard_server(tmp_path: Path):
     from osprey.interfaces.lattice_dashboard.app import create_app
 
@@ -374,6 +391,23 @@ TARGETS: list[VisualTarget] = [
         "channel_finder_embedded",
         _channel_finder_server,
         path="/?embedded=true",
+        modes=MODES,
+    ),
+    # The graph paradigm's Explore view: a drawn class taxonomy rather than the
+    # channel tree the file-backed pipelines browse. Path stays "/" — the router
+    # (``routeFromHash`` in app.js) already defaults an empty hash to ``explore``,
+    # and a literal "/#explore" would push this suite's ``?theme=``/``&mode=``
+    # query into the fragment, where neither the theme nor the mode hook reads
+    # it. The wait selector is a laid-out tree node, so the screenshot is taken
+    # after the ontology fetch has resolved and rendered, not over the spinner —
+    # narrowed to the first match because a drawn taxonomy is many ``.g-node``
+    # groups at once, and the harness hands the raw selector to ``page.locator``,
+    # which is strict: the bare class would fail on "resolved to 19 elements".
+    VisualTarget(
+        "channel_finder_graph",
+        _channel_finder_graph_server,
+        path="/",
+        wait_selector=".g-node >> nth=0",
         modes=MODES,
     ),
     VisualTarget("lattice_dashboard", _lattice_dashboard_server, path="/", modes=MODES),

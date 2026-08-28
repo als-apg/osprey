@@ -11,10 +11,12 @@ with their own patch sets) stay local to each file.
 from __future__ import annotations
 
 from contextlib import ExitStack, contextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
 import pytest
+import yaml
 
 from osprey.audit import writer
 
@@ -38,7 +40,9 @@ __all__ = [
     "_run_app_server",
     "_wait_for_port",
     "chromium_browser",
+    "launch_graph_channel_finder",
     "use_process_web_credentials",
+    "write_graph_config",
 ]
 
 # ---------------------------------------------------------------------------
@@ -257,6 +261,88 @@ def _apply_all(patches: list) -> Iterator[None]:
             p.start()
             stack.callback(p.stop)
         yield
+
+
+# ---------------------------------------------------------------------------
+# Graph-paradigm Channel Finder launcher
+# ---------------------------------------------------------------------------
+#
+# The graph paradigm has no database file to point an app at: it is selected by
+# config alone and reads a store over the network. So a lane that wants to see
+# the graph UI — the load smoke, the visual baselines — needs two things this
+# tree cannot supply per suite without duplicating them: a config on disk that
+# resolves to ``pipeline_mode: graph``, and a store seam that answers without a
+# store running. Both live here, beside ``_run_app_server``, so every lane boots
+# the same app over the same corpus.
+
+
+def write_graph_config(tmp_path: Path | str) -> Path:
+    """Write a graph-paradigm ``config.yml`` into *tmp_path* and return its path.
+
+    The block is the one a graph render produces: a ``pipeline_mode`` of
+    ``graph`` with no ``pipelines`` entry at all (there is no database to
+    configure), plus the ``services.graphdb`` block that names the store. The
+    URI it names is the fixture corpus's ``DEMO_STORE_URI``, so the config on
+    disk and the URI the fake store reports cannot drift apart.
+
+    Args:
+        tmp_path: Directory to write the config into.
+
+    Returns:
+        Path to the written ``config.yml``.
+    """
+    from tests.interfaces.channel_finder.graph_fixture import DEMO_STORE_URI
+
+    config = {
+        "channel_finder": {"pipeline_mode": "graph", "pipelines": None},
+        "services": {"graphdb": {"uri": DEMO_STORE_URI}},
+    }
+    config_path = Path(tmp_path) / "config.yml"
+    config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
+    return config_path
+
+
+@contextmanager
+def launch_graph_channel_finder(
+    tmp_path: Path | str,
+    monkeypatch: pytest.MonkeyPatch | None = None,
+) -> Iterator[str]:
+    """Serve the Channel Finder in graph mode over the shared demo corpus.
+
+    Mirrors ``_launch_channel_finder`` in ``test_load_smokes.py`` — same
+    contract, same yielded live base URL — with the two differences the graph
+    paradigm needs: a config that selects it, and the app's ``_make_graph_context``
+    seam repointed at the fake store from
+    ``tests.interfaces.channel_finder.graph_fixture``. No graph database is
+    dialled, so the lane runs anywhere.
+
+    Args:
+        tmp_path: Directory to use as the project root and config location.
+        monkeypatch: The test's patcher. Omit it — as a ``VisualTarget``
+            server factory must, since it is handed only a path — and a
+            private one is created and undone with the server.
+
+    Yields:
+        The live server's base URL, e.g. ``"http://127.0.0.1:54321"``.
+    """
+    from osprey.interfaces.channel_finder import app as app_module
+    from tests.interfaces.channel_finder.graph_fixture import demo_context
+
+    with ExitStack() as stack:
+        if monkeypatch is None:
+            monkeypatch = stack.enter_context(pytest.MonkeyPatch.context())
+
+        config_path = write_graph_config(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        # Named explicitly as well as reached through the working directory:
+        # ``OSPREY_CONFIG`` is what every deployed process gets, and it settles
+        # the resolution regardless of where the runner happens to be standing.
+        monkeypatch.setenv("OSPREY_CONFIG", str(config_path))
+        monkeypatch.setattr(app_module, "_make_graph_context", demo_context)
+
+        app = app_module.create_app(project_cwd=str(tmp_path))
+        with _run_app_server(app) as base_url:
+            yield base_url
 
 
 # ---------------------------------------------------------------------------
