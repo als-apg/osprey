@@ -3,25 +3,33 @@
 Every route in this service that mints a session first asks the same question —
 *given how this browser proved who it is, what is that proof worth?* — and the
 answer is a table, not a judgement call. This module is that table. It is the
-only place that maps an auth method onto the ``(subject, role)`` a session may
-carry, so a row cannot be admitted by the password path and refused by the OIDC
-one, and a method nobody wrote a row for cannot fall through into a plausible
-reading of itself.
+only place that maps an auth method onto the ``(subject, role, role_source)`` a
+session may carry, so a row cannot be admitted by the password path and refused
+by the OIDC one, and a method nobody wrote a row for cannot fall through into a
+plausible reading of itself.
 
 The matrix, one row per posture:
 
-===================  =====================================  ===================
-method               subject                                role
-===================  =====================================  ===================
-``none``             — (no session is minted)               — (no login events)
-``password``         the roster username                    the roster ``role:``
-``oidc``, unbound    the asserted IdP subject               the roster ``role:``
-``oidc``, bound      the asserted IdP subject               the claim's role,
+===================  =====================================  =====================  ==========
+method               subject                                role                   source
+===================  =====================================  =====================  ==========
+``none``             — (no session is minted)               — (no login events)    — (none)
+``password``         the roster username                    the roster ``role:``   ``roster``
+``oidc``, unbound    the asserted IdP subject               the roster ``role:``   ``roster``
+``oidc``, bound      the asserted IdP subject               the claim's role,      ``claim``
                                                             cross-checked
                                                             against the roster's
-anything else        refused at mint; verify names the      — (refused)
+anything else        refused at mint; verify names the      — (refused)            — (refused)
                      locally verified identity
-===================  =====================================  ===================
+===================  =====================================  =====================  ==========
+
+**The source says which of those two authorities the role came from**, and
+nothing more. It is :data:`ROLE_SOURCE_ROSTER` when the role is the one the
+render bound and :data:`ROLE_SOURCE_CLAIM` when a validated ID token decided it,
+and it is empty exactly when the role is — a session holding no role has no
+provenance to explain. Provenance is not privilege: nothing in this service
+decides anything from it, it only lets the far end say where the role it is
+already showing came from.
 
 **The last row's two halves dispose of it differently, which is why it is the
 one row the table qualifies.** :func:`recheck_login` refuses an unsupported
@@ -103,6 +111,8 @@ __all__ = [
     "REASON_METHOD_MISMATCH",
     "REASON_ROLE_MISMATCH",
     "REASON_UNSUPPORTED_METHOD",
+    "ROLE_SOURCE_CLAIM",
+    "ROLE_SOURCE_ROSTER",
     "SUPPORTED_METHODS",
     "LoginGrant",
     "RecheckRefused",
@@ -110,6 +120,7 @@ __all__ = [
     "recheck_login",
     "roster_roles",
     "session_role",
+    "session_role_source",
     "session_subject",
 ]
 """This module's whole public surface, declared rather than inferred.
@@ -132,6 +143,17 @@ through :class:`~osprey.services.auth_sidecar.app.AuthSettings`, which already
 lowercases it once. Folding again here would mean two components disagreeing
 about what counts as a match, and the one that is stricter should be the one
 handing out sessions."""
+
+ROLE_SOURCE_ROSTER = "roster"
+"""The role came from the roster's ``role:`` entry — the one the render bound."""
+
+ROLE_SOURCE_CLAIM = "claim"
+"""The role came from the validated ID token's claim.
+
+The two spellings are a closed vocabulary, and deliberately short: they cross
+the identity-header boundary as they are written here, so they hold to the same
+charset a role does and a far end that does not recognise one shows nothing
+rather than guessing at it."""
 
 REASON_UNSUPPORTED_METHOD = audit.REASON_UNSUPPORTED_METHOD
 """Re-exported so a route reads its category from the module that decided it."""
@@ -249,10 +271,15 @@ class LoginGrant:
         role: The role it holds, or ``""`` for none. Empty is the deny-safe
             value: verify omits the role header for it and every consumer reads
             an absent header as "no privileges".
+        role_source: Where that role came from — :data:`ROLE_SOURCE_ROSTER` or
+            :data:`ROLE_SOURCE_CLAIM` — and ``""`` exactly when ``role`` is
+            empty, since there is no provenance for a role nobody holds.
+            Display only: it explains a privilege, it never confers one.
     """
 
     subject: str
     role: str
+    role_source: str = ""
 
 
 class RecheckRefused(Exception):
@@ -332,7 +359,9 @@ def recheck_login(
             raise RecheckRefused(
                 REASON_METHOD_MISMATCH, "this login was decided by the wrong method"
             )
-        return _grant(subject=user, role=roster_roles.role_for(user))
+        return _grant(
+            subject=user, role=roster_roles.role_for(user), role_source=ROLE_SOURCE_ROSTER
+        )
 
     # METHOD_OIDC.
     if not asserted_subject or claim_role is None:
@@ -343,7 +372,7 @@ def recheck_login(
         # This deployment binds no claims, so nothing asked the provider about
         # privilege. The role is the one the RENDER bound — the same roster
         # entry the persona behind this user's door was resolved from.
-        return _grant(subject=asserted_subject, role=rendered_role)
+        return _grant(subject=asserted_subject, role=rendered_role, role_source=ROLE_SOURCE_ROSTER)
 
     if rendered_role and claim_role != rendered_role:
         # The cross-check. Refusing grants nothing: it turns away a login whose
@@ -359,10 +388,10 @@ def recheck_login(
     # `persona:` pin or the default persona, whose container is not role-bound,
     # so there is nothing for the claim to disagree with. See the module
     # docstring's "one gap".
-    return _grant(subject=asserted_subject, role=claim_role)
+    return _grant(subject=asserted_subject, role=claim_role, role_source=ROLE_SOURCE_CLAIM)
 
 
-def _grant(*, subject: str, role: str) -> LoginGrant:
+def _grant(*, subject: str, role: str, role_source: str) -> LoginGrant:
     """Build the grant, refusing a role the boundary cannot carry.
 
     Checked here rather than left to
@@ -376,12 +405,20 @@ def _grant(*, subject: str, role: str) -> LoginGrant:
     verify's gate, which denies an uncarryable one on every subrequest — a
     single decision on the one hot path, rather than a second copy of it here
     that could drift.
+
+    The *source* is normalised rather than checked, because the caller passes a
+    row of the matrix and not a value from outside: every row names a source,
+    and a row whose role came back empty — a roster entry riding a ``persona:``
+    pin, which is a legitimate login and not a mistake — has nothing for one to
+    describe. Dropping it here is what keeps "a source implies a role" true of
+    every grant this module hands out, without a second refusal shape for a
+    combination no caller can reach on purpose.
     """
     if role and not is_header_safe(role):
         raise RecheckRefused(
             audit.REASON_UNSAFE_ROLE, "the role this login resolved to cannot be carried"
         )
-    return LoginGrant(subject=subject, role=role)
+    return LoginGrant(subject=subject, role=role, role_source=role_source if role else "")
 
 
 def session_subject(*, method: str, username: str, entry: UnlockedUser | None) -> str:
@@ -449,3 +486,30 @@ def session_role(*, method: str, entry: UnlockedUser | None) -> str:
     if method == METHOD_OIDC and not entry.oidc_subject:
         return ""
     return entry.role
+
+
+def session_role_source(*, method: str, entry: UnlockedUser | None) -> str:
+    """Where the role an already-minted session still holds came from.
+
+    The source half of :func:`session_role`, and *derived* from it rather than
+    read off the entry in parallel: the source is only ever an explanation of a
+    role, so it has to disappear on every path the role does. Deriving it is
+    what makes that true by construction — the method flip the role half exists
+    for zeroes both halves in lockstep, and a signed payload that somehow
+    carries a ``source`` without a ``role`` (no shape :func:`_grant` can hand
+    out) explains a privilege the session does not hold, so it reports nothing.
+
+    Args:
+        method: The deployment's auth method.
+        entry: The unlocked entry, or ``None`` on the defensive path.
+
+    Returns:
+        :data:`ROLE_SOURCE_ROSTER` or :data:`ROLE_SOURCE_CLAIM` when this
+        session still holds a role that names one, and ``""`` otherwise.
+    """
+    # The ``None`` arm restates :func:`session_role`'s own first line, which the
+    # derivation would otherwise have already answered: it is here so the entry
+    # is narrowed for the reader (and the type checker) rather than trusted.
+    if entry is None or not session_role(method=method, entry=entry):
+        return ""
+    return entry.role_source
