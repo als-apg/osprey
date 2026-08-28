@@ -651,3 +651,18 @@ def test_shared_partial_carries_exactly_these_markers():
     assert template.count("osprey:graph-snapshot") == 2, (
         "the partial must carry exactly one begin and one end marker"
     )
+
+
+class TestDescribePatched:
+    """The reported count is prompts × renders, not a flat file total."""
+
+    def test_counts_distinct_prompts_and_renders(self):
+        renders = [Path("build"), Path("build/persona-a"), Path("build/.image/x/build")]
+        patched = [
+            base / ".claude" / "agents" / name for base in renders for name in mod.TARGET_FILENAMES
+        ]
+        assert mod.describe_patched(patched) == "2 agent prompt(s) across 3 render(s)"
+
+    def test_single_file(self):
+        patched = [Path("build/.claude/agents") / mod.AGENT_FILENAME]
+        assert mod.describe_patched(patched) == "1 agent prompt(s) across 1 render(s)"
