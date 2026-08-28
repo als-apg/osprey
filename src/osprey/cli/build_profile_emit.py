@@ -41,6 +41,7 @@ from .build_profile_load import _PROFILE_SCHEMA_MIN_OSPREY
 from .build_profile_merge import _deep_merge, _resolve_extends, compute_preset_hash
 from .build_profile_presets import _load_preset_raw
 from .build_profile_resolve import merge_cli_overrides
+from .profile_conventions import BUILD_OUTPUT_DIR
 
 # YAML-surface spellings that differ from the canonical resolved-content field
 # name (D2: the rename is confined to the profile-YAML surface, so the
@@ -201,8 +202,18 @@ _MCP_SERVERS_APPENDIX = """
 # "http"; "sse" is the legacy event-stream wire and needs an explicit url.
 # Tool names under permissions are bare — `allow` runs them unprompted, `ask`
 # prompts the operator on every call.
+# A Python server's package lives at mcp_servers/<package>/ beside this file;
+# the build copies it to __BUILD__/_mcp_servers/<package>/ for `-m <package>`.
 #
 # mcp_servers:
+#   my_server:
+#     command: "{current_python_env}"
+#     args: [-m, my_server]
+#     env:
+#       OSPREY_CONFIG: "{project_root}/__BUILD__/config.yml"
+#       PYTHONPATH: "{project_root}/__BUILD__/_mcp_servers"
+#     permissions:
+#       allow: [my_tool]
 #   matlab:
 #     command: /opt/matlab/bin/mcp-matlab
 #     args: [--workspace, /opt/matlab/scripts]
@@ -216,7 +227,7 @@ _MCP_SERVERS_APPENDIX = """
 #     transport: http
 #     permissions:
 #       allow: [get_twiss]
-"""
+""".replace("__BUILD__", BUILD_OUTPUT_DIR)
 
 # Appended when the resolved profile has no ``artifact_server:`` block.
 _CATEGORIES_APPENDIX = """

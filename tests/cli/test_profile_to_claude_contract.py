@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import sys
 import textwrap
 from pathlib import Path
 
@@ -33,6 +34,7 @@ from click.testing import CliRunner
 
 from osprey.bluesky_tool_names import QUEUE_CONTROL_TOOLS
 from osprey.cli.build_cmd import build
+from osprey.cli.init_cmd import init
 from osprey.cli.templates.manager import TemplateManager
 from osprey.cli.validate_claude_artifacts import (
     validate_agent_tools_against_permissions,
@@ -206,6 +208,40 @@ def test_mcp_permissions_ask_round_trip(built_control_assistant_project):
     assert "mcp__controls__channel_write" in ask
     assert "mcp__osprey_workspace__setup_patch" in ask
     assert "mcp__ariel__entry_create" in ask
+
+
+def test_external_server_command_placeholder_resolves_to_interpreter(tmp_path):
+    """An external ``mcp_servers:`` entry's ``command`` resolves ``{current_python_env}``.
+
+    ``args`` and ``env`` already ran through ``_resolve_placeholder``;
+    ``command`` is the fix under test. Materialized into a fresh tmp repo — not
+    the module-scoped ``built_hello_world_project`` fixture — so the ``probe``
+    fragment cannot leak into sibling tests.
+    """
+    override = tmp_path / "probe.yml"
+    override.write_text(
+        'mcp_servers:\n  probe:\n    command: "{current_python_env}"\n    args: ["-m", "probe"]\n',
+        encoding="utf-8",
+    )
+    target = tmp_path / "probe-repo"
+    runner = CliRunner()
+
+    init_result = runner.invoke(
+        init,
+        [str(target), "--preset", "hello-world", "--no-git", "-O", str(override)],
+    )
+    assert init_result.exit_code == 0, init_result.output
+
+    build_result = runner.invoke(build, ["--repo", str(target), "--skip-deps", "--skip-lifecycle"])
+    assert build_result.exit_code == 0, build_result.output
+
+    mcp_config = json.loads((target / "build" / ".mcp.json").read_text())
+    probe = mcp_config["mcpServers"]["probe"]
+    assert probe["command"] == sys.executable, (
+        f"{{current_python_env}} should resolve to the running interpreter "
+        f"(--skip-deps); got {probe['command']!r}"
+    )
+    assert probe["args"] == ["-m", "probe"], "args must round-trip untouched"
 
 
 # ---------------------------------------------------------------------------

@@ -28,16 +28,22 @@ Declare the server in the deployment's ``profile.yml``, under the top-level
          MY_API_KEY: "${MY_API_KEY}"
 
      my-python-server:
-       command: "python"
+       command: "{current_python_env}"
        args: ["-m", "my_package.server"]
        env:
-         OSPREY_CONFIG: "{project_root}/config.yml"
+         OSPREY_CONFIG: "{project_root}/build/config.yml"
 
 Each entry needs a ``command`` — or, for a server that is already running
 somewhere, a ``url`` instead; the two are mutually exclusive. ``args`` and
 ``env`` are optional. ``{project_root}`` is expanded to the project directory
-at build time; ``${VAR}`` is left alone for the shell or the container to
-resolve at run time.
+at build time, and ``{current_python_env}`` to the project's own Python
+interpreter — the one the framework's servers run under. ``${VAR}`` is left
+alone for the shell or the container to resolve at run time. A Python module
+launched with ``-m`` has to be importable by that interpreter: either declare
+its package under the profile's ``dependencies:`` so it is installed into the
+project venv, or ship it in the profile's ``mcp_servers/`` directory and reach
+it with ``PYTHONPATH: "{project_root}/build/_mcp_servers"`` (see
+:ref:`profile-mcp-servers`).
 
 To set permissions on a server, name its tools:
 
