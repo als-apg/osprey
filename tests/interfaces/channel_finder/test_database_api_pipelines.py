@@ -9,9 +9,19 @@ non-default ``pipeline_type``.
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+from osprey.mcp_server.graph.server_context import GraphUnreachable
+from tests.interfaces.channel_finder.graph_fixture import (
+    DEMO_STATISTICS,
+    DEMO_STORE_URI,
+    demo_context,
+    install_graph_paradigm,
+)
 
 _DB_PATCH = "osprey.interfaces.channel_finder.database_api._get_database"
 _FACILITY_PATCH = "osprey.interfaces.channel_finder.database_api._get_facility_name"
@@ -305,15 +315,8 @@ class TestInContextChunkBounds:
 class TestGraphParadigmRoutes:
     """The graph paradigm has no database file, and the routes say so plainly."""
 
-    @staticmethod
-    def _graph(client):
-        _set_pipeline(client, "graph")
-        client.app.state.available_pipelines = ["graph"]
-        client.app.state.databases = {}
-        client.app.state.graph_backed = True
-
     def test_info_reports_the_paradigm_and_its_tools(self, client):
-        self._graph(client)
+        install_graph_paradigm(client)
         client.app.state.facility_name = "ALS"
         resp = client.get("/api/info")
         assert resp.status_code == 200
@@ -326,6 +329,79 @@ class TestGraphParadigmRoutes:
         assert "get_schema" in data["tools"]
         assert data["metadata"]["facility_name"] == "ALS"
 
+    @staticmethod
+    def _set_ttl_filename(client, name: str | None) -> None:
+        """Set the seeded TTL basename on the app, or remove it entirely.
+
+        A project whose config names no TTL leaves the attribute unset rather
+        than ``None``, so "not configured" is tested by removing it.
+        """
+        if name is None:
+            if hasattr(client.app.state, "graph_ttl_filename"):
+                delattr(client.app.state, "graph_ttl_filename")
+        else:
+            client.app.state.graph_ttl_filename = name
+
+    def test_info_names_where_the_store_lives(self, client):
+        # The graph paradigm's answer to "which database am I looking at?" —
+        # the file-backed payload's ``db_path``, told as a store URI.
+        install_graph_paradigm(client, demo_context())
+        self._set_ttl_filename(client, None)
+
+        resp = client.get("/api/info")
+
+        assert resp.status_code == 200
+        assert resp.json()["graph_store"]["uri"] == DEMO_STORE_URI
+
+    def test_info_names_the_seeded_corpus_when_one_is_configured(self, client):
+        install_graph_paradigm(client, demo_context())
+        self._set_ttl_filename(client, "facility.ttl")
+
+        resp = client.get("/api/info")
+
+        assert resp.status_code == 200
+        assert resp.json()["graph_store"]["ttl_filename"] == "facility.ttl"
+
+    def test_info_reports_no_corpus_when_none_is_configured(self, client):
+        install_graph_paradigm(client, demo_context())
+        self._set_ttl_filename(client, None)
+
+        resp = client.get("/api/info")
+
+        assert resp.status_code == 200
+        # Reported as null rather than omitted: the panel distinguishes "no
+        # corpus configured" from a payload it failed to understand.
+        assert resp.json()["graph_store"]["ttl_filename"] is None
+
+    def test_info_answers_even_when_there_is_no_store(self, client):
+        # The panel must boot against a store that is down or was never
+        # configured, so the absent context is a reportable value, not a 503.
+        install_graph_paradigm(client)
+        self._set_ttl_filename(client, None)
+
+        resp = client.get("/api/info")
+
+        assert resp.status_code == 200
+        assert resp.json()["graph_store"] == {"uri": None, "ttl_filename": None}
+
+    def test_info_omits_the_store_block_for_file_backed_paradigms(self, client):
+        # ``graph_store`` is the graph paradigm's ``db_path``; a file-backed
+        # payload already has the real one and must not grow a second answer.
+        _set_pipeline(client, "in_context")
+        client.app.state.graph_ttl_filename = "facility.ttl"
+        mock_db = MagicMock()
+        mock_db.db_path = "/tmp/ic.json"
+        mock_db.get_statistics.return_value = {"total_channels": 3}
+        mock_db.chunk_database.return_value = [[], []]
+        with (
+            patch(_DB_PATCH, return_value=mock_db),
+            patch(_FACILITY_PATCH, return_value="ALS"),
+        ):
+            resp = client.get("/api/info")
+
+        assert resp.status_code == 200
+        assert "graph_store" not in resp.json()
+
     def test_info_marks_file_backed_paradigms_as_not_graph_backed(self, client):
         _set_pipeline(client, "middle_layer")
         mock_db = MagicMock()
@@ -336,16 +412,80 @@ class TestGraphParadigmRoutes:
         assert resp.status_code == 200
         assert resp.json()["graph_backed"] is False
 
-    def test_statistics_501_naming_the_graph_tools(self, client):
-        self._graph(client)
+    def test_statistics_counts_the_store(self, client):
+        install_graph_paradigm(client, demo_context())
+
         resp = client.get("/api/statistics")
-        assert resp.status_code == 501
-        detail = resp.json()["detail"]
-        assert "read_cypher" in detail
-        assert "get_schema" in detail
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "total_devices": DEMO_STATISTICS["devices"],
+            "total_channels": DEMO_STATISTICS["channels"],
+            # The class count is the taxonomy the explorer draws, not the raw
+            # class tree: the store's non-device classes are pruned out first.
+            "total_classes": DEMO_STATISTICS["classes"],
+            "total_signals": DEMO_STATISTICS["signals"],
+            "total_sections": DEMO_STATISTICS["sections"],
+        }
+
+    def test_statistics_asks_the_store_once_per_population(self, client):
+        ctx = demo_context()
+        install_graph_paradigm(client, ctx)
+
+        client.get("/api/statistics")
+
+        # Four censuses plus the class tree, each asked exactly once.
+        assert len(ctx.calls) == 5
+        assert len({cypher for cypher, _ in ctx.calls}) == 5
+        # Every read carries an explicit bound rather than the store's default.
+        assert all(max_rows is not None for _, max_rows in ctx.calls)
+        # Statistics never needs to tell an empty store from a broken one: a
+        # store that answers zero has answered.
+        assert ctx.empty_checks == 0
+
+    def test_statistics_reads_run_off_the_event_loop(self, client):
+        # The store's driver is synchronous; awaiting it inline would stall
+        # every other request the app is serving.
+        ctx = demo_context()
+        install_graph_paradigm(client, ctx)
+
+        client.get("/api/statistics")
+
+        assert ctx.saw_running_loop == [False] * 5
+
+    def test_statistics_503_when_the_store_is_unreachable(self, client):
+        install_graph_paradigm(
+            client,
+            demo_context(
+                raises=GraphUnreachable(
+                    "Graph store at bolt://localhost:7687 is unreachable.",
+                    ["Start the graphdb service."],
+                )
+            ),
+        )
+
+        resp = client.get("/api/statistics")
+
+        assert resp.status_code == 503
+        body = resp.json()
+        # Not nested under FastAPI's "detail" envelope: the web UI reads all
+        # three keys off the body it is handed.
+        assert "unreachable" in body["detail"]
+        assert body["error_type"] == "service_unavailable"
+        assert body["suggestions"] == ["Start the graphdb service."]
+
+    def test_statistics_503_when_the_app_has_no_store_at_all(self, client):
+        install_graph_paradigm(client)
+
+        resp = client.get("/api/statistics")
+
+        assert resp.status_code == 503
+        body = resp.json()
+        assert body["error_type"] == "service_unavailable"
+        assert "graphdb" in " ".join(body["suggestions"])
 
     def test_validate_501_naming_the_graph_tools(self, client):
-        self._graph(client)
+        install_graph_paradigm(client)
         resp = client.post("/api/validate", json={"channels": ["SR:BPM:01:X"]})
         assert resp.status_code == 501
         detail = resp.json()["detail"]
@@ -353,7 +493,7 @@ class TestGraphParadigmRoutes:
         assert "get_schema" in detail
 
     def test_switch_pipeline_400_names_the_paradigm_and_read_cypher(self, client):
-        self._graph(client)
+        install_graph_paradigm(client)
         resp = client.put("/api/pipeline", json={"pipeline_type": "in_context"})
         assert resp.status_code == 400
         detail = resp.json()["detail"]
@@ -376,7 +516,29 @@ class TestGraphParadigmRoutes:
         ],
     )
     def test_explorer_routes_404_under_graph(self, client, method, path, body):
-        self._graph(client)
+        install_graph_paradigm(client)
         kwargs = {"json": body} if body is not None else {}
         resp = getattr(client, method)(path, **kwargs)
         assert resp.status_code == 404
+
+
+class TestGraphImportClosure:
+    """What the web app pays to import its own routes.
+
+    The graph routes share their Cypher with tooling that is far heavier than a
+    web app — the benchmark harness runs an agent, the seeder opens a driver.
+    Sharing a constant must not drag either of those into the app's startup, so
+    the closure is asserted in a fresh interpreter rather than in this one,
+    where the test session has already imported half the framework.
+    """
+
+    def test_importing_the_routes_loads_neither_the_agent_sdk_nor_a_driver(self) -> None:
+        source = (
+            "import sys\n"
+            "from osprey.interfaces.channel_finder import database_api\n"
+            "assert database_api.GRAPH_CHANNEL_COUNT_CYPHER\n"
+            "assert 'claude_agent_sdk' not in sys.modules, 'agent SDK in the web import closure'\n"
+            "assert 'neo4j' not in sys.modules, 'neo4j imported at module scope'\n"
+        )
+        result = subprocess.run([sys.executable, "-c", source], capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
