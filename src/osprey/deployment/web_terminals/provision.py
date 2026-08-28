@@ -47,11 +47,13 @@ from osprey.deployment.runtime_helper import (
 )
 from osprey.deployment.subprocess_capture import run_captured
 from osprey.deployment.web_terminals.artifacts import (
+    DANGEROUSLY_ALLOW_BASH_KEY,
     BashLaunchTokenConflictError,
     OpenModeEgressError,
     bash_launch_token_offenders,
     check_bash_launch_token_conflict,
     check_open_mode_requirements,
+    dangerously_allowed_bash_personas,
     deployment_is_open,
     open_mode_missing_by_persona,
     web_compose_file,
@@ -165,6 +167,19 @@ def preflight_web_terminals(config: dict, *, repo_root: Path | str | None = None
     # personas can still reach the host network is refused on the same terms —
     # before the image build, and before any credential is minted or printed.
     check_open_mode_requirements(config, root)
+    # The one waiver of either refusal is never silent: every `up` that runs
+    # under it names the key and who it waved through. It reports rather than
+    # gates, so it sits below both gates and above the work they guard --
+    # silence is how a dev-box key reaches a machine.
+    if waived := dangerously_allowed_bash_personas(config, root):
+        logger.warning(
+            "%s is set: %s may run Bash while holding a launch token, so the "
+            "chat approval on queue_start is not the only way to arm a queue. "
+            "For a dev box with one trusted operator only -- remove the key "
+            "before this deployment arms a live machine.",
+            DANGEROUSLY_ALLOW_BASH_KEY,
+            ", ".join(sorted(waived)),
+        )
     ensure_env_production(config, str(root))
     # BEFORE the mint, deliberately: a registry-mode deploy that forgot
     # auth.image is already doomed, and minting here first would write (and

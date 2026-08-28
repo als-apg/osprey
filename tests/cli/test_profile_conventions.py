@@ -1657,3 +1657,21 @@ def test_the_glob_match_is_the_other_mirror():
     assert is_setup_patch_capable(config) is not any(
         fnmatchcase(SETUP_PATCH_TOOL, entry) for entry in rendered
     )
+
+
+def test_dangerously_allow_bash_is_protected():
+    """The waiver decides whether a Bash-capable agent may hold a launch token, so
+    the agent must not be able to set it through a config write."""
+    assert is_protected_key("config.yml", "dangerously_allow_bash") is True
+
+
+def test_dangerously_allow_bash_is_protected_below_itself_too():
+    """The key is written with a trailing ``*`` so its subtree is protected as well.
+
+    The value is a boolean, so there is nothing legitimate below it -- but the
+    protected diff walks *leaves*, and a writer that planted a block where the
+    boolean goes would move the only leaf to an unprotected child path. Spelled
+    without the star the key would be one of the exact-depth patterns
+    test_put_protected_families_are_descent_safe_or_known_inert exists to catch.
+    """
+    assert is_protected_key_path("config.yml", ("dangerously_allow_bash", "anything")) is True

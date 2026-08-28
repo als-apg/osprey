@@ -809,8 +809,76 @@ def test_every_refusal_code_this_module_handles_is_documented_for_the_agent():
             queue.queue_add,
             queue.queue_start,
             queue.queue_stop,
+            queue.queue_remove,
             stop.stop_run,
         )
     )
     undocumented = [code for code in queue._REFUSAL_HINTS if code not in docs]
     assert not undocumented, f"refusal codes handled but never explained: {undocumented}"
+
+
+# =========================================================================
+# queue_remove — drop one pending item; the interrupted-item way out
+# =========================================================================
+
+
+def _remove_fn():
+    return get_tool_fn(queue.queue_remove)
+
+
+async def test_queue_remove_deletes_the_item_and_relays_the_body(tmp_path, monkeypatch):
+    _armed(tmp_path, monkeypatch)
+    body = {"removed": True, "item": {"item_uid": "u1", "name": "hysteresis_loop"}}
+    with patch(f"{_MOD}._http_delete_json", return_value=(200, body)) as m:
+        result = await _remove_fn()("u1")
+
+    assert m.call_args.args[0] == "/queue/items/u1"
+    # Omitted lane means the ACTIVE lane, exactly like every other queue read.
+    assert m.call_args.kwargs["lane"] is None
+    assert extract_response_dict(result) == body
+
+
+async def test_queue_remove_passes_the_named_lane_through(tmp_path, monkeypatch):
+    _armed(tmp_path, monkeypatch)
+    body = {"removed": True, "item": None}
+    with patch(f"{_MOD}._http_delete_json", return_value=(200, body)) as m:
+        await _remove_fn()("u1", lane="bluesky2")
+
+    assert m.call_args.kwargs["lane"] == "bluesky2"
+
+
+async def test_queue_remove_url_encodes_the_uid(tmp_path, monkeypatch):
+    """A uid is manager-minted and opaque — path-encode it, never trust it."""
+    _armed(tmp_path, monkeypatch)
+    with patch(f"{_MOD}._http_delete_json", return_value=(200, {"removed": True})) as m:
+        await _remove_fn()("a/b c")
+
+    assert m.call_args.args[0] == "/queue/items/a%2Fb%20c"
+
+
+async def test_queue_remove_relays_the_bridge_refusal_code_and_detail(tmp_path, monkeypatch):
+    """An unknown uid is the manager's refusal, relayed verbatim — the queue is
+    unchanged and the hint sends the agent back to queue_list."""
+    _armed(tmp_path, monkeypatch)
+    body = _refusal("queue_request_rejected", "Item 'nope' is not in the queue.")
+    with patch(f"{_MOD}._http_delete_json", return_value=(409, body)):
+        with assert_raises_error(error_type="queue_request_rejected") as ctx:
+            await _remove_fn()("nope")
+
+    envelope = ctx["envelope"]
+    assert envelope["error_message"] == "Item 'nope' is not in the queue."
+    assert envelope["details"]["code"] == "queue_request_rejected"
+
+
+async def test_queue_remove_is_ungated_by_writes_and_token(tmp_path, monkeypatch):
+    """Removal must keep working with writes disabled and no token — it is the
+    sole way past the interrupted-item start refusal, so gating it would trap a
+    wedged queue exactly when the kill switch is on."""
+    _configure(tmp_path, monkeypatch, writes=False, token=None)
+    body = {"removed": True, "item": None}
+    with patch(f"{_MOD}._http_delete_json", return_value=(200, body)) as m:
+        result = await _remove_fn()("u1")
+
+    assert extract_response_dict(result) == body
+    # No launch token header on a removal — there is nothing to arm.
+    assert "headers" not in m.call_args.kwargs

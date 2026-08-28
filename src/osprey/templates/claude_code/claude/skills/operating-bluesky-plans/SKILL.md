@@ -213,6 +213,14 @@ the human's queue panel shows. It returns `{status, items, running_item}`:
 items in execution order with their `item_uid`, plan `name` and `kwargs`; and
 `running_item` is the item under way (`null` when idle).
 
+**`queue_remove(uid=<item_uid>)`** drops one **pending** item — it never
+touches the running plan (that is `stop_run`). Removing queued work arms
+nothing, so it carries no writes check and no launch token; it is
+approval-gated, so the human decides at the prompt. You need it in one
+situation above all: an interrupted plan re-queued at the front (see
+`interrupted_item_in_queue` under Refusals), where removal is the only thing
+that unblocks the queue.
+
 ---
 
 ## What is armed, and what is not
@@ -321,8 +329,9 @@ on the code and relay the bridge's sentence to the operator as written.
   **front** of the queue carrying its result, so starting now would put that
   same plan straight back on the hardware. Every start is refused while that
   copy is queued. **Removing it is the only way on** — `details.item_uid` names
-  it, and it is removed from the queue panel or with
-  `DELETE /queue/items/<item_uid>`. Only once it is gone can the plan be run
+  it: call `queue_remove(uid=<details.item_uid>)`, which is approval-gated, so
+  the human decides at that prompt (the queue panel's remove control is the
+  same operation done by hand). Only once it is gone can the plan be run
   again, and running it again means staging it through the draft and adding it
   afresh: a second, deliberate step after the removal, never an alternative to
   it. Never offer "just start again" here — the gate re-reads the queue on

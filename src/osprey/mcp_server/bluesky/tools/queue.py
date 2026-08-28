@@ -15,6 +15,7 @@ queue_list                  GET    /queue
 queue_add                   POST   /queue/items
 queue_start                 POST   /queue/start
 queue_stop                  POST   /queue/stop
+queue_remove                DELETE /queue/items/{uid}
 ==========================  =================================================
 
 ``stop_run`` (``tools/stop.py``) completes the halting surface with
@@ -151,6 +152,7 @@ from osprey.mcp_server.bluesky.lanes import (
 )
 from osprey.mcp_server.bluesky.server import mcp
 from osprey.mcp_server.bluesky.server_context import (
+    _http_delete_json,
     _http_get_json,
     _http_post_json,
     bridge_error_message,
@@ -291,9 +293,9 @@ _REFUSAL_HINTS: dict[str, list[str]] = {
     ],
     # Raised by queue_start, but caused by an earlier interruption — which is
     # why the remediation is a HUMAN choice rather than anything to retry.
-    # Note there is deliberately no removal tool on this server: dropping the
-    # item is an operator action on the BLUESKY panel, so these hints must not
-    # send the agent looking for one it does not have.
+    # The removal tool exists precisely for this recovery, and it is
+    # approval-gated: calling it is what puts the choice in front of the human,
+    # so the hint sends the agent there rather than to a dead end.
     "interrupted_item_in_queue": [
         "A plan that already ran and was interrupted (aborted, halted, or failed) is "
         "back at the front of the queue — the queue server puts it there so a human "
@@ -301,10 +303,10 @@ _REFUSAL_HINTS: dict[str, list[str]] = {
         "Removing that queued copy is the ONLY thing that unblocks the queue: the "
         "bridge re-reads the queue on every start and will refuse every one of them "
         "while the copy is there, so retrying the start unchanged is never the answer.",
-        "Name the plan and its exit status from this error and ask the operator to "
-        "remove the item with the BLUESKY panel's remove control — then, only if they "
-        "want it to run again, it can be re-staged through the draft and enqueued "
-        "afresh. No tool here removes it and you must not choose for them.",
+        "Name the plan and its exit status from this error, then remove the copy with "
+        "queue_remove(uid=<details.item_uid>) — the removal is approval-gated, so the "
+        "human decides at that prompt. Only if they want the plan to run again, "
+        "re-stage it through the draft and enqueue it afresh, deliberately.",
     ],
 }
 
@@ -1489,4 +1491,71 @@ async def queue_stop(cancel: bool = False) -> str:
     await notify_agent_activity_async(
         "queue_stop", "run", detail="stop-withdrawn" if cancel else "stop"
     )
+    return json.dumps(body)
+
+
+# ---------------------------------------------------------------------------
+# Tool 6: drop one pending item from the queue
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def queue_remove(uid: str, lane: str | None = None) -> str:
+    """Remove ONE pending item from the queue. Never touches the running plan.
+
+    Removing queued work arms nothing — the item is discarded before it could
+    move hardware — so like a plain ``queue_stop`` this carries no writes
+    check and no launch token, at this tool and at the bridge. It is
+    approval-gated instead: the prompt is where the human decides, which is
+    exactly what the queue server wants after an interruption.
+
+    The one situation that REQUIRES this tool: a plan that was aborted,
+    halted, or failed comes back at the FRONT of the queue (the queue server
+    puts it there so a human can decide), and every ``queue_start`` is refused
+    with ``interrupted_item_in_queue`` until that copy is removed. Removing it
+    with the ``item_uid`` from that refusal — or from ``queue_list`` — is the
+    only way on. To run the plan again afterwards, re-stage it through the
+    draft and enqueue it afresh, deliberately; removal alone re-runs nothing.
+
+    To stop a plan already in motion this is the wrong tool — that is
+    ``stop_run`` (abort now) or ``queue_stop`` (halt after the running item).
+
+    Args:
+        uid: The queue item's ``item_uid``, as ``queue_list`` reports it and
+            as ``queue_add`` returned it (``item.item_uid``). This is the
+            queue handle, not the OSPREY run id.
+        lane: The plan lane holding the item, as ``queue_list``/``queue_add``
+            report in their own ``lane`` field. Omitted, the removal goes to
+            the lane the session is on now — each lane's manager holds its own
+            queue, so on a two-lane deployment pass the lane the uid came
+            from.
+
+    Returns:
+        JSON ``{"removed": true, "item"}`` — ``item`` is the removed item as
+        the manager last held it (``null`` when the manager reported none).
+
+    Refusals (the queue is unchanged):
+        - queue_request_rejected: the manager answered and refused — most
+          often the uid is not in the queue (already removed, already
+          running, or mistyped). Re-read queue_list for what is actually
+          pending.
+        - manager_not_configured / manager_unreachable: the queue could not
+          be reached at all.
+    """
+    from urllib.parse import quote
+
+    status, body = await anyio.to_thread.run_sync(
+        lambda: _http_delete_json(f"/queue/items/{quote(uid, safe='')}", lane=lane)
+    )
+    if status != 200:
+        return _relay_refusal(
+            body,
+            status,
+            fallback_hints=[
+                "Re-read queue_list — the uid must be a PENDING item's item_uid; a "
+                "running plan is stopped with stop_run, never removed."
+            ],
+        )
+
+    await notify_agent_activity_async("queue_remove", "run", detail="item-removed")
     return json.dumps(body)
