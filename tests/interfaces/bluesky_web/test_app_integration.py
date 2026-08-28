@@ -406,3 +406,48 @@ def test_panel_index_renders_at_every_bundle_root_spelling() -> None:
             assert response.status_code == 200, path
             assert "{{" not in response.text, path
             assert 'id="hljs-theme"' in response.text, path
+
+
+# ---------------------------------------------------------------------------
+# GET /lanes -- the roster the panel builds its lane picker from
+# ---------------------------------------------------------------------------
+
+
+def test_lanes_reports_the_single_lane_on_a_single_lane_deployment() -> None:
+    """The isolated config renders one lane, so the roster is lane 1 alone --
+    which is what keeps the panel's picker hidden on every deployment that
+    never opted into a second lane."""
+    with TestClient(app) as client:
+        response = client.get("/lanes")
+
+    assert response.status_code == 200
+    assert response.json() == {"lanes": [{"lane": "bluesky", "lane_target": None}]}
+
+
+def test_lanes_reports_every_lane_the_lifespan_resolved(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A two-lane render's roster: both lanes, each with its declared target,
+    in render order -- read from the same config the URL map is resolved from,
+    so the picker can never offer a lane a request would then 404 on."""
+    (tmp_path / "config.yml").write_text(
+        "services:\n"
+        "  bluesky:\n"
+        "    port: 8090\n"
+        "    target: live\n"
+        "  bluesky_va:\n"
+        "    port: 8190\n"
+        "    target: va\n"
+    )
+    monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
+
+    with TestClient(app) as client:
+        response = client.get("/lanes")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "lanes": [
+            {"lane": "bluesky", "lane_target": "live"},
+            {"lane": "bluesky_va", "lane_target": "va"},
+        ]
+    }

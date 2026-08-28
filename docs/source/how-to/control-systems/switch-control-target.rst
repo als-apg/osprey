@@ -348,6 +348,14 @@ so a plan composed for the simulator cannot be started on the machine because
 the session moved in between. See :doc:`../bluesky/index` for the plan stack
 itself.
 
+The **BLUESKY panel** follows the same two-lane deployment with a picker of its
+own. A panel is shared by every session, so it cannot follow any one session's
+target; instead it shows which machine it is pointed at in its status strip —
+labelled by target, ``live`` / ``va`` — and switching lanes there reloads the
+panel onto the other lane's bridge: its plans, shared draft, queue and results
+all move together, and starting the queue uses that lane's own launch token. A
+single-lane deployment shows no picker and nothing about its panel changes.
+
 Rehearse with a stand-in live machine
 =====================================
 

@@ -43,6 +43,14 @@ import { panelApiPrefix } from '/design-system/js/dom.js';
 import { onModeChange } from '/design-system/js/frame-params.js';
 import { contributeHeader, isSimpleMode, onHeaderAction } from '/design-system/js/header-contrib.js';
 
+import {
+  laneIsKnown,
+  laneLabel,
+  laneSearch,
+  parseLaneRoster,
+  resolveLaneFromSearch,
+  withLane,
+} from './lane-client.js';
 import { createPlansView } from './plans-view.js';
 import { createQueueView } from './queue-view.js';
 import { createResultsView } from './results-view.js';
@@ -66,11 +74,28 @@ const ACTIVITY_MARKER = ' •';
 const PREFIX = panelApiPrefix();
 
 /**
+ * The PLAN LANE this document is bound to, read from its own URL once at
+ * boot. One lane per document, deliberately (see lane-client.js): every
+ * request `api()` builds carries it, so the three views, both SSE streams and
+ * the channel catalog can never mix two machines' state, and a lane switch is
+ * a navigation rather than an in-place mutation.
+ *
+ * @type {string}
+ */
+const CURRENT_LANE = (() => {
+  try {
+    return resolveLaneFromSearch(window.location.search);
+  } catch {
+    return resolveLaneFromSearch('');
+  }
+})();
+
+/**
  * @param {string} path
  * @returns {string}
  */
 function api(path) {
-  return `${PREFIX}${path}`;
+  return `${PREFIX}${withLane(path, CURRENT_LANE)}`;
 }
 
 /**
@@ -375,3 +400,81 @@ async function loadChannelCatalog() {
     // Optional endpoint: absence is a normal deployment state, not an error.
   }
 }
+
+/**
+ * Render the lane picker from one roster: a button per lane, labelled by the
+ * control target it drives, the current one marked. Clicking another lane
+ * NAVIGATES — `laneSearch` rewrites only the `lane` parameter, so the host's
+ * `?embedded=`/`?mode=`/`?theme=` survive — because a lane is a different
+ * machine and this panel binds one lane per document (see lane-client.js).
+ *
+ * In the persistent status strip, deliberately: which machine this panel is
+ * pointed at is safety-bearing context for the queue badge and the two halts
+ * beside it, must be visible from every tab and in every UI mode, and the
+ * tile bar survives neither Simple mode nor standalone serving.
+ *
+ * @param {import('./lane-client.js').LaneEntry[]} roster
+ */
+function renderLaneStrip(roster) {
+  const strip = byId('lane-strip');
+  strip.textContent = '';
+  for (const entry of roster) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'lane-tab';
+    const current = entry.lane === CURRENT_LANE;
+    button.classList.toggle('active', current);
+    button.setAttribute('aria-pressed', current ? 'true' : 'false');
+    // Text node, never markup: the label originates in deployment config,
+    // which is off-panel input like everything else this bundle renders.
+    button.textContent = laneLabel(entry);
+    button.title = current
+      ? `This panel is on the '${entry.lane}' plan lane.`
+      : `Switch this panel to the '${entry.lane}' plan lane.`;
+    if (!current) {
+      button.addEventListener('click', () => {
+        window.location.search = laneSearch(window.location.search, entry.lane);
+      });
+    }
+    strip.appendChild(button);
+  }
+  strip.hidden = false;
+}
+
+/**
+ * Fetch the sidecar's lane roster — once per panel load — and show the lane
+ * picker when there is more than one lane to pick. A single-lane deployment
+ * (every deployment until a second lane is opted in) takes the early return
+ * and renders exactly the panel it always has; so does any failure to read
+ * the roster, which is the direction that cannot invent a lane.
+ *
+ * A document pinned to a lane the roster does not know is said out loud
+ * instead of being silently rerouted: every request is already 404ing at the
+ * sidecar (`unknown bluesky lane`), and this banner is the one place that
+ * explains why. Wrong-machine silence is the failure mode; a loud refusal is
+ * recoverable.
+ *
+ * @returns {Promise<void>}
+ */
+async function loadLaneRoster() {
+  let roster;
+  try {
+    const response = await fetch(`${PREFIX}/lanes`);
+    if (!response.ok) return;
+    roster = parseLaneRoster(await response.json());
+  } catch {
+    return;
+  }
+  if (!laneIsKnown(roster, CURRENT_LANE)) {
+    const banner = byId('lane-banner');
+    banner.textContent =
+      `This deployment renders no '${CURRENT_LANE}' plan lane — every request from ` +
+      'this panel is being refused. Pick a rendered lane below.';
+    banner.hidden = false;
+  } else if (roster.length < 2) {
+    return;
+  }
+  renderLaneStrip(roster);
+}
+
+void loadLaneRoster();
