@@ -747,6 +747,9 @@ is a name, an alternate name, a section or a device class.</p>
 report what the store is and which commands act on it. Health reports the store
 instead of a database: whether it is reachable, and how many resources it holds
 (<a class="reference internal" href="health-and-monitoring/configure-health-checks.html"><span class="doc">Configure Health Checks</span></a>).</p>
+<p>The web explorer opens on this pipeline too, and reads the same store: its
+Explore view draws the device classes the corpus holds rather than a channel
+tree. See <a class="reference internal" href="#web-interface">Web Interface</a> below.</p>
 </section>
 <section id="web-interface">
 <h2>Web Interface<a class="headerlink" href="#web-interface" title="Link to this heading">#</a></h2>
@@ -755,13 +758,21 @@ instead of a database: whether it is reachable, and how many resources it holds
 osprey<span class="w"> </span>channel-finder<span class="w"> </span>web<span class="w"> </span>--port<span class="w"> </span><span class="m">9000</span>
 </pre></div>
 </div>
-<p>The explorer browses a channel database, so on the graph pipeline it shows a
-short pane saying so instead of a tree; database statistics and validation are
-not offered there. Ask the OSPREY agent for the channels you need — it answers
-from the graph. The channel-suggestion typeahead in the web panels still
-works in graph mode: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> reads the channel names out of the
-Turtle corpus named by <code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code> and writes them into the
-snapshot the panels use.</p>
+<p>The explorer browses a channel database. On the graph pipeline there is no such
+file, so its Explore view shows the facility ontology instead: the store’s
+device classes drawn as a tree, each class carrying the number of devices under
+it and its subclasses, below a legend of the relationship types the store uses.
+A badge names the corpus file and the store it was loaded into, and chips name
+the tools the OSPREY agent queries that same store with. The header counts
+devices, channels, classes, signals and sections read live from the store; if
+the store is unreachable the view says so and offers a Retry, and if it is
+reachable but empty it names the <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">seed-graph</span></code> command that
+fills it. Channel validation is not offered on this pipeline. Ask the OSPREY
+agent for the channels you need — it answers from the graph. The
+channel-suggestion typeahead in the web panels still works in graph mode:
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> reads the channel names out of the Turtle corpus named by
+<code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code> and writes them into the snapshot the panels
+use.</p>
 <p>The <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> keys for every pipeline, and how the active one is served to
 the agent, are in <a class="reference internal" href="../reference/contracts/channel-finder.html"><span class="doc">Channel Finder Contracts</span></a>.</p>
 </section>
