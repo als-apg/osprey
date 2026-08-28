@@ -897,9 +897,10 @@ base denies the agent’s own deployment-editing tool, and the <code class="docu
 persona is the single delta that removes that deny. Writing the floor is
 not only a convention. A web terminal served without a login by a persona
 that can edit the deployment is refused by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span>
-<span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> alike, wherever the deployment has a login wall
-at all — with <code class="docutils literal notranslate"><span class="pre">auth.method:</span> <span class="pre">none</span></code> there is no wall to be exempt from, and
-the same exposure is reported as an advisory instead. On a profile that
+<span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> alike, wherever the deployment has a login page
+at all — with <code class="docutils literal notranslate"><span class="pre">auth.method</span></code> at <code class="docutils literal notranslate"><span class="pre">token</span></code> (the default) or <code class="docutils literal notranslate"><span class="pre">none</span></code> there
+is no wall to be exempt from, and the same exposure is reported as an
+advisory instead. On a profile that
 wrote no floor at all, where every persona holds everything, the only
 remedy that refusal can offer is to write one. See
 <a class="reference internal" href="../../how-to/web-terminal/multi-user/tiers.html"><span class="doc">Privilege Tiers</span></a>.</p>

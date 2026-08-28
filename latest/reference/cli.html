@@ -844,7 +844,7 @@ Prompts without echoing, and ends that user’s sessions.</p></td>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">login-url</span> <span class="pre">USER</span></code></p></td>
 <td><p>Print the URL that opens that user’s terminal. Only the URL goes to
 stdout, so it can be piped or copied. Refuses for a user who signs in
-through the login page.</p></td>
+through a login page, and for every user of an open deployment.</p></td>
 <td><p>—</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">env</span></code></p></td>
@@ -862,14 +862,18 @@ with.</p></td>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">login-url</span></code> builds the URL from that user’s operator secret in
 the repository’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>, which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> mints for every roster user in
 every auth mode. Opening it once trades the token for a session cookie. It is
-how someone gets in when nginx authenticates nobody — <code class="docutils literal notranslate"><span class="pre">auth.method:</span> <span class="pre">none</span></code>, or
-a roster entry with <code class="docutils literal notranslate"><span class="pre">login:</span> <span class="pre">false</span></code> — and it is a password: send each person
-only their own. Rotate one by deleting that user’s <code class="docutils literal notranslate"><span class="pre">OSPREY_TERMINAL_SECRET_*</span></code>
-line from <code class="docutils literal notranslate"><span class="pre">.env</span></code> and running <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> again.</p>
-<p>For a user who <em>is</em> behind the login wall the command refuses and names their
-login page instead. The URL would not work for them — the authentication
-service turns the request away before the terminal can read the token — and
-printing it would put a live credential in someone’s inbox for nothing.</p>
+how someone gets in when nginx stamps no credential on the request —
+<code class="docutils literal notranslate"><span class="pre">auth.method:</span> <span class="pre">token</span></code>, the default, or a roster entry with <code class="docutils literal notranslate"><span class="pre">login:</span> <span class="pre">false</span></code>
+— and it is a password: send each person only their own. Rotate one by deleting
+that user’s <code class="docutils literal notranslate"><span class="pre">OSPREY_TERMINAL_SECRET_*</span></code> line from <code class="docutils literal notranslate"><span class="pre">.env</span></code> and running
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> again.</p>
+<p>The command refuses in the two cases where the URL would accomplish nothing,
+rather than putting a live credential in someone’s inbox for it. A user behind
+a login page (<code class="docutils literal notranslate"><span class="pre">password</span></code>/<code class="docutils literal notranslate"><span class="pre">oidc</span></code>) is named their login page instead: the
+authentication service turns the request away before the terminal can read the
+token. A user of an open deployment (<code class="docutils literal notranslate"><span class="pre">auth.method:</span> <span class="pre">none</span></code>) is named their
+terminal’s plain address instead, because nginx vouches for that terminal on
+every request and there is no token to trade.</p>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">env</span></code> renders the same subset a deploy would generate, from the
 same two inputs — the rendered deploy config and the repository root’s env
 chain (<code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> then <code class="docutils literal notranslate"><span class="pre">.env</span></code>, so <code class="docutils literal notranslate"><span class="pre">.env</span></code> wins on a key both set) — so

@@ -520,16 +520,46 @@
                   
   <section id="require-a-login">
 <span id="multi-user-require-a-login"></span><h1>Require a Login<a class="headerlink" href="#require-a-login" title="Link to this heading">#</a></h1>
-<p>The landing page lists the roster; a login decides who may open a card. This
-page covers the two ways to require one — passwords OSPREY manages, or the
-single sign-on your facility already runs — the HTTPS that either needs, how a
-provider’s groups can pick which tier a login lands on, where passwords live,
-what a login leaves in the audit trail, and what to do when someone leaves.</p>
-<p>With no <code class="docutils literal notranslate"><span class="pre">auth</span></code> stanza nginx asks for no credentials and speaks plain HTTP —
-but the terminals behind it are not open. Each one authenticates every request
-against its own operator secret, which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> mints into the
-deployment’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> for every roster user whether or not authentication is
-on. Clicking a card on the landing page therefore reaches a terminal that
+<p>The landing page lists the roster; <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.auth.method</span></code>
+decides what stands between a card and the terminal behind it. There are four
+postures:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 15.0%" />
+<col style="width: 85.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p><code class="docutils literal notranslate"><span class="pre">method</span></code></p></th>
+<th class="head"><p>What a person meets</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">token</span></code></p></td>
+<td><p><strong>The default</strong>, and what an absent <code class="docutils literal notranslate"><span class="pre">auth</span></code> stanza means. No login
+page; each terminal is opened once from that user’s own login URL.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">none</span></code></p></td>
+<td><p><strong>Open.</strong> No login page and no URL either: the landing page is pure
+navigation, and a card opens its terminal. Only for a room where
+everyone who can reach the page is trusted.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">password</span></code></p></td>
+<td><p>A login page, against passwords OSPREY manages.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">oidc</span></code></p></td>
+<td><p>A login page, against the single sign-on your facility already runs.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>This page covers all four: what <code class="docutils literal notranslate"><span class="pre">open</span></code> requires before OSPREY will start it,
+the HTTPS a login page needs, how a provider’s groups can pick which tier a
+login lands on, where passwords live, and what to do when someone leaves.</p>
+<p>With no <code class="docutils literal notranslate"><span class="pre">auth</span></code> stanza the method is <code class="docutils literal notranslate"><span class="pre">token</span></code>: nginx asks for no credentials
+and speaks plain HTTP, but the terminals behind it are not open. Each one
+authenticates every request against its own operator secret, which <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<span class="pre">up</span></code> mints into the deployment’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> for every roster user in every
+posture. Clicking a card on the landing page therefore reaches a terminal that
 refuses you until you have opened that user’s login URL once:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>users<span class="w"> </span>login-url<span class="w"> </span>alice
 </pre></div>
@@ -539,7 +569,7 @@ person only their own, the way you would send a password; it stays valid until
 you rotate it, which means deleting that user’s <code class="docutils literal notranslate"><span class="pre">OSPREY_TERMINAL_SECRET_*</span></code>
 line from <code class="docutils literal notranslate"><span class="pre">.env</span></code> and running <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> again. (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> names the
 verb in its summary but never prints the URLs.)</p>
-<p>What this posture does <em>not</em> do is tell one person from another at the front
+<p>What <code class="docutils literal notranslate"><span class="pre">token</span></code> does <em>not</em> do is tell one person from another at the front
 door: whoever holds a URL is that user. It suits a <strong>single trusted host</strong> —
 a workstation or control-room machine you already trust — and nothing beyond
 it.</p>
@@ -551,11 +581,12 @@ demo posture: each roster user’s password is seeded into the repository’s
 via <code class="docutils literal notranslate"><span class="pre">login:</span> <span class="pre">false</span></code> (see below), and <code class="docutils literal notranslate"><span class="pre">allow_insecure_http:</span> <span class="pre">true</span></code> keeps the
 demo on plain HTTP. Those passwords authenticate a demo, not a facility: for
 any reachable host, set real passwords and serve TLS as described here.</p>
-<p>Set <code class="docutils literal notranslate"><span class="pre">auth.method</span></code> and every request under <code class="docutils literal notranslate"><span class="pre">/u/&lt;name&gt;/</span></code> — pages, APIs and
-the terminal’s live connection alike — is refused unless the browser holds a
-valid session for <em>that</em> user. The check happens at the front door: a small
-authentication service joins the stack in its own container, and nginx asks it
-about each request before proxying anything. Nothing depends on the per-user
+<p>Set <code class="docutils literal notranslate"><span class="pre">auth.method</span></code> to <code class="docutils literal notranslate"><span class="pre">password</span></code> or <code class="docutils literal notranslate"><span class="pre">oidc</span></code> and every request under
+<code class="docutils literal notranslate"><span class="pre">/u/&lt;name&gt;/</span></code> — pages, APIs and the terminal’s live connection alike — is
+refused unless the browser holds a valid session for <em>that</em> user. The check
+happens at the front door: a small authentication service joins the stack in
+its own container, and nginx asks it about each request before proxying
+anything. Nothing depends on the per-user
 containers policing themselves.</p>
 <p>Note that the persona split is a <em>capability</em> boundary, enforced per project —
 it decides what a session may do, never who may open it. Login answers the
@@ -565,6 +596,50 @@ gates every request on a session cookie, handed out by the login URL it prints
 at startup, so “no login” is never the single-user default either.</p>
 <section id="choose-a-method">
 <h2>Choose a method<a class="headerlink" href="#choose-a-method" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">token</span></code> is described above and needs no stanza. The other three are here.</p>
+<p id="multi-user-open-mode"><strong>Open</strong> — no credential anywhere. For a control room whose console is already
+behind a locked door, and which may have no route to the internet to send a
+per-user link over:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">auth</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">none</span>
+</pre></div>
+</div>
+<p>The landing page becomes pure navigation: click a card and the terminal opens.
+nginx vouches for the request itself, stamping that user’s operator secret onto
+every request it proxies, so no token URL exists — <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">login-url</span></code>
+refuses for those users and prints the terminal’s plain address instead.</p>
+<p>Open mode is only safe where nothing inside the deployment can reach it back.
+An agent’s own tools reach nginx over loopback and look exactly like the
+operator’s browser from there, so they would be served whichever terminal they
+asked for. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> therefore refuses to start an open deployment unless
+<strong>every</strong> persona’s shipped <code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code> denies all four of
+<code class="docutils literal notranslate"><span class="pre">Bash</span></code>, <code class="docutils literal notranslate"><span class="pre">WebFetch</span></code>, <code class="docutils literal notranslate"><span class="pre">WebSearch</span></code> and
+<code class="docutils literal notranslate"><span class="pre">mcp__plugin_playwright_playwright__*</span></code>; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<span class="pre">profile</span> <span class="pre">validate</span></code> report the same thing earlier, as the error
+<code class="docutils literal notranslate"><span class="pre">web_terminals.open_mode_egress</span></code>. Either way the message names the persona
+and the entries it is missing.</p>
+<p>All four are in OSPREY’s deny defaults, so a refusal almost always means a
+persona lifted one. Put it back in that persona’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block —</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="c1"># and nothing under remove_deny may name one of these four</span>
+<span class="w">  </span><span class="nt">claude_code.permissions.deny</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">[</span><span class="s">&quot;Bash&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;WebFetch&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;WebSearch&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;mcp__plugin_playwright_playwright__*&quot;</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<p>— then <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> to render it and rebuild that persona’s image, because
+the settings file that runs is the one baked into the image. Where a persona
+genuinely needs one of the four, use <code class="docutils literal notranslate"><span class="pre">method:</span> <span class="pre">token</span></code> instead and keep the
+per-user login URLs.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>The python executor refuses connections from executed code to this
+deployment’s own web ports under <code class="docutils literal notranslate"><span class="pre">none</span></code>, but that guard runs inside the
+agent’s own process and is defence in depth rather than a boundary: an agent
+process determined enough to defeat it could still reach a terminal, so
+<code class="docutils literal notranslate"><span class="pre">none</span></code> is for rooms where everyone — the agents included — is trusted.</p>
+</div>
 <p><strong>Passwords</strong>, managed by OSPREY. Nothing extra to run or operate:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
@@ -784,17 +859,19 @@ opt out of the login wall:</p>
 <span class="w">    </span><span class="nt">login</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
 </pre></div>
 </div>
-<p>With authentication on, that entry sits outside the login wall: nginx never
-asks the authentication service about it, and no password is provisioned for it
-(<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">passwd</span></code> refuses the name and says why). Outside the wall is not
-the same as open — the entry is gated exactly as the whole deployment is with
-authentication off, by its own operator secret, so a browser still has to open
+<p>Under <code class="docutils literal notranslate"><span class="pre">password</span></code> or <code class="docutils literal notranslate"><span class="pre">oidc</span></code> that entry sits outside the login wall: nginx
+never asks the authentication service about it, and no password is provisioned
+for it (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">passwd</span></code> refuses the name and says why). Under <code class="docutils literal notranslate"><span class="pre">none</span></code>
+it is the one entry nginx does <em>not</em> vouch for. Outside is not the same as
+open, in either posture — the entry is gated the way every terminal is under
+<code class="docutils literal notranslate"><span class="pre">token</span></code>, by its own operator secret, so a browser still has to open
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">login-url</span> <span class="pre">ariel</span></code> once. Cookies from the login wall never reach
 its container.</p>
 <p>Only the literal <code class="docutils literal notranslate"><span class="pre">false</span></code> opts an entry out. Absence, <code class="docutils literal notranslate"><span class="pre">true</span></code>, and any typo
 all mean “login required” — a misspelling can lock an entry down, never open it
 up — and lint reports a non-boolean value. The key is inert while
-<code class="docutils literal notranslate"><span class="pre">auth.method</span></code> is <code class="docutils literal notranslate"><span class="pre">none</span></code>, which lint points out as well.</p>
+<code class="docutils literal notranslate"><span class="pre">auth.method</span></code> is <code class="docutils literal notranslate"><span class="pre">token</span></code>, where nginx stamps nothing for an entry to be
+exempt from; lint points that out as well.</p>
 <p>Opting out is for entries whose <em>content</em> is public by design. Anything that
 can reach a control system, write anywhere, or spend provider tokens belongs
 behind the wall.</p>
@@ -812,8 +889,9 @@ last in the roster so the operator cards keep their ports.</p>
 <section id="serve-it-over-https">
 <span id="multi-user-https"></span><h2>Serve it over HTTPS<a class="headerlink" href="#serve-it-over-https" title="Link to this heading">#</a></h2>
 <p>A session cookie sent over plain HTTP is readable by anything on the path, so a
-deployment with <code class="docutils literal notranslate"><span class="pre">auth.method</span></code> other than <code class="docutils literal notranslate"><span class="pre">none</span></code> and <code class="docutils literal notranslate"><span class="pre">tls.enabled:</span> <span class="pre">false</span></code>
-<strong>refuses to render at all</strong> rather than hand out cookies in the clear. You
+deployment with a login page — <code class="docutils literal notranslate"><span class="pre">auth.method</span></code> of <code class="docutils literal notranslate"><span class="pre">password</span></code> or <code class="docutils literal notranslate"><span class="pre">oidc</span></code> —
+and <code class="docutils literal notranslate"><span class="pre">tls.enabled:</span> <span class="pre">false</span></code> <strong>refuses to render at all</strong> rather than hand out
+cookies in the clear. You
 therefore have to pick one of two ways to get the connection encrypted.</p>
 <p><strong>Let this nginx terminate TLS.</strong> Set <code class="docutils literal notranslate"><span class="pre">tls.enabled:</span> <span class="pre">true</span></code> with a certificate
 and key, and nginx serves HTTPS on 443, redirects the plain port to it, and marks
@@ -920,10 +998,13 @@ nobody else’s are touched.</p>
 </section>
 <section id="sessions-logging-out-and-rolling-back">
 <h2>Sessions, logging out, and rolling back<a class="headerlink" href="#sessions-logging-out-and-rolling-back" title="Link to this heading">#</a></h2>
+<p>This section is about the login page, so it applies to <code class="docutils literal notranslate"><span class="pre">password</span></code> and
+<code class="docutils literal notranslate"><span class="pre">oidc</span></code>; under <code class="docutils literal notranslate"><span class="pre">none</span></code> a card <em>is</em> the door, which is that posture’s whole
+point.</p>
 <p>The landing page stays public — it lists the roster so people can find their own
-card, and a card is a prompt, not a door. One browser may hold several unlocked
-users at once, which is what a shared control-room machine needs; logging out
-ends that one user’s session and leaves the others alone.</p>
+card, and behind a login page a card is a prompt, not a door. One browser may
+hold several unlocked users at once, which is what a shared control-room machine
+needs; logging out ends that one user’s session and leaves the others alone.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>The list of logged-out sessions is held in the authentication service’s
@@ -967,11 +1048,14 @@ authentication service when it actually removed a password entry — and an OIDC
 user has none. Their container is gone either way, so the stale route just
 fails; but if what you need is that person’s <em>session</em> closed now, run
 <code class="docutils literal notranslate"><span class="pre">decommission</span></code>.</p>
-<p>To turn login back off, set <code class="docutils literal notranslate"><span class="pre">auth.method:</span> <span class="pre">none</span></code> and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>.
-That re-renders nginx and the compose file, drops the authentication service,
-and returns the stack to the open posture described at the top of this section.
-<code class="docutils literal notranslate"><span class="pre">.env.auth</span></code> is left in place, so turning login on again keeps everyone’s
-existing password.</p>
+<p>To turn the login page back off, set <code class="docutils literal notranslate"><span class="pre">auth.method:</span> <span class="pre">token</span></code> and run <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<span class="pre">up</span></code>. That re-renders nginx and the compose file, drops the authentication
+service, and returns the stack to the per-user login URLs described at the top
+of this page. <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code> is left in place, so turning login on again keeps
+everyone’s existing password. <code class="docutils literal notranslate"><span class="pre">auth.method:</span> <span class="pre">none</span></code> goes one step further and
+drops the URLs too — it is refused unless every persona denies the four egress
+tools, so read <a class="reference internal" href="#multi-user-open-mode"><span class="std std-ref">the open posture</span></a> before you switch
+to it.</p>
 </section>
 </section>
 
