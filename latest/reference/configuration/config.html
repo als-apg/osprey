@@ -987,6 +987,23 @@ dialog’s Local channel is always available and needs no configuration at all.<
 <p>A build profile overrides any of these keys from its <code class="docutils literal notranslate"><span class="pre">config:</span></code> block in the
 dotted form, e.g. <code class="docutils literal notranslate"><span class="pre">web.feedback.max_store_bytes:</span> <span class="pre">536870912</span></code>.</p>
 </section>
+<section id="dangerously-allow-bash-waiving-the-bash-launch-token-refusal">
+<span id="config-dangerously-allow-bash"></span><h3><code class="docutils literal notranslate"><span class="pre">dangerously_allow_bash</span></code> — waiving the Bash/launch-token refusal<a class="headerlink" href="#dangerously-allow-bash-waiving-the-bash-launch-token-refusal" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses to deploy a persona that is entitled to a Bluesky launch
+token while its <code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code> does not deny <code class="docutils literal notranslate"><span class="pre">Bash</span></code>: a shell could
+read the token out of its own environment and arm a queue with no approval.
+One root-level key waives that refusal, for a development box with a single
+trusted operator and no live machine behind it:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">dangerously_allow_bash</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</pre></div>
+</div>
+<p>It takes the boolean <code class="docutils literal notranslate"><span class="pre">true</span></code> and nothing else — any other value is a config
+error. Absent, the refusal stands exactly as before. When set, every
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> prints a warning naming the personas it waved through, and the
+closing card carries a <code class="docutils literal notranslate"><span class="pre">dangerously_allow_bash</span></code> row. The key belongs to
+<a class="reference internal" href="#config-protected-set"><span class="std std-ref">the protected set</span></a>, so the running agent cannot
+set it. A build profile sets it from its <code class="docutils literal notranslate"><span class="pre">config:</span></code> block.</p>
+</section>
 </section>
 <section id="deployment-service-images-and-var-interpolation">
 <span id="config-deployment"></span><h2>Deployment — service images and <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> interpolation<a class="headerlink" href="#deployment-service-images-and-var-interpolation" title="Link to this heading">#</a></h2>
@@ -1292,6 +1309,7 @@ recorded in <a class="reference internal" href="../contracts/audit-trail.html#re
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#web-documentation-feedback-and-the-chat-pool"><code class="docutils literal notranslate"><span class="pre">web:</span></code> — documentation, feedback and the chat pool</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#documentation-and-feedback-keys">Documentation and feedback keys</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#blank-absent-and-written-with-no-value">Blank, absent, and written-with-no-value</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#dangerously-allow-bash-waiving-the-bash-launch-token-refusal"><code class="docutils literal notranslate"><span class="pre">dangerously_allow_bash</span></code> — waiving the Bash/launch-token refusal</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#deployment-service-images-and-var-interpolation">Deployment — service images and <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> interpolation</a><ul class="visible nav section-nav flex-column">

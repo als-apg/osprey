@@ -191,8 +191,10 @@ quirks worth knowing:
    attempt to start the queue is refused — a plan someone emergency-stopped
    can never sneak back onto the machine.
 
-   Removing it is the deliberate step: the ✕ on its queue row. To actually
-   run it again afterwards, stage it through the draft and add it afresh.
+   Removing it is the deliberate step: the ✕ on its queue row, or the
+   assistant's ``queue_remove`` tool — which asks for your approval, so the
+   decision stays yours either way. To actually run it again afterwards,
+   stage it through the draft and add it afresh.
 
 .. dropdown:: Where the data lives
    :color: info
