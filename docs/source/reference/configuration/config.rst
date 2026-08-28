@@ -726,8 +726,6 @@ it: that is the one gesture that means the same thing on both providers.
 
 .. _config-protected-set:
 
-.. _config-protected-set:
-
 The protected set
 -----------------
 
