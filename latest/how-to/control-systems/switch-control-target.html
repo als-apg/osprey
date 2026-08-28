@@ -867,6 +867,13 @@ reports the lane it bound the plan to, and <code class="docutils literal notrans
 so a plan composed for the simulator cannot be started on the machine because
 the session moved in between. See <a class="reference internal" href="../bluesky/index.html"><span class="doc">Bluesky Plans</span></a> for the plan stack
 itself.</p>
+<p>The <strong>BLUESKY panel</strong> follows the same two-lane deployment with a picker of its
+own. A panel is shared by every session, so it cannot follow any one session’s
+target; instead it shows which machine it is pointed at in its status strip —
+labelled by target, <code class="docutils literal notranslate"><span class="pre">live</span></code> / <code class="docutils literal notranslate"><span class="pre">va</span></code> — and switching lanes there reloads the
+panel onto the other lane’s bridge: its plans, shared draft, queue and results
+all move together, and starting the queue uses that lane’s own launch token. A
+single-lane deployment shows no picker and nothing about its panel changes.</p>
 </section>
 <section id="rehearse-with-a-stand-in-live-machine">
 <h2>Rehearse with a stand-in live machine<a class="headerlink" href="#rehearse-with-a-stand-in-live-machine" title="Link to this heading">#</a></h2>
