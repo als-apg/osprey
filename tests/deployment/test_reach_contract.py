@@ -473,6 +473,120 @@ def test_a_render_with_no_live_consumer_is_refused_nothing():
     assert reach_errors({}) == []
 
 
+# A deploying render — `deployed_services` non-empty — is the other side of the
+# same contract. Its consumers' clients dial the port the deployment's OWN
+# service publishes on loopback, and a consumer whose resolver always answers
+# (a compiled-in default) cannot be refused for lack of an endpoint. It has to
+# be refused for the deployment not running the service that endpoint implies.
+
+
+def test_a_deploying_render_refuses_a_consumer_of_a_service_it_does_not_deploy():
+    """The `bluesky: null` hole: removing the Bluesky stack from a profile is a
+    two-key edit (the ``bluesky:`` block that injects the service, and
+    ``claude_code.servers.bluesky.enabled`` that switches its consumer on), and
+    a profile that removed only the block rendered clean — the bluesky MCP
+    server then dialed 127.0.0.1:8090 at first use and found nothing."""
+    config = {
+        "claude_code": {"servers": {"bluesky": {"enabled": True}}},
+        "deployed_services": ["postgresql"],
+    }
+
+    (error,) = reach_errors(config)
+
+    assert "bluesky MCP server" in error
+    assert "claude_code.servers.bluesky.enabled" in error
+    assert "`bluesky`" in error
+    assert "deployed_services" in error
+
+
+def test_every_always_resolving_consumer_is_refused_the_same_way():
+    """Each consumer whose client resolver always answers from a shipped
+    default is refused on a deploying render that does not run its service —
+    not only the bluesky one the hole was found in."""
+    cases = {
+        "postgresql": {"ariel": {"search_modules": {}}},
+        "openobserve": {"claude_code": {"telemetry": {"enabled": True, "backend": "openobserve"}}},
+        "virtual_accelerator": {"control_system": {"type": "virtual_accelerator"}},
+    }
+    for service, switched_on in cases.items():
+        errors = reach_errors({**switched_on, "deployed_services": ["qmd"]})
+        assert len(errors) == 1, (service, errors)
+        assert f"`{service}`" in errors[0], (service, errors)
+
+
+def test_an_attached_render_is_told_its_hosts_service_and_is_not_refused():
+    """An attached render (``deploy_services: false``) renders
+    ``deployed_services: []``: its clients dial the HOSTING deployment's
+    published port on the shared network namespace, which is exactly what the
+    projection is for. The deploying rule must not touch it — with the key
+    empty or absent alike."""
+    switched_on = {"claude_code": {"servers": {"bluesky": {"enabled": True}}}}
+
+    assert reach_errors({**switched_on, "deployed_services": []}) == []
+    assert reach_errors(switched_on) == []
+
+
+def test_a_deploying_render_that_runs_the_service_is_not_refused():
+    config = {
+        "claude_code": {"servers": {"bluesky": {"enabled": True}}},
+        "services": {"bluesky": {"port": 8090}},
+        "deployed_services": ["postgresql", "bluesky"],
+    }
+
+    assert reach_errors(config) == []
+
+
+def test_a_deploying_render_may_name_a_service_it_does_not_run():
+    """The documented external shapes: a graph store the facility runs
+    (``services.graphdb.uri`` with ``graphdb`` left OUT of
+    ``deployed_services``), an ARIEL database named by DSN, a bridge named by
+    URL. Each names the endpoint outright rather than deriving it from a
+    service this deployment would publish, so there is nothing to refuse."""
+    external = [
+        {
+            "channel_finder": {"pipeline_mode": "graph"},
+            "services": {"graphdb": {"uri": "bolt://graph.facility.org:7687"}},
+        },
+        {"ariel": {"database": {"uri": "postgresql://ariel@db.facility.org/ariel"}}},
+        {
+            "claude_code": {"servers": {"bluesky": {"enabled": True}}},
+            "bluesky": {"bridge_url": "http://bridge.facility.org:8090"},
+        },
+    ]
+    for config in external:
+        assert reach_errors({**config, "deployed_services": ["openobserve"]}) == [], config
+
+
+def test_the_deploying_rule_has_no_consumer_to_refuse_where_no_client_dials():
+    """Two kinds of contract carry no consumer at all, so no rule that walks
+    live consumers can refuse them — and that is the truth of each:
+
+    * ``derived_by`` (mongodb ← va_archiver): the archiver connector's client
+      facts are derived from the ``va_archiver:`` block on their own build
+      path, which refuses an attached profile that names no host itself.
+    * ``no_client_reach`` (the recorder, the dispatch worker, the chat
+      bridges): nothing inside a persona container dials them; each is a
+      host-side writer or a worker that dials the persona, never the reverse.
+    """
+    silent = [
+        contract
+        for contract in REACH_CONTRACTS.values()
+        if contract.derived_by or contract.no_client_reach
+    ]
+    assert {c.service for c in silent} >= {"mongodb", "archiver_recorder", "dispatch_worker"}
+    for contract in silent:
+        assert contract.consumers == (), contract.service
+
+    # A deploying render that reads an archive and dispatches events, with none
+    # of those services in its list, is refused nothing on their account.
+    config = {
+        "archiver": {"type": "mongodb_archiver"},
+        "va_archiver": {"host": "localhost"},
+        "deployed_services": ["postgresql"],
+    }
+    assert reach_errors(config) == []
+
+
 def test_bluesky_panel_secret_vars_follow_each_users_own_project(tmp_path):
     """The roster grant is per USER: a persona user by their persona's rendered
     config, a persona-less user by the deploy config they run (the same rule
