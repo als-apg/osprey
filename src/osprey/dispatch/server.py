@@ -495,7 +495,7 @@ def create_server() -> FastMCP:
     # prompts, and run history. The dashboard reaches them two ways:
     #   • In-terminal EVENTS tab: the web-terminal proxy injects the bearer token
     #     server-side (the browser never holds it).
-    #   • Standalone (direct to :8020): the dashboard JS supplies the token from a
+    #   • Standalone (direct to :9900): the dashboard JS supplies the token from a
     #     one-time ``#token=`` fragment handoff (kept out of server logs) as an
     #     Authorization header on its fetch/poll calls. The live SSE stream is
     #     header-gated too, so it is unavailable on the standalone path (EventSource

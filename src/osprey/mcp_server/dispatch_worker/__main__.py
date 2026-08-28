@@ -16,7 +16,7 @@ def main() -> None:
     uvicorn.run(
         "osprey.mcp_server.dispatch_worker.dispatch_api:app",
         host=os.environ.get("DISPATCH_WORKER_BIND", "0.0.0.0"),
-        port=int(os.environ.get("DISPATCH_WORKER_PORT", "9190")),
+        port=int(os.environ.get("DISPATCH_WORKER_PORT", "9901")),
     )
 
 

@@ -46,14 +46,14 @@ services:
       osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8020:8020"
+      - "127.0.0.1:9900:9900"
     environment:
       # FastMCP reads transport/host/port from FASTMCP_* (env prefix "FASTMCP_").
       # `python -m osprey.dispatch` -> run_mcp_server -> server.run() honors these;
       # plain MCP_* vars are NOT read by the dispatcher entrypoint.
       FASTMCP_TRANSPORT: http
       FASTMCP_HOST: 0.0.0.0
-      FASTMCP_PORT: "8020"
+      FASTMCP_PORT: "9900"
       # No :-default — an unset token must stay EMPTY so the server fails closed
       # (HTTP 503) rather than booting with a guessable secret. `osprey up`
       # auto-generates strong random tokens into the project .env when unset.
@@ -73,7 +73,7 @@ services:
     networks:
       - osprey-network
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8020/health').status==200 else 1)\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:9900/health').status==200 else 1)\""]
       interval: 10s
       timeout: 5s
       retries: 5

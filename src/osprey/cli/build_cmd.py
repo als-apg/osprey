@@ -793,7 +793,7 @@ def _names_service(value: str, dns_name: str) -> bool:
     value or follow something that is not part of a name (never a path
     separator, except the ``//`` that opens a URL authority), and must be
     followed by a port, a path, or the end of the value. So
-    ``http://event-dispatcher:8020``, ``event-dispatcher:8020`` and a bare
+    ``http://event-dispatcher:9900``, ``event-dispatcher:9900`` and a bare
     ``event-dispatcher`` all count, while ``/app/event-dispatcher`` and
     ``event-dispatcher-external`` do not.
     """

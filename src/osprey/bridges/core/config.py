@@ -45,12 +45,12 @@ class CoreConfig:
 
     # --- Dispatch pipeline endpoints ---------------------------------------
     dispatcher_url: str = "http://localhost:8010"
-    worker_url: str = "http://localhost:9190"
+    worker_url: str = "http://localhost:9901"
     event_dispatcher_token: str = ""
     """Bearer token for the dispatcher webhook (inbound to :8010)."""
 
     dispatch_worker_token: str = ""
-    """Bearer token for the worker run-status/artifact endpoints (:9190)."""
+    """Bearer token for the worker run-status/artifact endpoints (:9901)."""
 
     trigger: str = ""
     """Dispatcher trigger to fire (``POST /webhook/{trigger}``). Channel-set —
@@ -159,7 +159,7 @@ class CoreConfig:
 
         return cls(
             dispatcher_url=e.get("DISPATCHER_URL", "http://localhost:8010").rstrip("/"),
-            worker_url=e.get("WORKER_URL", "http://localhost:9190").rstrip("/"),
+            worker_url=e.get("WORKER_URL", "http://localhost:9901").rstrip("/"),
             event_dispatcher_token=e.get("EVENT_DISPATCHER_TOKEN", ""),
             dispatch_worker_token=e.get("DISPATCH_WORKER_TOKEN", ""),
             trigger=e.get("DISPATCH_TRIGGER", ""),

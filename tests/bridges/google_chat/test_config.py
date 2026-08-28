@@ -26,7 +26,7 @@ COMPLETE_ENV = {
 # unset one arrives as "" and no code default ever replaces it.
 BOOT_URL_ENV = {
     "DISPATCHER_URL": "http://dispatcher:8010",
-    "WORKER_URL": "http://worker:9190",
+    "WORKER_URL": "http://worker:9901",
 }
 
 
@@ -102,14 +102,14 @@ def test_neutral_vars_are_delegated_to_core_config():
     cfg = GoogleChatBridgeConfig.from_env(
         complete(
             DISPATCHER_URL="http://disp:8010/",
-            WORKER_URL="http://work:9190/",
+            WORKER_URL="http://work:9901/",
             POLL_INTERVAL="0.5",
             DEDUP_PATH="/data/gchat_dedup.json",
             HISTORY_PATH="/data/gchat_history.json",
         )
     )
     assert cfg.core.dispatcher_url == "http://disp:8010"
-    assert cfg.core.worker_url == "http://work:9190"
+    assert cfg.core.worker_url == "http://work:9901"
     assert cfg.core.event_dispatcher_token == "disp-token"
     assert cfg.core.dispatch_worker_token == "work-token"
     assert cfg.core.trigger == "gchat-question"
@@ -306,7 +306,7 @@ def test_absent_url_vars_still_fall_back_to_the_code_defaults():
     cfg = GoogleChatBridgeConfig.from_env(complete())
     assert (cfg.core.dispatcher_url, cfg.core.worker_url) == (
         "http://localhost:8010",
-        "http://localhost:9190",
+        "http://localhost:9901",
     )
     require_boot(cfg)  # no raise
 

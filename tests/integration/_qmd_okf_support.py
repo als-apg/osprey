@@ -117,12 +117,12 @@ def start_okf_sidecar(request: pytest.FixtureRequest, bundle_root: Path):
         # the MARKER shortened the lag; a sweep that happened to fire would make
         # it pass for the wrong reason.
         container.with_env("OSPREY_QMD_UPDATE_INTERVAL", "3600")
-        container.with_exposed_ports(8180)
+        container.with_exposed_ports(9800)
         container.with_volume_mapping(str(bundle_root), SIDECAR_BUNDLE_TARGET, "rw")
         return container
 
     container, port = start_or_fail(
-        build, label=f"qmd OKF sidecar ({QMD_SIDECAR_IMAGE})", port=8180
+        build, label=f"qmd OKF sidecar ({QMD_SIDECAR_IMAGE})", port=9800
     )
     request.addfinalizer(lambda: stop_quietly(container))
 

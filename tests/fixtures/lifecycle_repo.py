@@ -371,13 +371,16 @@ config:
     # add `external_origin: https://<what browsers open>` beside this line, or
     # every action inside a terminal is refused while every page still loads.
     # User number i gets base + i in each family below, so removing a user
-    # never shifts anyone else's ports. These all sit above this deployment's
-    # own service ports (5064, 8020, 8090/8091/8095) to avoid collisions.
-    web_base_port: 9091           # first per-user web-terminal port
-    artifact_base_port: 9291      # first per-user artifact-gallery port
-    ariel_base_port: 9391         # first per-user ARIEL search port
-    lattice_base_port: 9491       # first per-user lattice-dashboard port
-    channel_finder_base_port: 9591  # first per-user channel-finder panel port
+    # never shifts anyone else's ports. One hundred per family, base ending in
+    # 00 (91 terminal, 92 artifact, 93 ariel, 94 lattice, 95 channel finder;
+    # okf 96 and health 97 come from the registry defaults), clear of the
+    # singleton services in 98xx/99xx (qmd, dispatcher + workers) and of the
+    # bluesky lanes and Channel Access below 9000 (8090/8190/8095, 5064).
+    web_base_port: 9100           # first per-user web-terminal port
+    artifact_base_port: 9200      # first per-user artifact-gallery port
+    ariel_base_port: 9300         # first per-user ARIEL search port
+    lattice_base_port: 9400       # first per-user lattice-dashboard port
+    channel_finder_base_port: 9500  # first per-user channel-finder panel port
     default_persona: readonly   # used for any user below with no persona
     # Every terminal below asks for a login (user alice: password alice, and
     # so on — set in this repo's .env; rotate with `osprey users passwd`).
@@ -979,11 +982,11 @@ TRIGGERS_YML = """\
 #
 # Fire one with (`osprey up` mints EVENT_DISPATCHER_TOKEN into this repo's
 # .env; load it first: export $(grep -E '^EVENT_DISPATCHER_TOKEN=' .env | xargs)):
-#   curl -X POST http://localhost:8020/webhook/hello-dispatch \\
+#   curl -X POST http://localhost:9900/webhook/hello-dispatch \\
 #     -H "Authorization: Bearer $EVENT_DISPATCHER_TOKEN" \\
 #     -H "Content-Type: application/json" -d '{}'
 #
-# Watch progress stream in the dashboard at http://localhost:8020/dashboard
+# Watch progress stream in the dashboard at http://localhost:9900/dashboard
 #
 # (Retries fire on *dispatch failure* — i.e. when the dispatcher cannot reach
 # the worker — via the per-trigger `on_error: retry` policy. That path is not
@@ -992,9 +995,9 @@ TRIGGERS_YML = """\
 
 dispatcher:
   # The dispatcher forwards each fired trigger to this worker. The compose
-  # template names the single worker "dispatch-worker-1" on port 9190.
+  # template names the single worker "dispatch-worker-1" on port 9901.
   # (Multi-worker load distribution is not yet implemented — see docs.)
-  dispatch_target: http://dispatch-worker-1:9190
+  dispatch_target: http://dispatch-worker-1:9901
   max_concurrent_runs: 2
   max_queue_depth: 50
 
@@ -1011,7 +1014,7 @@ triggers:
   # 2. The webhook JSON body arrives as the agent's context. Zero tools keeps
   #    this cheap and focused on the payload lesson. Try it with a realistic
   #    event body, e.g.:
-  #      curl -X POST http://localhost:8020/webhook/triage-event \\
+  #      curl -X POST http://localhost:9900/webhook/triage-event \\
   #        -H "Authorization: Bearer $EVENT_DISPATCHER_TOKEN" \\
   #        -H "Content-Type: application/json" \\
   #        -d '{"signal":"demo:vacuum:pressure","value":4.2,"threshold":3.0}'
@@ -1549,16 +1552,16 @@ fi
 if wants web; then
   printf '\\n%s── Web terminal ──%s\\n\\n' "$BOLD" "$RESET"
   probe_http 'landing page'      http://localhost:9080/
-  probe_http 'terminal (alice)'  http://localhost:9091/health
-  probe_http 'terminal (bob)'    http://localhost:9092/health
-  probe_http 'terminal (ariel)'  http://localhost:9093/health
-  probe_http 'terminal (carol)'  http://localhost:9094/health
+  probe_http 'terminal (alice)'  http://localhost:9100/health
+  probe_http 'terminal (bob)'    http://localhost:9101/health
+  probe_http 'terminal (ariel)'  http://localhost:9102/health
+  probe_http 'terminal (carol)'  http://localhost:9103/health
 fi
 
 # ── Event dispatch ───────────────────────────────────────────────────────────
 if wants dispatch; then
   printf '\\n%s── Event dispatch ──%s\\n\\n' "$BOLD" "$RESET"
-  probe_http 'dispatcher health' http://localhost:8020/health
+  probe_http 'dispatcher health' http://localhost:9900/health
 fi
 
 printf '\\n%sProbes are advisory — a failure here does not mean the deploy failed.%s\\n\\n' \\

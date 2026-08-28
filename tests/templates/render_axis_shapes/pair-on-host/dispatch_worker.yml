@@ -79,7 +79,7 @@ services:
     environment:
       # No :-default (see event_dispatcher compose): fail closed on an unset token.
       DISPATCH_WORKER_TOKEN: ${DISPATCH_WORKER_TOKEN}
-      DISPATCH_WORKER_PORT: "9190"
+      DISPATCH_WORKER_PORT: "9901"
       # On the host namespace the worker's listening socket IS a host socket,
       # so it binds the loopback interface rather than every interface: the
       # dispatcher and the health probe both reach it as localhost, and nothing
@@ -187,7 +187,7 @@ services:
       - ./var/audit/dispatch-worker-1:/app/golden-project/var/audit/dispatch-worker-1
     network_mode: host
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:9190/health').status==200 else 1)\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:9901/health').status==200 else 1)\""]
       interval: 10s
       timeout: 5s
       retries: 5

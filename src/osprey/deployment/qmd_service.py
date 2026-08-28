@@ -11,7 +11,7 @@ Config shape, as it appears in a project's ``config.yml``::
     services:
       qmd:
         path: ./services/qmd
-        port: 8180
+        port: 9800
         interval: 30
         models_dir: /srv/osprey/qmd-models   # optional; see below
 
@@ -61,7 +61,7 @@ QMD_SERVICE_NAME = "qmd"
 #: internal 8181 and fronts it with a forwarder that owns the routable port.
 #: Keeping the two numbers distinct means "8181" always names the private
 #: daemon and this port always names the endpoint clients talk to.
-DEFAULT_PORT = 8180
+DEFAULT_PORT = 9800
 
 #: Interface every deployed service publishes on when ``deployment`` is absent.
 #: Matches the ``| default('127.0.0.1')`` the service compose templates spell.

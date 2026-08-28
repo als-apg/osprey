@@ -251,7 +251,7 @@ def test_the_health_check_probes_the_dispatcher(rendered: dict[str, str]) -> Non
     silently dropped.
     """
     assert (
-        "probe_http 'dispatcher health' http://localhost:8020/health"
+        "probe_http 'dispatcher health' http://localhost:9900/health"
         in (rendered["scripts/verify.sh"])
     )
 
@@ -282,10 +282,10 @@ def test_the_web_probes_split_the_perimeter_from_the_application(
     targets = re.findall(r"^\s*probe_http\s+'([^']+)'\s+(\S+)$", web.group(1), re.MULTILINE)
     assert targets == [
         ("landing page", "http://localhost:9080/"),
-        ("terminal (alice)", "http://localhost:9091/health"),
-        ("terminal (bob)", "http://localhost:9092/health"),
-        ("terminal (ariel)", "http://localhost:9093/health"),
-        ("terminal (carol)", "http://localhost:9094/health"),
+        ("terminal (alice)", "http://localhost:9100/health"),
+        ("terminal (bob)", "http://localhost:9101/health"),
+        ("terminal (ariel)", "http://localhost:9102/health"),
+        ("terminal (carol)", "http://localhost:9103/health"),
     ]
 
 

@@ -64,7 +64,7 @@ COLLECTIONS_SPEC="${OSPREY_QMD_COLLECTIONS:-}"
 # to depends on the environment. Either way it is unreachable from outside its
 # own network namespace. INTERNAL_PORT is where the daemon actually listens;
 # PORT is the routable port the forwarder owns and clients connect to.
-PORT="${OSPREY_QMD_PORT:-8180}"
+PORT="${OSPREY_QMD_PORT:-9800}"
 INTERNAL_PORT="${OSPREY_QMD_INTERNAL_PORT:-8181}"
 
 # Fallback sweep interval. The marker file is the primary freshness trigger --

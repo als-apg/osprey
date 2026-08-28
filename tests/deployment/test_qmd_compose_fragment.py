@@ -11,7 +11,7 @@ tested is the derivation a deploy actually uses.
 
 Four further properties carry the design and each has its own test:
 
-* **The published port is 8180, never 8181.** qmd's own daemon hardcodes
+* **The published port is 9800, never 8181.** qmd's own daemon hardcodes
   ``listen(port, "localhost")`` — no ``--host`` flag, no env override — so it
   answers only on a loopback address inside the container, unreachable from any
   other container. Which loopback family that is depends on the host: Node
@@ -155,8 +155,8 @@ BOTH_CORPORA = {
 # ---------------------------------------------------------------------------
 
 
-def test_publishes_8180_not_qmds_own_8181():
-    """8180 is the forwarder's port; 8181 is the unreachable daemon's.
+def test_publishes_9800_not_qmds_own_8181():
+    """9800 is the forwarder's port; 8181 is the unreachable daemon's.
 
     qmd binds a loopback address — whichever family the host resolves
     ``localhost`` to — and offers no ``--host`` flag, so a fragment that
@@ -165,8 +165,8 @@ def test_publishes_8180_not_qmds_own_8181():
     """
     service = compose_service()
 
-    assert service["ports"] == ["127.0.0.1:8180:8180"]
-    assert service["environment"]["OSPREY_QMD_PORT"] == "8180"
+    assert service["ports"] == ["127.0.0.1:9800:9800"]
+    assert service["environment"]["OSPREY_QMD_PORT"] == "9800"
     # 8181 appears in the fragment's header comment, explaining why it is NOT
     # here; it must not appear in anything compose acts on.
     assert "8181" not in yaml.safe_dump(service)
@@ -200,7 +200,7 @@ def test_port_default_tracks_the_schema_module():
 def test_bind_address_comes_from_the_project_wide_key():
     service = compose_service(deployment={"bind_address": "0.0.0.0"})
 
-    assert service["ports"] == ["0.0.0.0:8180:8180"]
+    assert service["ports"] == ["0.0.0.0:9800:9800"]
 
 
 def test_per_service_bind_address_is_inert():
@@ -214,11 +214,11 @@ def test_per_service_bind_address_is_inert():
         qmd={"bind_address": "0.0.0.0"}, deployment={"bind_address": "127.0.0.1"}
     )
 
-    assert service["ports"] == ["127.0.0.1:8180:8180"]
+    assert service["ports"] == ["127.0.0.1:9800:9800"]
 
 
 def test_bind_address_defaults_to_loopback_with_no_deployment_block():
-    assert compose_service()["ports"] == ["127.0.0.1:8180:8180"]
+    assert compose_service()["ports"] == ["127.0.0.1:9800:9800"]
 
 
 # ---------------------------------------------------------------------------
@@ -467,7 +467,7 @@ def test_health_probe_goes_through_the_forwarder():
     whose published path is dead."""
     service = compose_service()
 
-    assert "http://127.0.0.1:8180/health" in service["healthcheck"]["test"][1]
+    assert "http://127.0.0.1:9800/health" in service["healthcheck"]["test"][1]
 
 
 def test_health_start_period_outlasts_a_first_boot_full_build():

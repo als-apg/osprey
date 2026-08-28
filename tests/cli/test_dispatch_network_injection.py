@@ -39,7 +39,7 @@ services:
   postgresql: {}
   event_dispatcher:
     path: ./services/event_dispatcher
-    port: 8020
+    port: 9900
     facility_name: ALS
     pv_strip_prefix: 'ALS:'
     additional_dirs:
@@ -48,14 +48,14 @@ services:
   dispatch_worker:
     path: ./services/dispatch_worker
     worker_count: 1
-    worker_port_base: 9190
+    worker_port_base: 9901
     workspace_mode: isolated
     timeout_sec: 300
     inactivity_sec: 120
 web:
   panels:
     events:
-      url: http://localhost:8020
+      url: http://localhost:9900
       path: /dashboard
       label: EVENTS
       health_endpoint: /health
@@ -69,9 +69,9 @@ web:
 PRE_AXIS_TRIGGERS_DISPATCHER = """\
 dispatcher:
   # The dispatcher forwards each fired trigger to this worker. The compose
-  # template names the single worker "dispatch-worker-1" on port 9190.
+  # template names the single worker "dispatch-worker-1" on port 9901.
   # (Multi-worker load distribution is not yet implemented — see docs.)
-  dispatch_target: http://dispatch-worker-1:9190
+  dispatch_target: http://dispatch-worker-1:9901
   max_concurrent_runs: 2
   max_queue_depth: 50
 """
@@ -168,7 +168,7 @@ class TestBridgeDefault:
         _inject_dispatch(_dispatch(), profile_dir=profile_dir, project_path=project_path)
 
         assert _dispatcher_block(project_path)["dispatch_target"] == (
-            "http://dispatch-worker-1:9190"
+            "http://dispatch-worker-1:9901"
         )
 
     def test_dispatcher_block_is_written_out_pre_axis_byte_for_byte(self, tmp_path: Path) -> None:
@@ -212,14 +212,14 @@ class TestHostMode:
         services = _services(project_path)
         dispatcher = services["event_dispatcher"]
         assert dispatcher["path"] == "./services/event_dispatcher"
-        assert dispatcher["port"] == 8020
+        assert dispatcher["port"] == 9900
         assert dispatcher["facility_name"] == "ALS"
         assert dispatcher["pv_strip_prefix"] == "ALS:"
         assert dispatcher["additional_dirs"] == [{"src": "triggers.yml", "dst": "triggers.yml"}]
         worker = services["dispatch_worker"]
         assert worker["path"] == "./services/dispatch_worker"
         assert worker["worker_count"] == 1
-        assert worker["worker_port_base"] == 9190
+        assert worker["worker_port_base"] == 9901
         assert worker["workspace_mode"] == "isolated"
         assert worker["timeout_sec"] == 300
         assert worker["inactivity_sec"] == 120
@@ -236,7 +236,7 @@ class TestHostMode:
             _dispatch(network="host"), profile_dir=profile_dir, project_path=project_path
         )
 
-        assert _dispatcher_block(project_path)["dispatch_target"] == "http://localhost:9190"
+        assert _dispatcher_block(project_path)["dispatch_target"] == "http://localhost:9901"
 
     def test_only_the_target_line_of_the_dispatcher_block_changes(self, tmp_path: Path) -> None:
         """The rewrite edits one value; the block's comments and keys stay put."""
@@ -247,13 +247,13 @@ class TestHostMode:
         )
 
         expected = PRE_AXIS_TRIGGERS_DISPATCHER.replace(
-            "dispatch_target: http://dispatch-worker-1:9190",
-            "dispatch_target: http://localhost:9190",
+            "dispatch_target: http://dispatch-worker-1:9901",
+            "dispatch_target: http://localhost:9901",
         )
         assert expected in (project_path / "triggers.yml").read_text(encoding="utf-8")
 
     def test_dispatch_target_follows_a_custom_worker_port_base(self, tmp_path: Path) -> None:
-        """The rewritten address is derived, never a hardcoded 9190."""
+        """The rewritten address is derived, never a hardcoded 9901."""
         project_path, profile_dir = _project(tmp_path)
 
         _inject_dispatch(
@@ -277,7 +277,7 @@ class TestHostMode:
         dispatcher = _dispatcher_block(project_path)
         assert dispatcher["max_concurrent_runs"] == 7
         assert dispatcher["max_queue_depth"] == 33
-        assert dispatcher["dispatch_target"] == "http://localhost:9190"
+        assert dispatcher["dispatch_target"] == "http://localhost:9901"
 
     def test_triggers_themselves_survive_the_rewrite(self, tmp_path: Path) -> None:
         """Only the dispatcher block is patched — the trigger list is the facility's."""
@@ -327,7 +327,7 @@ class TestPerWorkerPortDerivation:
 
         worker = _services(project_path)["dispatch_worker"]
         assert worker["worker_count"] == 3
-        assert worker["worker_port_base"] == 9190
+        assert worker["worker_port_base"] == 9901
         assert worker["worker_port_stride"] == 1
 
     def test_recorded_inputs_derive_one_port_per_worker(self, tmp_path: Path) -> None:

@@ -110,7 +110,7 @@ services:
       # Co-deployed dispatcher: reach it by its compose service key on
       # osprey-network. The bridge runs IN the network, so the code default
       # (http://localhost:8010) and the host-published port are both wrong here.
-      DISPATCHER_URL: http://event-dispatcher:8020
+      DISPATCHER_URL: http://event-dispatcher:9900
 
 
       # The bridge polls run status and fetches artifacts from the WORKER
@@ -118,7 +118,7 @@ services:
       # in-network address too. Multi-worker routing is not implemented — the
       # dispatcher routes to dispatch-worker-1 only, so that is the instance
       # whose runs this bridge observes.
-      WORKER_URL: http://dispatch-worker-1:9190
+      WORKER_URL: http://dispatch-worker-1:9901
 
       # Same var the worker itself reads, from the same config key, so the
       # bridge's poll budget can never fall below the cap it must outlast.

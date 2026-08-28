@@ -28,7 +28,7 @@
     every existing render), so the defaults live here. #}
 {%- set dw = services.dispatch_worker | default({}, true) %}
 {%- set on_host = (dw.network | default('bridge', true)) == 'host' %}
-{%- set port_base = dw.worker_port_base | default(9190) %}
+{%- set port_base = dw.worker_port_base | default(9901) %}
 {%- set port_stride = dw.worker_port_stride | default(1) %}
 {%- set mongo_deployed = 'mongodb' in (deployed_services | default([])) %}
 

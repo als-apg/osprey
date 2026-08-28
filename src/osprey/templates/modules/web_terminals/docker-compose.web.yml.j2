@@ -157,7 +157,7 @@
     perimeter_deny_ports: str, required (never empty — always contains at
     least the nginx port)
       The deployment's own web ports as a comma-separated, ascending list of
-      integers ("9080,9091,9092") — nginx's published port, 443 when
+      integers ("9080,9100,9101") — nginx's published port, 443 when
       `tls.enabled` puts the real content server behind the TLS listener, and
       every roster user's terminal port. Nothing else: companion panel families
       are excluded because they are not what the injected secret opens, the

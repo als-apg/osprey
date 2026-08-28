@@ -495,7 +495,7 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
     #
     # The same patch carries the routing address. ``dispatch_target`` in a
     # triggers file names the first worker by its compose service DNS name
-    # (``http://dispatch-worker-1:9190``), which resolves only on the compose
+    # (``http://dispatch-worker-1:9901``), which resolves only on the compose
     # bridge. On the host network the dispatcher and the worker share the host's
     # namespace, so the worker is reachable at ``localhost`` on the port it
     # binds — worker 1's, i.e. the base port. Left alone in bridge mode, so a

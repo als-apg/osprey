@@ -79,7 +79,7 @@ services:
     environment:
       # No :-default (see event_dispatcher compose): fail closed on an unset token.
       DISPATCH_WORKER_TOKEN: ${DISPATCH_WORKER_TOKEN}
-      DISPATCH_WORKER_PORT: "9190"
+      DISPATCH_WORKER_PORT: "9901"
       DISPATCH_TIMEOUT_SEC: "300"
       DISPATCH_INACTIVITY_SEC: "120"
       OSPREY_PROJECT_DIR: /app/golden-project
@@ -179,7 +179,7 @@ services:
     networks:
       - osprey-network
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:9190/health').status==200 else 1)\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:9901/health').status==200 else 1)\""]
       interval: 10s
       timeout: 5s
       retries: 5
