@@ -793,9 +793,10 @@ refused (<code class="docutils literal notranslate"><span class="pre">ambiguous_
 <li><p>The role the token grants must be the role the roster named for the card
 that was clicked; otherwise the login is refused (<code class="docutils literal notranslate"><span class="pre">role_mismatch</span></code>). Fix
 whichever of roster or provider has drifted.</p></li>
-<li><p>A role is resolved at login and travels inside the session, so a change at
-the provider or in the roster reaches the <em>next</em> login. To withdraw a role
-now, end the session: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">decommission</span> <span class="pre">&lt;name&gt;</span></code>.</p></li>
+<li><p>A role is resolved at login and travels inside the session — together with
+its origin, the roster entry or the provider’s claim — so a change at the
+provider or in the roster reaches the <em>next</em> login. To withdraw a role now,
+end the session: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">decommission</span> <span class="pre">&lt;name&gt;</span></code>.</p></li>
 </ul>
 <p>Every login and refusal is recorded in <code class="docutils literal notranslate"><span class="pre">var/audit/sidecar/auth_sidecar.jsonl</span></code>
 on the deploy host. A <code class="docutils literal notranslate"><span class="pre">claims</span></code> stanza under <code class="docutils literal notranslate"><span class="pre">password</span></code> resolves nothing;
