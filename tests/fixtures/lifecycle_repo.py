@@ -1369,6 +1369,63 @@ is a copy of those two, and a restore is:
 ```bash
 git clone <this repo> && tar xf state.tar.gz && osprey build && osprey up -d
 ```
+
+## Common questions
+
+### Adding an MCP server of your own
+
+Put the server's Python package at `mcp_servers/<name>/`. `osprey build` copies
+it to `build/_mcp_servers/<name>/`, and an entry under `mcp_servers:`
+in `profile.yml` says how to start it:
+
+```yaml
+mcp_servers:
+  my_server:
+    command: "{current_python_env}"
+    args: [-m, my_server]
+    env:
+      PYTHONPATH: "{project_root}/build/_mcp_servers"
+```
+
+The hello-world preset ships `example_server` as a worked copy to read. Which
+buckets the artifact gallery sorts into is a separate, top-level key, one entry
+per bucket:
+
+```yaml
+artifact_server:
+  categories:
+    beam_studies: {label: Beam studies, color: "#4C6EF5"}
+```
+
+### Adding a panel of your own
+
+A panel is two halves, and one without the other is a tab that opens nothing.
+The id goes in the `web_panels:` list, and its address goes under `config:`, as
+the comment above `web_panels:` in `profile.yml` shows:
+
+```yaml
+web_panels:
+  - elog
+
+config:
+  web.panels.elog.url: http://elog.example.org
+  web.panels.elog.label: Elog
+  web.panels.elog.path: /elog
+```
+
+### Mounting an extra directory into a web terminal
+
+Deployments that give people their own web terminals mount per persona, under
+`config:`. Each entry is a container volume string of two or three non-empty
+parts, `source:target` or `source:target:mode`:
+
+```yaml
+config:
+  modules.web_terminals.personas.operator.extra_mounts:
+    - /opt/facility/data:/data:ro
+```
+
+Every key named here is written up in full at https://als-apg.github.io/osprey/.
 """
 
 

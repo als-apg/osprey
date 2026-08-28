@@ -164,6 +164,34 @@ def test_authored_files_match_the_exemplar_byte_for_byte(exemplar_repo: Path, na
     )
 
 
+#: The questions the README's last section answers, one heading each.
+COMMON_QUESTION_HEADINGS = (
+    "### Adding an MCP server of your own",
+    "### Adding a panel of your own",
+    "### Mounting an extra directory into a web terminal",
+)
+
+#: Placeholder syntax the answers QUOTE rather than fill in. Every one of these
+#: is a literal brace inside the README's own f-string, and the f-string is the
+#: reason they are worth an assertion: an undoubled brace is not a typo that
+#: renders oddly, it is a ``KeyError`` on the operator's first ``init``.
+QUOTED_PLACEHOLDERS = ("{label", "{current_python_env}", "{project_root}")
+
+
+def test_the_readme_answers_the_common_questions(exemplar_repo: Path) -> None:
+    """The three things an operator goes looking for after their first build.
+
+    Asserted on the emitted file rather than on the builder's source, because
+    what is under test is what the operator reads: the section survives the
+    f-string, braces and all.
+    """
+    readme = exemplar_repo.joinpath("README.md").read_text(encoding="utf-8")
+
+    assert "## Common questions" in readme
+    assert [heading for heading in COMMON_QUESTION_HEADINGS if heading not in readme] == []
+    assert [literal for literal in QUOTED_PLACEHOLDERS if literal not in readme] == []
+
+
 def test_every_source_path_the_exemplar_names_is_emitted(exemplar_repo: Path) -> None:
     """Shape, not bytes: the exemplar's data tree pins paths, not the whole bundle."""
     missing = sorted(
