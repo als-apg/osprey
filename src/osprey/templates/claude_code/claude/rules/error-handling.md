@@ -18,13 +18,13 @@ or work around failures.
 
 | Class | Examples | Your Response |
 |-------|----------|---------------|
-| **Connection** | MCP server unreachable, timeout, control system channel disconnected | Report that the control system service is unavailable. Suggest the operator check the service. |
+| **Connection** | A service OSPREY talks to did not answer or would not serve the request: the Bluesky or Phoebus bridge, the artifact gallery, the web terminal, the ARIEL search database, the graph store, the lattice server, the `python_executor` sandbox, the control system | Name **which** service, from the error's `error_type`, message and `details` (`details.subsystem`, `details.active_target`). Say "control system" only when the envelope names it — `connection_error` / `timeout_error` from the controls server, or a `details.active_target`. Suggest the operator check that service. |
 | **Permission** | Writes disabled, approval denied, channel not writable | Explain the restriction. Do NOT retry or suggest workarounds. |
 | **Validation** | Limits violation, invalid channel name, bad parameter | Show the specific violation. Explain what the valid range or format is, if the error says. |
 | **Data** | Channel not found, archiver has no data for range, empty results | Report what was searched and that no data was found. Suggest refining the query. |
 | **Execution** | Python code error, runtime exception in execute | Show the traceback. Help the user fix *their* code (not OSPREY's). |
 | **Safety** | Sandbox safety limit tripped (resource cap, write-mode guard), python_executor refused to run | Explain which guard tripped. Help the user understand the constraint. Suggest code that respects the limit. Do NOT modify safety configuration. |
-| **Internal** | Unexpected server error, malformed response, stack trace from MCP server | Report the error verbatim. Suggest the operator check server logs. |
+| **Internal** | Unexpected server error, missing configuration or dependency, malformed response, an error a bridge or gallery answered with | Report the error verbatim, naming the service the envelope names. Suggest the operator check that service's logs. |
 
 ## Response Protocol
 
@@ -34,7 +34,7 @@ When a tool returns an error:
 2. **Show the error** — include the relevant error message (not the full raw JSON unless asked)
 3. **Classify it** — use the table above to determine the error class
 4. **Give actionable next steps** — based on the class:
-   - Connection/Internal → "The [service] appears to be unavailable. An operator may need to check the service."
+   - Connection/Internal → "The [service the envelope names] appears to be unavailable. An operator may need to check it." Never default to "the control system": an unreachable bridge, gallery or search database is not a control-system fault.
    - Permission → "This operation is currently restricted. [Explain why from the error message.]"
    - Validation → "The value/parameter is outside the allowed range. [Show constraints if available.]"
    - Data → "No results found for [query]. You could try [alternative search terms/time range]."
@@ -61,8 +61,11 @@ When a tool returns an error:
 
 Some errors indicate conditions that need human operator attention:
 
-- **Control system unreachable** → The facility's control system infrastructure may be down.
-  Suggest checking with the control room or operations staff.
+- **Control system unreachable** (a `connection_error` / `timeout_error` from the controls
+  server, or an envelope with `details.active_target`) → The facility's control system
+  infrastructure may be down. Suggest checking with the control room or operations staff.
+- **Any other service unreachable** (a bridge, the gallery, a search or graph store) → Name
+  that service. Suggest the operator check it; it is not a control-room matter.
 - **Repeated write failures** → Hardware may be in a fault state or in local control mode.
   Suggest checking the device directly.
 - **Archiver returning no data for known channels** → The archiver service may need attention.
