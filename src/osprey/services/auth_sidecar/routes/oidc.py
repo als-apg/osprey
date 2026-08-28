@@ -1005,8 +1005,11 @@ async def oidc_callback(request: Request) -> Response:
         # none. Empty means "no privileges" — the deny-safe value, which verify
         # turns into an omitted role header rather than a default privilege.
         # Every other outcome refused the login above, so `with_user` can only
-        # be reached with a role it can carry.
+        # be reached with a role it can carry. The source comes from the same
+        # grant, naming which of those two authorities the role is: the claim
+        # where one decided it, the roster where none was asked.
         role=role,
+        role_source=grant.role_source,
     )
 
     response = RedirectResponse(

@@ -122,13 +122,14 @@ _REPLACED_COMPOSE_LINES = frozenset(
     }
 )
 
-#: Task 4.7 (nginx-identity-headers), ungated arm. Two clears per `/u/<user>/`
+#: Task 4.7 (nginx-identity-headers), ungated arm. Three clears per `/u/<user>/`
 #: location, and NOTHING else: no `auth_request_set`, no forward, no `/auth/`
 #: location — those render only with authentication on.
 _ALLOWED_NGINX_LINES = Counter(
     {
         '        proxy_set_header X-Osprey-Auth-Subject "";': 2,
         '        proxy_set_header X-Osprey-Auth-Role "";': 2,
+        '        proxy_set_header X-Osprey-Auth-Role-Source "";': 2,
     }
 )
 
@@ -281,10 +282,10 @@ def test_compose_adds_exactly_the_audit_emitters_and_mounts() -> None:
     _assert_added_directives_are_exactly_allowed("docker-compose.web.yml")
 
 
-def test_nginx_adds_exactly_the_two_identity_header_clears() -> None:
-    """The nginx config's whole SC6 exception: the two clears, once each in each
-    of the two ungated `/u/<user>/` locations, from task 4.7. Nothing from the
-    gated arm may appear here — no `auth_request_set`, no forward — and the
+def test_nginx_adds_exactly_the_three_identity_header_clears() -> None:
+    """The nginx config's whole SC6 exception: the three clears, once each in
+    each of the two ungated `/u/<user>/` locations, from task 4.7. Nothing from
+    the gated arm may appear here — no `auth_request_set`, no forward — and the
     count catches a clear that reached only one of the two locations."""
     _assert_added_directives_are_exactly_allowed("nginx.conf")
 

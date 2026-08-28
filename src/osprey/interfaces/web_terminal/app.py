@@ -220,6 +220,16 @@ DEFAULT_FEEDBACK_EMAIL = "thellert@lbl.gov"
 #: otherwise. Submission headers are never pruned, only their contexts.
 DEFAULT_FEEDBACK_MAX_STORE_BYTES = 256 * 1024 * 1024
 
+#: How each value of the forwarded role-source header reads in the session
+#: menu. The keys are the auth sidecar's closed vocabulary, spelled here
+#: rather than imported for the same reason the header names are — the
+#: terminal has no business pulling a service package into its import
+#: closure — and ``tests/interfaces/web_terminal/test_terminal_user.py``
+#: pins this key set against the sidecar's constants. Any other value
+#: renders nothing at all: an unrecognised source is a source this build
+#: cannot name, and a chip that named it anyway would be guessing.
+_ROLE_SOURCE_LABELS: dict[str, str] = {"roster": "roster", "claim": "ID token"}
+
 
 def coerce_config_str(key: str, value: object, default: str) -> str:
     """Return a configured string value, falling back to *default*.
@@ -1363,15 +1373,20 @@ def create_app(
         web_rail_position = getattr(request.app.state, "web_rail_position", DEFAULT_RAIL_POSITION)
         terminal_user = getattr(request.app.state, "terminal_user", "")
         landing_url = getattr(request.app.state, "landing_url", "")
-        # The role nginx forwarded on THIS request, off the header rather than
-        # app.state: a per-login fact, and the page GET is itself a gated
-        # request that carries it. Decoded by the audit ledger's own bound; a
-        # value that fails it is shown as nothing, not as the ledger's
-        # sentinel — with no nginx in front any client can send this header,
-        # and the chip is a display, not an authorization surface.
-        _, auth_role = forwarded_identity(request.headers)
+        # The role nginx forwarded on THIS request, and where that role came
+        # from, off the headers rather than app.state: per-login facts, and the
+        # page GET is itself a gated request that carries them. Decoded by the
+        # audit ledger's own bound; a value that fails it is shown as nothing,
+        # not as the ledger's sentinel — with no nginx in front any client can
+        # send these headers, and the chip is a display, not an authorization
+        # surface. The source is shown only through :data:`_ROLE_SOURCE_LABELS`,
+        # so a value outside the sidecar's vocabulary renders nothing.
+        _, auth_role, auth_role_source = forwarded_identity(request.headers)
         if auth_role == UNSAFE_FORWARDED_VALUE:
             auth_role = None
+        if auth_role_source == UNSAFE_FORWARDED_VALUE:
+            auth_role_source = None
+        auth_role_source_label = _ROLE_SOURCE_LABELS.get(auth_role_source or "", "")
         return templates.TemplateResponse(
             request,
             "index.html",
@@ -1384,6 +1399,7 @@ def create_app(
                 "terminal_user": terminal_user,
                 "landing_url": landing_url,
                 "auth_role": auth_role or "",
+                "auth_role_source_label": auth_role_source_label,
                 "url_prefix": url_prefix,
             },
         )

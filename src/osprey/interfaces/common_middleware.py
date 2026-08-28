@@ -55,6 +55,7 @@ __all__ = [
     "AUDIT_ACCOUNT_KEY",
     "AUDIT_EXPECTED_ACCOUNT_KEY",
     "AUDIT_ROLE_HEADER",
+    "AUDIT_ROLE_SOURCE_HEADER",
     "AUDIT_SUBJECT_HEADER",
     "EXEMPT_PATHS",
     "EXTERNAL_ORIGIN_ENV",
@@ -324,14 +325,21 @@ REASON_MUTATION_UNANSWERED: str = "mutation_unanswered"
 #: Spelled here rather than imported from
 #: :mod:`osprey.services.auth_sidecar.identity_headers`, which owns it: an
 #: interface app has no business pulling a service package into its import
-#: closure for two string constants. ``tests/interfaces/test_http_audit_emitters.py``
-#: pins the two spellings against each other, the same trade the rest of the
+#: closure for three string constants. ``tests/interfaces/test_http_audit_emitters.py``
+#: pins the three spellings against each other, the same trade the rest of the
 #: audit work makes for a cross-package constant.
 AUDIT_SUBJECT_HEADER: str = "X-Osprey-Auth-Subject"
 
 #: Names the role that account holds. Absent means *no* role, never a default
 #: one — the deny-safe reading the sidecar documents.
 AUDIT_ROLE_HEADER: str = "X-Osprey-Auth-Role"
+
+#: Names where that role came from — ``roster`` or ``claim``, the sidecar's
+#: closed vocabulary. Decoded under the same bound as the other two, so a
+#: value the ledger would refuse cannot reach a screen instead. The ledger
+#: reads it and does not record it: what a login granted is the sidecar's
+#: own record, and this gate has never re-stated it.
+AUDIT_ROLE_SOURCE_HEADER: str = "X-Osprey-Auth-Role-Source"
 
 #: The ``detail`` key naming the *account* a request arrived authorized as, as
 #: forwarded by nginx from the sidecar's answer.
@@ -552,8 +560,7 @@ def _recordable(value: str) -> bool:
 
     Printable ASCII, no space anywhere, and at most
     :data:`MAX_FORWARDED_VALUE_CHARS` characters. The first two are the
-    sidecar's own contract
-    for both identity headers (see
+    sidecar's own contract for all three identity headers (see
     :mod:`osprey.services.auth_sidecar.identity_headers`, which refuses to mint
     or emit anything outside printable ASCII, or anything space-padded); two
     rules are added for this ledger. A value carrying an *interior* space
@@ -562,8 +569,9 @@ def _recordable(value: str) -> bool:
     the keys appended after it past the envelope's silent truncation — so the
     one input a forger fully controls would be the one that erases the mismatch
     marker from the record. Nothing real is lost by either: an OIDC ``sub`` is
-    a short URL-safe identifier and a role name is constrained to
-    ``USERNAME_CHARSET_RE`` by the render-time lint.
+    a short URL-safe identifier, a role name is constrained to
+    ``USERNAME_CHARSET_RE`` by the render-time lint, and a role source is one
+    of two framework constants.
 
     A value that fails this did not come from the sidecar, or cannot be written
     down unambiguously; either way, copying it verbatim would put a forged or
@@ -576,23 +584,23 @@ def _recordable(value: str) -> bool:
     )
 
 
-def forwarded_identity(headers: Mapping[str, str]) -> tuple[str | None, str | None]:
-    """The ``(subject, role)`` nginx forwarded on this request, if any.
+def forwarded_identity(headers: Mapping[str, str]) -> tuple[str | None, str | None, str | None]:
+    """The ``(subject, role, role_source)`` nginx forwarded on this request, if any.
 
     Each is ``None`` when the header is absent or empty — the sidecar omits a
     header it has no value for, so absence is a state of its own and must not
     be flattened into a blank string. A value that fails :func:`_recordable`
     becomes :data:`UNSAFE_FORWARDED_VALUE`: present, and named as unusable.
 
-    Public because it is the ONE decoder for these headers: the audit
-    emitters record what it returns, and the web terminal's page shows the
-    role from it. A second reader with its own bound would let a value the
-    ledger refuses reach the screen, or the reverse. ``headers`` is read by
-    lower-cased name, so a plain dict of lower-cased keys and Starlette's
-    case-insensitive ``Headers`` both work.
+    Public because it is the ONE decoder for these headers: the audit emitters
+    record the subject and the role it returns, and the web terminal's page
+    shows the role and where it came from. A second reader with its own bound
+    would let a value the ledger refuses reach the screen, or the reverse.
+    ``headers`` is read by lower-cased name, so a plain dict of lower-cased
+    keys and Starlette's case-insensitive ``Headers`` both work.
     """
     resolved: list[str | None] = []
-    for header in (AUDIT_SUBJECT_HEADER, AUDIT_ROLE_HEADER):
+    for header in (AUDIT_SUBJECT_HEADER, AUDIT_ROLE_HEADER, AUDIT_ROLE_SOURCE_HEADER):
         raw = (headers.get(header.lower()) or "").strip()
         if not raw:
             resolved.append(None)
@@ -600,7 +608,7 @@ def forwarded_identity(headers: Mapping[str, str]) -> tuple[str | None, str | No
             resolved.append(raw)
         else:
             resolved.append(UNSAFE_FORWARDED_VALUE)
-    return resolved[0], resolved[1]
+    return resolved[0], resolved[1], resolved[2]
 
 
 def _container_user() -> str:
@@ -636,7 +644,7 @@ def _audit_detail(scope: Scope, headers: dict[str, str], **extra: str) -> tuple[
     be a behaviour change smuggled in under an audit heading, and the gate has
     never treated these headers as a credential.
     """
-    subject, role = forwarded_identity(headers)
+    subject, role, _ = forwarded_identity(headers)
     parts = [f"{key}={value}" for key, value in extra.items()]
     if subject is not None:
         container_user = _container_user()

@@ -164,9 +164,10 @@ A roster entry carries ``role:`` or ``persona:``, never both. The rules:
 - The role the token grants must be the role the roster named for the card
   that was clicked; otherwise the login is refused (``role_mismatch``). Fix
   whichever of roster or provider has drifted.
-- A role is resolved at login and travels inside the session, so a change at
-  the provider or in the roster reaches the *next* login. To withdraw a role
-  now, end the session: ``osprey users decommission <name>``.
+- A role is resolved at login and travels inside the session — together with
+  its origin, the roster entry or the provider's claim — so a change at the
+  provider or in the roster reaches the *next* login. To withdraw a role now,
+  end the session: ``osprey users decommission <name>``.
 
 Every login and refusal is recorded in ``var/audit/sidecar/auth_sidecar.jsonl``
 on the deploy host. A ``claims`` stanza under ``password`` resolves nothing;

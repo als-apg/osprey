@@ -127,8 +127,10 @@
       In neither case does the browser's whole jar — which names every other
       terminal it has unlocked, and the sidecar's origin-wide session — reach a
       container running agent-generated code.
-    * `X-Osprey-Auth-Subject` / `X-Osprey-Auth-Role` — who the request belongs
-      to and what privilege it holds — are written by EVERY proxying location:
+    * `X-Osprey-Auth-Subject` / `X-Osprey-Auth-Role` /
+      `X-Osprey-Auth-Role-Source` — who the request belongs to, what privilege
+      it holds and where that privilege came from — are written by EVERY
+      proxying location:
       a gated `/u/<user>/` SETS them from `auth_request_set` variables carrying
       what the sidecar returned, and every other proxying location CLEARS them
       — the ungated `/u/<user>/` branch, the internal `/_osprey_auth/<user>`
@@ -462,19 +464,20 @@ server {
         # request — and it reads `$upstream_http_*`, nginx's spelling of the
         # auth upstream's response header (lowercased, dashes to underscores).
         #
-        # Both variables are LOCAL to this location and fed by this user's own
+        # The variables are LOCAL to this location and fed by this user's own
         # `auth_request` above, so no user's identity can be observed here but
         # the one this location authorizes. A denied subrequest never reaches
         # the `proxy_pass` at all, so these can only ever hold a value the
         # sidecar returned for an authorization it granted.
         #
-        # Either may be empty: the sidecar omits a header it has no value for
-        # (an OIDC session with no mapped role, say). An empty value makes the
-        # `proxy_set_header` below send nothing at all, which is the deny-safe
-        # answer — a consumer reads an absent role as no privileges, never as a
-        # default one.
+        # Any of them may be empty: the sidecar omits a header it has no value
+        # for (an OIDC session with no mapped role, say). An empty value makes
+        # the `proxy_set_header` below send nothing at all, which is the
+        # deny-safe answer — a consumer reads an absent role as no privileges,
+        # never as a default one.
         auth_request_set $osprey_auth_subject $upstream_http_x_osprey_auth_subject;
         auth_request_set $osprey_auth_role $upstream_http_x_osprey_auth_role;
+        auth_request_set $osprey_auth_role_source $upstream_http_x_osprey_auth_role_source;
 
         # Who a denied subrequest should prompt for. Carried in a variable
         # because the handler below is shared by every user; the value is
@@ -554,18 +557,18 @@ server {
         # and clearing the header costs it nothing. Unconditional, unlike the
         # two below: the header is never legitimate here in any auth mode.
         proxy_set_header Authorization "";
-        # The two identity headers — who the request belongs to and what
-        # privilege it holds. Both names are written into EVERY proxying
-        # location's own header set, by whichever arm of the branch below
-        # renders: gated, from the values the sidecar just returned; ungated, as
-        # an explicit clear.
+        # The three identity headers — who the request belongs to, what
+        # privilege it holds and where that privilege came from. All three
+        # names are written into EVERY proxying location's own header set, by
+        # whichever arm of the branch below renders: gated, from the values the
+        # sidecar just returned; ungated, as an explicit clear.
         #
         # Naming them is what drops the client's own. nginx builds one
         # proxy-headers table per location and copies the client's remaining
         # headers around it, so a name in that table is answered by its
         # directive and never by the request — including when the directive
         # evaluates EMPTY, which sends nothing rather than falling back to what
-        # arrived. A location naming neither would hand a client's values
+        # arrived. A location naming none of them would hand a client's values
         # straight to a container.
         #
         # Only this perimeter may name a user to a terminal: these headers are
@@ -587,12 +590,13 @@ server {
 {%- if sidecar_active and not svc.login_exempt %}
         # Gated: the values this perimeter DID establish, from the
         # `auth_request_set` variables above. Only a gated location has an
-        # authorization to speak for. Either value may be empty — the sidecar
-        # omits a header it has no value for — and an empty one is not sent at
-        # all, which is the deny-safe answer and still not the client's: the
-        # name is claimed by this directive either way.
+        # authorization to speak for. Any of these values may be empty — the
+        # sidecar omits a header it has no value for — and an empty one is not
+        # sent at all, which is the deny-safe answer and still not the
+        # client's: the name is claimed by this directive either way.
         proxy_set_header X-Osprey-Auth-Subject $osprey_auth_subject;
         proxy_set_header X-Osprey-Auth-Role $osprey_auth_role;
+        proxy_set_header X-Osprey-Auth-Role-Source $osprey_auth_role_source;
 
         # The browser's cookie header stops here — gated on `sidecar_active`,
         # the SIDECAR's predicate, not on the injection predicate the secret
@@ -623,18 +627,20 @@ server {
 {%- if inject_secret and not svc.login_exempt %}
         # No sidecar vouched for this request; nginx itself injects this
         # user's operator secret below. There is no authorization to speak
-        # for, so both identity names are CLEARED here rather than forwarded:
-        # forwarding would announce a subject the perimeter never checked, and
-        # leaving the names unwritten would let the client supply them itself.
+        # for, so all three identity names are CLEARED here rather than
+        # forwarded: forwarding would announce a subject the perimeter never
+        # checked, and leaving the names unwritten would let the client supply
+        # them itself.
 {%- else %}
         # Ungated — authentication is off, or this entry declared
-        # `login: false`. There is no authorization to speak for, so both
+        # `login: false`. There is no authorization to speak for, so all three
         # identity names are CLEARED here rather than forwarded: forwarding
         # would announce a subject the perimeter never checked, and leaving the
         # names unwritten would let the client supply them itself.
 {%- endif %}
         proxy_set_header X-Osprey-Auth-Subject "";
         proxy_set_header X-Osprey-Auth-Role "";
+        proxy_set_header X-Osprey-Auth-Role-Source "";
 {%- if inject_secret and not svc.login_exempt %}
         # No clear for the operator-secret header here, and its absence is
         # load-bearing rather than an omission: the `include` above already
@@ -727,10 +733,11 @@ server {
         # the session cookie and the render-time `?user=` above, and must never
         # see a value the request supplied. The clear lives in this location
         # rather than at server level because a location-level
-        # `proxy_set_header` — the four below, at minimum — replaces the whole
-        # inherited set, so a server-level clear would be discarded right here.
+        # `proxy_set_header` — the ones below — replaces the whole inherited
+        # set, so a server-level clear would be discarded right here.
         proxy_set_header X-Osprey-Auth-Subject "";
         proxy_set_header X-Osprey-Auth-Role "";
+        proxy_set_header X-Osprey-Auth-Role-Source "";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -799,6 +806,7 @@ server {
         # nothing it serves may read one out of the request.
         proxy_set_header X-Osprey-Auth-Subject "";
         proxy_set_header X-Osprey-Auth-Role "";
+        proxy_set_header X-Osprey-Auth-Role-Source "";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

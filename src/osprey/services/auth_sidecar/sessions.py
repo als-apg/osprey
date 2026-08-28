@@ -5,7 +5,8 @@ I" but "which roster users has this browser unlocked, and until when". That set
 lives in a single :mod:`itsdangerous`-signed cookie::
 
     {"v": 1, "sid": "<session id>", "iat": <epoch>, "users": {
-        "alice": {"exp": <epoch>, "tag": "0123456789abcdef", "sub": "", "role": ""}
+        "alice": {"exp": <epoch>, "tag": "0123456789abcdef", "sub": "",
+                  "role": "", "source": ""}
     }}
 
 **Signed, not encrypted.** Anyone holding the cookie can read the payload; they
@@ -25,15 +26,19 @@ Both entries also carry the ``"role"`` the deployment resolved for that user —
 the name of an entry in ``modules.web_terminals.authorization.roles``, not a
 privilege in itself. It is authorization *input*, so its empty default is the
 deny-safe one: an entry naming no role names no privileges, and nothing
-downstream may substitute a default for it.
+downstream may substitute a default for it. The ``"source"`` beside it names
+where that role came from — the roster or an OIDC claim — and is provenance
+only: it qualifies the role for a reader without changing what the role
+grants, and an entry naming no role names no source either.
 
-The ``"sub"`` and ``"role"`` keys are read with defaults rather than being made
-mandatory, and neither was added with a :data:`PAYLOAD_VERSION` bump: a cookie
-minted before either existed still decodes, with an empty subject and no role.
+The ``"sub"``, ``"role"`` and ``"source"`` keys are read with defaults rather
+than being made mandatory, and none of them was added with a
+:data:`PAYLOAD_VERSION` bump: a cookie minted before any of them existed still
+decodes, with an empty subject, no role and no provenance for it.
 
-**A value that cannot cross the nginx boundary is never stored.** The subject
-and the role both leave as HTTP headers (see
-:mod:`~osprey.services.auth_sidecar.identity_headers`), so both are checked
+**A value that cannot cross the nginx boundary is never stored.** The subject,
+the role and its source all leave as HTTP headers (see
+:mod:`~osprey.services.auth_sidecar.identity_headers`), so all three are checked
 against :func:`~osprey.services.auth_sidecar.identity_headers.is_header_safe`
 here — on the way in, where a caller can still be told it is wrong, and again on
 the way out, so a cookie could never hand the verify route a value its response
@@ -125,6 +130,11 @@ class UnlockedUser:
             all, which every consumer reads as "no privileges". Never a
             privilege itself — it names a role the deployment declared, which is
             what turns it into one.
+        role_source: Where :attr:`role` came from — the roster's ``role:`` entry
+            or an OIDC role claim — or ``""`` for none, which is what an entry
+            holding no role carries and what any session minted before
+            provenance travelled carries. Provenance only: it says where a
+            privilege came from, never that one is held.
     """
 
     username: str
@@ -132,6 +142,7 @@ class UnlockedUser:
     generation_tag: str = ""
     oidc_subject: str = ""
     role: str = ""
+    role_source: str = ""
 
     def is_expired(self, now: float) -> bool:
         """Whether this entry has reached its expiry at ``now``."""
@@ -205,16 +216,17 @@ class SessionState:
         generation_tag: str = "",
         oidc_subject: str = "",
         role: str = "",
+        role_source: str = "",
     ) -> SessionState:
         """Return this state with ``username`` unlocked until ``expires_at``.
 
         Re-adding a user replaces that entry in place — a fresh login restates
-        the expiry, the tag, the subject and the role without disturbing the
-        order of the others. Replacement is wholesale, not a merge: a login that
-        omits the role clears the one the previous login carried, exactly as it
-        already does for the tag and the subject. That is the safe direction: a
-        role kept across a login that no longer grants it would outlive the
-        authorization that put it there.
+        the expiry, the tag, the subject, the role and where that role came from
+        without disturbing the order of the others. Replacement is wholesale, not
+        a merge: a login that omits the role clears the one the previous login
+        carried along with its source, exactly as it already does for the tag and
+        the subject. That is the safe direction: a role kept across a login that
+        no longer grants it would outlive the authorization that put it there.
 
         Args:
             username: The roster user being unlocked.
@@ -225,14 +237,16 @@ class SessionState:
                 password mode, which has no provider account behind it.
             role: The authorization role this login resolved, or ``""`` for
                 none.
+            role_source: Where that role came from, or ``""`` for none — which
+                is what a login resolving no role passes.
 
         Raises:
-            ValueError: If ``username`` is empty, or if the subject or role
-                could not be carried in an identity header. The caller is
-                refusing a login at that point, not repairing a value: a
-                substitute identity would authorize the wrong thing, and a
-                silently dropped role would authorize *something* under a
-                privilege nobody granted.
+            ValueError: If ``username`` is empty, or if the subject, the role or
+                its source could not be carried in an identity header. The
+                caller is refusing a login at that point, not repairing a
+                value: a substitute identity would authorize the wrong thing,
+                and a silently dropped role would authorize *something* under
+                a privilege nobody granted.
         """
         if not username:
             raise ValueError("username must not be empty")
@@ -240,6 +254,8 @@ class SessionState:
             raise ValueError("oidc subject cannot be carried in an identity header")
         if role and not is_header_safe(role):
             raise ValueError("role cannot be carried in an identity header")
+        if role_source and not is_header_safe(role_source):
+            raise ValueError("role source cannot be carried in an identity header")
 
         entry = UnlockedUser(
             username=username,
@@ -247,6 +263,7 @@ class SessionState:
             generation_tag=generation_tag,
             oidc_subject=oidc_subject,
             role=role,
+            role_source=role_source,
         )
         if self.entry(username) is None:
             return replace(self, users=(*self.users, entry))
@@ -353,6 +370,7 @@ class SessionCodec:
                     "tag": user.generation_tag,
                     "sub": user.oidc_subject,
                     "role": user.role,
+                    "source": user.role_source,
                 }
                 for user in state.users
             },
@@ -415,16 +433,16 @@ class SessionCodec:
     def _decode_users(raw_users: Any) -> tuple[UnlockedUser, ...]:
         """Read the unlocked-user map out of a verified payload.
 
-        ``tag``, ``sub`` and ``role`` all default to ``""`` when absent, so a
-        cookie minted before any of those keys existed decodes at the current
-        payload version instead of signing that browser out.
+        ``tag``, ``sub``, ``role`` and ``source`` all default to ``""`` when
+        absent, so a cookie minted before any of those keys existed decodes at
+        the current payload version instead of signing that browser out.
 
-        A subject or role that could not be carried in an identity header
-        invalidates the whole cookie. Only this sidecar can have signed it, and
-        :meth:`SessionState.with_user` refuses to store such a value — so a
-        cookie carrying one is not a session to salvage, and refusing it here is
-        what keeps the verify route's answer a plain 401 rather than an encoding
-        failure on the hot path.
+        A subject, role or role source that could not be carried in an identity
+        header invalidates the whole cookie. Only this sidecar can have signed
+        it, and :meth:`SessionState.with_user` refuses to store such a value —
+        so a cookie carrying one is not a session to salvage, and refusing it
+        here is what keeps the verify route's answer a plain 401 rather than an
+        encoding failure on the hot path.
 
         Raises:
             InvalidSessionError: If the map or any entry is malformed.
@@ -459,6 +477,15 @@ class SessionCodec:
                 raise InvalidSessionError(
                     f"session entry for {username!r} carries an uncarryable role"
                 )
+            role_source = entry.get("source", "")
+            if not isinstance(role_source, str):
+                raise InvalidSessionError(
+                    f"session entry for {username!r} has a non-string role source"
+                )
+            if role_source and not is_header_safe(role_source):
+                raise InvalidSessionError(
+                    f"session entry for {username!r} carries an uncarryable role source"
+                )
             users.append(
                 UnlockedUser(
                     username=username,
@@ -466,6 +493,7 @@ class SessionCodec:
                     generation_tag=tag,
                     oidc_subject=subject,
                     role=role,
+                    role_source=role_source,
                 )
             )
         return tuple(users)

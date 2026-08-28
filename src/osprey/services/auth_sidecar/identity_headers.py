@@ -1,13 +1,15 @@
-"""The two identity headers an authorized subrequest may carry, and their charset.
+"""The three identity headers an authorized subrequest may carry, and their charset.
 
-nginx turns the sidecar's ``auth_request`` answer into two forwarded headers —
-:data:`SUBJECT_HEADER` naming the account behind the request and
-:data:`ROLE_HEADER` naming the privilege it holds — and every terminal behind
-that boundary reads its authorization from them. Both names and the one rule
-about what may travel in them live here rather than in the route, because three
-layers have to agree on it: the session model (which refuses to *store* a value
-that could not be carried), the verify route (which emits them), and the OIDC
-callback (which refuses a *login* whose identity could not be carried).
+nginx turns the sidecar's ``auth_request`` answer into three forwarded headers —
+:data:`SUBJECT_HEADER` naming the account behind the request,
+:data:`ROLE_HEADER` naming the privilege it holds and
+:data:`ROLE_SOURCE_HEADER` naming where that role came from — and every terminal
+behind that boundary reads its authorization from them. All three names and the
+one rule about what may travel in them live here rather than in the route,
+because three layers have to agree on it: the session model (which refuses to
+*store* a value that could not be carried), the verify route (which emits
+them), and the OIDC callback (which refuses a *login* whose identity could not
+be carried).
 
 **ASCII only, and that is not a deferral.** An HTTP header value is latin-1 on
 the wire, so ``jörg@example.org`` survives one hop and arrives at the terminal
@@ -33,6 +35,7 @@ from __future__ import annotations
 
 __all__ = [
     "ROLE_HEADER",
+    "ROLE_SOURCE_HEADER",
     "SUBJECT_HEADER",
     "is_header_safe",
 ]
@@ -52,6 +55,16 @@ ROLE_HEADER = "X-Osprey-Auth-Role"
 Absent means no role, which every consumer must read as "no privileges" — never
 as a default role. That is what makes the field's empty default deny-safe end to
 end: an unresolved role and a refused one look the same downstream.
+"""
+
+ROLE_SOURCE_HEADER = "X-Osprey-Auth-Role-Source"
+"""Names where the role in :data:`ROLE_HEADER` came from, when one is carried.
+
+``roster`` means the roster's ``role:`` entry resolved it; ``claim`` means the
+OIDC ID token's role claim did. Emitted only beside a role and absent whenever
+the role is absent, so provenance can never name the origin of a privilege the
+session does not hold. Consumers read it for display, never as authorization:
+the role is what grants, and where it came from changes nothing about that.
 """
 
 _LOWEST_PRINTABLE = 0x20

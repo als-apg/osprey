@@ -126,6 +126,11 @@
                 the terminal to forward it: a fact stated where it is known,
                 never a default. -#}
             {% if auth_role %}<span class="header-identity-who-role" title="Role for this session">{{ auth_role }}</span>{% endif %}
+            {#- Where that tier came from — the roster or the ID token — named
+                only when the role itself is on the line and the forwarded
+                value is one this build knows. Never an empty span, so the
+                separator it carries never appears on its own. -#}
+            {% if auth_role and auth_role_source_label %}<span class="header-identity-who-role-source" title="Where this session's role came from">{{ auth_role_source_label }}</span>{% endif %}
             {% if app_name %}<span class="header-identity-who-sub">{{ app_name }}</span>{% endif %}
           </div>
           {#- Only the ACTION depends on landing_url. A user with nowhere to
