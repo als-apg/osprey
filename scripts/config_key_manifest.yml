@@ -483,7 +483,13 @@ keys:
   control_system.connector.mock.noise_level: {evidence: 'noise_level'}
   control_system.connector.epics: {covered-by: control_system.connector}
   control_system.connector.epics.timeout: {covered-by: control_system.connector.epics}
-  control_system.connector.epics.gateways: {evidence: 'gateways'}
+  control_system.connector.epics.gateways:
+    evidence: 'gateways = config\.get\("gateways", \{\}\)'
+    note: >-
+      Anchored on the EPICS connector's read of the block: the bare word
+      `gateways` is past the vacuity cap (31 files under the evidence roots)
+      and would have kept the entry green with no reader left — the same
+      reason the `read_only` entry below is anchored.
   control_system.connector.epics.gateways.read_only:
     evidence: 'gateways\.get\("read_only", \{\}\)'
     note: >-
@@ -504,7 +510,12 @@ keys:
   control_system.connector.virtual_accelerator: {covered-by: control_system.connector}
   control_system.connector.virtual_accelerator.timeout: {covered-by: control_system.connector.virtual_accelerator}
   control_system.connector.virtual_accelerator.simulation_file: {evidence: 'simulation_file'}
-  control_system.connector.virtual_accelerator.gateways: {evidence: 'gateways'}
+  control_system.connector.virtual_accelerator.gateways:
+    evidence: 'gateways = config\.get\("gateways"\)'
+    note: >-
+      Anchored on the VA connector's own read of the block — no default in the
+      call, so the pattern is disjoint from the EPICS site above and each dies
+      with exactly its own reader. Same vacuity-cap reason as the EPICS entry.
   control_system.connector.virtual_accelerator.gateways.read_only:
     evidence: 'gateways\.get\("read_only", \{\}\)'
     note: >-
