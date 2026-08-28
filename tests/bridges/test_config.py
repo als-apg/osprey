@@ -8,7 +8,7 @@ from osprey.bridges.core.config import CoreConfig
 def test_from_env_maps_all_neutral_fields():
     env = {
         "DISPATCHER_URL": "http://disp:8010/",  # trailing slash must be stripped
-        "WORKER_URL": "http://work:9190/",
+        "WORKER_URL": "http://work:9901/",
         "EVENT_DISPATCHER_TOKEN": "disp-token",
         "DISPATCH_WORKER_TOKEN": "work-token",
         "DISPATCH_TRIGGER": "email-question",
@@ -26,7 +26,7 @@ def test_from_env_maps_all_neutral_fields():
     }
     cfg = CoreConfig.from_env(env)
     assert cfg.dispatcher_url == "http://disp:8010"
-    assert cfg.worker_url == "http://work:9190"
+    assert cfg.worker_url == "http://work:9901"
     assert cfg.event_dispatcher_token == "disp-token"
     assert cfg.dispatch_worker_token == "work-token"
     assert cfg.trigger == "email-question"
@@ -46,7 +46,7 @@ def test_from_env_maps_all_neutral_fields():
 def test_from_env_defaults_when_unset():
     cfg = CoreConfig.from_env({})
     assert cfg.dispatcher_url == "http://localhost:8010"
-    assert cfg.worker_url == "http://localhost:9190"
+    assert cfg.worker_url == "http://localhost:9901"
     assert cfg.trigger == ""
     assert cfg.poll_interval == 2.0
     assert cfg.poll_budget == 330.0

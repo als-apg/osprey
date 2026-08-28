@@ -81,12 +81,12 @@ def test_each_user_row_carries_rights_auth_and_port(exemplar_lines: list[str]) -
     alice = line_with(exemplar_lines, "alice")
     assert "readwrite · rights approval-gated" in alice
     assert "password" in alice
-    assert alice.rstrip().endswith(":9091")
+    assert alice.rstrip().endswith(":9100")
 
     bob = line_with(exemplar_lines, "bob")
     assert "readonly" in bob
     assert "rights approval-gated" not in bob
-    assert bob.rstrip().endswith(":9092")
+    assert bob.rstrip().endswith(":9101")
 
 
 def test_a_single_target_render_keeps_one_unqualified_write_right(
@@ -118,7 +118,7 @@ def test_a_mixed_persona_arms_only_the_target_its_own_block_names() -> None:
         name="mixed",
         config={
             "modules.web_terminals.enabled": True,
-            "modules.web_terminals.web_base_port": 9091,
+            "modules.web_terminals.web_base_port": 9100,
             "modules.web_terminals.users": [{"name": "dana", "index": 0, "persona": "va-write"}],
             "control_system.type": "virtual_accelerator",
             "control_system.connector.epics.gateways": ["gw.example:5064"],
@@ -140,7 +140,7 @@ def test_a_mixed_persona_arms_only_the_target_its_own_block_names() -> None:
 
 
 def test_a_login_free_user_says_no_login(exemplar_lines: list[str]) -> None:
-    ariel = line_with(exemplar_lines, "ariel", ":909")
+    ariel = line_with(exemplar_lines, "ariel", ":910")
     assert "no login" in ariel
     assert "password" not in ariel
 

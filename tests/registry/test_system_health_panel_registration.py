@@ -79,7 +79,7 @@ def test_web_server_definition_fields():
     assert defn.config_web_subkey == "web"
     assert defn.port_default == 8094
     assert defn.require_section is False  # health ships a usable default → always launchable
-    assert defn.multi_user_base_port == 9791
+    assert defn.multi_user_base_port == 9700
     assert defn.factory_config_kwargs == {}  # create_app takes no config-derived kwargs
 
 

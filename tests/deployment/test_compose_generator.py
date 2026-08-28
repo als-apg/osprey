@@ -986,12 +986,12 @@ def test_worker_port_follows_a_configured_stride() -> None:
 def test_worker_port_defaults_hold_when_the_axis_keys_are_absent() -> None:
     """Under bridge NEITHER host-only key is written, so both defaults live here.
 
-    A render that inherited an undefined stride would emit ``9190None`` or die on
+    A render that inherited an undefined stride would emit ``9901None`` or die on
     the arithmetic; a render that lost the base would emit an unreachable port.
     """
     rendered = _render_worker_template(env_present=True, dispatch_worker={"network": "host"})
-    assert _worker_service(rendered)["environment"]["DISPATCH_WORKER_PORT"] == "9190"
-    assert "http://localhost:9190/health" in _worker_service(rendered)["healthcheck"]["test"][1]
+    assert _worker_service(rendered)["environment"]["DISPATCH_WORKER_PORT"] == "9901"
+    assert "http://localhost:9901/health" in _worker_service(rendered)["healthcheck"]["test"][1]
 
 
 def test_worker_telemetry_host_follows_the_axis() -> None:
@@ -2518,7 +2518,7 @@ def _render_service_template(rel_path: str, project_name: str, **overrides: obje
     ctx: dict = {
         "services": {
             "virtual_accelerator": {"port": 5064},
-            "event_dispatcher": {"port": 8020},
+            "event_dispatcher": {"port": 9900},
             "dispatch_worker": {"worker_count": 1, "workspace_mode": "isolated"},
             "bluesky": {"port": 8090},
             "bluesky_web": {"port": 8095},
@@ -2943,7 +2943,7 @@ def _write_dispatch_stack_config(project_path: Path, deployed: list[str]) -> Pat
         "build_dir": str(project_path / "build"),
         "system": {"timezone": "UTC"},
         "services": {
-            "event_dispatcher": {"path": "./services/event_dispatcher", "port": 8020},
+            "event_dispatcher": {"path": "./services/event_dispatcher", "port": 9900},
             "postgresql": {"path": "./services/postgresql", "port_host": 5432},
         },
         "deployed_services": deployed,
@@ -3930,8 +3930,8 @@ def test_nextcloud_bridge_dispatch_urls_track_the_dispatch_templates_ports() -> 
         # Config-block defaults, and explicitly non-default ports.
         (
             {"nextcloud_bridge": {"trigger": "t"}, "event_dispatcher": {}, "dispatch_worker": {}},
-            8020,
-            9190,
+            9900,
+            9901,
         ),
         (
             {
@@ -4114,8 +4114,8 @@ def test_nextcloud_bridge_rendered_env_boots_with_host_secrets_supplied() -> Non
     assert cfg.core.event_dispatcher_token == "dispatcher-token"
     assert cfg.core.dispatch_worker_token == "worker-token"
     assert cfg.core.trigger == "nextcloud-question"
-    assert cfg.core.dispatcher_url == "http://event-dispatcher:8020"
-    assert cfg.core.worker_url == "http://dispatch-worker-1:9190"
+    assert cfg.core.dispatcher_url == "http://event-dispatcher:9900"
+    assert cfg.core.worker_url == "http://dispatch-worker-1:9901"
     # The three state files must land on the mounted volume, not the image layer.
     for path in (cfg.offsets_path, cfg.core.dedup_path, cfg.core.history_path):
         assert path.startswith("/data/"), path
@@ -4175,8 +4175,8 @@ def test_nextcloud_bridge_config_lookups_survive_explicit_null_values() -> None:
     )["environment"]
 
     assert "None" not in str(environment["DISPATCH_TIMEOUT_SEC"])
-    assert environment["DISPATCHER_URL"] == "http://event-dispatcher:8020"
-    assert environment["WORKER_URL"] == "http://dispatch-worker-1:9190"
+    assert environment["DISPATCHER_URL"] == "http://event-dispatcher:9900"
+    assert environment["WORKER_URL"] == "http://dispatch-worker-1:9901"
 
     cfg = CoreConfig.from_env(_resolve_compose_env(environment))
     assert cfg.worker_timeout == 300.0
@@ -4675,8 +4675,8 @@ def test_gchat_bridge_dispatch_urls_track_the_dispatch_templates_ports() -> None
         # Config-block defaults, and explicitly non-default ports.
         (
             {"gchat_bridge": {"trigger": "t"}, "event_dispatcher": {}, "dispatch_worker": {}},
-            8020,
-            9190,
+            9900,
+            9901,
         ),
         (
             {
@@ -4859,8 +4859,8 @@ def test_gchat_bridge_rendered_env_boots_with_host_secrets_supplied() -> None:
     assert cfg.core.event_dispatcher_token == "dispatcher-token"
     assert cfg.core.dispatch_worker_token == "worker-token"
     assert cfg.core.trigger == "gchat-question"
-    assert cfg.core.dispatcher_url == "http://event-dispatcher:8020"
-    assert cfg.core.worker_url == "http://dispatch-worker-1:9190"
+    assert cfg.core.dispatcher_url == "http://event-dispatcher:9900"
+    assert cfg.core.worker_url == "http://dispatch-worker-1:9901"
     # Both state files must land on the mounted volume, not the image layer.
     for path in (cfg.core.dedup_path, cfg.core.history_path):
         assert path.startswith("/data/"), path
@@ -4920,8 +4920,8 @@ def test_gchat_bridge_config_lookups_survive_explicit_null_values() -> None:
     )["environment"]
 
     assert "None" not in str(environment["DISPATCH_TIMEOUT_SEC"])
-    assert environment["DISPATCHER_URL"] == "http://event-dispatcher:8020"
-    assert environment["WORKER_URL"] == "http://dispatch-worker-1:9190"
+    assert environment["DISPATCHER_URL"] == "http://event-dispatcher:9900"
+    assert environment["WORKER_URL"] == "http://dispatch-worker-1:9901"
 
     cfg = CoreConfig.from_env(_resolve_compose_env(environment))
     assert cfg.worker_timeout == 300.0
@@ -5265,8 +5265,8 @@ def test_bridge_publishes_no_ports_in_any_network_mode(
 
 #: The two address lines a network-joined bridge must render, exactly.
 _BRIDGE_COMPOSE_URL_LINES = (
-    "      DISPATCHER_URL: http://event-dispatcher:8020\n",
-    "      WORKER_URL: http://dispatch-worker-1:9190\n",
+    "      DISPATCHER_URL: http://event-dispatcher:9900\n",
+    "      WORKER_URL: http://dispatch-worker-1:9901\n",
 )
 
 
@@ -5344,8 +5344,8 @@ def test_bridge_on_host_addresses_the_pair_over_loopback(config_key: str, servic
         config_key, service_key, network="host", pair_network="host"
     )
 
-    assert dispatcher_url == "http://localhost:8020"
-    assert worker_url == "http://localhost:9190"
+    assert dispatcher_url == "http://localhost:9900"
+    assert worker_url == "http://localhost:9901"
 
 
 @pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
@@ -5406,8 +5406,8 @@ def test_bridge_addresses_follow_its_own_axis_not_the_pairs(
     """
     dispatcher_url, worker_url = _bridge_pair_urls(config_key, service_key, pair_network="host")
 
-    assert dispatcher_url == "http://event-dispatcher:8020"
-    assert worker_url == "http://dispatch-worker-1:9190"
+    assert dispatcher_url == "http://event-dispatcher:9900"
+    assert worker_url == "http://dispatch-worker-1:9901"
 
 
 @pytest.mark.parametrize("network", [None, "bridge", "host"], ids=["unset", "bridge", "host"])
@@ -5575,7 +5575,7 @@ def test_dispatcher_without_the_axis_renders_todays_network_blocks() -> None:
     # Published port, still between `restart:` and the environment block, still
     # spelled bind-address:host-port:container-port.
     assert (
-        '    restart: unless-stopped\n    ports:\n      - "127.0.0.1:8020:8020"\n    environment:\n'
+        '    restart: unless-stopped\n    ports:\n      - "127.0.0.1:9900:9900"\n    environment:\n'
         in rendered
     )
     # Network membership, still directly after the config.yml mount.

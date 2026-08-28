@@ -72,10 +72,10 @@ EXAMPLE_CONFIG: dict = {
         "web_terminals": {
             "enabled": True,
             "nginx_port": 9080,
-            "web_base_port": 9091,
-            "artifact_base_port": 9291,
-            "ariel_base_port": 9391,
-            "lattice_base_port": 9491,
+            "web_base_port": 9100,
+            "artifact_base_port": 9200,
+            "ariel_base_port": 9300,
+            "lattice_base_port": 9400,
             "users": ["alice", "bob"],
             "landing": {
                 "groups": [

@@ -3,13 +3,13 @@
 Unlike the subprocess sweep (``test_dispatch_tutorial.py``), this exercises the
 REAL shipped artifacts: the compose templates, the bundled Dockerfile (which
 installs Node + the Claude Code CLI the worker needs), the worker ``env_file``
-wiring that carries provider auth, and the in-network ``dispatch-worker-1:9190``
+wiring that carries provider auth, and the in-network ``dispatch-worker-1:9901``
 routing baked into the shipped ``tutorial_triggers.yml`` — none of which the
 subprocess path touches.
 
 It inits + builds a control-assistant deployment repo, deploys the stack with
 ``osprey up -d --dev``, fires all four tutorial webhooks at the dispatcher
-(host-published on :8020), and asserts:
+(host-published on :9900), and asserts:
 
   * hello-dispatch / triage-event / save-report -> a run completes
   * denied-tool-demo -> rejected by the worker denylist (no completed run)
@@ -71,7 +71,7 @@ import yaml
 from osprey.deployment.compose_generator import resolve_project_name
 from tests.e2e._volumes import remove_project_volumes
 
-DISPATCHER_URL = "http://localhost:8020"
+DISPATCHER_URL = "http://localhost:9900"
 TOKEN = "dev-token"  # matches the .env tokens written below
 
 # Container image builds (Node + Claude CLI install; project + dispatch + two
@@ -116,7 +116,7 @@ READWRITE_IMAGE = f"{READWRITE_PROJECT}:local"
 CHANNEL_WRITE_TOOL = "mcp__controls__channel_write"
 
 # EVERY published web port is remapped off the preset defaults (nginx 9080,
-# web 9091+) so this deploy coexists with a live control-assistant stack on
+# web 9100+) so this deploy coexists with a live control-assistant stack on
 # the same host. Disjoint from every other deploy e2e's range too
 # (test_deploy_lifecycle.py tops out ~20600).
 WEB_PORTS = {

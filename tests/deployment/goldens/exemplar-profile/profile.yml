@@ -247,13 +247,13 @@ config:
     # companion panel gets its own family (the containers share the host
     # network namespace, so per-user offsets are what prevent collisions);
     # families omitted here fall back to registry defaults (registry/web.py).
-    # All families sit above the tutorial's own service ports (5064, 8020,
+    # All families sit above the tutorial's own service ports (5064, 9900,
     # 8090/8091/8095) so the two stacks never collide on one host.
-    web_base_port: 9091           # first per-user web-terminal port
-    artifact_base_port: 9291      # first per-user artifact-gallery port
-    ariel_base_port: 9391         # first per-user ARIEL search port
-    lattice_base_port: 9491       # first per-user lattice-dashboard port
-    channel_finder_base_port: 9591  # first per-user channel-finder panel port
+    web_base_port: 9100           # first per-user web-terminal port
+    artifact_base_port: 9200      # first per-user artifact-gallery port
+    ariel_base_port: 9300         # first per-user ARIEL search port
+    lattice_base_port: 9400       # first per-user lattice-dashboard port
+    channel_finder_base_port: 9500  # first per-user channel-finder panel port
     default_persona: readonly   # roster entries with no persona resolve here
     users:
       # One web terminal per entry. `index` pins the user's port offsets

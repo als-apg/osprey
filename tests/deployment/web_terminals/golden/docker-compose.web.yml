@@ -46,18 +46,18 @@ services:
       - OSPREY_AUDIT_DIR=/app/dls-assistant/var/audit/alice
       - OSPREY_TERMINAL_LANDING_URL=http://dls-deploy.dls.example.org:9080
       - OSPREY_TERMINAL_BIND_HOST=127.0.0.1
-      - OSPREY_TERMINAL_WEB_PORT=9091
-      - OSPREY_WEB_PORT=9091
+      - OSPREY_TERMINAL_WEB_PORT=9100
+      - OSPREY_WEB_PORT=9100
       - OSPREY_OTEL_OPENOBSERVE_HOST=127.0.0.1
       - OSPREY_TERMINAL_SECRET=${OSPREY_TERMINAL_SECRET_ALICE:-}
       - OSPREY_TERMINAL_EXTERNAL_ORIGIN=http://dls-deploy.dls.example.org:9080
       - ZO_INGEST_SA_TOKEN=${ZO_INGEST_SA_TOKEN:-}
-      - OSPREY_ARTIFACT_SERVER_PORT=9291
-      - OSPREY_ARIEL_PORT=9391
-      - OSPREY_CHANNEL_FINDER_PORT=9591
-      - OSPREY_LATTICE_DASHBOARD_PORT=9491
-      - OSPREY_FACILITY_KNOWLEDGE_PORT=9691
-      - OSPREY_HEALTH_PORT=9791
+      - OSPREY_ARTIFACT_SERVER_PORT=9200
+      - OSPREY_ARIEL_PORT=9300
+      - OSPREY_CHANNEL_FINDER_PORT=9500
+      - OSPREY_LATTICE_DASHBOARD_PORT=9400
+      - OSPREY_FACILITY_KNOWLEDGE_PORT=9600
+      - OSPREY_HEALTH_PORT=9700
     volumes:
       - alice-claude-config:/data/claude-config
       - alice-agent-data:/app/dls-assistant/var/agent_data
@@ -70,7 +70,7 @@ services:
       # never the bare 8087 default. Probed via bind_host itself (not a
       # hardcoded "127.0.0.1" literal) since that's the same loopback
       # address OSPREY_TERMINAL_BIND_HOST bakes into the app's own bind.
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9091/health || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9100/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -95,18 +95,18 @@ services:
       - OSPREY_AUDIT_DIR=/app/dls-assistant/var/audit/bob
       - OSPREY_TERMINAL_LANDING_URL=http://dls-deploy.dls.example.org:9080
       - OSPREY_TERMINAL_BIND_HOST=127.0.0.1
-      - OSPREY_TERMINAL_WEB_PORT=9092
-      - OSPREY_WEB_PORT=9092
+      - OSPREY_TERMINAL_WEB_PORT=9101
+      - OSPREY_WEB_PORT=9101
       - OSPREY_OTEL_OPENOBSERVE_HOST=127.0.0.1
       - OSPREY_TERMINAL_SECRET=${OSPREY_TERMINAL_SECRET_BOB:-}
       - OSPREY_TERMINAL_EXTERNAL_ORIGIN=http://dls-deploy.dls.example.org:9080
       - ZO_INGEST_SA_TOKEN=${ZO_INGEST_SA_TOKEN:-}
-      - OSPREY_ARTIFACT_SERVER_PORT=9292
-      - OSPREY_ARIEL_PORT=9392
-      - OSPREY_CHANNEL_FINDER_PORT=9592
-      - OSPREY_LATTICE_DASHBOARD_PORT=9492
-      - OSPREY_FACILITY_KNOWLEDGE_PORT=9692
-      - OSPREY_HEALTH_PORT=9792
+      - OSPREY_ARTIFACT_SERVER_PORT=9201
+      - OSPREY_ARIEL_PORT=9301
+      - OSPREY_CHANNEL_FINDER_PORT=9501
+      - OSPREY_LATTICE_DASHBOARD_PORT=9401
+      - OSPREY_FACILITY_KNOWLEDGE_PORT=9601
+      - OSPREY_HEALTH_PORT=9701
     volumes:
       - bob-claude-config:/data/claude-config
       - bob-agent-data:/app/dls-assistant/var/agent_data
@@ -119,7 +119,7 @@ services:
       # never the bare 8087 default. Probed via bind_host itself (not a
       # hardcoded "127.0.0.1" literal) since that's the same loopback
       # address OSPREY_TERMINAL_BIND_HOST bakes into the app's own bind.
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9092/health || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9101/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5

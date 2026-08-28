@@ -363,7 +363,7 @@ class TestHostNetworkDerivation:
         (default_port,) = derive_host_network_bindings(
             _host_config(event_dispatcher={"network": "host"})
         )
-        assert default_port.host_port == 8020
+        assert default_port.host_port == 9900
 
         (overridden,) = derive_host_network_bindings(
             _host_config(event_dispatcher={"network": "host", "port": 8020, "bind": "0.0.0.0"})
@@ -395,7 +395,7 @@ class TestHostNetworkDerivation:
         # Base, stride and count may all be absent from a hand-authored config;
         # the derivation falls back exactly the way the compose template does.
         bindings = derive_host_network_bindings(_host_config(dispatch_worker={"network": "host"}))
-        assert [(b.service, b.host_port) for b in bindings] == [("dispatch-worker-1", 9190)]
+        assert [(b.service, b.host_port) for b in bindings] == [("dispatch-worker-1", 9901)]
 
     def test_custom_stride_spaces_the_workers(self):
         bindings = derive_host_network_bindings(

@@ -43,7 +43,7 @@ _EXPECTED_TRIGGERS: dict[str, list[str]] = {
 # network. It is intentionally NOT a localhost URL; the e2e subprocess test
 # (no compose network) overrides it, while the full-stack deploy test relies on
 # it resolving. See tutorial_triggers.yml.
-_EXPECTED_DISPATCH_TARGET = "http://dispatch-worker-1:9190"
+_EXPECTED_DISPATCH_TARGET = "http://dispatch-worker-1:9901"
 
 
 def _shipped_triggers_path() -> Path:
