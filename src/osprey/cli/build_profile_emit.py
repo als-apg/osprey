@@ -168,6 +168,41 @@ _SYNTHESIS_RATIONALE: dict[str, str] = {
     "web_panels": "Panels offered by the web terminal.",
 }
 
+# Two keys need more than a one-line rationale: their shape is not obvious from
+# the empty default the emitter writes, and guessing it wrong is a build error
+# rather than a quiet no-op. Each entry replaces that key's rationale line with
+# a block written above the key. Every line is already '#'-prefixed (like
+# _PROVENANCE_COMMENT below), so an annotated key's value is left exactly as the
+# profile resolved it.
+_ANNOTATIONS: dict[str, tuple[str, ...]] = {
+    "web_panels": (
+        "# Tabs the web workspace offers beside the terminal. To turn on a panel",
+        "# the framework already ships, uncomment one listed under this key.",
+        "# A panel of your own is a list entry plus its address under `config:`:",
+        "#",
+        "#   web_panels:",
+        "#     - elog",
+        "#",
+        "# and, under `config:`, web.panels.elog.url alongside web.panels.elog.label,",
+        "# web.panels.elog.path and — optional — web.panels.elog.health_endpoint.",
+    ),
+    "env": (
+        "# Environment variables the deployment needs. Replace `env: {}` with any",
+        "# of `required` (the variable must be set somewhere), `pinned` (this",
+        "# repo's own env chain owns it outright, and nowhere else), `defaults`",
+        "# (name to value) and `file` (a profile-relative path copied in as .env):",
+        "#",
+        "#   env:",
+        "#     required: [EPICS_CA_ADDR_LIST]",
+        "#     pinned: [ARIEL_DB_PASSWORD]",
+        "#     defaults:",
+        "#       EPICS_CA_ADDR_LIST: 127.0.0.1",
+        "#     file: env/facility.env",
+        "#",
+        "# If `env:` already has children, add yours under it.",
+    ),
+}
+
 # The stamp is always written, so it carries its explanation rather than a
 # synthesis rationale: it is a floor for readers, not a preset choice.
 _REQUIRES_VERSION_COMMENT = (
@@ -1203,8 +1238,19 @@ def emit_standalone_profile_yaml(
     for field in synthesized:
         rationale = _SYNTHESIS_RATIONALE.get(field)
         key = _FIELD_TO_YAML.get(field, field)
-        if rationale and key in doc:
+        if rationale and key in doc and field not in _ANNOTATIONS:
             _set_pre_comment(doc, key, [f"# {rationale}"], 0)
+
+    # Annotated keys carry a worked example instead of a rationale line, and get
+    # it whether or not the preset left them unset: the shape of a custom panel
+    # or an env block is what a facility has to be told, not the fact that the
+    # key is present. Appending keeps any preset's own header above the key
+    # first, and column 0 keeps the block out of the artifact menus, which are
+    # inserted into the dumped text further down.
+    for field, annotation in _ANNOTATIONS.items():
+        key = _FIELD_TO_YAML.get(field, field)
+        if key in doc:
+            _set_pre_comment(doc, key, list(annotation), 0)
     if "requires_osprey_version" in doc:
         _set_pre_comment(doc, "requires_osprey_version", [_REQUIRES_VERSION_COMMENT], 0)
     if "provenance" in doc:

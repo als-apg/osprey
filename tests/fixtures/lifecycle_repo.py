@@ -226,6 +226,15 @@ agents:
 output_styles:
   - control-operator  # Terse, actionable output style for control-room operators
 
+# Tabs the web workspace offers beside the terminal. To turn on a panel
+# the framework already ships, uncomment one listed under this key.
+# A panel of your own is a list entry plus its address under `config:`:
+#
+#   web_panels:
+#     - elog
+#
+# and, under `config:`, web.panels.elog.url alongside web.panels.elog.label,
+# web.panels.elog.path and — optional — web.panels.elog.health_endpoint.
 web_panels:
   - ariel           # ARIEL search interface (past experiments, papers)
   - channel-finder  # Interactive channel-finder web UI
@@ -488,6 +497,19 @@ dispatch:
 # the service refuses to start without them. `osprey up` generates a strong
 # random value for each one into this repo's .env, so a new deployment is
 # secure with no editing. Put your own values in .env to override.
+# Environment variables the deployment needs. Replace `env: {}` with any
+# of `required` (the variable must be set somewhere), `pinned` (this
+# repo's own env chain owns it outright, and nowhere else), `defaults`
+# (name to value) and `file` (a profile-relative path copied in as .env):
+#
+#   env:
+#     required: [EPICS_CA_ADDR_LIST]
+#     pinned: [ARIEL_DB_PASSWORD]
+#     defaults:
+#       EPICS_CA_ADDR_LIST: 127.0.0.1
+#     file: env/facility.env
+#
+# If `env:` already has children, add yours under it.
 env:
   required:
     - EVENT_DISPATCHER_TOKEN
