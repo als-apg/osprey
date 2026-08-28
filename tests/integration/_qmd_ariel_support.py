@@ -126,7 +126,7 @@ SIDECAR_CORPUS_TARGET = "/corpus/ariel"
 
 #: The port the sidecar's forwarder owns inside the container. Not qmd's own
 #: 8181, which the daemon binds on IPv6 loopback only.
-SIDECAR_CONTAINER_PORT = 8180
+SIDECAR_CONTAINER_PORT = 9800
 
 #: How long to wait for the sidecar's ``/health``. The entrypoint runs the whole
 #: startup index pass *before* it opens the port, so this covers indexing too.
