@@ -827,6 +827,7 @@ class TestControlAssistantPersonas:
             "openobserve": {"port": host["services"]["openobserve"]["port"]},
             "bluesky": {"port": host["services"]["bluesky"]["port"]},
             "virtual_accelerator": {"port": host["services"]["virtual_accelerator"]["port"]},
+            "live_standin": {"port": host["services"]["live_standin"]["port"]},
         }
         assert config["services"]["qmd"]["port"] == QMD_DEFAULT_PORT
         assert [key for key in config if "." in str(key)] == []

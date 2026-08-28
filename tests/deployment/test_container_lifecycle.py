@@ -2595,7 +2595,7 @@ def staged_archiver(monkeypatch, tmp_path):
     monkeypatch.setattr(
         container_lifecycle,
         "_archiver_seed_inputs",
-        lambda config, project_dir: ([{"address": "SR:BPM1:X"}], None, {}),
+        lambda config, project_dir: ([{"address": "SR:BPM1:X"}], None, {}, None, None),
     )
     monkeypatch.setattr(
         container_lifecycle,
@@ -2944,7 +2944,7 @@ def test_seed_inputs_read_the_manifest_the_project_env_names(tmp_path):
     )
     (tmp_path / ".env").write_text("VA_CHANNELS_FILE=channel_manifest.json\n")
 
-    channels, engine, boot_values = container_lifecycle._archiver_seed_inputs({}, tmp_path)
+    channels, engine, boot_values, _, _ = container_lifecycle._archiver_seed_inputs({}, tmp_path)
 
     assert [c["address"] for c in channels] == ["SR:BPM1:X"]
     # No machine model in this project: every channel is procedural, which is a

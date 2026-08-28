@@ -28,6 +28,31 @@
     Channel Access addressing), so the co-deployed and external cases cannot
     drift apart in this file. #}
 {% set va_co_deployed = 'virtual_accelerator' in deployed_services %}
+{#- WHICH machine the recorder samples, decided once here for the same reason:
+    startup ordering and Channel Access addressing below must never name
+    different instances.
+
+    The archive belongs to the MACHINE, not to the model — so when this
+    deployment stands a live stand-in up, the stand-in IS the machine this
+    project calls `live`, and its readings are the history the store holds.
+
+    `recorded_port` deliberately gets no default on the stand-in branch. 5064
+    is the virtual accelerator's port, so defaulting to it would point the
+    recorder at the wrong instance and quietly record the wrong machine's
+    history. `| int` refuses at RENDER time instead, because `int()` of an
+    undefined raises rather than falling back; a real port passes through
+    unchanged. -#}
+{%- set standin_deployed = 'live_standin' in deployed_services %}
+{%- set recorded_key = 'live_standin' if standin_deployed else 'virtual_accelerator' %}
+{%- set recorded_service = recorded_key | replace('_', '-') %}
+{%- set recorded_port = services.live_standin.port | int if standin_deployed
+                        else (services.virtual_accelerator | default({})).port | default(5064) %}
+{%- if standin_deployed %}
+#
+# THIS DEPLOYMENT RECORDS THE LIVE STAND-IN. `live-standin` is the machine this
+# project calls `live`, so it — and not the `virtual-accelerator` beside it —
+# is what this recorder samples, because the archive belongs to the machine.
+{%- endif %}
 
 services:
   archiver-recorder:
@@ -79,11 +104,20 @@ services:
       mongodb:
         condition: service_healthy
 {% if va_co_deployed %}
+{%- if standin_deployed %}
+      # Only when the recorded IOC is co-deployed: the recorder's CA client
+      # connects at startup, so it must not open before iocInit is answering.
+      # This deployment stands a LIVE STAND-IN up, so the machine being
+      # recorded is `live-standin`, not the virtual accelerator beside it. A
+      # recorder deployed against an EXTERNAL IOC must NOT get this — compose
+      # errors on depends_on naming an undefined service.
+{%- else %}
       # Only when the VA is co-deployed: the recorder's CA client connects at
       # startup, so it must not open before iocInit is answering. A recorder
       # deployed against an EXTERNAL IOC must NOT get this — compose errors on
       # depends_on naming an undefined service.
-      virtual-accelerator:
+{%- endif %}
+      {{ recorded_service }}:
         condition: service_healthy
 {% endif %}
     # Deliberately NO bulk .env passthrough (the gchat/nextcloud bridge
@@ -130,12 +164,23 @@ services:
       # exactly as for the VA.
       VA_CHANNELS_FILE: "${VA_CHANNELS_FILE:-}"
 {% if va_co_deployed %}
+{%- if standin_deployed %}
+      # Reach the co-deployed LIVE STAND-IN over Channel Access — not the
+      # virtual accelerator beside it. The archive belongs to the machine: the
+      # stand-in is the machine this deployment calls `live`, so its readings
+      # are the history this store holds.
+      # Name-server TCP transport is the one host<->container CA config proven
+      # to work — UDP broadcast discovery doesn't cross the VM boundary. Port
+      # matches services.live_standin.port so an operator override stays
+      # consistent between the two services.
+{%- else %}
       # Reach the co-deployed Virtual Accelerator over Channel Access.
       # Name-server TCP transport is the one host<->container CA config proven
       # to work — UDP broadcast discovery doesn't cross the VM boundary. Port
       # matches services.virtual_accelerator.port so an operator override stays
       # consistent between the two services.
-      EPICS_CA_NAME_SERVERS: "virtual-accelerator:{{ (services.virtual_accelerator | default({})).port | default(5064) }}"
+{%- endif %}
+      EPICS_CA_NAME_SERVERS: "{{ recorded_service }}:{{ recorded_port }}"
       EPICS_CA_AUTO_ADDR_LIST: "NO"
 {% else %}
       # External IOC: the address has to come from the deploy environment, and

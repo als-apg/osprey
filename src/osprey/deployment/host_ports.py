@@ -75,6 +75,13 @@ _SERVICE_REMEDY_KEYS = {
     "tiled": "services.bluesky.tiled_port",
     "bluesky-web": "services.bluesky_web.port",
     "virtual-accelerator": "services.virtual_accelerator.port",
+    # The SECOND virtual accelerator, when a project asked for a live stand-in
+    # (``virtual_accelerator.live_standin``). It is the same image on its own
+    # Channel Access port, rendered from the same template as instance 1, so
+    # its published port is contestable in the same way — and its own key is
+    # what moves it: lowering ``services.virtual_accelerator.port`` moves the
+    # machine this project runs against and leaves the stand-in where it was.
+    "live-standin": "services.live_standin.port",
     "qmd": QMD_PORT_CONFIG_KEY,
     # Fallback for a graphdb binding whose container port did not match the
     # per-port table below (an unrecognised published port). The bolt key is the

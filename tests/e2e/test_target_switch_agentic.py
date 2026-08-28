@@ -220,6 +220,12 @@ TARGET_LINE_PREFIX = "Target: "
 #: of the identity line. Not asserted by the smoke below — they need a session
 #: that has actually reached for ``control_target_set`` — but pinned here for
 #: the scenarios, and covered by the rendered-hook guard.
+#:
+#: The phrase is the LABEL the controls server mints for this deployment, which
+#: renders both lines below. It is ``LIVE MACHINE`` here because this
+#: deployment's live target is a real Channel Access endpoint; a deployment
+#: whose live target is a stand-in is labelled ``LIVE MACHINE (stand-in)`` and
+#: these composed lines would name that instead.
 LIVE_MACHINE_PHRASE = "LIVE MACHINE"
 DESTINATION_LINE_PREFIX = "Destination: "
 DESTINATION_PROBE_LINE_PREFIX = "Destination probe channel: "
@@ -230,8 +236,9 @@ LIVE_SWITCH_WARNING = "THIS SWITCH POINTS THE SESSION AT THE LIVE MACHINE"
 #: alone surviving a reword would not save
 #: :func:`live_target_line` / :func:`live_destination_line`, which both assume an
 #: endpoint follows the phrase in parentheses. Verified against
-#: ``src/osprey/templates/claude_code/claude/hooks/osprey_approval.py``.
-LIVE_MACHINE_ENDPOINT_SOURCE = "LIVE MACHINE ({"
+#: ``src/osprey/templates/claude_code/claude/hooks/osprey_approval.py``. Both
+#: lines render the writer's label, so neither fragment names a machine.
+TARGET_IDENTITY_ENDPOINT_SOURCE = 'return f"{label} ({endpoint})"'
 DESTINATION_ENDPOINT_SOURCE = "Destination: {label} ({"
 
 
@@ -404,6 +411,14 @@ def _overlay_text(*, bench_port: int, va_port: int) -> str:
         The verified spelling for dropping a service block. Every parser gates
         on is-not-None; ``enabled: false`` under a ``services:`` block would
         fail schema validation instead.
+    ``virtual_accelerator.live_standin: null``
+        The preset ships a live stand-in on: a second virtual accelerator that
+        the build installs AS the live machine, deriving the whole ``epics``
+        block from it and taking limits checking strict. This lane supplies its
+        own live machine — the bench IOC — so leaving the stand-in on collides
+        with every ``epics`` key below (the build refuses one fact spelled in
+        two places) and stands up a container no scenario here talks to. Nulled
+        rather than deleted because an override cannot remove a key.
     ``exclude:``
         A ``-O`` list key UNIONS with the preset's and can never subtract, so
         the artifact trims cannot be expressed by re-listing ``skills:``. The
@@ -432,6 +447,13 @@ def _overlay_text(*, bench_port: int, va_port: int) -> str:
         "bluesky_web: null",
         "dispatch: null",
         "va_archiver: null",
+        "",
+        "# The preset's live stand-in is a second VA installed as the live machine:",
+        "# it derives the `epics` block below and forces strict limits. This lane",
+        "# brings its own live machine (the bench IOC), so the stand-in is both a",
+        "# collision and a container nothing here talks to.",
+        "virtual_accelerator:",
+        "  live_standin: null",
         "",
         "# List keys in a -O layer UNION with the preset's and can never subtract,",
         "# so the artifact trims have to be spelled as an exclusion.",
@@ -874,9 +896,9 @@ def test_the_rendered_approval_hook_still_speaks_these_lines(
             DESTINATION_LINE_PREFIX.rstrip(),
             DESTINATION_PROBE_LINE_PREFIX.rstrip(),
             LIVE_SWITCH_WARNING,
-            # Source fragments: `return f"LIVE MACHINE ({endpoint})"` and
+            # Source fragments: `return f"{label} ({endpoint})"` and
             # `lines.append(f"Destination: {label} ({endpoint})")`.
-            LIVE_MACHINE_ENDPOINT_SOURCE,
+            TARGET_IDENTITY_ENDPOINT_SOURCE,
             DESTINATION_ENDPOINT_SOURCE,
         )
         if literal not in hook

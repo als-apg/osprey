@@ -110,7 +110,7 @@ def test_template_keeps_a_commented_port_override_example() -> None:
     """A project reaching a VA it does not deploy needs to see how."""
     text = _render_template(CONTROL_ASSISTANT_TEMPLATE)
 
-    assert "# port: 5074" in text, (
+    assert "# port: 5094" in text, (
         "the commented gateway port override example is gone — a split "
         "host/container setup has no way to see that `port:` still works"
     )

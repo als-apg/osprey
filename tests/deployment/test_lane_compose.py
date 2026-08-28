@@ -46,9 +46,11 @@ BLUESKY_TEMPLATE = "bluesky/docker-compose.yml.j2"
 GOLDEN_DIR = Path(__file__).parent / "goldens" / "bluesky_single_lane"
 
 #: The literal ``_inject_bluesky`` writes into the live-serving lane's config
-#: block. Restated here as a PREFIX rather than imported whole: the test cares
-#: that compose is handed a required variable (``:?``), not about the wording
-#: of the operator message that follows it.
+#: block when this deployment's ``live`` target is a facility. Restated here as
+#: a PREFIX rather than imported whole: the test cares that compose is handed a
+#: required variable (``:?``), not about the wording of the operator message
+#: that follows it. The other case — a deployment whose ``live`` target is the
+#: co-deployed stand-in — is :data:`STANDIN_DIAL`.
 CA_NAME_SERVERS_REQUIRED_PREFIX = "${EPICS_CA_NAME_SERVERS:?"
 
 
@@ -372,6 +374,110 @@ def test_only_the_va_lane_waits_on_the_virtual_accelerator(two_lane: dict[str, A
         assert "virtual-accelerator" in two_lane["services"][service]["depends_on"], service
     for service in ("bluesky-live-bridge", "bluesky-live-queueserver"):
         assert "virtual-accelerator" not in two_lane["services"][service]["depends_on"], service
+
+
+#: What ``_inject_bluesky`` writes into the live lane when the deployment's
+#: ``live`` target is the co-deployed stand-in soft-IOC rather than a facility:
+#: the stand-in's compose service key and the port the build gave it. Same
+#: shape as the VA lane's ``virtual-accelerator:5064``, because it is the same
+#: kind of address — a container on this network, not a gateway an operator has
+#: to supply.
+STANDIN_DIAL = "live-standin:5074"
+
+STANDIN_LANES = {
+    "bluesky": _lane_block(8090, tiled_enabled=True, target="va"),
+    "bluesky_live": _lane_block(8190, target="live", ca_name_servers=STANDIN_DIAL),
+}
+
+
+@pytest.fixture
+def two_lane_with_standin() -> dict[str, Any]:
+    """The same VA-baseline pair, on a deployment that stands in for ``live``.
+
+    ``virtual_accelerator.live_standin`` deploys a second soft-IOC as the
+    deployment's ``live`` target, so the live lane's gateway is a container
+    this build knows the address of. ``live_standin`` is in
+    ``deployed_services`` because that is what a stand-in render carries — the
+    VA compose template reads it there to decide whether to render the second
+    instance.
+    """
+    return _render(
+        _context(
+            lanes=STANDIN_LANES,
+            deployed_services=[
+                "bluesky",
+                "bluesky_live",
+                "virtual_accelerator",
+                "live_standin",
+            ],
+        )
+    )
+
+
+def test_the_live_lane_dials_the_stand_in_container(
+    two_lane_with_standin: dict[str, Any],
+) -> None:
+    """No required variable to supply: the live lane addresses a container.
+
+    Both of the lane's containers, because both build ophyd devices against
+    this address — the same reason both carry the refusing form when the live
+    target is a real facility.
+    """
+    for service in ("bluesky-live-bridge", "bluesky-live-queueserver"):
+        env = _env(two_lane_with_standin, service)
+        assert env["EPICS_CA_NAME_SERVERS"] == STANDIN_DIAL
+        assert CA_NAME_SERVERS_REQUIRED_PREFIX not in env["EPICS_CA_NAME_SERVERS"]
+
+
+def test_the_stand_in_lane_is_contained_exactly_as_the_va_lane_is(
+    two_lane_with_standin: dict[str, Any],
+) -> None:
+    """Name-server TCP transport, broadcast discovery off — on every lane.
+
+    The containment is the half of the addressing that makes it a POINT: with
+    ``EPICS_CA_AUTO_ADDR_LIST`` left on, a lane pinned to one machine would
+    still answer from whatever else the network broadcast reaches, which is the
+    confusion between the two machines the stand-in exists to keep clean.
+    """
+    for service in (
+        "bluesky-bridge",
+        "queueserver",
+        "bluesky-live-bridge",
+        "bluesky-live-queueserver",
+    ):
+        assert _env(two_lane_with_standin, service)["EPICS_CA_AUTO_ADDR_LIST"] == "NO", service
+
+
+def test_the_stand_in_leaves_the_va_lanes_addressing_alone(
+    two_lane_with_standin: dict[str, Any],
+) -> None:
+    """Two machines, two addresses. The baseline lane still dials the VA.
+
+    A stand-in that moved the baseline lane too would leave the deployment with
+    one machine addressed twice — and no way to tell the two targets apart,
+    which is the whole point of rendering a second lane.
+    """
+    for service in ("bluesky-bridge", "queueserver"):
+        assert (
+            _env(two_lane_with_standin, service)["EPICS_CA_NAME_SERVERS"]
+            == "virtual-accelerator:5064"
+        )
+
+
+def test_the_stand_in_lane_still_waits_on_nothing(
+    two_lane_with_standin: dict[str, Any],
+) -> None:
+    """The VA startup guard is the BASELINE lane's, and stays that way.
+
+    The live lane's ordering is unchanged by the stand-in: it never talked to
+    the ``virtual-accelerator`` container and still does not, so a
+    ``depends_on`` on it would be an ordering constraint against a machine this
+    lane has no dealings with.
+    """
+    for service in ("bluesky-live-bridge", "bluesky-live-queueserver"):
+        assert (
+            "virtual-accelerator" not in two_lane_with_standin["services"][service]["depends_on"]
+        ), service
 
 
 def test_each_lane_carries_its_own_launch_token_variable(two_lane: dict[str, Any]) -> None:

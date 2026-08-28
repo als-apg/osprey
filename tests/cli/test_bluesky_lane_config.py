@@ -13,7 +13,10 @@ eye:
 * the two lanes never share a port, and tiled — the one shared component —
   stays on lane 1;
 * the LIVE lane's gateway address is a required compose variable, verbatim, and
-  the VA lane has no such requirement because its gateway is co-deployed.
+  the VA lane has no such requirement because its gateway is co-deployed;
+* a deployment whose ``live`` target is a co-deployed stand-in
+  (``virtual_accelerator.live_standin``) dials that container instead, because
+  there is then nothing for an operator to supply and nothing to refuse over.
 
 Harness follows ``test_build_injectors_comment_anchoring.py``: a literal
 config.yml written into ``tmp_path``, the injector called directly, then
@@ -31,7 +34,9 @@ import yaml as pyyaml
 
 from osprey.cli.build_injectors import (
     _LIVE_LANE_CA_NAME_SERVERS,
+    _LIVE_STANDIN_COMPOSE_SERVICE,
     _inject_bluesky,
+    _live_lane_ca_name_servers,
 )
 from osprey.cli.build_profile import _parse_profile
 from osprey.cli.build_profile_schema import (
@@ -406,6 +411,182 @@ def test_derived_lane_port_ignores_a_disabled_tiled_port() -> None:
     """A tiled port nothing publishes cannot collide with anything."""
     config = BlueskyConfig(second_lane=True, tiled_enabled=False, tiled_port=8190)
     assert config.second_lane_port() == 8190
+
+
+# ---------------------------------------------------------------------------
+# The live lane on a deployment whose `live` target is a stand-in
+# ---------------------------------------------------------------------------
+
+#: The stand-in port the preset ships, reused here so the rendered dial in
+#: these assertions is the one an operator actually gets.
+STANDIN_PORT = 5074
+STANDIN_DIAL = f"live-standin:{STANDIN_PORT}"
+
+
+def test_the_stand_in_dial_names_the_compose_service_not_the_config_key() -> None:
+    """The lane dials a CONTAINER, so the name is the hyphenated compose key.
+
+    Spelled out here rather than derived, because the whole value of the
+    derivation is that it agrees with the VA compose template's
+    ``instance_key | replace('_', '-')`` — a test that recomputed it the same
+    way would agree with a typo just as happily.
+    """
+    assert _LIVE_STANDIN_COMPOSE_SERVICE == "live-standin"
+    assert _live_lane_ca_name_servers(VAConfig(live_standin=STANDIN_PORT)) == STANDIN_DIAL
+
+
+@pytest.mark.parametrize("virtual_accelerator", [None, VAConfig(), VAConfig(port=5065)])
+def test_without_a_stand_in_the_derivation_is_the_required_variable(
+    virtual_accelerator: VAConfig | None,
+) -> None:
+    """No stand-in, no co-deployed gateway: the refusing form, byte for byte."""
+    assert _live_lane_ca_name_servers(virtual_accelerator) == _LIVE_LANE_CA_NAME_SERVERS
+
+
+def test_a_va_baseline_live_lane_dials_a_deployed_stand_in(tmp_path: Path) -> None:
+    """The shipped shape: VA baseline, live second lane, stand-in as `live`.
+
+    Nothing for the operator to supply means nothing for `osprey up` to refuse
+    over — which is what makes `osprey build && osprey up` a no-edit story on a
+    profile that sets both the stand-in and `bluesky.second_lane`.
+    """
+    project = tmp_path / "project"
+    _write_config(project, cs_type="virtual_accelerator")
+
+    _inject_bluesky(BlueskyConfig(second_lane=True), project, VAConfig(live_standin=STANDIN_PORT))
+
+    services = _read_config(project)["services"]
+    assert services["bluesky_live"]["target"] == "live"
+    assert services["bluesky_live"]["ca_name_servers"] == STANDIN_DIAL
+
+    # The VA lane is untouched: its gateway was always co-deployed, and the
+    # stand-in is a second machine rather than a change to that one.
+    assert services["bluesky"]["target"] == "va"
+    assert "ca_name_servers" not in services["bluesky"]
+
+
+def test_a_live_baseline_lane_one_dials_the_stand_in_too(tmp_path: Path) -> None:
+    """The requirement follows the TARGET, and so does the stand-in that fills it.
+
+    Here the stand-in IS the baseline — `control_system.type` is `epics`, so
+    lane 1 serves `live` — and lane 2 is the VA lane. The dial has to land on
+    lane 1, because a lane's addressing is decided by what it talks to and not
+    by its index.
+    """
+    project = tmp_path / "project"
+    _write_config(project, cs_type="epics")
+
+    _inject_bluesky(BlueskyConfig(second_lane=True), project, VAConfig(live_standin=STANDIN_PORT))
+
+    services = _read_config(project)["services"]
+    assert services["bluesky"]["target"] == "live"
+    assert services["bluesky"]["ca_name_servers"] == STANDIN_DIAL
+    assert services["bluesky_va"]["target"] == "va"
+    assert "ca_name_servers" not in services["bluesky_va"]
+
+
+@pytest.mark.parametrize(
+    ("cs_type", "live_lane_key"),
+    [("virtual_accelerator", "bluesky_live"), ("epics", "bluesky")],
+)
+def test_without_a_stand_in_the_live_lane_block_is_unchanged(
+    tmp_path: Path, cs_type: str, live_lane_key: str
+) -> None:
+    """The regression pin: no `live_standin`, and the idiom is byte-identical.
+
+    Both baseline directions, because the stand-in fork is applied to whichever
+    lane serves `live` and a fork that leaked into the other direction would
+    show up here first.
+    """
+    project = tmp_path / "project"
+    _write_config(project, cs_type=cs_type)
+
+    _inject_bluesky(BlueskyConfig(second_lane=True), project, VAConfig())
+
+    services = _read_config(project)["services"]
+    addressing = services[live_lane_key]["ca_name_servers"]
+    assert addressing == _LIVE_LANE_CA_NAME_SERVERS
+    assert addressing.startswith("${EPICS_CA_NAME_SERVERS:?")
+    assert "live-standin" not in addressing
+
+
+def test_the_stand_in_moves_the_gateway_and_nothing_else(tmp_path: Path) -> None:
+    """Two renders that differ only in `live_standin` differ only at that key.
+
+    Byte-level, because the claim is about blast radius: the stand-in changes
+    which machine the live lane dials, and a port, a lane name, a
+    deployed_services entry or a re-anchored comment moving with it would be a
+    rendered-config regression the parsed form cannot see. `ca_name_servers` is
+    the last key of its block in both renders, so everything before it and
+    everything after its value must be identical text.
+    """
+    without = tmp_path / "without"
+    with_standin = tmp_path / "with"
+    for project in (without, with_standin):
+        _write_config(project, cs_type="virtual_accelerator")
+
+    _inject_bluesky(BlueskyConfig(second_lane=True), without, VAConfig())
+    _inject_bluesky(
+        BlueskyConfig(second_lane=True), with_standin, VAConfig(live_standin=STANDIN_PORT)
+    )
+
+    def split(project: Path) -> tuple[str, str, str]:
+        head, key, rest = (
+            (project / "config.yml").read_text(encoding="utf-8").partition("ca_name_servers:")
+        )
+        assert key, "the live lane wrote no gateway address"
+        # The value runs to the blank line that ends the services block; the
+        # required-variable form is long enough that the emitter folds it over
+        # several lines, so the value is compared as one string, not by lines.
+        value, blank, tail = rest.partition("\n\n")
+        return head, value.strip(), blank + tail
+
+    before_head, before_value, before_tail = split(without)
+    after_head, after_value, after_tail = split(with_standin)
+
+    assert before_head == after_head
+    assert before_tail == after_tail
+    assert before_value.startswith("${EPICS_CA_NAME_SERVERS:?")
+    assert after_value == STANDIN_DIAL
+
+
+def test_a_stand_in_dial_survives_a_rebuild_unquoted(tmp_path: Path) -> None:
+    """`live-standin:5074` is a plain YAML scalar, and stays one on re-injection.
+
+    The dial carries a colon, which is the character that decides whether the
+    emitter wrote a scalar or something the next build reads back as a mapping.
+    A second injection reads the file it wrote, so this is the round trip that
+    would catch it.
+    """
+    project = tmp_path / "project"
+    _write_config(project, cs_type="virtual_accelerator")
+    va = VAConfig(live_standin=STANDIN_PORT)
+
+    _inject_bluesky(BlueskyConfig(second_lane=True), project, va)
+    first = (project / "config.yml").read_text(encoding="utf-8")
+    _inject_bluesky(BlueskyConfig(second_lane=True), project, va)
+
+    assert (project / "config.yml").read_text(encoding="utf-8") == first
+    assert _read_config(project)["services"]["bluesky_live"]["ca_name_servers"] == STANDIN_DIAL
+
+
+def test_a_single_lane_deploy_carries_no_gateway_key_even_with_a_stand_in(
+    tmp_path: Path,
+) -> None:
+    """`ca_name_servers` stays LANE-SCOPED. The stand-in does not widen it.
+
+    A one-lane deployment serves the baseline and nothing else, so it has no
+    live lane to address — writing the dial anyway would hand the single lane
+    an addressing key it never had, on every stand-in project.
+    """
+    project = tmp_path / "project"
+    _write_config(project, cs_type="virtual_accelerator")
+
+    _inject_bluesky(BlueskyConfig(), project, VAConfig(live_standin=STANDIN_PORT))
+
+    services = _read_config(project)["services"]
+    assert "ca_name_servers" not in services["bluesky"]
+    assert "target" not in services["bluesky"]
 
 
 # ---------------------------------------------------------------------------

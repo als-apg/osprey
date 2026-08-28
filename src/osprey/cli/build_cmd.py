@@ -1338,6 +1338,11 @@ def _render_project(
         reach_override_errors,
         selected_panel_errors,
     )
+    from .build_profile_standin import (
+        live_standin_config_overrides,
+        live_standin_duplicate_key_errors,
+        rewrite_strict_limits_comment,
+    )
     from .validate_claude_artifacts import validate_agent_tools_against_permissions
 
     build_profile = resolved.profile
@@ -1404,13 +1409,30 @@ def _render_project(
     )
     progress("  ✓ Base template rendered")
 
-    # What the deploy and va_archiver blocks contribute to the rendered config,
-    # applied with the profile's own `config:` entries in one pass. Derived
-    # keys the profile also spells are rejected at validation, so winning here
-    # can never silently overwrite a facility's own value.
+    # One fact, two homes: a profile that also spells a key the live stand-in
+    # derives is refused rather than silently overwritten below — the same rule
+    # the va_archiver block applies to the archive's coordinates, and here the
+    # duplicate is a real gateway address sitting in the profile while every
+    # session is on the stand-in.
+    standin_duplicates = live_standin_duplicate_key_errors(
+        build_profile.virtual_accelerator, build_profile.config
+    )
+    if standin_duplicates:
+        raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(standin_duplicates))
+
+    # What the deploy, va_archiver and virtual_accelerator blocks contribute to
+    # the rendered config, applied with the profile's own `config:` entries in
+    # one pass. Derived keys the profile also spells are rejected at validation,
+    # so winning here can never silently overwrite a facility's own value.
     derived_by_block = {
         "deploy": deploy_config_overrides(build_profile.deploy, build_profile.config),
         "va_archiver": va_archiver_config_overrides(build_profile.va_archiver),
+        # Reads the render because the stand-in's probe channel is the sandbox
+        # VA's: whatever the template put there is the fallback for a profile
+        # that named none of its own.
+        "virtual_accelerator": live_standin_config_overrides(
+            build_profile.virtual_accelerator, build_profile.config, _rendered_config(render_dir)
+        ),
     }
     derived = {key: value for block in derived_by_block.values() for key, value in block.items()}
     config_overrides = {**build_profile.config, **derived}
@@ -1420,6 +1442,14 @@ def _render_project(
         for block, entries in derived_by_block.items():
             for key, value in entries.items():
                 progress("      %s: %s (from the profile's %s block)", key, value, block)
+
+    # The template ships `allow_unlisted_channels: true` explained on the same
+    # line as a tutorial convenience. The stand-in's override turns it false and
+    # would leave that sentence standing beside its own contradiction, so the
+    # line is retruthed here — where the flip is known — rather than by hedging
+    # the template's text for every deployment that has no stand-in.
+    if derived_by_block["virtual_accelerator"]:
+        rewrite_strict_limits_comment(render_dir / "config.yml")
 
     # What an attached render is told about the services its host deploys —
     # the ports it publishes, the panel URLs its injectors derived — copied
@@ -2320,6 +2350,7 @@ def _build_repo(
 
     from .build_profile import resolve_build_document
     from .build_profile_deploy import deploy_aware_config_errors, deploy_aware_config_warnings
+    from .build_profile_va_faults import live_standin_lattice_errors
     from .phase_reporter import current_reporter
     from .variant_selection import VARIANT_DIRNAME, resolve_variant_selection
 
@@ -2558,6 +2589,21 @@ def _build_repo(
         # The one write outside build/, and last for that reason: it names a
         # file in the tree the line above just published.
         _wire_build_derived_env(repo_root, zones.build_dir)
+
+        # The build-time half of the stand-in's lattice gate. Validation asks
+        # the same question of the env chain alone; only here is the other half
+        # knowable — whether this render produced a channel manifest, which is
+        # the precondition the line above gates its `VA_LATTICE=builtin` write
+        # on. A stand-in with no lattice behind the readout perturbation it
+        # ships exits at container start, so it is refused now rather than
+        # discovered at `osprey up`.
+        va = build_profile.virtual_accelerator
+        if va is not None and va.live_standin is not None:
+            standin_errors = live_standin_lattice_errors(repo_root, zones.build_dir)
+            if standin_errors:
+                raise BuildProfileError(
+                    "Profile validation failed:\n  " + "\n  ".join(standin_errors)
+                )
 
     except click.Abort:
         raise

@@ -469,15 +469,23 @@ class VAConfig:
     """Virtual Accelerator soft-IOC configuration for a build profile (opt-in
     via the ``virtual_accelerator:`` key).
 
-    Consumed by the build pipeline's VA-injection step to deploy the single
+    Consumed by the build pipeline's VA-injection step to deploy the
     ``virtual_accelerator`` service (compose service ``virtual-accelerator``,
-    container ``<project>-virtual-accelerator``). Port is validated by
+    container ``<project>-virtual-accelerator``), plus a second copy of it on
+    ``live_standin`` when that port is set. Ports are validated by
     :meth:`BuildProfile.validate`.
     """
 
     port: int = 5064
     """Channel Access TCP port the soft-IOC serves PVs on (see
     src/osprey/services/virtual_accelerator/entrypoint.py's run contract)."""
+
+    live_standin: int | None = None
+    """Channel Access TCP port for a second copy of the soft-IOC, wired in as the
+    deployment's ``live`` target so operators rehearse the go-live ritual against
+    something safe. Absent (the default) means the deployment has no ``live``
+    stand-in and its ``live`` target is whatever the ``epics:`` block names, so
+    going live is deleting this key and setting the real gateways."""
 
 
 @dataclass

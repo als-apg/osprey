@@ -84,6 +84,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
     Verification,
     connector_block,
     derive_endpoints,
+    endpoint_is_live_standin,
     verify_child_report,
 )
 from osprey_connectors.control_system.base import is_readonly_run
@@ -450,8 +451,15 @@ def target_display_metadata(config: Any) -> dict[str, dict[str, Any]]:
         endpoint = derivation.selected_endpoint()
         block = _connector_block(config, derivation.connector_type)
         metadata[target] = {
-            "label": _label(target, derivation.connector_type),
+            "label": _label(
+                target,
+                derivation.connector_type,
+                standin=_is_live_standin(config, target, endpoint),
+            ),
             "endpoint": f"{endpoint.host}:{endpoint.port}" if endpoint else "",
+            # Unchanged for the stand-in, deliberately: it is the deployment's
+            # live target, so every strict limit, approval prompt and banner
+            # the real machine gets, it gets. Only the name on the label moves.
             "real_machine": target == TARGET_LIVE
             and derivation.connector_type not in _SIMULATED_TYPES,
             "probe_channel": str(block.get(PROBE_CHANNEL_KEY) or ""),
@@ -459,14 +467,43 @@ def target_display_metadata(config: Any) -> dict[str, dict[str, Any]]:
     return metadata
 
 
-def _label(target: str, connector_type: str | None) -> str:
+def _is_live_standin(config: Any, target: str, endpoint: Any) -> bool:
+    """Whether the live target is this deployment's stand-in, not its machine.
+
+    Derived here because here is where every other display fact is derived:
+    this function is the state file's single writer, and its readers — the
+    prompt hook, the roster, the approval banner, the web badge — render the
+    label they are handed and never ask the config again. Two derivations of
+    "is this the real machine" can disagree, and a disagreement about *that*
+    is an operator being told they are somewhere they are not.
+
+    The predicate itself is
+    :func:`~osprey.mcp_server.control_system.target_eligibility.endpoint_is_live_standin`
+    over :func:`osprey_connectors.standin.live_standin_active`, shared with the
+    archiver's enablement gate and the build derivation that points the gateways
+    at the stand-in in the first place. An SSH tunnel is the case it must not
+    claim: forwarding a real gateway to ``localhost:5064`` is loopback and
+    nothing more, so the port conjunct fails and the label stays
+    ``LIVE MACHINE`` — which is the truth, because the operator is one hop from
+    hardware.
+    """
+    if target != TARGET_LIVE:
+        return False
+    return endpoint_is_live_standin(config, endpoint)
+
+
+def _label(target: str, connector_type: str | None, *, standin: bool = False) -> str:
     if target == TARGET_VA:
         return "virtual accelerator (simulation)"
     if connector_type is None:
         return "live machine (not configured)"
     if connector_type in _SIMULATED_TYPES:
         return f"live target on a simulated connector ({connector_type})"
-    return "LIVE MACHINE"
+    # Reachable only from the branch that has already resolved to the live
+    # machine: the stand-in is a live target in every respect but the readout
+    # behind it, and the parenthesis is the whole of what an operator is told
+    # differently.
+    return "LIVE MACHINE (stand-in)" if standin else "LIVE MACHINE"
 
 
 # ---------------------------------------------------------------------------

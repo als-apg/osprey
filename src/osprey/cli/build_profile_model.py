@@ -37,6 +37,7 @@ from osprey.profiles.web_panels import BUILTIN_PANELS
 
 from .build_profile_archiver import (
     VAArchiverConfig,
+    _expand_dotted,
     va_archiver_errors,
     va_mock_archiver_errors,
 )
@@ -44,6 +45,7 @@ from .build_profile_deploy import DeployConfig
 from .build_profile_presets import _triggers_dir
 from .build_profile_schema import (
     _ENV_VAR_RE,
+    SECOND_LANE_PORT_STRIDE,
     BlueskyConfig,
     BlueskyWebConfig,
     DispatchConfig,
@@ -59,6 +61,7 @@ from .build_profile_schema import (
     env_names_errors,
     network_mode_errors,
 )
+from .build_profile_va_faults import live_standin_errors
 from .profile_conventions import validate_convention_sources
 
 DISPATCH_PAIR_SERVICES = ("event_dispatcher", "dispatch_worker")
@@ -831,6 +834,90 @@ class BuildProfile:
             return _app_template_enables_hybrid_search(self.data_bundle)
         return switch is not False
 
+    def _claimed_ports(self) -> dict[str, int]:
+        """Every port this profile already spends, keyed by the line that moves it.
+
+        One sweep over the port-bearing blocks, so a check that has to clear a
+        new port against all of them does not have to learn where each of them
+        lives. Keyed by DOTTED KEY rather than by service, because a collision
+        report is only actionable if it names the entry an author would edit —
+        the same reason :data:`~osprey.deployment.host_ports._SERVICE_REMEDY_KEYS`
+        answers a compose conflict with a config key.
+
+        ``virtual_accelerator.port`` is deliberately absent: the stand-in's rule
+        against it is its own, with a message naming both halves, and reporting
+        the same collision twice would not help anyone.
+
+        Returns:
+            Dotted key → port. A derived port appears under the key it is
+            derived from; a derivation that raises is skipped, since the block
+            that owns it reports that failure itself.
+        """
+        claimed: dict[str, int] = {}
+
+        if self.bluesky is not None:
+            b = self.bluesky
+            claimed["bluesky.port"] = b.port
+            if b.tiled_enabled:
+                claimed["bluesky.tiled_port"] = b.tiled_port
+            if b.second_lane:
+                try:
+                    derived = b.second_lane_port()
+                except ValueError:
+                    # Out of range, or already on a sibling's port. Both are
+                    # raised at the lane's own site and reported from there.
+                    pass
+                else:
+                    claimed[f"bluesky.port + {SECOND_LANE_PORT_STRIDE} (lane 2's bridge)"] = derived
+
+        if self.bluesky_web is not None:
+            claimed["bluesky_web.port"] = self.bluesky_web.port
+
+        if self.dispatch is not None:
+            d = self.dispatch
+            claimed["dispatch.dispatcher_port"] = d.dispatcher_port
+            # The workers publish a contiguous range above the base. Walked
+            # only when that range is itself valid: an invalid one is already
+            # reported by the dispatch stanza, and walking it anyway would bury
+            # that one fault under thousands of entries.
+            if d.worker_count >= 1 and 1 <= d.worker_port_base <= 65535:
+                if d.worker_port_base + d.worker_count - 1 <= 65535:
+                    for index in range(d.worker_count):
+                        key = "dispatch.worker_port_base"
+                        if index:
+                            key = f"dispatch.worker_port_base + {index}"
+                        claimed[key] = d.worker_port_base + index
+
+        if self.va_archiver is not None:
+            claimed["va_archiver.port_host"] = self.va_archiver.port_host
+
+        if isinstance(self.artifact_server, dict):
+            port = self.artifact_server.get("port")
+            if isinstance(port, int) and not isinstance(port, bool):
+                claimed["artifact_server.port"] = port
+
+        for name, server in self.mcp_servers.items():
+            port = getattr(server, "port", None)
+            if isinstance(port, int) and not isinstance(port, bool):
+                claimed[f"mcp_servers.{name}.port"] = port
+
+        # The `config:` block is the other surface a service's port is authored
+        # on — an attached render names the hosting deployment's ports there,
+        # and a facility service declares its own. Read through the path tree
+        # so a dotted key and a nested mapping are seen alike, since either
+        # spelling reaches the same leaf at render time.
+        services = _expand_dotted(self.config).get("services")
+        if isinstance(services, dict):
+            for name, block in services.items():
+                if not isinstance(block, dict):
+                    continue
+                for field_name in ("port", "port_host"):
+                    port = block.get(field_name)
+                    if isinstance(port, int) and not isinstance(port, bool):
+                        claimed[f"services.{name}.{field_name}"] = port
+
+        return claimed
+
     def validate(self, profile_dir: Path) -> None:
         """Validate profile consistency. Raises BuildProfileError with all issues."""
         errors: list[str] = []
@@ -1221,6 +1308,21 @@ class BuildProfile:
             va = self.virtual_accelerator
             if not (1 <= va.port <= 65535):
                 errors.append(f"virtual_accelerator.port must be in 1..65535 (got {va.port})")
+            # A live stand-in is a SECOND container claiming a second port and
+            # the deployment's `live` target, so it can collide with any port
+            # the profile already spends and with the going-live story itself.
+            # Its rules live beside the block (see build_profile_va_faults) and
+            # are reported from here, the way the archiver's are.
+            if va.live_standin is not None:
+                errors.extend(
+                    live_standin_errors(
+                        va.live_standin,
+                        va.port,
+                        self._claimed_ports(),
+                        self.config,
+                        profile_dir,
+                    )
+                )
 
         # Validate bluesky_web configuration
         if self.bluesky_web is not None:

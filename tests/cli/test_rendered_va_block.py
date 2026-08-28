@@ -177,9 +177,25 @@ def test_va_gateways_never_render_a_live_port():
 
 def test_va_gateway_port_override_ships_as_a_commented_example():
     for name, rendered in _both_templates().items():
-        assert "# port: 5074" in rendered, (
+        assert "# port: 5094" in rendered, (
             f"{name}: the override a project needs to reach a VA it does not "
             "deploy must stay documented"
+        )
+
+
+def test_va_gateway_port_example_avoids_the_live_standin_port():
+    """5074 is the stand-in's conventional port, so it is a poor example.
+
+    The shipped build-profile example puts the live stand-in VA on 5074 via
+    ``virtual_accelerator.live_standin``. An operator who uncomments this
+    example verbatim would then point the primary VA's gateways at the stand-in,
+    so the example names a port no OSPREY service claims.
+    """
+    for name, rendered in _both_templates().items():
+        assert "# port: 5074" not in rendered, (
+            f"{name}: 5074 is where the shipped build-profile example puts the "
+            "live stand-in VA (virtual_accelerator.live_standin); the override "
+            "example must not steer an operator onto it"
         )
 
 
@@ -252,6 +268,58 @@ def test_live_gateway_acknowledgment_ships_only_as_a_comment():
         assert "live_gateway_acknowledged" not in target_switch, (
             f"{name}: the acknowledgment must not ship pre-granted"
         )
+
+
+def test_acknowledgment_prose_sits_above_the_target_switch_key():
+    """The explanation must not be the block's trailing comment.
+
+    A build that deploys the live stand-in writes ``live_gateway_acknowledged``
+    into the rendered config and drops the commented example. Prose left at the
+    bottom of the block would be re-attached to whatever key precedes it, so it
+    documents the acknowledgment from ABOVE ``target_switch:`` instead — where
+    no later-written key can take it. The commented example stays last so the
+    stand-in-less render still shows the key's shape.
+    """
+    for name, rendered in _both_templates().items():
+        lines = rendered.splitlines()
+        prose = next(
+            (
+                i
+                for i, line in enumerate(lines)
+                if "The `live_gateway_acknowledged` key below" in line
+            ),
+            None,
+        )
+        assert prose is not None, f"{name}: the acknowledgment prose is gone or reworded"
+
+        key = next((i for i, line in enumerate(lines) if line.strip() == "target_switch:"), None)
+        assert key is not None, f"{name}: no target_switch: key to document"
+        assert prose < key, f"{name}: the acknowledgment prose must precede target_switch:"
+
+        example = next(
+            (
+                i
+                for i, line in enumerate(lines)
+                if line.strip().startswith("# live_gateway_acknowledged:")
+            ),
+            None,
+        )
+        assert example is not None, f"{name}: the commented example is gone"
+        assert example > key, f"{name}: the example belongs inside the block"
+
+        # The block ends at the first non-blank line indented no deeper than
+        # ``target_switch:`` itself. Nothing may sit between the example and
+        # that boundary — the example being the file's last line is fine too.
+        key_indent = len(lines[key]) - len(lines[key].lstrip())
+        for trailing in lines[example + 1 :]:
+            if not trailing.strip():
+                continue
+            assert len(trailing) - len(trailing.lstrip()) <= key_indent, (
+                f"{name}: {trailing.strip()!r} still sits inside target_switch: — the "
+                "commented example must stay the block's last line, or a build writing "
+                "the real key would re-attach that line's comment"
+            )
+            break
 
 
 def test_acknowledgment_example_is_a_real_hostname_shape():

@@ -726,6 +726,8 @@ def archiver_stubs(monkeypatch: pytest.MonkeyPatch) -> dict:
             [{"address": "SR:BPM1:X"}, {"address": "SR:BPM2:X"}],
             None,
             {},
+            None,
+            None,
         ),
     )
     monkeypatch.setattr(container_lifecycle, "_wait_for_archiver_store", lambda *a, **k: None)

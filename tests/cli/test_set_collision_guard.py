@@ -205,12 +205,17 @@ def test_the_conflict_is_caught_at_merge_time() -> None:
 
 
 def test_the_shorthand_alone_still_overrides_the_preset_literal_key() -> None:
-    """The preset's own literal key is what the shorthand exists to override."""
+    """The preset's own literal key is what the shorthand exists to override.
+
+    ``mock`` rather than ``epics`` because this preset ships a live stand-in,
+    and a stand-in on an ``epics`` baseline is refused on its own terms: going
+    live starts by deleting the stand-in, not by keeping it beside the gateways.
+    """
     profile, _profile_dir = resolve_build_profile(
-        None, "control-assistant", set_pairs=("connector=epics",)
+        None, "control-assistant", set_pairs=("connector=mock",)
     )
 
-    assert profile.config[CONNECTOR_CONFIG_KEY] == "epics"
+    assert profile.config[CONNECTOR_CONFIG_KEY] == "mock"
 
 
 def test_a_nested_set_with_no_literal_key_beneath_it_resolves() -> None:
