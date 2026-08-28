@@ -459,7 +459,7 @@ these verbs act on that roster, which lives in the profile. Every verb takes
    * - ``login-url USER``
      - Print the URL that opens that user's terminal. Only the URL goes to
        stdout, so it can be piped or copied. Refuses for a user who signs in
-       through the login page.
+       through a login page, and for every user of an open deployment.
      - —
    * - ``env``
      - Render ``.env.users``, the env file every per-user container runs
@@ -477,15 +477,19 @@ these verbs act on that roster, which lives in the profile. Every verb takes
 ``osprey users login-url`` builds the URL from that user's operator secret in
 the repository's ``.env``, which ``osprey up`` mints for every roster user in
 every auth mode. Opening it once trades the token for a session cookie. It is
-how someone gets in when nginx authenticates nobody — ``auth.method: none``, or
-a roster entry with ``login: false`` — and it is a password: send each person
-only their own. Rotate one by deleting that user's ``OSPREY_TERMINAL_SECRET_*``
-line from ``.env`` and running ``osprey up`` again.
+how someone gets in when nginx stamps no credential on the request —
+``auth.method: token``, the default, or a roster entry with ``login: false``
+— and it is a password: send each person only their own. Rotate one by deleting
+that user's ``OSPREY_TERMINAL_SECRET_*`` line from ``.env`` and running
+``osprey up`` again.
 
-For a user who *is* behind the login wall the command refuses and names their
-login page instead. The URL would not work for them — the authentication
-service turns the request away before the terminal can read the token — and
-printing it would put a live credential in someone's inbox for nothing.
+The command refuses in the two cases where the URL would accomplish nothing,
+rather than putting a live credential in someone's inbox for it. A user behind
+a login page (``password``/``oidc``) is named their login page instead: the
+authentication service turns the request away before the terminal can read the
+token. A user of an open deployment (``auth.method: none``) is named their
+terminal's plain address instead, because nginx vouches for that terminal on
+every request and there is no token to trade.
 
 ``osprey users env`` renders the same subset a deploy would generate, from the
 same two inputs — the rendered deploy config and the repository root's env
