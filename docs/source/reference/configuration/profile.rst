@@ -523,7 +523,12 @@ The qmd sidecar behind hybrid logbook search is guarded the same way. The
 answers it, but an attached project renders ``services: {}`` — so on its own it
 would keep the mode with nothing behind it, and every logbook query would fail
 with *no qmd sidecar is configured*. ``osprey build`` refuses that instead of
-rendering it.
+rendering it. A deploying profile is held to the same rule from the other side:
+a client left switched on for a service the profile no longer deploys — the
+bluesky MCP server after the ``bluesky:`` block was removed — is refused naming
+the service missing from ``deployed_services``, unless the profile names one
+this deployment does not run (an external store's ``uri``, an ARIEL database
+DSN).
 
 An attached project rarely has to say anything, because **the build tells it
 where the host's services are**. Every client-facing fact — the sidecar's port,

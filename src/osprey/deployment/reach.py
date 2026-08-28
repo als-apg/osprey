@@ -28,7 +28,10 @@ enforcement reads the same declaration:
   laid over them, which is where a host that differs is named.
 * **The build refuses.** :func:`reach_errors` reads a rendered config and
   refuses a consumer that is on with nothing to resolve — the generic backstop
-  for a render whose host, or whose app template, deploys no such service.
+  for a render whose host, or whose app template, deploys no such service —
+  and, on a deploying render, a consumer that is on for a service the
+  deployment does not run: its client would resolve the compiled-in loopback
+  default and dial a port nothing publishes.
 * **Tests check the seams.** The credential grants and shared paths declared
   here are what ``tests/deployment/test_reach_contract.py`` walks over a real
   built stack: switch on ⇒ endpoint resolves ∧ credential in the container's
@@ -222,6 +225,12 @@ class ReachContract:
         derived_by: Name of the build block that already derives this
             service's client facts for attached renders on its own path
             (the archive: :func:`osprey.cli.build_profile_archiver.va_archiver_config_overrides`).
+        names_external: Whether the render names a service of this kind that
+            the deployment does not run itself — an explicit URI, DSN or URL
+            rather than the port a deployed one would publish. The one shape
+            in which a deploying render keeps a consumer on for a service
+            absent from ``deployed_services``. ``None`` where the service has
+            no such form (the sidecar and the plan lanes are loopback-only).
         note: One line for the completeness report.
     """
 
@@ -231,6 +240,7 @@ class ReachContract:
     credentials: tuple[CredentialGrant, ...] = ()
     no_client_reach: bool = False
     derived_by: str | None = None
+    names_external: Predicate | None = None
     note: str = ""
 
 
@@ -424,6 +434,41 @@ def _panel_url_resolves(panel_id: str) -> Predicate:
 
 def _always(_config: Mapping[str, Any]) -> bool:
     return True
+
+
+# ---------------------------------------------------------------------------
+# A service named elsewhere — the external shapes a deploying render may keep
+# a consumer on for without running the service
+# ---------------------------------------------------------------------------
+
+
+def _graphdb_named(config: Mapping[str, Any]) -> bool:
+    # The template's documented external store: an explicit `uri:` with
+    # `graphdb` left out of `deployed_services`.
+    return bool(dotted_get(config, f"services.{GRAPHDB_SERVICE_NAME}.uri"))
+
+
+def _ariel_database_named(config: Mapping[str, Any]) -> bool:
+    # resolve_ariel_dsn's first two rungs: a DSN that may point at a database
+    # with no `services.postgresql` counterpart.
+    database = as_dict(dotted_get(config, "ariel.database"))
+    return bool(database.get("uri") or database.get("connection_string"))
+
+
+def _bridge_named(config: Mapping[str, Any]) -> bool:
+    # bridge_url_from_config's first rung: a bridge that is not the one this
+    # deployment publishes.
+    return bool(dotted_get(config, "bluesky.bridge_url"))
+
+
+def _va_gateway_named(config: Mapping[str, Any]) -> bool:
+    # _va_dial's rule: a gateway row that names its own address is dialed
+    # there, wherever the simulator runs.
+    gateways = as_dict(dotted_get(config, "control_system.connector.virtual_accelerator.gateways"))
+    return any(
+        isinstance(gateway, Mapping) and bool(gateway.get("address"))
+        for gateway in gateways.values()
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -664,6 +709,7 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
             ProjectedKey(f"services.{GRAPHDB_SERVICE_NAME}.username", gate=_graph_store_wanted),
         ),
         credentials=(CredentialGrant(GRAPHDB_PASSWORD_ENV, config_needs_graphdb_password),),
+        names_external=_graphdb_named,
         note="the graph MCP server and the graph channel finder dial bolt on loopback",
     ),
     "postgresql": ReachContract(
@@ -685,6 +731,7 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
             ProjectedKey("services.postgresql.database_name", gate=_ariel_on),
         ),
         credentials=(CredentialGrant("ARIEL_DB_PASSWORD", config_needs_ariel_password),),
+        names_external=_ariel_database_named,
         note="resolve_ariel_dsn derives the DSN from the block on loopback",
     ),
     "openobserve": ReachContract(
@@ -729,6 +776,7 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
             ProjectedKey("services.bluesky.target", gate=_bluesky_server_on),
         ),
         credentials=(CredentialGrant("BLUESKY_LAUNCH_TOKEN", _launch_token_needed(LANE_ONE)),),
+        names_external=_bridge_named,
         note="resolve_bridge_url dials the published port on loopback",
     ),
     # The SECOND plan lane a deploying profile opts into (`bluesky.second_lane`),
@@ -760,6 +808,9 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
         # secret — is in the sidecar's OWN compose file (services/bluesky_web,
         # rendered in the services stack), keyed on the same panel declaration
         # (personas.bluesky_panel_secret_env_vars).
+        # The url IS the endpoint: a profile that pins one for a sidecar it
+        # does not deploy has named it.
+        names_external=_panel_url_resolves(BLUESKY_PANEL_ID),
         note="the panel proxy dials the sidecar at web.panels.bluesky.url with the user's own secret",
     ),
     "event_dispatcher": ReachContract(
@@ -778,6 +829,7 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
             for leaf in ("url", "path", "label", "health_endpoint")
         ),
         credentials=(CredentialGrant("EVENT_DISPATCHER_TOKEN", config_needs_dispatcher_token),),
+        names_external=_panel_url_resolves(EVENTS_PANEL_ID),
         note="the panel proxy dials the dispatcher at web.panels.events.url",
     ),
     "virtual_accelerator": ReachContract(
@@ -794,6 +846,7 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
             ),
         ),
         projected=(ProjectedKey("services.virtual_accelerator.port", gate=_va_connector_on),),
+        names_external=_va_gateway_named,
         note="the connector fills every gateway port from the block",
     ),
     "live_standin": ReachContract(
@@ -946,6 +999,14 @@ def reach_dials(config: Mapping[str, Any]) -> list[tuple[ReachContract, Consumer
     ]
 
 
+def _deployed_services(config: Mapping[str, Any]) -> frozenset[str]:
+    """The services *config* deploys; empty for an attached render."""
+    deployed = config.get("deployed_services")
+    if not isinstance(deployed, list):
+        return frozenset()
+    return frozenset(str(service) for service in deployed)
+
+
 def reach_errors(config: Mapping[str, Any]) -> list[str]:
     """Refuse a rendered config whose consumer is on with nothing to resolve.
 
@@ -954,23 +1015,47 @@ def reach_errors(config: Mapping[str, Any]) -> list[str]:
     for an attached render whose host projected nothing, and for a standalone
     attached profile that pinned nothing, alike.
 
+    Two states refuse. A consumer on with no endpoint to resolve, whatever
+    the render. And, on a DEPLOYING render (``deployed_services`` non-empty),
+    a consumer on for a service the deployment does not run and the render
+    does not name elsewhere (:attr:`ReachContract.names_external`): its
+    client would resolve the port a deployed one publishes — a compiled-in
+    loopback default answers whether or not anything listens — and fail at
+    first use. An attached render (``deploy_services: false``, empty list)
+    dials its HOST's published ports on the shared network namespace, which
+    is the projection's whole point, so the second rule never reads one.
+
     Returns:
         One error per unresolvable consumer whose contract refuses, naming
-        the switch and the key that fixes it.
+        the switch and the key — or the service — that fixes it.
     """
     errors: list[str] = []
+    deployed = _deployed_services(config)
     for contract, consumer in live_consumers(config):
-        if not consumer.refuse or consumer.resolves(config):
+        if not consumer.refuse:
             continue
-        keys = ", ".join(projected.key for projected in contract.projected) or (
-            f"services.{contract.service}"
-        )
-        errors.append(
-            f"{consumer.name} is switched on ({consumer.switch_key}) but this render carries "
-            f"nothing for it to dial: no {keys}. An attached render (deploy_services: false) "
-            f"is told these by the build — from its hosting deployment's render, or, built "
-            f"on its own, from what its app template deploys — so the deployment it shares "
-            f"a host with runs no such service. Name one under `config:` ({keys}), or "
-            f"switch the consumer off."
-        )
+        if not consumer.resolves(config):
+            keys = ", ".join(projected.key for projected in contract.projected) or (
+                f"services.{contract.service}"
+            )
+            errors.append(
+                f"{consumer.name} is switched on ({consumer.switch_key}) but this render "
+                f"carries nothing for it to dial: no {keys}. An attached render "
+                f"(deploy_services: false) is told these by the build — from its hosting "
+                f"deployment's render, or, built on its own, from what its app template "
+                f"deploys — so the deployment it shares a host with runs no such service. "
+                f"Name one under `config:` ({keys}), or switch the consumer off."
+            )
+        elif (
+            deployed
+            and contract.service not in deployed
+            and not (contract.names_external and contract.names_external(config))
+        ):
+            elsewhere = ", name one this deployment does not run" if contract.names_external else ""
+            errors.append(
+                f"{consumer.name} is switched on ({consumer.switch_key}) but this deployment "
+                f"does not run `{contract.service}`: it is not in deployed_services, so the "
+                f"client would dial the port a deployed `{contract.service}` publishes and "
+                f"find nothing listening. Deploy it{elsewhere}, or switch the consumer off."
+            )
     return errors

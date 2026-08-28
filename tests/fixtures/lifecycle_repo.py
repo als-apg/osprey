@@ -239,8 +239,10 @@ web_panels:
 # ── Scanning and simulated hardware ──────────────────────────────────────────
 # These three blocks give you a working plan setup with no real hardware: a
 # Bluesky bridge with a Tiled data catalog, a simulated accelerator that speaks
-# EPICS, and the web panels for both. Delete this section (and the bluesky
-# panel above) if you do not want it.
+# EPICS, and the web panels for both. To drop it, delete this section, the
+# bluesky panel above, AND the `claude_code.servers.bluesky.enabled: true`
+# line under `config:` below — the block deploys the bridge, the line switches
+# on the server that dials it, and the build refuses the line left on alone.
 bluesky:
   port: 8090
   tiled_enabled: true      # also runs the Tiled data catalog
