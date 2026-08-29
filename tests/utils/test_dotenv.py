@@ -19,9 +19,11 @@ import pytest
 
 from osprey.utils.dotenv import (
     BUILD_DERIVED_KEYS,
+    VA_LATTICE_DEFAULT,
     _dotenv_raw_lines,
     merge_env_preserving_existing,
     parse_dotenv_file,
+    resolved_va_lattice,
 )
 
 
@@ -272,3 +274,58 @@ class TestBuildDerivedKeys:
         existing = "VA_CHANNELS_FILE=channel_manifest.json\n"
         merged = merge_env_preserving_existing(rendered, existing, build_derived_keys=frozenset())
         assert "VA_CHANNELS_FILE=channel_manifest.json" in merged
+
+
+class TestResolvedVaLattice:
+    """``resolved_va_lattice`` — the one answer to "which lattice will it boot with".
+
+    Read by the build's stand-in refusal
+    (``osprey.cli.build_profile_va_faults.live_standin_lattice_errors``) and by
+    the deployment layer that renders and probes the same containers, which is
+    the whole reason it is one function: a build that refuses on one reading of
+    these files and renders on another is worse than either reading alone.
+    """
+
+    def test_an_empty_chain_answers_the_build_s_own_default(self, tmp_path):
+        """Unset is the build's to speak for — it appends ``VA_LATTICE=builtin``."""
+        assert resolved_va_lattice(tmp_path) == VA_LATTICE_DEFAULT == "builtin"
+
+    def test_a_pinned_value_wins_over_the_default(self, tmp_path):
+        (tmp_path / ".env").write_text("VA_LATTICE=none\n")
+        assert resolved_va_lattice(tmp_path) == "none"
+
+    def test_the_local_file_wins_over_the_shared_defaults(self, tmp_path):
+        """The chain's own precedence, not a second ordering invented here."""
+        (tmp_path / ".env.shared").write_text("VA_LATTICE=none\n")
+        (tmp_path / ".env").write_text("VA_LATTICE=builtin\n")
+        assert resolved_va_lattice(tmp_path) == "builtin"
+
+    def test_the_shared_defaults_answer_alone_when_local_is_silent(self, tmp_path):
+        (tmp_path / ".env.shared").write_text("VA_LATTICE=none\n")
+        (tmp_path / ".env").write_text("OTHER=1\n")
+        assert resolved_va_lattice(tmp_path) == "none"
+
+    def test_a_quoted_value_is_read_as_written(self, tmp_path):
+        (tmp_path / ".env").write_text('VA_LATTICE="  builtin  "\n')
+        assert resolved_va_lattice(tmp_path) == "builtin"
+
+    def test_an_empty_pin_falls_back_to_the_default(self, tmp_path):
+        """``VA_LATTICE=`` names no source, so it is the unset case."""
+        (tmp_path / ".env").write_text("VA_LATTICE=\n")
+        assert resolved_va_lattice(tmp_path) == VA_LATTICE_DEFAULT
+
+    def test_a_build_dir_chain_wins_over_the_repo_s(self, tmp_path):
+        """The published render is the tree the containers are handed."""
+        repo = tmp_path / "repo"
+        build = tmp_path / "repo" / "build"
+        build.mkdir(parents=True)
+        (repo / ".env").write_text("VA_LATTICE=none\n")
+        (build / ".env").write_text("VA_LATTICE=builtin\n")
+        assert resolved_va_lattice(repo, build) == "builtin"
+
+    def test_a_build_dir_that_says_nothing_leaves_the_repo_s_answer(self, tmp_path):
+        repo = tmp_path / "repo"
+        build = tmp_path / "repo" / "build"
+        build.mkdir(parents=True)
+        (repo / ".env").write_text("VA_LATTICE=none\n")
+        assert resolved_va_lattice(repo, build) == "none"

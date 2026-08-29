@@ -2,12 +2,17 @@
 
 A virtual accelerator serves channels that move for modelled reasons — a
 corrector is stepped, the orbit responds, and the numbers a tool reads back are
-answers to what the deployment actually did. The mock archiver answers a history
-query the other way round: it synthesizes a plausible-looking series at read
-time, for questions nobody recorded the answer to. Configured together they
-produce an agent whose past is fiction and whose present is not, with nothing
-connecting the two — so the fiction can never be caught by disagreeing with the
-machine it claims to describe.
+answers to what the deployment actually did. The live stand-in makes the same
+kind of claim from a soft IOC the deployment runs for itself. Neither machine
+existed before this deployment stood it up, so neither has a past anybody
+recorded — they are the
+:data:`~osprey_connectors.types.INVENTED_HISTORY_TYPES`, and every question
+below is asked of that whole set rather than of the virtual accelerator alone.
+The mock archiver answers a history query the other way round: it synthesizes a
+plausible-looking series at read time, for questions nobody recorded the answer
+to. Configured together they produce an agent whose past is fiction and whose
+present is not, with nothing connecting the two — so the fiction can never be
+caught by disagreeing with the machine it claims to describe.
 
 Refused at every moment a deployment can acquire the pairing: ``osprey build``
 writes the config, ``osprey up`` stands the services up, the MCP server reads
@@ -40,9 +45,9 @@ at every site. That is the fallback the rule is really about: the common way
 into the pairing is not naming the mock, it is naming nothing.
 
 The run-time question is the same question asked one step early. A session that
-asks to be pointed at the virtual accelerator has not changed anything yet, so
-the config's own ``control_system.type`` is not the type to judge — the pairing
-to refuse is the one the switch *would* create.
+asks to be pointed at the virtual accelerator, or at the stand-in, has not
+changed anything yet, so the config's own ``control_system.type`` is not the
+type to judge — the pairing to refuse is the one the switch *would* create.
 :func:`pairing_for_target` judges that one, taking the prospective control
 system from :func:`~osprey_connectors.types.resolve_target` while the archiver
 still comes from the config, because the switch changes the machine and leaves
@@ -62,8 +67,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from .types import (
+    INVENTED_HISTORY_TYPES,
     MOCK_ARCHIVER,
-    VIRTUAL_ACCELERATOR,
     resolve_archiver_type,
     resolve_control_system_type,
     resolve_target,
@@ -72,10 +77,11 @@ from .types import (
 #: Why the pairing is refused, in one sentence pair every site shares so the
 #: explanation cannot drift between them. Each site supplies its own fix.
 VA_MOCK_ARCHIVER_WHY = (
-    "a virtual accelerator serves a machine whose channels move for modelled "
-    "reasons, while the mock archiver synthesizes history at read time. Paired, "
-    "the agent reports a past that never happened and nothing can catch it — the "
-    "one failure a simulated facility exists to make visible rather than to have."
+    "a virtual accelerator and the live stand-in are machines this deployment "
+    "stands up for itself, with no past anybody recorded, while the mock archiver "
+    "synthesizes history at read time. Paired, the agent reports a past that never "
+    "happened and nothing can catch it — the one failure a simulated facility "
+    "exists to make visible rather than to have."
 )
 
 _CONTROL_SYSTEM_TYPE = "control_system.type"
@@ -132,8 +138,8 @@ def pairing_in_profile(config: Any) -> ArchiverPairing:
     # one-key section that spelling would render into. When two spellings both
     # exist, either may be the one that lands, so either being the mock is
     # enough to refuse.
-    is_va = any(
-        resolve_control_system_type({"type": value}) == VIRTUAL_ACCELERATOR
+    invents_history = any(
+        resolve_control_system_type({"type": value}) in INVENTED_HISTORY_TYPES
         for value in control_system
     )
     is_mock = not archiver or any(
@@ -141,7 +147,7 @@ def pairing_in_profile(config: Any) -> ArchiverPairing:
     )
 
     return ArchiverPairing(
-        is_invented_history=is_va and is_mock,
+        is_invented_history=invents_history and is_mock,
         archiver_phrase=_profile_phrase(archiver),
     )
 
@@ -175,8 +181,9 @@ def pairing_for_target(config: Any, target: str) -> ArchiverPairing:
     The same nested-only reading of the same file as
     :func:`pairing_in_rendered_config`, asked one step early: the control system
     is not the one the config selects but the one *target* selects, because a
-    session pointed at the virtual accelerator gets a virtual accelerator
-    whatever the deployment was built for. The archiver is still the config's
+    session pointed at the virtual accelerator gets a virtual accelerator — and
+    one pointed at ``standin`` gets the stand-in — whatever the deployment was
+    built for. The archiver is still the config's
     own, since pointing a session somewhere else does not move the archive —
     which is exactly how a deployment honest at build time acquires the pairing
     at run time.
@@ -219,7 +226,7 @@ def _rendered_pairing(config: Any, control_system_type: str) -> ArchiverPairing:
 
     return ArchiverPairing(
         is_invented_history=(
-            control_system_type == VIRTUAL_ACCELERATOR and archiver_type == MOCK_ARCHIVER
+            control_system_type in INVENTED_HISTORY_TYPES and archiver_type == MOCK_ARCHIVER
         ),
         archiver_phrase=_rendered_phrase(
             _spellings(config, _ARCHIVER_TYPE, nested_only=True),

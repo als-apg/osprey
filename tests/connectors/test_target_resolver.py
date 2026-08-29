@@ -1,7 +1,10 @@
 """The one place a session target becomes a connector type — and its refusals.
 
-A session target (``live`` / ``va``) is a run-time argument; a connector type
-(``epics`` / ``virtual_accelerator`` / …) is what a config selects. Every holder
+A session target (``live`` / ``va`` / ``standin``) is a run-time argument; a
+connector type (``epics`` / ``virtual_accelerator`` / ``live_standin`` / …) is
+what a config selects. Each target names a machine — the facility's own, the
+virtual accelerator, the soft-IOC stand-in the deployment runs itself. Every
+holder
 that follows the session target — the connector-host parent, its child, an
 executor sandbox — has to make that translation, and any holder making it
 privately is free to route somewhere the roster never claimed. So the
@@ -21,10 +24,15 @@ from osprey_connectors.types import (
     CONTROL_TARGETS,
     DOOCS,
     EPICS,
+    INVENTED_HISTORY_TYPES,
+    LIVE_STANDIN,
     MOCK,
+    STANDIN_TYPES,
     TARGET_LIVE,
+    TARGET_STANDIN,
     TARGET_VA,
     VIRTUAL_ACCELERATOR,
+    baseline_target,
     resolve_control_system_type,
     resolve_target,
 )
@@ -46,9 +54,17 @@ def _section(control_system_type: Any = ..., connector: Any = ...) -> dict[str, 
 
 
 @pytest.mark.unit
-def test_the_only_two_targets_are_live_and_va():
-    assert (TARGET_LIVE, TARGET_VA) == ("live", "va")
-    assert CONTROL_TARGETS == ["live", "va"]
+def test_the_three_targets_are_live_va_and_standin():
+    assert (TARGET_LIVE, TARGET_VA, TARGET_STANDIN) == ("live", "va", "standin")
+    assert CONTROL_TARGETS == ["live", "va", "standin"]
+
+
+@pytest.mark.unit
+def test_the_stand_in_is_a_type_of_its_own_whose_history_is_invented():
+    """Keyed apart from ``epics``, and grouped with the VA for the archive rule."""
+    assert LIVE_STANDIN == "live_standin"
+    assert STANDIN_TYPES == (LIVE_STANDIN,)
+    assert INVENTED_HISTORY_TYPES == (VIRTUAL_ACCELERATOR, LIVE_STANDIN)
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +98,35 @@ def test_the_resolved_type_is_the_connector_sub_block_key():
 
     assert section["connector"][resolve_target(section, TARGET_VA)] == {"timeout": 5.0}
     assert section["connector"][resolve_target(section, TARGET_LIVE)] == {"address": "gw"}
+
+
+# ---------------------------------------------------------------------------
+# standin — a third machine, reached through a block of its own
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "section",
+    [
+        _section(EPICS),
+        _section(VIRTUAL_ACCELERATOR),
+        _section(LIVE_STANDIN),
+        _section(MOCK),
+        _section(),
+        None,
+    ],
+    ids=[
+        "epics-baseline",
+        "va-baseline",
+        "standin-baseline",
+        "mock-baseline",
+        "no-type",
+        "no-section",
+    ],
+)
+def test_standin_resolves_to_the_stand_in_block_whatever_the_baseline_is(section: Any):
+    assert resolve_target(section, TARGET_STANDIN) == LIVE_STANDIN
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +221,43 @@ def test_live_never_falls_back_to_hardware_on_a_bare_config():
 
 
 # ---------------------------------------------------------------------------
+# live is never the stand-in, and the stand-in never makes live ambiguous
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "baseline", [VIRTUAL_ACCELERATOR, LIVE_STANDIN], ids=["va-baseline", "standin-baseline"]
+)
+def test_a_stand_in_block_is_not_a_candidate_for_the_live_machine(baseline: str):
+    """The shape every deployment running the stand-in has: two live-looking blocks."""
+    section = _section(
+        baseline,
+        {
+            "epics": {"gateways": {"read_only": {"address": "gw"}}},
+            "live_standin": {"gateways": {"read_only": {"address": "standin"}}},
+        },
+    )
+
+    assert resolve_target(section, TARGET_LIVE) == EPICS
+    assert resolve_target(section, TARGET_STANDIN) == LIVE_STANDIN
+
+
+@pytest.mark.unit
+def test_a_stand_in_baseline_is_never_returned_as_its_own_live_type():
+    """``standin`` reaches the stand-in; ``live`` has to name a machine it isn't."""
+    section = _section(LIVE_STANDIN, {"live_standin": {"gateways": {"read_only": {}}}})
+
+    assert resolve_target(section, TARGET_STANDIN) == LIVE_STANDIN
+    with pytest.raises(ValueError) as excinfo:
+        resolve_target(section, TARGET_LIVE)
+
+    message = str(excinfo.value)
+    assert "control_system.connector" in message
+    assert LIVE_STANDIN in message
+
+
+# ---------------------------------------------------------------------------
 # An unnamed target is a refusal, never a default
 # ---------------------------------------------------------------------------
 
@@ -183,7 +265,20 @@ def test_live_never_falls_back_to_hardware_on_a_bare_config():
 @pytest.mark.unit
 @pytest.mark.parametrize(
     "target",
-    [None, "", "   ", "LIVE", "Va", "live ", "epics", "virtual_accelerator", "mock", 0, True],
+    [
+        None,
+        "",
+        "   ",
+        "LIVE",
+        "Va",
+        "live ",
+        "epics",
+        "virtual_accelerator",
+        "mock",
+        "live_standin",
+        0,
+        True,
+    ],
     ids=[
         "none",
         "blank",
@@ -194,6 +289,7 @@ def test_live_never_falls_back_to_hardware_on_a_bare_config():
         "connector-type-epics",
         "connector-type-va",
         "connector-type-mock",
+        "connector-type-standin",
         "zero",
         "bool",
     ],
@@ -205,6 +301,7 @@ def test_an_unrecognized_target_raises_and_resolves_to_nothing(target: Any):
     message = str(excinfo.value)
     assert TARGET_LIVE in message
     assert TARGET_VA in message
+    assert TARGET_STANDIN in message
 
 
 # ---------------------------------------------------------------------------
@@ -221,6 +318,31 @@ def test_the_no_argument_resolver_keeps_its_mock_fallback():
     assert resolve_control_system_type("not-a-mapping") == MOCK
     assert resolve_control_system_type({"type": EPICS}) == EPICS
     assert resolve_control_system_type({"type": " epics "}) == " epics "
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("control_system_type", "expected"),
+    [
+        (VIRTUAL_ACCELERATOR, TARGET_VA),
+        (LIVE_STANDIN, TARGET_STANDIN),
+        (EPICS, TARGET_LIVE),
+        (DOOCS, TARGET_LIVE),
+        (MOCK, TARGET_LIVE),
+    ],
+    ids=["va", "standin", "epics", "doocs", "mock"],
+)
+def test_the_baseline_target_is_the_machine_the_section_selects(
+    control_system_type: str, expected: str
+):
+    assert baseline_target(_section(control_system_type)) == expected
+
+
+@pytest.mark.unit
+def test_a_deployment_that_named_no_machine_is_still_on_the_live_target():
+    """``live`` may be underivable there; it is still the target it describes."""
+    for section in ({}, None, _section(), _section(None)):
+        assert baseline_target(section) == TARGET_LIVE
 
 
 @pytest.mark.unit

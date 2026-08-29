@@ -136,6 +136,13 @@ def _dotenv_raw_lines(text: str) -> dict[str, str]:
 # other writer of that file, and a value already on file always wins.
 BUILD_DERIVED_KEYS = frozenset({"VA_CHANNELS_FILE", "VA_LATTICE"})
 
+#: The chain key naming the virtual accelerator's lattice source.
+VA_LATTICE_KEY = "VA_LATTICE"
+
+#: What :func:`resolved_va_lattice` answers when no chain file pins the key —
+#: the value the build itself appends whenever it generates a channel manifest.
+VA_LATTICE_DEFAULT = "builtin"
+
 
 #: Section header the deploy write-back groups its minted secrets under.
 DEPLOY_MINTED_BANNER = "# ── Minted by deploy ──"
@@ -525,6 +532,41 @@ def merge_chain(repo_root: Path) -> dict[str, str]:
     for path in chain_files(repo_root):
         merged.update(parse_dotenv_file(path))
     return merged
+
+
+def resolved_va_lattice(repo_root: Path, build_dir: Path | None = None) -> str:
+    """The ``VA_LATTICE`` a deployment's env chain resolves to.
+
+    THE single answer to "which lattice will the virtual accelerator boot
+    with", for every caller that has to know before a container exists:
+    :func:`osprey.cli.build_profile_va_faults.live_standin_lattice_errors`
+    refuses a stand-in whose shipped readout perturbation would have no model
+    to displace, and the deployment layer (``compose_generator``,
+    ``container_lifecycle``) renders and probes against the same value. One
+    resolver rather than three readings of the same two files, because a build
+    that refuses on one answer and renders on another is worse than either
+    answer on its own.
+
+    Unset resolves to :data:`VA_LATTICE_DEFAULT` (``builtin``): an unpinned
+    deployment is one the build speaks for — ``VA_LATTICE`` is a
+    :data:`BUILD_DERIVED_KEYS` member, and the build's own
+    ``VA_LATTICE=builtin`` write is where an unpinned value comes from. A chain
+    that DOES pin the key wins, at build time as at run time, because every
+    writer of these files appends and none overwrite.
+
+    :param repo_root: Directory the chain lives in (the deployment repo root).
+    :param build_dir: A published render carrying a chain of its own, when the
+        caller works from one rather than from the source repo. Read after
+        *repo_root*'s chain, so it wins on a key both set — the same later-wins
+        precedence :data:`ENV_CHAIN_FILENAMES` gives within one root, extended
+        to the tree the containers are actually handed.
+    :return: The value as written, stripped of surrounding whitespace;
+        :data:`VA_LATTICE_DEFAULT` when no chain file sets it.
+    """
+    value = merge_chain(Path(repo_root)).get(VA_LATTICE_KEY, "")
+    if build_dir is not None:
+        value = merge_chain(Path(build_dir)).get(VA_LATTICE_KEY, value)
+    return value.strip() or VA_LATTICE_DEFAULT
 
 
 def write_env_merged(repo_root: Path, dest: Path) -> Path:
