@@ -21,19 +21,19 @@ from tests.mcp_server.conftest import (
 
 TEST_LIMITS_DB = {
     "_version": "1.0",
-    "defaults": {"writable": True, "verification": {"level": "callback"}},
+    "defaults": {"writable": True, "confirm": True},
     "MAG:HCM01:CURRENT:SP": {
         "min_value": -10.0,
         "max_value": 10.0,
         "max_step": 2.0,
         "writable": True,
-        "verification": {"level": "readback", "tolerance_percent": 0.1},
     },
     "MAG:QF01:CURRENT:SP": {"writable": False},
     "DIAG:TEMP:SP": {
         "min_value": 0.0,
         "max_value": 100.0,
         "writable": True,
+        "confirm": False,
     },
     "Amplifier 2 [J]": {
         "min_value": 0.0,
@@ -58,10 +58,19 @@ class FakeChannelLimitsConfig:
     writable: bool = True
 
 
+def _resolve_confirm(channel_address: str) -> bool:
+    """Mirror LimitsValidator.resolve_confirm: channel → defaults → True."""
+    cfg = TEST_LIMITS_DB.get(channel_address)
+    if isinstance(cfg, dict) and "confirm" in cfg:
+        return bool(cfg["confirm"])
+    return bool(TEST_LIMITS_DB["defaults"].get("confirm", True))
+
+
 def _make_validator(allow_unlisted: bool = True) -> MagicMock:
     """Build a mock LimitsValidator from TEST_LIMITS_DB."""
     validator = MagicMock()
     validator._raw_db = TEST_LIMITS_DB
+    validator.resolve_confirm.side_effect = _resolve_confirm
 
     limits = {}
     for addr, cfg in TEST_LIMITS_DB.items():
@@ -114,6 +123,23 @@ async def test_summary_mode():
     assert data["access_details"]["defaults"]["writable"] is True
 
 
+@pytest.mark.unit
+async def test_summary_confirm_breakdown():
+    """Summary reports how many channels resolve to confirm true vs false."""
+    with patch(
+        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+        return_value=_make_validator(),
+    ):
+        fn = _get_channel_limits()
+        result = await fn()
+
+    data = extract_response_dict(result)
+    # Only DIAG:TEMP:SP opts out; the rest inherit defaults.confirm = true.
+    assert data["summary"]["confirm_breakdown"] == {"true": 5, "false": 1}
+    # The retired per-level breakdown is gone: no summary key names it any more.
+    assert not [key for key in data["summary"] if "verification" in key]
+
+
 # ---------------------------------------------------------------------------
 # Lookup mode
 # ---------------------------------------------------------------------------
@@ -121,7 +147,7 @@ async def test_summary_mode():
 
 @pytest.mark.unit
 async def test_lookup_found():
-    """Single known channel → full config with verification."""
+    """Single known channel → full config with the resolved confirm flag."""
     with patch(
         "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
         return_value=_make_validator(),
@@ -136,7 +162,23 @@ async def test_lookup_found():
     assert ch["min_value"] == -10.0
     assert ch["max_value"] == 10.0
     assert ch["max_step"] == 2.0
-    assert ch["verification"]["level"] == "readback"
+    assert ch["confirm"] is True
+    assert "verification" not in ch
+
+
+@pytest.mark.unit
+async def test_lookup_confirm_opt_out():
+    """A channel with confirm: false reports it; defaults are not applied over it."""
+    with patch(
+        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+        return_value=_make_validator(),
+    ):
+        fn = _get_channel_limits()
+        result = await fn(channels=["DIAG:TEMP:SP"])
+
+    data = extract_response_dict(result)
+    ch = data["access_details"]["channels"]["DIAG:TEMP:SP"]
+    assert ch["confirm"] is False
 
 
 @pytest.mark.unit
@@ -224,6 +266,23 @@ async def test_pattern_match():
     assert data["summary"]["matches"] == 2
     assert "MAG:HCM01:CURRENT:SP" in data["access_details"]["channels"]
     assert "MAG:QF01:CURRENT:SP" in data["access_details"]["channels"]
+
+
+@pytest.mark.unit
+async def test_search_entries_carry_confirm():
+    """Compact search entries report confirm, never verification vocabulary."""
+    with patch(
+        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+        return_value=_make_validator(),
+    ):
+        fn = _get_channel_limits()
+        result = await fn(pattern=".*")
+
+    data = extract_response_dict(result)
+    channels = data["access_details"]["channels"]
+    assert channels["MAG:HCM01:CURRENT:SP"]["confirm"] is True
+    assert channels["DIAG:TEMP:SP"]["confirm"] is False
+    assert all("verification" not in key for entry in channels.values() for key in entry)
 
 
 @pytest.mark.unit
@@ -343,19 +402,25 @@ async def test_filter_has_step_limit():
 
 
 @pytest.mark.unit
-async def test_filter_readback_verified():
-    """filter_by=readback_verified → channels with readback verification."""
-    with patch(
-        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
-        return_value=_make_validator(),
-    ):
-        fn = _get_channel_limits()
-        result = await fn(filter_by="readback_verified")
+async def test_the_filter_set_carries_no_retired_readback_filter():
+    """Only the four live property filters are accepted; a readback one is not.
 
-    data = extract_response_dict(result)
-    channels = data["access_details"]["channels"]
-    assert len(channels) == 1
-    assert "MAG:HCM01:CURRENT:SP" in channels
+    The tool once offered a filter keyed on the retired per-channel readback
+    setting. Pinning ``VALID_FILTERS`` itself is what keeps it from coming
+    back — the rejection below only proves the guard still names what it
+    refused.
+    """
+    from osprey.mcp_server.control_system.tools.channel_limits import VALID_FILTERS
+
+    assert VALID_FILTERS == {"writable", "read_only", "has_step_limit", "has_range"}
+    assert not [name for name in VALID_FILTERS if "readback" in name or "verif" in name]
+
+    fn = _get_channel_limits()
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(filter_by="readback")
+
+    data = _exc_ctx["envelope"]
+    assert "readback" in data["error_message"]
 
 
 # ---------------------------------------------------------------------------

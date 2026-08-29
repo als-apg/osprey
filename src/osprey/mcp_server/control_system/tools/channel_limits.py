@@ -12,9 +12,7 @@ from osprey.mcp_server.errors import make_error
 
 logger = logging.getLogger("osprey.mcp_server.tools.channel_limits")
 
-VALID_FILTERS = frozenset(
-    {"writable", "read_only", "has_step_limit", "has_range", "readback_verified"}
-)
+VALID_FILTERS = frozenset({"writable", "read_only", "has_step_limit", "has_range"})
 
 
 def _build_summary(validator) -> dict:
@@ -27,15 +25,8 @@ def _build_summary(validator) -> dict:
         1 for c in validator.limits.values() if c.min_value is not None or c.max_value is not None
     )
 
-    # Verification breakdown from raw db
-    verification_counts: dict[str, int] = {}
-    for addr, cfg in validator._raw_db.items():
-        if addr.startswith("_") or addr == "defaults":
-            continue
-        if not isinstance(cfg, dict):
-            continue
-        level = cfg.get("verification", {}).get("level", "default")
-        verification_counts[level] = verification_counts.get(level, 0) + 1
+    # How many channels resolve to confirmed writes
+    confirmed = sum(1 for addr in validator.limits if validator.resolve_confirm(addr))
 
     return {
         "status": "success",
@@ -46,7 +37,7 @@ def _build_summary(validator) -> dict:
             "read_only": read_only,
             "has_step_limit": has_step,
             "has_range": has_range,
-            "verification_breakdown": verification_counts,
+            "confirm_breakdown": {"true": confirmed, "false": total - confirmed},
             "version": validator._raw_db.get("_version"),
         },
         "access_details": {
@@ -64,11 +55,8 @@ def _build_channel_entry(validator, channel_address: str) -> dict:
         "min_value": cfg.min_value,
         "max_value": cfg.max_value,
         "max_step": cfg.max_step,
+        "confirm": validator.resolve_confirm(channel_address),
     }
-    # Merge verification config from raw db
-    raw = validator._raw_db.get(channel_address, {})
-    if isinstance(raw, dict) and "verification" in raw:
-        entry["verification"] = raw["verification"]
     return entry
 
 
@@ -104,26 +92,19 @@ def _match_channels(
                 cfg.min_value is not None or cfg.max_value is not None
             ):
                 filtered.append(addr)
-            elif filter_by == "readback_verified":
-                raw = validator._raw_db.get(addr, {})
-                if isinstance(raw, dict) and raw.get("verification", {}).get("level") == "readback":
-                    filtered.append(addr)
         addresses = filtered
 
-    # Build compact entries (flat verification_level instead of nested dict)
+    # Build compact entries
     results = {}
     for addr in addresses:
         cfg = validator.limits[addr]
-        entry: dict = {
+        results[addr] = {
             "writable": cfg.writable,
             "min_value": cfg.min_value,
             "max_value": cfg.max_value,
             "max_step": cfg.max_step,
+            "confirm": validator.resolve_confirm(addr),
         }
-        raw = validator._raw_db.get(addr, {})
-        if isinstance(raw, dict):
-            entry["verification_level"] = raw.get("verification", {}).get("level")
-        results[addr] = entry
 
     return results
 
@@ -155,7 +136,7 @@ async def channel_limits(
         name_contains: Literal substring to match against channel addresses. Use this for
                        names containing regex metacharacters such as [], (), ., or ^.
         filter_by: Property filter — one of: writable, read_only,
-                   has_step_limit, has_range, readback_verified.
+                   has_step_limit, has_range.
 
     Returns:
         JSON with channel limits configuration or database summary.

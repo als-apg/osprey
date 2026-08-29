@@ -42,6 +42,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey.connectors.control_system.base import WriteOutcome
 from osprey.mcp_server.control_system import connector_host_manager, target_state
 from osprey.mcp_server.control_system.connector_host_manager import (
     DEFAULT_DRAIN_TIMEOUT_S,
@@ -120,7 +121,7 @@ gateway does to a put.
 import asyncio
 import os
 
-from osprey_connectors.control_system.base import ChannelWriteResult
+from osprey_connectors.control_system.base import ChannelWriteResult, WriteOutcome
 from osprey_connectors.control_system.mock_connector import MockConnector
 
 REFUSE_CHANNEL = "FIXTURE:REFUSE"
@@ -171,8 +172,7 @@ class FixtureConnector(MockConnector):
             return ChannelWriteResult(
                 channel_address=channel_address,
                 value_written=value,
-                success=False,
-                blocked=True,
+                outcome=WriteOutcome.REFUSED,
                 refusal_reason="CONTROL_SYSTEM_REFUSED",
                 error_message="the read-only gateway refused the write",
             )
@@ -732,7 +732,7 @@ class TestDeadWriteGatewayFallback:
 
         result = await manager.active_proxy().write_channel("SR:CORR:1:SP", 0.5, timeout=10.0)
 
-        assert result.blocked is True
+        assert result.outcome is WriteOutcome.REFUSED
         assert result.refusal_reason == "CONTROL_SYSTEM_REFUSED"
 
     async def test_a_block_that_arms_only_the_live_type_still_gets_the_fallback(
@@ -901,9 +901,8 @@ class TestPerTargetPosture:
         await manager.switch("live")
         refused = await manager.active_proxy().write_channel("SR:CORR:1:SP", 0.5, timeout=10.0)
 
-        assert armed.blocked is False
-        assert armed.success is True
-        assert refused.blocked is True
+        assert armed.outcome is not WriteOutcome.REFUSED
+        assert refused.outcome is WriteOutcome.REFUSED
         assert refused.refusal_reason == "WRITES_DISABLED"
         assert f"control_system.connector.{GATEWAY_TYPE}.writes_enabled" in refused.error_message
 
@@ -1445,7 +1444,7 @@ class TestServingFromTheChild:
         connector = await context.control_system()
         result = await connector.write_channel("SR:CORR:1:SP", 0.5, timeout=10.0)
 
-        assert result.blocked is True
+        assert result.outcome is WriteOutcome.REFUSED
         assert result.refusal_reason == "WRITES_DISABLED"
         assert result.channel_address == "SR:CORR:1:SP"
 

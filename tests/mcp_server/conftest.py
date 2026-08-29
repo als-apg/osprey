@@ -275,10 +275,6 @@ def mock_config(tmp_path):
                 "control_system": {
                     "type": "mock",
                     "writes_enabled": True,
-                    "write_verification": {
-                        "default_level": "callback",
-                        "default_tolerance": 0.1,
-                    },
                     "limits_checking": {"enabled": False},
                 },
                 "archiver": {"type": "mock"},
@@ -380,26 +376,5 @@ def mock_channel_value():
         cv.metadata.enum_labels = None
         cv.metadata.raw_metadata = {}
         return cv
-
-    return _make
-
-
-@pytest.fixture
-def mock_write_result():
-    """Factory for creating mock ChannelWriteResult objects."""
-
-    def _make(channel="TEST:PV", value=1.0, success=True, error_message=None):
-        result = MagicMock()
-        result.channel_address = channel
-        result.value_written = value
-        result.success = success
-        result.error_message = error_message
-        result.verification = MagicMock()
-        result.verification.level = "callback"
-        result.verification.verified = True
-        result.verification.readback_value = value
-        result.verification.tolerance_used = 0.1
-        result.verification.notes = ""
-        return result
 
     return _make
