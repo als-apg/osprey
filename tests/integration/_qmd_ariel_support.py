@@ -22,6 +22,7 @@ from typing import Any
 import pytest
 import requests
 
+from osprey.port_layout import default_port
 from tests._container_support import (
     is_docker_available,
     is_image_present,
@@ -116,6 +117,7 @@ def build_sidecar_container(corpus_root: Path, collection: str):
     # production sweep, and every re-index assertion here waits on it.
     container.with_env("OSPREY_QMD_MARKER_POLL_INTERVAL", "1")
     container.with_env("OSPREY_QMD_UPDATE_INTERVAL", "3600")
+    container.with_env("OSPREY_QMD_PORT", str(SIDECAR_CONTAINER_PORT))
     container.with_exposed_ports(SIDECAR_CONTAINER_PORT)
     container.with_volume_mapping(str(corpus_root), SIDECAR_CORPUS_TARGET, "ro")
     return container
@@ -125,8 +127,11 @@ def build_sidecar_container(corpus_root: Path, collection: str):
 SIDECAR_CORPUS_TARGET = "/corpus/ariel"
 
 #: The port the sidecar's forwarder owns inside the container. Not qmd's own
-#: 8181, which the daemon binds on IPv6 loopback only.
-SIDECAR_CONTAINER_PORT = 9800
+#: 8181, which the daemon binds on IPv6 loopback only. The entrypoint takes it
+#: from ``OSPREY_QMD_PORT`` and refuses to guess, so this fixture — which runs
+#: the image outside a rendered deployment — sets it to qmd's own layout slot
+#: and publishes the same number.
+SIDECAR_CONTAINER_PORT = default_port("qmd")
 
 #: How long to wait for the sidecar's ``/health``. The entrypoint runs the whole
 #: startup index pass *before* it opens the port, so this covers indexing too.
@@ -427,10 +432,14 @@ def sidecar_over_models_dir(
     }
     if state_volume:
         volumes[state_volume] = {"bind": SIDECAR_STATE_DIR, "mode": "rw"}
+    # The entrypoint takes its port from OSPREY_QMD_PORT before it looks at
+    # the models and refuses to guess, so a run outside a rendered deployment
+    # has to say the port even though nothing here ever connects to it.
+    environment = {"OSPREY_QMD_PORT": str(SIDECAR_CONTAINER_PORT), **(env or {})}
     container = client.containers.run(
         image,
         detach=True,
-        environment=dict(env or {}),
+        environment=environment,
         volumes=volumes,
     )
     try:

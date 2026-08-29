@@ -79,8 +79,8 @@ On startup, ``osprey chat`` launches the same companion servers as
 .. code-block:: text
 
    Companion servers
-     Artifact gallery   http://127.0.0.1:8086
-     ARIEL server       http://127.0.0.1:8085
+     Artifact gallery   http://127.0.0.1:10200
+     ARIEL server       http://127.0.0.1:10300
 
 Open any of these URLs in a browser to access the service while the Osprey agent
 runs in your terminal. Which servers start depends on your ``config.yml`` —
@@ -105,7 +105,7 @@ When to Use CLI vs. Web Terminal
    * - Companion services in separate browser tabs
      - Companion services as side panels
    * - No additional port for the terminal itself
-     - Terminal served on port 8087
+     - Terminal served on port 10100
    * - Ideal for SSH or remote sessions
      - Ideal for local development with visual tools
 

@@ -17,11 +17,17 @@ from __future__ import annotations
 import yaml
 
 from osprey.cli.templates.manager import TemplateManager
+from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 
 # Context sufficient to render every app + project template (extra keys are
 # harmless; missing keys render empty and the `{% if enable_* %}` pipeline
 # blocks stay off).
 _CTX = {
+    # Host ports render from this table, which the real render builds in
+    # TemplateManager._project_context; this context bypasses that, so it
+    # carries the table itself at the default base.
+    "port_base": DEFAULT_PORT_BASE,
+    "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
     "project_name": "demo",
     "facility_name": "Demo",
     "default_provider": "anthropic",

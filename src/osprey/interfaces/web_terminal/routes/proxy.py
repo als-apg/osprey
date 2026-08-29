@@ -767,7 +767,7 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
     # the terminal — and the terminal's own gate has already held it against
     # the terminal's origin before this route ran. Relayed onward it reaches a
     # backend whose gate compares it against *that backend's* address
-    # (``localhost:8095`` for the bluesky sidecar), which the terminal's origin
+    # (``localhost:10071`` for the bluesky sidecar), which the terminal's origin
     # never equals: every write from a proxied panel would be refused as
     # cross-origin while every read succeeds. On this hop the proxy is a new
     # client, and a client that sends no ``Origin`` is what a gated backend

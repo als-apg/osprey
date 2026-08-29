@@ -2,9 +2,9 @@
 
 Default (no command, no flags) captures only the ``standalone_interface`` static
 recipes — zero container, CI-safe locally. ``--stack`` opts into the
-tutorial-stack recipes (needs a container runtime + free port 5432); ``--agentic``
-opts into the live web-terminal hero (needs a live Claude session). ``list``
-prints the registry without capturing anything.
+tutorial-stack recipes (needs a container runtime + the port layout's free
+postgres port); ``--agentic`` opts into the live web-terminal hero (needs a live
+Claude session). ``list`` prints the registry without capturing anything.
 """
 
 from __future__ import annotations
@@ -18,6 +18,8 @@ from docs.screenshots.recipes import (
     select_recipes,
     validate_registry,
 )
+
+from osprey.port_layout import default_port
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -35,7 +37,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--stack",
         action="store_true",
-        help="Include tutorial_stack recipes (containers + port 5432).",
+        help=f"Include tutorial_stack recipes (containers + port {default_port('postgres')}).",
     )
     parser.add_argument(
         "--agentic", action="store_true", help="Include agentic recipes (live Claude session)."

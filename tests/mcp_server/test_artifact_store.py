@@ -199,10 +199,10 @@ class TestArtifactStore:
         store = ArtifactStore(workspace_root=tmp_path)
         entry = store.save_object("data", title="Resp Test")
 
-        resp = entry.to_tool_response(gallery_url="http://localhost:8086")
+        resp = entry.to_tool_response(gallery_url="http://localhost:10200")
         assert resp["status"] == "success"
         assert resp["artifact_id"] == entry.id
-        assert resp["gallery_url"] == "http://localhost:8086"
+        assert resp["gallery_url"] == "http://localhost:10200"
 
     def test_save_data_sets_agent_usable_data_file(self, tmp_path, monkeypatch):
         """data_file must be a path the agent can open() from project CWD.

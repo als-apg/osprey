@@ -30,6 +30,7 @@ from osprey.connectors.control_system.va_connector import (
     VirtualAcceleratorConnector,
     fill_gateway_ports,
 )
+from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
 
 TEMPLATE_ROOT = Path(osprey.templates.__file__).parent
 CONTROL_ASSISTANT_TEMPLATE = "apps/control_assistant/config.yml.j2"
@@ -46,6 +47,8 @@ def _render_template(relative_path: str) -> str:
         keep_trailing_newline=True,
     )
     return env.get_template(relative_path).render(
+        port_base=DEFAULT_PORT_BASE,
+        osprey_ports=layout_ports(DEFAULT_PORT_BASE),
         project_name="demo",
         facility_name="Demo Facility",
         default_provider="anthropic",
@@ -110,7 +113,11 @@ def test_template_keeps_a_commented_port_override_example() -> None:
     """A project reaching a VA it does not deploy needs to see how."""
     text = _render_template(CONTROL_ASSISTANT_TEMPLATE)
 
-    assert "# port: 5094" in text, (
+    # The example is one above the layout's VA-band first port — the port the
+    # shipped build-profile example gives the live stand-in — so uncommenting
+    # it verbatim cannot land on a running service.
+    example_port = default_port("va_standin", base=DEFAULT_PORT_BASE) + 1
+    assert f"# port: {example_port}" in text, (
         "the commented gateway port override example is gone — a split "
         "host/container setup has no way to see that `port:` still works"
     )

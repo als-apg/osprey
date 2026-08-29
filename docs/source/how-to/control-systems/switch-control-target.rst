@@ -362,7 +362,7 @@ Rehearse with a stand-in live machine
 A generated project renders both connector blocks, but the live one points at a
 facility gateway — so on a laptop, or before the deployment is wired to your
 machine, the live half of this page cannot be tried at all. Setting
-``virtual_accelerator.live_standin: 5074`` in the build profile fixes that: the
+``virtual_accelerator.live_standin: true`` in the build profile fixes that: the
 deploy brings up a **second** simulator container and makes it this deployment's
 ``live`` target. ``control_target_set live`` then walks the whole go-live path —
 the probe, the acknowledgment, the strict limits posture, the approval prompts —

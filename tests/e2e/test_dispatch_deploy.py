@@ -3,13 +3,13 @@
 Unlike the subprocess sweep (``test_dispatch_tutorial.py``), this exercises the
 REAL shipped artifacts: the compose templates, the bundled Dockerfile (which
 installs Node + the Claude Code CLI the worker needs), the worker ``env_file``
-wiring that carries provider auth, and the in-network ``dispatch-worker-1:9901``
+wiring that carries provider auth, and the in-network ``dispatch-worker-1``
 routing baked into the shipped ``tutorial_triggers.yml`` — none of which the
 subprocess path touches.
 
 It inits + builds a control-assistant deployment repo, deploys the stack with
 ``osprey up -d --dev``, fires all four tutorial webhooks at the dispatcher
-(host-published on :9900), and asserts:
+(host-published on this deployment's dispatcher slot), and asserts:
 
   * hello-dispatch / triage-event / save-report -> a run completes
   * denied-tool-demo -> rejected by the worker denylist (no completed run)
@@ -69,9 +69,16 @@ import pytest
 import yaml
 
 from osprey.deployment.compose_generator import resolve_project_name
+from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port
 from tests.e2e._volumes import remove_project_volumes
 
-DISPATCHER_URL = "http://localhost:9900"
+#: This deploy's own thousand-port block, chosen so the whole stack — the
+#: dispatcher, nginx and every panel family — coexists with a live
+#: control-assistant stack and with every other deploy e2e on the same host
+#: (test_deploy_lifecycle.py tops out ~20600). One base moves all of them.
+PORT_BASE = 20700
+
+DISPATCHER_URL = f"http://localhost:{default_port('dispatcher', base=PORT_BASE)}"
 TOKEN = "dev-token"  # matches the .env tokens written below
 
 # Container image builds (Node + Claude CLI install; project + dispatch + two
@@ -115,19 +122,22 @@ READWRITE_IMAGE = f"{READWRITE_PROJECT}:local"
 # writes_enabled is false — see osprey.cli.templates.claude_code).
 CHANNEL_WRITE_TOOL = "mcp__controls__channel_write"
 
-# EVERY published web port is remapped off the preset defaults (nginx 9080,
-# web 9100+) so this deploy coexists with a live control-assistant stack on
-# the same host. Disjoint from every other deploy e2e's range too
-# (test_deploy_lifecycle.py tops out ~20600).
+# EVERY published web port follows :data:`PORT_BASE` rather than the preset
+# defaults, so this deploy coexists with a live control-assistant stack on the
+# same host. The test derives them the same way the render does, so a slot
+# that moves in the layout moves here without an edit.
 WEB_PORTS = {
-    "nginx": 20780,
-    "web": 20800,
-    "artifact": 20900,
-    "ariel": 21000,
-    "lattice": 21100,
-    "channel_finder": 21200,
-    "okf": 21300,
-    "system_health": 21400,
+    slot: default_port(slot, base=PORT_BASE)
+    for slot in (
+        "nginx",
+        "web",
+        "artifact",
+        "ariel",
+        "lattice",
+        "channel_finder",
+        "okf",
+        "system_health",
+    )
 }
 
 # Probed from INSIDE the nginx container (docker exec + curl, which the
@@ -199,11 +209,11 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
 
     # The preset's multi-user web tier deploys as shipped; only its
     # host-global identifiers are remapped to e2e-unique values (see
-    # COEXISTENCE in the module docstring). Dotted LEAF keys on purpose --
-    # each override sets only its own leaf and leaves the preset's
-    # `modules.web_terminals` siblings (roster, catalog build_profiles,
-    # image_source) intact, whereas a nested `modules:` mapping would
-    # wholesale-replace the subtree (same convention as
+    # COEXISTENCE in the module docstring): the container-name prefix, and the
+    # one port base every published port of the stack derives from. Dotted LEAF
+    # keys on purpose -- each override sets only its own leaf and leaves its
+    # subtree's siblings intact, whereas a nested `modules:` or `deployment:`
+    # mapping would wholesale-replace the subtree (same convention as
     # tests/e2e/_orm_stack.py). The persona catalog's own `project` /
     # `project_path` are deliberately NOT overridden: `osprey init` writes them
     # from the repo's name, and the build renders each persona exactly there.
@@ -211,14 +221,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     override_lines = [
         "config:",
         f"  facility.prefix: {WEB_PREFIX}",
-        f"  modules.web_terminals.nginx_port: {WEB_PORTS['nginx']}",
-        f"  modules.web_terminals.web_base_port: {WEB_PORTS['web']}",
-        f"  modules.web_terminals.artifact_base_port: {WEB_PORTS['artifact']}",
-        f"  modules.web_terminals.ariel_base_port: {WEB_PORTS['ariel']}",
-        f"  modules.web_terminals.lattice_base_port: {WEB_PORTS['lattice']}",
-        f"  modules.web_terminals.channel_finder_base_port: {WEB_PORTS['channel_finder']}",
-        f"  modules.web_terminals.okf_base_port: {WEB_PORTS['okf']}",
-        f"  modules.web_terminals.system_health_base_port: {WEB_PORTS['system_health']}",
+        f"  {PORT_BASE_CONFIG_KEY}: {PORT_BASE}",
         "",
     ]
     override_path.write_text("\n".join(override_lines), encoding="utf-8")

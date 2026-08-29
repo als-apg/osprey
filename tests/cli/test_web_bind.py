@@ -12,11 +12,19 @@ authoritative over both `--host` and config, while leaving single-user
 from __future__ import annotations
 
 import contextlib
+import os
 import socket
 
 import pytest
 from click.testing import CliRunner
 
+# Imported for effect: ``server_launcher`` builds its ``_launchers`` dict once,
+# at import, by comprehending ``FRAMEWORK_WEB_SERVERS``. A test below stands
+# that registry in as ``{}`` — so whichever test imports the launcher module
+# FIRST decides whether every later test sees the real launchers or none at
+# all. Importing it here, at collection, takes that decision away from test
+# order.
+import osprey.infrastructure.server_launcher  # noqa: F401
 from osprey.cli.web_cmd import (
     DECLARED_BIND_ENV,
     DECLARED_WEB_PORT_ENV,
@@ -24,6 +32,7 @@ from osprey.cli.web_cmd import (
     resolve_web_port,
     web,
 )
+from osprey.port_layout import DEFAULT_PORT_BASE
 from tests.cli._lifecycle_build import stub_build
 
 
@@ -275,19 +284,37 @@ class TestResolveWebPort:
     """Pure resolver: declared env authoritative; CLI/config only as fallback."""
 
     def test_declared_web_port_env_overrides_explicit_port(self):
-        assert resolve_web_port(9000, None, {DECLARED_WEB_PORT_ENV: "8087"}) == 8087
+        assert (
+            resolve_web_port(
+                9000, None, base=DEFAULT_PORT_BASE, env={DECLARED_WEB_PORT_ENV: "9001"}
+            )
+            == 9001
+        )
 
     def test_no_env_honors_explicit_port(self):
-        assert resolve_web_port(9000, None, {}) == 9000
+        assert resolve_web_port(9000, None, base=DEFAULT_PORT_BASE, env={}) == 9000
 
     def test_deliberate_matching_declaration(self):
         """A deployment CAN declare the same port the flag already requests —
         the invariant is "declared wins", not "flag is always rejected"."""
-        assert resolve_web_port(8087, None, {DECLARED_WEB_PORT_ENV: "8087"}) == 8087
+        assert (
+            resolve_web_port(
+                9001, None, base=DEFAULT_PORT_BASE, env={DECLARED_WEB_PORT_ENV: "9001"}
+            )
+            == 9001
+        )
 
-    def test_falls_back_to_config_then_default(self):
-        assert resolve_web_port(None, 9100, {}) == 9100
-        assert resolve_web_port(None, None, {}) == 8087
+    def test_falls_back_to_config_then_layout(self):
+        assert resolve_web_port(None, 9002, base=DEFAULT_PORT_BASE, env={}) == 9002
+        assert (
+            resolve_web_port(None, None, base=DEFAULT_PORT_BASE, env={}) == DEFAULT_PORT_BASE + 100
+        )
+
+    def test_terminal_fallback_follows_the_caller_s_base(self):
+        """The last resort is the layout's ``web`` slot at the base the CALLER
+        resolved — not at the layout's own default. A deployment that moved its
+        block must not have its terminal land in the block it moved out of."""
+        assert resolve_web_port(None, None, base=20000, env={}) == 20100
 
 
 class TestWebCommandHonorsDeclaredWebPortEnv:
@@ -438,3 +465,138 @@ class TestBusyPortFallback:
 
         assert result.exit_code != 0
         assert "already in use" in result.output
+
+
+class TestCookieNameAgreesWithTheTerminal:
+    """``osprey chat`` and ``osprey web`` must name the same session cookie.
+
+    ``session_cookie_name`` appends ``OSPREY_WEB_PORT`` to the cookie's base
+    name, and ``chat`` publishes that value from the same resolver ``web``
+    binds by. Both therefore have to take the port base from the deployment's
+    own config: a chat session that fell back to the layout's default base
+    while the terminal bound inside a moved block would name two cookies, and
+    signing in at one would not sign the operator in at the other.
+    """
+
+    def test_chat_publishes_the_port_web_binds(self, runner, lifecycle_repo, monkeypatch):
+        from osprey.cli.chat_cmd import _launch_companion_servers
+        from osprey.interfaces.common_middleware import WEB_PORT_ENV
+
+        build = stub_build(lifecycle_repo, config="deployment:\n  port_base: 20000\n")
+        # No companions registered: this is about the port the launch
+        # publishes, not about what it manages to start.
+        monkeypatch.setattr("osprey.registry.web.FRAMEWORK_WEB_SERVERS", {})
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+        captured: dict = {}
+        monkeypatch.setattr(
+            "osprey.interfaces.web_terminal.run_web", lambda **kw: captured.update(kw)
+        )
+
+        _launch_companion_servers(build)
+        chat_port = os.environ[WEB_PORT_ENV]
+        # ``web`` reads this same key as the ``--port`` envvar fallback, so the
+        # two resolutions must be independent to be worth comparing.
+        monkeypatch.delenv(WEB_PORT_ENV)
+
+        result = runner.invoke(web, ["--shell", "true", "--skip-preflight"], catch_exceptions=False)
+
+        assert result.exit_code == 0
+        assert captured.get("port") == 20100
+        assert chat_port == str(captured["port"])
+
+
+class TestCompanionProbeAttribution:
+    """A companion port held by THIS repo's own roster is not a foreign listener.
+
+    Single-user `osprey web` and multi-user roster user 0 both take index 0 of
+    every port family, so a repo with `modules.web_terminals.enabled: true`
+    cannot run the two side by side at one base. Sending that operator to
+    `lsof` to rediscover their own deployment is the wrong diagnosis, so the
+    probe attributes the port and names the two escapes that exist.
+    """
+
+    #: A base well clear of the default block, so the ports this class binds
+    #: cannot collide with a real deployment on the developer's host.
+    BASE = 21000
+    #: The artifact gallery's index-0 slot at :attr:`BASE`. Artifacts is the one
+    #: UNIVERSAL panel, so it is probed with no `web.panels` config at all.
+    ARTIFACT_PORT = BASE + 200
+
+    def _render(self, lifecycle_repo, monkeypatch, *, roster: bool) -> None:
+        """Stand this repo's render on ``BASE``, with the roster on or off."""
+        from osprey.utils.workspace import reset_config_cache
+
+        build = stub_build(
+            lifecycle_repo,
+            config=(
+                "claude_code:\n  provider: anthropic\n"
+                f"deployment:\n  port_base: {self.BASE}\n"
+                f"modules:\n  web_terminals:\n    enabled: {str(roster).lower()}\n"
+            ),
+        )
+        monkeypatch.setenv("OSPREY_CONFIG", str(build / "config.yml"))
+        reset_config_cache()
+
+    @contextlib.contextmanager
+    def _listener_on_artifact_port(self):
+        """Hold a listener on the artifact index-0 port, or skip the test.
+
+        The port is a fixed number rather than an OS-assigned one — that is the
+        whole point, since the attribution keys off the port EQUALLING the
+        family's index-0 slot — so it can genuinely be unavailable on a busy
+        host. That is a fact about the machine, not a failure of the probe.
+        """
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.bind(("127.0.0.1", self.ARTIFACT_PORT))
+            sock.listen(1)
+        except OSError as exc:
+            sock.close()
+            pytest.skip(f"port {self.ARTIFACT_PORT} unavailable on this host: {exc}")
+        try:
+            yield
+        finally:
+            sock.close()
+
+    def test_companion_port_held_by_the_roster_is_attributed(self, lifecycle_repo, monkeypatch):
+        from osprey.cli.web_cmd import _probe_companion_ports
+
+        self._render(lifecycle_repo, monkeypatch, roster=True)
+        with self._listener_on_artifact_port():
+            failures = _probe_companion_ports()
+
+        assert len(failures) == 1, failures
+        finding = failures[0]
+        assert "multi-user roster (user 0) owns this port" in finding
+        # The port is named as the family's index-0 slot at THIS base, not as
+        # an anonymous busy number.
+        assert f"'artifact' family's index-0 slot at port base {self.BASE}" in finding
+        assert str(self.ARTIFACT_PORT) in finding
+        # Both escapes, and no `lsof` hunt for a process the operator owns.
+        assert "artifact_server.port" in finding
+        assert "--port" in finding
+        assert "lsof" not in finding
+
+    def test_companion_port_held_without_a_roster_stays_foreign(self, lifecycle_repo, monkeypatch):
+        """Same listener, same port — but with the web tier off, nothing in this
+        repo can account for it, so the foreign-listener wording is unchanged."""
+        from osprey.cli.web_cmd import _probe_companion_ports
+
+        self._render(lifecycle_repo, monkeypatch, roster=False)
+        with self._listener_on_artifact_port():
+            failures = _probe_companion_ports()
+
+        assert len(failures) == 1, failures
+        finding = failures[0]
+        assert "is already in use by another process" in finding
+        assert f"lsof -i :{self.ARTIFACT_PORT}" in finding
+        assert "roster" not in finding
+
+    def test_companion_probe_is_clean_when_nothing_holds_the_port(
+        self, lifecycle_repo, monkeypatch
+    ):
+        """The roster flag alone reports nothing: attribution needs a listener."""
+        from osprey.cli.web_cmd import _probe_companion_ports
+
+        self._render(lifecycle_repo, monkeypatch, roster=True)
+        assert _probe_companion_ports() == []

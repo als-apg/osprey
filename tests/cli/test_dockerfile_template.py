@@ -30,6 +30,7 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.main import cli
+from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
 from tests.deployment._proxy_idiom import assert_apt_runs_carry_proxy_idiom
 
 # The site-extension contract: exactly these quoted build ARGs, with these
@@ -88,7 +89,9 @@ class TestDockerfileContent:
     def test_base_image_port_and_project_path(self, hello_project):
         text = (hello_project / "Dockerfile").read_text()
         assert "FROM python:3.12-slim" in text
-        assert "EXPOSE 8087" in text
+        # The exposed port is the layout's `web` slot at the deployment's base,
+        # not a literal — moving `deployment.port_base` moves this line.
+        assert f"EXPOSE {default_port('web', base=DEFAULT_PORT_BASE)}" in text
         assert "/app/hello-docker/" in text
         assert "WORKDIR /app/hello-docker" in text
 
@@ -742,6 +745,10 @@ def _render_template(**context) -> str:
 
     context.setdefault("project_name", "synthetic")
     context.setdefault("claude_code_cli_version", "1.2.3")
+    # EXPOSE/CMD render from the layout table the real render builds in
+    # TemplateManager._project_context.
+    context.setdefault("port_base", DEFAULT_PORT_BASE)
+    context.setdefault("osprey_ports", layout_ports(DEFAULT_PORT_BASE))
     template = TemplateManager().jinja_env.get_template("project/Dockerfile.j2")
     return template.render(**context)
 

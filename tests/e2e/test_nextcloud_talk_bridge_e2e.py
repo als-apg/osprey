@@ -80,7 +80,10 @@ layer, so the marker alone is a false-ready path.
 Host port
 ----------------------------------------------------------------------------
 :data:`NEXTCLOUD_PORT` is pinned to 18107, free alongside the ports its sibling e2e
-modules pin (5064, 15080, 18090, 18095, 18099, 18101-18106, 19081, 25080, 25432). The
+modules pin (5064, 15064-15067, 15080, 18090-18110, 18191-18194, 19080-19085, 19100-19591, 19900-20201,
+20700-21699, 21781, 21791, 25080-25085, 25432-25436, 27117-27118) and clear of the
+thousand-port block a deployment claims from ``deployment.port_base``
+(10000-10999 at the default base). The
 dispatcher/worker pair deliberately takes **free** ports instead (:func:`_free_port`):
 they are per-run subprocesses with no need to be predictable, and a pin would collide
 with a developer's own running stack.

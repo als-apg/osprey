@@ -335,7 +335,7 @@ def test_approval_python_write_creates_notebook(tmp_path, hook_runner, make_conf
         {
             "approval": {"enabled": True, "default_policy": "selective"},
             "control_system": {"writes_enabled": True},
-            "artifact_server": {"host": "127.0.0.1", "port": 8086},
+            "artifact_server": {"host": "127.0.0.1", "port": 10200},
         }
     )
 
@@ -1164,12 +1164,12 @@ NO_POSTURE_CONFIG = {"type": "epics", "connector": {"epics": {}}}
 
 #: Two rendered plan lanes, one per target, over a config that arms neither.
 TWO_LANE_SERVICES = {
-    "bluesky": {"port": 8090, "target": "va"},
-    "bluesky_live": {"port": 8091, "target": "live"},
+    "bluesky": {"port": 10080, "target": "va"},
+    "bluesky_live": {"port": 10081, "target": "live"},
 }
 
 #: One rendered plan lane, serving the machine.
-ONE_LANE_SERVICES = {"bluesky": {"port": 8090, "target": "live"}}
+ONE_LANE_SERVICES = {"bluesky": {"port": 10080, "target": "live"}}
 
 
 def _posture_config(make_config, control_system, services=None):

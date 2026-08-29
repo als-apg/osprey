@@ -18,6 +18,7 @@ from osprey.cli.build_cmd import _inject_bluesky
 from osprey.cli.build_profile import BlueskyConfig, _parse_profile
 from osprey.deployment.compose_generator import find_service_config
 from osprey.errors import BuildProfileError
+from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 
 
 def _write_config(project_path: Path) -> None:
@@ -53,9 +54,9 @@ def test_inject_bluesky_default_config(tmp_path: Path) -> None:
     config = _read_config(project_path)
     svc = config["services"]["bluesky"]
     assert svc["path"] == "./services/bluesky"
-    assert svc["port"] == 8090
+    assert svc["port"] == 10080
     assert svc["tiled_enabled"] is False
-    assert svc["tiled_port"] == 8091
+    assert svc["tiled_port"] == 10070
     assert svc["devices_file"] == "data/bluesky_devices.yml"
     # No pinned image: the service builds the project's local image (compose
     # template defaults to <project>-bluesky-bridge:local + a build: section).
@@ -165,6 +166,10 @@ def _render_copied_compose(project_path: Path, config: dict) -> dict:
         "system": {"timezone": "UTC"},
         "deployment": {},
         "services": config["services"],
+        # The layout at the base this context implies — ``deployment`` is empty
+        # here, so the default one. The template's ports read as
+        # ``<key> | default(osprey_ports.<slot>, true)``.
+        "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
     }
     return pyyaml.safe_load(tmpl.render(ctx))
 
@@ -380,7 +385,7 @@ def test_loopback_bind_and_failclosed_token_survive_plan_dir_wiring(tmp_path: Pa
     rendered = _render_copied_compose(project_path, _read_config(project_path))
     bridge = rendered["services"]["bluesky-bridge"]
 
-    assert bridge["ports"] == ["127.0.0.1:8090:8090"]
+    assert bridge["ports"] == ["127.0.0.1:10080:10080"]
     assert bridge["environment"]["BLUESKY_LAUNCH_TOKEN"] == "${BLUESKY_LAUNCH_TOKEN}"
     assert ":-" not in bridge["environment"]["BLUESKY_LAUNCH_TOKEN"]
 
@@ -417,9 +422,9 @@ def test_profile_bluesky_key_parses_overrides() -> None:
 def test_profile_bluesky_key_defaults_when_empty_mapping() -> None:
     profile = _parse_profile({"name": "with-plan-defaults", "bluesky": {}})
     assert profile.bluesky is not None
-    assert profile.bluesky.port == 8090
+    assert profile.bluesky.port == 10080
     assert profile.bluesky.tiled_enabled is False
-    assert profile.bluesky.tiled_port == 8091
+    assert profile.bluesky.tiled_port == 10070
     assert profile.bluesky.plan_dir is None
     assert profile.bluesky.excluded_plans == []
 

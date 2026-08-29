@@ -43,6 +43,7 @@ from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from osprey.cli.styles import osprey_theme
 from osprey.deployment import status_display
 from osprey.deployment.compose_generator import REPO_ID_LABEL, repo_identity
+from osprey.port_layout import default_port
 from tests.deployment.test_up_as_built import _RENDERED_CONFIG, render_build
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
@@ -545,7 +546,9 @@ def test_the_rest_of_the_telemetry_block_still_shows_its_values(
     """
     text = _telemetry_report(lifecycle_repo, monkeypatch)
 
-    assert ":5080/api/default" in text
+    # The config names no ``services.openobserve.port``, so the endpoint carries
+    # the layout's openobserve slot at the default base.
+    assert f":{default_port('openobserve')}/api/default" in text
     assert "value not shown" not in text.split("OTEL_EXPORTER_OTLP_ENDPOINT")[1].splitlines()[0]
 
 

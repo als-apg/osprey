@@ -33,6 +33,7 @@ from osprey.agent_runner.clean_env import (
     strip_claude_code_env,
 )
 from osprey.interfaces.web_terminal.pty_manager import build_pty_env
+from osprey.port_layout import default_port
 
 
 def test_strips_internal_session_markers():
@@ -236,7 +237,7 @@ def test_pty_child_gets_the_panel_token_and_never_the_operator_secret(single_use
     from osprey.interfaces.web_terminal.app import create_app
     from osprey.interfaces.web_terminal.routes.websocket import _build_extra_env
 
-    mint_and_announce("127.0.0.1", 8087)  # the launcher, publishing the carrier
+    mint_and_announce("127.0.0.1", default_port("web"))  # the launcher, publishing the carrier
     app = create_app()  # ... which becomes the server, closing it again
     credentials = get_web_credentials(app)
 
@@ -270,7 +271,7 @@ def test_sdk_operator_child_gets_the_panel_token_and_never_the_operator_secret(
     from osprey.interfaces.web_terminal.app import create_app
     from osprey.interfaces.web_terminal.operator_session import build_operator_child_env
 
-    mint_and_announce("127.0.0.1", 8087)
+    mint_and_announce("127.0.0.1", default_port("web"))
     app = create_app()
     credentials = get_web_credentials(app)
 

@@ -39,6 +39,7 @@ from osprey.cli.deploy_scaffold_templates import (
     build_verify_context,
     render,
 )
+from osprey.port_layout import default_port
 from tests.cli.test_init_verb import RETIRED_VERB_STRINGS
 from tests.fixtures.lifecycle_repo import (
     GITLAB_CI_YML,
@@ -249,9 +250,13 @@ def test_the_health_check_probes_the_dispatcher(rendered: dict[str, str]) -> Non
     The dispatcher is the one service whose failure is invisible from the web
     tier: the terminals answer, the stack looks up, and every webhook is
     silently dropped.
+
+    The exemplar names no dispatcher port, so the probe is pinned at the
+    dispatch slot of the block the profile itself resolves — not at a literal
+    the scaffolder keeps of its own.
     """
     assert (
-        "probe_http 'dispatcher health' http://localhost:9900/health"
+        f"probe_http 'dispatcher health' http://localhost:{default_port('dispatcher')}/health"
         in (rendered["scripts/verify.sh"])
     )
 
@@ -280,12 +285,14 @@ def test_the_web_probes_split_the_perimeter_from_the_application(
     assert web, "the exemplar enables the web tier, so it must emit a web probe group"
 
     targets = re.findall(r"^\s*probe_http\s+'([^']+)'\s+(\S+)$", web.group(1), re.MULTILINE)
+    nginx = default_port("nginx")
+    web = default_port("web")
     assert targets == [
-        ("landing page", "http://localhost:9080/"),
-        ("terminal (alice)", "http://localhost:9100/health"),
-        ("terminal (bob)", "http://localhost:9101/health"),
-        ("terminal (ariel)", "http://localhost:9102/health"),
-        ("terminal (carol)", "http://localhost:9103/health"),
+        ("landing page", f"http://localhost:{nginx}/"),
+        ("terminal (alice)", f"http://localhost:{web}/health"),
+        ("terminal (bob)", f"http://localhost:{web + 1}/health"),
+        ("terminal (ariel)", f"http://localhost:{web + 2}/health"),
+        ("terminal (carol)", f"http://localhost:{web + 3}/health"),
     ]
 
 

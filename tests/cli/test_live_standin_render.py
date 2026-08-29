@@ -51,6 +51,7 @@ from osprey.cli.build_cmd import build as build_command
 from osprey.cli.build_profile_standin import STRICT_LIMITS_COMMENT
 from osprey.health.core.containers import containers
 from osprey.health.models import CheckResult, Status
+from osprey.port_layout import default_port
 from osprey.services.virtual_accelerator.manifest.standin_defaults import (
     STANDIN_BPM_ERRORS_DEFAULT,
 )
@@ -70,6 +71,12 @@ STANDIN_PORT = 5074
 #: The exemplar's own virtual accelerator, and therefore the port the stand-in
 #: must NOT land on.
 VA_PORT = 5064
+
+#: Where the preset's bluesky bridge lands. Looked up rather than spelled: the
+#: two collision tests below need A PORT SOME OTHER SERVICE ALREADY HOLDS, and
+#: which port that is belongs to the layout — ``tests/test_port_layout.py``
+#: pins the number itself. The preset names none, so the bridge takes this slot.
+BLUESKY_PORT = default_port("bluesky")
 
 #: What the Control Assistant template's VA block proves, and so what the live
 #: target must prove too once it is the stand-in.
@@ -100,7 +107,7 @@ ACK_NOTE_OPENING = "# Written by `osprey build` for the live stand-in: the `epic
 #: commented gateway-port examples beside it. A build that derives nothing must
 #: leave all three standing — they are the instructions for going live by hand.
 COMMENTED_ACK_EXAMPLE = "# live_gateway_acknowledged:"
-COMMENTED_PORT_EXAMPLE = "# port: 5094"
+COMMENTED_PORT_EXAMPLE = "# port: 10091"
 
 _ruamel = YAML(typ="rt")
 
@@ -617,11 +624,14 @@ class TestTheBuildRefusesAnIncoherentStandIn:
         ``bluesky.port`` is a port the exemplar really claims, so this is the
         collision an operator actually meets rather than a staged one.
         """
-        repo = _exemplar(tmp_path, standin=8090)
+        repo = _exemplar(tmp_path, standin=BLUESKY_PORT)
 
         text = self._refuse(repo, caplog)
 
-        assert "virtual_accelerator.live_standin (8090) collides with bluesky.port (8090)" in text
+        assert (
+            f"virtual_accelerator.live_standin ({BLUESKY_PORT}) collides with "
+            f"bluesky.port ({BLUESKY_PORT})" in text
+        )
         assert not (repo / "build" / "config.yml").exists()
 
     def test_live_standin_render_reports_every_profile_fault_in_one_list(
@@ -636,9 +646,9 @@ class TestTheBuildRefusesAnIncoherentStandIn:
         a duplicate AND a profile fault is told about the profile fault, and
         meets the duplicate on its next attempt.
         """
-        repo = _exemplar(tmp_path, standin=8090, config={"control_system.type": "epics"})
+        repo = _exemplar(tmp_path, standin=BLUESKY_PORT, config={"control_system.type": "epics"})
 
         text = self._refuse(repo, caplog)
 
-        assert "collides with bluesky.port (8090)" in text
+        assert f"collides with bluesky.port ({BLUESKY_PORT})" in text
         assert "control_system.type: epics with virtual_accelerator.live_standin" in text

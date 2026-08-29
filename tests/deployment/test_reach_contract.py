@@ -718,12 +718,12 @@ def test_bluesky_panel_secret_vars_follow_each_users_own_project(tmp_path):
     for persona, declares in (("viewer", False), ("operator", True)):
         project = tmp_path / "build" / f"demo-{persona}"
         project.mkdir(parents=True)
-        panels = {"bluesky": {"url": "http://localhost:8095"}} if declares else {}
+        panels = {"bluesky": {"url": "http://localhost:10071"}} if declares else {}
         (project / "config.yml").write_text(
             yaml.safe_dump({"web": {"panels": panels}}), encoding="utf-8"
         )
     config = {
-        "web": {"panels": {"bluesky": {"url": "http://localhost:8095"}}},
+        "web": {"panels": {"bluesky": {"url": "http://localhost:10071"}}},
         "modules": {
             "web_terminals": {
                 "personas": {
@@ -812,8 +812,8 @@ def test_a_lanes_launch_token_follows_that_lanes_own_target():
             "connector": {"virtual_accelerator": {"writes_enabled": True}},
         },
         "services": {
-            "bluesky": {"port": 8090, "target": "live"},
-            "bluesky_va": {"port": 8091, "target": "va"},
+            "bluesky": {"port": 10080, "target": "live"},
+            "bluesky_va": {"port": 10081, "target": "va"},
         },
     }
 
@@ -839,8 +839,8 @@ def test_a_global_true_does_not_arm_a_lane_whose_own_block_says_false():
             "connector": {"epics": {"writes_enabled": False}},
         },
         "services": {
-            "bluesky": {"port": 8090, "target": "va"},
-            "bluesky_live": {"port": 8091, "target": "live"},
+            "bluesky": {"port": 10080, "target": "va"},
+            "bluesky_live": {"port": 10081, "target": "live"},
         },
     }
 
@@ -858,8 +858,8 @@ def test_no_lane_is_armed_without_the_bluesky_server():
     config = {
         "control_system": {"type": "virtual_accelerator", "writes_enabled": True},
         "services": {
-            "bluesky": {"port": 8090, "target": "va"},
-            "bluesky_live": {"port": 8091, "target": "live"},
+            "bluesky": {"port": 10080, "target": "va"},
+            "bluesky_live": {"port": 10081, "target": "live"},
         },
     }
 

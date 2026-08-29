@@ -4872,13 +4872,16 @@ def _graphdb_connection(config: dict, project_dir: Path):
         :class:`~osprey.deployment.graphdb_service.GraphdbConnection`.
     """
     from osprey.deployment.graphdb_service import resolve_graphdb_connection
+    from osprey.port_layout import resolve_port_base
     from osprey.utils.dotenv import parse_dotenv_file
 
     env_path = Path(project_dir) / ".env"
     env = parse_dotenv_file(env_path) if env_path.is_file() else {}
 
     block = (config.get("services") or {}).get(GRAPHDB_SERVICE_NAME) or {}
-    return resolve_graphdb_connection(block, env=env)
+    # The base THIS project resolved, so a store with no explicit `port_host` is
+    # seeded on the port the compose service actually published it on.
+    return resolve_graphdb_connection(block, env=env, base=resolve_port_base(config))
 
 
 def _graphdb_config_dir(project_dir: Path) -> Path:
@@ -6130,7 +6133,7 @@ def _reconcile_exposure(config: dict, compose_files: list[str]) -> bool:
     ``ports:`` entry the build wrote, and nothing is re-rendered on a start — so
     the only honest answer is the one the rendered files already give, and there
     is no flag that could change it. Making a deployment reachable is
-    ``osprey set deployment.bind_address=0.0.0.0`` followed by a build.
+    ``osprey set config.deployment.bind_address=0.0.0.0`` followed by a build.
 
     The answer feeds the empty-token refusal in :func:`_ensure_service_tokens`,
     which is why it is computed here rather than inferred there: an exposed

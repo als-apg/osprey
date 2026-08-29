@@ -62,9 +62,10 @@ import pytest
 import yaml
 
 from osprey.deployment.compose_generator import resolve_project_name
+from osprey.port_layout import default_port
 from tests.e2e._volumes import remove_project_volumes
 
-DISPATCHER_URL = "http://localhost:9900"
+DISPATCHER_URL = f"http://localhost:{default_port('dispatcher')}"
 TOKEN = "dev-token"  # matches the .env tokens written below
 
 # Container image build (Node + Claude CLI install) is slow on a cold cache.
@@ -255,7 +256,7 @@ def _mutate_source(repo: Path) -> None:
     data_path.write_text(json.dumps(_DATA_FIXTURE, indent=2), encoding="utf-8")
 
     # Append the custom trigger to the source triggers file, preserving its
-    # dispatcher block (which carries the dispatch-worker-1:9901 routing).
+    # dispatcher block (which carries the dispatch-worker-1 routing).
     triggers_path = repo / "triggers.yml"
     doc = yaml.safe_load(triggers_path.read_text(encoding="utf-8")) or {}
     doc.setdefault("triggers", []).append(_OVERLAY_TRIGGER_ENTRY)

@@ -29,9 +29,22 @@ import pytest
 import yaml
 
 from osprey.deployment.web_terminals.render import render_web_terminals
+from osprey.port_layout import default_port
 
-_NGINX_PORT = 9080
-_WEB_BASE_PORT = 9091
+#: A base this deployment is pinned to rather than the framework default, so
+#: every number below is an explicit config override and the stamp cannot pass
+#: by accidentally agreeing with the layout's own defaults.
+_MOVED_BASE = 20000
+
+_NGINX_PORT = default_port("nginx", base=_MOVED_BASE)
+#: One above the front door rather than the layout's ``+100``: the deny list
+#: must be built from what the config says, not from the family's offset.
+_WEB_BASE_PORT = _NGINX_PORT + 1
+_ARTIFACT_BASE_PORT = default_port("artifact", base=_MOVED_BASE) + 1
+_ARIEL_BASE_PORT = default_port("ariel", base=_MOVED_BASE) + 1
+_LATTICE_BASE_PORT = default_port("lattice", base=_MOVED_BASE) + 1
+#: A web base UNDER the front door, for the ordering test below.
+_BELOW_NGINX_WEB_BASE = _NGINX_PORT - 1000
 
 #: The marker and list names, spelled once. The executor reads these back from
 #: the container's environment; a rename on either side is a stamp nobody reads.
@@ -50,9 +63,9 @@ def _config(users: list[str], **auth: object) -> dict:
         "enabled": True,
         "nginx_port": _NGINX_PORT,
         "web_base_port": _WEB_BASE_PORT,
-        "artifact_base_port": 9291,
-        "ariel_base_port": 9391,
-        "lattice_base_port": 9491,
+        "artifact_base_port": _ARTIFACT_BASE_PORT,
+        "ariel_base_port": _ARIEL_BASE_PORT,
+        "lattice_base_port": _LATTICE_BASE_PORT,
         "users": users,
     }
     if auth:
@@ -142,7 +155,7 @@ def test_deny_list_excludes_companion_panel_ports() -> None:
 
     # Assert
     assert denied == f"{_NGINX_PORT},{_WEB_BASE_PORT}"
-    for companion_base in (9291, 9391, 9491):
+    for companion_base in (_ARTIFACT_BASE_PORT, _ARIEL_BASE_PORT, _LATTICE_BASE_PORT):
         assert str(companion_base) not in denied.split(",")
 
 
@@ -153,21 +166,24 @@ def test_deny_list_is_sorted_and_deduplicated() -> None:
     this file whenever a user was added in the middle, hiding real changes in
     the noise.
 
-    The terminals are deliberately put BELOW nginx here (web_base_port 9000
-    against nginx_port 9080), and the exact string is asserted rather than
-    "is it sorted": with the default layout the front door happens to come
+    The terminals are deliberately put BELOW nginx here (a web base one
+    thousand under the front door), and the exact string is asserted rather
+    than "is it sorted": with the default layout the front door happens to come
     first anyway, so a build that simply prepended nginx and appended the
     roster would pass a sortedness check while being sorted by luck.
     """
     # Arrange
     config = _config(["zoe", "alice", "mike"], method="none")
-    config["modules"]["web_terminals"]["web_base_port"] = 9000
+    config["modules"]["web_terminals"]["web_base_port"] = _BELOW_NGINX_WEB_BASE
 
     # Act
     denied = _env(_user_services(config)["web-zoe"])[_DENY_PORTS_VAR]
 
     # Assert
-    assert denied == f"9000,9001,9002,{_NGINX_PORT}"
+    assert denied == (
+        f"{_BELOW_NGINX_WEB_BASE},{_BELOW_NGINX_WEB_BASE + 1},"
+        f"{_BELOW_NGINX_WEB_BASE + 2},{_NGINX_PORT}"
+    )
 
 
 def test_tls_deployment_denies_the_tls_listener() -> None:

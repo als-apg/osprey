@@ -210,11 +210,6 @@ def _web_terminals_config(facility_block: dict) -> dict:
         "modules": {
             "web_terminals": {
                 "enabled": True,
-                "nginx_port": 9080,
-                "web_base_port": 9091,
-                "artifact_base_port": 9291,
-                "ariel_base_port": 9391,
-                "lattice_base_port": 9491,
                 "users": ["alice"],
             }
         },

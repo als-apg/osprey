@@ -9,7 +9,7 @@ wires the same two things, and each one used to get at least one of them wrong
 on its own.
 
 **The settled port must be published before the app is built.** Cookies ignore
-ports, so ``http://127.0.0.1:8086`` and ``http://127.0.0.1:8087`` are one origin
+ports, so ``http://127.0.0.1:10100`` and ``http://127.0.0.1:10200`` are one origin
 as far as a browser is concerned; ``session_cookie_name()`` appends the port for
 exactly that reason, reading it from ``OSPREY_WEB_PORT``. A launcher that never
 publishes it leaves every surface on the host sharing the bare cookie name, so
@@ -234,7 +234,7 @@ def test_chat_does_not_overwrite_a_published_port(monkeypatch, tmp_path):
 
     (tmp_path / "config.yml").write_text("web_terminal:\n  port: 8188\n")
     monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
-    monkeypatch.setenv(WEB_PORT_ENV, "9291")
+    monkeypatch.setenv(WEB_PORT_ENV, "10101")
 
     monkeypatch.setattr("osprey.infrastructure.server_launcher.ensure_web_server", lambda key: None)
     monkeypatch.setattr("osprey.infrastructure.server_launcher._launchers", {})
@@ -243,6 +243,6 @@ def test_chat_does_not_overwrite_a_published_port(monkeypatch, tmp_path):
     try:
         chat_cmd._launch_companion_servers(tmp_path)
 
-        assert session_cookie_name() == session_cookie_name(9291)
+        assert session_cookie_name() == session_cookie_name(10101)
     finally:
         reset_config_cache()

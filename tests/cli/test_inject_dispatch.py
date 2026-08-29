@@ -185,3 +185,57 @@ def test_inject_dispatch_propagates_pool_limits(tmp_path: Path) -> None:
     # dispatch_target (and the triggers themselves) are preserved by the patch.
     assert triggers_doc["dispatcher"]["dispatch_target"]
     assert any(t["name"] == "hello-dispatch" for t in triggers_doc["triggers"])
+
+
+def test_inject_dispatch_records_the_profiles_worker_port_stride(tmp_path: Path) -> None:
+    """A widened dispatch.worker_port_stride reaches the worker's service config.
+
+    Host mode is the only mode that publishes worker ports at all, and the
+    stride is recorded rather than hardcoded so the compose render and the
+    host-port preflight derive worker `i` from one declared rule. The routing
+    address the injector writes into triggers.yml is worker 1's, so it moves
+    with the base and not with the stride.
+    """
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    profile_dir = tmp_path / "profile"  # empty — forces bundled resolution
+    profile_dir.mkdir()
+    _write_config(project_path)
+
+    _inject_dispatch(
+        _dispatch(network="host", worker_count=3, worker_port_stride=10),
+        profile_dir=profile_dir,
+        project_path=project_path,
+    )
+
+    dw = _read_config(project_path)["services"]["dispatch_worker"]
+    assert dw["worker_port_stride"] == 10
+    assert dw["worker_port_base"] == 9190
+
+    yaml = YAML()
+    with open(project_path / "triggers.yml") as fh:
+        triggers_doc = yaml.load(fh)
+    assert triggers_doc["dispatcher"]["dispatch_target"] == "http://localhost:9190"
+
+
+def test_inject_dispatch_omits_the_stride_on_the_compose_bridge(tmp_path: Path) -> None:
+    """Bridge-mode workers publish nothing on the host, so no stride is recorded.
+
+    Each bridge worker owns a network namespace and listens on the base port
+    inside it. Writing the key here would put a number in config.yml that names
+    no host port at all.
+    """
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    profile_dir = tmp_path / "profile"  # empty — forces bundled resolution
+    profile_dir.mkdir()
+    _write_config(project_path)
+
+    _inject_dispatch(
+        _dispatch(worker_count=3, worker_port_stride=10),
+        profile_dir=profile_dir,
+        project_path=project_path,
+    )
+
+    dw = _read_config(project_path)["services"]["dispatch_worker"]
+    assert "worker_port_stride" not in dw

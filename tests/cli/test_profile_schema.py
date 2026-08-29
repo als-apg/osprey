@@ -147,7 +147,7 @@ def test_parse_round_trip() -> None:
     assert profile.dispatch is not None
     assert profile.dispatch.worker_count == 3
     assert profile.dispatch.triggers == "t.yml"
-    assert profile.dispatch.dispatcher_port == 9900
+    assert profile.dispatch.dispatcher_port == 10010
     assert profile.dispatch.workspace_mode == "isolated"
 
 

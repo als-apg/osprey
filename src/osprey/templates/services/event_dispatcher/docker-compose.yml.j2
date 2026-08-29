@@ -70,8 +70,8 @@ services:
     own namespace directly and there is no port map left to publish. -#}
 {{- net.ports(services.event_dispatcher, entries=[
       (deployment.bind_address | default('127.0.0.1'))
-      ~ ':' ~ (services.event_dispatcher.port | default(9900))
-      ~ ':' ~ (services.event_dispatcher.port | default(9900))
+      ~ ':' ~ (services.event_dispatcher.port | default(osprey_ports.dispatcher, true))
+      ~ ':' ~ (services.event_dispatcher.port | default(osprey_ports.dispatcher, true))
     ]) }}
     environment:
       # FastMCP reads transport/host/port from FASTMCP_* (env prefix "FASTMCP_").
@@ -86,7 +86,7 @@ services:
     deliberate `bind:` on the service's config block (which the deploy's
     exposure reconciliation then reads as exposed). #}
       FASTMCP_HOST: {{ services.event_dispatcher.bind | default('127.0.0.1' if on_host_network else '0.0.0.0', true) }}
-      FASTMCP_PORT: "{{ services.event_dispatcher.port | default(9900) }}"
+      FASTMCP_PORT: "{{ services.event_dispatcher.port | default(osprey_ports.dispatcher, true) }}"
       # No :-default — an unset token must stay EMPTY so the server fails closed
       # (HTTP 503) rather than booting with a guessable secret. `osprey up`
       # auto-generates strong random tokens into the project .env when unset.
@@ -119,7 +119,7 @@ services:
       # "hide the link" rather than offering one that resolves to nothing.
       # Render-time gate: toggling telemetry in config.yml afterwards needs a
       # redeploy to take effect here, same as every other value in this block.
-      OSPREY_TELEMETRY_URL: "http://localhost:{{ services.openobserve.port | default(5080) }}"
+      OSPREY_TELEMETRY_URL: "http://localhost:{{ services.openobserve.port | default(osprey_ports.openobserve, true) }}"
 {% endif %}
       TZ: {{ system.timezone }}
     # Bind-mount sources are relative to the compose *project directory*
@@ -130,7 +130,7 @@ services:
       - ./build/services/event_dispatcher/config.yml:/app/config.yml:ro
 {{- net.network(services.event_dispatcher) }}
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:{{ services.event_dispatcher.port | default(9900) }}/health').status==200 else 1)\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:{{ services.event_dispatcher.port | default(osprey_ports.dispatcher, true) }}/health').status==200 else 1)\""]
       interval: 10s
       timeout: 5s
       retries: 5

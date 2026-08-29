@@ -424,9 +424,17 @@ def preview(
 
 @channel_finder.command("web")
 @click.option("--host", default="127.0.0.1", help="Host to bind to")
-@click.option("--port", default=8092, type=int, help="Port to run on")
+@click.option(
+    "--port",
+    default=None,
+    type=int,
+    help=(
+        "Port to run on (default: OSPREY_CHANNEL_FINDER_PORT, then config, "
+        "then this deployment's layout port)"
+    ),
+)
 @click.pass_context
-def web(ctx, host: str, port: int):
+def web(ctx, host: str, port: int | None):
     """Launch the Channel Finder web interface.
 
     Opens a browser-based interface for exploring, searching, and managing
@@ -449,6 +457,14 @@ def web(ctx, host: str, port: int):
     from osprey.interfaces.channel_finder.app import create_app
     from osprey.interfaces.common_middleware import WEB_PORT_ENV
     from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, mint_and_announce
+    from osprey.registry.web import resolve_web_server_address
+
+    if port is None:
+        # The framework's shared derivation: the OSPREY_CHANNEL_FINDER_PORT
+        # override a multi-user deployment exports, then the config section's
+        # own port, then the Channel Finder's slot at the base this deployment
+        # resolved. An explicit --port wins over all of it.
+        _, port = resolve_web_server_address("channel_finder")
 
     # Publish the settled port before the app is constructed: cookies ignore
     # ports, so two OSPREY servers on this host share an origin as far as the

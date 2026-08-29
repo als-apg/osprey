@@ -11,7 +11,7 @@ Config shape, as it appears in a project's ``config.yml``::
     services:
       qmd:
         path: ./services/qmd
-        port: 9800
+        port: 10060                          # the qmd slot at the default base
         interval: 30
         models_dir: /srv/osprey/qmd-models   # optional; see below
 
@@ -48,6 +48,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.deployment.errors import DeploymentPreconditionError
+from osprey.port_layout import default_port, resolve_port_base
 
 #: Key of the sidecar's block under ``services:`` — also its compose service
 #: name and its ``deployed_services`` entry. Spelled once so the build-time
@@ -55,13 +56,18 @@ from osprey.deployment.errors import DeploymentPreconditionError
 #: resolver below does.
 QMD_SERVICE_NAME = "qmd"
 
-#: Host port the sidecar publishes. Deliberately NOT qmd's own default of
-#: 8181: the daemon binds loopback only (``listen(port, "localhost")``,
-#: hardcoded, no ``--host`` flag), so the container's entrypoint runs qmd on the
-#: internal 8181 and fronts it with a forwarder that owns the routable port.
-#: Keeping the two numbers distinct means "8181" always names the private
-#: daemon and this port always names the endpoint clients talk to.
-DEFAULT_PORT = 9800
+#: Host port the sidecar publishes **at the layout's default base** — the value
+#: for a caller with no config to resolve a base from. A caller holding one
+#: resolves the slot at *its* base instead; :func:`resolve_qmd_service_config`
+#: does exactly that, and this constant is only the dataclass field's default.
+#:
+#: Deliberately NOT qmd's own default of 8181: the daemon binds loopback only
+#: (``listen(port, "localhost")``, hardcoded, no ``--host`` flag), so the
+#: container's entrypoint runs qmd on the internal 8181 and fronts it with a
+#: forwarder that owns the routable port. Keeping the two numbers distinct means
+#: "8181" always names the private daemon and this port always names the
+#: endpoint clients talk to.
+DEFAULT_PORT = default_port(QMD_SERVICE_NAME)
 
 #: Interface every deployed service publishes on when ``deployment`` is absent.
 #: Matches the ``| default('127.0.0.1')`` the service compose templates spell.
@@ -172,7 +178,13 @@ def resolve_qmd_service_config(config: Mapping[str, Any] | None) -> QMDServiceCo
     if not isinstance(block, Mapping):
         return None
     return QMDServiceConfig(
-        port=_positive_int(block.get("port"), DEFAULT_PORT, PORT_CONFIG_KEY),
+        # The base this config resolved, not the layout's default: a second
+        # deployment on the same host publishes its sidecar in its own block.
+        port=_positive_int(
+            block.get("port"),
+            default_port(QMD_SERVICE_NAME, base=resolve_port_base(config)),
+            PORT_CONFIG_KEY,
+        ),
         bind_address=resolve_bind_address(config),
         interval_seconds=_positive_int(
             block.get("interval"), DEFAULT_INTERVAL_SECONDS, "services.qmd.interval"

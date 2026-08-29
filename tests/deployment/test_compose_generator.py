@@ -34,7 +34,32 @@ from osprey.deployment.compose_generator import (
     resolve_user_volume_names,
 )
 from osprey.deployment.errors import DeploymentPreconditionError
+from osprey.port_layout import CA_DEFAULT_PORT, default_port, layout_ports, resolve_port_base
 from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR, RENDERED_CONFIG_RELPATH
+
+
+def _layout_ports_for(deployment: dict | None = None) -> dict[str, int]:
+    """The ``osprey_ports`` map a hand-built render context has to carry.
+
+    Every service template spells its host port as
+    ``<config key> | default(osprey_ports.<slot>, true)``, and Jinja's default
+    ``Undefined`` raises on the attribute lookup rather than rendering an empty
+    port — so a context assembled by hand instead of through
+    ``_inject_project_metadata`` must supply the map the injection would have.
+    Built through the production resolver and the production layout, never from
+    literals, so these renders follow ``deployment.port_base`` exactly as a
+    deployment does.
+
+    Args:
+        deployment: The ``deployment`` block the context renders with. ``None``
+            or an empty block resolves the layout's default base, which is what
+            a config that never names ``deployment.port_base`` gets.
+
+    Returns:
+        ``{slot name: port}`` for every slot in the layout, at the base that
+        ``deployment`` block resolves.
+    """
+    return layout_ports(resolve_port_base({"deployment": deployment or {}}))
 
 
 def _write_config(
@@ -251,6 +276,7 @@ def _dispatcher_context(**service_overrides: object) -> dict:
         "system": {"timezone": "UTC"},
         "osprey_labels": {"project_name": "p", "project_root": "/r"},
         "osprey_images": _image_defaults(),
+        "osprey_ports": _layout_ports_for(),
         "osprey_version": "",
     }
 
@@ -330,6 +356,88 @@ def test_inject_project_metadata_flags_env_presence(
 
     (tmp_path / ".env").write_text("ALS_APG_API_KEY=x\n")
     assert _inject_project_metadata({})["osprey_env_present"] is True
+
+
+def test_inject_project_metadata_carries_osprey_ports() -> None:
+    """``osprey_ports`` is the layout at the base THIS config resolves.
+
+    Default config (no ``deployment.port_base``) resolves the layout's default
+    base, ``postgres`` at ``10800``; a config that sets the base moves every
+    slot with it, proving the port map is derived from the base the deployment
+    actually resolved rather than the layout module's own default.
+    """
+    from osprey.deployment.compose_generator import _inject_project_metadata
+
+    default_ports = _inject_project_metadata({})["osprey_ports"]
+    assert default_ports["postgres"] == 10800
+
+    scoped_ports = _inject_project_metadata({"deployment": {"port_base": 20000}})["osprey_ports"]
+    assert scoped_ports["postgres"] == 20800
+
+
+def _render_template_through_injection(rel_path: str, config: dict[str, Any]) -> str:
+    """Render one packaged service template through the real context injection.
+
+    The injection is what puts ``osprey_ports`` in the context, so a render that
+    goes through it exercises the same fallback chain ``osprey up`` does — which
+    is the whole point here, and why this does not reuse
+    ``_render_service_template`` below: that one hand-builds its context and
+    takes a path already relative to ``services/``.
+    """
+    from osprey.deployment.compose_generator import _inject_project_metadata
+
+    return _packaged_compose_template(rel_path).render(
+        **_inject_project_metadata(
+            {
+                "project_name": "p",
+                "project_root": "/r/p",
+                "system": {"timezone": "UTC"},
+                "osprey_version": "",
+                **config,
+            }
+        )
+    )
+
+
+def test_service_templates_honor_a_port_override_pin() -> None:
+    """A pinned service port survives the layout; an absent key falls back to it.
+
+    ``osprey_ports`` is the templates' DEFAULT, never an override of the key, so
+    the two halves of the rule have to be pinned together. Under
+    ``deployment.port_base: 20000`` the layout puts mongo at 20801 and the
+    bluesky bridge at 20080 — but a config that spelled ``port_host: 31017`` and
+    ``port: 31090`` keeps those numbers, out of block, because a facility that
+    pinned a port meant it. postgresql, whose key is absent entirely, renders
+    the layout value; that line used to carry no default at all, so this is also
+    the K row's before/after.
+    """
+    mongo = _render_template_through_injection(
+        "services/mongodb/docker-compose.yml.j2",
+        {
+            "deployment": {"port_base": 20000},
+            "services": {"mongodb": {"port_host": 31017}},
+            "deployed_services": ["mongodb"],
+        },
+    )
+    assert '"127.0.0.1:31017:27017"' in mongo
+    assert "20801" not in mongo
+
+    bluesky = _render_template_through_injection(
+        "services/bluesky/docker-compose.yml.j2",
+        {
+            "deployment": {"port_base": 20000},
+            "services": {"bluesky": {"port": 31090}, "virtual_accelerator": {"port": 5064}},
+            "deployed_services": ["bluesky"],
+        },
+    )
+    assert '"127.0.0.1:31090:31090"' in bluesky
+    assert "20080" not in bluesky
+
+    postgres = _render_template_through_injection(
+        "services/postgresql/docker-compose.yml.j2",
+        {"deployment": {"port_base": 20000}, "services": {"postgresql": {}}},
+    )
+    assert '"127.0.0.1:20800:5432"' in postgres
 
 
 # ---------------------------------------------------------------------------
@@ -986,12 +1094,17 @@ def test_worker_port_follows_a_configured_stride() -> None:
 def test_worker_port_defaults_hold_when_the_axis_keys_are_absent() -> None:
     """Under bridge NEITHER host-only key is written, so both defaults live here.
 
-    A render that inherited an undefined stride would emit ``9901None`` or die on
-    the arithmetic; a render that lost the base would emit an unreachable port.
+    A render that inherited an undefined stride would emit ``<base>None`` or die
+    on the arithmetic; a render that lost the base would emit an unreachable
+    port. The base is worker 1's slot in this deployment's port block, derived
+    from the layout rather than restated, so moving ``deployment.port_base``
+    moves what this test expects instead of falsifying it.
     """
+    worker_one = default_port("worker", 1)
     rendered = _render_worker_template(env_present=True, dispatch_worker={"network": "host"})
-    assert _worker_service(rendered)["environment"]["DISPATCH_WORKER_PORT"] == "9901"
-    assert "http://localhost:9901/health" in _worker_service(rendered)["healthcheck"]["test"][1]
+    service = _worker_service(rendered)
+    assert service["environment"]["DISPATCH_WORKER_PORT"] == str(worker_one)
+    assert f"http://localhost:{worker_one}/health" in service["healthcheck"]["test"][1]
 
 
 def test_worker_telemetry_host_follows_the_axis() -> None:
@@ -1167,12 +1280,13 @@ def _render_bluesky_template(
     template = _packaged_compose_template("services/bluesky/docker-compose.yml.j2")
     deployed = ["bluesky"] + (["virtual_accelerator"] if va_deployed else [])
     kwargs = {
-        "services": services or {"bluesky": {"port": 8090}, "virtual_accelerator": {"port": 5064}},
+        "services": services or {"bluesky": {"port": 10080}, "virtual_accelerator": {"port": 5064}},
         "deployment": {},
         "system": {"timezone": "UTC"},
         "deployed_services": deployed,
         "osprey_labels": {"project_name": "p", "project_root": "/r"},
         "osprey_images": _image_defaults(),
+        "osprey_ports": _layout_ports_for(),
         "osprey_version": "",
     }
     # control_system is omitted by default (matching every pre-existing call
@@ -1248,19 +1362,25 @@ def test_bluesky_bridge_waits_for_the_queueserver_to_answer(va_deployed: bool) -
 
 def test_bluesky_va_ca_port_defaults_when_va_config_block_absent() -> None:
     """VA in ``deployed_services`` but no ``services.virtual_accelerator`` config
-    block must still render the default CA port (5064), never raise.
+    block must still render the default CA port, never raise.
 
     ``'virtual_accelerator' in deployed_services`` (a list membership) does not
     guarantee a populated ``services.virtual_accelerator`` mapping. The port
     lookup defaults the intermediate to ``{}`` so a missing config key falls back
     cleanly; without that, the chained access raises ``UndefinedError`` and
     aborts the whole compose render.
+
+    That default is the Channel Access port and stays 5064 whatever
+    ``deployment.port_base`` is: instance 1 is the one port the block does not
+    move, so clients configured for a real facility reach it unchanged. Spelled
+    from ``CA_DEFAULT_PORT`` rather than as a literal, so a render that put the
+    first VA in-block would fail here rather than pass on a coincidence.
     """
     rendered = _render_bluesky_template(
         va_deployed=True,
-        services={"bluesky": {"port": 8090}},  # no virtual_accelerator key
+        services={"bluesky": {"port": 10080}},  # no virtual_accelerator key
     )
-    assert 'EPICS_CA_NAME_SERVERS: "virtual-accelerator:5064"' in rendered
+    assert f'EPICS_CA_NAME_SERVERS: "virtual-accelerator:{CA_DEFAULT_PORT}"' in rendered
 
 
 # ---------------------------------------------------------------------------
@@ -1364,7 +1484,7 @@ def test_bluesky_permissions_file_allows_only_preview_plan(tmp_path: Path) -> No
 def _render_bluesky_tiled(*, tiled_enabled: bool, va_deployed: bool = False) -> str:
     return _render_bluesky_template(
         va_deployed=va_deployed,
-        services={"bluesky": {"port": 8090, "tiled_enabled": tiled_enabled}},
+        services={"bluesky": {"port": 10080, "tiled_enabled": tiled_enabled}},
     )
 
 
@@ -2081,6 +2201,7 @@ def _render_postgres_template(project_name: str) -> str:
             "project_name": project_name,
             "project_root": f"/r/{project_name}",
         },
+        osprey_ports=_layout_ports_for(),
         osprey_version="",
     )
 
@@ -2135,6 +2256,7 @@ def test_postgres_image_follows_env_config_default_chain() -> None:
         deployment={},
         system={"timezone": "UTC"},
         osprey_labels={"project_name": "p", "project_root": "/r/p"},
+        osprey_ports=_layout_ports_for(),
         osprey_version="",
     )
     svc = yaml.safe_load(rendered)["services"]["postgresql"]
@@ -2171,6 +2293,7 @@ def _render_mongodb_template(project_name: str = "proj-a", **mongodb_config: obj
             "project_name": project_name,
             "project_root": f"/r/{project_name}",
         },
+        osprey_ports=_layout_ports_for(),
         osprey_version="",
     )
 
@@ -2245,9 +2368,13 @@ def test_mongodb_block_compression_is_a_knob_on_mongod_argv() -> None:
 
 def test_mongodb_port_publish_follows_bind_address_and_port_host() -> None:
     """The host publish honors `services.mongodb.port_host` and the deploy-wide
-    bind address, defaulting to loopback:27017 — the address the host-side
-    seeder and the agent connector both use."""
-    assert _mongodb_service()["ports"] == ["127.0.0.1:27017:27017"]
+    bind address, defaulting to the store's slot in this deployment's port
+    block — the address the host-side seeder and the agent connector both use.
+
+    The CONTAINER side stays 27017 whatever the base is: ``port_base`` moves
+    host ports only, and mongod inside its own namespace is not one.
+    """
+    assert _mongodb_service()["ports"] == [f"127.0.0.1:{default_port('mongo')}:27017"]
     assert _mongodb_service(port_host=27117)["ports"] == ["127.0.0.1:27117:27017"]
 
 
@@ -2518,10 +2645,10 @@ def _render_service_template(rel_path: str, project_name: str, **overrides: obje
     ctx: dict = {
         "services": {
             "virtual_accelerator": {"port": 5064},
-            "event_dispatcher": {"port": 9900},
+            "event_dispatcher": {"port": 10010},
             "dispatch_worker": {"worker_count": 1, "workspace_mode": "isolated"},
-            "bluesky": {"port": 8090},
-            "bluesky_web": {"port": 8095},
+            "bluesky": {"port": 10080},
+            "bluesky_web": {"port": 10071},
             # Both bridge templates read their trigger with no fallback, so the
             # shared ctx must declare the blocks or every render through here
             # raises UndefinedError on `services.<bridge>`.
@@ -2541,6 +2668,10 @@ def _render_service_template(rel_path: str, project_name: str, **overrides: obje
         "control_system": {},
     }
     ctx.update(overrides)
+    # After the overrides, never before: a caller that hands this helper its own
+    # ``deployment`` block moves the whole layout with it, and a port map built
+    # from the default block would then contradict the base the render resolved.
+    ctx.setdefault("osprey_ports", _layout_ports_for(ctx["deployment"]))
     return template.render(**ctx)
 
 
@@ -2557,7 +2688,7 @@ _SIBLING_SERVICES = [
         "bluesky/docker-compose.yml.j2",
         "tiled",
         "bluesky-tiled",
-        {"services": {"bluesky": {"port": 8090, "tiled_enabled": True}}},
+        {"services": {"bluesky": {"port": 10080, "tiled_enabled": True}}},
     ),
 ]
 
@@ -2867,7 +2998,7 @@ def test_tiled_external_image_stays_unprefixed() -> None:
     rendered = _render_service_template(
         "bluesky/docker-compose.yml.j2",
         "proj-a",
-        services={"bluesky": {"port": 8090, "tiled_enabled": True}},
+        services={"bluesky": {"port": 10080, "tiled_enabled": True}},
     )
     tiled = yaml.safe_load(rendered)["services"]["tiled"]
     assert tiled["image"] == "${OSPREY_TILED_IMAGE:-ghcr.io/bluesky/tiled:0.2.12}"
@@ -2943,7 +3074,7 @@ def _write_dispatch_stack_config(project_path: Path, deployed: list[str]) -> Pat
         "build_dir": str(project_path / "build"),
         "system": {"timezone": "UTC"},
         "services": {
-            "event_dispatcher": {"path": "./services/event_dispatcher", "port": 9900},
+            "event_dispatcher": {"path": "./services/event_dispatcher", "port": 10010},
             "postgresql": {"path": "./services/postgresql", "port_host": 5432},
         },
         "deployed_services": deployed,
@@ -3644,6 +3775,7 @@ def _render_nextcloud_bridge_template(
             "project_root": f"/r/{project_name}",
         },
         osprey_images=_image_defaults(project_name),
+        osprey_ports=_layout_ports_for(),
         osprey_version="",
         osprey_env_present=env_present,
     )
@@ -3930,8 +4062,8 @@ def test_nextcloud_bridge_dispatch_urls_track_the_dispatch_templates_ports() -> 
         # Config-block defaults, and explicitly non-default ports.
         (
             {"nextcloud_bridge": {"trigger": "t"}, "event_dispatcher": {}, "dispatch_worker": {}},
-            9900,
-            9901,
+            default_port("dispatcher"),
+            default_port("worker", 1),
         ),
         (
             {
@@ -4114,8 +4246,8 @@ def test_nextcloud_bridge_rendered_env_boots_with_host_secrets_supplied() -> Non
     assert cfg.core.event_dispatcher_token == "dispatcher-token"
     assert cfg.core.dispatch_worker_token == "worker-token"
     assert cfg.core.trigger == "nextcloud-question"
-    assert cfg.core.dispatcher_url == "http://event-dispatcher:9900"
-    assert cfg.core.worker_url == "http://dispatch-worker-1:9901"
+    assert cfg.core.dispatcher_url == f"http://event-dispatcher:{default_port('dispatcher')}"
+    assert cfg.core.worker_url == f"http://dispatch-worker-1:{default_port('worker', 1)}"
     # The three state files must land on the mounted volume, not the image layer.
     for path in (cfg.offsets_path, cfg.core.dedup_path, cfg.core.history_path):
         assert path.startswith("/data/"), path
@@ -4175,8 +4307,8 @@ def test_nextcloud_bridge_config_lookups_survive_explicit_null_values() -> None:
     )["environment"]
 
     assert "None" not in str(environment["DISPATCH_TIMEOUT_SEC"])
-    assert environment["DISPATCHER_URL"] == "http://event-dispatcher:9900"
-    assert environment["WORKER_URL"] == "http://dispatch-worker-1:9901"
+    assert environment["DISPATCHER_URL"] == f"http://event-dispatcher:{default_port('dispatcher')}"
+    assert environment["WORKER_URL"] == f"http://dispatch-worker-1:{default_port('worker', 1)}"
 
     cfg = CoreConfig.from_env(_resolve_compose_env(environment))
     assert cfg.worker_timeout == 300.0
@@ -4313,6 +4445,7 @@ def _render_gchat_bridge_template(
             "project_root": f"/r/{project_name}",
         },
         osprey_images=_image_defaults(project_name),
+        osprey_ports=_layout_ports_for(),
         osprey_version="",
         osprey_env_present=env_present,
     )
@@ -4675,8 +4808,8 @@ def test_gchat_bridge_dispatch_urls_track_the_dispatch_templates_ports() -> None
         # Config-block defaults, and explicitly non-default ports.
         (
             {"gchat_bridge": {"trigger": "t"}, "event_dispatcher": {}, "dispatch_worker": {}},
-            9900,
-            9901,
+            default_port("dispatcher"),
+            default_port("worker", 1),
         ),
         (
             {
@@ -4859,8 +4992,8 @@ def test_gchat_bridge_rendered_env_boots_with_host_secrets_supplied() -> None:
     assert cfg.core.event_dispatcher_token == "dispatcher-token"
     assert cfg.core.dispatch_worker_token == "worker-token"
     assert cfg.core.trigger == "gchat-question"
-    assert cfg.core.dispatcher_url == "http://event-dispatcher:9900"
-    assert cfg.core.worker_url == "http://dispatch-worker-1:9901"
+    assert cfg.core.dispatcher_url == f"http://event-dispatcher:{default_port('dispatcher')}"
+    assert cfg.core.worker_url == f"http://dispatch-worker-1:{default_port('worker', 1)}"
     # Both state files must land on the mounted volume, not the image layer.
     for path in (cfg.core.dedup_path, cfg.core.history_path):
         assert path.startswith("/data/"), path
@@ -4920,8 +5053,8 @@ def test_gchat_bridge_config_lookups_survive_explicit_null_values() -> None:
     )["environment"]
 
     assert "None" not in str(environment["DISPATCH_TIMEOUT_SEC"])
-    assert environment["DISPATCHER_URL"] == "http://event-dispatcher:9900"
-    assert environment["WORKER_URL"] == "http://dispatch-worker-1:9901"
+    assert environment["DISPATCHER_URL"] == f"http://event-dispatcher:{default_port('dispatcher')}"
+    assert environment["WORKER_URL"] == f"http://dispatch-worker-1:{default_port('worker', 1)}"
 
     cfg = CoreConfig.from_env(_resolve_compose_env(environment))
     assert cfg.worker_timeout == 300.0
@@ -5265,8 +5398,8 @@ def test_bridge_publishes_no_ports_in_any_network_mode(
 
 #: The two address lines a network-joined bridge must render, exactly.
 _BRIDGE_COMPOSE_URL_LINES = (
-    "      DISPATCHER_URL: http://event-dispatcher:9900\n",
-    "      WORKER_URL: http://dispatch-worker-1:9901\n",
+    f"      DISPATCHER_URL: http://event-dispatcher:{default_port('dispatcher')}\n",
+    f"      WORKER_URL: http://dispatch-worker-1:{default_port('worker', 1)}\n",
 )
 
 
@@ -5344,8 +5477,8 @@ def test_bridge_on_host_addresses_the_pair_over_loopback(config_key: str, servic
         config_key, service_key, network="host", pair_network="host"
     )
 
-    assert dispatcher_url == "http://localhost:9900"
-    assert worker_url == "http://localhost:9901"
+    assert dispatcher_url == f"http://localhost:{default_port('dispatcher')}"
+    assert worker_url == f"http://localhost:{default_port('worker', 1)}"
 
 
 @pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
@@ -5406,8 +5539,8 @@ def test_bridge_addresses_follow_its_own_axis_not_the_pairs(
     """
     dispatcher_url, worker_url = _bridge_pair_urls(config_key, service_key, pair_network="host")
 
-    assert dispatcher_url == "http://event-dispatcher:9900"
-    assert worker_url == "http://dispatch-worker-1:9901"
+    assert dispatcher_url == f"http://event-dispatcher:{default_port('dispatcher')}"
+    assert worker_url == f"http://dispatch-worker-1:{default_port('worker', 1)}"
 
 
 @pytest.mark.parametrize("network", [None, "bridge", "host"], ids=["unset", "bridge", "host"])
@@ -5573,11 +5706,14 @@ def test_dispatcher_without_the_axis_renders_todays_network_blocks() -> None:
     rendered = _render_dispatcher_template()
 
     # Published port, still between `restart:` and the environment block, still
-    # spelled bind-address:host-port:container-port.
+    # spelled bind-address:host-port:container-port. Both halves are the
+    # dispatch slot of this deployment's port block — the dispatcher publishes
+    # its own port straight through, so the layout moves the pair together.
+    dispatcher_port = default_port("dispatcher")
     assert (
-        '    restart: unless-stopped\n    ports:\n      - "127.0.0.1:9900:9900"\n    environment:\n'
-        in rendered
-    )
+        "    restart: unless-stopped\n    ports:\n"
+        f'      - "127.0.0.1:{dispatcher_port}:{dispatcher_port}"\n    environment:\n'
+    ) in rendered
     # Network membership, still directly after the config.yml mount.
     assert "/config.yml:ro\n    networks:\n      - osprey-network\n    healthcheck:\n" in rendered
     # The file-level stanza still closes the file, still one blank line after

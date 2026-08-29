@@ -17,6 +17,7 @@ from osprey.build.build_tiers import (
 from osprey.cli.templates import claude_code, manifest, scaffolding
 from osprey.cli.templates._rendering import render_template as _render_template
 from osprey.errors import BuildProfileError
+from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 from osprey.profiles.web_panels import BUILTIN_PANELS
 from osprey.utils.config import resolve_env_vars
 from osprey.utils.facility import resolve_facility_name
@@ -528,12 +529,15 @@ class TemplateManager:
         """The template context a project render of *data_bundle* is made with.
 
         The defaults every template may read, the caller's *context* over
-        them, and the channel-finder flags derived from the artifact
-        selection.
+        them, the ``osprey_ports`` table derived from whichever ``port_base``
+        survives that merge, and the channel-finder flags derived from the
+        artifact selection.
 
         Raises:
             BuildProfileError: If the channel-finder agent is selected with no
                 valid ``channel_finder_mode``.
+            ValueError: If the caller's ``port_base`` is outside the range a
+                thousand-port block can start at.
         """
         package_name = project_name.replace("-", "_").lower()
         class_name = self._generate_class_name(package_name)
@@ -592,8 +596,20 @@ class TemplateManager:
             # create_project) still renders the file.
             "env_required": [],
             "env_defaults": {},
+            # First port of this deployment's thousand-port block. The default
+            # is right only for a caller that has no config to resolve one
+            # from; `osprey build` resolves `deployment.port_base` off the
+            # profile and hands the answer down in *context*, which overrides
+            # this on the merge below.
+            "port_base": DEFAULT_PORT_BASE,
             **(context or {}),
         }
+
+        # The one place a template's ports are derived. Every framework host
+        # port a template writes is `osprey_ports.<slot>`, computed here from
+        # the base the caller resolved — so a template never spells a port
+        # literal and never re-derives a base of its own.
+        ctx["osprey_ports"] = layout_ports(ctx.get("port_base", DEFAULT_PORT_BASE))
 
         # Derive channel finder configuration when the channel-finder agent
         # is selected (either explicitly via build profile artifacts, or via

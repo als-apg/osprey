@@ -53,11 +53,6 @@ def _config(
     """
     web_terminals = {
         "enabled": True,
-        "nginx_port": 8080,
-        "web_base_port": 9000,
-        "artifact_base_port": 9100,
-        "ariel_base_port": 9200,
-        "lattice_base_port": 9300,
         "users": users,
     }
     if personas is not None:

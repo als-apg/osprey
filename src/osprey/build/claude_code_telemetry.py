@@ -18,6 +18,8 @@ import warnings
 from collections.abc import Mapping
 from typing import Any
 
+from osprey.port_layout import default_port, resolve_port_base
+
 # OTEL / Claude Code telemetry vars the resolver may inject into the env block.
 #
 # These are deliberately NOT in MANAGED_ENV_VARS: they configure observability,
@@ -211,12 +213,15 @@ def _openobserve_host_override() -> str | None:
     return os.environ.get("OSPREY_OTEL_OPENOBSERVE_HOST") or None
 
 
-#: The port the OpenObserve container LISTENS on. Fixed by the image, and what
-#: the service template publishes ``services.openobserve.port`` onto
-#: (``<bind>:<port>:5080/tcp``). It is the right port only from inside the
-#: store's own compose network, where the store is reached by DNS name; from
-#: anywhere else — the host, a host-networked container — the store is reached
-#: at the port it PUBLISHES, which a project moves freely.
+#: The port the OpenObserve container LISTENS on. Fixed by the image, and the
+#: container half of the publish line in
+#: ``templates/services/openobserve/docker-compose.yml.j2``
+#: (``<bind>:<published>:5080/tcp``) — which is why this literal survives the
+#: port layout: it is a property of the image, not a host port ``port_base``
+#: can move. It is the right port only from inside the store's own compose
+#: network, where the store is reached by DNS name; from anywhere else — the
+#: host, a host-networked container — the store is reached at the port it
+#: PUBLISHES, which the layout places and a project moves freely.
 OPENOBSERVE_LISTEN_PORT = 5080
 
 #: The variable a compose author sets beside ``OSPREY_OTEL_OPENOBSERVE_HOST``
@@ -231,10 +236,16 @@ def openobserve_published_port(config: Mapping[str, Any] | None) -> int:
 
     Read from ``services.openobserve.port`` — the one key that moves it, and the
     same key the service template, the deploy preflight and ``osprey health``
-    read — falling back to :data:`OPENOBSERVE_LISTEN_PORT`, which is what the
-    template publishes when the key is absent. A persona render carries the
-    key too: profile inheritance copies the hosting profile's ``config:``
-    overlay into every attached render, so a moved store moves every client.
+    read. With no such key the port is the layout's ``openobserve`` slot at the
+    base *this config* resolved, which is the number the service template
+    publishes when nothing overrides it. A persona render carries both: profile
+    inheritance copies the hosting profile's ``config:`` overlay into every
+    attached render, so a moved store — or a moved base — moves every client.
+
+    The base is always the one the config in hand names, never
+    :data:`~osprey.port_layout.DEFAULT_PORT_BASE`. Two deployments coexist on a
+    host by taking different bases, and a client that fell back to the default
+    base would dial its neighbour's store rather than its own.
 
     Args:
         config: Loaded ``config.yml`` mapping, or ``None``.
@@ -244,12 +255,14 @@ def openobserve_published_port(config: Mapping[str, Any] | None) -> int:
 
     Raises:
         TelemetryConfigError: The key is present but not an integer port.
+        ValueError: ``deployment.port_base`` is set to a base no block can
+            start at (:func:`~osprey.port_layout.resolve_port_base`).
     """
     services = (config or {}).get("services") or {}
     block = services.get("openobserve") if isinstance(services, Mapping) else None
     raw = block.get("port") if isinstance(block, Mapping) else None
     if raw is None:
-        return OPENOBSERVE_LISTEN_PORT
+        return default_port("openobserve", base=resolve_port_base(config))
     try:
         return int(raw)
     except (TypeError, ValueError):
@@ -285,9 +298,23 @@ def resolve_openobserve_port(config: Mapping[str, Any] | None) -> int:
 
     The deploy environment's declaration wins (:func:`_openobserve_port_override`);
     otherwise the port this deployment publishes
-    (:func:`openobserve_published_port`). Runtime launch paths call this;
-    build-time renders, which must not read the builder's environment, call
+    (:func:`openobserve_published_port`), which with no
+    ``services.openobserve.port`` key is the layout's ``openobserve`` slot at
+    the base this config resolved. Runtime launch paths call this; build-time
+    renders, which must not read the builder's environment, call
     :func:`openobserve_published_port` directly.
+
+    Args:
+        config: Loaded ``config.yml`` mapping, or ``None``.
+
+    Returns:
+        The port to dial the store on, as an ``int``.
+
+    Raises:
+        TelemetryConfigError: The environment variable or the config key is set
+            but is not an integer port.
+        ValueError: ``deployment.port_base`` is set to a base no block can
+            start at.
     """
     return _openobserve_port_override() or openobserve_published_port(config)
 
@@ -374,10 +401,12 @@ def _resolve_telemetry_endpoint(
             the ``in_container`` derivation.
         openobserve_port: The port the store is reached on from where this
             launch runs — the deploy env's declaration or the port the
-            deployment publishes (:func:`resolve_openobserve_port`). ``None``
-            falls back to :data:`OPENOBSERVE_LISTEN_PORT`, which is right only
-            for a caller inside the store's own compose network; every launch
-            path passes the resolved port.
+            deployment publishes (:func:`resolve_openobserve_port`), which the
+            layout places at ``port_base + 50``. ``None`` falls back to
+            :data:`OPENOBSERVE_LISTEN_PORT`, the port the image listens on
+            inside the store's own compose network, and the only caller that
+            may take it is one on that network; every launch path passes the
+            resolved port.
 
     Raises:
         ValueError: If no endpoint can be resolved; if ``protocol`` is ``grpc``
@@ -407,6 +436,12 @@ def _resolve_telemetry_endpoint(
             # An explicit host from the deploy env wins (the compose author knows
             # the network topology); otherwise derive from container context.
             host = openobserve_host or ("openobserve" if in_container else "localhost")
+            # No resolved port means the caller is on the store's own compose
+            # network, where the container answers on the port the image
+            # listens on — the `:5080/tcp` container half of the publish line
+            # in `templates/services/openobserve/docker-compose.yml.j2`. That
+            # half is not a host port, so the layout does not move it; only the
+            # published half in front of it moves with `port_base`.
             port = openobserve_port or OPENOBSERVE_LISTEN_PORT
             org = telemetry_cfg.get("openobserve", {}).get("org", "default")
             endpoint = f"http://{host}:{port}/api/{org}"

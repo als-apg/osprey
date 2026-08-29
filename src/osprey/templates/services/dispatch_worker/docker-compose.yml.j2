@@ -28,7 +28,7 @@
     every existing render), so the defaults live here. #}
 {%- set dw = services.dispatch_worker | default({}, true) %}
 {%- set on_host = (dw.network | default('bridge', true)) == 'host' %}
-{%- set port_base = dw.worker_port_base | default(9901) %}
+{%- set port_base = dw.worker_port_base | default(osprey_ports.worker, true) %}
 {%- set port_stride = dw.worker_port_stride | default(1) %}
 {%- set mongo_deployed = 'mongodb' in (deployed_services | default([])) %}
 
@@ -211,7 +211,7 @@ services:
       # worker's address follows the deployment's topology in both modes, even
       # if a project authored its connection block against some other host.
       OSPREY_ARCHIVER_MONGODB_HOST: localhost
-      OSPREY_ARCHIVER_MONGODB_PORT: "{{ (services.mongodb | default({}, true)).port_host | default(27017, true) }}"
+      OSPREY_ARCHIVER_MONGODB_PORT: "{{ (services.mongodb | default({}, true)).port_host | default(osprey_ports.mongo, true) }}"
 {% elif mongo_deployed %}
       # `archiver-mongodb` is the store's network alias, pinned in the mongodb
       # template precisely so this name survives the per-project container_name;

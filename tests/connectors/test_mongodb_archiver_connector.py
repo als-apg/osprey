@@ -15,6 +15,7 @@ from osprey.connectors.archiver.mongodb_archiver_connector import (
     address_overrides,
 )
 from osprey.connectors.factory import ConnectorFactory
+from osprey.port_layout import default_port
 
 # xdist_group("docker"): the session ``mongodb_container`` fixture starts a real
 # container, and this file shares the group with the Postgres-backed ARIEL tests so
@@ -902,6 +903,7 @@ class TestErrorHandlingWithoutDocker:
         connector = MongoDBArchiverConnector()
         config = {
             "host": "mongodb.example.invalid",
+            "port": default_port("mongo"),
             "name": "testdb",
             "collection": "testcoll",
             "auth": "admin",
@@ -915,6 +917,52 @@ class TestErrorHandlingWithoutDocker:
                 await connector.connect(config)
 
         assert isinstance(exc_info.value.__cause__, type(raised))
+
+    @pytest.mark.asyncio
+    async def test_a_missing_port_is_refused_rather_than_guessed(self, monkeypatch):
+        """No layout to derive from here, so a missing port is an authoring error.
+
+        ``osprey-connectors`` is a separate wheel with no dependency on
+        ``osprey``, so it cannot compute the ``mongo`` slot of the deployment's
+        block. Guessing a number would dial a port that, on a host running two
+        deployments, belongs to the other one's archive.
+        """
+        monkeypatch.setenv("MONGODB_MOCK_PASSWORD", "secret")
+        monkeypatch.delenv("OSPREY_ARCHIVER_MONGODB_PORT", raising=False)
+        connector = MongoDBArchiverConnector()
+
+        with pytest.raises(ValueError, match="port is required for MongoDB archiver"):
+            await connector.connect(
+                {
+                    "host": "mongodb.example.invalid",
+                    "name": "testdb",
+                    "collection": "testcoll",
+                    "auth": "admin",
+                    "username": "user",
+                    "password_env": "MONGODB_MOCK_PASSWORD",
+                }
+            )
+
+    @pytest.mark.asyncio
+    async def test_the_environment_port_alone_satisfies_the_requirement(self, monkeypatch):
+        """A container is given its address entirely through the environment."""
+        monkeypatch.setenv("MONGODB_MOCK_PASSWORD", "secret")
+        monkeypatch.setenv("OSPREY_ARCHIVER_MONGODB_HOST", "archiver-mongodb")
+        monkeypatch.setenv("OSPREY_ARCHIVER_MONGODB_PORT", "27017")
+        connector = MongoDBArchiverConnector()
+
+        with patch("pymongo.MongoClient") as mock_client_cls:
+            await connector.connect(
+                {
+                    "name": "testdb",
+                    "collection": "testcoll",
+                    "auth": "admin",
+                    "username": "user",
+                    "password_env": "MONGODB_MOCK_PASSWORD",
+                }
+            )
+
+        assert mock_client_cls.call_args.kwargs["port"] == 27017
 
     @pytest.mark.asyncio
     async def test_disconnect_swallows_close_error_and_clears_state(self):

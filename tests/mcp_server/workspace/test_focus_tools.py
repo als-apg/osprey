@@ -39,7 +39,7 @@ def entry(store):
 
 @pytest.fixture
 def _gallery_url():
-    with patch(f"{_MODULE}.gallery_url", return_value="http://127.0.0.1:8086"):
+    with patch(f"{_MODULE}.gallery_url", return_value="http://127.0.0.1:10200"):
         yield
 
 

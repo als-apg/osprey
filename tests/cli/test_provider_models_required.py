@@ -29,6 +29,7 @@ from osprey.build.claude_code_resolver import (
     TIER_MODEL_ENV_VARS,
     ClaudeCodeModelResolver,
 )
+from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 
 TEMPLATE_ROOT = Path(osprey.templates.__file__).parent
 
@@ -56,6 +57,8 @@ def _render(relative_path: str) -> dict:
         keep_trailing_newline=True,
     )
     rendered = env.get_template(relative_path).render(
+        port_base=DEFAULT_PORT_BASE,
+        osprey_ports=layout_ports(DEFAULT_PORT_BASE),
         project_name="demo",
         facility_name="Demo Facility",
         default_provider="anthropic",

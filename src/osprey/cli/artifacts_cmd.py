@@ -26,7 +26,10 @@ def artifacts():
     "-p",
     type=int,
     default=None,
-    help="Port to run on (default: OSPREY_ARTIFACT_SERVER_PORT, then config, then 8086)",
+    help=(
+        "Port to run on (default: OSPREY_ARTIFACT_SERVER_PORT, then config, "
+        "then this deployment's layout port)"
+    ),
 )
 @click.option(
     "--host", "-h", default=None, help="Host to bind to (default: from config or 127.0.0.1)"
@@ -42,7 +45,7 @@ def web(port: int | None, host: str | None, reload: bool) -> None:
     Example:
 
     \b
-        osprey artifacts web                    # Start on localhost:8086
+        osprey artifacts web                    # Start on this deployment's gallery port
         osprey artifacts web --port 9000        # Custom port
         osprey artifacts web --host 0.0.0.0     # Bind to all interfaces
         osprey artifacts web --reload           # Development mode

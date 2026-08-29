@@ -131,7 +131,7 @@ class TestSecondLane:
         """``BLUESKY_BRIDGE_URL`` names lane 1's bridge; a second lane dialing it
         would send the other machine's plans to the baseline's bridge."""
         monkeypatch.delenv(f"{prefix}_BRIDGE_URL", raising=False)
-        monkeypatch.setenv("BLUESKY_BRIDGE_URL", "http://lane-one:8090")
+        monkeypatch.setenv("BLUESKY_BRIDGE_URL", "http://lane-one:10080")
         assert _dial(lane, {"services": {lane: {"port": 18190}}}) == ("127.0.0.1", 18190)
 
     def test_no_port_is_nothing_to_dial(self, lane, prefix, monkeypatch):

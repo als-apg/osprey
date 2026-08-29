@@ -33,6 +33,7 @@ from osprey.deployment.qmd_service import (
     resolve_qmd_service_config,
 )
 from osprey.errors import BuildProfileError
+from osprey.port_layout import LAYOUT, WORKER_MAX, PortSlot, default_port, resolve_port_base
 from osprey.profiles.web_panels import BUILTIN_PANELS
 
 from .build_profile_archiver import (
@@ -95,6 +96,40 @@ _HYBRID_SEARCH_ENABLED_KEY = f"{_HYBRID_SEARCH_BLOCK_KEY}.enabled"
 
 _MISSING = object()
 """Sentinel for "this profile says nothing about that key"."""
+
+_HOST_NETWORK_MODE = "host"
+"""The member of ``VALID_NETWORK_MODES`` whose services share the host's own
+network namespace, and so bind host ports directly instead of publishing them
+through compose. Two rules below turn on it: the dispatch workers spend host
+ports only in this mode, and only in this mode can they overrun the layout."""
+
+_UNSEEDED_SLOTS = frozenset({"worker", "bluesky_second_lane", "va_standin", "facility"})
+"""Layout slots :meth:`BuildProfile._layout_seed` deliberately leaves out.
+
+``worker`` is walked from the dispatch block instead, under the host-network
+predicate that decides whether the band is published at all. ``va_standin`` is
+the very port the ledger's consumer is testing — seeding it would make
+``live_standin: true``, which resolves to exactly that slot, collide with
+itself. ``bluesky_second_lane`` is opt-in and derived, and is claimed from the
+lane it is derived from. ``facility`` is the band a deployment spends on its
+own services, so the framework publishes nothing there to claim.
+"""
+
+_SLOT_CLAIM_ALIASES: dict[str, tuple[str, ...]] = {
+    "dispatcher": ("dispatch.dispatcher_port",),
+    "tiled": ("bluesky.tiled_port",),
+    "bluesky": ("bluesky.port",),
+    "bluesky_web": ("bluesky_web.port",),
+    "mongo": ("va_archiver.port_host",),
+}
+"""Ledger keys that move a layout slot under a name other than the slot's own.
+
+A slot is seeded only when nothing already in the ledger names it. The
+``services.<name>.<field>`` key the slot itself declares is checked directly;
+these are the slots a profile ALSO moves from a top-level block, whose key is
+not that spelling. Seeding beside one of them would claim the layout port a
+service has just been moved off.
+"""
 
 
 def _config_lookup(config: Any, dotted_key: str) -> Any:
@@ -159,7 +194,10 @@ def _app_template_lookup(data_bundle: str, dotted_path: str) -> Any:
         reporting it twice would not help. ``None`` when the path heads a
         nested mapping and so carries no scalar of its own. Otherwise the
         scalar's source text, inline comment removed, exactly as the template
-        spells it — ``true``, ``9800``, ``{{ default_model }}``.
+        spells it — ``true``, ``{{ osprey_ports.qmd }}``, ``{{ default_model }}``.
+        A framework port reads as the second of those, not as a number: the
+        templates derive every one of them from the layout at render time, so
+        what is on the line is the derivation and not its result.
     """
     template = _APP_TEMPLATE_ROOT / data_bundle / "config.yml.j2"
     try:
@@ -848,21 +886,40 @@ class BuildProfile:
         against it is its own, with a message naming both halves, and reporting
         the same collision twice would not help anyone.
 
+        A port a profile never spells is spent all the same. The framework's own
+        services take the layout's slots at whatever base the deployment
+        resolved, and the templates derive those numbers rather than pinning
+        them, so the ledger would be blind to every one of them if it only read
+        what the profile writes. :meth:`_layout_seed` fills them in — only for
+        the slots this profile actually deploys, and only at the indices its
+        roster actually allocates.
+
         Returns:
             Dotted key → port. A derived port appears under the key it is
             derived from; a derivation that raises is skipped, since the block
             that owns it reports that failure itself.
         """
         claimed: dict[str, int] = {}
+        try:
+            base: int | None = self._resolved_port_base()
+        except ValueError:
+            # An unusable `deployment.port_base`. That is the base's own fault
+            # to report, and every port derived from it would be a second
+            # complaint about the one typo — so the derived and seeded halves
+            # are skipped and the ledger records only what the profile spells.
+            base = None
 
         if self.bluesky is not None:
             b = self.bluesky
             claimed["bluesky.port"] = b.port
             if b.tiled_enabled:
                 claimed["bluesky.tiled_port"] = b.tiled_port
-            if b.second_lane:
+            if b.second_lane and base is not None:
+                # The derivation is re-checked against the layout at the base
+                # THIS deployment resolved, so it is handed that base rather
+                # than falling through to the layout's own default.
                 try:
-                    derived = b.second_lane_port()
+                    derived = b.second_lane_port(base)
                 except ValueError:
                     # Out of range, or already on a sibling's port. Both are
                     # raised at the lane's own site and reported from there.
@@ -876,17 +933,29 @@ class BuildProfile:
         if self.dispatch is not None:
             d = self.dispatch
             claimed["dispatch.dispatcher_port"] = d.dispatcher_port
-            # The workers publish a contiguous range above the base. Walked
-            # only when that range is itself valid: an invalid one is already
-            # reported by the dispatch stanza, and walking it anyway would bury
-            # that one fault under thousands of entries.
-            if d.worker_count >= 1 and 1 <= d.worker_port_base <= 65535:
-                if d.worker_port_base + d.worker_count - 1 <= 65535:
-                    for index in range(d.worker_count):
-                        key = "dispatch.worker_port_base"
-                        if index:
-                            key = f"dispatch.worker_port_base + {index}"
-                        claimed[key] = d.worker_port_base + index
+            # The workers spend host ports ONLY on the host network: a
+            # bridge-mode worker owns its own namespace and binds nothing a
+            # second deployment could collide with. Same predicate and same
+            # arithmetic — base plus index TIMES STRIDE — as the authoritative
+            # derivation in :mod:`osprey.deployment.host_ports`, so the ledger
+            # and the host-port preflight describe one set of ports.
+            #
+            # Walked only when that range is itself valid: an invalid one is
+            # already reported by the dispatch stanza, and walking it anyway
+            # would bury that one fault under thousands of entries.
+            if (
+                d.network == _HOST_NETWORK_MODE
+                and d.worker_count >= 1
+                and d.worker_port_stride >= 1
+                and 1 <= d.worker_port_base <= 65535
+                and d.worker_port_base + (d.worker_count - 1) * d.worker_port_stride <= 65535
+            ):
+                for index in range(d.worker_count):
+                    offset = index * d.worker_port_stride
+                    key = "dispatch.worker_port_base"
+                    if offset:
+                        key = f"dispatch.worker_port_base + {offset}"
+                    claimed[key] = d.worker_port_base + offset
 
         if self.va_archiver is not None:
             claimed["va_archiver.port_host"] = self.va_archiver.port_host
@@ -916,7 +985,270 @@ class BuildProfile:
                     if isinstance(port, int) and not isinstance(port, bool):
                         claimed[f"services.{name}.{field_name}"] = port
 
+        # Last, so that everything a profile actually spells wins: the seed
+        # fills the slots nothing above has named, and never overwrites one.
+        if base is not None:
+            for key, port in self._layout_seed(claimed, base).items():
+                claimed.setdefault(key, port)
+
         return claimed
+
+    def _resolved_port_base(self) -> int:
+        """Return the port base this profile's ``config:`` block resolves to.
+
+        The layout's one rule is that a port comes from the base the deployment
+        actually resolved and never from the layout's own default, so the
+        ledger has to read ``deployment.port_base`` before it can place a slot.
+        A ``config:`` block is a flat bag of dotted keys that may spell that
+        path at any depth, which is what ``effective_config_subtree`` folds into
+        one subtree; re-wrapping the result keeps
+        :func:`~osprey.port_layout.resolve_port_base` on its single input shape,
+        so its range refusal fires on this path too.
+
+        Returns:
+            The base this profile configures, or the layout default when it
+            configures none.
+
+        Raises:
+            ValueError: If the profile names a base whose thousand-port block
+                could not exist (below 1024, or running past port 65535).
+        """
+        # Imported inside the method on purpose: build_profile_emit reaches
+        # this module through build_profile_load at import time, so a
+        # module-level import would close the cycle.
+        from .build_profile_emit import effective_config_subtree
+
+        return resolve_port_base(
+            {"deployment": effective_config_subtree(self.config, ("deployment",))}
+        )
+
+    def _renders_service_block(self, service: str) -> bool:
+        """Whether the built project carries a ``services.<service>`` block.
+
+        Asked of the two surfaces that write one, in the order they are
+        applied: the profile's ``config:`` overlay, which lands last and so
+        answers outright — including the bare ``services.<name>:`` that removes
+        the block — and the app template underneath it, which is what a profile
+        that says nothing about the service gets.
+
+        Args:
+            service: The service's key in the rendered ``services:`` section
+                (``openobserve``, ``postgresql``, …), not its compose name.
+
+        Returns:
+            Whether the rendered ``config.yml`` will carry that block.
+        """
+        declared = _config_lookup(self.config, f"services.{service}")
+        if declared is not _MISSING:
+            return declared is not None
+        if service in self.services:
+            return True
+        return _app_template_lookup(self.data_bundle, f"services.{service}") is not _MISSING
+
+    def _deploys_slot(self, entry: PortSlot) -> bool:
+        """Whether this profile publishes the host port of one layout slot.
+
+        Args:
+            entry: The slot to ask about. Only slots whose override key names a
+                ``services.<name>.<field>`` path reach here; the gateway and the
+                per-user families are decided by
+                :meth:`_web_terminal_seed` instead.
+
+        Returns:
+            Whether the build stands the slot's service up. Always ``False``
+            for an attached project, which scaffolds no services stack of its
+            own and reaches a shared one over ports it does not publish.
+        """
+        if not self.deploy_services:
+            return False
+        service = (entry.config_key or "").split(".")[1]
+        if service == GRAPHDB_SERVICE_NAME:
+            return self._renders_graphdb_block()
+        if service == QMD_SERVICE_NAME:
+            return self._renders_qmd_block()
+        return self._renders_service_block(service)
+
+    def _layout_seed(self, claimed: dict[str, int], base: int) -> dict[str, int]:
+        """Return the layout ports this profile spends but never spells.
+
+        Every framework port is its slot's offset from the base this deployment
+        resolved, and the templates derive it there rather than pinning a
+        number, so a profile that is happy with the defaults writes none of
+        them down. This is the other half of the ledger: the slots that are
+        spent by virtue of being deployed.
+
+        Only what is really published is seeded. A slot whose service the build
+        does not stand up is left out, the per-user families are seeded at the
+        indices the roster allocates and nowhere else, and a slot something in
+        ``claimed`` already names — under its own key or one of
+        :data:`_SLOT_CLAIM_ALIASES` — is skipped, because that entry is where
+        the service actually is.
+
+        Args:
+            claimed: The ledger built so far, read to decide what is already
+                named. Not mutated.
+            base: The base this deployment resolved. Passed in rather than
+                looked up again so that every derived port in one ledger comes
+                from one resolution of one key.
+
+        Returns:
+            Dotted key → port for the slots that were missing.
+        """
+        seed: dict[str, int] = {}
+        for entry in LAYOUT:
+            key = entry.config_key
+            if entry.name in _UNSEEDED_SLOTS or entry.per_index:
+                continue
+            if key is None or not key.startswith("services."):
+                continue
+            if key in claimed or any(a in claimed for a in _SLOT_CLAIM_ALIASES.get(entry.name, ())):
+                continue
+            if self._deploys_slot(entry):
+                seed[key] = default_port(entry.name, base=base)
+
+        seed.update(self._web_terminal_seed(base))
+        return seed
+
+    def _web_terminal_seed(self, base: int) -> dict[str, int]:
+        """Return the web stack's host ports at ``base``, keyed by their override.
+
+        The gateway — nginx, and the auth sidecar when the stanza's method puts
+        one in front of it — plus one port per per-user family per ROSTER USER,
+        never the whole ``+100``–``+799`` span, which describes a hundred users
+        a deployment does not have. An override in ``modules.web_terminals`` is
+        an absolute port and wins, the same way it wins at render time, so the
+        seed describes where a family really lands rather than where the layout
+        would have put it.
+
+        Args:
+            base: The base this deployment resolved.
+
+        Returns:
+            Dotted key → port, empty when the profile stands up no web stack.
+            A key carries its index (``…_base_port + 3``) for every user but
+            the first, mirroring how the dispatch workers are keyed.
+        """
+        # Imported here rather than at module scope: build_profile_emit would
+        # close an import cycle, and the render stack pulls in the registry and
+        # the persona layer, which a profile parse that never asks about ports
+        # should not pay for.
+        from osprey.deployment.web_terminals.personas import normalize_users
+        from osprey.deployment.web_terminals.ports import (
+            allocate_ports,
+            base_ports_from_config,
+            resolve_nginx_port,
+        )
+        from osprey.deployment.web_terminals.render import _auth_tls_context
+
+        from .build_profile_emit import effective_web_terminals
+
+        web_terminals = effective_web_terminals(self.config)
+        if not web_terminals or web_terminals.get("enabled") is False:
+            return {}
+
+        seed: dict[str, int] = {}
+        wrapped = {"deployment": {"port_base": base}, "modules": {"web_terminals": web_terminals}}
+        try:
+            seed["modules.web_terminals.nginx_port"] = resolve_nginx_port(wrapped)
+        except ValueError:
+            # A non-port `nginx_port` is the stanza's own fault to report; the
+            # lint names it, and guessing a number for it here would put a
+            # wrong port in a collision report.
+            pass
+
+        # The auth sidecar is a container only under the two methods that put a
+        # wall in front of the terminals; `token` and `none` bind nothing on the
+        # gateway's second port. Asked of the render's own single parse point
+        # rather than re-derived, so the ledger and the compose overlay cannot
+        # disagree about whether the port is spent or where it is.
+        try:
+            auth_context = _auth_tls_context(web_terminals, base=base)
+        except ValueError:
+            # An unsupported `auth.method`. The render refuses it by name and
+            # the lint reports it; there is no port to record for a stanza that
+            # cannot be built.
+            auth_context = {}
+        if auth_context.get("sidecar_active"):
+            seed["modules.web_terminals.auth.port"] = auth_context["auth_port"]
+
+        try:
+            base_ports = base_ports_from_config(web_terminals, base=base)
+        except ValueError:
+            return seed
+        users_raw = web_terminals.get("users")
+        for user in normalize_users(users_raw if isinstance(users_raw, list) else []):
+            index = user.get("index")
+            try:
+                allocation = allocate_ports(base_ports, index)
+            except ValueError:
+                # An index past the end of a family band. `allocate_ports`
+                # refuses it by name and the lint reports it; a seed built on
+                # it would be a port no container ever binds.
+                continue
+            for family, port in allocation.items():
+                key = f"modules.web_terminals.{family}_base_port"
+                if index:
+                    key = f"{key} + {index}"
+                seed.setdefault(key, port)
+        return seed
+
+    def _worker_band_errors(self) -> list[str]:
+        """Return the refusal for a worker fan-out that runs out of its band.
+
+        The layout gives the dispatch workers a window — ``worker`` slot plus
+        one, up to plus :data:`~osprey.port_layout.WORKER_MAX` — and everything
+        above it belongs to a service the same deployment publishes. On the
+        host network the workers bind those ports for real, so a
+        ``worker_count`` (or a ``worker_port_stride``) that walks past the end
+        of the window is a collision the build can see coming, and refusing it
+        here is the difference between a named fault and a container dying on
+        "address already in use" minutes into a deploy.
+
+        Bridge mode is exempt: those workers publish nothing on the host, so
+        the count is bounded by the machine and not by the layout. So is a
+        profile that has moved worker 1 clean out of the band with an absolute
+        ``worker_port_base`` — that is the layout's documented escape from a
+        band, and what bounds the workers afterwards is the host-port preflight
+        rather than a window they are no longer in.
+
+        Returns:
+            One message naming the derived top port, the slot the layout puts
+            there, and the end of the window — or nothing, when the fan-out
+            fits (or when this profile's rules are decided elsewhere).
+        """
+        d = self.dispatch
+        if d is None or d.network != _HOST_NETWORK_MODE:
+            return []
+        if d.worker_count < 1 or d.worker_port_stride < 1:
+            return []  # already refused by name, above.
+        try:
+            base = self._resolved_port_base()
+            band_first = default_port("worker", 1, base=base)
+            band_last = default_port("worker", WORKER_MAX, base=base)
+        except ValueError:
+            return []
+        if not band_first <= d.worker_port_base <= band_last:
+            return []
+
+        top = d.worker_port_base + (d.worker_count - 1) * d.worker_port_stride
+        if top <= band_last:
+            return []
+        # Non-empty by construction: `top` is past `band_last`, which is
+        # already above the lowest slot's offset, so at least one slot's offset
+        # is below the derived one.
+        hit = max((s for s in LAYOUT if s.offset <= top - base), key=lambda s: s.offset)
+        # At least one, since the gate above put worker 1 inside the band.
+        fits = (band_last - d.worker_port_base) // d.worker_port_stride + 1
+        return [
+            f"dispatch.worker_count {d.worker_count} would publish worker {d.worker_count} on "
+            f"port {top}, past the end of the layout's worker band at {band_last} "
+            f"(dispatch.worker_port_base {d.worker_port_base} + ({d.worker_count} - 1) * "
+            f"dispatch.worker_port_stride {d.worker_port_stride}). {top} falls in "
+            f"the '{hit.name}' slot ({base + hit.offset}), which this deployment publishes for "
+            f"itself. Run at most {fits} worker(s) at this stride, or set "
+            f"dispatch.worker_port_base to an absolute port outside the block to run the "
+            f"workers off the layout."
+        ]
 
     def validate(self, profile_dir: Path) -> None:
         """Validate profile consistency. Raises BuildProfileError with all issues."""
@@ -1252,6 +1584,18 @@ class BuildProfile:
                     f"dispatch.worker_port_base + worker_count - 1 exceeds 65535 "
                     f"({d.worker_port_base} + {d.worker_count} - 1)"
                 )
+            # The stride is what turns a worker number into a port, so a value
+            # below one is not a narrow fan-out — it is workers stacked on one
+            # port (0) or numbered backwards down the band (negative).
+            if d.worker_port_stride < 1:
+                errors.append(
+                    f"dispatch.worker_port_stride must be >= 1 "
+                    f"(got {d.worker_port_stride}): worker i publishes on "
+                    f"worker_port_base + (i - 1) * worker_port_stride, so a stride of 0 puts "
+                    f"every worker on one port and a negative one runs them backwards out of "
+                    f"their band. Leave the key unset for the layout's own spacing of 1."
+                )
+            errors.extend(self._worker_band_errors())
             if d.workspace_mode not in ("isolated", "shared"):
                 errors.append(
                     f"dispatch.workspace_mode must be 'isolated' or 'shared' "

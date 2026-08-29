@@ -97,7 +97,7 @@ def tiled_uri() -> Iterator[str]:
                 "-w /storage/files -w duckdb:////storage/data.duckdb"
             )
             # No fixed host port: a host running an OSPREY demo stack already
-            # holds 8091, and a fixed port would turn that into a flake.
+            # holds tiled's own slot, and a fixed port would turn that into a flake.
             .with_exposed_ports(8000)
         ),
         label="tiled",

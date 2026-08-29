@@ -29,6 +29,7 @@ from osprey.cli.build_profile import (
     load_profile,
 )
 from osprey.errors import BuildProfileError
+from osprey.port_layout import default_port
 
 
 def test_no_bluesky_web_validates(tmp_path: Path) -> None:
@@ -82,9 +83,12 @@ def test_bluesky_web_port_overflow_raises(tmp_path: Path) -> None:
 
 
 def test_bluesky_web_default_port() -> None:
-    """BlueskyWebConfig defaults to port 8095, matching the compose template
-    and the sidecar's default uvicorn bind."""
-    assert BlueskyWebConfig().port == 8095
+    """BlueskyWebConfig defaults to the layout's ``bluesky_web`` slot.
+
+    10071 is that slot at the layout's own base — the port a deployment that
+    configures no ``deployment.port_base`` publishes the sidecar on.
+    """
+    assert BlueskyWebConfig().port == 10071
 
 
 def test_bluesky_web_not_a_mapping_raises() -> None:
@@ -100,10 +104,10 @@ def test_bluesky_web_is_known_key() -> None:
 
 def test_bluesky_web_parse_round_trip() -> None:
     """A bluesky_web block parses its port field through _parse_profile."""
-    raw = {"name": "x", "bluesky_web": {"port": 9100}}
+    raw = {"name": "x", "bluesky_web": {"port": 9002}}
     profile = _parse_profile(raw)
     assert profile.bluesky_web is not None
-    assert profile.bluesky_web.port == 9100
+    assert profile.bluesky_web.port == 9002
 
 
 def test_bluesky_web_parse_defaults_when_empty_mapping() -> None:
@@ -111,7 +115,7 @@ def test_bluesky_web_parse_defaults_when_empty_mapping() -> None:
     raw = {"name": "x", "bluesky_web": {}}
     profile = _parse_profile(raw)
     assert profile.bluesky_web is not None
-    assert profile.bluesky_web.port == 8095
+    assert profile.bluesky_web.port == 10071
 
 
 # ── panel_presets ("Layouts") ────────────────────────────────────────────────
@@ -221,13 +225,21 @@ def turnkey_plan_config(turnkey_plan_project: Path) -> dict:
 
 
 class TestControlAssistantTurnkeyPlanServices:
-    """The three injected services render with the preset's baked-in ports."""
+    """The three injected services render inside the deployment's port block.
+
+    The preset no longer bakes a number in for any of them: it declares the
+    blocks and lets the layout place them. So what these pin is the CHAIN —
+    preset to profile to rendered ``config.yml`` — rather than the numbers,
+    which are ``tests/test_port_layout.py``'s to pin by name. Written as
+    ``default_port`` lookups, a deliberate layout move stays a one-file change
+    there instead of breaking every suite that names a port.
+    """
 
     def test_control_assistant_bluesky_service_rendered(self, turnkey_plan_config: dict) -> None:
         bluesky = turnkey_plan_config["services"]["bluesky"]
-        assert bluesky["port"] == 8090
+        assert bluesky["port"] == default_port("bluesky")
         assert bluesky["tiled_enabled"] is True
-        assert bluesky["tiled_port"] == 8091
+        assert bluesky["tiled_port"] == default_port("tiled")
 
     def test_control_assistant_virtual_accelerator_service_rendered(
         self, turnkey_plan_config: dict
@@ -239,7 +251,7 @@ class TestControlAssistantTurnkeyPlanServices:
         self, turnkey_plan_config: dict
     ) -> None:
         bluesky_web = turnkey_plan_config["services"]["bluesky_web"]
-        assert bluesky_web["port"] == 8095
+        assert bluesky_web["port"] == default_port("bluesky_web")
 
     def test_control_assistant_deployed_services_includes_all_three(
         self, turnkey_plan_config: dict

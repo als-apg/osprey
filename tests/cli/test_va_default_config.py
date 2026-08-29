@@ -36,6 +36,7 @@ from osprey.connectors.factory import (
     isolated_connector_registries,
     register_builtin_connectors,
 )
+from osprey.port_layout import default_port
 
 # The epics block a scaffolded Control Assistant renders. The template's own
 # values are the untouched ALS production configuration — still pinned, on the
@@ -49,12 +50,12 @@ SCAFFOLDED_EPICS_BLOCK = {
     "gateways": {
         "read_only": {
             "address": "localhost",
-            "port": 5074,
+            "port": default_port("va_standin"),
             "use_name_server": True,
         },
         "write_access": {
             "address": "localhost",
-            "port": 5074,
+            "port": default_port("va_standin"),
             "use_name_server": True,
         },
     },

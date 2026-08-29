@@ -83,6 +83,7 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.main import cli
+from osprey.port_layout import default_port
 from osprey.utils.workspace import container_image_context
 
 
@@ -94,6 +95,12 @@ def _docker_available() -> bool:
     except (OSError, subprocess.TimeoutExpired):
         return False
 
+
+#: The port the project image serves on INSIDE the container: the ``web`` slot
+#: of the layout, which ``Dockerfile.j2`` renders into its ``EXPOSE`` line. The
+#: image is built from a config that never moves ``deployment.port_base``, so
+#: the layout's default base is the right one to derive it at.
+_WEB_SLOT = default_port("web")
 
 pytestmark = [
     pytest.mark.dockerbuild,
@@ -377,9 +384,12 @@ def test_image_project_root_is_a_deployment_repo(built_image):
 
 
 def _host_port(cid: str) -> int:
-    """Resolve the ephemeral host port docker mapped to container :8087."""
+    """Resolve the ephemeral host port docker mapped to the image's web slot."""
     out = subprocess.run(
-        ["docker", "port", cid, "8087/tcp"], capture_output=True, text=True, timeout=15
+        ["docker", "port", cid, f"{_WEB_SLOT}/tcp"],
+        capture_output=True,
+        text=True,
+        timeout=15,
     )
     assert out.returncode == 0, f"docker port failed: {out.stderr}"
     # Output like "127.0.0.1:54321" (possibly multiple lines for v4/v6).
@@ -442,7 +452,7 @@ def _login_opener(base_url: str, cid: str) -> urllib.request.OpenerDirector:
     login_url = match.group(1)
     # The token identifies the container's secret; the exchange itself must be
     # driven at the host-mapped base_url, so swap the authority the container
-    # announced (its internal :8087) for the reachable one.
+    # announced (its internal web slot) for the reachable one.
     token_query = urllib.parse.urlparse(login_url).query
     opener = urllib.request.build_opener(
         urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar())
@@ -505,7 +515,7 @@ def test_generated_image_serves_agent_over_http(built_image):
             "-d",
             *_PLATFORM_ARGS,
             "-p",
-            "127.0.0.1:0:8087",
+            f"127.0.0.1:0:{_WEB_SLOT}",
             *env_args,
             tag,
         ],

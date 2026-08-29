@@ -280,11 +280,11 @@ agent_data:
 # it — and when it does, the tab is reported unavailable rather than serving a
 # dead iframe. Port resolution is the one shared function every launcher and
 # URL builder uses: OSPREY_ARTIFACT_SERVER_PORT wins (multi-user deployments
-# export it per user), then `port` here, then the built-in 8086. `host` has no
-# env override.
+# export it per user), then `port` here, then this deployment's layout slot
+# ({{ osprey_ports.artifact }}). `host` has no env override.
 artifact_server:
   host: "127.0.0.1"
-  port: 8086
+  port: {{ osprey_ports.artifact }}
   auto_launch: true
 
 # ============================================================
@@ -323,7 +323,7 @@ services:
   # container runtime (Docker/podman) running.
   openobserve:
     path: ./services/openobserve
-    port: 5080          # Host port for the OpenObserve UI + OTLP ingest
+    port: {{ osprey_ports.openobserve }}         # Host port for the OpenObserve UI + OTLP ingest
     retention_days: 14  # Growth bound: drop data older than N days (min 3). A
                         # named volume has no size cap, so age is the size knob.
 
@@ -361,7 +361,7 @@ claude_code:
   # ── Telemetry / Observability (on by default, local + loopback-bound) ──
   # The agent emits OTLP logs + metrics to the co-deployed OpenObserve store
   # (declared in `services:` and listed in `deployed_services:` above; UI at
-  # http://localhost:5080). On by default: the underlying harness already records
+  # http://localhost:{{ osprey_ports.openobserve }}). On by default: the underlying harness already records
   # every prompt, response, and API body to disk, so this adds no new exposure —
   # it just makes that data queryable in a local store you own. To turn it off,
   # set `enabled: false`. Tracing and OTEL_LOG_TOOL_CONTENT are intentionally

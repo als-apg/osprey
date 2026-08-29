@@ -17,6 +17,6 @@ COPY server.py ./
 # Unbuffered so container logs appear as the server writes them rather than
 # when the process exits.
 ENV PYTHONUNBUFFERED=1
-EXPOSE 8200
+EXPOSE 10900
 
 CMD ["python", "server.py"]

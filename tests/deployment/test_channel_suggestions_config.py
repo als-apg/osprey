@@ -18,6 +18,8 @@ from __future__ import annotations
 import pytest
 import yaml
 
+from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
+
 # ---------------------------------------------------------------------------
 # Rendering helpers
 # ---------------------------------------------------------------------------
@@ -50,6 +52,10 @@ def _render(project_root: str, **overrides) -> str:
     ``is defined`` guards run as they do for a project that selected nothing.
     """
     context = {
+        # Built by TemplateManager._project_context in a real
+        # render; this helper reaches the template directly.
+        "port_base": DEFAULT_PORT_BASE,
+        "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
         "project_name": "demo",
         "project_root": project_root,
         "builtin_panels": ["ariel", "channel-finder"],

@@ -99,6 +99,17 @@ Uses only ``json``, ``os``, ``sys``, ``tempfile``, ``urllib.request``,
 ``urllib.error``.  The SessionStart hook runs under ``python3`` (possibly system
 Python 3.9, not the venv interpreter), so this file must be 3.9-safe.
 
+That contract is why the web terminal's port is the one number written out
+here rather than looked up: ``osprey.port_layout`` is where every framework
+port lives, and this file may not import it.  The literal is the ``web`` slot
+at the layout's default base — what ``default_port('web', 0)`` returns — and it
+is a *fallback*, reached only when ``OSPREY_WEB_PORT`` is unset, which is the
+plain ``claude`` session run beside a default-base ``osprey web``.  A
+deployment that moved its block exports the variable, so the literal is never
+what such a deployment dials.  It carries the ``osprey:not-a-port`` marker so
+the retired-number lint reads it as the stated exception it is; move it if the
+layout's ``web`` offset or default base ever moves.
+
 Fails open on any error — stays silent and exits 0.  A down web terminal is not
 a session-blocking condition.
 """
@@ -112,6 +123,11 @@ import urllib.request
 
 #: Characters a session id may contain before it is joined into a file name.
 _SESSION_ID_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
+
+#: The web terminal's port when ``OSPREY_WEB_PORT`` names none.  Written out
+#: rather than looked up because this file may not import osprey; the module
+#: docstring states the contract and why the literal is the honest fallback.
+_DEFAULT_WEB_PORT = "10100"  # osprey:not-a-port — stdlib-only hook contract (see module docstring); equals default_port('web', 0)
 
 
 def _read_session_id(stream=None):
@@ -337,7 +353,7 @@ def main():
         ux_context = _build_ux_context(os.environ.get("OSPREY_WEB_UX"))
         session_id = _read_session_id()
 
-        port = os.environ.get("OSPREY_WEB_PORT", "8087")
+        port = os.environ.get("OSPREY_WEB_PORT", _DEFAULT_WEB_PORT)
         host = "127.0.0.1"
         base = f"http://{host}:{port}"
 

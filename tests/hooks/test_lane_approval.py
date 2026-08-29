@@ -42,6 +42,8 @@ import os
 
 import pytest
 
+from osprey.port_layout import default_port
+
 #: A PID on the synthesized ancestor chain that is not this process.
 OWNER_PPID = 515151
 
@@ -52,10 +54,10 @@ VA_ENDPOINT = "pva://127.0.0.1:5074"
 LIVE_PHRASE = f"LIVE MACHINE ({LIVE_ENDPOINT})"
 VA_PHRASE = "virtual accelerator (simulation)"
 
-#: Lane 1's bridge, as the rendered config names it, and lane 2's, as the port
-#: the build published for it implies.
-LANE_ONE_URL = "http://bridge-one.test:8090"
-LANE_TWO_PORT = 8190
+#: Lane 1's bridge, as the rendered config names it, and lane 2's, as the
+#: second-lane slot the build publishes for it implies.
+LANE_ONE_URL = "http://bridge-one.test:10080"
+LANE_TWO_PORT = default_port("bluesky_second_lane")
 LANE_TWO_URL = f"http://127.0.0.1:{LANE_TWO_PORT}"
 
 #: The start prompt's opening line, which a single-lane deployment must keep
@@ -183,7 +185,7 @@ def single_lane_config(*, with_services=True):
     """A config for the deployment shape nearly every project has."""
     config = {"bluesky": {"bridge_url": LANE_ONE_URL}}
     if with_services:
-        config["services"] = {"bluesky": {"port": 8090}}
+        config["services"] = {"bluesky": {"port": 10080}}
     return config
 
 
@@ -195,7 +197,7 @@ def two_lane_config(*, lane_one_target="live", second="bluesky_va", second_targe
     return {
         "bluesky": {"bridge_url": LANE_ONE_URL},
         "services": {
-            "bluesky": {"port": 8090, "target": lane_one_target},
+            "bluesky": {"port": 10080, "target": lane_one_target},
             second: second_block,
         },
     }

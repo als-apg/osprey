@@ -140,7 +140,7 @@ services:
     # container and the agent's ARIEL DSN — which is derived from the keys in
     # this block rather than written out, so this is the single source of
     # truth for both. Mirrors the openobserve credentials convention.
-    port_host: 5432
+    port_host: {{ osprey_ports.postgres }}
 
   # Local telemetry backend for the OSPREY agent — a single-binary OTLP
   # logs/metrics store (see the `telemetry:` block under `claude_code:` below
@@ -149,7 +149,7 @@ services:
   # queryable observability store out of the box. Bound to localhost.
   openobserve:
     path: ./services/openobserve
-    port: 5080          # Host port for the OpenObserve UI + OTLP ingest
+    port: {{ osprey_ports.openobserve }}         # Host port for the OpenObserve UI + OTLP ingest
     retention_days: 14  # Growth bound: drop data older than N days (min 3). A
                         # named volume has no size cap, so age is the size knob.
 
@@ -173,7 +173,7 @@ services:
   # cost, and raise `interval` (see below) once it is up.
   qmd:
     path: ./services/qmd
-    port: 9800      # Host port clients talk to. Deliberately NOT qmd's own
+    port: {{ osprey_ports.qmd }}     # Host port clients talk to. Deliberately NOT qmd's own
                     # 8181: the daemon binds IPv6 loopback only, hardcoded, so
                     # the container runs it on an internal 8181 and fronts it
                     # with a forwarder that owns this port.
@@ -219,9 +219,9 @@ services:
                                  # no manifest entry for anything newer. Repoint
                                  # it at a mirror or a pre-baked image on an
                                  # air-gapped host.
-    port_host: 7687       # Bolt — the only protocol the neo4j driver speaks,
+    port_host: {{ osprey_ports.graphdb_bolt }}      # Bolt — the only protocol the neo4j driver speaks,
                           # so this is what the seeder and the agent dial.
-    http_port_host: 7474  # HTTP — the Neo4j Browser an operator opens, and the
+    http_port_host: {{ osprey_ports.graphdb_http }} # HTTP — the Neo4j Browser an operator opens, and the
                           # endpoint the container healthcheck probes.
                           # `osprey health` does NOT use this port: it dials the
                           # store over bolt on port_host (or an explicit `uri`),
@@ -331,15 +331,16 @@ ariel:
   # ARIEL tab: the search UI is a web server of its own, configured under this
   # section rather than a top-level one. It launches when `ariel` is in the
   # panel list under `web:` below; this section existing is not required, so
-  # 8085 is bound by default. Resolution order: OSPREY_ARIEL_PORT wins
-  # (multi-user deployments export it per user), then `port` here, then the
-  # built-in 8085; `host` has no env override. The launcher resolves host/port
+  # {{ osprey_ports.ariel }} is bound by default. Resolution order:
+  # OSPREY_ARIEL_PORT wins (multi-user deployments export it per user), then
+  # `port` here, then this deployment's layout slot ({{ osprey_ports.ariel }});
+  # `host` has no env override. The launcher resolves host/port
   # through one shared function; the web terminal computes this panel's URL
   # separately and is kept in step by hand, so an env override must be set
   # consistently. Uncomment to move or disable it.
   # web:
   #   host: "127.0.0.1"
-  #   port: 8085
+  #   port: {{ osprey_ports.ariel }}
   #   auto_launch: true
 
   # Ingestion - demo logbook data (bundled with template)
@@ -545,11 +546,11 @@ file_paths:
 # stops it — and when it does, the tab is reported unavailable rather than
 # serving a dead iframe. Port resolution is the one shared function every launcher and URL
 # builder uses: OSPREY_ARTIFACT_SERVER_PORT wins (multi-user deployments export
-# it per user), then `port` here, then the built-in 8086. `host` has no env
-# override.
+# it per user), then `port` here, then this deployment's layout slot
+# ({{ osprey_ports.artifact }}). `host` has no env override.
 artifact_server:
   host: "127.0.0.1"
-  port: 8086
+  port: {{ osprey_ports.artifact }}
   auto_launch: true
 
 # ============================================================
@@ -584,7 +585,7 @@ claude_code:
   # ── Telemetry / Observability (on by default, local + loopback-bound) ──
   # The agent emits OTLP logs + metrics to the co-deployed OpenObserve store
   # (declared in `services:` and listed in `deployed_services:` above; UI at
-  # http://localhost:5080). On by default: the underlying harness already records
+  # http://localhost:{{ osprey_ports.openobserve }}). On by default: the underlying harness already records
   # every prompt, response, and API body to disk, so this adds no new exposure —
   # it just makes that data queryable in a local store you own. To turn it off,
   # set `enabled: false`. Tracing and OTEL_LOG_TOOL_CONTENT are intentionally
@@ -594,8 +595,10 @@ claude_code:
     backend: openobserve                 # openobserve | generic
     protocol: http/protobuf              # http/protobuf | grpc — grpc requires an explicit `endpoint:` below; it is refused against the auto-derived openobserve endpoint (HTTP only)
     # backend: openobserve auto-derives the endpoint per network context —
-    # http://localhost:5080/api/<org> on the host, http://openobserve:5080/api/<org>
-    # inside the deploy network — so `endpoint` is intentionally OMITTED here.
+    # http://localhost:{{ osprey_ports.openobserve }}/api/<org> on the host,
+    # http://openobserve:5080/api/<org> inside the deploy network (5080 there is
+    # the store's own listen port inside its container, which port_base does not
+    # move) — so `endpoint` is intentionally OMITTED here.
     # (Hardcoding localhost would make the in-container dispatch worker emit to
     # its own loopback and silently drop everything.)
     #

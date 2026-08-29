@@ -22,6 +22,15 @@ all — it binds its port on the host directly — so parsing compose files alon
 would leave exactly the ports two projects are most likely to fight over out of
 the check. Those bindings are therefore *derived* from the rendered config (see
 :func:`derive_host_network_bindings`) and join the same two checks.
+
+Everything here is framed by the deployment's **port block**: ``port_base`` is
+the first of a thousand ports (:mod:`osprey.port_layout`), and the base is
+always the one *this* config resolved rather than the layout's default. That is
+what makes the report actionable: a contested port that still sits where the
+layout puts it moves with the whole block, so its remedy is the one key
+``deployment.port_base``, while a port a project moved by hand keeps its own
+key. The one port outside the block is Channel Access 5064, and a collision
+there says so rather than sending an operator to a knob that cannot move it.
 """
 
 import json
@@ -32,15 +41,24 @@ from pathlib import Path
 
 import yaml
 
-from osprey.deployment.graphdb_service import DEFAULT_HTTP_PORT as GRAPHDB_DEFAULT_HTTP_PORT
-from osprey.deployment.graphdb_service import DEFAULT_PORT as GRAPHDB_DEFAULT_PORT
+from osprey.deployment.compose_generator import REPO_ID_LABEL, repo_identity, resolve_repo_root
 from osprey.deployment.graphdb_service import (
+    CONTAINER_BOLT_PORT,
+    CONTAINER_HTTP_PORT,
     GRAPHDB_HTTP_PORT_CONFIG_KEY,
     GRAPHDB_PORT_CONFIG_KEY,
     GRAPHDB_SERVICE_NAME,
 )
 from osprey.deployment.qmd_service import PORT_CONFIG_KEY as QMD_PORT_CONFIG_KEY
 from osprey.deployment.runtime_helper import get_ps_command, runtime_env
+from osprey.port_layout import (
+    CA_DEFAULT_PORT,
+    PORT_BASE_CONFIG_KEY,
+    SLOTS_BY_NAME,
+    block_range,
+    default_port,
+    resolve_port_base,
+)
 from osprey.utils.logger import get_logger
 
 logger = get_logger("deployment.host_ports")
@@ -100,12 +118,62 @@ _SERVICE_REMEDY_KEYS = {
 # the project publishes them on, so a project that moved either one still
 # resolves the key that moves it.
 _SERVICE_PORT_REMEDY_KEYS = {
-    (GRAPHDB_SERVICE_NAME, GRAPHDB_DEFAULT_PORT): GRAPHDB_PORT_CONFIG_KEY,
-    (GRAPHDB_SERVICE_NAME, GRAPHDB_DEFAULT_HTTP_PORT): GRAPHDB_HTTP_PORT_CONFIG_KEY,
+    (GRAPHDB_SERVICE_NAME, CONTAINER_BOLT_PORT): GRAPHDB_PORT_CONFIG_KEY,
+    (GRAPHDB_SERVICE_NAME, CONTAINER_HTTP_PORT): GRAPHDB_HTTP_PORT_CONFIG_KEY,
+}
+
+# Compose service name mapped to the layout slot (or slots) whose port it
+# publishes. This is what decides WHICH of the two remedies a conflict gets: a
+# binding still sitting on its slot at this deployment's base moves with the
+# whole block, so its remedy is ``deployment.port_base`` and the per-service key
+# above would be an instruction to hand-place one port back inside a block the
+# operator is about to move anyway. A binding that is NOT on its slot was placed
+# by hand, and only the key that placed it can move it again.
+#
+# ``virtual-accelerator`` is deliberately absent: instance 1 serves Channel
+# Access on 5064, which is outside the block by design, so ``port_base`` never
+# moves it and its own key stays the remedy.
+#
+# A Bluesky lane names two slots because the second lane's bridge is derived
+# from the first lane's port, and which of the two lanes a given compose service
+# is depends on the deployment's baseline target.
+_SERVICE_LAYOUT_SLOTS = {
+    "postgresql": ("postgres",),
+    "mongodb": ("mongo",),
+    "openobserve": ("openobserve",),
+    "event-dispatcher": ("dispatcher",),
+    "dispatch-worker": ("worker",),
+    "bluesky-bridge": ("bluesky", "bluesky_second_lane"),
+    "bluesky-va-bridge": ("bluesky", "bluesky_second_lane"),
+    "bluesky-live-bridge": ("bluesky", "bluesky_second_lane"),
+    "tiled": ("tiled",),
+    "bluesky-web": ("bluesky_web",),
+    "live-standin": ("va_standin",),
+    "qmd": ("qmd",),
+    GRAPHDB_SERVICE_NAME: ("graphdb_bolt", "graphdb_http"),
+}
+
+# The CONTAINER port a slot's service speaks on, for the slots that a service
+# name alone cannot tell apart. Only the graph store needs this: it owns two
+# slots one port apart, so matching on the host port alone would read a bolt
+# port hand-placed on the HTTP slot's default as "still on its slot" and send
+# the operator to ``deployment.port_base``, which would move the block and leave
+# that binding exactly where it was. The container port is what actually
+# distinguishes the two, and the image fixes it. A slot absent here is matched
+# on its port alone, which is right for the Bluesky lanes: both lanes are the
+# same image on the same container port, and only the host port tells them
+# apart.
+_SLOT_CONTAINER_PORTS = {
+    "graphdb_bolt": CONTAINER_BOLT_PORT,
+    "graphdb_http": CONTAINER_HTTP_PORT,
 }
 
 # Compose service key of worker ``i``, and the prefix its remedy is keyed on.
 _WORKER_SERVICE_PREFIX = "dispatch-worker"
+
+# Label compose stamps with the project a container belongs to. Two checkouts of
+# one deployment share it, which is why :data:`REPO_ID_LABEL` is read as well.
+_COMPOSE_PROJECT_LABEL = "com.docker.compose.project"
 
 # Bundled services that legitimately run host-mode WITHOUT binding a port:
 # outbound-only bridges with no listening socket (their templates say so).
@@ -113,11 +181,10 @@ _WORKER_SERVICE_PREFIX = "dispatch-worker"
 # exists for services that DO bind something the framework cannot derive.
 _HOST_MODE_PORTLESS_SERVICES = frozenset({"nextcloud_bridge", "gchat_bridge"})
 
-# Config values the host-mode templates fall back on. Both worker keys are
-# absent from a bridge-mode render, and a hand-authored config may omit any of
-# them, so the defaults are spelled here exactly as the templates spell theirs.
-_DEFAULT_DISPATCHER_PORT = 9900
-_DEFAULT_WORKER_PORT_BASE = 9901
+# Config values the host-mode templates fall back on that are NOT ports. The
+# two port fallbacks the templates also carry (the dispatcher's own port and the
+# worker base) are looked up in the layout at the base this config resolved, so
+# a deployment that moved its block is preflighted where it actually binds.
 _DEFAULT_WORKER_PORT_STRIDE = 1
 _DEFAULT_WORKER_COUNT = 1
 
@@ -178,6 +245,15 @@ class PortConflict:
     :param remedy: Config key to change to move the offending service's port
     :param host_network: ``True`` when the offending service binds the port on
         the host's network namespace rather than publishing it
+    :param port_base: First port of the block this deployment resolved, so the
+        report can frame itself without resolving the config a second time.
+        ``None`` when the conflict was found with no config to resolve, which is
+        the honest answer: the report then prints no block line at all rather
+        than a default base that may not be this deployment's.
+    :param channel_access: ``True`` when the contested port is the Channel
+        Access port (:data:`~osprey.port_layout.CA_DEFAULT_PORT`) and it falls
+        outside this deployment's block. That pair is the one collision
+        ``deployment.port_base`` cannot resolve, and the report says so.
     """
 
     host_port: int
@@ -187,44 +263,151 @@ class PortConflict:
     holder: str
     remedy: str
     host_network: bool = False
+    port_base: int | None = None
+    channel_access: bool = False
 
 
 @dataclass
 class _PsRecord:
-    """One running container's attribution data, distilled from a ``ps`` row."""
+    """One running container's attribution data, distilled from a ``ps`` row.
+
+    ``repo_id`` is the ``com.osprey.repo-id`` label, which names the CHECKOUT a
+    container was created from. It is empty for a container an older OSPREY
+    stamped no label onto, and that emptiness is a real answer rather than a
+    parse failure: see :func:`_holder_is_ours` for what each case means.
+    """
 
     name: str
     project: str
     host_ports: set = field(default_factory=set)
+    repo_id: str = ""
 
 
-def _remedy_for_service(service, container_port=None):
+def _resolve_base(config):
+    """Return the port base this config resolved, or ``None`` when there is none.
+
+    The preflight is reached with a rendered config on every real deploy and
+    with ``None`` from callers testing published bindings alone, so the base is
+    optional everywhere downstream. ``None`` is carried through rather than
+    quietly replaced by the layout default: a wrong base would frame the report
+    around a block this deployment does not own and hand out
+    ``deployment.port_base`` as a remedy for ports it would not move.
+
+    Args:
+        config: Loaded (rendered) configuration mapping, or ``None``.
+
+    Returns:
+        The resolved base, or ``None`` when no config was supplied.
+
+    Raises:
+        ValueError: If the config names a base whose block cannot exist. The
+            build refuses the same value, so reaching this means the rendered
+            config was hand-edited afterwards, and saying so beats preflighting
+            a block nothing can bind.
+    """
+    if not isinstance(config, dict):
+        return None
+    return resolve_port_base(config)
+
+
+def _generic_service(service):
+    """Return a service name with the worker index stripped.
+
+    Workers are rendered one container per index (``dispatch-worker-1``, ``-2``,
+    …) and share one config key and one layout band, so every lookup keyed on a
+    service name asks about the un-indexed spelling.
+
+    Args:
+        service: Compose service name.
+
+    Returns:
+        ``"dispatch-worker"`` for any indexed worker, otherwise ``service``.
+    """
+    if service.startswith(f"{_WORKER_SERVICE_PREFIX}-"):
+        return _WORKER_SERVICE_PREFIX
+    return service
+
+
+def _framework_slot_for(service, host_port, base, container_port=None):
+    """Return the layout slot ``host_port`` sits on for ``service``, else ``None``.
+
+    The index is recovered from the port rather than tracked separately, and
+    :func:`~osprey.port_layout.default_port` is asked to confirm it: a value
+    outside the slot's band raises there, which is exactly the "not on this
+    slot" answer wanted here. No band bounds are restated in this module.
+
+    A service owning two slots is disambiguated by the container port first
+    (:data:`_SLOT_CONTAINER_PORTS`), so a binding that landed on the OTHER
+    slot's default by hand is not read as being on a slot it does not speak. An
+    unparseable container port skips that filter rather than refusing to match:
+    a best-effort answer from the host port alone is what the resolution did
+    before, and it is still better than none.
+
+    Args:
+        service: Compose service name (indexed workers accepted).
+        host_port: The host port the binding claims.
+        base: The base this deployment resolved, or ``None`` when unknown.
+        container_port: The port inside the container, when known.
+
+    Returns:
+        The slot name whose layout port equals ``host_port``, or ``None`` when
+        the port was placed by hand or the service owns no layout slot.
+    """
+    if base is None or host_port is None:
+        return None
+    for slot in _SERVICE_LAYOUT_SLOTS.get(_generic_service(service), ()):
+        entry = SLOTS_BY_NAME.get(slot)
+        if entry is None:
+            continue  # pinned against the layout by a reconciliation test
+        speaks = _SLOT_CONTAINER_PORTS.get(slot)
+        if speaks is not None and container_port is not None and container_port != speaks:
+            continue  # this binding is not the port this slot serves
+        try:
+            if default_port(slot, host_port - base - entry.offset, base=base) == host_port:
+                return slot
+        except ValueError:
+            continue  # the index is outside this slot's band, so not this slot
+    return None
+
+
+def _remedy_for_service(service, container_port=None, host_port=None, base=None):
     """Return the config key that moves ``service``'s host port.
 
-    A service that publishes more than one host port has more than one remedy
-    key, so ``(service, container_port)`` is consulted first: the container port
-    is what distinguishes the two, and it is stable across projects because the
-    image fixes it. Everything else resolves by service name alone.
+    Three questions, in the order that makes each answer actually move the
+    contested port:
 
-    Workers are indexed (``dispatch-worker-1``, ``-2``, …) but share one config
-    key, so their index is dropped before the lookup — the generic fallback
-    would otherwise name a per-worker key that does not exist.
+    1. **Is it still where the layout puts it?** A binding on its slot at this
+       deployment's base is one of a thousand ports that move together, so the
+       key is ``deployment.port_base`` and one edit clears every conflict in the
+       block at once. This needs both ``host_port`` and ``base``; without them
+       the question cannot be asked and the older answers stand. ``container_port``
+       refines it where a service owns two slots, so a port hand-placed on the
+       other slot's default is not mistaken for one the block would move.
+    2. **Does the service publish more than one host port?** Then
+       ``(service, container_port)`` picks between its keys — the container port
+       is what distinguishes them, and the image fixes it, so a project that
+       moved either published port still resolves the key that moves it.
+    3. Otherwise the per-service key, or the generic ``services.<name>.port``
+       convention a facility service follows.
 
-    :param service: Compose service name
-    :type service: str
-    :param container_port: Port inside the container this binding maps to, when
-        known; ``None`` skips the per-port table and resolves by name alone
-    :type container_port: int or None
-    :return: Dotted config key (well-known mapping, else a generic fallback)
-    :rtype: str
+    Args:
+        service: Compose service name.
+        container_port: Port inside the container this binding maps to, when
+            known; ``None`` skips the per-port table.
+        host_port: The host port being contested, when known. Required, with
+            ``base``, for the layout question.
+        base: The base this deployment resolved, or ``None`` when unknown.
+
+    Returns:
+        A dotted config key that, changed, moves this binding.
     """
+    if _framework_slot_for(service, host_port, base, container_port) is not None:
+        return PORT_BASE_CONFIG_KEY
     if container_port is not None:
         per_port = _SERVICE_PORT_REMEDY_KEYS.get((service, container_port))
         if per_port is not None:
             return per_port
-    if service.startswith(f"{_WORKER_SERVICE_PREFIX}-"):
-        return _SERVICE_REMEDY_KEYS[_WORKER_SERVICE_PREFIX]
-    return _SERVICE_REMEDY_KEYS.get(service, f"services.{service}.port")
+    return _SERVICE_REMEDY_KEYS.get(_generic_service(service), f"services.{service}.port")
 
 
 def _parse_port_entry(entry):
@@ -364,7 +547,10 @@ def derive_host_network_bindings(config):
     "address already in use".
 
     The ports are derived the same way the templates derive them, from the same
-    keys, so a project that moved them is checked where it actually binds:
+    keys, so a project that moved them is checked where it actually binds. Where
+    a key is absent — bridge-mode renders write neither worker key, and a
+    hand-authored config may omit any of them — the fallback is the layout slot
+    at the base THIS config resolved, never the layout's default base:
 
     - the dispatcher binds ``services.event_dispatcher.port``, on the interface
       named by its optional ``bind`` override;
@@ -397,10 +583,11 @@ def derive_host_network_bindings(config):
     :rtype: list[HostPortBinding]
     """
     bindings = []
+    base = _resolve_base(config)
 
     dispatcher = _service_block(config, "event_dispatcher")
     if _on_host_network(dispatcher):
-        port = _int_or_default(dispatcher.get("port"), _DEFAULT_DISPATCHER_PORT)
+        port = _int_or_default(dispatcher.get("port"), default_port("dispatcher", base=base))
         bindings.append(
             HostPortBinding(
                 service="event-dispatcher",
@@ -414,11 +601,13 @@ def derive_host_network_bindings(config):
 
     worker = _service_block(config, "dispatch_worker")
     if _on_host_network(worker):
-        base = _int_or_default(worker.get("worker_port_base"), _DEFAULT_WORKER_PORT_BASE)
+        worker_base = _int_or_default(
+            worker.get("worker_port_base"), default_port("worker", 1, base=base)
+        )
         stride = _int_or_default(worker.get("worker_port_stride"), _DEFAULT_WORKER_PORT_STRIDE)
         count = _int_or_default(worker.get("worker_count"), _DEFAULT_WORKER_COUNT)
         for index in range(1, count + 1):
-            port = base + (index - 1) * stride
+            port = worker_base + (index - 1) * stride
             bindings.append(
                 HostPortBinding(
                     service=f"{_WORKER_SERVICE_PREFIX}-{index}",
@@ -436,16 +625,20 @@ def derive_host_network_bindings(config):
         # generic branch reads. Each binding carries the CONTAINER port the
         # image fixes, not the host port it was moved to, so a derived binding
         # and a parsed one describe the same thing and resolve the same remedy
-        # key and the same URL scheme downstream.
-        for config_key, container_port in (
-            ("port_host", GRAPHDB_DEFAULT_PORT),
-            ("http_port_host", GRAPHDB_DEFAULT_HTTP_PORT),
+        # key and the same URL scheme downstream. The two are now genuinely
+        # different numbers: the host default is a layout slot at this
+        # deployment's base, the container port is the image's own.
+        for config_key, slot, container_port in (
+            ("port_host", "graphdb_bolt", CONTAINER_BOLT_PORT),
+            ("http_port_host", "graphdb_http", CONTAINER_HTTP_PORT),
         ):
             bindings.append(
                 HostPortBinding(
                     service=GRAPHDB_SERVICE_NAME,
                     host_ip=_HOST_NETWORK_BIND,
-                    host_port=_int_or_default(graphdb.get(config_key), container_port),
+                    host_port=_int_or_default(
+                        graphdb.get(config_key), default_port(slot, base=base)
+                    ),
                     container_port=container_port,
                     compose_file=_DERIVED_SOURCE,
                     host_network=True,
@@ -554,11 +747,41 @@ def _host_ports_from_ports_string(ports):
     return found
 
 
+def _labels_mapping(labels):
+    """Return a runtime ``ps`` row's labels as a plain ``{key: value}`` mapping.
+
+    Two shapes, because two runtimes: podman emits ``Labels`` as an object,
+    docker as a comma-joined ``k=v`` string. Anything else is no labels at all.
+
+    Args:
+        labels: The ``Labels`` field of one decoded ``ps`` row.
+
+    Returns:
+        A mapping of label key to value; empty when the row carries none.
+    """
+    if isinstance(labels, dict):
+        return {str(key): value for key, value in labels.items()}
+    if isinstance(labels, str):
+        parsed = {}
+        for pair in labels.split(","):
+            key, sep, value = pair.partition("=")
+            if sep:
+                parsed[key.strip()] = value.strip()
+        return parsed
+    return {}
+
+
 def _record_from_ps_obj(obj):
     """Distill a runtime ``ps`` JSON row into a :class:`_PsRecord`.
 
     Handles both Docker (string ``Names``/``Ports``, comma-joined ``Labels``)
     and Podman (list ``Names``/``Ports`` dicts, ``Labels`` mapping) shapes.
+
+    Two labels are read, not one. ``com.docker.compose.project`` says which
+    compose project a container belongs to, and :data:`REPO_ID_LABEL` says which
+    CHECKOUT it was created from — two clones of one deployment on one host
+    share a project name, so the project label alone cannot tell this
+    deployment's own containers from another checkout's.
     """
     if not isinstance(obj, dict):
         return None
@@ -569,16 +792,9 @@ def _record_from_ps_obj(obj):
     else:
         name = str(names or "").split(",")[0].strip()
 
-    project = ""
-    labels = obj.get("Labels")
-    if isinstance(labels, dict):
-        project = str(labels.get("com.docker.compose.project", "") or "")
-    elif isinstance(labels, str):
-        for pair in labels.split(","):
-            key, _, value = pair.partition("=")
-            if key.strip() == "com.docker.compose.project":
-                project = value.strip()
-                break
+    labels = _labels_mapping(obj.get("Labels"))
+    project = str(labels.get(_COMPOSE_PROJECT_LABEL, "") or "")
+    repo_id = str(labels.get(REPO_ID_LABEL, "") or "")
 
     host_ports = set()
     ports = obj.get("Ports")
@@ -596,7 +812,7 @@ def _record_from_ps_obj(obj):
             elif isinstance(item, str):
                 host_ports |= _host_ports_from_ports_string(item)
 
-    return _PsRecord(name=name, project=project, host_ports=host_ports)
+    return _PsRecord(name=name, project=project, host_ports=host_ports, repo_id=repo_id)
 
 
 def _parse_ps_json(stdout):
@@ -650,8 +866,58 @@ def _runtime_port_holders(records):
     return holders
 
 
-def _project_runs_service(records, project_name, service):
-    """Whether THIS project already has a container running for ``service``.
+def _deployment_identity(config):
+    """Return this checkout's ``com.osprey.repo-id`` value, or ``""``.
+
+    Derived from :func:`~osprey.deployment.compose_generator.repo_identity` over
+    the repo root the same config resolves, so the preflight compares against
+    the value the render actually stamped rather than a second derivation of the
+    same idea. Any failure to work out a root is ``""``, which downgrades
+    attribution to the compose-project check rather than declaring every
+    container foreign.
+
+    Args:
+        config: Loaded (rendered) configuration mapping, or ``None``.
+
+    Returns:
+        Twelve hex characters, or ``""`` when the checkout cannot be identified.
+    """
+    try:
+        return repo_identity(resolve_repo_root(config))
+    except Exception:
+        return ""
+
+
+def _holder_is_ours(record, project_name, repo_id):
+    """Whether a running container belongs to THIS deployment.
+
+    The repo-id label strengthens the older compose-project check without
+    replacing it, because the two answer different questions and only one of
+    them is always available:
+
+    * both this checkout and the container carry a repo-id: the labels decide,
+      outright. A container of ANOTHER checkout of the same repo shares this
+      deployment's compose project name, so the project check alone would call
+      a real collision an idempotent redeploy and wave it through.
+    * the container carries none (an older OSPREY created it, or it is not
+      OSPREY's at all): fall back to the compose project name, which is what
+      this check has always used.
+
+    Args:
+        record: One parsed ``ps`` row.
+        project_name: This deploy's resolved compose project name.
+        repo_id: This checkout's identity, or ``""`` when unknown.
+
+    Returns:
+        ``True`` when the container is this deployment's own.
+    """
+    if record.repo_id and repo_id:
+        return record.repo_id == repo_id
+    return bool(record.project) and record.project == project_name
+
+
+def _runs_service(records, project_name, repo_id, service):
+    """Whether THIS deployment already has a container running for ``service``.
 
     A host-network container publishes no port mapping, so the runtime's ``ps``
     output cannot attribute its listener by port the way a published one is
@@ -660,46 +926,122 @@ def _project_runs_service(records, project_name, service):
     host-network service would report its own still-running container as the
     conflict.
 
-    :param records: Parsed ``ps`` rows
-    :type records: list[_PsRecord]
-    :param project_name: This deploy's compose project name
-    :type project_name: str
-    :param service: Compose service name to look for
-    :type service: str
-    :rtype: bool
+    The name is only half the answer, because two checkouts of one repo produce
+    the same container name as well as the same project name, so ownership is
+    settled by :func:`_holder_is_ours` on the same record.
+
+    Args:
+        records: Parsed ``ps`` rows.
+        project_name: This deploy's resolved compose project name.
+        repo_id: This checkout's identity, or ``""`` when unknown.
+        service: Compose service name to look for.
+
+    Returns:
+        ``True`` when one of this deployment's own containers runs the service.
     """
-    if not project_name:
-        return False
     for record in records:
-        if record.project != project_name:
+        if not _holder_is_ours(record, project_name, repo_id):
             continue
         if record.name == service or record.name.endswith(f"-{service}"):
             return True
     return False
 
 
-def find_port_conflicts(bindings, project_name, config=None):
+def _describe_holder(record):
+    """Render a running container as the report's "who holds it" phrase.
+
+    The checkout is named whenever the container carries a repo-id, because the
+    hardest collision to read is the one between two clones of one deployment:
+    they share a project name, so a description built from the project alone
+    would read as this deployment's own container.
+
+    Args:
+        record: The parsed ``ps`` row holding the port.
+
+    Returns:
+        A phrase beginning ``container '<name>'``.
+    """
+    qualifiers = []
+    if record.project:
+        qualifiers.append(f"compose project '{record.project}'")
+    if record.repo_id:
+        qualifiers.append(f"checkout {record.repo_id}")
+    if not qualifiers:
+        return f"container '{record.name}'"
+    return f"container '{record.name}' ({', '.join(qualifiers)})"
+
+
+def _is_channel_access_exception(host_port, base):
+    """Whether a contested port is the Channel Access port, outside the block.
+
+    Virtual-accelerator instance 1 serves EPICS on
+    :data:`~osprey.port_layout.CA_DEFAULT_PORT` so that clients configured for a
+    real facility reach it unchanged, which puts it outside every block that
+    does not happen to start below it. That is the one collision two deployments
+    cannot resolve by choosing two bases, and the report has to say so instead
+    of naming a knob that would move nothing.
+
+    Args:
+        host_port: The contested host port.
+        base: The base this deployment resolved, or ``None`` when unknown. With
+            no base there is no block to be outside of, and the report prints no
+            block line either, so the answer is ``False`` rather than a note
+            about a boundary the reader was never shown.
+
+    Returns:
+        ``True`` when the port is 5064 and this deployment's block excludes it.
+    """
+    if host_port != CA_DEFAULT_PORT or base is None:
+        return False
+    first, last = block_range(base)
+    return not first <= host_port <= last
+
+
+def find_port_conflicts(bindings, project_name, config=None, repo_id=None):
     """Find every host-port collision among ``bindings``.
 
     :param bindings: Published bindings from :func:`parse_host_port_bindings`
     :type bindings: list[HostPortBinding]
     :param project_name: This deploy's compose project name; a listener owned by
-        a container with a matching ``com.docker.compose.project`` label is an
-        idempotent redeploy, not a conflict
+        a container that this deployment created is an idempotent redeploy, not
+        a conflict. See :func:`_holder_is_ours` for how that is decided
     :type project_name: str
-    :param config: Configuration dictionary, used both for runtime detection and
-        to derive the ports of services on the host network namespace, which
+    :param config: Configuration dictionary, used for runtime detection, for the
+        port base every remedy and the report's framing are derived from, and to
+        derive the ports of services on the host network namespace, which
         publish nothing for :func:`parse_host_port_bindings` to find
     :type config: dict, optional
+    :param repo_id: This checkout's ``com.osprey.repo-id`` value. Defaults to
+        deriving it from the repo root ``config`` resolves, which is what every
+        deploy wants; a caller that already holds the identity passes it rather
+        than having it worked out a second time
+    :type repo_id: str, optional
     :return: One :class:`PortConflict` per collision
     :rtype: list[PortConflict]
     """
     conflicts = []
+    base = _resolve_base(config)
 
     # Published bindings claim first: a host-network service whose port a
     # published one already took is the one that has to move, and its remedy is
     # the key that moves it.
     bindings = list(bindings) + derive_host_network_bindings(config)
+
+    def _conflict(binding, kind, holder):
+        """Build one conflict, resolving its remedy against this base."""
+        return PortConflict(
+            host_port=binding.host_port,
+            bind_address=binding.host_ip,
+            service=binding.service,
+            kind=kind,
+            holder=holder,
+            remedy=_remedy_for_service(
+                binding.service, binding.container_port, binding.host_port, base
+            ),
+            host_network=binding.host_network,
+            port_base=base,
+            channel_access=_is_channel_access_exception(binding.host_port, base),
+        )
 
     # a. Intra-set duplicates: the first binding claims each address; any later
     #    binding on the same (host_ip, host_port) is a static duplicate.
@@ -708,17 +1050,7 @@ def find_port_conflicts(bindings, project_name, config=None):
     for binding in bindings:
         key = (binding.host_ip, binding.host_port)
         if key in claimed:
-            conflicts.append(
-                PortConflict(
-                    host_port=binding.host_port,
-                    bind_address=binding.host_ip,
-                    service=binding.service,
-                    kind="duplicate",
-                    holder=f"service '{claimed[key].service}'",
-                    remedy=_remedy_for_service(binding.service, binding.container_port),
-                    host_network=binding.host_network,
-                )
-            )
+            conflicts.append(_conflict(binding, "duplicate", f"service '{claimed[key].service}'"))
             continue
         claimed[key] = binding
         unique.append(binding)
@@ -728,45 +1060,40 @@ def find_port_conflicts(bindings, project_name, config=None):
     #    actually finds a listener.
     holders = None
     records = []
+    identity = repo_id
     for binding in unique:
         if _port_is_free(binding.host_ip, binding.host_port):
             continue
         if holders is None:
             records = _parse_ps_json(_run_runtime_ps(config))
             holders = _runtime_port_holders(records)
+            if identity is None:
+                identity = _deployment_identity(config)
         holder = holders.get(binding.host_port)
-        if holder is not None and holder.project and holder.project == project_name:
+        if holder is not None and _holder_is_ours(holder, project_name, identity):
             continue  # our own container from a prior deploy — not a conflict
         if (
             holder is None
             and binding.host_network
-            and _project_runs_service(records, project_name, binding.service)
+            and _runs_service(records, project_name, identity, binding.service)
         ):
             continue  # our own host-network container, which maps no port
-        if holder is not None:
-            if holder.project:
-                description = f"container '{holder.name}' (compose project '{holder.project}')"
-            else:
-                description = f"container '{holder.name}'"
-        else:
-            description = "an unknown host process"
-        conflicts.append(
-            PortConflict(
-                host_port=binding.host_port,
-                bind_address=binding.host_ip,
-                service=binding.service,
-                kind="external",
-                holder=description,
-                remedy=_remedy_for_service(binding.service, binding.container_port),
-                host_network=binding.host_network,
-            )
-        )
+        description = _describe_holder(holder) if holder is not None else "an unknown host process"
+        conflicts.append(_conflict(binding, "external", description))
 
     return conflicts
 
 
 def format_conflict_report(conflicts):
     """Render conflicts as the actionable, user-facing preflight report.
+
+    The report is framed by the deployment's block: one line naming
+    ``ports <base>-<base+999>`` before the conflicts, so an operator reads every
+    contested port as one of a thousand that move together rather than as an
+    isolated number. The base is carried on the conflicts themselves
+    (:attr:`PortConflict.port_base`), which is what keeps the framing honest —
+    a conflict found with no config to resolve prints no block line at all
+    rather than a default base that may not be this deployment's.
 
     :param conflicts: Conflicts from :func:`find_port_conflicts`
     :type conflicts: list[PortConflict]
@@ -778,6 +1105,12 @@ def format_conflict_report(conflicts):
         f"Host port preflight found {count} conflict{'' if count == 1 else 's'}. "
         "No containers were touched."
     ]
+    base = next((c.port_base for c in conflicts if c.port_base is not None), None)
+    if base is not None:
+        first, last = block_range(base)
+        lines.append(
+            f"This deployment's block is ports {first}-{last} ({PORT_BASE_CONFIG_KEY} {base})."
+        )
     for conflict in conflicts:
         if conflict.kind == "duplicate":
             reason = f"It is already claimed by {conflict.holder} in this deployment."
@@ -790,6 +1123,32 @@ def format_conflict_report(conflicts):
             f"Set a different {conflict.remedy}."
         )
     lines.append("")
+
+    # The block moves as one, so a run of per-line "set a different
+    # deployment.port_base" reads as a list of edits when it is a single one.
+    # Said once, and only when that key actually appeared above.
+    if any(conflict.remedy == PORT_BASE_CONFIG_KEY for conflict in conflicts):
+        lines.append(
+            f"The ports above that name {PORT_BASE_CONFIG_KEY} are still where the layout "
+            "puts them, so one new base moves all of them at once. Set it, rebuild, and "
+            "deploy again."
+        )
+        lines.append("")
+
+    # 5064 is the one host port a base cannot move: instance 1 of the virtual
+    # accelerator serves Channel Access there so that clients configured for a
+    # real facility reach it unchanged. Two deployments on one host that both
+    # run a VA therefore have to settle this port by hand, and an operator who
+    # has just been told to move the block needs to know it is the exception.
+    if any(conflict.channel_access for conflict in conflicts):
+        lines.append(
+            f"Port {CA_DEFAULT_PORT} is outside the block. It is the Channel Access protocol "
+            "port, where virtual-accelerator instance 1 serves EPICS so that clients "
+            f"configured for a real facility reach it unchanged, and {PORT_BASE_CONFIG_KEY} "
+            "does not move it. A second deployment on this host sets "
+            "services.virtual_accelerator.port by hand."
+        )
+        lines.append("")
 
     # A host-network service binds its port itself instead of publishing it, so
     # nothing moves it out of the way: two projects sharing a host need two sets

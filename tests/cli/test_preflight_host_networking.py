@@ -19,12 +19,15 @@ import pytest
 
 from osprey.cli import deploy_cmd
 from osprey.deployment import docker_desktop
+from osprey.port_layout import default_port
 
 pytestmark = pytest.mark.unit
 
 #: A config with web terminals rendered, which is what a deployment that owns a
-#: reachable landing page looks like.
-_WITH_WEB_TERMINALS = {"modules": {"web_terminals": {"nginx_port": 9080}}}
+#: reachable landing page looks like. ``enabled`` is what says the module is
+#: part of this deployment — the port is an override, and a config that leans on
+#: the layout's gateway slot spells no port at all.
+_WITH_WEB_TERMINALS = {"modules": {"web_terminals": {"enabled": True}}}
 
 
 @pytest.fixture
@@ -62,7 +65,7 @@ class TestWhenItSpeaks:
         assert len(warned) == 1
         summary, detail, remedy = warned[0]
         assert "web terminals" in summary
-        assert "9080" in detail
+        assert str(default_port("nginx")) in detail
         assert "Enable host networking" in remedy
 
     def test_the_warning_says_the_rest_of_the_deployment_is_fine(

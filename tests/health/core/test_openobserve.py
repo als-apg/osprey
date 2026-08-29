@@ -11,6 +11,7 @@ import httpx
 
 from osprey.health.core.openobserve import openobserve
 from osprey.health.models import CheckResult, Status
+from osprey.port_layout import default_port
 
 
 async def _run(config, *, transport=None) -> dict[str, CheckResult]:
@@ -84,10 +85,19 @@ async def test_healthz_url_uses_bind_and_port() -> None:
 
 
 async def test_healthz_url_defaults() -> None:
+    """With no port key the probe dials the layout slot at the default base."""
     config = {"deployed_services": ["openobserve"]}
     captured: list[str] = []
     await _run(config, transport=_ok_transport(captured))
-    assert captured == ["http://127.0.0.1:5080/healthz"]
+    assert captured == [f"http://127.0.0.1:{default_port('openobserve')}/healthz"]
+
+
+async def test_healthz_url_follows_the_port_base() -> None:
+    """A moved base moves the probe: the store is inside this block, not 10050."""
+    config = {"deployed_services": ["openobserve"], "deployment": {"port_base": 20000}}
+    captured: list[str] = []
+    await _run(config, transport=_ok_transport(captured))
+    assert captured == ["http://127.0.0.1:20050/healthz"]
 
 
 async def test_retention_default_is_ok() -> None:

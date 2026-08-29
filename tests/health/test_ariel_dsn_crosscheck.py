@@ -17,6 +17,7 @@ from pathlib import Path
 
 from osprey.health.core.configuration import ConfigState, configuration
 from osprey.health.models import CheckResult, Status
+from osprey.port_layout import default_port, resolve_port_base
 
 
 def _rows(config: dict) -> dict[str, CheckResult]:
@@ -107,6 +108,53 @@ class TestMatchingPortIsSilent:
         assert rows["ariel_dsn_port"].status is not Status.WARNING
 
 
+class TestUnsetPortHostIsStillComparable:
+    """An unset ``port_host`` is a KNOWN port — the deployment's layout slot.
+
+    That is the case a default-everything project is in, and precisely the one a
+    hand-written DSN is most likely to have drifted away from, so the check
+    derives the number instead of skipping.
+    """
+
+    def test_unset_port_host_warns_against_the_layout_port(self):
+        row = _rows(_config(database={"uri": _STALE_URI}, postgresql={"username": "ariel"}))[
+            "ariel_dsn_port"
+        ]
+        assert row.status is Status.WARNING
+        assert str(default_port("postgres")) in row.message
+        assert "deployment.port_base" in row.message
+
+    def test_a_dsn_on_the_layout_port_is_ok(self):
+        row = _rows(
+            _config(
+                database={
+                    "uri": f"postgresql://ariel:ariel@localhost:{default_port('postgres')}/ariel"
+                },
+                postgresql={"username": "ariel"},
+            )
+        )["ariel_dsn_port"]
+        assert row.status is Status.OK
+
+    def test_an_empty_postgresql_block_derives_too(self):
+        """`services: {postgresql: {}}` still declares the service, so it is
+        comparable — the guard keys on the KEY being present, not on the block
+        carrying anything."""
+        row = _rows(_config(database={"uri": _STALE_URI}, postgresql={}))["ariel_dsn_port"]
+        assert row.status is Status.WARNING
+        assert str(default_port("postgres")) in row.message
+
+    def test_the_layout_port_follows_the_deployments_own_base(self):
+        """Derived at THIS config's base — not at the layout's default one."""
+        base = resolve_port_base({"deployment": {"port_base": 20000}})
+        config = _config(database={"uri": _STALE_URI}, postgresql={"username": "ariel"})
+        config["deployment"] = {"port_base": 20000}
+
+        row = _rows(config)["ariel_dsn_port"]
+        assert row.status is Status.WARNING
+        assert str(default_port("postgres", base=base)) in row.message
+        assert default_port("postgres", base=base) == 20800
+
+
 class TestNothingToCrossCheck:
     def test_derived_dsn_emits_no_row(self):
         """No explicit uri: the DSN follows port_host by construction."""
@@ -122,8 +170,9 @@ class TestNothingToCrossCheck:
         rows = _rows(_config(database={"uri": _STALE_URI}))
         assert "ariel_dsn_port" not in rows
 
-    def test_postgresql_service_without_port_host_emits_no_row(self):
-        rows = _rows(_config(database={"uri": _STALE_URI}, postgresql={"username": "ariel"}))
+    def test_malformed_port_host_emits_no_row(self):
+        """Nothing comparable: a non-integer port_host is the schema's problem."""
+        rows = _rows(_config(database={"uri": _STALE_URI}, postgresql={"port_host": "nope"}))
         assert "ariel_dsn_port" not in rows
 
     def test_external_database_host_emits_no_row(self):

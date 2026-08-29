@@ -900,7 +900,7 @@ class TestDeployServicesKnob:
         "model: haiku\n"
         "channel_finder_mode: hierarchical\n"
         "bluesky:\n"
-        "  port: 8090\n"
+        "  port: 10080\n"
     )
 
     def _build(self, runner: CliRunner, tmp_path: Path, extra: str) -> Path:

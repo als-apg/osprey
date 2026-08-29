@@ -20,6 +20,7 @@ import importlib.resources
 from pathlib import Path
 
 from osprey.dispatch.trigger_config import DispatcherConfig, TriggerConfig, load_triggers
+from osprey.port_layout import default_port
 
 # The package that holds the bundled trigger YAMLs (resolved the same way the
 # CLI does in ``osprey.cli.build_profile_presets._triggers_dir``).
@@ -42,8 +43,9 @@ _EXPECTED_TRIGGERS: dict[str, list[str]] = {
 # The dispatcher forwards to this compose service name inside the deploy
 # network. It is intentionally NOT a localhost URL; the e2e subprocess test
 # (no compose network) overrides it, while the full-stack deploy test relies on
-# it resolving. See tutorial_triggers.yml.
-_EXPECTED_DISPATCH_TARGET = "http://dispatch-worker-1:9901"
+# it resolving. The port is the layout's first worker slot, which is what the
+# worker binds on the bridge as well as on the host. See tutorial_triggers.yml.
+_EXPECTED_DISPATCH_TARGET = f"http://dispatch-worker-1:{default_port('worker', 1)}"
 
 
 def _shipped_triggers_path() -> Path:

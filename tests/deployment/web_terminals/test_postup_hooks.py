@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 
 from osprey.deployment.web_terminals import postup_hooks
+from osprey.port_layout import default_port
 
 # ---------------------------------------------------------------------------
 # enable_linger -- rootless-podman persistence via loginctl
@@ -192,7 +193,7 @@ def test_enable_linger_status_check_timeout_still_attempts_enable(monkeypatch):
 # (the Docker Desktop network_mode:host trap: healthy stack, unreachable host).
 # ---------------------------------------------------------------------------
 
-_PROBE_CONFIG = {"modules": {"web_terminals": {"enabled": True, "nginx_port": 9080}}}
+_PROBE_CONFIG = {"modules": {"web_terminals": {"enabled": True}}}
 
 
 def test_web_stack_reachable_no_warning(monkeypatch, caplog):
@@ -225,7 +226,7 @@ def test_web_stack_unreachable_warns_with_docker_desktop_hint(monkeypatch, caplo
     with caplog.at_level("WARNING"):
         postup_hooks.warn_if_web_stack_unreachable(_PROBE_CONFIG, attempts=2, delay=0)
 
-    assert "http://127.0.0.1:9080/" in caplog.text
+    assert f"http://127.0.0.1:{default_port('nginx')}/" in caplog.text
     assert "Enable host networking" in caplog.text
 
 

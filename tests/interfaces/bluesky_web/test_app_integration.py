@@ -33,6 +33,7 @@ from fastapi.testclient import TestClient
 
 from osprey.interfaces.bluesky_web.app import app
 from osprey.interfaces.vendor import asset_cdn_url
+from osprey.port_layout import default_port
 
 TOKEN = "s3cr3t-launch-token"  # noqa: S105 - test fixture value, not a real secret
 RUN_ID = "run-xyz789"
@@ -433,10 +434,10 @@ def test_lanes_reports_every_lane_the_lifespan_resolved(
     (tmp_path / "config.yml").write_text(
         "services:\n"
         "  bluesky:\n"
-        "    port: 8090\n"
+        "    port: 10080\n"
         "    target: live\n"
         "  bluesky_va:\n"
-        "    port: 8190\n"
+        f"    port: {default_port('bluesky_second_lane')}\n"
         "    target: va\n"
     )
     monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))

@@ -31,8 +31,14 @@ from osprey.cli.web_cmd import (
     _write_pid,
     web,
 )
+from osprey.port_layout import default_port
 from tests.cli._lifecycle_build import stub_build
 from tests.cli._scoped_subprocess import patch_subprocess
+
+#: The port ``osprey web`` serves on at the default base — the layout's ``web``
+#: slot, index 0. Named rather than spelled so these calls stay the ones the
+#: command actually makes.
+WEB_PORT = default_port("web")
 
 
 @pytest.fixture
@@ -180,7 +186,7 @@ def test_wait_for_server_success():
     with patch("osprey.cli.web_cmd.socket.create_connection") as mock_conn:
         mock_conn.return_value.__enter__ = MagicMock()
         mock_conn.return_value.__exit__ = MagicMock()
-        assert _wait_for_server("127.0.0.1", 8087, proc, timeout=2.0) is True
+        assert _wait_for_server("127.0.0.1", WEB_PORT, proc, timeout=2.0) is True
 
 
 def test_wait_for_server_timeout():
@@ -188,14 +194,14 @@ def test_wait_for_server_timeout():
     proc.poll.return_value = None
 
     with patch("osprey.cli.web_cmd.socket.create_connection", side_effect=OSError):
-        assert _wait_for_server("127.0.0.1", 8087, proc, timeout=0.5) is False
+        assert _wait_for_server("127.0.0.1", WEB_PORT, proc, timeout=0.5) is False
 
 
 def test_wait_for_server_early_crash():
     proc = MagicMock()
     proc.poll.return_value = 1  # process already exited
 
-    assert _wait_for_server("127.0.0.1", 8087, proc, timeout=5.0) is False
+    assert _wait_for_server("127.0.0.1", WEB_PORT, proc, timeout=5.0) is False
 
 
 # -- deployment resolution --------------------------------------------------
@@ -535,7 +541,7 @@ def test_detach_shows_url_and_pid(
     result = runner.invoke(web, ["--detach"])
 
     assert "PID 12345" in result.output
-    assert "http://127.0.0.1:8087" in result.output
+    assert f"http://127.0.0.1:{WEB_PORT}" in result.output
     assert "osprey web stop" in result.output
 
 
@@ -621,7 +627,7 @@ def _spy_config_readers(monkeypatch) -> list[str]:
 
     Used to prove an excluded panel's port is never even resolved (as opposed
     to resolved-but-not-held) — avoids depending on the framework's default
-    companion ports (8085/8086/8092/...) actually being free on the test host,
+    companion ports actually being free on the test host,
     which they may not be if a real `osprey web` happens to be running there.
     """
     from osprey.registry import web as registry_web
@@ -645,7 +651,7 @@ def _preflight_at(root: Path):
     once instead of at every Probe-1 call site, which cares about neither.
     """
     build = root / "build"
-    return _preflight({}, root, build, build / "config.yml", "127.0.0.1", 8087)
+    return _preflight({}, root, build, build / "config.yml", "127.0.0.1", WEB_PORT)
 
 
 class TestPreflightCompanionPortCollision:
@@ -1191,7 +1197,7 @@ class TestDetachSkipsPreflightInChild:
         fake_subprocess.Popen.return_value = mock_proc
 
         monkeypatch.chdir(tmp_path)
-        _start_detached("127.0.0.1", 8087, None, tmp_path)
+        _start_detached("127.0.0.1", WEB_PORT, None, tmp_path)
 
         cmd = fake_subprocess.Popen.call_args.args[0]
         assert "--skip-preflight" in cmd
@@ -1336,7 +1342,7 @@ class TestRepoFlagIsAuthoritative:
     def test_render_web_terminal_port_is_honored(
         self, tmp_path, lifecycle_repo, runner, monkeypatch, restore_env_and_cwd
     ):
-        """web_terminal.port from the *resolved* render, not the 8087 default."""
+        """web_terminal.port from the *resolved* render, not the layout default."""
         _result, observed, _repo, port = self._invoke_from_elsewhere(
             tmp_path, lifecycle_repo, runner, monkeypatch
         )
@@ -1686,7 +1692,7 @@ class TestContainerShapeWithoutASuppliedSecret:
         monkeypatch.delenv(OPERATOR_SECRET_ENV, raising=False)
 
         with pytest.raises(click.ClickException) as excinfo:
-            _mint_operator_url("127.0.0.1", 8087)
+            _mint_operator_url("127.0.0.1", WEB_PORT)
 
         # The message the holder wrote is what names the fix; it must survive.
         assert OPERATOR_SECRET_ENV in str(excinfo.value)

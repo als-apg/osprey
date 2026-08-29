@@ -55,7 +55,7 @@ services:
         "--host",
         "0.0.0.0",
         "--port",
-        "8090",
+        "10080",
       ]
     labels:
       osprey.project.name: "golden-project"
@@ -72,7 +72,7 @@ services:
       osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8090:8090"
+      - "127.0.0.1:10080:10080"
     environment:
       # No :-default — an unset token must stay EMPTY so the bridge's
       # POST /runs/{id}/launch route fails closed (HTTP 503) rather than
@@ -196,7 +196,7 @@ services:
       - osprey-network
       - bluesky-internal
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8090/health').status==200 else 1)\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:10080/health').status==200 else 1)\""]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -346,7 +346,9 @@ services:
 
       # The startup module owns the TiledWriter subscription — documents are
       # persisted from the process that produces them. The bridge keeps its
-      # own Tiled env for the READ path (results retrieval fallback).
+      # own Tiled env for the READ path (results retrieval fallback). Reached
+      # over osprey-network at Tiled's container port, never the host-published
+      # tiled_port, so 8000 here is fixed rather than layout-derived.
       BLUESKY_TILED_URI: "http://tiled:8000"
       BLUESKY_TILED_API_KEY: ${BLUESKY_TILED_API_KEY}
 
@@ -484,7 +486,11 @@ services:
     # rather than a vanished one.
     command: tiled serve catalog /storage/catalog.db --init --host 0.0.0.0 --port 8000 --api-key "${BLUESKY_TILED_API_KEY:?must be a non-empty alphanumeric key}" -w /storage/files -w duckdb:////storage/data.duckdb
     ports:
-      - "127.0.0.1:8091:8000"
+      # The container half stays 8000 — Tiled's own port inside its namespace,
+      # the same number the `--port` above serves on and the one every
+      # in-network `http://tiled:8000` dial names. It does not move with the
+      # deployment's block; only the host half is layout-derived.
+      - "127.0.0.1:10070:8000"
     environment:
       TZ: UTC
       HTTP_PROXY: ${HTTP_PROXY}
@@ -497,6 +503,8 @@ services:
     healthcheck:
       # /healthz is unauthenticated and always 200 — curl isn't in the image,
       # so probe in-image with python, matching the bridge's own healthcheck.
+      # 8000 is Tiled's container port: the probe runs inside the namespace, so
+      # it does not move with the deployment's block.
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz').status==200 else 1)\""]
       interval: 10s
       timeout: 5s

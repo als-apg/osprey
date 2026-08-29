@@ -9,6 +9,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from osprey.port_layout import default_port
+
 
 @pytest.fixture
 def mock_ariel_config():
@@ -170,7 +172,7 @@ def test_run_web_reload_mode():
     from osprey.interfaces.ariel import run_web
 
     with patch("uvicorn.run") as mock_run:
-        run_web(host="127.0.0.1", port=8085, reload=True)
+        run_web(host="127.0.0.1", port=default_port("ariel"), reload=True)
 
         # Check uvicorn.run was called with string reference
         mock_run.assert_called_once()
@@ -178,4 +180,4 @@ def test_run_web_reload_mode():
         assert call_kwargs["factory"] is True
         assert call_kwargs["reload"] is True
         assert call_kwargs["host"] == "127.0.0.1"
-        assert call_kwargs["port"] == 8085
+        assert call_kwargs["port"] == default_port("ariel")

@@ -10,6 +10,7 @@ import pytest
 from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.templates import claude_code, manifest
 from osprey.cli.templates.manager import TemplateManager
+from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
 from osprey.services.channel_finder.core.exceptions import PipelineModeError
 
@@ -617,6 +618,8 @@ class TestBuiltinPanelRegistryDrift:
         rendered = template.render(
             builtin_panels=sorted(BUILTIN_PANELS),
             selected_web_panels=["okf", "channel-finder"],
+            port_base=DEFAULT_PORT_BASE,
+            osprey_ports=layout_ports(DEFAULT_PORT_BASE),
         )
         panels = yaml.safe_load(rendered)["web"]["panels"]
 
@@ -639,7 +642,11 @@ class TestBuiltinPanelRegistryDrift:
 
         manager = TemplateManager()
         template = manager.jinja_env.get_template(template_path)
-        rendered = template.render(selected_web_panels=["okf", "channel-finder"])
+        rendered = template.render(
+            selected_web_panels=["okf", "channel-finder"],
+            port_base=DEFAULT_PORT_BASE,
+            osprey_ports=layout_ports(DEFAULT_PORT_BASE),
+        )
         panels = yaml.safe_load(rendered)["web"]["panels"]
 
         assert "okf" not in panels  # fallback literal omits okf

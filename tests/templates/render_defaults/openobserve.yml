@@ -49,7 +49,10 @@ services:
       osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
     restart: unless-stopped
     ports:
-      - "127.0.0.1:5080:5080/tcp"
+      # The container half stays 5080/tcp — that is where the upstream image's
+      # server listens inside its own namespace, so it does not move with the
+      # deployment's block. Only the host half is layout-derived.
+      - "127.0.0.1:10050:5080/tcp"
     environment:
       # Single-admin root account. These same credentials authenticate the
       # agent's OTLP ingest, so they must match what the telemetry resolver

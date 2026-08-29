@@ -95,7 +95,7 @@ services:
       # bridge shares the host's network stack, where the compose service key
       # `event-dispatcher` is not a name anything resolves. The dispatcher is
       # on the host too (pair parity), so the port it listens on IS the host's.
-      DISPATCHER_URL: http://localhost:9900
+      DISPATCHER_URL: http://localhost:10010
 
 
       # The bridge polls run status and fetches artifacts from the WORKER
@@ -103,7 +103,7 @@ services:
       # too — here the host's, for the reason given at DISPATCHER_URL above.
       # Workers share one port space on the host namespace, so each walks to
       # its own port and this is worker 1's step of that walk.
-      WORKER_URL: http://localhost:9901
+      WORKER_URL: http://localhost:10011
 
       # Same var the worker itself reads, from the same config key, so the
       # bridge's poll budget can never fall below the cap it must outlast.

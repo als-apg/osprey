@@ -50,8 +50,8 @@ services:
       osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
     restart: unless-stopped
     ports:
-      - "127.0.0.1:7687:7687"
-      - "127.0.0.1:7474:7474"
+      - "127.0.0.1:10802:7687"
+      - "127.0.0.1:10803:7474"
     environment:
       # Neo4j takes user and password as ONE composite value, which is why this
       # is not the bare `${GRAPHDB_PASSWORD}` its postgres and mongodb

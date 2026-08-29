@@ -290,7 +290,7 @@ Deployment Workflow
 rendered. Steps 1–9 happen at build time, step 10 at start:
 
 1. Resolve the deployment repository and load ``config.yml`` via ``ConfigBuilder``.
-2. Apply ``deployment.bind_address`` (``127.0.0.1`` by default; change it with ``osprey set deployment.bind_address=0.0.0.0`` and rebuild).
+2. Apply ``deployment.bind_address`` (``127.0.0.1`` by default; change it with ``osprey set config.deployment.bind_address=0.0.0.0`` and rebuild).
 3. Render the root ``services/docker-compose.yml.j2`` (shared ``osprey-network``).
 4. For each entry in ``deployed_services``: clean and create the build dir, render the service compose template, copy service files.
 5. If ``copy_src: true``, copy ``src/`` into the build as ``repo_src/``, plus ``requirements.txt`` and ``pyproject.toml`` (renamed ``pyproject_user.toml``).

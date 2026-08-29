@@ -14,6 +14,14 @@ from osprey.deployment.web_terminals.lint import (
     lint_web_terminals,
     profile_config_errors,
 )
+from osprey.port_layout import DEFAULT_PORT_BASE, INDEX_MAX, SLOTS_BY_NAME, default_port
+
+# A second, non-default base whose block the explicit per-family overrides
+# below sit in — proves the lint reads a config override rather than assuming
+# the default block, while keeping every framework port layout-derived
+# instead of a retired pre-layout literal (channel_finder/okf/system_health
+# are deliberately left unset, so they track whatever base a test resolves).
+_OVERRIDE_PORT_BASE = 20000
 
 _CLEAN_CONFIG = {
     "facility": {"prefix": "test"},
@@ -28,15 +36,21 @@ _CLEAN_CONFIG = {
     "modules": {
         "web_terminals": {
             "enabled": True,
-            "nginx_port": 9080,
-            "web_base_port": 9091,
-            "artifact_base_port": 9291,
-            "ariel_base_port": 9391,
-            "lattice_base_port": 9491,
+            "nginx_port": default_port("nginx", base=_OVERRIDE_PORT_BASE),
+            "web_base_port": default_port("web", 0, base=_OVERRIDE_PORT_BASE),
+            "artifact_base_port": default_port("artifact", 0, base=_OVERRIDE_PORT_BASE),
+            "ariel_base_port": default_port("ariel", 0, base=_OVERRIDE_PORT_BASE),
+            "lattice_base_port": default_port("lattice", 0, base=_OVERRIDE_PORT_BASE),
             "users": ["thellert", "gmartino"],
         },
     },
 }
+
+
+# The auth sidecar's port when `auth.port` is unset — the layout's `auth` slot at
+# the base these configs resolve, derived rather than pinned to a literal so
+# moving the slot moves the expectation with it.
+_DEFAULT_AUTH_PORT = default_port("auth", 0, base=DEFAULT_PORT_BASE)
 
 
 def _errors(findings: list[Finding]) -> list[Finding]:
@@ -78,9 +92,11 @@ def test_lint_port_family_overlap_with_a_deployed_service_is_an_error() -> None:
     any port a deployed service publishes."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    # artifact_base_port's range is [9291, 9292]; move openobserve onto 9292,
-    # the port user index 1 would bind.
-    config["services"]["openobserve"]["port"] = 9292
+    # artifact_base_port's band starts at index 0 above; move openobserve onto
+    # index 1, the port the second configured user would bind.
+    config["services"]["openobserve"]["port"] = default_port(
+        "artifact", 1, base=_OVERRIDE_PORT_BASE
+    )
 
     # Act
     findings = lint_web_terminals(config)
@@ -98,7 +114,10 @@ def test_lint_nginx_port_colliding_with_a_user_port_is_an_error() -> None:
     on its own — nothing else declares it any more."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["nginx_port"] = 9091  # web_base_port index 0
+    # web_base_port's index 0 — the port the first configured user binds.
+    config["modules"]["web_terminals"]["nginx_port"] = default_port(
+        "web", 0, base=_OVERRIDE_PORT_BASE
+    )
 
     # Act
     findings = lint_web_terminals(config)
@@ -113,13 +132,61 @@ def test_lint_container_internal_worker_port_is_not_in_the_collision_set() -> No
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     # The dispatch worker's internal listener, set to a port a user also binds.
-    config["services"]["dispatch_worker"]["worker_port_base"] = 9091
+    config["services"]["dispatch_worker"]["worker_port_base"] = default_port(
+        "web", 0, base=_OVERRIDE_PORT_BASE
+    )
 
     # Act
     findings = lint_web_terminals(config)
 
     # Assert
     assert not any(f.code == "web_terminals.port_overlap" for f in _errors(findings))
+
+
+def test_lint_two_facility_owned_service_ports_colliding_is_an_error() -> None:
+    """The facility band (base+900..base+999) is reserved for the facility's
+    own services and no layout slot config-keys into it, so nothing exempts it
+    from the general services-block collision check either: two facility
+    services claiming the same port must still be caught."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    facility_port = default_port("facility", 12, base=DEFAULT_PORT_BASE)
+    config["services"]["facility_archiver"] = {"port": facility_port}
+    config["services"]["facility_mcp"] = {"port": facility_port}
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    overlap_findings = [f for f in _errors(findings) if f.code == "web_terminals.port_overlap"]
+    assert any("services.facility_archiver.port" in f.message for f in overlap_findings)
+    assert any("services.facility_mcp.port" in f.message for f in overlap_findings)
+
+
+def test_lint_port_base_choice_can_walk_a_framework_family_onto_a_facility_service_port() -> None:
+    """`port_base` moves the whole block with one knob, so choosing it
+    carelessly can walk an unrelated framework family straight onto a port a
+    facility service already claims for itself — the lint must catch that
+    exactly as it would any other overlap."""
+    # Arrange: a facility service fixed at the first port of its own band,
+    # independent of `port_base`, the way a facility administrator would pick
+    # it once and leave it.
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    facility_port = default_port("facility", 0, base=DEFAULT_PORT_BASE)
+    config["services"]["facility_mcp"] = {"port": facility_port}
+    # channel_finder has no override in _CLEAN_CONFIG, so it tracks whatever
+    # base this deployment resolves — pick a base that lands its first user
+    # exactly on the facility's port.
+    channel_finder_offset = SLOTS_BY_NAME["channel_finder"].offset
+    config["deployment"] = {"port_base": facility_port - channel_finder_offset}
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    overlap_findings = [f for f in _errors(findings) if f.code == "web_terminals.port_overlap"]
+    assert any("services.facility_mcp.port" in f.message for f in overlap_findings)
+    assert any("channel_finder_base_port" in f.message for f in overlap_findings)
 
 
 def test_lint_username_matching_a_service_name_is_not_an_error() -> None:
@@ -205,13 +272,17 @@ def test_lint_disabled_module_reports_nothing() -> None:
     assert findings == []
 
 
-def test_lint_missing_web_base_port_is_an_error() -> None:
+def test_lint_roster_index_past_the_family_band_is_an_error() -> None:
     """A user list that can't fully resolve allocate_ports() is a consistency
-    error. `web` is the only family without a registry default, so it is the
-    one whose absence still fails."""
+    error. Every family now has a layout default, so what still fails is the
+    roster outgrowing the block: a family band holds INDEX_MAX + 1 users, and
+    the one past it would take the next family's port."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    del config["modules"]["web_terminals"]["web_base_port"]
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0},
+        {"name": "gmartino", "index": INDEX_MAX + 1},
+    ]
 
     # Act
     findings = lint_web_terminals(config)
@@ -219,14 +290,38 @@ def test_lint_missing_web_base_port_is_an_error() -> None:
     # Assert
     errors = _errors(findings)
     assert any(f.code == "web_terminals.incomplete_port_families" for f in errors)
+    # The finding must be actionable: it carries the allocator's own refusal,
+    # which names the band and the `<family>_base_port` escape.
+    message = next(f.message for f in errors if f.code == "web_terminals.incomplete_port_families")
+    assert str(INDEX_MAX) in message
+    assert "modules.web_terminals.artifact_base_port" in message
 
 
-def test_lint_missing_companion_base_port_is_not_an_error() -> None:
-    """A companion family's base port falls back to its registry default — a
-    config written before that panel existed must keep linting clean."""
+def test_lint_roster_filling_the_family_band_is_not_an_error() -> None:
+    """The band is inclusive — a roster whose highest index is exactly INDEX_MAX
+    is a full block, not an overflowing one."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    del config["modules"]["web_terminals"]["lattice_base_port"]
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0},
+        {"name": "gmartino", "index": INDEX_MAX},
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.incomplete_port_families" for f in _errors(findings))
+
+
+def test_lint_missing_base_port_is_not_an_error() -> None:
+    """Every family's base port — the terminal's own `web` included — falls back
+    to its layout band, so a config that names no port at all still allocates
+    and must keep linting clean."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    for field in ("web_base_port", "artifact_base_port", "ariel_base_port", "lattice_base_port"):
+        del config["modules"]["web_terminals"][field]
 
     # Act
     findings = lint_web_terminals(config)
@@ -2108,7 +2203,7 @@ def test_lint_non_string_external_origin_is_an_error() -> None:
     """A non-string cannot be an origin — fail closed, as render does."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["external_origin"] = 9080
+    config["modules"]["web_terminals"]["external_origin"] = 20000
 
     # Act
     findings = lint_web_terminals(config)
@@ -2374,7 +2469,8 @@ def test_lint_auth_port_joins_the_port_overlap_set() -> None:
     """With auth enabled, the sidecar's listener is a real published port and
     collides with any other source claiming it."""
     # Arrange — put the sidecar on nginx's own published port
-    config = _auth_config({"method": "password", "port": 9080})
+    nginx_port = default_port("nginx", base=_OVERRIDE_PORT_BASE)
+    config = _auth_config({"method": "password", "port": nginx_port})
 
     # Act
     findings = lint_web_terminals(config)
@@ -2382,14 +2478,14 @@ def test_lint_auth_port_joins_the_port_overlap_set() -> None:
     # Assert
     overlap_findings = [f for f in _errors(findings) if f.code == "web_terminals.port_overlap"]
     assert any("web_terminals.auth.port" in f.message for f in overlap_findings)
-    assert any("9080" in f.message for f in overlap_findings)
+    assert any(str(nginx_port) in f.message for f in overlap_findings)
 
 
 def test_lint_default_auth_port_joins_the_port_overlap_set() -> None:
-    """The default sidecar port (9070) is claimed just as an explicit one is."""
+    """The sidecar's layout default is claimed just as an explicit port is."""
     # Arrange
     config = _auth_config({"method": "password"})
-    config["services"] = {"conflicting": {"port": 9070}}
+    config["services"] = {"conflicting": {"port": _DEFAULT_AUTH_PORT}}
 
     # Act
     findings = lint_web_terminals(config)
@@ -2401,10 +2497,10 @@ def test_lint_default_auth_port_joins_the_port_overlap_set() -> None:
 
 def test_lint_auth_port_absent_from_overlap_set_when_method_is_none() -> None:
     """No sidecar is rendered for `method: none`, so its port must not be
-    reserved against an ordinary config that happens to use 9070."""
+    reserved against an ordinary config that happens to claim it."""
     # Arrange
-    config = _auth_config({"method": "none", "port": 9070}, tls=False, fqdn=None)
-    config["services"] = {"conflicting": {"port": 9070}}
+    config = _auth_config({"method": "none", "port": _DEFAULT_AUTH_PORT}, tls=False, fqdn=None)
+    config["services"] = {"conflicting": {"port": _DEFAULT_AUTH_PORT}}
 
     # Act
     findings = lint_web_terminals(config)
@@ -2770,8 +2866,6 @@ def _profile_config(**web_terminals_overrides: object) -> dict:
     web_terminals: dict = {
         "enabled": True,
         "image_source": "local",
-        "nginx_port": 9080,
-        "web_base_port": 9091,
         "default_persona": "readonly",
         "users": [
             {"name": "alice", "index": 0, "persona": "readonly"},
@@ -2841,7 +2935,9 @@ def test_lint_profile_config_reports_a_port_collision_with_a_declared_service() 
     """A `config:` block that sets a service port puts it in the collision set."""
     # Arrange
     config = _profile_config()
-    config["services.openobserve.port"] = 9092  # web_base_port index 1
+    # The second user's web-terminal port: a facility service parked on a port
+    # the layout has already spent is what the rule is for.
+    config["services.openobserve.port"] = default_port("web", 1)
 
     # Act
     findings = lint_profile_config(config)

@@ -23,6 +23,7 @@ from fastapi import HTTPException
 
 from osprey.cli.templates.manager import TemplateManager
 from osprey.interfaces.artifacts.logbook import _resolve_composition_model
+from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 
 _PROVIDER_WITH_TIERS = {
     "api_key": "test-key",
@@ -171,6 +172,11 @@ class TestModelIdResolution:
 
 
 _CTX = {
+    # The port table the real render builds in
+    # TemplateManager._project_context; these tests reach the template
+    # environment directly, so they carry it themselves.
+    "port_base": DEFAULT_PORT_BASE,
+    "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
     "project_name": "demo",
     "facility_name": "Demo",
     "default_provider": "cborg",

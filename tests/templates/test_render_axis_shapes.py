@@ -156,8 +156,6 @@ def _pair_blocks(*, on_host: bool, worker_count: int = 1) -> dict[str, dict]:
     under host, exactly as ``_inject_dispatch`` writes them: with the axis unset
     a built ``config.yml`` is byte-for-byte what it was before the knob existed.
     """
-    from osprey.cli.build_injectors import _WORKER_PORT_STRIDE
-
     dispatch = _dispatch_defaults()
     dispatcher: dict = {
         "port": dispatch.dispatcher_port,
@@ -174,7 +172,7 @@ def _pair_blocks(*, on_host: bool, worker_count: int = 1) -> dict[str, dict]:
     if on_host:
         dispatcher["network"] = "host"
         worker["network"] = "host"
-        worker["worker_port_stride"] = _WORKER_PORT_STRIDE
+        worker["worker_port_stride"] = dispatch.worker_port_stride
     return {"event_dispatcher": dispatcher, "dispatch_worker": worker}
 
 
@@ -522,7 +520,7 @@ def test_pair_on_host_reaches_both_stores_where_they_publish() -> None:
 
     assert worker["OSPREY_OTEL_OPENOBSERVE_HOST"] == "localhost"
     assert worker["OSPREY_ARCHIVER_MONGODB_HOST"] == "localhost"
-    assert worker["OSPREY_ARCHIVER_MONGODB_PORT"] == "27017"
+    assert worker["OSPREY_ARCHIVER_MONGODB_PORT"] == "10801"
 
 
 def test_host_mode_worker_port_is_the_address_the_build_routes_to() -> None:
@@ -538,8 +536,9 @@ def test_host_mode_worker_port_is_the_address_the_build_routes_to() -> None:
     """
     from osprey.cli.build_injectors import _worker_port
 
+    dispatch = _dispatch_defaults()
     worker = _service_env("pair-on-host", "dispatch_worker", "dispatch-worker-1")
-    expected = _worker_port(_dispatch_defaults().worker_port_base, 1)
+    expected = _worker_port(dispatch.worker_port_base, 1, dispatch.worker_port_stride)
 
     assert worker["DISPATCH_WORKER_PORT"] == str(expected)
     assert f"http://localhost:{expected}" == f"http://localhost:{worker['DISPATCH_WORKER_PORT']}"
@@ -572,13 +571,14 @@ def test_two_workers_on_host_fan_out_across_ports() -> None:
     """
     from osprey.cli.build_injectors import _worker_port
 
-    base = _dispatch_defaults().worker_port_base
+    dispatch = _dispatch_defaults()
+    base = dispatch.worker_port_base
     document = yaml.safe_load(_golden_text(_scenario("two-workers-on-host"), "dispatch_worker"))
     services = document["services"]
 
     assert sorted(services) == ["dispatch-worker-1", "dispatch-worker-2"]
     for index in (1, 2):
-        port = _worker_port(base, index)
+        port = _worker_port(base, index, dispatch.worker_port_stride)
         service = services[f"dispatch-worker-{index}"]
         assert service["environment"]["DISPATCH_WORKER_PORT"] == str(port)
         probe = " ".join(service["healthcheck"]["test"])

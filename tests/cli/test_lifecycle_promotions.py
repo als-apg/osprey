@@ -1447,7 +1447,7 @@ class TestWebTerminalHostChangesAreReported:
         _stub_the_host_port_bounce(monkeypatch, tmp_path, answers=[False, True])
 
         postup_hooks.warn_if_web_stack_unreachable(
-            {"modules": {"web_terminals": {"nginx_port": 8080}}},
+            {"modules": {"web_terminals": {"enabled": True, "nginx_port": 8080}}},
             attempts=1,
             delay=0,
             web_cmd=["docker", "compose", "-f", "web.yml"],
@@ -1473,7 +1473,7 @@ class TestWebTerminalHostChangesAreReported:
         _stub_the_host_port_bounce(monkeypatch, tmp_path, answers=[False, False])
 
         postup_hooks.warn_if_web_stack_unreachable(
-            {"modules": {"web_terminals": {"nginx_port": 8080}}},
+            {"modules": {"web_terminals": {"enabled": True, "nginx_port": 8080}}},
             attempts=1,
             delay=0,
             web_cmd=["docker", "compose", "-f", "web.yml"],
@@ -1504,7 +1504,7 @@ class TestWebTerminalHostChangesAreReported:
         )
 
         postup_hooks.warn_if_web_stack_unreachable(
-            {"modules": {"web_terminals": {"nginx_port": 8080}}},
+            {"modules": {"web_terminals": {"enabled": True, "nginx_port": 8080}}},
             attempts=1,
             delay=0,
             web_cmd=["docker", "compose", "-f", "web.yml"],
@@ -1585,7 +1585,7 @@ class TestWebTerminalSubStepRows:
         printed.open_phase()
 
         postup_hooks.warn_if_web_stack_unreachable(
-            {"modules": {"web_terminals": {"nginx_port": 8080}}},
+            {"modules": {"web_terminals": {"enabled": True, "nginx_port": 8080}}},
             attempts=1,
             delay=0,
             web_cmd=["docker", "compose"],

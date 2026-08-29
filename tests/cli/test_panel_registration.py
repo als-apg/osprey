@@ -22,6 +22,7 @@ from ruamel.yaml import YAML
 
 from osprey.cli.build_injectors import _inject_bluesky_web
 from osprey.cli.build_profile import BlueskyWebConfig, BuildProfile
+from osprey.port_layout import default_port
 
 
 def _write_config(project_path: Path, *, panels: dict | None = None) -> None:
@@ -51,10 +52,12 @@ def test_injector_registers_the_bluesky_panel(project_path: Path) -> None:
     """The entry carries the derived url, the panel's mount path, and its label."""
     _write_config(project_path)
 
-    _inject_bluesky_web(BlueskyWebConfig(port=8095), project_path=project_path)
+    _inject_bluesky_web(
+        BlueskyWebConfig(port=default_port("bluesky_web")), project_path=project_path
+    )
 
     bluesky = _read_panels(project_path)["bluesky"]
-    assert bluesky["url"] == "${BLUESKY_WEB_URL:-http://localhost:8095}"
+    assert bluesky["url"] == f"${{BLUESKY_WEB_URL:-http://localhost:{default_port('bluesky_web')}}}"
     assert bluesky["path"] == "/bluesky/"
     assert bluesky["label"] == "BLUESKY"
 

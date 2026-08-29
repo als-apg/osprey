@@ -59,8 +59,13 @@ _MANIFEST_PATH = "scripts/config_key_manifest.yml"
 #: all, so it slips the docs↔manifest cross-check as a vacuous pass. The
 #: pattern below anchors a literal dot after the section name, so the entry
 #: cannot swallow ``facility_knowledge.*`` or the retired ``facility_name``.
+#:
+#: ``deployment`` earns its place for the same reason, now that the ports page
+#: documents ``deployment.port_base`` — the one knob that moves a deployment's
+#: whole thousand-port block.
 _SECTIONS = (
     "facility",
+    "deployment",
     "health",
     "web",
     "control_system",

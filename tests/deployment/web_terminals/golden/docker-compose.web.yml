@@ -21,7 +21,7 @@ services:
     tmpfs:
       - /etc/nginx/osprey:mode=0700
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9080/ || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:10000/ || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -44,34 +44,34 @@ services:
       - OSPREY_TERMINAL_USER=alice
       - OSPREY_AUDIT_IDENTITY=alice
       - OSPREY_AUDIT_DIR=/app/dls-assistant/var/audit/alice
-      - OSPREY_TERMINAL_LANDING_URL=http://dls-deploy.dls.example.org:9080
+      - OSPREY_TERMINAL_LANDING_URL=http://dls-deploy.dls.example.org:10000
       - OSPREY_TERMINAL_BIND_HOST=127.0.0.1
-      - OSPREY_TERMINAL_WEB_PORT=9100
-      - OSPREY_WEB_PORT=9100
+      - OSPREY_TERMINAL_WEB_PORT=10100
+      - OSPREY_WEB_PORT=10100
       - OSPREY_TERMINAL_SESSION_LIFETIME=43200
       - OSPREY_OTEL_OPENOBSERVE_HOST=127.0.0.1
       - OSPREY_TERMINAL_SECRET=${OSPREY_TERMINAL_SECRET_ALICE:-}
-      - OSPREY_TERMINAL_EXTERNAL_ORIGIN=http://dls-deploy.dls.example.org:9080
+      - OSPREY_TERMINAL_EXTERNAL_ORIGIN=http://dls-deploy.dls.example.org:10000
       - ZO_INGEST_SA_TOKEN=${ZO_INGEST_SA_TOKEN:-}
-      - OSPREY_ARTIFACT_SERVER_PORT=9200
-      - OSPREY_ARIEL_PORT=9300
-      - OSPREY_CHANNEL_FINDER_PORT=9500
-      - OSPREY_LATTICE_DASHBOARD_PORT=9400
-      - OSPREY_FACILITY_KNOWLEDGE_PORT=9600
-      - OSPREY_HEALTH_PORT=9700
+      - OSPREY_ARTIFACT_SERVER_PORT=10200
+      - OSPREY_ARIEL_PORT=10300
+      - OSPREY_CHANNEL_FINDER_PORT=10500
+      - OSPREY_LATTICE_DASHBOARD_PORT=10400
+      - OSPREY_FACILITY_KNOWLEDGE_PORT=10600
+      - OSPREY_HEALTH_PORT=10700
     volumes:
       - alice-claude-config:/data/claude-config
       - alice-agent-data:/app/dls-assistant/var/agent_data
       - ./var/audit/alice:/app/dls-assistant/var/audit/alice
     healthcheck:
-      # osprey web's own default listen port is the fixed constant 8087
-      # (cli/web_cmd.py) — only relevant to a bare `osprey web` with no
-      # OSPREY_WEB_PORT override. Every per-user container here sets
-      # OSPREY_WEB_PORT above, so the probe targets the ACTUAL bound port,
-      # never the bare 8087 default. Probed via bind_host itself (not a
-      # hardcoded "127.0.0.1" literal) since that's the same loopback
-      # address OSPREY_TERMINAL_BIND_HOST bakes into the app's own bind.
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9100/health || exit 1"]
+      # A bare `osprey web` with no OSPREY_WEB_PORT override falls back to the
+      # layout's `web` slot at the deployment's own base (resolve_web_port in
+      # cli/web_cmd.py). Every per-user container here sets OSPREY_WEB_PORT
+      # above, so the probe targets the ACTUAL bound port, never that
+      # fallback. Probed via bind_host itself (not a hardcoded "127.0.0.1"
+      # literal) since that's the same loopback address
+      # OSPREY_TERMINAL_BIND_HOST bakes into the app's own bind.
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:10100/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -94,34 +94,34 @@ services:
       - OSPREY_TERMINAL_USER=bob
       - OSPREY_AUDIT_IDENTITY=bob
       - OSPREY_AUDIT_DIR=/app/dls-assistant/var/audit/bob
-      - OSPREY_TERMINAL_LANDING_URL=http://dls-deploy.dls.example.org:9080
+      - OSPREY_TERMINAL_LANDING_URL=http://dls-deploy.dls.example.org:10000
       - OSPREY_TERMINAL_BIND_HOST=127.0.0.1
-      - OSPREY_TERMINAL_WEB_PORT=9101
-      - OSPREY_WEB_PORT=9101
+      - OSPREY_TERMINAL_WEB_PORT=10101
+      - OSPREY_WEB_PORT=10101
       - OSPREY_TERMINAL_SESSION_LIFETIME=43200
       - OSPREY_OTEL_OPENOBSERVE_HOST=127.0.0.1
       - OSPREY_TERMINAL_SECRET=${OSPREY_TERMINAL_SECRET_BOB:-}
-      - OSPREY_TERMINAL_EXTERNAL_ORIGIN=http://dls-deploy.dls.example.org:9080
+      - OSPREY_TERMINAL_EXTERNAL_ORIGIN=http://dls-deploy.dls.example.org:10000
       - ZO_INGEST_SA_TOKEN=${ZO_INGEST_SA_TOKEN:-}
-      - OSPREY_ARTIFACT_SERVER_PORT=9201
-      - OSPREY_ARIEL_PORT=9301
-      - OSPREY_CHANNEL_FINDER_PORT=9501
-      - OSPREY_LATTICE_DASHBOARD_PORT=9401
-      - OSPREY_FACILITY_KNOWLEDGE_PORT=9601
-      - OSPREY_HEALTH_PORT=9701
+      - OSPREY_ARTIFACT_SERVER_PORT=10201
+      - OSPREY_ARIEL_PORT=10301
+      - OSPREY_CHANNEL_FINDER_PORT=10501
+      - OSPREY_LATTICE_DASHBOARD_PORT=10401
+      - OSPREY_FACILITY_KNOWLEDGE_PORT=10601
+      - OSPREY_HEALTH_PORT=10701
     volumes:
       - bob-claude-config:/data/claude-config
       - bob-agent-data:/app/dls-assistant/var/agent_data
       - ./var/audit/bob:/app/dls-assistant/var/audit/bob
     healthcheck:
-      # osprey web's own default listen port is the fixed constant 8087
-      # (cli/web_cmd.py) — only relevant to a bare `osprey web` with no
-      # OSPREY_WEB_PORT override. Every per-user container here sets
-      # OSPREY_WEB_PORT above, so the probe targets the ACTUAL bound port,
-      # never the bare 8087 default. Probed via bind_host itself (not a
-      # hardcoded "127.0.0.1" literal) since that's the same loopback
-      # address OSPREY_TERMINAL_BIND_HOST bakes into the app's own bind.
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9101/health || exit 1"]
+      # A bare `osprey web` with no OSPREY_WEB_PORT override falls back to the
+      # layout's `web` slot at the deployment's own base (resolve_web_port in
+      # cli/web_cmd.py). Every per-user container here sets OSPREY_WEB_PORT
+      # above, so the probe targets the ACTUAL bound port, never that
+      # fallback. Probed via bind_host itself (not a hardcoded "127.0.0.1"
+      # literal) since that's the same loopback address
+      # OSPREY_TERMINAL_BIND_HOST bakes into the app's own bind.
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:10101/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5

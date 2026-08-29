@@ -110,7 +110,10 @@ is to return, which is what shutdown wants.
 Host ports
 ----------------------------------------------------------------------------
 This lane pins **none**, deliberately, and therefore adds nothing to the set its sibling
-e2e modules pin (5064, 15080, 18090, 18095, 18099, 18101-18107, 19081, 25080, 25432).
+e2e modules pin (5064, 15064-15067, 15080, 18090-18110, 18191-18194, 19080-19085, 19100-19591, 19900-20201,
+20700-21699, 21781, 21791, 25080-25085, 25432-25436, 27117-27118), nor to the
+thousand-port block a deployment claims from ``deployment.port_base``
+(10000-10999 at the default base).
 Every listener it needs is per-run and picked free: the emulator's published port comes
 from the fixture's own free-port pick, the dispatcher and worker take :func:`_free_port`
 (they are per-run subprocesses with no need to be predictable, and a pin would collide

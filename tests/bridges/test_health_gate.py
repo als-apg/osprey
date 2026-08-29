@@ -22,7 +22,7 @@ def _cfg(**overrides):
     # MUST track CoreConfig's — test_gate_open_reads_real_coreconfig_fields
     # below guards against the stub and the real config drifting apart.
     fields = {
-        "dispatcher_url": "http://disp:8010",
+        "dispatcher_url": "http://disp:10010",
         "worker_url": "http://work:9190",
         "gitlab_url": "https://git.als.lbl.gov",
         "gitlab_project": "physics/production/als-profiles",
@@ -189,7 +189,7 @@ def test_gate_open_reads_real_coreconfig_fields():
     from osprey.bridges.core.config import CoreConfig
 
     cfg = CoreConfig(
-        dispatcher_url="http://disp:8010",
+        dispatcher_url="http://disp:10010",
         worker_url="http://work:9190",
         gitlab_url="https://git.als.lbl.gov",
         gitlab_project="physics/production/als-profiles",
@@ -221,7 +221,7 @@ def test_unconfigured_alert_check_skipped_with_real_coreconfig_defaults():
     out-of-the-box config must take the skip path — not merely the stub."""
     from osprey.bridges.core.config import CoreConfig
 
-    cfg = CoreConfig(dispatcher_url="http://disp:8010", worker_url="http://work:9190")
+    cfg = CoreConfig(dispatcher_url="http://disp:10010", worker_url="http://work:9190")
     assert cfg.gitlab_url == ""
     assert cfg.gitlab_issues_token == ""
     record = []

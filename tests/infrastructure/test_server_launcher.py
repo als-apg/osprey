@@ -29,6 +29,7 @@ from osprey.registry.web import (
     FRAMEWORK_WEB_SERVERS,
     WebServerConfigDepthError,
     WebServerDefinition,
+    framework_web_port_default,
     resolve_web_server_address,
 )
 
@@ -80,7 +81,10 @@ class TestLauncherAddressResolution:
         for key, defn in FRAMEWORK_WEB_SERVERS.items():
             monkeypatch.delenv(defn.port_env_var, raising=False)
             _host, port = server_launcher._launchers[key]._config_reader()
-            assert port == defn.port_default, f"{key} resolved another server's port"
+            # The default is computed from the key rather than carried on the
+            # definition: a definition does not know which port family it is
+            # filed under, and the family is what the layout names.
+            assert port == framework_web_port_default(key), f"{key} resolved another server's port"
 
 
 # ---------------------------------------------------------------------------

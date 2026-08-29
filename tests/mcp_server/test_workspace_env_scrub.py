@@ -162,7 +162,7 @@ def test_shared_helper_drops_the_web_terminal_address_book():
     """The pure helper drops OSPREY_WEB_PORT and the whole OSPREY_TERMINAL_ family."""
     env = {
         "OSPREY_WEB_PORT": "8080",
-        "OSPREY_TERMINAL_LANDING_URL": "http://deploy:9080/",
+        "OSPREY_TERMINAL_LANDING_URL": "http://deploy:10000/",
         "OSPREY_TERMINAL_SECRET_ALICE": "secret",
         "PATH": "/usr/bin",
     }
@@ -175,7 +175,7 @@ def test_shared_helper_drops_the_perimeter_stamp():
     """The pure helper drops both stamp names: the parent has already read them."""
     env = {
         PERIMETER_MARKER_ENV: "open",
-        PERIMETER_DENY_PORTS_ENV: "9080,9091",
+        PERIMETER_DENY_PORTS_ENV: "10000,10100",
         "PATH": "/usr/bin",
     }
     scrubbed = scrub_sandbox_child_env(env)
@@ -353,7 +353,7 @@ async def test_sandbox_subprocess_env_excludes_the_perimeter_stamp(
     out.
     """
     monkeypatch.setenv("OSPREY_WEB_PERIMETER", "open")
-    monkeypatch.setenv("OSPREY_WEB_PERIMETER_DENY_PORTS", "9080,9091")
+    monkeypatch.setenv("OSPREY_WEB_PERIMETER_DENY_PORTS", "10000,10100")
 
     passed_env = await _sandbox_child_env(execution_folder, workspace_root)
 
@@ -372,7 +372,7 @@ async def test_sandbox_subprocess_env_excludes_the_web_terminal_address_book(
     what makes that a single fact rather than two.
     """
     monkeypatch.setenv("OSPREY_WEB_PORT", "8080")
-    monkeypatch.setenv("OSPREY_TERMINAL_LANDING_URL", "http://deploy:9080/")
+    monkeypatch.setenv("OSPREY_TERMINAL_LANDING_URL", "http://deploy:10000/")
     monkeypatch.setenv("OSPREY_TERMINAL_SECRET_ALICE", "super-secret-value")
 
     passed_env = await _sandbox_child_env(execution_folder, workspace_root)

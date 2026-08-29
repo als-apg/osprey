@@ -1318,11 +1318,6 @@ def _with_web_terminals(repo: Path) -> None:
     config["modules"] = {
         "web_terminals": {
             "enabled": True,
-            "nginx_port": 8080,
-            "web_base_port": 9000,
-            "artifact_base_port": 9100,
-            "ariel_base_port": 9200,
-            "lattice_base_port": 9300,
             "image_source": "local",
             "users": [{"name": "alice", "index": 0, "persona": "control-room"}],
             "personas": {"control-room": {"project": "acc-control", "project_path": "/x"}},

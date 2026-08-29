@@ -945,7 +945,7 @@ def _allowlist_matches(host: str, port: int | None, scheme: str, allowlist: list
       entry ``"grafana.lan:80"`` matches ``http://grafana.lan/``.
 
     Entry parsing uses ``urlparse`` internally so that bracketed IPv6
-    literals (e.g. ``"[2001:db8::1]:9090"``) are handled correctly.  The
+    literals (e.g. ``"[2001:db8::1]:8443"``) are handled correctly.  The
     allowlist host must match the ``parsed.hostname`` form (no brackets).
 
     Args:

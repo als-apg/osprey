@@ -22,6 +22,12 @@ import pytest
 import yaml
 
 import osprey.templates
+from osprey.port_layout import (
+    DEFAULT_PORT_BASE,
+    default_port,
+    layout_ports,
+    resolve_port_base,
+)
 from osprey.services.ariel_search.config import ARIELConfig, resolve_ariel_dsn
 
 DSN_LOGGER = "osprey.services.ariel_search.config"
@@ -43,6 +49,11 @@ def _render_template(relative_path: str) -> str:
         keep_trailing_newline=True,
     )
     return env.get_template(relative_path).render(
+        # The port table the real render builds in
+        # TemplateManager._project_context; this helper reaches the
+        # template directly, so it carries it itself.
+        port_base=DEFAULT_PORT_BASE,
+        osprey_ports=layout_ports(DEFAULT_PORT_BASE),
         project_name="demo",
         facility_name="Demo Facility",
         default_provider="anthropic",
@@ -110,7 +121,7 @@ def test_templates_declare_what_the_dsn_derives_from(name: str) -> None:
 
     assert postgresql["username"] == "ariel"
     assert postgresql["database_name"] == "ariel"
-    assert postgresql["port_host"] == 5432
+    assert postgresql["port_host"] == default_port("postgres", base=DEFAULT_PORT_BASE)
 
 
 # ---------------------------------------------------------------------------
@@ -124,13 +135,15 @@ def test_dsn_follows_a_post_render_port_host_edit(name: str) -> None:
     """Editing services.postgresql after render moves the DSN with it.
 
     This is the whole point of the change: a rendered project that reassigns
-    the host port (5432 already taken, say) gets an ARIEL connection that
+    the host port (the layout slot already taken, say) gets an ARIEL
+    connection that
     follows, without a second edit to a duplicated DSN.
     """
     config = _load_rendered(ARIEL_TEMPLATES[name])
 
     as_rendered = ARIELConfig.from_dict(config["ariel"], config["services"]["postgresql"])
-    assert as_rendered.database.uri == "postgresql://ariel:ariel@localhost:5432/ariel"
+    rendered_port = default_port("postgres", base=DEFAULT_PORT_BASE)
+    assert as_rendered.database.uri == f"postgresql://ariel:ariel@localhost:{rendered_port}/ariel"
 
     config["services"]["postgresql"]["port_host"] = 15432
 
@@ -156,7 +169,9 @@ def test_password_reads_the_env_the_compose_service_reads(monkeypatch) -> None:
 
     uri = resolve_ariel_dsn({}, {"username": "ariel", "database_name": "ariel"})
 
-    assert uri == "postgresql://ariel:password-from-dotenv@localhost:5432/ariel"
+    assert uri == (
+        f"postgresql://ariel:password-from-dotenv@localhost:{default_port('postgres')}/ariel"
+    )
 
 
 @pytest.mark.unit
@@ -164,9 +179,36 @@ def test_missing_services_block_falls_back_to_shipped_defaults(monkeypatch) -> N
     """A config with no services block still yields a connectable local DSN."""
     monkeypatch.delenv("ARIEL_DB_PASSWORD", raising=False)
 
-    assert resolve_ariel_dsn({}, None) == "postgresql://ariel:ariel@localhost:5432/ariel"
-    assert (
-        resolve_ariel_dsn({"database": {}}, {}) == "postgresql://ariel:ariel@localhost:5432/ariel"
+    default = f"postgresql://ariel:ariel@localhost:{default_port('postgres')}/ariel"
+    assert resolve_ariel_dsn({}, None) == default
+    assert resolve_ariel_dsn({"database": {}}, {}) == default
+
+
+@pytest.mark.unit
+def test_derived_port_follows_the_base_the_caller_resolved(monkeypatch) -> None:
+    """The port comes from the CALLER's base, never from the layout's default.
+
+    Two deployments on one host differ only by ``deployment.port_base``. A DSN
+    derived at the module's own default base would send the second deployment's
+    agent to the first one's database.
+    """
+    monkeypatch.delenv("ARIEL_DB_PASSWORD", raising=False)
+
+    base = resolve_port_base({"deployment": {"port_base": 20000}})
+
+    assert resolve_ariel_dsn({}, None, base=base) == (
+        f"postgresql://ariel:ariel@localhost:{default_port('postgres', base=base)}/ariel"
+    )
+    assert default_port("postgres", base=base) == 20800
+
+
+@pytest.mark.unit
+def test_an_explicit_port_host_still_wins_over_the_layout() -> None:
+    """A project that moved its Postgres keeps its own number at any base."""
+    base = resolve_port_base({"deployment": {"port_base": 20000}})
+
+    assert resolve_ariel_dsn({}, {"port_host": 15432}, base=base) == (
+        "postgresql://ariel:ariel@localhost:15432/ariel"
     )
 
 

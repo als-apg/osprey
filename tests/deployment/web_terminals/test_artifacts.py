@@ -37,11 +37,6 @@ def _config(users):
         "modules": {
             "web_terminals": {
                 "enabled": True,
-                "nginx_port": 8080,
-                "web_base_port": 9000,
-                "artifact_base_port": 9100,
-                "ariel_base_port": 9200,
-                "lattice_base_port": 9300,
                 "users": users,
             }
         },
@@ -737,7 +732,7 @@ _VA_ARMED_PROJECT: dict = {
         "writes_enabled": False,
         "connector": {"epics": {}, "virtual_accelerator": {"writes_enabled": True}},
     },
-    "services": {"bluesky_va": {"target": "va", "port": 8091}},
+    "services": {"bluesky_va": {"target": "va", "port": 10081}},
     "claude_code": {"servers": {"bluesky": {"enabled": True}}},
 }
 
@@ -839,7 +834,7 @@ def test_a_personaless_roster_armed_on_the_va_lane_alone_is_refused_by_lane(tmp_
                 "writes_enabled": False,
                 "connector": {"epics": {}, "virtual_accelerator": {"writes_enabled": True}},
             },
-            "services": {"bluesky_va": {"target": "va", "port": 8091}},
+            "services": {"bluesky_va": {"target": "va", "port": 10081}},
             "claude_code": {"servers": {"bluesky": {"enabled": True}}},
         }
     )

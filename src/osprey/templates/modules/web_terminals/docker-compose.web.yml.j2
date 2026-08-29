@@ -157,7 +157,7 @@
     perimeter_deny_ports: str, required (never empty — always contains at
     least the nginx port)
       The deployment's own web ports as a comma-separated, ascending list of
-      integers ("9080,9100,9101") — nginx's published port, 443 when
+      integers ("10000,10100,10101") — nginx's published port, 443 when
       `tls.enabled` puts the real content server behind the TLS listener, and
       every roster user's terminal port. Nothing else: companion panel families
       are excluded because they are not what the injected secret opens, the
@@ -180,7 +180,7 @@
 
     landing_url: str, required when `services` is non-empty
       The fully-qualified origin browsers use to reach nginx, e.g.
-      "http://als-deploy.lbl.gov:9080" (scheme + deploy host + nginx_port, no
+      "http://als-deploy.lbl.gov:10000" (scheme + deploy host + nginx_port, no
       trailing slash). Passed to every per-user service as
       OSPREY_TERMINAL_LANDING_URL so the in-app logout control has a target.
       This can't be computed the way nginx.conf.j2 computes its targets (from
@@ -1275,13 +1275,13 @@ services:
 {%- endfor %}
 {%- endif %}
     healthcheck:
-      # osprey web's own default listen port is the fixed constant 8087
-      # (cli/web_cmd.py) — only relevant to a bare `osprey web` with no
-      # OSPREY_WEB_PORT override. Every per-user container here sets
-      # OSPREY_WEB_PORT above, so the probe targets the ACTUAL bound port,
-      # never the bare 8087 default. Probed via bind_host itself (not a
-      # hardcoded "127.0.0.1" literal) since that's the same loopback
-      # address OSPREY_TERMINAL_BIND_HOST bakes into the app's own bind.
+      # A bare `osprey web` with no OSPREY_WEB_PORT override falls back to the
+      # layout's `web` slot at the deployment's own base (resolve_web_port in
+      # cli/web_cmd.py). Every per-user container here sets OSPREY_WEB_PORT
+      # above, so the probe targets the ACTUAL bound port, never that
+      # fallback. Probed via bind_host itself (not a hardcoded "127.0.0.1"
+      # literal) since that's the same loopback address
+      # OSPREY_TERMINAL_BIND_HOST bakes into the app's own bind.
       test: ["CMD-SHELL", "curl -fsS http://{{ bind_host }}:{{ svc.web }}/health || exit 1"]
       interval: 15s
       timeout: 5s

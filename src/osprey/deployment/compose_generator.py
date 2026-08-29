@@ -42,6 +42,7 @@ from osprey.deployment.wheel_build import (
 from osprey.deployment.wheel_build import (
     _reset_wheel_build_cache as _reset_wheel_build_cache,
 )
+from osprey.port_layout import layout_ports, resolve_port_base
 from osprey.utils import dotenv
 from osprey.utils.config import ConfigBuilder, load_project_config
 from osprey.utils.log_filter import quiet_logger
@@ -1321,6 +1322,15 @@ def _inject_project_metadata(config):
     # mount (an empty directory). Injected unconditionally, like every other
     # derived key here; templates that do not name it are unaffected.
     config_with_labels["osprey_qmd"] = _resolve_qmd_render_context(config, repo_root)
+
+    # Every host port this deployment publishes, keyed by slot name
+    # (:func:`osprey.port_layout.layout_ports`) — so a template line spells
+    # ``osprey_ports.<slot>`` instead of a literal or a re-derivation of the
+    # offset table. Derived from the base THIS config resolved
+    # (:func:`resolve_port_base`), never from the layout module's own default,
+    # so a project that sets ``deployment.port_base`` gets a compose file whose
+    # published ports actually match it.
+    config_with_labels["osprey_ports"] = layout_ports(resolve_port_base(config))
 
     # What each OSPREY-built service falls back to when nothing named its image,
     # with the registry and tag axes already applied

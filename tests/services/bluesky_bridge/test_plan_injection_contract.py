@@ -137,7 +137,7 @@ def test_no_plan_module_configured_means_no_facility_plans(
     check that the previous tests' plan really came from config, not a
     leftover default."""
     monkeypatch.delenv("BLUESKY_PLAN_MODULE", raising=False)
-    _write_config(tmp_path, {"bluesky": {"bridge_url": "http://127.0.0.1:8090"}})
+    _write_config(tmp_path, {"bluesky": {"bridge_url": "http://127.0.0.1:10080"}})
     monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
 
     resp = client.get("/plans")

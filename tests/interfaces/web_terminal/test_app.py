@@ -189,7 +189,7 @@ class TestPanelFocus:
     def test_set_panel_focus_with_url(self, client):
         resp = client.post(
             "/api/panel-focus",
-            json={"panel": "artifacts", "url": "http://localhost:8086/gallery"},
+            json={"panel": "artifacts", "url": "http://localhost:10200/gallery"},
         )
         assert resp.status_code == 200
         assert resp.json()["active_panel"] == "artifacts"

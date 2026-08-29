@@ -102,7 +102,10 @@ class MongoDBArchiverConnector(ArchiverConnector):
     Example:
         >>> config = {
         >>>     'host': 'mongodb05.nersc.gov',
-        >>>     'port': 27017,
+        >>>     'port': 27017,  # osprey:not-a-port — an external facility store
+        >>>                     # on MongoDB's own protocol port. A store this
+        >>>                     # deployment publishes is on its `mongo` layout
+        >>>                     # slot instead, written by the build.
         >>>     'name': 'my-archiver-database',
         >>>     'collection': 'my-archiver-collection',
         >>>     'auth': 'database-auth',
@@ -138,7 +141,8 @@ class MongoDBArchiverConnector(ArchiverConnector):
         Args:
             config: Configuration with keys:
                 - host: MongoDB host (required)
-                - port: MongoDB port (default: 27017)
+                - port: MongoDB host port (required — no default; see the
+                  ``port`` resolution below for why there is none)
                 - name: Database name (required)
                 - collection: Collection name (required)
                 - auth: Authentication database (required)
@@ -189,7 +193,24 @@ class MongoDBArchiverConnector(ArchiverConnector):
         if not collection_name:
             raise ValueError("collection is required for MongoDB archiver")
 
-        port = override_port if override_port is not None else config.get("port", 27017)
+        # No literal fallback, and deliberately not one. For a store this
+        # deployment publishes, the host port is its ``mongo`` layout slot —
+        # ``deployment.port_base + 801`` — which this package cannot compute:
+        # osprey-connectors is a separate wheel that does not depend on
+        # ``osprey``, so it has no access to ``osprey.port_layout``. The build
+        # always writes ``archiver.mongodb_archiver.port`` from the resolved
+        # base, and an external facility store names its own port, so a missing
+        # key is an authoring error rather than a number to guess: guessing
+        # would dial a port belonging to a different deployment's block.
+        port = override_port if override_port is not None else config.get("port")
+        if port is None:
+            raise ValueError(
+                "port is required for MongoDB archiver: set "
+                "archiver.mongodb_archiver.port in config.yml to the store's host "
+                "port (a project that deploys its own MongoDB gets it written by "
+                "'osprey build'), or set OSPREY_ARCHIVER_MONGODB_PORT for a "
+                "container reaching the store on the compose network"
+            )
         self._timeout = config.get("timeout", 60)
 
         # Validate required authentication config

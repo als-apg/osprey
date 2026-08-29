@@ -24,6 +24,7 @@ import pytest
 import requests
 
 from tests._container_support import is_docker_available, start_or_fail, stop_quietly
+from tests.integration._qmd_ariel_support import SIDECAR_CONTAINER_PORT as _SIDECAR_PORT
 from tests.integration._qmd_ariel_support import require_sidecar_image
 
 logger = logging.getLogger(__name__)
@@ -117,12 +118,16 @@ def start_okf_sidecar(request: pytest.FixtureRequest, bundle_root: Path):
         # the MARKER shortened the lag; a sweep that happened to fire would make
         # it pass for the wrong reason.
         container.with_env("OSPREY_QMD_UPDATE_INTERVAL", "3600")
-        container.with_exposed_ports(9800)
+        # The entrypoint refuses to guess its routable port, and this fixture
+        # runs the image outside a rendered deployment: hand it qmd's own
+        # layout slot and publish the same number.
+        container.with_env("OSPREY_QMD_PORT", str(_SIDECAR_PORT))
+        container.with_exposed_ports(_SIDECAR_PORT)
         container.with_volume_mapping(str(bundle_root), SIDECAR_BUNDLE_TARGET, "rw")
         return container
 
     container, port = start_or_fail(
-        build, label=f"qmd OKF sidecar ({QMD_SIDECAR_IMAGE})", port=9800
+        build, label=f"qmd OKF sidecar ({QMD_SIDECAR_IMAGE})", port=_SIDECAR_PORT
     )
     request.addfinalizer(lambda: stop_quietly(container))
 

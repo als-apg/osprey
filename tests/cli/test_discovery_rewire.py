@@ -161,7 +161,7 @@ def run_web_cmd(runner: CliRunner, args: list[str], cwd: Path):
 
     Pre-flight is skipped because its probes (companion ports, provider auth)
     are not what these tests are about, and the socket bind is stubbed so a
-    busy 8087 on the developer's machine cannot silently move the port.
+    a busy web-terminal port on the developer's machine cannot silently move it.
     """
     os.chdir(cwd)
     with patch("socket.socket"):

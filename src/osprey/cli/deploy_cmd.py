@@ -405,12 +405,27 @@ def _warn_if_host_networking_is_off(config: dict) -> None:
     )
 
     # The same reading of "this deployment has web terminals" the post-up probe
-    # uses: a rendered nginx port is what the module's presence amounts to here.
+    # uses, which is `enabled` — the one key every other reader of this module
+    # keys on, from `_web_terminals_enabled` (does the web stack deploy at all)
+    # down to lint and the summary card. Not the rendered nginx port: that key
+    # is optional now, and a deployment which takes the layout's gateway slot
+    # rather than spelling a number is exactly as unreachable as one that
+    # spells it.
+    from osprey.deployment.web_terminals.ports import resolve_nginx_port
+
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
-    nginx_port = web_terminals.get("nginx_port")
-    if not isinstance(nginx_port, int):
+    if not web_terminals.get("enabled"):
         return
-    if not on_docker_desktop(config):
+    try:
+        nginx_port = resolve_nginx_port(config)
+    except ValueError:
+        return
+    try:
+        if not on_docker_desktop(config):
+            return
+    except RuntimeError:
+        # No runtime resolved on this host. This warning is advisory and the
+        # start it precedes will say so itself, with the remedy.
         return
     if host_networking_enabled() is not False:
         return
@@ -532,7 +547,7 @@ def up_verb(
 
     Whether this deployment is reachable off-host is a property of the build,
     not of this command: the bind address is rendered into every published port.
-    Change it with `osprey set deployment.bind_address=0.0.0.0`, then rebuild.
+    Change it with `osprey set config.deployment.bind_address=0.0.0.0`, then rebuild.
     The fail-closed service-token rules read what the build actually publishes,
     so an exposed deployment is treated as exposed either way.
 

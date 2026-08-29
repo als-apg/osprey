@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from osprey.port_layout import default_port
 from osprey.utils.config_paths import resolve_config_relative_path
 
 from .exceptions import ConfigurationError
@@ -26,10 +27,12 @@ logger = logging.getLogger("osprey.services.ariel_search.config")
 LLM_ENHANCEMENT_MODULES = frozenset({"semantic_processor"})
 
 #: Defaults for the derived DSN, matching what the postgresql compose service
-#: is rendered with when ``services.postgresql`` leaves a field unset.
+#: is rendered with when ``services.postgresql`` leaves a field unset. The port
+#: is not among them: it is the deployment's ``postgres`` layout slot, derived
+#: per call from the base the caller resolved rather than pinned here, because
+#: two deployments on one host publish Postgres on two different host ports.
 _DEFAULT_DB_USERNAME = "ariel"
 _DEFAULT_DB_NAME = "ariel"
-_DEFAULT_DB_PORT = 5432
 #: Matches the ``${ARIEL_DB_PASSWORD:-ariel}`` fallback the compose service
 #: uses, so the agent stays launchable before the first `osprey up`
 #: mints a real password into the project ``.env``.
@@ -50,6 +53,8 @@ def resolve_ariel_dsn(
     ariel_section: dict[str, Any],
     services: dict[str, Any] | None = None,
     env: Mapping[str, str] | None = None,
+    *,
+    base: int | None = None,
 ) -> str:
     """Resolve the effective ARIEL database DSN.
 
@@ -82,6 +87,14 @@ def resolve_ariel_dsn(
             ``.env`` instead: run from another directory, the ambient value
             belongs to some other deployment, and using it would either fail
             confusingly or reach a database this call was never pointed at.
+        base: The port base this deployment resolved, from
+            :func:`osprey.port_layout.resolve_port_base`. Only consulted when
+            ``services`` sets no ``port_host``, in which case the derived DSN
+            dials the ``postgres`` slot of *this* deployment's block. ``None``
+            means :data:`~osprey.port_layout.DEFAULT_PORT_BASE`, which is right
+            only for a caller with no config to resolve — a caller holding one
+            passes its base so that a second deployment on the same host is not
+            sent to the first one's database.
 
     Returns:
         The DSN to connect with.
@@ -100,7 +113,7 @@ def resolve_ariel_dsn(
     postgresql = services or {}
     username = postgresql.get("username", _DEFAULT_DB_USERNAME)
     database_name = postgresql.get("database_name", _DEFAULT_DB_NAME)
-    port = postgresql.get("port_host", _DEFAULT_DB_PORT)
+    port = postgresql.get("port_host", default_port("postgres", base=base))
     password = (env if env is not None else os.environ).get(
         "ARIEL_DB_PASSWORD", _DEFAULT_DB_PASSWORD
     )
@@ -277,7 +290,7 @@ class IngestionConfig:
         adapter: Adapter name (e.g., "als_logbook", "generic_json")
         source_url: URL for source system API (optional)
         poll_interval_seconds: Polling interval for incremental ingestion
-        proxy_url: SOCKS proxy URL (e.g., "socks5://localhost:9095")
+        proxy_url: SOCKS proxy URL (e.g., "socks5://localhost:1080")
         verify_ssl: Whether to verify SSL certificates (default: False for internal servers)
         chunk_days: Days per API request for time windowing (default: 365)
         request_timeout_seconds: Timeout for HTTP requests (default: 60)
@@ -339,7 +352,11 @@ class DatabaseConfig:
 
     @classmethod
     def from_dict(
-        cls, data: dict[str, Any], services: dict[str, Any] | None = None
+        cls,
+        data: dict[str, Any],
+        services: dict[str, Any] | None = None,
+        *,
+        base: int | None = None,
     ) -> "DatabaseConfig":
         """Create DatabaseConfig from the ``ariel.database`` mapping.
 
@@ -347,8 +364,11 @@ class DatabaseConfig:
             data: The ``ariel.database`` mapping from config.yml.
             services: The ``services.postgresql`` mapping, used to derive the
                 DSN when ``uri`` is unset. See :func:`resolve_ariel_dsn`.
+            base: The port base this deployment resolved, handed to
+                :func:`resolve_ariel_dsn` so a derived DSN dials this
+                deployment's ``postgres`` slot rather than the default base's.
         """
-        return cls(uri=resolve_ariel_dsn({"database": data}, services))
+        return cls(uri=resolve_ariel_dsn({"database": data}, services, base=base))
 
 
 @dataclass
@@ -537,6 +557,7 @@ class ARIELConfig:
         services: dict[str, Any] | None = None,
         *,
         config_dir: Path | None = None,
+        base: int | None = None,
     ) -> "ARIELConfig":
         """Create ARIELConfig from config.yml dictionary.
 
@@ -552,6 +573,11 @@ class ARIELConfig:
                 Keyword-only with a None default: callers that never name a
                 config-relative path are unaffected, and None falls back to the
                 shared helper's own rule.
+            base: The port base this deployment resolved, from
+                :func:`osprey.port_layout.resolve_port_base`. Handed to
+                :func:`resolve_ariel_dsn` for the derived-DSN case; ``None``
+                means the layout's own default base, which is right only when
+                there is no config to resolve one from.
 
         Returns:
             ARIELConfig instance
@@ -569,7 +595,7 @@ class ARIELConfig:
                 config_key="pipelines",
             )
 
-        database = DatabaseConfig.from_dict(config_dict.get("database") or {}, services)
+        database = DatabaseConfig.from_dict(config_dict.get("database") or {}, services, base=base)
 
         search_modules: dict[str, SearchModuleConfig] = {}
         for name, data in config_dict.get("search_modules", {}).items():

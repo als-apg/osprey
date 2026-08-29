@@ -65,7 +65,6 @@ from osprey.bluesky_bridge_connection import (
     bridge_url_from_config,
     lane_env_prefix,
 )
-from osprey.deployment.graphdb_service import DEFAULT_PORT as GRAPHDB_DEFAULT_PORT
 from osprey.deployment.graphdb_service import (
     GRAPHDB_PASSWORD_ENV,
     GRAPHDB_PORT_CONFIG_KEY,
@@ -89,6 +88,7 @@ from osprey.deployment.web_terminals.personas import (
     config_needs_graphdb_password,
     config_needs_launch_token_for,
 )
+from osprey.port_layout import resolve_port_base
 
 __all__ = [
     "Consumer",
@@ -532,6 +532,21 @@ def _va_gateway_named(config: Mapping[str, Any]) -> bool:
 # ---------------------------------------------------------------------------
 
 
+#: Bolt's protocol port, and NOT this deployment's graph-store host port (that
+#: is the ``graphdb_bolt`` layout slot). Same value as
+#: :data:`~osprey.deployment.graphdb_service.CONTAINER_BOLT_PORT` and for the
+#: same underlying reason, but named for the job it does here: the fallback for
+#: a ``uri`` an operator wrote without a port, which may not name an OSPREY
+#: deployment at all.
+BOLT_PROTOCOL_PORT = 7687
+
+#: PostgreSQL's protocol port, and NOT this deployment's Postgres host port
+#: (that is the ``postgres`` layout slot). Used only as the fallback for a
+#: DSN an operator wrote without one, where the protocol's own port is the
+#: only defensible reading.
+POSTGRES_PROTOCOL_PORT = 5432
+
+
 def _host_port(url: str, default_port: int) -> Dial | None:
     """``(host, port)`` of *url*, or ``None`` when it names no host."""
     try:
@@ -557,11 +572,17 @@ def _graphdb_dial(config: Mapping[str, Any]) -> Dial | None:
         if resolve_graphdb_service_config(config) is None:
             return None
         connection = resolve_graphdb_connection(
-            dotted_get(config, f"services.{GRAPHDB_SERVICE_NAME}")
+            dotted_get(config, f"services.{GRAPHDB_SERVICE_NAME}"),
+            base=resolve_port_base(config),
         )
     except ValueError:
         return None
-    return _host_port(connection.uri, GRAPHDB_DEFAULT_PORT)
+    # A bare-URI dial, so the fallback is bolt's PROTOCOL port (7687), not
+    # this deployment's `graphdb_bolt` host slot: an operator who wrote a
+    # `uri` with no port meant the protocol's own port on the host they
+    # named, which may not be an OSPREY deployment at all. Every path that
+    # goes through `port_host` already carries the resolved layout port.
+    return _host_port(connection.uri, BOLT_PROTOCOL_PORT)
 
 
 def _postgres_dial(config: Mapping[str, Any]) -> Dial | None:
@@ -571,10 +592,15 @@ def _postgres_dial(config: Mapping[str, Any]) -> Dial | None:
         dsn = resolve_ariel_dsn(
             as_dict(as_dict(config).get("ariel")),
             as_dict(dotted_get(config, "services.postgresql")) or None,
+            base=resolve_port_base(config),
         )
     except (TypeError, ValueError):
         return None
-    return _host_port(dsn, 5432)
+    # Same reasoning as the graphdb dial: a DSN that omits its port is
+    # operator-authored, and PostgreSQL's protocol port is what it means. A
+    # derived DSN never reaches this fallback — `resolve_ariel_dsn` has already
+    # written the layout port at the base handed to it above.
+    return _host_port(dsn, POSTGRES_PROTOCOL_PORT)
 
 
 def _telemetry_dial(config: Mapping[str, Any]) -> Dial | None:

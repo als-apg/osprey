@@ -515,6 +515,11 @@ def run_on_pty(
 # ---------------------------------------------------------------------------
 
 
+def _is_bare_label(line: str) -> bool:
+    """True for a heading that is words alone — no marker glyph, digit, or path."""
+    return re.fullmatch(r"[A-Za-z][A-Za-z -]*", line.strip()) is not None
+
+
 def assert_screen_is_intact(run: PtyRun) -> None:
     """The four mechanical properties of an ungarbled screen (see module docs).
 
@@ -538,9 +543,16 @@ def assert_screen_is_intact(run: PtyRun) -> None:
     ]
     assert not leftovers, f"region transients survived the teardown: {leftovers}\n{run.describe()}"
 
+    # A repaint over scrollback leaves the previous frame above the final one,
+    # so a ghost is a whole block repeated — and every region block carries at
+    # least one marker line (a `·` step, a timing, a URL, a `✓`). A bare label
+    # that repeats on its own is structure, not a ghost: the deploy phases group
+    # containers under a family name, and the endpoint block groups ports under
+    # a tier name, and `services` is legitimately both. Labels are therefore
+    # exempt from the count; their marker lines beneath are not.
     seen: dict[str, int] = {}
     for line in run.screen:
-        if line.strip():
+        if line.strip() and not _is_bare_label(line):
             seen[line] = seen.get(line, 0) + 1
     repeated = {line: count for line, count in seen.items() if count > 1}
     assert not repeated, (

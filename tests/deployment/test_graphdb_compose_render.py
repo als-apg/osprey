@@ -23,6 +23,8 @@ import pytest
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
+from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
+
 GRAPHDB_TEMPLATE = "services/graphdb/docker-compose.yml.j2"
 
 
@@ -40,6 +42,10 @@ def _render(**graphdb_block: object) -> dict:
         deployment={},
         system={"timezone": "UTC"},
         osprey_labels={"project_name": "probe-test", "project_root": "/r/probe-test"},
+        # The layout at the base an empty ``deployment`` implies. The template
+        # reads its host publishes as ``<key> | default(osprey_ports.<slot>,
+        # true)``, so a context without the table renders nothing.
+        osprey_ports=layout_ports(DEFAULT_PORT_BASE),
     )
     return yaml.safe_load(rendered)
 

@@ -52,6 +52,7 @@ from osprey.interfaces._serving import (
     wait_for_port,
 )
 from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, mint_secret
+from osprey.port_layout import default_port
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -59,8 +60,10 @@ if TYPE_CHECKING:
     from docs.screenshots.recipes import DocShot
     from playwright.sync_api import Browser
 
-# Host TCP port Postgres publishes once ``osprey up -d`` is healthy.
-_POSTGRES_PORT = 5432
+# Host TCP port Postgres publishes once ``osprey up -d`` is healthy. This module
+# builds its own throwaway control-assistant deployment below and never sets
+# ``deployment.port_base``, so the layout's default base is the right one here.
+_POSTGRES_PORT = default_port("postgres")
 
 # Directory name for the throwaway tutorial deployment repo. ``osprey init
 # <dir>/<name> --preset control-assistant`` creates the repo; ``osprey build``

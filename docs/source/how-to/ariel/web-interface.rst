@@ -167,7 +167,7 @@ Running the Web Interface
 
 .. code-block:: bash
 
-   osprey ariel web                      # http://localhost:8085
+   osprey ariel web                      # http://localhost:10300
    osprey ariel web --port 8080          # Custom port
    osprey ariel web --host 0.0.0.0       # Bind to all interfaces
    osprey ariel web --reload             # Auto-reload on code changes
@@ -189,7 +189,7 @@ Running the Web Interface
 
    # Use with uvicorn
    import uvicorn
-   uvicorn.run(app, host="0.0.0.0", port=8085)
+   uvicorn.run(app, host="0.0.0.0", port=10300)
 
 .. admonition:: Collaboration Welcome
    :class: outreach
