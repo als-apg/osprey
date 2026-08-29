@@ -40,8 +40,16 @@ LINEAR_REL_TOL = 0.02  # 2%: exact in theory (linear lattice), generous for cros
 
 
 async def _write_current(connector, value: float) -> None:
-    result = await connector.write_channel(CORRECTOR_SP, value, verification_level="callback")
-    assert result.success, f"write {CORRECTOR_SP}={value} failed: {result.error_message}"
+    # No `confirm` kwarg: this channel has no confirm entry, so it resolves to the
+    # fleet default (true), and on this call that means the EPICS put waits for the
+    # control system's acknowledgement (`caput(wait=confirm)`) and the write is then
+    # confirmed by re-reading the setpoint -- which is what this sweep wants before
+    # it reads the paired BPM. The waiting is not unconditional: a channel
+    # configured `confirm: false` would put without waiting.
+    result = await connector.write_channel(CORRECTOR_SP, value)
+    assert result.outcome == "confirmed", (
+        f"write {CORRECTOR_SP}={value} was {result.outcome}: {result.error_message or result.notes}"
+    )
 
 
 async def _read_bpm(connector, address: str, *, retries: int = 10, delay: float = 0.1) -> float:

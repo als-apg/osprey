@@ -78,10 +78,13 @@ class TestScenarioReload:
             # Establish a genuine channel_write to a writable VAC channel
             # BEFORE the scenario dance below, so its persistence across the
             # switch is a real regression check, not a hope.
-            result = await connector.write_channel(
-                VAC_WRITABLE_SP, SESSION_WRITE_VALUE, verification_level="callback"
+            # No `confirm` kwarg: the fleet default confirms by re-reading the
+            # setpoint, so a latched SESSION_WRITE_VALUE is established before
+            # the scenario dance rather than merely sent.
+            result = await connector.write_channel(VAC_WRITABLE_SP, SESSION_WRITE_VALUE)
+            assert result.outcome == "confirmed", (
+                f"setup write was {result.outcome}: {result.error_message or result.notes}"
             )
-            assert result.success, f"setup write failed: {result.error_message}"
             written_rb = (await connector.read_channel(VAC_WRITABLE_RB)).value
             assert written_rb == pytest.approx(SESSION_WRITE_VALUE)
 

@@ -18,6 +18,7 @@ from __future__ import annotations
 import pytest
 
 from osprey.errors import ChannelLimitsViolationError
+from osprey_connectors.control_system import WriteOutcome
 from tests.va.e2e import conftest as e2e_conftest
 
 CORRECTOR_SP = "SR:MAG:HCM:02:CURRENT:SP"
@@ -69,11 +70,13 @@ class TestLimitsEnforcement:
             connector = await e2e_conftest.connect_va()
 
             result = await connector.write_channel(CORRECTOR_SP, IN_LIMITS_CURRENT)
-            assert result.success, f"in-limits write rejected: {result.error_message}"
+            assert result.outcome is WriteOutcome.CONFIRMED, (
+                f"in-limits write {result.outcome}: {result.error_message or result.notes}"
+            )
 
             sp_after = (await connector.read_channel(CORRECTOR_SP)).value
             assert sp_after == pytest.approx(IN_LIMITS_CURRENT)
 
             # Leave device 02 at a known, in-limits state.
             reset = await connector.write_channel(CORRECTOR_SP, 0.0)
-            assert reset.success
+            assert reset.outcome is WriteOutcome.CONFIRMED

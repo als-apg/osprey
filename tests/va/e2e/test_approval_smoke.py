@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import pytest
 
+from osprey_connectors.control_system import WriteOutcome
 from tests.va.e2e import conftest as e2e_conftest
 
 CORRECTOR_SP = "SR:MAG:HCM:03:CURRENT:SP"
@@ -41,7 +42,7 @@ class TestApprovalSmoke:
 
             result = await connector.write_channel(CORRECTOR_SP, DEMO_CURRENT)
 
-        assert result.success is False
+        assert result.outcome is WriteOutcome.REFUSED
         assert "writes are disabled" in result.error_message
         assert "control_system.writes_enabled" in result.error_message
 
@@ -67,7 +68,9 @@ class TestApprovalSmoke:
             connector = await e2e_conftest.connect_va()
 
             result = await connector.write_channel(CORRECTOR_SP, DEMO_CURRENT)
-            assert result.success, f"write unexpectedly blocked: {result.error_message}"
+            assert result.outcome is WriteOutcome.CONFIRMED, (
+                f"write unexpectedly {result.outcome}: {result.error_message or result.notes}"
+            )
 
             sp_after = (await connector.read_channel(CORRECTOR_SP)).value
             assert sp_after == pytest.approx(DEMO_CURRENT)
@@ -75,4 +78,4 @@ class TestApprovalSmoke:
             # Leave device 03 at a known, in-limits state (no limits validator
             # configured in this test, so nothing enforces this -- tidy anyway).
             reset = await connector.write_channel(CORRECTOR_SP, 0.0)
-            assert reset.success
+            assert reset.outcome is WriteOutcome.CONFIRMED
