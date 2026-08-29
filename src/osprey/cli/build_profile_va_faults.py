@@ -1,27 +1,35 @@
 """The ``virtual_accelerator.live_standin:`` refusals, and the fault-set grammar.
 
-``live_standin: <port>`` stands a SECOND soft-IOC up and wires it in as the
-deployment's ``live`` target, so an operator rehearses the whole go-live ritual
-— the warnings, the approval prompts, the write refusals — against something
-that cannot move a magnet. That makes it a port the deployment spends and a
-target the deployment claims, and both can be claimed twice.
+``live_standin: <port>`` stands a SECOND soft-IOC up and gives the deployment a
+THIRD control target, ``standin``, configured from a block of its own
+(``control_system.connector.live_standin``). ``live`` keeps meaning the
+facility's authored ``epics`` block throughout — the stand-in never takes that
+label — so a facility may stand the rehearsal up beside its real machine, and a
+deployment may equally be baselined on the stand-in itself
+(``control_system.type: live_standin``).
 
-The rules live here rather than inside :meth:`BuildProfile.validate` for the
-reason :func:`~osprey.cli.build_profile_archiver.va_archiver_errors` does: a
-block's rules belong beside the block, but they are *reported* from validate's
-single accumulator so a facility fixing a profile meets every problem it has in
-one pass.
+That makes the stand-in a port the deployment spends and a target the
+deployment claims, and both can be claimed twice. The rules live here rather
+than inside :meth:`BuildProfile.validate` for the reason
+:func:`~osprey.cli.build_profile_archiver.va_archiver_errors` does: a block's
+rules belong beside the block, but they are *reported* from validate's single
+accumulator so a facility fixing a profile meets every problem it has in one
+pass.
 
-Two of them are refusals about going live rather than about ports:
+Three of them are about the third target rather than about ports:
 
-* An ``epics`` baseline with a stand-in is refused outright. The stand-in IS the
-  ``live`` target, so a deployment already pointed at the real machine has
-  nothing left to stand in for, and the two would fight over one label.
-* A stand-in on a build with no lattice behind it is refused, because the
-  stand-in ships a deterministic readout perturbation and the IOC treats a
-  perturbation without ``VA_LATTICE=builtin`` as fatal at boot
-  (``services/virtual_accelerator/entrypoint.py``). Left alone that is a
-  container in a crash loop, hours after the build reported success.
+* :func:`standin_baseline_errors` — a deployment baselined on ``live_standin``
+  that builds no stand-in. The baseline names a machine this build does not
+  stand up, so every session would dial a port nothing serves.
+* :func:`standin_archive_errors` — the archive belongs to the machine it
+  records. A stand-in plus a ``va_archiver`` recorder writes the deployment's
+  OWN store, which is legal only where the baseline is a simulated machine or
+  the stand-in itself; on a baseline naming the facility's own machine that
+  store would be read as the real machine's past.
+* :func:`live_standin_lattice_errors` — a readout perturbation with no lattice
+  behind it. The IOC treats a perturbation without ``VA_LATTICE=builtin`` as
+  fatal at boot (``services/virtual_accelerator/entrypoint.py``). Left alone
+  that is a container in a crash loop, hours after the build reported success.
 
 The perturbation grammar itself is parsed here too
 (:func:`shipped_bpm_errors_field_errors`), mirroring the container-side splitting
@@ -35,7 +43,14 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from osprey.connectors.types import EPICS, VIRTUAL_ACCELERATOR
+from osprey.connectors.types import (
+    _SIMULATED_TYPES,
+    EPICS,
+    LIVE_STANDIN,
+    STANDIN_TYPES,
+    VIRTUAL_ACCELERATOR,
+    resolve_control_system_type,
+)
 
 # The one nested-tree walker, borrowed rather than repeated for the same reason
 # the path-tree builder below is.
@@ -45,7 +60,8 @@ from osprey.deployment.reach import dotted_get
 # `config:` block addresses the same leaf through a dotted key or a nested
 # mapping, and a second implementation of "which leaves does this reach" is a
 # second answer free to disagree with the renderer's.
-from .build_profile_archiver import _expand_dotted
+from .build_profile_archiver import VAArchiverConfig, _expand_dotted
+from .build_profile_schema import VAConfig
 
 #: Environment variable carrying the stand-in's shipped readout perturbation.
 #: Named here so the build-time render check (which owns the default's value)
@@ -64,18 +80,21 @@ STANDIN_BPM_ERRORS_ENV = "VA_STANDIN_BPM_ERRORS"
 #: bounds what OSPREY ships turned on.
 STANDIN_BPM_ERROR_FIELDS = frozenset({"offset_x", "offset_y"})
 
-#: Value ``VA_LATTICE`` must resolve to for the stand-in's perturbation to load.
-#: Spelled rather than imported for the same reason ``build_cmd`` spells it when
-#: it seeds the ``.env``: the constant lives in the container's entrypoint.
-_LATTICE_BUILTIN = "builtin"
-
 #: Key of the VA gateway table, in the nested spelling a rendered config reads.
 #: Mirrors ``_VA_CONNECTOR_PATH`` in ``build_injectors``; the two ends of the
 #: same block, one written by the injector and one refused here.
 _VA_GATEWAYS_KEY = f"control_system.connector.{VIRTUAL_ACCELERATOR}.gateways"
 
-#: Key of the deployment baseline's control-system type.
-_CONTROL_SYSTEM_TYPE_KEY = "control_system.type"
+#: Key of the deployment baseline's control-system section. The *type* inside
+#: it is read through :func:`resolve_control_system_type` rather than by dotted
+#: lookup, so an absent ``type:`` resolves the way every other reader resolves
+#: it (to the mock) instead of to a second answer invented here.
+_CONTROL_SYSTEM_KEY = "control_system"
+
+#: Baseline types a deployment's own recorded store may legally belong to: the
+#: machines a deployment stands up for itself. Spelled as the union the target
+#: vocabulary already defines, so widening either half widens this rule with it.
+_OWN_MACHINE_TYPES = _SIMULATED_TYPES + STANDIN_TYPES
 
 
 def live_standin_errors(
@@ -124,7 +143,6 @@ def live_standin_errors(
                 )
         errors.extend(_gateway_collision_errors(live_standin, config))
 
-    errors.extend(_epics_baseline_errors(config))
     errors.extend(live_standin_lattice_errors(profile_dir))
     return errors
 
@@ -160,25 +178,130 @@ def _gateway_collision_errors(live_standin: int, config: Any) -> list[str]:
     return errors
 
 
-def _epics_baseline_errors(config: Any) -> list[str]:
-    """Refuse a stand-in on a deployment whose baseline is the real machine.
+def standin_baseline_errors(config: Any, va: VAConfig | None) -> list[str]:
+    """Refuse a deployment baselined on a stand-in it does not build.
 
-    The stand-in only means anything where ``live`` has nowhere else to point.
-    An ``epics`` baseline has already named the machine, so the build would be
-    overwriting a facility's real gateways with a loopback port — a deployment
-    that says LIVE and dials a container.
+    ``control_system.type: live_standin`` is a legal baseline — the deployment
+    that runs the soft IOC may also start every session on it — but only where
+    the deployment actually stands one up. Without
+    ``virtual_accelerator.live_standin`` the baseline names a machine no
+    container serves, and the failure surfaces as a connector dialing a port
+    nothing is listening on, one ``osprey up`` later.
+
+    Args:
+        config: The profile's resolved ``config:`` block.
+        va: The parsed ``virtual_accelerator:`` block, or ``None`` when the
+            profile declares none — which is itself a way to reach this fault.
+
+    Returns:
+        The single failure, or an empty list.
     """
-    if dotted_get(_expand_dotted(config), _CONTROL_SYSTEM_TYPE_KEY) != EPICS:
+    if _baseline_type(config) != LIVE_STANDIN:
+        return []
+    if va is not None and va.live_standin is not None:
         return []
     return [
-        f"control_system.type: {EPICS} with virtual_accelerator.live_standin — the "
-        f"stand-in IS this deployment's live target, and a deployment already pointed "
-        f"at the real machine has nothing to stand in for. Going live is three steps: "
-        f"delete `virtual_accelerator.live_standin`, point "
-        f"`control_system.connector.epics.gateways` at your facility, and replace "
-        f"`control_system.target_switch.live_gateway_acknowledged` with your own live "
-        f"gateway's hostname."
+        f"control_system.type: {LIVE_STANDIN} with no "
+        f"virtual_accelerator.live_standin — the baseline names a machine this "
+        f"deployment does not stand up, so every session would dial a port nothing "
+        f"serves. Set `virtual_accelerator.live_standin` to the port the stand-in "
+        f"should serve, or set `control_system.type` back to the connector that "
+        f"reaches this machine (`{EPICS}` for a facility's own)."
     ]
+
+
+def standin_archive_errors(
+    config: Any, va: VAConfig | None, va_archiver: VAArchiverConfig | None
+) -> list[str]:
+    """Refuse a recorded archive that would be read as the real machine's past.
+
+    **The archive belongs to the machine it records.** A ``va_archiver:`` block
+    is a store this deployment writes for itself, filled by the recorder
+    sampling whatever machine the deployment runs — with a stand-in built, that
+    machine is the stand-in. Where the baseline names the facility's own
+    control system, the same store is served to every session as the history of
+    the real machine, and nothing in the readout says otherwise.
+
+    Legal exactly where the baseline is a machine the deployment stands up for
+    itself (:data:`_OWN_MACHINE_TYPES`): a simulated baseline, or the stand-in
+    as its own baseline.
+
+    Args:
+        config: The profile's resolved ``config:`` block.
+        va: The parsed ``virtual_accelerator:`` block, or ``None``.
+        va_archiver: The parsed ``va_archiver:`` block, or ``None`` when the
+            profile records no store of its own.
+
+    Returns:
+        The single failure, or an empty list.
+    """
+    if va is None or va.live_standin is None or va_archiver is None:
+        return []
+    baseline = _baseline_type(config)
+    if baseline in _OWN_MACHINE_TYPES:
+        return []
+    return [
+        f"virtual_accelerator.live_standin with a va_archiver block on a "
+        f"control_system.type: {baseline} baseline — the archive belongs to the "
+        f"machine it records. The recorder writes THIS deployment's store from the "
+        f"stand-in, and on a baseline naming the facility's own machine that store "
+        f"is served as the real machine's past. Either delete `va_archiver` and let "
+        f"the deployment read the facility's own archiver, or baseline this "
+        f"deployment on the machine being recorded (`control_system.type: "
+        f"{LIVE_STANDIN}`, or `{VIRTUAL_ACCELERATOR}` for the simulation)."
+    ]
+
+
+def _baseline_type(config: Any) -> str:
+    """The control-system type a profile's ``config:`` block selects.
+
+    Read spelling-independently — the renderer honors a dotted key and a nested
+    mapping alike — and resolved through the connector vocabulary's own
+    resolver, so a profile that says nothing about its control system gets the
+    same answer here as the factory gives it at runtime.
+    """
+    baseline: str = resolve_control_system_type(
+        dotted_get(_expand_dotted(config), _CONTROL_SYSTEM_KEY)
+    )
+    return baseline
+
+
+def effective_standin_bpm_errors(project_root: Path, build_dir: Path | None = None) -> str:
+    """The readout perturbation the stand-in would actually boot with.
+
+    The compose file renders the stand-in's ``VA_BPM_ERRORS`` from the
+    deployment's ``VA_STANDIN_BPM_ERRORS``, so a chain that names the key
+    answers this on its own — including with an EMPTY value, which is an empty
+    perturbation rather than an absent one. Turning the shipped faults off is
+    the documented way out of :func:`live_standin_lattice_errors`, and it can
+    only be that if an empty value is honored rather than rounded back up.
+
+    **The fallback is lattice-conditional**, and the condition is asked of
+    :func:`~osprey.services.virtual_accelerator.manifest.standin_defaults.default_bpm_errors_for_lattice`
+    rather than restated here: the shipped default exists for the builtin
+    lattice only, since it names offsets on a PyAT model and there is nothing to
+    displace anywhere else. That is the same function the render side writes the
+    compose interpolation from, so validation and the rendered file cannot come
+    to different answers about what the container receives.
+
+    Args:
+        project_root: The deployment repo root, whose env chain the containers
+            are handed. Also the profile root at validation time.
+        build_dir: The published output zone, when the caller has one — handed
+            on to the lattice resolver, whose chain it extends.
+
+    Returns:
+        The perturbation spec, stripped; empty when the stand-in ships none.
+    """
+    from osprey.services.virtual_accelerator.manifest.standin_defaults import (
+        default_bpm_errors_for_lattice,
+    )
+    from osprey.utils.dotenv import merge_chain, resolved_va_lattice
+
+    chain: dict[str, str] = merge_chain(Path(project_root))
+    if STANDIN_BPM_ERRORS_ENV in chain:
+        return chain[STANDIN_BPM_ERRORS_ENV].strip()
+    return default_bpm_errors_for_lattice(resolved_va_lattice(project_root, build_dir)).strip()
 
 
 def live_standin_lattice_errors(project_root: Path, build_dir: Path | None = None) -> list[str]:
@@ -189,65 +312,49 @@ def live_standin_lattice_errors(project_root: Path, build_dir: Path | None = Non
     PyAT model to displace, and the entrypoint raises rather than serving a
     machine that ignores the faults it was configured with.
 
-    Which half of that is knowable depends on where this is called from, so the
-    caller says what it can see:
+    Both halves are read the way the deployment will read them —
+    :func:`effective_standin_bpm_errors` for the perturbation,
+    :func:`~osprey.utils.dotenv.resolved_va_lattice` for the lattice — which
+    narrows this to exactly one shape: a chain that ASKED for a fault set, on a
+    lattice that cannot apply it. A deployment that never asked has nothing to
+    refuse, because the shipped default is the builtin lattice's and the render
+    gives a latticeless stand-in an empty set. So a facility may pin
+    ``VA_LATTICE=none`` and still rehearse; only its own non-empty
+    ``VA_STANDIN_BPM_ERRORS`` beside that pin is a build that cannot boot.
 
-    * **From validation**, with no *build_dir*: the deployment's env chain only.
-      A chain pinning ``VA_LATTICE`` to anything but ``builtin`` decides the
-      question on its own — the build appends to that file and never overwrites
-      it, so a value already on disk always wins.
-    * **From the build**, once ``build/`` is the tree this render produced: also
-      whether a channel manifest was generated. That is the same precondition
-      :func:`~osprey.cli.build_cmd._wire_build_derived_env` gates its
-      ``VA_LATTICE=builtin`` write on, so asking it here asks exactly what the
-      build is about to answer. With no manifest nothing is written, and a
-      chain that already names a facility ``VA_CHANNELS_FILE`` leaves the IOC
-      on its file-backed default of ``none``.
+    Only the env chain is read here, at build time as at validation time. The
+    other half of "what will VA_LATTICE be" — whether this render generated a
+    channel manifest, which is what an UNPINNED chain resolves through — is
+    knowable only once a render exists, and is asked on the deployment side
+    (``compose_generator``) against the same resolver.
 
     Args:
         project_root: The deployment repo root, whose env chain the containers
             are handed. Also the profile root at validation time.
-        build_dir: The published output zone, when the caller has one.
+        build_dir: The published output zone, when the caller has one — handed
+            straight to the lattice resolver, whose chain it extends.
 
     Returns:
-        The accumulated failures, empty when the stand-in has a lattice.
+        The accumulated failures, empty when the stand-in has a lattice or
+        ships no perturbation to need one.
     """
-    from osprey.services.virtual_accelerator.manifest.build import MANIFEST_FILENAME
-    from osprey.utils.dotenv import chain_files, parse_dotenv_file
+    from osprey.services.virtual_accelerator.manifest.standin_defaults import LATTICE_BUILTIN
+    from osprey.utils.dotenv import resolved_va_lattice
 
-    pinned: dict[str, tuple[Path, str]] = {}
-    for path in chain_files(project_root):
-        for key, value in parse_dotenv_file(path).items():
-            if key in ("VA_LATTICE", "VA_CHANNELS_FILE"):
-                # Later file wins, the same precedence merge_chain applies —
-                # but the FILE is kept too, so the message names the line to go
-                # and edit rather than a directory.
-                pinned[key] = (path, value)
+    if not effective_standin_bpm_errors(project_root, build_dir):
+        return []
 
-    lattice = pinned.get("VA_LATTICE")
-    if lattice is not None and lattice[1].strip().lower() != _LATTICE_BUILTIN:
-        return [
-            f"virtual_accelerator.live_standin needs a lattice-backed virtual "
-            f"accelerator, but {lattice[0]} pins VA_LATTICE={lattice[1]!r}. The build "
-            f"appends to that file and never overwrites it, so the stand-in would boot "
-            f"with no lattice behind the perturbation it ships and exit. Remove the "
-            f"line, or delete `virtual_accelerator.live_standin`."
-        ]
-
-    channels = pinned.get("VA_CHANNELS_FILE")
-    if lattice is None and channels is not None and build_dir is not None:
-        manifest = build_dir / "data" / "simulation" / MANIFEST_FILENAME
-        if not manifest.is_file():
-            return [
-                f"virtual_accelerator.live_standin needs a lattice-backed virtual "
-                f"accelerator, but this build generated no channel manifest and "
-                f"{channels[0]} pins VA_CHANNELS_FILE={channels[1]!r}. The IOC defaults "
-                f"a file-backed channel source to VA_LATTICE=none, so the stand-in "
-                f"would exit on the perturbation it ships. Restore the channel "
-                f"databases the manifest is generated from, remove that line, or delete "
-                f"`virtual_accelerator.live_standin`."
-            ]
-    return []
+    lattice: str = resolved_va_lattice(project_root, build_dir)
+    if lattice.strip().lower() == LATTICE_BUILTIN:
+        return []
+    return [
+        f"virtual_accelerator.live_standin ships a readout perturbation, but this "
+        f"deployment's env chain resolves VA_LATTICE={lattice!r}. There is no PyAT "
+        f"model to displace, so the stand-in's IOC exits at boot rather than serving "
+        f"a machine that ignores the faults it was configured with. Set "
+        f"VA_LATTICE={LATTICE_BUILTIN}, or turn the perturbation off with "
+        f"{STANDIN_BPM_ERRORS_ENV}= (empty)."
+    ]
 
 
 def shipped_bpm_errors_field_errors(spec: str) -> list[str]:

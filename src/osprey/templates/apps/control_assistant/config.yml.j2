@@ -425,7 +425,7 @@ control_system:
   limits_checking:
     enabled: true
     database_path: "data/channel_limits.json"
-    allow_unlisted_channels: true  # Permissive mode for tutorial
+    allow_unlisted_channels: true  # false refuses any channel the database does not list
 
   # Write Verification Configuration
   # How the connector confirms a write took effect. Every write - single or batch,

@@ -1,7 +1,7 @@
 """The BPM readout perturbation the stand-in instance ships with.
 
 A deployment that sets ``virtual_accelerator.live_standin`` runs a SECOND
-soft-IOC container as its ``live`` target. Both instances run one image over
+soft-IOC container as its own ``standin`` target. Both instances run one image over
 one lattice and one machine description, so without a perturbation the two
 would read identically -- and a stand-in that is indistinguishable from the
 machine it stands in for proves nothing. This module holds the perturbation
@@ -32,17 +32,27 @@ with a 30 um wander texture and 1 um noise. A reader comparing the two targets
 sees the offset, not the weather.
 
 **An operator can still override it at deploy time.** The template renders
-``VA_BPM_ERRORS: "${VA_STANDIN_BPM_ERRORS:-<this value>}"``, so a non-empty
-``VA_STANDIN_BPM_ERRORS`` in the project ``.env`` replaces this default
-wholesale. An EMPTY one does not: ``:-`` treats empty exactly like unset, so
-either way the stand-in boots on the shipped default. Running a stand-in
-deliberately unperturbed therefore means setting a non-empty value that names
-no offsets -- ``;`` is the shortest, and parses to an empty fault set -- or not
-asking for the stand-in at all (drop ``virtual_accelerator.live_standin``). The
-container's interpolation is the authority on this, and the archiver seed
-follows the same rule, so the two cannot disagree about which machine the
-stand-in is. The baseline instance's own ``VA_BPM_ERRORS`` is a separate
-variable and is untouched by either.
+``VA_BPM_ERRORS: "${VA_STANDIN_BPM_ERRORS-<the rendered default>}"``, so a
+``VA_STANDIN_BPM_ERRORS`` in the deployment's env chain replaces that default
+wholesale -- including an EMPTY one. ``-`` substitutes only for an UNSET
+variable, so ``VA_STANDIN_BPM_ERRORS=`` is a deployment asking for an
+unperturbed stand-in and gets one; that is the shortest way to run this
+stand-in clean, and it is what validation points a facility at when its lattice
+cannot carry these offsets.
+
+**The rendered default is not always this value.** These offsets displace the
+builtin PyAT model, and a deployment whose env chain leaves ``VA_LATTICE`` off
+``builtin`` -- ``none``, or a facility channel manifest -- has no model to
+displace. The render hands that stand-in the EMPTY set instead
+(``compose_generator._standin_perturbation``), and reports that it serves the
+facility manifest unperturbed. This value is the default for the builtin
+lattice only.
+
+The container's interpolation is the authority on all of this, and the archiver
+seed follows the same rule
+(``container_lifecycle._standin_bpm_error_spec``), so the two cannot disagree
+about which machine the stand-in is. The baseline instance's own
+``VA_BPM_ERRORS`` is a separate variable and is untouched by either.
 """
 
 from __future__ import annotations
@@ -60,6 +70,44 @@ STANDIN_BPM_ERRORS_DEFAULT: str = (
     "BPM45:offset_y=1.2e-4;"
     "BPM63:offset_x=1.0e-4,offset_y=1.8e-4"
 )
+
+#: The ``VA_LATTICE`` value :data:`STANDIN_BPM_ERRORS_DEFAULT` has a model to
+#: displace on. The authority is the container's entrypoint
+#: (``entrypoint.LATTICE_BUILTIN``), which the build and the render cannot
+#: import: that module pulls in the whole serving stack. So it is respelled here
+#: and pinned by test against the entrypoint's own, exactly as
+#: :func:`parse_bpm_error_spec` respells the grammar beside it.
+LATTICE_BUILTIN = "builtin"
+
+
+def default_bpm_errors_for_lattice(lattice: str) -> str:
+    """The perturbation a stand-in booting on *lattice* is handed by default.
+
+    One rule, one home, for the two sides that must agree about what the
+    container receives: the render writes this into the stand-in's
+    ``${VA_STANDIN_BPM_ERRORS-...}`` interpolation
+    (``compose_generator._standin_perturbation``) and the build resolves the
+    same value to decide whether the deployment has asked for a perturbation it
+    cannot boot with
+    (``build_profile_va_faults.effective_standin_bpm_errors``). Two spellings of
+    it could disagree, and the disagreement would be a build that validated on
+    one answer and rendered on another.
+
+    Outside :data:`LATTICE_BUILTIN` the answer is the EMPTY set rather than the
+    shipped one: these offsets displace the builtin PyAT model, and a deployment
+    on ``none`` or on a facility channel manifest has no model for them to move.
+    Such a stand-in serves its manifest unperturbed, which is honest; carrying
+    faults nothing can apply is not.
+
+    Args:
+        lattice: ``VA_LATTICE`` as the deployment's env chain resolves it, per
+            :func:`~osprey_connectors.dotenv.resolved_va_lattice`.
+
+    Returns:
+        :data:`STANDIN_BPM_ERRORS_DEFAULT`, or ``''`` where the lattice cannot
+        carry it.
+    """
+    return STANDIN_BPM_ERRORS_DEFAULT if lattice.strip().lower() == LATTICE_BUILTIN else ""
 
 
 def parse_bpm_error_spec(spec: str) -> dict[str, dict[str, float]]:

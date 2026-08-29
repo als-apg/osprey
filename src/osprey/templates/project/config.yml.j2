@@ -210,7 +210,7 @@ control_system:
   limits_checking:
     enabled: false  # Enable for production safety
     database_path: null  # Path to channel_limits.json
-    allow_unlisted_channels: true
+    allow_unlisted_channels: true  # false refuses any channel the database does not list
 
   # Write Verification Configuration
   # How the connector confirms a write took effect. Every write - single or batch,

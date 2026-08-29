@@ -1,16 +1,20 @@
 """Tests for the ``virtual_accelerator.live_standin:`` refusals in ``BuildProfile.validate``.
 
-The stand-in is a SECOND soft-IOC wired in as the deployment's ``live`` target,
-so it can be wrong in ways the baseline soft-IOC cannot: it can land on a port
-some other block already spends, it can land on the very gateway the simulation
-is dialed through, it can be asked for by a deployment that is already pointed
-at the real machine, and it can be built on a tree with no lattice behind the
-readout perturbation it ships.
+The stand-in is a SECOND soft-IOC standing up a THIRD control target, so it can
+be wrong in ways the baseline soft-IOC cannot: it can land on a port some other
+block already spends, it can land on the very gateway the simulation is dialed
+through, it can be named as a deployment's baseline without being built, it can
+record a store that would be read as the real machine's past, and it can be
+built on a tree with no lattice behind the readout perturbation it ships.
 
-Each of those is pinned here by its exact message, because the message is the
-whole deliverable — a refusal an author cannot act on is a build that fails
-twice. The suite also pins the accumulation contract the rest of ``validate``
-keeps: several stand-in faults arrive in ONE
+What it can no longer be is refused for standing beside a facility's own
+machine: ``live`` keeps meaning the authored ``epics`` block, so an ``epics``
+baseline with a stand-in is the ordinary shape and is pinned here as one.
+
+Each refusal is pinned by its exact message, because the message is the whole
+deliverable — a refusal an author cannot act on is a build that fails twice.
+The suite also pins the accumulation contract the rest of ``validate`` keeps:
+several stand-in faults arrive in ONE
 :class:`~osprey.errors.BuildProfileError`, never one rebuild per typo.
 """
 
@@ -111,33 +115,193 @@ def test_live_standin_validate_reads_a_nested_gateway_port_the_same(tmp_path: Pa
     ]
 
 
-# --- going live is three steps --------------------------------------------
+# --- the third target, beside the facility's own machine -------------------
 
 
-def test_live_standin_validate_refuses_an_epics_baseline(tmp_path: Path) -> None:
-    """A deployment already on the real machine has nothing to stand in for."""
-    profile = _standin_profile(5074, config={"control_system.type": "epics"})
+def test_live_standin_validate_accepts_an_epics_baseline(tmp_path: Path) -> None:
+    """A deployment on its own machine may stand the rehearsal up beside it.
+
+    The refusal this replaces read the stand-in as a claim on ``live``. It is
+    not one: ``live`` is the facility's authored ``epics`` block before and
+    after, and the stand-in is the third target beside it.
+    """
+    _standin_profile(5074, config={"control_system.type": "epics"}).validate(tmp_path)
+
+
+def test_live_standin_validate_refuses_a_standin_baseline_with_no_standin(
+    tmp_path: Path,
+) -> None:
+    """A baseline naming the stand-in on a build that stands none up."""
+    profile = _parse_profile(
+        {
+            "name": "standin",
+            "virtual_accelerator": {"port": 5064},
+            "config": {
+                "control_system.type": "live_standin",
+                # An honest pairing, so the one thing reported is the missing
+                # stand-in: a baseline the deployment stands up for itself with
+                # the synthesizing archiver is its own refusal.
+                "archiver.type": "mongodb_archiver",
+            },
+        }
+    )
     assert _errors(profile, tmp_path) == [
-        "control_system.type: epics with virtual_accelerator.live_standin — the stand-in "
-        "IS this deployment's live target, and a deployment already pointed at the real "
-        "machine has nothing to stand in for. Going live is three steps: delete `virtual_accelerator.live_standin`, point `control_system.connector.epics.gateways` at your facility, and replace `control_system.target_switch.live_gateway_acknowledged` with your own live gateway's hostname."
+        "control_system.type: live_standin with no virtual_accelerator.live_standin — "
+        "the baseline names a machine this deployment does not stand up, so every "
+        "session would dial a port nothing serves. Set "
+        "`virtual_accelerator.live_standin` to the port the stand-in should serve, or "
+        "set `control_system.type` back to the connector that reaches this machine "
+        "(`epics` for a facility's own)."
     ]
+
+
+def test_live_standin_validate_refuses_a_standin_baseline_with_no_va_block(
+    tmp_path: Path,
+) -> None:
+    """No ``virtual_accelerator:`` block at all is the same fault, reached differently."""
+    profile = _parse_profile(
+        {
+            "name": "standin",
+            "config": {
+                "control_system.type": "live_standin",
+                "archiver.type": "mongodb_archiver",
+            },
+        }
+    )
+    reported = _errors(profile, tmp_path)
+    assert len(reported) == 1
+    assert reported[0].startswith("control_system.type: live_standin with no ")
+
+
+def test_live_standin_validate_accepts_a_standin_baseline_that_builds_one(
+    tmp_path: Path,
+) -> None:
+    """Baselined on the stand-in, with the stand-in built: the shape the key is for."""
+    _standin_profile(
+        5074,
+        config={
+            "control_system.type": "live_standin",
+            "archiver.type": "mongodb_archiver",
+        },
+    ).validate(tmp_path)
+
+
+# --- the archive belongs to the machine it records -------------------------
+
+
+def test_live_standin_validate_refuses_a_recorded_archive_on_a_live_baseline(
+    tmp_path: Path,
+) -> None:
+    """A store recorded off the stand-in, served as the real machine's past."""
+    profile = _standin_profile(5074, config={"control_system.type": "epics"}, va_archiver={})
+    assert _errors(profile, tmp_path) == [
+        "virtual_accelerator.live_standin with a va_archiver block on a "
+        "control_system.type: epics baseline — the archive belongs to the machine it "
+        "records. The recorder writes THIS deployment's store from the stand-in, and "
+        "on a baseline naming the facility's own machine that store is served as the "
+        "real machine's past. Either delete `va_archiver` and let the deployment read "
+        "the facility's own archiver, or baseline this deployment on the machine "
+        "being recorded (`control_system.type: live_standin`, or "
+        "`virtual_accelerator` for the simulation)."
+    ]
+
+
+def test_live_standin_validate_accepts_a_recorded_archive_on_a_va_baseline(
+    tmp_path: Path,
+) -> None:
+    """A simulated baseline records its own machine, which is what the store holds."""
+    profile = _standin_profile(
+        5074,
+        config={
+            "control_system.type": "virtual_accelerator",
+            "archiver.type": "mongodb_archiver",
+        },
+        va_archiver={},
+    )
+    profile.validate(tmp_path)
+
+
+def test_live_standin_validate_accepts_a_recorded_archive_on_a_standin_baseline(
+    tmp_path: Path,
+) -> None:
+    """The stand-in as its own baseline is the other machine a deployment stands up."""
+    profile = _standin_profile(
+        5074,
+        config={
+            "control_system.type": "live_standin",
+            "archiver.type": "mongodb_archiver",
+        },
+        va_archiver={},
+    )
+    profile.validate(tmp_path)
+
+
+def test_live_standin_validate_leaves_an_archive_without_a_standin_alone(
+    tmp_path: Path,
+) -> None:
+    """No stand-in, no rule: the store records whatever the baseline names."""
+    profile = _parse_profile(
+        {
+            "name": "standin",
+            "virtual_accelerator": {"port": 5064},
+            "config": {"control_system.type": "epics"},
+            "va_archiver": {},
+        }
+    )
+    profile.validate(tmp_path)
 
 
 # --- the lattice the shipped perturbation needs ---------------------------
 
 
-def test_live_standin_validate_refuses_a_dotenv_pinning_the_lattice_off(tmp_path: Path) -> None:
-    """``VA_LATTICE=none`` on file wins over the build, and the stand-in exits at boot."""
-    env_path = tmp_path / ".env"
-    env_path.write_text("VA_LATTICE=none\n")
+def test_live_standin_validate_accepts_a_lattice_pinned_off_on_its_own(
+    tmp_path: Path,
+) -> None:
+    """``VA_LATTICE=none`` alone is a stand-in without faults, not a broken one.
+
+    The shipped perturbation is the builtin lattice's — it names offsets on a
+    PyAT model — so a deployment that pinned the lattice off and asked for
+    nothing else gets the empty fault set from the render and has nothing to
+    refuse. A facility on a file-backed channel set can still rehearse.
+    """
+    (tmp_path / ".env").write_text("VA_LATTICE=none\n")
+    _standin_profile(5074).validate(tmp_path)
+
+
+def test_live_standin_validate_refuses_an_authored_fault_set_with_no_lattice(
+    tmp_path: Path,
+) -> None:
+    """The one shape that cannot boot: faults asked for, no model to apply them to."""
+    (tmp_path / ".env").write_text("VA_LATTICE=none\nVA_STANDIN_BPM_ERRORS=BPM01:offset_x=1e-4\n")
     assert _errors(_standin_profile(5074), tmp_path) == [
-        f"virtual_accelerator.live_standin needs a lattice-backed virtual accelerator, "
-        f"but {env_path} pins VA_LATTICE='none'. The build appends to that file and never "
-        f"overwrites it, so the stand-in would boot with no lattice behind the "
-        f"perturbation it ships and exit. Remove the line, or delete "
-        f"`virtual_accelerator.live_standin`."
+        "virtual_accelerator.live_standin ships a readout perturbation, but this "
+        "deployment's env chain resolves VA_LATTICE='none'. There is no PyAT model to "
+        "displace, so the stand-in's IOC exits at boot rather than serving a machine "
+        "that ignores the faults it was configured with. Set VA_LATTICE=builtin, or "
+        "turn the perturbation off with VA_STANDIN_BPM_ERRORS= (empty)."
     ]
+
+
+def test_live_standin_validate_accepts_no_perturbation_with_no_lattice(
+    tmp_path: Path,
+) -> None:
+    """Turning the fault set off is the second way out, and the message names it.
+
+    An explicit empty value is honored as an empty fault set rather than
+    rounded back up to the shipped default, which is what makes the refusal's
+    advertised fix a real one.
+    """
+    (tmp_path / ".env").write_text("VA_LATTICE=none\nVA_STANDIN_BPM_ERRORS=\n")
+    _standin_profile(5074).validate(tmp_path)
+
+
+def test_live_standin_validate_reads_the_whole_chain_for_the_lattice(
+    tmp_path: Path,
+) -> None:
+    """``.env`` wins over ``.env.shared``, the precedence the chain defines."""
+    (tmp_path / ".env.shared").write_text("VA_LATTICE=none\n")
+    (tmp_path / ".env").write_text("VA_LATTICE=builtin\n")
+    _standin_profile(5074).validate(tmp_path)
 
 
 def test_live_standin_validate_accepts_a_lattice_pinned_to_builtin(tmp_path: Path) -> None:
@@ -150,19 +314,16 @@ def test_live_standin_validate_accepts_a_lattice_pinned_to_builtin(tmp_path: Pat
 
 
 def test_live_standin_validate_reports_every_violation_in_one_error(tmp_path: Path) -> None:
-    """Three unrelated stand-in faults arrive in one raise, not one rebuild each."""
-    (tmp_path / ".env").write_text("VA_LATTICE=none\n")
+    """Two unrelated stand-in faults arrive in one raise, not one rebuild each."""
     profile = _standin_profile(
         5074,
         config={"control_system.type": "epics", "services.postgresql.port_host": 5074},
+        va_archiver={},
     )
     reported = _errors(profile, tmp_path)
-    assert len(reported) == 3
+    assert len(reported) == 2
     assert reported[0].startswith("virtual_accelerator.live_standin (5074) collides with")
-    assert reported[1].startswith("control_system.type: epics")
-    assert reported[2].startswith(
-        "virtual_accelerator.live_standin needs a lattice-backed virtual accelerator"
-    )
+    assert reported[1].startswith("virtual_accelerator.live_standin with a va_archiver block on a")
 
 
 def test_live_standin_validate_accepts_a_clean_profile(tmp_path: Path) -> None:

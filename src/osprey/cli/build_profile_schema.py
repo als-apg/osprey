@@ -398,9 +398,10 @@ class BlueskyConfig:
     port (:meth:`second_lane_port`); tiled is the one shared component and stays
     on lane 1 only.
 
-    The lane pair is ``live`` and ``va``, so the deployment baseline
-    (``control_system.type``) must be one of those two targets — a ``mock`` or
-    ``doocs`` baseline has no second target to serve and the injection refuses
+    Which pair the two lanes serve is DERIVED from the deployment baseline
+    (``control_system.type``): a ``live`` or ``standin`` baseline gets ``va`` as
+    its second lane, and a ``va`` baseline gets ``live``. A ``mock`` or
+    ``doocs`` baseline has no second target to serve, and the injection refuses
     rather than rendering a lane that leads nowhere.
     """
     plan_dir: str | None = None
@@ -481,11 +482,12 @@ class VAConfig:
     src/osprey/services/virtual_accelerator/entrypoint.py's run contract)."""
 
     live_standin: int | None = None
-    """Channel Access TCP port for a second copy of the soft-IOC, wired in as the
-    deployment's ``live`` target so operators rehearse the go-live ritual against
-    something safe. Absent (the default) means the deployment has no ``live``
-    stand-in and its ``live`` target is whatever the ``epics:`` block names, so
-    going live is deleting this key and setting the real gateways."""
+    """Channel Access TCP port for a second copy of the soft-IOC, stood up as the
+    deployment's THIRD control target (``standin``) so operators rehearse the
+    write ritual against something that cannot move a magnet. ``live`` is
+    untouched either way — it stays whatever the facility's ``epics:`` block
+    names — so this key adds a target rather than replacing one. Absent (the
+    default) means the deployment has no stand-in and only two targets."""
 
 
 @dataclass

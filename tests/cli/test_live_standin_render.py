@@ -7,20 +7,22 @@ Every unit behind the stand-in has its own module — the derived overrides
 machine (``tests/deployment/test_recorder_standin_compose.py``), the profile
 refusals (``test_live_standin_validate.py``). What none of them can show is
 that the pieces still agree once a real build has run end to end: the injector
-writes ``services.live_standin`` and the override writer points the ``epics``
-gateways at a port, and nothing but a full render proves those two are the SAME
-port, that the recorder's Channel Access address is that port too, and that the
-acknowledgment the target switch reads names the endpoint a session would
-actually dial. A deployment where any pair of those disagrees still builds; it
-just sends the operator somewhere they were not told about.
+writes ``services.live_standin`` and the override writer points the
+``connector.live_standin`` gateways at a port, and nothing but a full render
+proves those two are the SAME port, and that the recorder's Channel Access
+address is that port too. A deployment where any pair of those disagrees still
+builds; it just sends the operator somewhere they were not told about.
 
-So this module builds the exemplar deployment for real, twice — once with
-``virtual_accelerator.live_standin`` set and once with the key removed — and
-reads the finished artifacts back the way the things that consume them do:
+The stand-in is a **third control target** here, not a rewrite of the first, and
+that is the sharpest thing a whole-build test can pin. ``live`` is the machine
+the facility authored under ``epics:``; the build adds a
+``control_system.connector.live_standin`` block beside it and touches nothing
+else in ``control_system``. So the module builds the exemplar for real, twice —
+once with ``virtual_accelerator.live_standin`` set and once with the key removed
+— and reads the finished artifacts back the way the things that consume them do:
 parsed YAML for the values, raw text for the claims that are about comments and
-ordering (a comment is what an operator reads when judging whether a rendered
-line means what it says), and the ``containers`` health category for the row
-``osprey health`` grows.
+ordering, and the ``containers`` health category for the row ``osprey health``
+grows.
 
 **The off-state build is the anchor.** The promise a stand-in makes to every
 deployment that does not want one is that it costs them nothing, and the way to
@@ -29,13 +31,14 @@ profile key in its own prose, the staged ``.j2`` sources are copied into
 ``build/services/`` verbatim, and a checkout whose path happens to contain the
 words matches too. All three are hits that mean nothing. What means something
 is the parsed shape — no ``live_standin`` service, no ``live-standin``
-container, no ``live_gateway_acknowledged`` value, the facility's own gateways —
-so that is what is asserted, artifact by artifact.
+container, no ``connector.live_standin`` block, the facility's own gateways — so
+that is what is asserted, artifact by artifact.
 """
 
 from __future__ import annotations
 
 import asyncio
+import difflib
 import logging
 import os
 from pathlib import Path
@@ -48,7 +51,6 @@ from ruamel.yaml import YAML
 
 import osprey.health.core.containers as containers_mod
 from osprey.cli.build_cmd import build as build_command
-from osprey.cli.build_profile_standin import STRICT_LIMITS_COMMENT
 from osprey.health.core.containers import containers
 from osprey.health.models import CheckResult, Status
 from osprey.services.virtual_accelerator.manifest.standin_defaults import (
@@ -71,12 +73,12 @@ STANDIN_PORT = 5074
 #: must NOT land on.
 VA_PORT = 5064
 
-#: What the Control Assistant template's VA block proves, and so what the live
-#: target must prove too once it is the stand-in.
+#: What the Control Assistant template's VA block proves, and so what the
+#: ``standin`` target must prove too.
 VA_PROBE_CHANNEL = "SR:VAC:GAUGE:SR01:PRESSURE:RB"
 
-#: The shipped ALS production ``epics`` gateways — what a build with no
-#: stand-in must still render, untouched.
+#: The shipped ALS production ``epics`` gateways — the ``live`` target's, which
+#: a build must render untouched whether or not a stand-in was asked for.
 SHIPPED_EPICS_GATEWAYS = {
     "read_only": {
         "address": "cagw-alsdmz.als.lbl.gov",
@@ -90,17 +92,27 @@ SHIPPED_EPICS_GATEWAYS = {
     },
 }
 
-#: The opening of the note ``osprey build`` writes above the acknowledgment it
-#: derived. Its six lines are pinned byte-for-byte where they are produced
-#: (``test_inject_va_gateways.py``); what matters here is that the render puts
-#: the note immediately above the key, so the value is never read without it.
+#: The opening of the note ``osprey build`` used to write above an
+#: acknowledgment it derived for the operator. Nothing derives one now — the
+#: stand-in is not ``live``, so ``live`` has nothing to acknowledge that the
+#: operator did not say themselves.
 ACK_NOTE_OPENING = "# Written by `osprey build` for the live stand-in: the `epics` gateways"
 
 #: The commented example the template ships for the acknowledgment, and the two
-#: commented gateway-port examples beside it. A build that derives nothing must
-#: leave all three standing — they are the instructions for going live by hand.
+#: commented gateway-port examples beside it. They are the instructions for
+#: pointing a deployment at a real machine by hand, and no build consumes them.
 COMMENTED_ACK_EXAMPLE = "# live_gateway_acknowledged:"
 COMMENTED_PORT_EXAMPLE = "# port: 5094"
+
+#: The template's own end-of-line comment on the strict-limits key. It explains
+#: the KEY rather than the shipped value, so it stays true for a deployment that
+#: sets either — nothing rewrites it at build time.
+LIMITS_COMMENT = "false refuses any channel the database does not list"
+
+#: Where a profile names the machine every session starts on, and the baseline a
+#: deployment with no stand-in falls back to.
+BASELINE_TYPE_KEY = "control_system.type"
+VIRTUAL_ACCELERATOR = "virtual_accelerator"
 
 _ruamel = YAML(typ="rt")
 
@@ -139,6 +151,17 @@ def _set_config_entries(repo: Path, entries: dict[str, Any]) -> None:
         _ruamel.dump(profile, handle)
 
 
+def _drop_profile_blocks(repo: Path, names: tuple[str, ...]) -> None:
+    """Remove whole top-level blocks from the repo's profile."""
+    profile_path = repo / "profile.yml"
+    with profile_path.open("r", encoding="utf-8") as handle:
+        profile = _ruamel.load(handle)
+    for name in names:
+        profile.pop(name, None)
+    with profile_path.open("w", encoding="utf-8") as handle:
+        _ruamel.dump(profile, handle)
+
+
 def _invoke_build(repo: Path):
     """Run ``osprey build`` the way an operator standing in the repo would."""
     previous = Path.cwd()
@@ -157,12 +180,35 @@ def _build(repo: Path) -> Path:
     return repo / "build"
 
 
-def _exemplar(dest: Path, *, standin: int | None, config: dict[str, Any] | None = None) -> Path:
-    """A seeded exemplar repo with the stand-in key set (or removed) as asked."""
+def _exemplar(
+    dest: Path,
+    *,
+    standin: int | None,
+    config: dict[str, Any] | None = None,
+    drop_blocks: tuple[str, ...] = (),
+) -> Path:
+    """A seeded exemplar repo with the stand-in key set (or removed) as asked.
+
+    Taking the stand-in away moves the baseline with it. The exemplar starts
+    every session on the stand-in (``control_system.type: live_standin``), and
+    ``standin_baseline_errors`` refuses that baseline on a deployment that
+    stands no stand-in up — so a profile with the key removed and the baseline
+    left behind is not an off-state deployment, it is an incoherent one, and
+    would test the refusal rather than the absence. The baseline therefore goes
+    back to the sandbox VA, which is the deployment an operator who never asked
+    for a stand-in actually has. A caller naming ``control_system.type`` itself
+    is left alone.
+    """
+    dest.mkdir(parents=True, exist_ok=True)
     repo = build_exemplar_repo(dest / EXEMPLAR_DIRNAME, seed_env=True)
     _set_live_standin(repo, standin)
-    if config:
-        _set_config_entries(repo, config)
+    if drop_blocks:
+        _drop_profile_blocks(repo, drop_blocks)
+    entries = dict(config or {})
+    if standin is None:
+        entries.setdefault(BASELINE_TYPE_KEY, VIRTUAL_ACCELERATOR)
+    if entries:
+        _set_config_entries(repo, entries)
     return repo
 
 
@@ -212,14 +258,7 @@ def _rendered_configs(build: Path) -> dict[str, dict[str, Any]]:
     return configs
 
 
-def _line_no(text: str, needle: str) -> int:
-    for index, line in enumerate(text.splitlines()):
-        if needle in line:
-            return index
-    raise AssertionError(f"{needle!r} not found in:\n{text}")
-
-
-# ── FR-9: what the rendered config says about the live target ────────────────
+# ── FR-10: what the rendered config says about the third target ──────────────
 
 
 class TestTheRenderedConfigDescribesTheStandIn:
@@ -250,7 +289,7 @@ class TestTheRenderedConfigDescribesTheStandIn:
         assert deployed.index("live_standin") == deployed.index("virtual_accelerator") + 1
         assert not (standin_build / "services" / "live_standin").exists()
 
-    def test_live_standin_render_dials_the_stand_in_from_both_epics_gateways(
+    def test_live_standin_render_dials_the_stand_in_from_both_gateway_lanes(
         self, standin_build
     ) -> None:
         """Loopback, the profile's port, name-server transport, both roles.
@@ -259,9 +298,10 @@ class TestTheRenderedConfigDescribesTheStandIn:
         ``write_access``, and a stand-in that only the readonly lane reaches
         would send the write that matters to whatever the template shipped.
         """
-        epics = _config(standin_build)["control_system"]["connector"]["epics"]
+        config = _config(standin_build)
+        standin = config["control_system"]["connector"]["live_standin"]
 
-        assert epics["gateways"] == {
+        assert standin["gateways"] == {
             "read_only": {
                 "address": "localhost",
                 "port": STANDIN_PORT,
@@ -276,95 +316,149 @@ class TestTheRenderedConfigDescribesTheStandIn:
         # The same port the service block names — the agreement no unit test of
         # either writer can make on its own.
         assert (
-            epics["gateways"]["read_only"]["port"]
-            == (_config(standin_build)["services"]["live_standin"]["port"])
+            standin["gateways"]["read_only"]["port"] == config["services"]["live_standin"]["port"]
         )
 
     def test_live_standin_render_carries_the_probe_channel_across(self, standin_build) -> None:
         """A target with no probe channel is never switched to, so it carries one."""
         connectors = _config(standin_build)["control_system"]["connector"]
 
-        assert connectors["epics"]["probe_channel"] == VA_PROBE_CHANNEL
+        assert connectors["live_standin"]["probe_channel"] == VA_PROBE_CHANNEL
         assert (
-            connectors["epics"]["probe_channel"]
+            connectors["live_standin"]["probe_channel"]
             == connectors["virtual_accelerator"]["probe_channel"]
         )
 
-    def test_live_standin_render_leaves_the_sandbox_gateway_rows_portless(
+    def test_live_standin_render_leaves_the_live_targets_own_block_alone(
         self, standin_build
     ) -> None:
-        """The VA's own rows are default-filled from its service port.
+        """``live`` is the facility's machine on a stand-in deployment too.
 
-        Written out they would state the same fact twice, and the second copy
-        is the one that goes stale when the service port moves.
+        The reason the stand-in is a third target rather than a rewrite: the
+        gateways under ``epics:`` read exactly as the facility authored them,
+        and the build adds no probe channel there either. This is what lets a
+        deployment already pointed at hardware rehearse beside it.
         """
-        va_gateways = _config(standin_build)["control_system"]["connector"]["virtual_accelerator"][
-            "gateways"
-        ]
+        epics = _config(standin_build)["control_system"]["connector"]["epics"]
 
-        assert va_gateways, "the sandbox VA still has gateway rows"
-        for role, row in va_gateways.items():
-            assert "port" not in row, f"{role}: {row}"
+        assert epics["gateways"] == SHIPPED_EPICS_GATEWAYS
+        assert "probe_channel" not in epics
 
-    def test_live_standin_render_runs_strict_limits_and_says_why(self, standin_build) -> None:
-        """The value is strict and the comment beside it explains the strictness.
+    def test_live_standin_render_takes_its_limits_posture_from_the_profile(
+        self, standin_build
+    ) -> None:
+        """How strictly the deployment runs is stated by the profile, not derived.
 
-        The template ships this key permissive with an inline comment calling it
-        a tutorial convenience. A rendered line that flipped the value and kept
-        the comment is the sentence an operator reads when deciding whether the
-        deployment is safe, so the comment is part of the assertion.
+        The exemplar preset authors the strict pair itself, and that is where
+        the rendered values come from — ``test_live_standin_overrides.py`` makes
+        the other half of the claim, that a profile which drops the pair gets
+        the template's value back rather than a derived one.
+
+        What is pinned here is the rendered *line*: while the stand-in was
+        ``live``, the build flipped this key and then had to rewrite the comment
+        beside it to stop the line contradicting itself. Nothing rewrites it
+        now, so the shipped comment has to explain the key rather than the value
+        the template happened to ship — and it must still read true beside the
+        ``false`` the profile asked for.
         """
+        text = _config_text(standin_build)
         limits = _config(standin_build)["control_system"]["limits_checking"]
+
         assert limits["enabled"] is True
         assert limits["allow_unlisted_channels"] is False
-
-        text = _config_text(standin_build)
         line = next(row for row in text.splitlines() if "allow_unlisted_channels" in row)
         assert "allow_unlisted_channels: false" in line
-        assert STRICT_LIMITS_COMMENT in line
-        assert "Permissive" not in line
+        assert LIMITS_COMMENT in line
 
-    def test_live_standin_render_acknowledges_the_gateway_once_and_explains_it(
-        self, standin_build
-    ) -> None:
-        """The acknowledgment names the endpoint, is written once, and is annotated.
+    def test_live_standin_render_derives_no_operator_acknowledgment(self, standin_build) -> None:
+        """``live`` has nothing to acknowledge that the operator did not say.
 
-        Without the acknowledgment the deployment's own ``live`` target refuses
-        itself, so the build derives it — and having derived it, it says so:
-        the note above the value is how an operator going live knows the value
-        is not theirs and what to replace it with. The commented example the
-        template ships must be gone, because two spellings of one key in one
-        file is the reader's problem, not the writer's.
+        The acknowledgment is a claim about the real machine, and while the
+        build pointed ``live`` at the stand-in it had to make that claim on the
+        operator's behalf. ``live`` is the facility's own block again, so the
+        key goes back to being the operator's — the commented example the
+        template ships stays standing, and no value is written above it.
         """
         config = _config(standin_build)
         text = _config_text(standin_build)
 
-        assert config["control_system"]["target_switch"]["live_gateway_acknowledged"] == (
-            f"localhost:{STANDIN_PORT}"
+        target_switch = config["control_system"].get("target_switch") or {}
+        assert "live_gateway_acknowledged" not in target_switch
+        assert "    live_gateway_acknowledged:" not in text
+        assert COMMENTED_ACK_EXAMPLE in text
+        assert ACK_NOTE_OPENING not in text
+
+
+# ── SC-2: what a stand-in costs an epics deployment ──────────────────────────
+
+
+def test_live_standin_render_adds_only_the_standin_block_to_an_epics_deployment(
+    tmp_path: Path,
+) -> None:
+    """A facility pointed at its own machine can stand a rehearsal up beside it.
+
+    The whole feature in one assertion, and the one no unit can make: build the
+    same ``type: epics`` deployment twice, once with the stand-in key and once
+    without, and the two rendered configs differ by the stand-in's own three
+    additions — its connector block, its service registration, and its
+    ``deployed_services`` entry — and by nothing else.
+
+    Stated in both directions on purpose. The parsed comparison says no VALUE
+    moved; the text diff says no LINE was taken away, which is the half that
+    catches a build consuming a comment the facility was meant to keep reading.
+
+    ``va_archiver:`` comes off both profiles because the exemplar ships one and
+    ``standin_archive_errors`` refuses that block beside a stand-in on an
+    ``epics`` baseline: the archive belongs to the machine it records, and a
+    deployment whose real machine is live cannot have its recorder follow the
+    stand-in. That refusal has its own test; what this one is about is the
+    ``epics`` block, so the archive is taken out of the picture on BOTH sides —
+    keeping the two profiles identical apart from the one key under test.
+    """
+    epics_baseline = {"control_system.type": "epics"}
+    standin_repo = _exemplar(
+        tmp_path / "with",
+        standin=STANDIN_PORT,
+        config=epics_baseline,
+        drop_blocks=("va_archiver",),
+    )
+    plain_repo = _exemplar(
+        tmp_path / "without",
+        standin=None,
+        config=epics_baseline,
+        drop_blocks=("va_archiver",),
+    )
+    with_standin = _build(standin_repo)
+    without = _build(plain_repo)
+
+    rendered = _config(with_standin)
+    baseline = _config(without)
+
+    # Two repos means two checkout paths, and the render states its own. That
+    # is the fixture's difference, not the stand-in's, so it comes out of both
+    # sides here and out of the text below.
+    assert rendered.pop("project_root") == str(standin_repo)
+    assert baseline.pop("project_root") == str(plain_repo)
+
+    standin_block = rendered["control_system"]["connector"].pop("live_standin")
+    assert set(standin_block) == {"gateways", "probe_channel"}
+    assert standin_block["gateways"]["read_only"]["port"] == STANDIN_PORT
+    assert rendered["services"].pop("live_standin")["port"] == STANDIN_PORT
+    rendered["deployed_services"].remove("live_standin")
+
+    assert rendered == baseline
+
+    removed = [
+        line
+        for line in difflib.unified_diff(
+            _config_text(without).replace(str(plain_repo), "<repo>").splitlines(),
+            _config_text(with_standin).replace(str(standin_repo), "<repo>").splitlines(),
+            lineterm="",
+            n=0,
         )
-        # Once as a key. The literal also appears in the template's own prose
-        # above `target_switch:`, which is documentation and stays.
-        assert text.count("    live_gateway_acknowledged:") == 1
-        assert COMMENTED_ACK_EXAMPLE not in text
-        assert _line_no(text, ACK_NOTE_OPENING) < _line_no(text, "    live_gateway_acknowledged:")
-
-    def test_live_standin_render_keeps_the_probe_interval_comment_whole(
-        self, standin_build
-    ) -> None:
-        """The note is inserted beside a key whose own comment wraps two lines.
-
-        ``probe_interval_s`` is the key ruamel parks the acknowledgment's
-        comment token on, so a writer that replaced that token instead of
-        editing it would truncate this key's explanation to its first line.
-        Both lines are asserted, in order, above the note.
-        """
-        text = _config_text(standin_build)
-
-        first = _line_no(text, "probe_interval_s: 30")
-        second = _line_no(text, "# every target's gateways")
-        assert "# Seconds between background reachability probes of" in text.splitlines()[first]
-        assert second == first + 1
-        assert second < _line_no(text, ACK_NOTE_OPENING)
+        if line.startswith("-") and not line.startswith("---")
+    ]
+    assert removed == [], "the build took lines away from the facility's own render"
 
 
 # ── The compose files the operator ends up with ──────────────────────────────
@@ -398,18 +492,23 @@ class TestTheRenderedComposeStandsTwoMachinesUp:
         default is baked into the render rather than left to the operator's
         ``.env``, and it arrives under a variable of its own so setting a fault
         on one machine cannot set it on both.
+
+        Substituted on UNSET (``${VAR-default}``) and not on empty
+        (``${VAR:-default}``): an operator who writes ``VA_STANDIN_BPM_ERRORS=``
+        is asking for a stand-in that reads clean, and the colon form would hand
+        them the perturbation back.
         """
         services = _compose(standin_build, "virtual_accelerator")["services"]
 
         assert services["live-standin"]["environment"]["VA_BPM_ERRORS"] == (
-            f"${{VA_STANDIN_BPM_ERRORS:-{STANDIN_BPM_ERRORS_DEFAULT}}}"
+            f"${{VA_STANDIN_BPM_ERRORS-{STANDIN_BPM_ERRORS_DEFAULT}}}"
         )
         assert services["virtual-accelerator"]["environment"]["VA_BPM_ERRORS"] == (
             "${VA_BPM_ERRORS:-}"
         )
 
     def test_live_standin_render_records_the_stand_in_not_the_sandbox(self, standin_build) -> None:
-        """The archive belongs to the machine, so the recorder follows ``live``.
+        """The archive belongs to the machine, so the recorder follows the stand-in.
 
         Both wiring sites are read back separately because they have to name
         the same instance: a recorder that waits on one machine and reads from
@@ -448,9 +547,9 @@ async def test_live_standin_render_grows_a_container_health_row(
     The category derives one ``container_<service>`` row per entry in
     ``deployed_services``, so this is really an assertion about the config the
     build wrote: a stand-in that never joined that list would run unwatched,
-    and the deployment's own health report would say nothing about the machine
-    it calls ``live``. Fed the REAL rendered config rather than a hand-built
-    one, since the list is exactly what the build is being asked about.
+    and the deployment's own health report would say nothing about a machine it
+    stands up. Fed the REAL rendered config rather than a hand-built one, since
+    the list is exactly what the build is being asked about.
     """
     monkeypatch.setattr(containers_mod, "get_runtime_command", lambda *_a, **_k: ["docker"])
 
@@ -486,8 +585,8 @@ class TestABuildWithoutTheKeyIsUntouched:
         for name, config in _rendered_configs(plain_build).items():
             assert "live_standin" not in config.get("services", {}), name
             assert "live_standin" not in (config.get("deployed_services") or []), name
-            target_switch = config["control_system"].get("target_switch") or {}
-            assert "live_gateway_acknowledged" not in target_switch, name
+            connector = config["control_system"].get("connector") or {}
+            assert "live_standin" not in connector, name
 
     def test_live_standin_render_off_leaves_no_stand_in_container(self, plain_build) -> None:
         """No second instance, and nothing waiting on or reading from one."""
@@ -512,25 +611,25 @@ class TestABuildWithoutTheKeyIsUntouched:
 
         assert control_system["connector"]["epics"]["gateways"] == SHIPPED_EPICS_GATEWAYS
         assert "probe_channel" not in control_system["connector"]["epics"]
-        assert control_system["limits_checking"]["allow_unlisted_channels"] is True
+        # The profile's own strict pair, unchanged by the stand-in going away:
+        # the limits posture was never the stand-in's to decide either way.
+        assert control_system["limits_checking"]["allow_unlisted_channels"] is False
 
     def test_live_standin_render_off_keeps_the_templates_own_examples(self, plain_build) -> None:
-        """The commented examples are the instructions for going live by hand.
+        """The commented examples are the instructions for going to the machine.
 
         A build that derives nothing must leave them standing — the
         acknowledgment example, the two commented gateway ports, and the
-        tutorial comment that is still true because the value is still
-        permissive.
+        end-of-line comment on the strict-limits key, which explains the key
+        rather than the value and so is true either way.
         """
         text = _config_text(plain_build)
 
         assert COMMENTED_ACK_EXAMPLE in text
         assert "    live_gateway_acknowledged:" not in text
         assert text.count(COMMENTED_PORT_EXAMPLE) == 2
-        assert ACK_NOTE_OPENING not in text
         line = next(row for row in text.splitlines() if "allow_unlisted_channels" in row)
-        assert "Permissive mode for tutorial" in line
-        assert STRICT_LIMITS_COMMENT not in line
+        assert LIMITS_COMMENT in line
 
     def test_live_standin_render_off_is_stable_across_a_rebuild(self, tmp_path: Path) -> None:
         """Rebuilding the same repo rewrites the same bytes.
@@ -579,34 +678,23 @@ class TestTheBuildRefusesAnIncoherentStandIn:
     ) -> None:
         """One fact, two homes, free to disagree — named with the way out.
 
-        The refusal has to name the go-live steps rather than just the
-        clash, because an author who wrote that key wanted the live machine and
-        the answer is not "delete this line": it is to stop asking for a
-        stand-in first. Pinned on a ``limits_checking`` leaf, since the
-        strict-posture keys are derived for the same reason the gateways are
-        and are the ones an author is likeliest to reach for.
+        Pinned on a stand-in gateway leaf, which is now the only kind of key the
+        build reserves: the refusal sends an author who wants to address a
+        machine to the ``epics`` block, because that block is theirs and the
+        stand-in's is not.
         """
         repo = _exemplar(
             tmp_path,
             standin=STANDIN_PORT,
-            config={"control_system.limits_checking.allow_unlisted_channels": True},
+            config={"control_system.connector.live_standin.gateways.read_only.port": 5064},
         )
 
         text = self._refuse(repo, caplog)
 
-        assert "Going live is three steps: delete `virtual_accelerator.live_standin`" in text
-        assert "control_system.limits_checking.allow_unlisted_channels" in text
+        assert "The stand-in owns that key" in text
+        assert "control_system.connector.live_standin.gateways.read_only.port" in text
+        assert "control_system.connector.epics" in text
         # Refused before anything is published, so the previous build stands.
-        assert not (repo / "build" / "config.yml").exists()
-
-    def test_live_standin_render_refuses_an_epics_baseline(self, tmp_path: Path, caplog) -> None:
-        """A deployment already pointed at hardware has nothing to stand in for."""
-        repo = _exemplar(tmp_path, standin=STANDIN_PORT, config={"control_system.type": "epics"})
-
-        text = self._refuse(repo, caplog)
-
-        assert "control_system.type: epics with virtual_accelerator.live_standin" in text
-        assert "Going live is three steps: delete `virtual_accelerator.live_standin`" in text
         assert not (repo / "build" / "config.yml").exists()
 
     def test_live_standin_render_refuses_a_port_another_service_claims(
@@ -623,22 +711,3 @@ class TestTheBuildRefusesAnIncoherentStandIn:
 
         assert "virtual_accelerator.live_standin (8090) collides with bluesky.port (8090)" in text
         assert not (repo / "build" / "config.yml").exists()
-
-    def test_live_standin_render_reports_every_profile_fault_in_one_list(
-        self, tmp_path: Path, caplog
-    ) -> None:
-        """Two faults, one refusal: an author fixes both and builds once.
-
-        Both of these are profile faults, so both are accumulated by
-        ``BuildProfile.validate`` and raised together. The ``config:``-duplicate
-        refusal above is deliberately NOT part of this claim: it is raised
-        later, by the render, and validation runs first — so a profile carrying
-        a duplicate AND a profile fault is told about the profile fault, and
-        meets the duplicate on its next attempt.
-        """
-        repo = _exemplar(tmp_path, standin=8090, config={"control_system.type": "epics"})
-
-        text = self._refuse(repo, caplog)
-
-        assert "collides with bluesky.port (8090)" in text
-        assert "control_system.type: epics with virtual_accelerator.live_standin" in text
