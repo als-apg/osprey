@@ -260,20 +260,21 @@ class TestControlAssistantTurnkeyPlanPanels:
 
 
 class TestControlAssistantTurnkeyPlanControlSystem:
-    """The preset's config overrides land: VA-by-default + subprocess execution.
+    """The preset's config overrides land: stand-in baseline + subprocess execution.
 
     The VA soft-IOC ships and is deployed unconditionally as part of the
-    turn-key plan stack, and control_system.type defaults to
-    "virtual_accelerator" so a fresh tutorial project drives it end to end
-    out of the box -- flipping the one config line to "mock" is the
-    documented fallback for environments with no containers to depend on
+    turn-key plan stack, together with the live stand-in derived from it, and
+    control_system.type is pinned to "live_standin" so a fresh session opens
+    on the facility-shaped soft IOC that behaves like hardware and moves
+    nothing -- flipping the one config line to "mock" is the documented
+    fallback for environments with no containers to depend on
     (covered by tests/cli/test_va_default_config.py).
     """
 
-    def test_control_assistant_control_system_type_is_virtual_accelerator(
+    def test_control_assistant_control_system_type_is_live_standin(
         self, turnkey_plan_config: dict
     ) -> None:
-        assert turnkey_plan_config["control_system"]["type"] == "virtual_accelerator"
+        assert turnkey_plan_config["control_system"]["type"] == "live_standin"
 
     def test_control_assistant_execution_method_is_subprocess(
         self, turnkey_plan_config: dict

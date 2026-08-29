@@ -3175,7 +3175,7 @@ def test_preset_authored_config_reads_the_layer_before_extends() -> None:
     assert authored["control_system.connector.virtual_accelerator.writes_enabled"] is True
     # The parent's key: in the resolved document, absent from the authored one.
     assert "control_system.type" not in authored
-    assert resolved.config["control_system.type"] == "virtual_accelerator"
+    assert resolved.config["control_system.type"] == "live_standin"
 
 
 def _shipped_preset_names() -> list[str]:

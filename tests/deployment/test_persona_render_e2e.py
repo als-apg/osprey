@@ -135,7 +135,7 @@ def test_build_renders_a_project_for_every_persona_delta(built_repo):
         # From the root profile: the facility identity, the connector the
         # deployment runs, the data tree the agent reads, its conventions.
         assert rendered["facility"]["prefix"] == "ca"
-        assert rendered["control_system"]["type"] == "virtual_accelerator"
+        assert rendered["control_system"]["type"] == "live_standin"
         assert (project / "data" / "channel_limits.json").is_file()
         assert (project / ".claude" / "rules" / "facility.md").is_file()
         # And the repo root, not the render, is what every path in it anchors
