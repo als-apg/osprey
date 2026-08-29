@@ -223,13 +223,11 @@ def test_commented_preset_override_of_a_deleted_key_is_detected(tmp_path):
     presets.mkdir(parents=True)
     (presets / "probe.yml").write_text(
         "config:\n"
-        "  # control_system.write_verification.enabled: true\n"
+        "  # control_system.connector.timeout: 5.0\n"
         "  # Note that control_system.writes_enabled: gates every write.\n"
     )
     guard = make_guard(root=tmp_path)
-    assert guard.commented_preset_overrides("control_system.write_verification.enabled") == [
-        "probe.yml"
-    ]
+    assert guard.commented_preset_overrides("control_system.connector.timeout") == ["probe.yml"]
     assert guard.commented_preset_overrides("control_system.writes_enabled") == []
 
 
@@ -404,10 +402,8 @@ def test_mode_6_full_set_documented_nowhere_goes_red(tmp_path):
 def test_kept_reader_names_are_present_in_src_but_never_grepped():
     """Deleted keys with deliberate surviving readers must not turn the guard red.
 
-    ``_warn_once_if_fail_on_mismatch_set`` still reads ``fail_on_mismatch`` so a
-    legacy project carrying it is told once which path actually enforces
-    verification, ``resolve_facility_name`` still honours the retired
-    ``facility_name`` spelling, and ``generate_tree_preview`` is a kept utility.
+    ``resolve_facility_name`` still honours the retired ``facility_name``
+    spelling, and ``generate_tree_preview`` is a kept utility.
     Those names are therefore in ``src/`` BY DESIGN, and a guard that grepped
     deleted key names across the tree would go permanently red against intended
     code — which is why the deleted list is enforced against the rendered union,
@@ -469,22 +465,6 @@ def test_vacuous_bare_word_evidence_goes_red():
     guard.check_evidence_vacuity()
     assert "evidence" in modes(guard)
     assert "vacuous" in details(guard)
-
-
-def test_over_broad_ui_orphan_regex_goes_red():
-    """Dropping the closing quote makes it match the LIVE re-keyed leaf."""
-
-    def widen_the_regex(manifest):
-        manifest["orphan_sites"]["control_system.write_verification__ui_literal"] = [
-            {
-                "root": "src/osprey/interfaces/web_terminal/static/js",
-                "regex": r"'control_system\.write_verification",
-            }
-        ]
-
-    guard = make_guard(widen_the_regex)
-    guard.check_ui_literal_precision()
-    assert "orphan-site" in modes(guard)
 
 
 def test_wrong_governed_set_claim_goes_red():

@@ -31,7 +31,7 @@ from osprey_connectors.control_system.base import (
     ChannelValue,
     ChannelWriteResult,
     ControlSystemConnector,
-    WriteVerification,
+    WriteOutcome,
 )
 from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
 
@@ -111,8 +111,7 @@ class RaisingConnector(ControlSystemConnector):
         channel_address: str,
         value: Any,
         timeout: float | None = None,
-        verification_level: str | None = None,
-        tolerance: float | None = None,
+        confirm: bool | None = None,
     ) -> ChannelWriteResult:
         if channel_address == LIMITS_CHANNEL:
             raise make_limits_violation()
@@ -121,8 +120,9 @@ class RaisingConnector(ControlSystemConnector):
         return ChannelWriteResult(
             channel_address=channel_address,
             value_written=value,
-            success=True,
-            verification=WriteVerification(level="none", verified=True),
+            # This connector sends nothing anywhere and reads nothing back, so
+            # the only honest word is the one for a write that was not checked.
+            outcome=WriteOutcome.UNREQUESTED,
         )
 
     async def subscribe(self, channel_address: str, callback: Any) -> str:

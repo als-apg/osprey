@@ -23,8 +23,8 @@ from osprey_connectors.control_system.base import (
     ChannelValue,
     ChannelWriteResult,
     ControlSystemConnector,
-    WriteVerification,
-    readback_number,
+    WriteOutcome,
+    values_match,
 )
 from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation import engine_serves
@@ -79,7 +79,7 @@ class MockConnector(ControlSystemConnector):
         self._response_delay = config.get("response_delay_ms", 10) / 1000.0
         self._noise_level = config.get("noise_level", 0.01)
 
-        # Initialize limits validator for automatic validation and verification config
+        # Initialize limits validator for automatic validation and confirm policy
         from osprey_connectors.control_system.limits_validator import LimitsValidator
 
         self._limits_validator = LimitsValidator.from_config()
@@ -118,6 +118,32 @@ class MockConnector(ControlSystemConnector):
         # Simulate network delay
         await asyncio.sleep(self._response_delay)
 
+        return self._read_value(channel_address, apply_noise=True)
+
+    async def _confirming_read(self, channel_address: str) -> ChannelValue:
+        """Read a channel back to confirm a write, without measurement noise.
+
+        Confirmation reports what the simulated control system *holds*, and the
+        store holds exactly what was put there. The noise ``read_channel``
+        injects models the jitter of measuring a live signal, so applying it
+        here would manufacture a mismatch on every write at any noise level.
+        """
+        await asyncio.sleep(self._response_delay)
+
+        return self._read_value(channel_address, apply_noise=False)
+
+    def _read_value(self, channel_address: str, *, apply_noise: bool) -> ChannelValue:
+        """Build the reading for ``channel_address`` from the simulated machine.
+
+        Args:
+            channel_address: Any channel name
+            apply_noise: Whether to add measurement noise to the held value.
+                Engine-served channels carry whatever the machine file makes
+                them report either way.
+
+        Returns:
+            ChannelValue with synthetic data
+        """
         # Simulation engine serves its channels; unknown PVs fall back to procedural
         if engine_serves(self._sim_engine, channel_address):
             reading = self._sim_engine.read(channel_address)
@@ -136,11 +162,11 @@ class MockConnector(ControlSystemConnector):
         if channel_address not in self._state:
             self._state[channel_address] = self._generate_initial_value(channel_address)
 
-        # Add noise, floored per kind so a 0.0 baseline is not dead-flat.
-        base_value = self._state[channel_address]
-        sigma = classify_channel(channel_address).noise_sigma(base_value, self._noise_level)
-        noise = np.random.normal(0, sigma)
-        value = base_value + noise
+        value = self._state[channel_address]
+        if apply_noise:
+            # Add noise, floored per kind so a 0.0 baseline is not dead-flat.
+            sigma = classify_channel(channel_address).noise_sigma(value, self._noise_level)
+            value = value + np.random.normal(0, sigma)
 
         return ChannelValue(
             value=value,
@@ -157,31 +183,27 @@ class MockConnector(ControlSystemConnector):
         channel_address: str,
         value: Any,
         timeout: float | None = None,
-        verification_level: str | None = None,
-        tolerance: float | None = None,
+        confirm: bool | None = None,
     ) -> ChannelWriteResult:
         """
-        Write channel with automatic limits validation and verification.
+        Write a value to a channel, confirming it unless asked not to.
 
         The connector automatically:
         1. Validates limits (min/max/step/writable) if limits checking enabled
-        2. Determines verification level from per-channel or global config
-        3. Executes write with appropriate verification
-
-        An explicitly passed ``verification_level`` wins over the configured one,
-        but the tolerance is still resolved from the limits database, so an
-        explicit ``"readback"`` keeps the channel's configured tolerance.
+        2. Resolves the confirmation policy for the channel when ``confirm`` is None
+        3. Puts the value, then re-reads the channel that was written and compares
 
         Args:
             channel_address: Any channel name
             value: Value to write
             timeout: Ignored for mock connector
-            verification_level: Optional override for verification level (auto-determined if None)
-            tolerance: Optional override for tolerance. Resolved from the limits
-                database when None, including when verification_level was given.
+            confirm: Whether to re-read the channel and compare, or ``None`` to
+                resolve the policy for this channel from the limits database
 
         Returns:
-            ChannelWriteResult with write status and verification details
+            ChannelWriteResult carrying the outcome and what the channel was seen
+            to hold. The mock has no alarm metadata to report, so the alarm
+            fields stay ``None``.
 
         Raises:
             ChannelLimitsViolationError: If limits validation fails (when enabled)
@@ -202,137 +224,91 @@ class MockConnector(ControlSystemConnector):
                 # Log unexpected errors but don't block (fail-open for non-limit errors)
                 logger.warning(f"Limits validation error (non-blocking): {e}")
 
-        # Step 2: Resolve verification config.
-        # An explicit level wins, but the tolerance is still resolved from the
-        # limits database: passing verification_level="readback" must not
-        # silently drop the channel's configured tolerance and fall back to the
-        # hard-coded 0.001. Only look it up when it is actually needed, so an
-        # explicit "none"/"callback" write of a non-numeric value never has to
-        # be coerced with float().
-        if verification_level is None or (tolerance is None and verification_level == "readback"):
-            auto_level, auto_tolerance = self._get_verification_config(
-                channel_address, float(value)
-            )
-            if verification_level is None:
-                verification_level = auto_level
-            if tolerance is None:
-                tolerance = auto_tolerance
+        # Step 2: Resolve the confirmation policy for this channel.
+        if confirm is None:
+            confirm = self._resolve_confirm(channel_address)
 
-        # Step 3: Execute write with verification
+        # Step 3: Put the value into the simulated control system.
         # Simulate network delay
         await asyncio.sleep(self._response_delay)
 
+        try:
+            self._put(channel_address, value)
+        except Exception as e:
+            logger.warning(f"Mock write failed for {channel_address}: {e}")
+            return ChannelWriteResult(
+                channel_address=channel_address,
+                value_written=value,
+                outcome=WriteOutcome.FAILED,
+                error_message=f"Mock write failed: {e}",
+            )
+
+        if not confirm:
+            # Fast path by contract: nothing is read, so the result carries no
+            # observed value — the same reasoning as the EPICS connector.
+            logger.debug(f"Mock write (unconfirmed by policy): {channel_address} = {value}")
+            return ChannelWriteResult(
+                channel_address=channel_address,
+                value_written=value,
+                outcome=WriteOutcome.UNREQUESTED,
+                notes="Confirmation not requested (mock)",
+            )
+
+        # Step 4: Confirm by re-reading the channel that was written.
+        try:
+            observed = await self._confirming_read(channel_address)
+        except Exception as e:
+            logger.warning(f"Mock confirming read failed for {channel_address}: {e}")
+            return ChannelWriteResult(
+                channel_address=channel_address,
+                value_written=value,
+                outcome=WriteOutcome.UNCONFIRMED,
+                error_message=f"Mock confirming read failed: {e}",
+                notes=f"Confirming read raised: {e} (mock)",
+            )
+
+        # The mock reports no enum label, so the comparison is the ordinary one.
+        if values_match(value, observed.value):
+            logger.debug(f"Mock write confirmed: {channel_address} = {observed.value}")
+            return ChannelWriteResult(
+                channel_address=channel_address,
+                value_written=value,
+                outcome=WriteOutcome.CONFIRMED,
+                observed_value=observed.value,
+                notes=f"Observed {observed.value}, sent {value} (mock)",
+            )
+
+        logger.warning(
+            f"Mock write mismatch: {channel_address} sent {value}, observed {observed.value}"
+        )
+        return ChannelWriteResult(
+            channel_address=channel_address,
+            value_written=value,
+            outcome=WriteOutcome.MISMATCH,
+            observed_value=observed.value,
+            notes=f"Observed {observed.value}, sent {value} (mock)",
+        )
+
+    def _put(self, channel_address: str, value: Any) -> None:
+        """Store ``value`` in the simulated control system.
+
+        Raises whatever the store raises — a value the mock cannot hold is a
+        write the control system did not take.
+        """
         if engine_serves(self._sim_engine, channel_address):
             # Engine channels: :SP -> :RB mirroring is handled by expr readbacks
             # in the machine file, so no string-replace mirroring is needed here.
             self._sim_engine.write(channel_address, value)
-        else:
-            # Update state
-            self._state[channel_address] = float(value)
+            return
 
-            # Update corresponding readback channel (simulate small offset)
-            readback_ch = channel_address.replace(":SP", ":RB").replace(":SET", ":GET")
-            if readback_ch != channel_address:
-                # Simulate small offset between setpoint and readback
-                offset = np.random.normal(0, abs(float(value)) * 0.001)
-                self._state[readback_ch] = float(value) + offset
+        self._state[channel_address] = float(value)
 
-        if verification_level == "none":
-            # Fast path by contract: no wait and no read, so the result stays
-            # value-less — the same reasoning as the EPICS connector.
-            logger.debug(f"Mock write (no verification): {channel_address} = {value}")
-            return ChannelWriteResult(
-                channel_address=channel_address,
-                value_written=value,
-                success=True,
-                verification=WriteVerification(
-                    level="none", verified=False, notes="No verification requested (mock)"
-                ),
-            )
-
-        elif verification_level == "callback":
-            # Simulate callback confirmation (mock always succeeds), then read
-            # once so the result carries what the channel holds now. The read
-            # is an enrichment: it never changes ``verified``, applies no
-            # tolerance, and a failure is not a ``readback_failed`` (that names
-            # a readback-level verification that could not complete).
-            logger.debug(f"Mock write (callback simulated): {channel_address} = {value}")
-            try:
-                readback = await self.read_channel(channel_address)
-            except Exception as e:
-                logger.warning(f"Mock post-callback read failed for {channel_address}: {e}")
-                verification = WriteVerification(
-                    level="callback",
-                    verified=True,
-                    notes=f"Simulated callback confirmation; post-write read failed: {e} (mock)",
-                )
-            else:
-                verification = WriteVerification(
-                    level="callback",
-                    verified=True,
-                    readback_value=readback_number(readback.value),
-                    notes=f"Simulated callback confirmation; readback: {readback.value} (mock)",
-                )
-            return ChannelWriteResult(
-                channel_address=channel_address,
-                value_written=value,
-                success=True,
-                verification=verification,
-            )
-
-        elif verification_level == "readback":
-            # Full verification - read back and compare
-            try:
-                # Add small delay to simulate readback
-                await asyncio.sleep(self._response_delay)
-
-                readback = await self.read_channel(channel_address)
-
-                # Check tolerance
-                diff = abs(float(readback.value) - float(value))
-                verified = diff <= (tolerance or 0.001)
-
-                logger.debug(
-                    f"Mock write (readback verified={verified}): {channel_address} = {value}, "
-                    f"readback = {readback.value}, diff = {diff:.6f}, tolerance = {tolerance}"
-                )
-
-                return ChannelWriteResult(
-                    channel_address=channel_address,
-                    value_written=value,
-                    success=True,
-                    verification=WriteVerification(
-                        level="readback",
-                        verified=verified,
-                        readback_value=float(readback.value),
-                        tolerance_used=tolerance,
-                        notes=(
-                            f"Simulated readback: {readback.value}, tolerance: ±{tolerance}, diff: {diff:.6f} (mock)"
-                            if verified
-                            else f"Simulated readback mismatch: {readback.value} (expected {value}, diff: {diff:.6f} > tolerance {tolerance}) (mock)"
-                        ),
-                    ),
-                )
-
-            except Exception as e:
-                logger.warning(f"Mock readback failed for {channel_address}: {e}")
-                return ChannelWriteResult(
-                    channel_address=channel_address,
-                    value_written=value,
-                    success=True,
-                    verification=WriteVerification(
-                        level="readback",
-                        verified=False,
-                        notes=f"Simulated readback failed: {str(e)} (mock)",
-                        failure_kind="readback_failed",
-                    ),
-                    error_message=f"Mock readback verification failed: {str(e)}",
-                )
-
-        else:
-            raise ValueError(
-                f"Invalid verification_level: {verification_level}. Must be 'none', 'callback', or 'readback'"
-            )
+        # Update corresponding readback channel (simulate small offset)
+        readback_ch = channel_address.replace(":SP", ":RB").replace(":SET", ":GET")
+        if readback_ch != channel_address:
+            # Simulate small offset between setpoint and readback
+            offset = np.random.normal(0, abs(float(value)) * 0.001)
+            self._state[readback_ch] = float(value) + offset
 
     async def read_multiple_channels(
         self, channel_addresses: list[str], timeout: float | None = None

@@ -4,7 +4,7 @@ Covers two contracts:
 
 1. `defaults` block inheritance - a channel inherits values from the top-level
    `defaults` block unless it overrides them, including the safety-critical
-   `writable` lockdown and per-channel `verification` config.
+   `writable` lockdown and the per-channel `confirm` write policy.
 2. Fail-closed invariant - a limits violation always raises; there is no policy
    value that turns enforcement off. (`on_violation` was removed as a knob; this
    guards against re-introducing a fail-open path.)
@@ -16,7 +16,6 @@ from pathlib import Path
 
 import pytest
 
-import osprey.connectors.control_system.limits_validator as limits_validator_module
 from osprey.connectors.control_system.limits_validator import (
     DEFAULTS_FIELD,
     ChannelLimitsConfig,
@@ -88,25 +87,22 @@ def test_defaults_min_max_are_inherited(tmp_path):
     assert exc.value.violation_type == "MAX_EXCEEDED"
 
 
-def test_defaults_verification_is_inherited(tmp_path):
-    """A channel omitting `verification` inherits the `defaults` verification.
+def test_defaults_confirm_is_inherited(tmp_path):
+    """A channel omitting `confirm` inherits the `defaults` block's `confirm`.
 
-    This deliberately makes the `defaults` level ("readback") differ from any
-    plausible global fallback so the test proves true inheritance rather than a
-    coincidental global default.
+    The defaults value is deliberately `false`, the opposite of the fleet
+    default, so the test proves true inheritance rather than a coincidental
+    fallback.
     """
     validator = _make_validator(
         tmp_path,
         {
-            "defaults": {"verification": {"level": "readback", "tolerance_percent": 0.5}},
-            "FOO": {"min_value": 0.0, "max_value": 100.0},  # omits `verification`
+            "defaults": {"confirm": False},
+            "FOO": {"min_value": 0.0, "max_value": 100.0},  # omits `confirm`
         },
     )
 
-    level, tolerance = validator.get_verification_config("FOO", 50.0)
-
-    assert level == "readback"
-    assert tolerance == pytest.approx(50.0 * 0.5 / 100.0)
+    assert validator.resolve_confirm("FOO") is False
 
 
 # ---------------------------------------------------------------------------
@@ -404,65 +400,76 @@ class TestGetLimitsConfig:
 
 
 # ---------------------------------------------------------------------------
-# get_verification_config (tolerance math + fallbacks)
+# resolve_confirm (channel entry -> defaults -> True)
 # ---------------------------------------------------------------------------
 
 
-class TestGetVerificationConfig:
-    def test_no_raw_db_returns_none_none(self):
+class TestResolveConfirm:
+    def test_no_raw_db_confirms(self):
+        # No policy to read is not a licence to skip the check.
         validator = LimitsValidator({}, {}, raw_db=None)
 
-        assert validator.get_verification_config("FOO", 10.0) == (None, None)
+        assert validator.resolve_confirm("FOO") is True
 
-    def test_channel_absolute_tolerance_takes_priority(self, tmp_path):
+    def test_channel_entry_wins_over_defaults(self, tmp_path):
         validator = _make_validator(
             tmp_path,
             {
-                "FOO": {
-                    "max_value": 100.0,
-                    "verification": {
-                        "level": "readback",
-                        "tolerance_absolute": 0.25,
-                        "tolerance_percent": 5.0,
-                    },
-                }
+                "defaults": {"confirm": True},
+                "FOO": {"max_value": 100.0, "confirm": False},
             },
         )
 
-        level, tolerance = validator.get_verification_config("FOO", 50.0)
+        assert validator.resolve_confirm("FOO") is False
 
-        assert level == "readback"
-        assert tolerance == 0.25  # absolute wins over percent
-
-    def test_default_permille_tolerance_when_none_specified(self, tmp_path):
+    def test_channel_entry_can_re_enable_what_defaults_switched_off(self, tmp_path):
         validator = _make_validator(
             tmp_path,
-            {"FOO": {"max_value": 100.0, "verification": {"level": "readback"}}},
+            {
+                "defaults": {"confirm": False},
+                "FOO": {"max_value": 100.0, "confirm": True},
+            },
         )
 
-        level, tolerance = validator.get_verification_config("FOO", 200.0)
+        assert validator.resolve_confirm("FOO") is True
 
-        assert level == "readback"
-        assert tolerance == pytest.approx(200.0 * 0.1 / 100.0)  # 0.1% default
-
-    def test_non_readback_level_has_no_tolerance(self, tmp_path):
+    def test_defaults_apply_when_the_channel_is_silent(self, tmp_path):
         validator = _make_validator(
             tmp_path,
-            {"FOO": {"max_value": 100.0, "verification": {"level": "callback"}}},
+            {"defaults": {"confirm": False}, "FOO": {"max_value": 100.0}},
         )
 
-        assert validator.get_verification_config("FOO", 50.0) == ("callback", None)
+        assert validator.resolve_confirm("FOO") is False
 
-    def test_no_verification_config_returns_none_none(self, tmp_path):
+    def test_silence_everywhere_confirms(self, tmp_path):
         validator = _make_validator(tmp_path, {"FOO": {"max_value": 100.0}})
 
-        assert validator.get_verification_config("FOO", 50.0) == (None, None)
+        assert validator.resolve_confirm("FOO") is True
+
+    def test_unlisted_channel_confirms(self, tmp_path):
+        validator = _make_validator(
+            tmp_path, {"defaults": {"confirm": True}, "FOO": {"max_value": 100.0}}
+        )
+
+        assert validator.resolve_confirm("MISSING") is True
+
+    def test_unlisted_channel_still_inherits_defaults(self, tmp_path):
+        validator = _make_validator(
+            tmp_path, {"defaults": {"confirm": False}, "FOO": {"max_value": 100.0}}
+        )
+
+        assert validator.resolve_confirm("MISSING") is False
 
     def test_non_dict_defaults_block_is_ignored(self):
-        """A malformed (non-dict) defaults block does not crash lookups."""
+        """A malformed (non-dict) defaults block does not crash the lookup."""
         validator = LimitsValidator({}, {}, raw_db={"defaults": "oops", "FOO": {}})
 
-        assert validator.get_verification_config("FOO", 1.0) == (None, None)
+        assert validator.resolve_confirm("FOO") is True
+
+    def test_non_dict_channel_entry_is_ignored(self):
+        validator = LimitsValidator({}, {}, raw_db={"defaults": {"confirm": False}, "FOO": "oops"})
+
+        assert validator.resolve_confirm("FOO") is False
 
 
 # ---------------------------------------------------------------------------
@@ -470,30 +477,22 @@ class TestGetVerificationConfig:
 # ---------------------------------------------------------------------------
 
 
-def _capture_warnings(monkeypatch) -> list[str]:
-    """Record limits_validator warning messages without depending on logging config.
-
-    caplog is unreliable here: get_logger() reconfigures the root logger and can
-    drop pytest's capture handler depending on test order, so we patch the
-    module logger directly (the pattern used in test_epics_gateway_selection.py).
-    """
-    messages: list[str] = []
-    monkeypatch.setattr(
-        limits_validator_module.logger,
-        "warning",
-        lambda msg, *a, **k: messages.append(str(msg)),
-    )
-    return messages
-
-
 class TestValidateChannelConfig:
-    def test_unknown_field_warns_but_does_not_raise(self, monkeypatch):
-        # Unknown fields are a warning, not an error — the config still loads.
-        warnings = _capture_warnings(monkeypatch)
+    def test_unknown_field_raises_and_names_the_key(self):
+        with pytest.raises(ValueError, match="bogus_field"):
+            LimitsValidator._validate_channel_config("FOO", {"bogus_field": 1})
 
-        LimitsValidator._validate_channel_config("FOO", {"bogus_field": 1})
+    def test_underscore_prefixed_metadata_is_accepted(self):
+        # Any '_'-prefixed key is documentation, not a closed set of four.
+        LimitsValidator._validate_channel_config(
+            "FOO", {"max_value": 1.0, "_units": "mA", "_owner": "APG"}
+        )
 
-        assert any("unknown fields" in m for m in warnings), warnings
+    def test_retired_verification_block_raises_with_the_migration_message(self):
+        with pytest.raises(ValueError) as exc:
+            LimitsValidator._validate_channel_config("FOO", {"verification": {"level": "none"}})
+
+        assert "'verification' was replaced by 'confirm: true|false'" in str(exc.value)
 
     def test_non_numeric_bound_raises(self):
         with pytest.raises(ValueError, match="must be numeric"):
@@ -503,30 +502,12 @@ class TestValidateChannelConfig:
         with pytest.raises(ValueError, match="must be boolean"):
             LimitsValidator._validate_channel_config("FOO", {"writable": "yes"})
 
-    def test_verification_must_be_dict(self):
-        with pytest.raises(ValueError, match="must be a dictionary"):
-            LimitsValidator._validate_channel_config("FOO", {"verification": "readback"})
+    def test_non_bool_confirm_raises(self):
+        with pytest.raises(ValueError, match="'confirm' must be boolean"):
+            LimitsValidator._validate_channel_config("FOO", {"confirm": "yes"})
 
-    def test_unknown_verification_field_warns(self, monkeypatch):
-        warnings = _capture_warnings(monkeypatch)
-
-        LimitsValidator._validate_channel_config(
-            "FOO", {"verification": {"level": "callback", "bogus": 1}}
-        )
-
-        assert any("verification has unknown fields" in m for m in warnings), warnings
-
-    def test_invalid_verification_level_raises(self):
-        with pytest.raises(ValueError, match="verification.level must be"):
-            LimitsValidator._validate_channel_config(
-                "FOO", {"verification": {"level": "sometimes"}}
-            )
-
-    def test_verification_without_level_is_accepted(self):
-        # A verification block may omit 'level' (a default is applied elsewhere) — no raise.
-        LimitsValidator._validate_channel_config(
-            "FOO", {"verification": {"tolerance_absolute": 0.1}}
-        )
+    def test_bool_confirm_is_accepted(self):
+        LimitsValidator._validate_channel_config("FOO", {"confirm": False})
 
 
 # ---------------------------------------------------------------------------
@@ -560,29 +541,27 @@ class TestLoadDatabase:
         with pytest.raises(ValueError, match="Invalid 'defaults' configuration"):
             LimitsValidator._load_limits_database(str(f))
 
-    def test_metadata_and_non_dict_channels_are_skipped(self, tmp_path):
+    def test_metadata_fields_are_skipped(self, tmp_path):
         f = tmp_path / "limits.json"
-        f.write_text(
-            json.dumps(
-                {
-                    "_comment": "ignored metadata",
-                    "BADCHAN": 42,  # non-dict -> skipped
-                    "GOOD": {"max_value": 10.0},
-                }
-            )
-        )
+        f.write_text(json.dumps({"_comment": "ignored metadata", "GOOD": {"max_value": 10.0}}))
 
         limits_db, _ = LimitsValidator._load_limits_database(str(f))
 
         assert set(limits_db) == {"GOOD"}
 
-    def test_channel_with_invalid_field_is_skipped(self, tmp_path):
+    def test_non_dict_channel_raises(self, tmp_path):
+        f = tmp_path / "limits.json"
+        f.write_text(json.dumps({"BADCHAN": 42, "GOOD": {"max_value": 10.0}}))
+
+        with pytest.raises(ValueError, match="BADCHAN"):
+            LimitsValidator._load_limits_database(str(f))
+
+    def test_channel_with_invalid_field_raises(self, tmp_path):
         f = tmp_path / "limits.json"
         f.write_text(json.dumps({"BADFIELD": {"min_value": "x"}, "GOOD": {"max_value": 10.0}}))
 
-        limits_db, _ = LimitsValidator._load_limits_database(str(f))
-
-        assert set(limits_db) == {"GOOD"}
+        with pytest.raises(ValueError, match="BADFIELD"):
+            LimitsValidator._load_limits_database(str(f))
 
     def test_max_step_channel_loads(self, tmp_path):
         f = tmp_path / "limits.json"

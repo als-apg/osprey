@@ -59,8 +59,8 @@ Supported values
 strings; tuples decode as lists), numpy arrays and numpy scalars (dtype and
 shape preserved), and the connector dataclasses
 :class:`~osprey_connectors.control_system.base.ChannelValue`,
-``ChannelMetadata``, ``ChannelWriteResult`` and ``WriteVerification``, which
-decode as real instances of those classes. Anything else is refused at encode
+``ChannelMetadata`` and ``ChannelWriteResult``, which decode as real
+instances of those classes. Anything else is refused at encode
 time rather than silently degraded.
 """
 
@@ -81,7 +81,6 @@ from osprey_connectors.control_system.base import (
     ChannelMetadata,
     ChannelValue,
     ChannelWriteResult,
-    WriteVerification,
 )
 from osprey_connectors.ipc.exceptions import exception_fields, reconstruct_exception
 
@@ -166,7 +165,6 @@ _DATACLASSES: dict[str, type] = {
     "ChannelValue": ChannelValue,
     "ChannelMetadata": ChannelMetadata,
     "ChannelWriteResult": ChannelWriteResult,
-    "WriteVerification": WriteVerification,
 }
 
 

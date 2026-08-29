@@ -11,8 +11,8 @@ the OSPREY connector
 (:class:`osprey.connectors.control_system.base.ControlSystemConnector`):
 reads via ``connector.read_channel``, writes via
 ``connector.write_channel_checked``, which raises on any refused, failed,
-or unverified write so a bad write aborts the RunEngine rather than
-silently continuing a plan. There is no raw Channel Access client library,
+mismatched or unconfirmed write so a bad write aborts the RunEngine rather
+than silently continuing a plan. There is no raw Channel Access client library,
 no low-level EPICS signal backend, and no direct PV access anywhere in
 this module.
 
@@ -69,8 +69,8 @@ class ConnectorSettable(StandardReadable):
     direct Channel Access device class, deliberately, so that no read or
     write can bypass the connector's reference monitor. ``set()`` writes the
     setpoint through ``connector.write_channel_checked`` — which raises on
-    any refusal, failure, or unverified write, aborting the RunEngine — then
-    polls the (possibly separate) readback channel through
+    any refusal, failure, mismatch, or unconfirmed write, aborting the
+    RunEngine — then polls the (possibly separate) readback channel through
     ``connector.read_channel`` until it settles within ``_READBACK_DEADBAND``
     of the demanded value, or raises ``TimeoutError`` after
     ``_READBACK_SETTLE_TIMEOUT_S``. ``read()``/``describe()`` are overridden
@@ -79,12 +79,13 @@ class ConnectorSettable(StandardReadable):
     reflects the current mediated state.
 
     When ``readback_pv`` is omitted, ``readback`` aliases ``setpoint_pv``:
-    there is no independent readback to settle against, and the write result
-    already carries the connector's post-write read of that PV, so that
-    value is the first settle sample and the poll loop only runs when it is
-    not yet within the deadband (or the connector could not read it). With a
-    separate ``readback_pv`` the result's readback is of the *setpoint*, not
-    the readback channel, so it is never taken as a sample there.
+    there is no independent readback to settle against, and a ``confirmed``
+    write already means the connector re-read that exact channel and found
+    the value sent, so the settle poll is skipped entirely. The poll loop
+    runs when the write was ``unrequested`` (the channel is configured
+    ``confirm: false``, so nothing was checked). With a separate
+    ``readback_pv`` the write's outcome is about the *setpoint*, not the
+    readback channel, so it never stands in for a settle sample there.
 
     The OSPREY connector instance is stored as ``self._osprey_connector``,
     not ``self._connector``: ophyd-async's own ``Device.__init__`` already
@@ -115,8 +116,13 @@ class ConnectorSettable(StandardReadable):
                 written — either by the reference monitor (writes disabled,
                 limits, validation), in which case it was never attempted, or
                 by the control system itself (CONTROL_SYSTEM_REFUSED).
-            ChannelWriteFailedError: The write was attempted but failed, or
-                its callback verification did not succeed.
+            ChannelWriteFailedError: The write was sent but the channel does
+                not verifiably hold the value sent — ``FAILED`` (the control
+                system did not take it), ``MISMATCH`` (the channel holds a
+                different value, e.g. a clamped setpoint) or ``UNCONFIRMED``
+                (the confirming re-read itself raised). All three abort the
+                plan: an unconfirmed or mismatched write is a false premise
+                for every step that follows it.
             ConnectionError: Propagated unchanged from the connector's
                 Channel Access layer.
             TimeoutError: Either propagated unchanged from the connector's
@@ -130,19 +136,21 @@ class ConnectorSettable(StandardReadable):
             through ``write_channel_checked`` instead of a bare
             ``write_channel``.
         """
-        result = await self._osprey_connector.write_channel_checked(
-            self._setpoint_pv, value, verification_level="callback"
-        )
+        # No ``confirm`` kwarg: whether a channel is confirmed is the channel's
+        # own resolved policy, and a device layer has no opinion to add.
+        result = await self._osprey_connector.write_channel_checked(self._setpoint_pv, value)
 
-        if self._readback_pv == self._setpoint_pv:
-            # The callback-level result carries the post-write readback of the
-            # PV just written; when that is the readback channel too, it is
-            # the first settle sample. None means the connector could not
-            # read it, which the poll loop below covers.
-            verification = getattr(result, "verification", None)
-            first_sample = getattr(verification, "readback_value", None)
-            if first_sample is not None and abs(first_sample - value) <= _READBACK_DEADBAND:
-                return
+        if self._readback_pv == self._setpoint_pv and result.outcome == "confirmed":
+            # ``confirmed`` means the connector re-read this very channel and
+            # found the value sent — that IS the settle, so return on the word,
+            # never on arithmetic over ``observed_value``: _READBACK_DEADBAND is
+            # stricter than the connector's comparison rule
+            # (``isclose(rel_tol=1e-6)``), so re-checking a confirmed write here
+            # would poll the setpoint just written for the full settle timeout
+            # and then raise on a write that succeeded. (``WriteOutcome`` is a
+            # ``StrEnum``, so the word compares equal without importing the
+            # connector package into this deliberately duck-typed device layer.)
+            return
 
         deadline = time.monotonic() + _READBACK_SETTLE_TIMEOUT_S
         while True:

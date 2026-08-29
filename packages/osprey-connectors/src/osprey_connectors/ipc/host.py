@@ -450,9 +450,9 @@ async def _build_connector(payload: dict[str, Any]) -> tuple[Any, dict[str, Any]
 
     config_file = payload.get("config_file")
     if config_file:
-        # The connector reads writes_enabled, the limits database and the
-        # verification defaults from the project config, so the child must be
-        # pointed at the same file the parent resolved against.
+        # The connector reads writes_enabled and the limits database — the home
+        # of the per-channel confirm policy — from the project config, so the
+        # child must be pointed at the same file the parent resolved against.
         os.environ["CONFIG_FILE"] = str(config_file)
     if payload.get("execution_mode") == "readonly":
         # Restriction only: an inherited readonly claim is never cleared here.
@@ -464,9 +464,9 @@ async def _build_connector(payload: dict[str, Any]) -> tuple[Any, dict[str, Any]
     connector_type = types.resolve_target(section, target)
     register_builtin_connectors()
 
-    # The section is passed whole with only its type replaced: writes_enabled,
-    # write_verification and the limits block travel with it, and the connector
-    # sub-block is already keyed by the resolved type.
+    # The section is passed whole with only its type replaced: writes_enabled and
+    # the limits block, per-channel confirm included, travel with it, and the
+    # connector sub-block is already keyed by the resolved type.
     config = {**section, "type": connector_type}
     connector = await ConnectorFactory.create_control_system_connector(config)
 

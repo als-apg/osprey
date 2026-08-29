@@ -341,8 +341,9 @@ def ca_op(
     module's docstring gives: the CA client library latches its environment at
     first use, so a suite that talked to one port in this process could never
     talk to another. Returns that script's parsed result:
-    ``read_value``, ``read_settled``, and (when a write was asked for)
-    ``write_success`` / ``write_verified``.
+    ``read_value``, ``read_settled``, ``write_outcome`` and
+    ``write_error_message`` -- the outcome is ``None`` when no write was asked
+    for, otherwise the ``WriteOutcome`` word the connector reported.
 
     Limits checking stays off. The bench IOC has no channel-limits database, and
     a client-side refusal would mask the only refusal these suites care about --
@@ -394,10 +395,10 @@ def caput(
 ) -> dict[str, Any]:
     """Write one channel on the bench IOC, then read *read_back* (default: it).
 
-    Returns the full result rather than a bare success flag, because a refused
-    write is a *result* here, not an exception: the IOC's access-security rules
-    deny one channel by design, and that denial arrives as ``write_success``
-    false with the read still answering the channel's unchanged value.
+    Returns the full result rather than a bare flag, because a refused write is
+    a *result* here, not an exception: the IOC's access-security rules deny one
+    channel by design, and that denial arrives as ``write_outcome == "refused"``
+    with the read still answering the channel's unchanged value.
 
     ``settle_read`` polls the readback until it reflects the written value. The
     bench IOC's records are seeded constants with no setpoint-to-readback echo

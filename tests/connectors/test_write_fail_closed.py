@@ -1,11 +1,12 @@
 """Fail-closed validation tests for EPICSConnector.write_channel.
 
 Task 1.3: a validation error other than a limits violation must REFUSE the
-write (blocked=True, refusal_reason="VALIDATION_ERROR") and never issue a
-caput. A ChannelLimitsViolationError still propagates unchanged, and an error
-raised by the caput itself (e.g. ConnectionError) propagates untouched — it is
-a genuine failure, not a refusal. The one caput error that IS a refusal is the
-control system's own denial; see test_control_system_refused.py.
+write (outcome=WriteOutcome.REFUSED, refusal_reason="VALIDATION_ERROR") and
+never issue a caput. A ChannelLimitsViolationError still propagates unchanged,
+and an error raised by the caput itself (e.g. ConnectionError) propagates
+untouched — it is a genuine failure, not a refusal. The one caput error that
+IS a refusal is the control system's own denial; see
+test_control_system_refused.py.
 """
 
 import asyncio
@@ -14,7 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from osprey.connectors.control_system.base import ChannelWriteResult
+from osprey.connectors.control_system.base import ChannelWriteResult, WriteOutcome
 from osprey.connectors.control_system.epics_connector import EPICSConnector
 from osprey.errors import ChannelLimitsViolationError
 
@@ -52,11 +53,10 @@ class TestFailClosedValidation:
             "osprey.utils.config.get_config_value",
             side_effect=_writes_enabled_config,
         ):
-            result = await connector.write_channel("TEST:PV", 42.0, verification_level="none")
+            result = await connector.write_channel("TEST:PV", 42.0, confirm=False)
 
         assert isinstance(result, ChannelWriteResult)
-        assert result.success is False
-        assert result.blocked is True
+        assert result.outcome is WriteOutcome.REFUSED
         assert result.refusal_reason == "VALIDATION_ERROR"
         assert "TEST:PV" in result.error_message
         # The write must NEVER have been issued.
@@ -78,7 +78,7 @@ class TestFailClosedValidation:
             side_effect=_writes_enabled_config,
         ):
             with pytest.raises(ChannelLimitsViolationError):
-                await connector.write_channel("TEST:PV", 999.0, verification_level="none")
+                await connector.write_channel("TEST:PV", 999.0, confirm=False)
 
         connector._epics.caput.assert_not_called()
 
@@ -97,7 +97,7 @@ class TestFailClosedValidation:
             side_effect=_writes_enabled_config,
         ):
             with pytest.raises(ConnectionError):
-                await connector.write_channel("TEST:PV", 42.0, verification_level="none")
+                await connector.write_channel("TEST:PV", 42.0, confirm=False)
 
         # validate passed and the caput was actually attempted.
         connector._limits_validator.validate.assert_called_once()
@@ -141,7 +141,7 @@ class TestNonBlockingOffload:
         ):
             ticker_task = asyncio.create_task(ticker())
             write_task = asyncio.create_task(
-                connector.write_channel("TEST:PV", 42.0, verification_level="none")
+                connector.write_channel("TEST:PV", 42.0, confirm=False)
             )
 
             # Give the write time to reach its to_thread offload, then measure how
@@ -157,9 +157,10 @@ class TestNonBlockingOffload:
         # 0.3s validate duration, and the ticker advanced during the window.
         assert elapsed < 0.2, f"event loop was blocked for {elapsed:.3f}s"
         assert ticks > 0, "concurrent coroutine was starved (loop blocked)"
-        # max_step-style validation was still evaluated, and the write succeeded.
+        # max_step-style validation was still evaluated, and the write succeeded
+        # (unconfirmed, since confirm=False).
         connector._limits_validator.validate.assert_called_once()
-        assert result.success is True
+        assert result.outcome is WriteOutcome.UNREQUESTED
 
     @pytest.mark.asyncio
     async def test_max_step_violation_still_raised_through_offload(self):
@@ -180,7 +181,7 @@ class TestNonBlockingOffload:
             side_effect=_writes_enabled_config,
         ):
             with pytest.raises(ChannelLimitsViolationError):
-                await connector.write_channel("TEST:PV", 5.0, verification_level="none")
+                await connector.write_channel("TEST:PV", 5.0, confirm=False)
 
         connector._limits_validator.validate.assert_called_once()
         connector._epics.caput.assert_not_called()

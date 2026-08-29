@@ -15,7 +15,7 @@ proofs then exercise the whole stack end to end:
   P4 concurrent:    an EPICS-substrate ``grid_scan`` plan runs to completion
                      while a concurrent host read observes the same PV
                      consistently — the loop-affinity falsifier.
-  P5 honest divergence: a write to a pre-faulted ``:SP`` verifies (the SP
+  P5 honest divergence: a write to a pre-faulted ``:SP`` is confirmed (the SP
                      always latches its own readback), but an independent read
                      of the sibling ``:RB`` proves it never moved — and both
                      CA clients (host + bridge) agree on that frozen value.
@@ -600,10 +600,10 @@ def _host_ca_op_spec(
 
     ``CONNECTOR_CONFIG`` is passed verbatim so the subprocess builds a REAL
     production ``VirtualAcceleratorConnector`` via ``ConnectorFactory`` under
-    test-supplied config. Config keys these proofs don't exercise (e.g.
-    write-verification ``default_level``/auto-tolerance) fall to code defaults --
-    inert here, since every write passes ``verification_level="readback"``
-    explicitly. The only thing that changes vs. an in-process connector is the
+    test-supplied config. Config keys these proofs don't exercise fall to code
+    defaults -- inert here, since every write passes ``confirm=True`` explicitly
+    rather than resolving the limits database's ``confirm`` field. The only
+    thing that changes vs. an in-process connector is the
     process boundary -- required for CA-teardown safety (see ``_va_host_ca_op.py``).
     """
     overrides: dict[str, Any] = {
@@ -763,9 +763,7 @@ async def test_p3_read_equivalence(deployed_stack: DeployedStack) -> None:
             settle_read=True,
         )
     )
-    assert host["write_success"] and host["write_verified"], (
-        f"setup write to {sp} did not verify: {host}"
-    )
+    assert host["write_outcome"] == "confirmed", f"setup write to {sp} was not confirmed: {host}"
     assert host["read_settled"], (
         f"host read of {rb} never settled to the written setpoint {value} "
         f"(last read {host['read_value']}) — sp-echo SP->RB propagation did not complete"
@@ -934,12 +932,11 @@ async def test_p5_honest_divergence_under_stuck_setpoint(deployed_stack: Deploye
         _host_ca_op_spec(deployed_stack.repo, read=rb, write={"address": sp, "value": value})
     )
     # The SP always latches its own written value (records.py) even when stuck --
-    # only the propagation to RB is dropped. write_channel's readback
-    # verification re-reads the SAME channel it wrote (the SP), so a stuck-RB
-    # fault is invisible to it: this MUST verify True.
-    assert host["write_success"] is True, f"write to pre-faulted {sp} did not succeed: {host}"
-    assert host["write_verified"] is True, (
-        f"write to pre-faulted {sp} did not verify (SP always latches its own "
+    # only the propagation to RB is dropped. write_channel confirms by re-reading
+    # the SAME channel it wrote (the SP), so a stuck-RB fault is invisible to it:
+    # the outcome MUST be `confirmed`.
+    assert host["write_outcome"] == "confirmed", (
+        f"write to pre-faulted {sp} was not confirmed (SP always latches its own "
         f"readback regardless of the fault): {host}"
     )
 

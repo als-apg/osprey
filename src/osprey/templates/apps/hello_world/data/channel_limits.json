@@ -3,12 +3,9 @@
   "_version": "1.0",
 
   "defaults": {
-    "_comment": "Settings inherited by every channel below unless it overrides them",
+    "_comment": "Settings inherited by every channel below unless it overrides them. A write is confirmed when the channel holds the value sent.",
     "writable": true,
-    "verification": {
-      "level": "callback",
-      "_comment": "After a write, wait for the control system to confirm it accepted the value"
-    }
+    "confirm": true
   },
 
   "SR:MAG:QF:01:CURRENT:SP": {

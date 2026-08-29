@@ -1,19 +1,20 @@
 """Tests for the channel_write MCP tool.
 
-Covers: successful write with readback, limits violation (inline validator),
-verification levels, connection errors, error format compliance, and the
-``write_state`` contract the agent keys on.
+Covers: the six-word ``outcome`` contract, the report-vs-raise boundary of the
+returned envelope, ``confirm`` passthrough, the bounded projection of an
+oversize observed value, limits violations, connection errors and error-format
+compliance.
 
-Every assertion about ``write_state`` is made on the PARSED tool output —
+Every assertion about an outcome is made on the PARSED tool output —
 ``summary.results[]`` — never on an internal dict. That projection is the only
 thing an agent ever sees, so a field added to the tool's private bookkeeping and
 not to the summary would be invisible in production while looking correct in a
 test.
 
-The verification object in the fixture below is a real ``WriteVerification``, not
-a ``MagicMock``: a mock answers every attribute truthily, so a state predicate
-reading a field no connector populates would pass here and misclassify in the
-field.
+The results the connector hands the tool are real ``ChannelWriteResult``
+objects, not ``MagicMock``s: a mock answers every attribute truthily, so a
+projection reading a field no connector populates would pass here and misreport
+in the field.
 
 Note: writes_enabled check is handled by the PreToolUse hook, not the tool itself.
 The tool does its own limits validation via LimitsValidator.
@@ -24,7 +25,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from osprey.connectors.control_system.base import WriteVerification
+from osprey.connectors.control_system.base import ChannelWriteResult, WriteOutcome
 from osprey.mcp_server.control_system.server_context import initialize_server_context
 from tests.mcp_server.conftest import (
     assert_raises_error,
@@ -32,73 +33,63 @@ from tests.mcp_server.conftest import (
     get_tool_fn,
 )
 
-#: Every state the tool can emit, in the order its predicates decide them. Pinned
-#: as a list so a reordering that changes which predicate wins is visible here.
-EXPECTED_WRITE_STATES = [
-    "blocked",
-    "write_failed",
-    "verification_not_reported",
-    "verification_not_requested",
-    "verified_with_alarm",
-    "verified",
-    "readback_failed",
-    "unverified_alarm",
-    "verification_failed",
+#: Every outcome word a result can carry, in the order the contract documents
+#: them. Pinned as a list so a word added, dropped or reworded on one side of
+#: the contract is visible here.
+EXPECTED_OUTCOMES = [
+    "refused",
+    "failed",
+    "confirmed",
+    "mismatch",
+    "unconfirmed",
+    "unrequested",
 ]
 
 #: Distinguishes "argument not given" from an explicit ``None``, which is itself
-#: a meaningful value for ``verification`` and ``readback_value``.
+#: a meaningful value for ``observed_value``.
 _UNSET = object()
 
 
 def _make_write_result(
     channel="TEST:PV",
     value=1.0,
-    success=True,
-    error_message=None,
-    verification_level="callback",
-    blocked=False,
+    outcome="confirmed",
     refusal_reason=None,
-    verified=True,
-    readback_value=_UNSET,
-    tolerance_used=0.1,
-    notes="",
-    readback_alarm_status=None,
-    readback_alarm_severity=None,
-    failure_kind=None,
-    verification=_UNSET,
+    error_message=None,
+    observed_value=_UNSET,
+    alarm_status=None,
+    alarm_severity=None,
+    notes=None,
 ):
-    """A write result whose verification is a real ``WriteVerification``.
+    """A real ``ChannelWriteResult``, as a connector would return it.
 
-    ``verification`` may be passed explicitly — including ``None`` for a
-    connector that reported none, or a duck-typed stand-in for a custom
-    connector — otherwise one is built from the keyword arguments.
+    ``observed_value`` defaults to the value sent on a confirmed write and to
+    ``None`` on every other outcome, which is what a connector reports: only a
+    re-read that came back has something to show.
+
+    ``outcome`` is coerced to the enum member here as well as in the dataclass,
+    so a word this contract does not have fails in the test that wrote it rather
+    than reaching the projection as a plausible-looking string.
     """
-    result = MagicMock()
-    result.channel_address = channel
-    result.value_written = value
-    result.success = success
-    result.error_message = error_message
-    result.blocked = blocked
-    result.refusal_reason = refusal_reason
-    if verification is _UNSET:
-        verification = WriteVerification(
-            level=verification_level,
-            verified=verified,
-            readback_value=value if readback_value is _UNSET else readback_value,
-            tolerance_used=tolerance_used,
-            notes=notes,
-            readback_alarm_status=readback_alarm_status,
-            readback_alarm_severity=readback_alarm_severity,
-            failure_kind=failure_kind,
-        )
-    result.verification = verification
-    return result
+    outcome = WriteOutcome(outcome)
+    if observed_value is _UNSET:
+        observed_value = value if outcome == WriteOutcome.CONFIRMED else None
+    return ChannelWriteResult(
+        channel_address=channel,
+        value_written=value,
+        outcome=outcome,
+        refusal_reason=refusal_reason,
+        error_message=error_message,
+        observed_value=observed_value,
+        alarm_status=alarm_status,
+        alarm_severity=alarm_severity,
+        notes=notes,
+    )
 
 
-def _write_states(data):
-    """``{channel: write_state}`` from a parsed tool response."""
-    return {r["channel"]: r["write_state"] for r in data["summary"]["results"]}
+def _outcomes(data):
+    """``{channel: outcome}`` from a parsed tool response."""
+    return {r["channel"]: r["outcome"] for r in data["summary"]["results"]}
 
 
 def _get_channel_write():
@@ -107,10 +98,10 @@ def _get_channel_write():
     return get_tool_fn(channel_write)
 
 
-def _prepare(tmp_path, monkeypatch):
+def _prepare(tmp_path, monkeypatch, config="control_system:\n  type: mock\n"):
     """Minimal project + server context the tool needs to run."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
+    (tmp_path / "config.yml").write_text(config)
     initialize_server_context()
 
 
@@ -136,94 +127,59 @@ def _patched(connector, validator=None):
         yield
 
 
+async def _run_batch(results, validator=None, **kwargs):
+    """Run the tool over a batch and return (parsed response, connector)."""
+    connector = AsyncMock()
+    connector.write_multiple_channels.return_value = results
+    with _patched(connector, validator):
+        fn = _get_channel_write()
+        raw = await fn(
+            operations=[{"channel": r.channel_address, "value": r.value_written} for r in results],
+            **kwargs,
+        )
+    return extract_response_dict(raw), connector
+
+
+async def _run_single(result, validator=None, **kwargs):
+    """Run the tool over one operation and return (parsed response, connector)."""
+    connector = AsyncMock()
+    connector.write_channel.return_value = result
+    with _patched(connector, validator):
+        fn = _get_channel_write()
+        raw = await fn(
+            operations=[{"channel": result.channel_address, "value": result.value_written}],
+            **kwargs,
+        )
+    return extract_response_dict(raw), connector
+
+
 @pytest.mark.unit
 async def test_channel_write_success(tmp_path, monkeypatch):
-    """Successful write returns result with verification in summary."""
+    """A confirmed write returns a success envelope naming the channel."""
     _prepare(tmp_path, monkeypatch)
 
-    write_result = _make_write_result(channel="TEST:PV", value=42.0)
-    mock_connector = AsyncMock()
-    mock_connector.write_channel.return_value = write_result
+    data, _ = await _run_single(_make_write_result(channel="TEST:PV", value=42.0))
 
-    with _patched(mock_connector):
-        fn = _get_channel_write()
-        result = await fn(operations=[{"channel": "TEST:PV", "value": 42.0}])
-
-    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert data["summary"]["total_writes"] == 1
-    assert data["summary"]["failed"] == 0
+    assert data["summary"]["outcomes"] == {"confirmed": 1}
     assert data["summary"]["results"][0]["channel"] == "TEST:PV"
 
 
 @pytest.mark.unit
-async def test_channel_write_with_readback(tmp_path, monkeypatch):
-    """Write with readback verification returns verification details in summary."""
-    _prepare(tmp_path, monkeypatch)
-
-    write_result = _make_write_result(channel="TEST:PV", value=42.0, verification_level="readback")
-    write_result.verification.readback_value = 42.01
-    mock_connector = AsyncMock()
-    mock_connector.write_channel.return_value = write_result
-
-    with _patched(mock_connector):
-        fn = _get_channel_write()
-        result = await fn(
-            operations=[{"channel": "TEST:PV", "value": 42.0}],
-            verification_level="readback",
-        )
-
-    data = extract_response_dict(result)
-    assert data["status"] == "success"
-    assert data["summary"]["results"][0]["verification"]["level"] == "readback"
-    assert data["summary"]["results"][0]["verification"]["readback_value"] == 42.01
-
-
-@pytest.mark.unit
-async def test_callback_result_projects_its_readback_value(tmp_path, monkeypatch):
-    """A callback-level result carries the post-write readback into the summary.
-
-    The projection is level-agnostic: whatever the connector read after the
-    IOC callback reaches the agent, so no prompt rule has to declare it absent.
-    """
-    _prepare(tmp_path, monkeypatch)
-
-    write_result = _make_write_result(
-        channel="TEST:PV", value=42.0, verification_level="callback", readback_value=42.01
-    )
-    mock_connector = AsyncMock()
-    mock_connector.write_channel.return_value = write_result
-
-    with _patched(mock_connector):
-        fn = _get_channel_write()
-        result = await fn(operations=[{"channel": "TEST:PV", "value": 42.0}])
-
-    data = extract_response_dict(result)
-    verification = data["summary"]["results"][0]["verification"]
-    assert verification["level"] == "callback"
-    assert verification["readback_value"] == 42.01
-    assert _write_states(data)["TEST:PV"] == "verified"
-
-
-@pytest.mark.unit
-async def test_callback_level_alarm_reaches_verified_with_alarm(tmp_path, monkeypatch):
-    """The alarm fields a callback-level readback carries classify the write."""
+async def test_channel_write_multiple_operations(tmp_path, monkeypatch):
+    """Multiple write operations are all processed."""
     _prepare(tmp_path, monkeypatch)
 
     results = [
-        _make_write_result(channel="PV:OK", value=1.0),
-        _make_write_result(
-            channel="PV:SUBJECT",
-            value=2.0,
-            verification_level="callback",
-            verified=True,
-            readback_alarm_severity=2,
-            readback_alarm_status="HIHI",
-        ),
+        _make_write_result(channel="PV:A", value=1.0),
+        _make_write_result(channel="PV:B", value=2.0),
     ]
     data, _ = await _run_batch(results)
 
-    assert _write_states(data)["PV:SUBJECT"] == "verified_with_alarm"
+    assert data["status"] == "success"
+    assert data["summary"]["total_writes"] == 2
+    assert data["summary"]["outcomes"] == {"confirmed": 2}
 
 
 @pytest.mark.unit
@@ -287,35 +243,8 @@ async def test_channel_write_connection_error(tmp_path, monkeypatch):
 
 
 @pytest.mark.unit
-async def test_channel_write_multiple_operations(tmp_path, monkeypatch):
-    """Multiple write operations are all processed."""
-    _prepare(tmp_path, monkeypatch)
-
-    results = [
-        _make_write_result(channel="PV:A", value=1.0),
-        _make_write_result(channel="PV:B", value=2.0),
-    ]
-    mock_connector = AsyncMock()
-    mock_connector.write_multiple_channels.return_value = results
-
-    with _patched(mock_connector):
-        fn = _get_channel_write()
-        result = await fn(
-            operations=[
-                {"channel": "PV:A", "value": 1.0},
-                {"channel": "PV:B", "value": 2.0},
-            ]
-        )
-
-    data = extract_response_dict(result)
-    assert data["status"] == "success"
-    assert data["summary"]["total_writes"] == 2
-    assert data["summary"]["failed"] == 0
-
-
-@pytest.mark.unit
 async def test_channel_write_connector_limits_violation(tmp_path, monkeypatch):
-    """ChannelLimitsViolationError from connector is classified as limits_violation with structured details."""
+    """ChannelLimitsViolationError from the connector stays a limits_violation."""
     from osprey.errors import ChannelLimitsViolationError
 
     _prepare(tmp_path, monkeypatch)
@@ -376,14 +305,336 @@ async def test_channel_write_missing_channel_key(tmp_path, monkeypatch):
     _exc_ctx["envelope"]
 
 
-@pytest.mark.unit
-async def test_channel_write_all_refused_is_write_refused(tmp_path, monkeypatch):
-    """All-refused batch (every op blocked) yields a typed write_refused envelope.
+# ---------------------------------------------------------------------------
+# outcome — the closed-set word the agent keys on
+# ---------------------------------------------------------------------------
 
-    The connector refuses every write (blocked=True, never sent to the control
-    system). The tool must raise ChannelWriteBlockedError so the error handler
-    classifies it as write_refused — NOT the generic internal_error that a bare
-    RuntimeError would produce.
+
+#: (outcome, kwargs for the subject result). One row per documented word, in the
+#: documented order, pinned 1:1 against ``EXPECTED_OUTCOMES`` by the meta-test
+#: below. The word is the connector's; the tool's job is to carry it through
+#: unchanged, so each row also carries the fields that word travels with.
+_STATE_CASES = [
+    (
+        "refused",
+        {
+            "outcome": "refused",
+            "refusal_reason": "WRITES_DISABLED",
+            "error_message": "Write to 'PV:SUBJECT' refused: writes are disabled.",
+        },
+    ),
+    ("failed", {"outcome": "failed", "error_message": "caput failed: timeout"}),
+    # A MAJOR alarm does not downgrade a confirmed write: the channel holds what
+    # was sent, and the alarm is reported beside it.
+    (
+        "confirmed",
+        {
+            "outcome": "confirmed",
+            "observed_value": 2.0,
+            "alarm_status": "HIHI",
+            "alarm_severity": 2,
+        },
+    ),
+    ("mismatch", {"outcome": "mismatch", "observed_value": 1.9}),
+    ("unconfirmed", {"outcome": "unconfirmed", "error_message": "readback raised: timeout"}),
+    ("unrequested", {"outcome": "unrequested"}),
+]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "expected_outcome,result_kwargs", _STATE_CASES, ids=[c[0] for c in _STATE_CASES]
+)
+async def test_outcome_reaches_the_shipped_summary(
+    tmp_path, monkeypatch, expected_outcome, result_kwargs
+):
+    """Each outcome word arrives in the shipped summary as the connector set it.
+
+    Run as a two-op batch with a confirmed first write so the refused and failed
+    subjects do not trip the all-negative top-level errors, which are a separate
+    contract.
+    """
+    _prepare(tmp_path, monkeypatch)
+
+    results = [
+        _make_write_result(channel="PV:OK", value=1.0),
+        _make_write_result(channel="PV:SUBJECT", value=2.0, **result_kwargs),
+    ]
+    data, _ = await _run_batch(results)
+
+    assert _outcomes(data)["PV:SUBJECT"] == expected_outcome
+
+
+@pytest.mark.unit
+def test_state_cases_cover_every_documented_outcome():
+    """The parametrisation above exercises the whole closed set, in order.
+
+    Pinned against the enum the connectors set as well as the list documented
+    here: a seventh word added to one and not the other would otherwise ship
+    with nothing in this file to notice it.
+    """
+    assert [case[0] for case in _STATE_CASES] == EXPECTED_OUTCOMES
+    assert [member.value for member in WriteOutcome] == EXPECTED_OUTCOMES
+
+
+@pytest.mark.unit
+async def test_result_entry_carries_the_documented_fields(tmp_path, monkeypatch):
+    """One result entry, nine keys — the whole agent-visible projection."""
+    _prepare(tmp_path, monkeypatch)
+
+    result = _make_write_result(
+        channel="TEST:PV",
+        value=42.0,
+        outcome="mismatch",
+        observed_value=41.5,
+        alarm_status="HIGH",
+        alarm_severity=1,
+        notes="observed 41.5, sent 42.0",
+    )
+    data, _ = await _run_single(result)
+
+    entry = data["summary"]["results"][0]
+    assert set(entry) == {
+        "channel",
+        "value",
+        "outcome",
+        "refusal_reason",
+        "error",
+        "observed_value",
+        "alarm_status",
+        "alarm_severity",
+        "notes",
+    }
+    assert entry["channel"] == "TEST:PV"
+    assert entry["value"] == 42.0
+    assert entry["outcome"] == "mismatch"
+    assert entry["observed_value"] == 41.5
+    assert entry["alarm_status"] == "HIGH"
+    assert entry["alarm_severity"] == 1
+    assert entry["notes"] == "observed 41.5, sent 42.0"
+    # Absent fields are reported as null rather than omitted, so a consumer can
+    # tell "not reported" from a value.
+    assert entry["refusal_reason"] is None
+    assert entry["error"] is None
+
+
+@pytest.mark.unit
+async def test_confirmed_result_projects_its_observed_value(tmp_path, monkeypatch):
+    """Whatever the confirming re-read returned reaches the agent."""
+    _prepare(tmp_path, monkeypatch)
+
+    result = _make_write_result(
+        channel="TEST:PV", value=42.0, outcome="confirmed", observed_value=42.0
+    )
+    data, _ = await _run_single(result)
+
+    entry = data["summary"]["results"][0]
+    assert entry["outcome"] == "confirmed"
+    assert entry["observed_value"] == 42.0
+
+
+@pytest.mark.unit
+async def test_healthy_alarm_severity_zero_survives_the_projection(tmp_path, monkeypatch):
+    """A REPORTED healthy severity of 0 is not collapsed into "not reported".
+
+    0 is a channel saying it is fine; None is a channel that said nothing. An
+    agent that cannot tell them apart reports an alarm state it was never given.
+    """
+    _prepare(tmp_path, monkeypatch)
+
+    results = [
+        _make_write_result(channel="PV:ZERO", value=1.0, alarm_status="NO_ALARM", alarm_severity=0),
+        _make_write_result(channel="PV:SILENT", value=2.0),
+    ]
+    data, _ = await _run_batch(results)
+
+    entries = {r["channel"]: r for r in data["summary"]["results"]}
+    assert entries["PV:ZERO"]["alarm_severity"] == 0
+    assert entries["PV:ZERO"]["alarm_status"] == "NO_ALARM"
+    assert entries["PV:SILENT"]["alarm_severity"] is None
+    assert entries["PV:SILENT"]["alarm_status"] is None
+
+
+@pytest.mark.unit
+async def test_outcome_ignores_notes_text(tmp_path, monkeypatch):
+    """Notes are display-only: rewording them cannot change the outcome.
+
+    The narration bug this whole contract exists to close came from deriving
+    meaning out of prose, so the word an agent keys on must be untouched by it.
+    """
+    _prepare(tmp_path, monkeypatch)
+
+    outcomes = []
+    for note in ("", "Readback matched.", "MISMATCH: readback failed, value not applied!"):
+        results = [
+            _make_write_result(channel="PV:A", value=1.0, outcome="confirmed", notes=note),
+            _make_write_result(channel="PV:B", value=2.0),
+        ]
+        data, _ = await _run_batch(results)
+        outcomes.append(_outcomes(data)["PV:A"])
+
+    assert outcomes == ["confirmed", "confirmed", "confirmed"]
+
+
+@pytest.mark.unit
+async def test_mixed_batch_reports_one_outcome_per_channel(tmp_path, monkeypatch):
+    """A batch of unlike outcomes reports each channel's own word and counts."""
+    _prepare(tmp_path, monkeypatch)
+
+    results = [
+        _make_write_result(channel="PV:OK", value=1.0),
+        _make_write_result(
+            channel="PV:MISMATCH", value=2.0, outcome="mismatch", observed_value=0.0
+        ),
+        _make_write_result(
+            channel="PV:REFUSED", value=3.0, outcome="refused", refusal_reason="WRITES_DISABLED"
+        ),
+        _make_write_result(channel="PV:NOCHECK", value=4.0, outcome="unrequested"),
+    ]
+    data, _ = await _run_batch(results)
+
+    assert _outcomes(data) == {
+        "PV:OK": "confirmed",
+        "PV:MISMATCH": "mismatch",
+        "PV:REFUSED": "refused",
+        "PV:NOCHECK": "unrequested",
+    }
+    assert data["summary"]["outcomes"] == {
+        "confirmed": 1,
+        "mismatch": 1,
+        "refused": 1,
+        "unrequested": 1,
+    }
+    assert data["summary"]["total_writes"] == 4
+
+
+# ---------------------------------------------------------------------------
+# the envelope — what returns and what raises
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+async def test_lone_mismatch_returns_rather_than_raising(tmp_path, monkeypatch):
+    """A single write that came back different is REPORTED, not raised.
+
+    This is the asymmetry the contract is built on: the tool tells the agent
+    what the channel holds and lets it tell the operator, while the Python path
+    raises on the same result. A raise here would cost the agent the observed
+    value at exactly the moment it matters most.
+    """
+    _prepare(tmp_path, monkeypatch)
+
+    result = _make_write_result(
+        channel="TEST:PV", value=42.0, outcome="mismatch", observed_value=41.0
+    )
+    data, _ = await _run_single(result)
+
+    assert data["status"] == "success"
+    entry = data["summary"]["results"][0]
+    assert entry["outcome"] == "mismatch"
+    assert entry["observed_value"] == 41.0
+    assert data["summary"]["outcomes"] == {"mismatch": 1}
+
+
+@pytest.mark.unit
+async def test_an_enum_member_projects_to_its_word(tmp_path, monkeypatch):
+    """The production type, not a look-alike string, reaches the projection.
+
+    Connectors set ``outcome`` to a :class:`WriteOutcome` member. The tool
+    renders it with ``str()``, which is the word only because the enum is a
+    ``StrEnum`` — swap that base class and every envelope would start shipping
+    ``WriteOutcome.MISMATCH``. Feeding the member itself is what pins it.
+    """
+    _prepare(tmp_path, monkeypatch)
+
+    result = _make_write_result(
+        channel="TEST:PV", value=42.0, outcome=WriteOutcome.MISMATCH, observed_value=41.0
+    )
+    assert result.outcome is WriteOutcome.MISMATCH
+    data, _ = await _run_single(result)
+
+    assert data["summary"]["results"][0]["outcome"] == "mismatch"
+    assert data["summary"]["outcomes"] == {"mismatch": 1}
+
+
+@pytest.mark.unit
+async def test_a_connector_returning_too_few_results_fails_loudly(tmp_path, monkeypatch):
+    """A dropped row is a write whose fate nobody reports, so refuse the report.
+
+    The envelope names exactly the rows the connector handed back. If one is
+    missing the response still looks complete — same shape, same status — while
+    a channel the operator approved simply goes unmentioned. On the
+    hardware-write surface that is worse than a failure, so the tool names the
+    connector and raises instead of shipping it.
+    """
+    _prepare(tmp_path, monkeypatch)
+
+    connector = AsyncMock()
+    connector.write_multiple_channels.return_value = [_make_write_result(channel="PV:A", value=1.0)]
+    with _patched(connector):
+        fn = _get_channel_write()
+        with assert_raises_error(error_type="internal_error") as ctx:
+            await fn(
+                operations=[
+                    {"channel": "PV:A", "value": 1.0},
+                    {"channel": "PV:B", "value": 2.0},
+                ]
+            )
+
+    message = ctx["envelope"]["error_message"]
+    assert "1 write result(s) for 2 operation(s)" in message
+    assert "unreported" in message
+
+
+@pytest.mark.unit
+async def test_a_connector_returning_too_many_results_fails_loudly(tmp_path, monkeypatch):
+    """An extra row is a write nobody asked for — the same loss of correspondence.
+
+    Only the batch path can drift: a single write wraps the one result the
+    connector returned, so its count is one by construction.
+    """
+    _prepare(tmp_path, monkeypatch)
+
+    connector = AsyncMock()
+    connector.write_multiple_channels.return_value = [
+        _make_write_result(channel="PV:A", value=1.0),
+        _make_write_result(channel="PV:B", value=2.0),
+        _make_write_result(channel="PV:C", value=3.0),
+    ]
+    with _patched(connector):
+        fn = _get_channel_write()
+        with assert_raises_error(error_type="internal_error") as ctx:
+            await fn(
+                operations=[
+                    {"channel": "PV:A", "value": 1.0},
+                    {"channel": "PV:B", "value": 2.0},
+                ]
+            )
+
+    assert "3 write result(s) for 2 operation(s)" in ctx["envelope"]["error_message"]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("outcome", ["unconfirmed", "unrequested"])
+async def test_lone_unconfirmed_write_returns(tmp_path, monkeypatch, outcome):
+    """An unconfirmed or unchecked write reached the channel, so it reports."""
+    _prepare(tmp_path, monkeypatch)
+
+    result = _make_write_result(channel="TEST:PV", value=42.0, outcome=outcome)
+    data, _ = await _run_single(result)
+
+    assert data["status"] == "success"
+    assert data["summary"]["results"][0]["outcome"] == outcome
+
+
+@pytest.mark.unit
+async def test_all_refused_is_write_refused(tmp_path, monkeypatch):
+    """All-refused batch yields a typed write_refused envelope.
+
+    The connector refused every write (nothing was sent to the control system).
+    The tool must raise ChannelWriteBlockedError so the error handler classifies
+    it as write_refused — NOT the generic internal_error a bare RuntimeError
+    would produce.
     """
     _prepare(tmp_path, monkeypatch)
 
@@ -391,18 +642,16 @@ async def test_channel_write_all_refused_is_write_refused(tmp_path, monkeypatch)
         _make_write_result(
             channel="PV:A",
             value=1.0,
-            success=False,
-            error_message="Write to 'PV:A' blocked: writes are disabled.",
-            blocked=True,
+            outcome="refused",
             refusal_reason="WRITES_DISABLED",
+            error_message="Write to 'PV:A' refused: writes are disabled.",
         ),
         _make_write_result(
             channel="PV:B",
             value=2.0,
-            success=False,
-            error_message="Write to 'PV:B' blocked: writes are disabled.",
-            blocked=True,
+            outcome="refused",
             refusal_reason="WRITES_DISABLED",
+            error_message="Write to 'PV:B' refused: writes are disabled.",
         ),
     ]
     mock_connector = AsyncMock()
@@ -423,7 +672,6 @@ async def test_channel_write_all_refused_is_write_refused(tmp_path, monkeypatch)
         f"Expected write_refused but got {data['error_type']} — an all-refused "
         "batch is a policy refusal, not an internal_error"
     )
-    assert data["error_type"] != "internal_error"
     # Both refused channels are named in the summary message.
     assert "PV:A" in data["error_message"]
     assert "PV:B" in data["error_message"]
@@ -432,57 +680,33 @@ async def test_channel_write_all_refused_is_write_refused(tmp_path, monkeypatch)
 
 
 @pytest.mark.unit
-async def test_channel_write_partial_refusal_reports_per_op(tmp_path, monkeypatch):
-    """Partial-rejection batch returns success JSON with per-op refusal reporting.
-
-    One op succeeds, one is refused. The tool must NOT raise (writes did happen);
-    it returns a success-status result whose per-op entries carry blocked /
-    refusal_reason and whose summary reports refused == 1, successful == 1.
-    """
+async def test_control_system_refusal_names_the_control_system(tmp_path, monkeypatch):
+    """Who refused decides the wording of an all-refused envelope."""
     _prepare(tmp_path, monkeypatch)
 
-    results = [
-        _make_write_result(channel="PV:A", value=1.0, success=True),
-        _make_write_result(
-            channel="PV:B",
-            value=2.0,
-            success=False,
-            error_message="Write to 'PV:B' blocked: writes are disabled.",
-            blocked=True,
-            refusal_reason="WRITES_DISABLED",
-        ),
-    ]
-    mock_connector = AsyncMock()
-    mock_connector.write_multiple_channels.return_value = results
+    result = _make_write_result(
+        channel="PV:A",
+        value=1.0,
+        outcome="refused",
+        refusal_reason="CONTROL_SYSTEM_REFUSED",
+        error_message="Write to 'PV:A' refused by the control system.",
+    )
+    connector = AsyncMock()
+    connector.write_channel.return_value = result
 
-    with _patched(mock_connector):
+    with _patched(connector):
         fn = _get_channel_write()
-        result = await fn(
-            operations=[
-                {"channel": "PV:A", "value": 1.0},
-                {"channel": "PV:B", "value": 2.0},
-            ]
-        )
+        with assert_raises_error(error_type="write_refused") as _exc_ctx:
+            await fn(operations=[{"channel": "PV:A", "value": 1.0}])
 
-    data = extract_response_dict(result)
-    assert data["status"] == "success"
-    summary = data["summary"]
-    assert summary["successful"] == 1
-    assert summary["refused"] == 1
-    assert summary["failed"] == 1
-    by_channel = {r["channel"]: r for r in summary["results"]}
-    assert by_channel["PV:A"]["success"] is True
-    assert by_channel["PV:A"]["blocked"] is False
-    assert by_channel["PV:B"]["success"] is False
-    assert by_channel["PV:B"]["blocked"] is True
-    assert by_channel["PV:B"]["refusal_reason"] == "WRITES_DISABLED"
+    assert "the control system" in _exc_ctx["envelope"]["error_message"]
 
 
 @pytest.mark.unit
-async def test_channel_write_all_failed_caput_is_internal_error(tmp_path, monkeypatch):
-    """All-failed caput (attempted, not refused) preserves internal_error.
+async def test_all_failed_is_internal_error(tmp_path, monkeypatch):
+    """All-failed batch (attempted, not refused) preserves internal_error.
 
-    The writes were sent to the control system and failed (blocked=False). This
+    The writes were sent to the control system and it did not take them. That
     is an I/O failure, not a policy refusal, so it must keep the RuntimeError ->
     internal_error classification rather than becoming write_refused.
     """
@@ -490,18 +714,10 @@ async def test_channel_write_all_failed_caput_is_internal_error(tmp_path, monkey
 
     results = [
         _make_write_result(
-            channel="PV:A",
-            value=1.0,
-            success=False,
-            error_message="caput failed: timeout",
-            blocked=False,
+            channel="PV:A", value=1.0, outcome="failed", error_message="caput failed: timeout"
         ),
         _make_write_result(
-            channel="PV:B",
-            value=2.0,
-            success=False,
-            error_message="caput failed: no connection",
-            blocked=False,
+            channel="PV:B", value=2.0, outcome="failed", error_message="caput failed: no connection"
         ),
     ]
     mock_connector = AsyncMock()
@@ -518,481 +734,310 @@ async def test_channel_write_all_failed_caput_is_internal_error(tmp_path, monkey
             )
 
     data = _exc_ctx["envelope"]
-    assert data["error_type"] == "internal_error"
-    assert data["error_type"] != "write_refused"
-
-
-# ---------------------------------------------------------------------------
-# write_state — the closed-set word the agent keys on
-# ---------------------------------------------------------------------------
-
-
-async def _run_batch(results, validator=None, **kwargs):
-    """Run the tool over a batch and return (parsed response, connector)."""
-    connector = AsyncMock()
-    connector.write_multiple_channels.return_value = results
-    with _patched(connector, validator):
-        fn = _get_channel_write()
-        raw = await fn(
-            operations=[{"channel": r.channel_address, "value": r.value_written} for r in results],
-            **kwargs,
-        )
-    return extract_response_dict(raw), connector
-
-
-async def _run_single(result, validator=None, **kwargs):
-    """Run the tool over one operation and return (parsed response, connector)."""
-    connector = AsyncMock()
-    connector.write_channel.return_value = result
-    with _patched(connector, validator):
-        fn = _get_channel_write()
-        raw = await fn(
-            operations=[{"channel": result.channel_address, "value": result.value_written}],
-            **kwargs,
-        )
-    return extract_response_dict(raw), connector
-
-
-#: (state, kwargs for the subject result). Each row is one predicate in the
-#: ordered chain, chosen so the row above it does NOT also match — that is what
-#: makes this a precedence test and not nine independent smoke tests.
-_STATE_CASES = [
-    # Refused: never sent. Also success=False, so this pins that `blocked` wins.
-    ("blocked", {"success": False, "blocked": True, "refusal_reason": "WRITES_DISABLED"}),
-    # Attempted and failed. Verification present and "verified" — a failed write
-    # must not be reported by its verification.
-    ("write_failed", {"success": False, "error_message": "caput failed: timeout"}),
-    ("verification_not_reported", {"verification": None}),
-    # Level "none" with verified False: nothing was asked for, so this is not a
-    # verification failure.
-    ("verification_not_requested", {"verification_level": "none", "verified": False}),
-    # MAJOR alarm on a readback that matched.
-    (
-        "verified_with_alarm",
-        {
-            "verification_level": "readback",
-            "verified": True,
-            "readback_alarm_severity": 2,
-            "readback_alarm_status": "HIHI",
-        },
-    ),
-    # MINOR alarm on a readback that matched stays plain "verified".
-    (
-        "verified",
-        {
-            "verification_level": "readback",
-            "verified": True,
-            "readback_alarm_severity": 1,
-            "readback_alarm_status": "HIGH",
-        },
-    ),
-    # The readback read itself raised. Severity is set too, so this pins that
-    # failure_kind outranks the alarm predicate.
-    (
-        "readback_failed",
-        {
-            "verification_level": "readback",
-            "verified": False,
-            "failure_kind": "readback_failed",
-            "readback_alarm_severity": 3,
-        },
-    ),
-    (
-        "unverified_alarm",
-        {
-            "verification_level": "readback",
-            "verified": False,
-            "readback_alarm_severity": 1,
-            "readback_alarm_status": "HIGH",
-        },
-    ),
-    ("verification_failed", {"verification_level": "readback", "verified": False}),
-]
+    assert "caput failed: timeout" in data["error_message"]
+    assert "caput failed: no connection" in data["error_message"]
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(
-    "expected_state,result_kwargs", _STATE_CASES, ids=[c[0] for c in _STATE_CASES]
-)
-async def test_write_state_precedence(tmp_path, monkeypatch, expected_state, result_kwargs):
-    """Each ordered predicate produces its state in the shipped summary.
+async def test_refused_and_failed_batch_raises_internal_error(tmp_path, monkeypatch):
+    """Nothing reached a channel, but one write was attempted: not a pure refusal.
 
-    Run as a two-op batch with a healthy first write so the refused and failed
-    subjects do not trip the all-refused / all-failed top-level errors, which
-    are a separate contract.
+    Calling a batch that contains a real I/O failure a policy refusal would send
+    the operator to the limits database for a problem that lives on the wire.
     """
     _prepare(tmp_path, monkeypatch)
 
     results = [
-        _make_write_result(channel="PV:OK", value=1.0),
-        _make_write_result(channel="PV:SUBJECT", value=2.0, **result_kwargs),
-    ]
-    data, _ = await _run_batch(results)
-
-    assert _write_states(data)["PV:SUBJECT"] == expected_state
-
-
-@pytest.mark.unit
-def test_state_cases_cover_every_documented_state():
-    """The parametrisation above exercises the whole closed set, in order."""
-    assert [case[0] for case in _STATE_CASES] == EXPECTED_WRITE_STATES
-
-
-@pytest.mark.unit
-async def test_readback_healthy_severity_zero_is_still_verification_failed(tmp_path, monkeypatch):
-    """A REPORTED healthy severity of 0 does not save an unverified readback.
-
-    Kept out of ``_STATE_CASES`` because that table is one row per documented
-    state, pinned 1:1 against ``EXPECTED_WRITE_STATES`` above; this pins the
-    0-vs-None distinction on the SAME ``verification_failed`` predicate instead
-    of adding a tenth state. 0 is a reported healthy severity, distinct from
-    None ("not reported"); the ``> 0`` check in ``_alarm_severity`` correctly
-    excludes it, so it falls through to ``verification_failed`` rather than
-    being read as an alarm.
-    """
-    _prepare(tmp_path, monkeypatch)
-
-    results = [
-        _make_write_result(channel="PV:OK", value=1.0),
         _make_write_result(
-            channel="PV:SUBJECT",
-            value=2.0,
-            verification_level="readback",
-            verified=False,
-            readback_alarm_severity=0,
-        ),
-    ]
-    data, _ = await _run_batch(results)
-
-    assert _write_states(data)["PV:SUBJECT"] == "verification_failed"
-
-
-@pytest.mark.unit
-async def test_write_state_ignores_notes_text(tmp_path, monkeypatch):
-    """Notes are display-only: rewording them cannot change the state.
-
-    The narration bug this whole contract exists to close came from deriving
-    meaning out of prose, so the state must be a pure function of the
-    structured fields.
-    """
-    _prepare(tmp_path, monkeypatch)
-
-    states = []
-    for note in ("", "Readback matched.", "MISMATCH: readback failed, value not applied!"):
-        results = [
-            _make_write_result(
-                channel="PV:A",
-                value=1.0,
-                verification_level="readback",
-                verified=True,
-                notes=note,
-            ),
-            _make_write_result(channel="PV:B", value=2.0),
-        ]
-        data, _ = await _run_batch(results)
-        states.append(_write_states(data)["PV:A"])
-
-    assert states == ["verified", "verified", "verified"]
-
-
-@pytest.mark.unit
-async def test_duck_typed_verification_yields_a_state(tmp_path, monkeypatch):
-    """A custom connector's verification object must classify, not raise.
-
-    Out-of-tree connectors may return anything with ``level`` and ``verified``;
-    the new alarm and failure_kind fields are read with ``getattr`` defaults so
-    an object that predates them still produces a result.
-    """
-    _prepare(tmp_path, monkeypatch)
-
-    class _MinimalVerification:
-        level = "callback"
-        verified = True
-
-    class _FloatSeverityVerification:
-        level = "callback"
-        verified = True
-        readback_alarm_severity = 2.0
-
-    class _BoolSeverityVerification:
-        level = "callback"
-        verified = True
-        readback_alarm_severity = True
-
-    results = [
-        _make_write_result(channel="PV:A", value=1.0, verification=_MinimalVerification()),
-        _make_write_result(channel="PV:B", value=2.0),
-        _make_write_result(
-            channel="PV:FLOAT", value=3.0, verification=_FloatSeverityVerification()
-        ),
-        _make_write_result(channel="PV:BOOL", value=4.0, verification=_BoolSeverityVerification()),
-    ]
-    data, _ = await _run_batch(results)
-
-    entries = {r["channel"]: r for r in data["summary"]["results"]}
-    entry = entries["PV:A"]
-    assert entry["write_state"] == "verified"
-    # The absent fields are reported as null rather than omitted, so a consumer
-    # can tell "not reported" from a value.
-    assert entry["verification"]["readback_alarm_status"] is None
-    assert entry["verification"]["readback_alarm_severity"] is None
-    assert entry["verification"]["failure_kind"] is None
-    # A float or bool severity fails `_alarm_severity`'s `isinstance(int)` type
-    # guard and degrades to "not reported" (None), so both fall through to the
-    # plain "verified" state rather than "verified_with_alarm" — degrade, don't
-    # raise.
-    assert entries["PV:FLOAT"]["write_state"] == "verified"
-    assert entries["PV:BOOL"]["write_state"] == "verified"
-
-
-@pytest.mark.unit
-async def test_mixed_batch_reports_one_state_per_channel(tmp_path, monkeypatch):
-    """A batch of unlike outcomes reports each channel's own state."""
-    _prepare(tmp_path, monkeypatch)
-
-    results = [
-        _make_write_result(channel="PV:OK", value=1.0),
-        _make_write_result(
-            channel="PV:MISMATCH", value=2.0, verification_level="readback", verified=False
-        ),
-        _make_write_result(
-            channel="PV:REFUSED",
-            value=3.0,
-            success=False,
-            blocked=True,
+            channel="PV:A",
+            value=1.0,
+            outcome="refused",
             refusal_reason="WRITES_DISABLED",
+            error_message="Write to 'PV:A' refused: writes are disabled.",
         ),
-        _make_write_result(channel="PV:NOVERIF", value=4.0, verification=None),
+        _make_write_result(
+            channel="PV:B", value=2.0, outcome="failed", error_message="caput failed: timeout"
+        ),
     ]
-    data, _ = await _run_batch(results)
+    mock_connector = AsyncMock()
+    mock_connector.write_multiple_channels.return_value = results
 
-    assert _write_states(data) == {
-        "PV:OK": "verified",
-        "PV:MISMATCH": "verification_failed",
-        "PV:REFUSED": "blocked",
-        "PV:NOVERIF": "verification_not_reported",
-    }
+    with _patched(mock_connector):
+        fn = _get_channel_write()
+        with assert_raises_error(error_type="internal_error") as _exc_ctx:
+            await fn(
+                operations=[
+                    {"channel": "PV:A", "value": 1.0},
+                    {"channel": "PV:B", "value": 2.0},
+                ]
+            )
+
+    assert "caput failed: timeout" in _exc_ctx["envelope"]["error_message"]
 
 
 @pytest.mark.unit
-async def test_alarm_fields_reach_the_shipped_verification_projection(tmp_path, monkeypatch):
-    """The alarm name, severity and failure_kind are in summary.results[]."""
+async def test_partial_refusal_reports_per_op(tmp_path, monkeypatch):
+    """One refusal beside one confirmed write returns, and reports both.
+
+    A value did reach a channel, so raising would throw away the report of the
+    write that landed.
+    """
+    _prepare(tmp_path, monkeypatch)
+
+    results = [
+        _make_write_result(channel="PV:A", value=1.0),
+        _make_write_result(
+            channel="PV:B",
+            value=2.0,
+            outcome="refused",
+            refusal_reason="WRITES_DISABLED",
+            error_message="Write to 'PV:B' refused: writes are disabled.",
+        ),
+    ]
+    data, _ = await _run_batch(results)
+
+    assert data["status"] == "success"
+    assert data["summary"]["outcomes"] == {"confirmed": 1, "refused": 1}
+    by_channel = {r["channel"]: r for r in data["summary"]["results"]}
+    assert by_channel["PV:B"]["refusal_reason"] == "WRITES_DISABLED"
+    assert by_channel["PV:B"]["error"] is not None
+    assert by_channel["PV:A"]["refusal_reason"] is None
+
+
+@pytest.mark.unit
+async def test_executed_channels_name_only_what_reached_a_channel(tmp_path, monkeypatch):
+    """The activity highlight names every write that got a value onto a channel.
+
+    ``mismatch``, ``unconfirmed`` and ``unrequested`` all put a value on the
+    wire — leaving them out would tell the operator less than happened —
+    while ``refused`` and ``failed`` did not.
+    """
+    _prepare(tmp_path, monkeypatch)
+
+    results = [
+        _make_write_result(channel="PV:CONFIRMED", value=1.0),
+        _make_write_result(
+            channel="PV:MISMATCH", value=2.0, outcome="mismatch", observed_value=0.0
+        ),
+        _make_write_result(channel="PV:UNCONFIRMED", value=3.0, outcome="unconfirmed"),
+        _make_write_result(channel="PV:UNREQUESTED", value=4.0, outcome="unrequested"),
+        _make_write_result(
+            channel="PV:REFUSED", value=5.0, outcome="refused", refusal_reason="WRITES_DISABLED"
+        ),
+        _make_write_result(
+            channel="PV:FAILED", value=6.0, outcome="failed", error_message="caput failed"
+        ),
+    ]
+
+    with patch(
+        "osprey.mcp_server.control_system.tools.channel_write.notify_agent_activity_async",
+        new_callable=AsyncMock,
+    ) as notify:
+        await _run_batch(results)
+
+    detail = notify.call_args.kwargs["detail"]
+    assert detail == "PV:CONFIRMED, PV:MISMATCH, PV:UNCONFIRMED, PV:UNREQUESTED"
+
+
+@pytest.mark.unit
+async def test_no_activity_highlight_when_nothing_executed(tmp_path, monkeypatch):
+    """An all-negative call raises before it can claim a write happened."""
     _prepare(tmp_path, monkeypatch)
 
     result = _make_write_result(
-        channel="TEST:PV",
-        value=42.0,
-        verification_level="readback",
-        verified=True,
-        readback_value=42.0,
-        readback_alarm_status="HIHI",
-        readback_alarm_severity=2,
+        channel="PV:A", value=1.0, outcome="refused", refusal_reason="WRITES_DISABLED"
+    )
+    connector = AsyncMock()
+    connector.write_channel.return_value = result
+
+    with (
+        patch(
+            "osprey.mcp_server.control_system.tools.channel_write.notify_agent_activity_async",
+            new_callable=AsyncMock,
+        ) as notify,
+        _patched(connector),
+    ):
+        fn = _get_channel_write()
+        with assert_raises_error(error_type="write_refused"):
+            await fn(operations=[{"channel": "PV:A", "value": 1.0}])
+
+    notify.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# confirm — the caller's opinion, or none at all
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+async def test_omitted_confirm_leaves_the_keyword_absent(tmp_path, monkeypatch):
+    """Omission is a sentinel: the keyword is left off, not passed as None.
+
+    Resolution belongs to the connector, per channel. Forwarding None would
+    override a deployment's own per-channel setting with "no opinion".
+    """
+    _prepare(tmp_path, monkeypatch)
+
+    _, connector = await _run_single(_make_write_result(channel="TEST:PV", value=42.0))
+
+    assert "confirm" not in connector.write_channel.call_args.kwargs
+
+
+@pytest.mark.unit
+async def test_explicit_confirm_false_is_forwarded(tmp_path, monkeypatch):
+    """``confirm=False`` is a decision and must cross, not be read as omission.
+
+    The guard is ``if confirm is not None``; an ``if confirm:`` would swallow
+    exactly this call and silently confirm a write the operator asked not to.
+    """
+    _prepare(tmp_path, monkeypatch)
+
+    result = _make_write_result(channel="TEST:PV", value=42.0, outcome="unrequested")
+    _, connector = await _run_single(result, confirm=False)
+
+    assert connector.write_channel.call_args.kwargs["confirm"] is False
+
+
+@pytest.mark.unit
+async def test_explicit_confirm_true_is_forwarded(tmp_path, monkeypatch):
+    """A caller asking for confirmation gets it forwarded to the connector."""
+    _prepare(tmp_path, monkeypatch)
+
+    _, connector = await _run_single(
+        _make_write_result(channel="TEST:PV", value=42.0), confirm=True
+    )
+
+    assert connector.write_channel.call_args.kwargs["confirm"] is True
+
+
+@pytest.mark.unit
+async def test_confirm_is_forwarded_on_a_batch(tmp_path, monkeypatch):
+    """One confirm setting applies to every channel in the batch."""
+    _prepare(tmp_path, monkeypatch)
+
+    results = [
+        _make_write_result(channel="PV:A", value=1.0, outcome="unrequested"),
+        _make_write_result(channel="PV:B", value=2.0, outcome="unrequested"),
+    ]
+    _, connector = await _run_batch(results, confirm=False)
+
+    assert connector.write_multiple_channels.call_args.kwargs["confirm"] is False
+
+
+@pytest.mark.unit
+async def test_omitted_confirm_leaves_the_batch_keyword_absent(tmp_path, monkeypatch):
+    """With no opinion named, each channel resolves its own setting."""
+    _prepare(tmp_path, monkeypatch)
+
+    results = [
+        _make_write_result(channel="PV:A", value=1.0),
+        _make_write_result(channel="PV:B", value=2.0),
+    ]
+    _, connector = await _run_batch(results)
+
+    assert "confirm" not in connector.write_multiple_channels.call_args.kwargs
+
+
+@pytest.mark.unit
+async def test_access_details_confirm_is_null_when_omitted(tmp_path, monkeypatch):
+    """access_details reports what the caller asked for, not what was resolved."""
+    _prepare(tmp_path, monkeypatch)
+
+    data, _ = await _run_single(_make_write_result(channel="TEST:PV", value=42.0))
+
+    assert data["access_details"]["confirm"] is None
+
+
+@pytest.mark.unit
+async def test_access_details_confirm_echoes_an_explicit_request(tmp_path, monkeypatch):
+    """An explicit setting is echoed back verbatim, False included."""
+    _prepare(tmp_path, monkeypatch)
+
+    result = _make_write_result(channel="TEST:PV", value=42.0, outcome="unrequested")
+    data, _ = await _run_single(result, confirm=False)
+
+    assert data["access_details"]["confirm"] is False
+
+
+# ---------------------------------------------------------------------------
+# observed_value — bounded like a read
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+async def test_oversize_observed_value_is_summarised(tmp_path, monkeypatch):
+    """A waveform readback too large to inline arrives as a bounded summary.
+
+    A confirming re-read of a waveform channel returns the whole waveform. The
+    write tool is bound by the same inline budget as the read tool, and reports
+    the withheld value the same way, so an agent meets one shape for "too big
+    to show you".
+    """
+    np = pytest.importorskip("numpy")
+    _prepare(
+        tmp_path,
+        monkeypatch,
+        config="control_system:\n  type: mock\n  read_inline_max_elements: 4\n",
+    )
+
+    result = _make_write_result(
+        channel="TEST:WAVEFORM",
+        value=1.0,
+        outcome="mismatch",
+        observed_value=np.arange(10, dtype=float),
     )
     data, _ = await _run_single(result)
 
-    verification = data["summary"]["results"][0]["verification"]
-    assert verification["readback_alarm_status"] == "HIHI"
-    assert verification["readback_alarm_severity"] == 2
-    assert verification["failure_kind"] is None
-    assert data["summary"]["results"][0]["write_state"] == "verified_with_alarm"
-
-
-# ---------------------------------------------------------------------------
-# summary.verification_failed
-# ---------------------------------------------------------------------------
+    observed = data["summary"]["results"][0]["observed_value"]
+    assert observed["value_withheld"] is True
+    assert observed["shape"] == [10]
+    assert observed["element_count"] == 10
+    assert observed["dtype"] == "float64"
+    assert observed["min"] == 0.0
+    assert observed["max"] == 9.0
 
 
 @pytest.mark.unit
-async def test_verification_failed_counts_only_executed_unverified(tmp_path, monkeypatch):
-    """Only writes that executed, asked for verification, and lacked it count.
-
-    A refused write never reached the machine and a level-"none" write never
-    asked, so counting either would overstate how much of the batch is in doubt.
-    """
-    _prepare(tmp_path, monkeypatch)
-
-    results = [
-        # Counts: executed, readback requested, not verified.
-        _make_write_result(
-            channel="PV:MISMATCH", value=1.0, verification_level="readback", verified=False
-        ),
-        # Counts: executed, callback requested, not confirmed.
-        _make_write_result(
-            channel="PV:NOCALLBACK", value=2.0, verification_level="callback", verified=False
-        ),
-        # Does not count: refused, never executed.
-        _make_write_result(
-            channel="PV:REFUSED",
-            value=3.0,
-            success=False,
-            blocked=True,
-            refusal_reason="WRITES_DISABLED",
-            verification_level="readback",
-            verified=False,
-        ),
-        # Does not count: no verification was asked for.
-        _make_write_result(channel="PV:NONE", value=4.0, verification_level="none", verified=False),
-        # Does not count: verified.
-        _make_write_result(channel="PV:OK", value=5.0),
-    ]
-    data, _ = await _run_batch(results)
-
-    assert data["summary"]["verification_failed"] == 2
-
-
-# ---------------------------------------------------------------------------
-# verification_level dispatch — explicit vs omitted, single vs batch
-# ---------------------------------------------------------------------------
-
-
-def _validator_returning(level, tolerance):
-    """A limits validator whose database answers with *level* / *tolerance*."""
-    validator = MagicMock()
-    validator.get_verification_config.return_value = (level, tolerance)
-    return validator
-
-
-@pytest.mark.unit
-async def test_explicit_level_beats_the_limits_database_on_a_single_write(tmp_path, monkeypatch):
-    """An explicitly requested level is forwarded unchanged.
-
-    Regression: the validator used to overwrite the caller's level
-    unconditionally, so naming a level did nothing.
-    """
-    _prepare(tmp_path, monkeypatch)
-
-    result = _make_write_result(channel="TEST:PV", value=42.0, verification_level="readback")
-    _, connector = await _run_single(
-        result,
-        validator=_validator_returning("callback", None),
-        verification_level="readback",
+async def test_observed_value_within_the_budget_stays_inline(tmp_path, monkeypatch):
+    """A short waveform is reported as the values themselves."""
+    np = pytest.importorskip("numpy")
+    _prepare(
+        tmp_path,
+        monkeypatch,
+        config="control_system:\n  type: mock\n  read_inline_max_elements: 4\n",
     )
 
-    assert connector.write_channel.call_args.kwargs["verification_level"] == "readback"
+    result = _make_write_result(
+        channel="TEST:WAVEFORM",
+        value=1.0,
+        outcome="mismatch",
+        observed_value=np.array([1.0, 2.0, 3.0]),
+    )
+    data, _ = await _run_single(result)
+
+    assert data["summary"]["results"][0]["observed_value"] == [1.0, 2.0, 3.0]
 
 
 @pytest.mark.unit
-async def test_limits_database_tolerance_applies_to_an_explicit_level(tmp_path, monkeypatch):
-    """A per-channel tolerance survives an explicit level.
+async def test_long_string_observed_value_stays_inline(tmp_path, monkeypatch):
+    """A long string is one channel value, not a thousand elements.
 
-    The tolerance and the level are separate decisions: dropping the per-channel
-    tolerance would compare a setpoint against the connector's absolute default
-    instead of the percentage the limits database configured.
+    Summarising it would lose the only thing it says, so str/bytes are inline
+    whatever their length — the same rule the read tool applies.
     """
-    _prepare(tmp_path, monkeypatch)
-
-    result = _make_write_result(channel="TEST:PV", value=42.0, verification_level="readback")
-    _, connector = await _run_single(
-        result,
-        validator=_validator_returning("callback", 0.42),
-        verification_level="readback",
+    _prepare(
+        tmp_path,
+        monkeypatch,
+        config="control_system:\n  type: mock\n  read_inline_max_elements: 4\n",
     )
 
-    kwargs = connector.write_channel.call_args.kwargs
-    assert kwargs["verification_level"] == "readback"
-    assert kwargs["tolerance"] == 0.42
-
-
-@pytest.mark.unit
-async def test_omitted_level_forwards_the_limits_database_level_and_tolerance(
-    tmp_path, monkeypatch
-):
-    """With no level named, a single write takes the limits database's."""
-    _prepare(tmp_path, monkeypatch)
-
-    result = _make_write_result(channel="TEST:PV", value=42.0, verification_level="readback")
-    _, connector = await _run_single(result, validator=_validator_returning("readback", 0.05))
-
-    kwargs = connector.write_channel.call_args.kwargs
-    assert kwargs["verification_level"] == "readback"
-    assert kwargs["tolerance"] == 0.05
-
-
-@pytest.mark.unit
-async def test_omitted_level_with_silent_database_leaves_the_keyword_absent(tmp_path, monkeypatch):
-    """Omission is a sentinel: the keyword is left off, not passed as None.
-
-    Passing None would override a legacy custom connector's own declared
-    default instead of letting it apply.
-    """
-    _prepare(tmp_path, monkeypatch)
-
-    result = _make_write_result(channel="TEST:PV", value=42.0)
-    _, connector = await _run_single(result, validator=_validator_returning(None, None))
-
-    kwargs = connector.write_channel.call_args.kwargs
-    assert "verification_level" not in kwargs
-    assert "tolerance" not in kwargs
-
-
-@pytest.mark.unit
-async def test_explicit_level_is_forwarded_on_a_batch(tmp_path, monkeypatch):
-    """A named level applies to every channel in the batch."""
-    _prepare(tmp_path, monkeypatch)
-
-    results = [
-        _make_write_result(channel="PV:A", value=1.0),
-        _make_write_result(channel="PV:B", value=2.0),
-    ]
-    _, connector = await _run_batch(
-        results,
-        validator=_validator_returning("none", None),
-        verification_level="readback",
+    reading = "OPEN" * 50
+    result = _make_write_result(
+        channel="TEST:STATE", value="CLOSED", outcome="mismatch", observed_value=reading
     )
+    data, _ = await _run_single(result)
 
-    assert connector.write_multiple_channels.call_args.kwargs["verification_level"] == "readback"
-
-
-@pytest.mark.unit
-async def test_omitted_level_leaves_the_batch_keyword_absent(tmp_path, monkeypatch):
-    """An omitted level is not resolved for the batch as a whole.
-
-    A batch carries one scalar level for every channel in it, so resolving here
-    would pin one channel's entry onto all of them. Leaving the keyword off lets
-    each channel resolve its own, which is what makes batch writes behave like
-    single writes.
-    """
-    _prepare(tmp_path, monkeypatch)
-
-    results = [
-        _make_write_result(channel="PV:A", value=1.0),
-        _make_write_result(channel="PV:B", value=2.0),
-    ]
-    _, connector = await _run_batch(results, validator=_validator_returning("readback", 0.05))
-
-    assert "verification_level" not in connector.write_multiple_channels.call_args.kwargs
-
-
-# ---------------------------------------------------------------------------
-# access_details
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.unit
-async def test_access_details_level_is_null_when_omitted(tmp_path, monkeypatch):
-    """access_details reports what the caller asked for, not what was resolved.
-
-    Null means "the deployment decided"; the level actually used is reported
-    per result under verification.level.
-    """
-    _prepare(tmp_path, monkeypatch)
-
-    result = _make_write_result(channel="TEST:PV", value=42.0, verification_level="readback")
-    data, _ = await _run_single(result, validator=_validator_returning("readback", None))
-
-    assert data["access_details"]["verification_level"] is None
-    assert data["summary"]["results"][0]["verification"]["level"] == "readback"
-
-
-@pytest.mark.unit
-async def test_access_details_level_echoes_an_explicit_request(tmp_path, monkeypatch):
-    """An explicit level is echoed back verbatim."""
-    _prepare(tmp_path, monkeypatch)
-
-    result = _make_write_result(channel="TEST:PV", value=42.0, verification_level="none")
-    data, _ = await _run_single(result, verification_level="none")
-
-    assert data["access_details"]["verification_level"] == "none"
+    assert data["summary"]["results"][0]["observed_value"] == reading
 
 
 # ---------------------------------------------------------------------------
@@ -1001,29 +1046,20 @@ async def test_access_details_level_echoes_an_explicit_request(tmp_path, monkeyp
 
 
 @pytest.mark.unit
-async def test_emitted_state_key_is_the_key_the_generated_rules_name(tmp_path, monkeypatch):
-    """The rules tell the agent to read `write_state`; the tool must emit it.
+async def test_emitted_key_is_the_constant_the_rules_name(tmp_path, monkeypatch):
+    """The tool emits the exact key its constant names.
 
-    Two files, one word. If either is renamed on its own the agent is told to
-    key on something the payload does not contain, which is silent — the tool
-    still returns a valid result and the agent simply has nothing to go on.
+    Two files, one word: the generated safety rules tell the agent which key to
+    read, and if either side is renamed on its own the agent is told to key on
+    something the payload does not contain — silent, because the tool still
+    returns a valid result and the agent simply has nothing to go on. The half
+    of this pin that renders the rules templates lives with those templates.
     """
-    from osprey.cli.templates.manager import TemplateManager
-    from osprey.mcp_server.control_system.tools.channel_write import WRITE_STATE_KEY
+    from osprey.mcp_server.control_system.tools.channel_write import OUTCOME_KEY
 
     _prepare(tmp_path, monkeypatch)
 
-    result = _make_write_result(channel="TEST:PV", value=42.0)
-    data, _ = await _run_single(result)
-    assert WRITE_STATE_KEY in data["summary"]["results"][0]
+    assert OUTCOME_KEY == "outcome"
 
-    manager = TemplateManager()
-    safety = manager.jinja_env.get_template("claude_code/claude/rules/safety.md.j2").render(
-        enabled_agents=[]
-    )
-    routing = manager.jinja_env.get_template(
-        "claude_code/claude/rules/control-system-safety.md.j2"
-    ).render(enabled_servers=[])
-
-    assert WRITE_STATE_KEY in safety
-    assert WRITE_STATE_KEY in routing
+    data, _ = await _run_single(_make_write_result(channel="TEST:PV", value=42.0))
+    assert OUTCOME_KEY in data["summary"]["results"][0]

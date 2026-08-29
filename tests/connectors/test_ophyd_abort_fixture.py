@@ -9,7 +9,7 @@ any of the dependent feature's device layer. A ~15-line stub setter calls
 ``AsyncStatus.wrap`` decorates an ``async def`` and returns a callable producing
 an ``AsyncStatus``. Awaiting that status runs the wrapped coroutine and re-raises
 any exception it throws — so a refused write surfaces as a failed status, which
-aborts the plan. A verified write returns and the status succeeds.
+aborts the plan. A confirmed write returns and the status succeeds.
 
 The connector helper speaks only the generic interface, so a minimal in-file
 fake connector exercises it without any EPICS/DOOCS machinery.
@@ -27,7 +27,7 @@ from osprey.connectors.control_system.base import (  # noqa: E402
     ChannelValue,
     ChannelWriteResult,
     ControlSystemConnector,
-    WriteVerification,
+    WriteOutcome,
 )
 from osprey.errors import ChannelWriteBlockedError  # noqa: E402
 
@@ -51,8 +51,7 @@ class _FakeConnector(ControlSystemConnector):
         channel_address: str,
         value: Any,
         timeout: float | None = None,
-        verification_level: str = "callback",
-        tolerance: float | None = None,
+        confirm: bool | None = None,
     ) -> ChannelWriteResult:
         return self._canned_result
 
@@ -86,24 +85,21 @@ def _refusing_connector() -> _FakeConnector:
         ChannelWriteResult(
             channel_address="TEST:PV",
             value_written=1.0,
-            success=False,
-            blocked=True,
+            outcome=WriteOutcome.REFUSED,
             refusal_reason="WRITES_DISABLED",
             error_message="writes are disabled",
         )
     )
 
 
-def _verified_connector() -> _FakeConnector:
-    """Connector whose write is VERIFIED — checked-write returns the result."""
+def _confirmed_connector() -> _FakeConnector:
+    """Connector whose write is CONFIRMED — checked-write returns the result."""
     return _FakeConnector(
         ChannelWriteResult(
             channel_address="TEST:PV",
             value_written=1.0,
-            success=True,
-            verification=WriteVerification(
-                level="readback", verified=True, readback_value=1.0, tolerance_used=0.1
-            ),
+            outcome=WriteOutcome.CONFIRMED,
+            observed_value=1.0,
         )
     )
 
@@ -133,9 +129,9 @@ async def test_refused_write_aborts_the_status():
 
 
 @pytest.mark.asyncio
-async def test_verified_write_completes():
-    """A verified write lets the status succeed — the setter is usable for a pass."""
-    setter = _StubConnectorSetter(_verified_connector(), "TEST:PV")
+async def test_confirmed_write_completes():
+    """A confirmed write lets the status succeed — the setter is usable for a pass."""
+    setter = _StubConnectorSetter(_confirmed_connector(), "TEST:PV")
 
     # No raise: awaiting the status completes, proving the happy path is consumable.
     await setter.set(1.0)

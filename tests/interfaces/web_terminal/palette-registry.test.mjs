@@ -84,7 +84,7 @@ describe('buildRegistry', () => {
       config: {
         state: 'ok',
         sections: {
-          control_system: { write_verification: 'readback', writes_enabled: false },
+          control_system: { type: 'epics', writes_enabled: false },
           approval: { enabled: true },
         },
       },
@@ -94,7 +94,7 @@ describe('buildRegistry', () => {
     const settings = inGroup(items, 'Settings');
     const keys = settings.map((it) => it.label);
     expect(new Set(keys)).toEqual(
-      new Set(['control_system.write_verification', 'control_system.writes_enabled', 'approval.enabled']),
+      new Set(['control_system.type', 'control_system.writes_enabled', 'approval.enabled']),
     );
 
     // Each navigable setting carries searchText === its dot-key, and run reveals it.
@@ -103,7 +103,7 @@ describe('buildRegistry', () => {
       it.run();
     }
     expect(revealed).toEqual([
-      'control_system.write_verification',
+      'control_system.type',
       'control_system.writes_enabled',
       'approval.enabled',
     ]);

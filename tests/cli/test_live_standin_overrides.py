@@ -244,10 +244,10 @@ STALE_COMMENT_FIXTURE = """control_system:
     database_path: "data/channel_limits.json"
     allow_unlisted_channels: false  # Permissive mode for tutorial
 
-  # Write Verification Configuration
-  # How the connector confirms a write took effect.
-  write_verification:
-    default_level: callback
+  # Channel-read response size
+  # Array channels (waveforms, camera frames) can be far larger than an agent's
+  # context can hold.
+  read_inline_max_elements: 2000
 """
 
 
@@ -265,11 +265,9 @@ def test_live_standin_overrides_retruth_the_strict_limits_line(tmp_path: Path) -
     assert "allow_unlisted_channels: false" in line
     # The banner ruamel parks in that same comment token belongs to the file's
     # layout, not to the key, and must survive the rewrite.
-    assert "# Write Verification Configuration" in rendered
-    assert "# How the connector confirms a write took effect." in rendered
-    assert yaml.safe_load(rendered)["control_system"]["write_verification"] == {
-        "default_level": "callback"
-    }
+    assert "# Channel-read response size" in rendered
+    assert "# context can hold." in rendered
+    assert yaml.safe_load(rendered)["control_system"]["read_inline_max_elements"] == 2000
 
 
 def test_live_standin_overrides_retruth_a_line_with_no_comment(tmp_path: Path) -> None:
@@ -281,9 +279,8 @@ def test_live_standin_overrides_retruth_a_line_with_no_comment(tmp_path: Path) -
         "    enabled: true\n"
         "    allow_unlisted_channels: false\n"
         "\n"
-        "  # Write Verification Configuration\n"
-        "  write_verification:\n"
-        "    default_level: callback\n",
+        "  # Channel-read response size\n"
+        "  read_inline_max_elements: 2000\n",
         encoding="utf-8",
     )
 
@@ -291,7 +288,7 @@ def test_live_standin_overrides_retruth_a_line_with_no_comment(tmp_path: Path) -
 
     rendered = config_path.read_text(encoding="utf-8")
     assert f"allow_unlisted_channels: false {STRICT_LIMITS_COMMENT}" in rendered
-    assert "# Write Verification Configuration" in rendered
+    assert "# Channel-read response size" in rendered
 
 
 def test_live_standin_overrides_leave_a_config_without_the_key_alone(tmp_path: Path) -> None:

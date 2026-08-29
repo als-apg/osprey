@@ -193,9 +193,10 @@ Pick a control system
 
       .. note::
 
-         DOOCS supports the ``none`` and ``readback`` write-verification
-         levels. ``callback`` is accepted but has no DOOCS equivalent, so it
-         performs a readback and reports the level as ``readback``.
+         DOOCS confirms a write the way every connector does: one fresh read
+         of the channel, compared exactly against the value that was sent. A
+         reading that is not a number -- a string, a name -- confirms by
+         plain equality.
 
    .. tab-item:: Virtual Accelerator
       :sync: va
@@ -312,5 +313,5 @@ system OSPREY does not ship, see :doc:`/contributing/extending-osprey`.
 .. seealso::
 
    :doc:`/reference/contracts/connectors`
-       Connector contracts: reading large values, write verification and its
+       Connector contracts: reading large values, write confirmation and its
        safety gates, and the archiver ``get_data`` contract.

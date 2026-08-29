@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Out-of-process host-side Channel Access op for the substrate-equivalence e2e.
 
-Runs ONE ``connect -> (optional verified write) -> read`` sequence against the
+Runs ONE ``connect -> (optional confirmed write) -> read`` sequence against the
 co-deployed Virtual Accelerator through the real, unmodified
 ``VirtualAcceleratorConnector`` (built by the production ``ConnectorFactory``),
 prints the result as one marker-prefixed JSON line, then force-exits.
@@ -33,7 +33,14 @@ Protocol -- ``argv[1]`` is a JSON spec::
 On success, emits exactly one stdout line::
 
     __HOST_CA_RESULT__{"read_value": <float>, "read_settled": <bool>,
-                       "write_success": <bool|null>, "write_verified": <bool|null>}
+                       "write_outcome": <str|null>,
+                       "write_error_message": <str|null>}
+
+``write_outcome`` is the ``WriteOutcome`` word the connector reported, or
+``null`` when no write was asked for. The word rather than a bool: on a
+container flake the caller has to be able to tell a refusal from a mismatch
+from a re-read that failed, and ``write_error_message`` carries the reason the
+outcome came with (``null`` for the outcomes that carry none).
 
 ``read_settled`` is ``true`` when ``settle_read`` was not requested, or when the
 readback reached the written value within the settle deadline; ``false`` means
@@ -57,7 +64,7 @@ RESULT_MARKER = "__HOST_CA_RESULT__"
 
 # sp-echo SP->RB propagation is asynchronous in the IOC (the setpoint record's
 # on_update fires on the IOC's own loop AFTER the caput that write_channel
-# verifies against the SP), so an immediate readback read can beat the echo.
+# confirms against the SP), so an immediate readback read can beat the echo.
 # When a caller sets settle_read, poll the readback until it reflects the
 # written value rather than guess a fixed delay (condition-based waiting).
 _SETTLE_TOL = 1e-6
@@ -66,7 +73,7 @@ _SETTLE_POLL_SEC = 0.05
 
 
 async def _do(spec: dict[str, Any]) -> dict[str, Any]:
-    """Connect, optionally verify-write, read, and emit -- then force-exit.
+    """Connect, optionally write (confirmed), read, and emit -- then force-exit.
 
     Uses the SAME config the in-process host connector used (same
     ``get_config_value`` overrides, same connector config), so this
@@ -102,19 +109,17 @@ async def _do(spec: dict[str, Any]) -> dict[str, Any]:
 
     with patch("osprey.utils.config.get_config_value", side_effect=_get_config_value):
         connector = await ConnectorFactory.create_control_system_connector(spec["connector_config"])
-        result: dict[str, Any] = {"write_success": None, "write_verified": None}
+        result: dict[str, Any] = {"write_outcome": None, "write_error_message": None}
 
         write = spec.get("write")
         if write is not None:
-            # SP always latches its own readback (verification_level="readback"
-            # re-reads the SAME channel it wrote) -- exactly what P3/P5 assert.
-            wr = await connector.write_channel(
-                write["address"], write["value"], verification_level="readback"
-            )
-            result["write_success"] = bool(wr.success)
-            result["write_verified"] = bool(
-                wr.verification is not None and wr.verification.verified
-            )
+            # SP always latches its own readback (confirmation re-reads the SAME
+            # channel it wrote) -- exactly what P3/P5 assert.
+            wr = await connector.write_channel(write["address"], write["value"], confirm=True)
+            # WriteOutcome is a StrEnum, so str() is the plain word and the
+            # emitted JSON stays a string the caller can compare directly.
+            result["write_outcome"] = str(wr.outcome)
+            result["write_error_message"] = wr.error_message
 
         # Read the target address. For an sp-echo pair, wait (bounded) for the
         # asynchronous SP->RB echo to reflect the written value when the caller

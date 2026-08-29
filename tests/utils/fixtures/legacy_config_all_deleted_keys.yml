@@ -60,8 +60,8 @@ control_system:
     allow_unlisted_channels: true
 
   write_verification:
-    default_level: none
-    default_tolerance_percent: 0.1
+    default_level: none      # RETIRED (P1) — most misleading: implies writes go unconfirmed
+    default_tolerance_percent: 0.1  # RETIRED (P1) — confirmation has no tolerance any more
     enabled: true            # RETIRED (P1 #5) — most misleading: implies verification is on
     fail_on_mismatch: true   # RETIRED (P1 #1) — most misleading: implies writes abort on mismatch
     timeout: 5.0             # RETIRED (P1, unverified sibling)

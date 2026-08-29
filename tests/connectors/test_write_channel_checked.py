@@ -1,17 +1,17 @@
 """Denial-contract tests for ControlSystemConnector.write_channel_checked.
 
-Task 3.1: write_channel_checked is the correctness primitive a plan device
-setter wraps. It awaits the connector-agnostic write_channel and collapses its
-four documented outcomes into a single raise-or-return contract:
+write_channel_checked is the correctness primitive a plan device setter wraps.
+It awaits the connector-agnostic write_channel and collapses the six
+``WriteOutcome`` words into a single raise-or-return contract:
 
-- a REFUSAL (writes disabled, limits, or non-limits validation) -> raises
-  ChannelWriteBlockedError;
-- an ATTEMPTED-but-failed / unverified write (write rejected, readback mismatch,
-  readback failed) -> raises ChannelWriteFailedError;
+- ``refused`` -> raises ChannelWriteBlockedError, carrying the refusal_reason;
+- ``failed`` / ``mismatch`` / ``unconfirmed`` -> raises ChannelWriteFailedError
+  under that same word, uppercased;
 - a native CA-layer ConnectionError/TimeoutError -> propagates unchanged;
-- a verified successful write (or an accepted level="none" success) -> returns
-  the ChannelWriteResult untouched.
+- ``confirmed`` (in any alarm state) and ``unrequested`` -> return the
+  ChannelWriteResult untouched.
 
+The verdict is read off ``result.outcome`` alone — nothing here re-derives one.
 The helper lives on the base class and speaks only the generic interface, so a
 minimal in-file fake connector exercises it without any EPICS/DOOCS machinery.
 """
@@ -25,7 +25,7 @@ from osprey.connectors.control_system.base import (
     ChannelValue,
     ChannelWriteResult,
     ControlSystemConnector,
-    WriteVerification,
+    WriteOutcome,
 )
 from osprey.errors import (
     ChannelLimitsViolationError,
@@ -60,8 +60,7 @@ class _FakeConnector(ControlSystemConnector):
         channel_address: str,
         value: Any,
         timeout: float | None = None,
-        verification_level: str = "callback",
-        tolerance: float | None = None,
+        confirm: bool | None = None,
     ) -> ChannelWriteResult:
         if self._canned_exc is not None:
             raise self._canned_exc
@@ -93,24 +92,23 @@ class _FakeConnector(ControlSystemConnector):
 
 def _result(**overrides) -> ChannelWriteResult:
     """Build a ChannelWriteResult with sensible defaults overridable per test."""
-    base = {
+    base: dict[str, Any] = {
         "channel_address": "TEST:PV",
         "value_written": 42.0,
-        "success": True,
+        "outcome": WriteOutcome.CONFIRMED,
     }
     base.update(overrides)
     return ChannelWriteResult(**base)
 
 
 class TestRefusals:
-    """Refused writes (never attempted) -> ChannelWriteBlockedError."""
+    """``refused`` — nothing was written -> ChannelWriteBlockedError."""
 
     @pytest.mark.asyncio
     async def test_writes_disabled_result_raises_blocked(self):
         connector = _FakeConnector(
             result=_result(
-                success=False,
-                blocked=True,
+                outcome=WriteOutcome.REFUSED,
                 refusal_reason="WRITES_DISABLED",
                 error_message="writes are disabled",
             )
@@ -126,8 +124,7 @@ class TestRefusals:
     async def test_validation_error_result_raises_blocked(self):
         connector = _FakeConnector(
             result=_result(
-                success=False,
-                blocked=True,
+                outcome=WriteOutcome.REFUSED,
                 refusal_reason="VALIDATION_ERROR",
                 error_message="validate() raised",
             )
@@ -138,6 +135,18 @@ class TestRefusals:
 
         assert excinfo.value.reason == "VALIDATION_ERROR"
         assert excinfo.value.channel_address == "TEST:PV"
+
+    @pytest.mark.asyncio
+    async def test_refusal_without_a_reason_falls_back_to_writes_disabled(self):
+        """A refusal that names no policy still raises under a reason code."""
+        connector = _FakeConnector(
+            result=_result(outcome=WriteOutcome.REFUSED, error_message="refused")
+        )
+
+        with pytest.raises(ChannelWriteBlockedError) as excinfo:
+            await connector.write_channel_checked("TEST:PV", 42.0)
+
+        assert excinfo.value.reason == "WRITES_DISABLED"
 
     @pytest.mark.asyncio
     async def test_limits_violation_normalized_to_blocked(self):
@@ -161,14 +170,13 @@ class TestRefusals:
 
 
 class TestFailures:
-    """Attempted-but-failed / unverified writes -> ChannelWriteFailedError."""
+    """Sent but not confirmed -> ChannelWriteFailedError under the outcome word."""
 
     @pytest.mark.asyncio
-    async def test_write_failed_result_raises_failed(self):
+    async def test_failed_result_raises_failed(self):
         connector = _FakeConnector(
             result=_result(
-                success=False,
-                blocked=False,
+                outcome=WriteOutcome.FAILED,
                 error_message="Failed to write TEST:PV",
             )
         )
@@ -176,51 +184,69 @@ class TestFailures:
         with pytest.raises(ChannelWriteFailedError) as excinfo:
             await connector.write_channel_checked("TEST:PV", 42.0)
 
-        assert excinfo.value.reason == "WRITE_FAILED"
+        assert excinfo.value.reason == "FAILED"
+        assert excinfo.value.outcome is WriteOutcome.FAILED
         assert excinfo.value.channel_address == "TEST:PV"
+        assert "Failed to write TEST:PV" in str(excinfo.value)
 
     @pytest.mark.asyncio
-    async def test_readback_unverified_result_raises_failed(self):
+    async def test_mismatch_result_raises_failed_naming_both_values(self):
+        """A mismatch carries no error_message: both numbers are the report."""
         connector = _FakeConnector(
             result=_result(
-                success=True,
-                verification=WriteVerification(
-                    level="readback",
-                    verified=False,
-                    readback_value=41.0,
-                    tolerance_used=0.1,
-                    notes="readback 41.0 != 42.0",
-                ),
-                error_message="readback mismatch",
+                outcome=WriteOutcome.MISMATCH,
+                value_written=42.0,
+                observed_value=41.0,
             )
         )
 
         with pytest.raises(ChannelWriteFailedError) as excinfo:
             await connector.write_channel_checked("TEST:PV", 42.0)
 
-        assert excinfo.value.reason == "READBACK_UNVERIFIED"
-        assert excinfo.value.channel_address == "TEST:PV"
+        assert excinfo.value.reason == "MISMATCH"
+        assert excinfo.value.outcome is WriteOutcome.MISMATCH
+        assert excinfo.value.value_written == 42.0
+        assert excinfo.value.observed_value == 41.0
+        assert "42.0" in str(excinfo.value)
+        assert "41.0" in str(excinfo.value)
 
     @pytest.mark.asyncio
-    async def test_readback_unverified_uses_notes_when_no_error_message(self):
-        """When error_message is absent, the verification notes carry the detail."""
+    async def test_unconfirmed_result_raises_failed(self):
         connector = _FakeConnector(
             result=_result(
-                success=True,
-                verification=WriteVerification(
-                    level="readback",
-                    verified=False,
-                    notes="readback failed to connect",
-                ),
+                outcome=WriteOutcome.UNCONFIRMED,
+                error_message="confirming read failed to connect",
+            )
+        )
+
+        with pytest.raises(ChannelWriteFailedError) as excinfo:
+            await connector.write_channel_checked("TEST:PV", 42.0)
+
+        assert excinfo.value.reason == "UNCONFIRMED"
+        assert excinfo.value.outcome is WriteOutcome.UNCONFIRMED
+        assert excinfo.value.observed_value is None
+        assert "confirming read failed to connect" in str(excinfo.value)
+
+    @pytest.mark.asyncio
+    async def test_notes_are_never_read_by_the_raise_path(self):
+        """``error_message`` is the only free text the raise path reads.
+
+        ``notes`` is display-only; a failure that carries notes and no message
+        gets the exception's own wording, not the note.
+        """
+        connector = _FakeConnector(
+            result=_result(
+                outcome=WriteOutcome.UNCONFIRMED,
                 error_message=None,
+                notes="cannot be compared",
             )
         )
 
         with pytest.raises(ChannelWriteFailedError) as excinfo:
             await connector.write_channel_checked("TEST:PV", 42.0)
 
-        assert excinfo.value.reason == "READBACK_UNVERIFIED"
-        assert "readback failed to connect" in str(excinfo.value)
+        assert excinfo.value.reason == "UNCONFIRMED"
+        assert "cannot be compared" not in str(excinfo.value)
 
 
 class TestPropagation:
@@ -241,20 +267,12 @@ class TestPropagation:
             await connector.write_channel_checked("TEST:PV", 42.0)
 
 
-class TestSuccess:
-    """Verified successes (and accepted level="none") return unchanged."""
+class TestReturns:
+    """``confirmed`` and ``unrequested`` return the result unchanged."""
 
     @pytest.mark.asyncio
-    async def test_verified_readback_success_returns_result(self):
-        result = _result(
-            success=True,
-            verification=WriteVerification(
-                level="readback",
-                verified=True,
-                readback_value=42.0,
-                tolerance_used=0.1,
-            ),
-        )
+    async def test_confirmed_returns_result(self):
+        result = _result(outcome=WriteOutcome.CONFIRMED, observed_value=42.0)
         connector = _FakeConnector(result=result)
 
         returned = await connector.write_channel_checked("TEST:PV", 42.0)
@@ -262,36 +280,25 @@ class TestSuccess:
         assert returned is result
 
     @pytest.mark.asyncio
-    async def test_verified_callback_success_returns_result(self):
+    async def test_confirmed_in_alarm_returns_result(self):
+        """Alarm state is reported with the write, never a reason to raise."""
         result = _result(
-            success=True,
-            verification=WriteVerification(level="callback", verified=True),
+            outcome=WriteOutcome.CONFIRMED,
+            observed_value=42.0,
+            alarm_status="HIHI",
+            alarm_severity=2,
         )
         connector = _FakeConnector(result=result)
 
         returned = await connector.write_channel_checked("TEST:PV", 42.0)
 
         assert returned is result
+        assert returned.alarm_severity == 2
 
     @pytest.mark.asyncio
-    async def test_level_none_success_returns_despite_unverified(self):
-        """level="none" means no verification was requested: an unverified
-        success is ACCEPTED and returned (the v.level != "none" guard).
-        """
-        result = _result(
-            success=True,
-            verification=WriteVerification(level="none", verified=False),
-        )
-        connector = _FakeConnector(result=result)
-
-        returned = await connector.write_channel_checked("TEST:PV", 42.0)
-
-        assert returned is result
-
-    @pytest.mark.asyncio
-    async def test_success_with_no_verification_returns(self):
-        """A bare success with verification=None returns unchanged."""
-        result = _result(success=True, verification=None)
+    async def test_unrequested_returns_result(self):
+        """confirm=False: nothing was checked, and nothing is claimed."""
+        result = _result(outcome=WriteOutcome.UNREQUESTED)
         connector = _FakeConnector(result=result)
 
         returned = await connector.write_channel_checked("TEST:PV", 42.0)
@@ -300,10 +307,10 @@ class TestSuccess:
 
     @pytest.mark.asyncio
     async def test_kwargs_pass_through_to_write_channel(self):
-        """verification_level/tolerance/timeout reach write_channel verbatim."""
+        """confirm/timeout reach write_channel verbatim."""
         seen: dict[str, Any] = {}
 
-        result = _result(success=True)
+        result = _result(outcome=WriteOutcome.UNREQUESTED)
         connector = _FakeConnector(result=result)
 
         async def _capture(channel_address, value, **kwargs):
@@ -315,14 +322,13 @@ class TestSuccess:
         connector.write_channel = _capture  # type: ignore[method-assign]
 
         returned = await connector.write_channel_checked(
-            "TEST:PV", 42.0, verification_level="readback", tolerance=0.5, timeout=3.0
+            "TEST:PV", 42.0, confirm=False, timeout=3.0
         )
 
         assert returned is result
         assert seen == {
             "channel_address": "TEST:PV",
             "value": 42.0,
-            "verification_level": "readback",
-            "tolerance": 0.5,
+            "confirm": False,
             "timeout": 3.0,
         }

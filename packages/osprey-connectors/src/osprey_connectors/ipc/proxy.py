@@ -169,30 +169,30 @@ class ConnectorHostProxy:
         channel_address: str,
         value: Any,
         timeout: float | None = None,
-        verification_level: str | None = None,
-        tolerance: float | None = None,
+        confirm: bool | None = None,
     ) -> ChannelWriteResult:
         """Write one channel. Returns the ``ChannelWriteResult`` from the child.
 
         A refusal (limits, writes-disabled) arrives as a typed exception frame
         and is re-raised here as the real exception class with its fields
         intact, so a caller cannot tell the refusal came from another process.
+
+        ``confirm=None`` leaves the keyword off the request frame entirely, so
+        the child's connector resolves the policy for this channel; an explicit
+        ``confirm=False`` crosses the wire as the answer it is.
         """
         kwargs: dict[str, Any] = {
             "channel_address": channel_address,
             "value": value,
             "timeout": timeout,
         }
-        return await self._call(
-            "write_channel", _with_verification(kwargs, verification_level, tolerance), timeout
-        )
+        return await self._call("write_channel", _with_confirm(kwargs, confirm), timeout)
 
     async def write_multiple_channels(
         self,
         operations: list[tuple[str, Any]],
         timeout: float | None = None,
-        verification_level: str | None = None,
-        tolerance: float | None = None,
+        confirm: bool | None = None,
     ) -> list[ChannelWriteResult]:
         """Write many channels in one request frame.
 
@@ -205,11 +205,7 @@ class ConnectorHostProxy:
             "operations": [list(operation) for operation in operations],
             "timeout": timeout,
         }
-        return await self._call(
-            "write_multiple_channels",
-            _with_verification(kwargs, verification_level, tolerance),
-            timeout,
-        )
+        return await self._call("write_multiple_channels", _with_confirm(kwargs, confirm), timeout)
 
     async def disconnect(self, *, ack_timeout: float = 2.0) -> None:
         """Ask the child to release its connector, then close the pipe.
@@ -400,20 +396,20 @@ class ConnectorHostProxy:
                 await wait_closed()
 
 
-def _with_verification(
-    kwargs: dict[str, Any], verification_level: str | None, tolerance: float | None
-) -> dict[str, Any]:
-    """Add the verification keywords only when the caller actually supplied them.
+def _with_confirm(kwargs: dict[str, Any], confirm: bool | None) -> dict[str, Any]:
+    """Add the ``confirm`` keyword only when the caller actually supplied one.
 
-    ``None`` is the connector contract's *omission* sentinel, not a fourth
-    verification level: a caller with no opinion leaves the keyword off so the
-    connector resolves the level and tolerance for that specific channel.
-    Forwarding ``None`` over the wire would hand the child an explicit
-    ``verification_level=None`` and override a connector whose own default is
-    something else, so the keys are left out instead.
+    ``None`` is the connector contract's *omission* sentinel, not a third
+    answer: a caller with no opinion leaves the keyword off so the connector
+    resolves the policy for that specific channel. Forwarding ``None`` over the
+    wire would hand the child an explicit ``confirm=None`` and override a
+    connector whose own default is something else, so the key is left out
+    instead.
+
+    The guard is ``is not None`` and never ``if confirm``: an explicit
+    ``confirm=False`` is an answer, and a truth test would strip it and let the
+    child confirm the write anyway.
     """
-    if verification_level is not None:
-        kwargs["verification_level"] = verification_level
-    if tolerance is not None:
-        kwargs["tolerance"] = tolerance
+    if confirm is not None:
+        kwargs["confirm"] = confirm
     return kwargs

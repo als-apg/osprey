@@ -28,11 +28,11 @@ the only thing an agent or an operator ever sees.
 import json
 import os
 from contextlib import contextmanager
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from osprey.connectors.control_system.base import WriteVerification
+from osprey.connectors.control_system.base import ChannelWriteResult, WriteOutcome
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.connector_host_manager import ConnectorHostManager
 from osprey.mcp_server.control_system.server_context import initialize_server_context
@@ -47,23 +47,17 @@ from tests.mcp_server.conftest import (
 #: cannot smuggle a field into the payload an agent reads. A refusal is an error
 #: envelope; a write that proceeds must look exactly as it did before.
 EXPECTED_TOP_LEVEL_KEYS = {"status", "description", "summary", "access_details"}
-EXPECTED_SUMMARY_KEYS = {
-    "total_writes",
-    "successful",
-    "failed",
-    "refused",
-    "verification_failed",
-    "results",
-}
+EXPECTED_SUMMARY_KEYS = {"total_writes", "outcomes", "results"}
 EXPECTED_RESULT_KEYS = {
     "channel",
     "value",
-    "success",
-    "write_state",
-    "error",
-    "blocked",
+    "outcome",
     "refusal_reason",
-    "verification",
+    "error",
+    "observed_value",
+    "alarm_status",
+    "alarm_severity",
+    "notes",
 }
 
 #: Display metadata as the server's single writer records it. Irrelevant to the
@@ -107,7 +101,7 @@ def _publish_start(target, generation, children=None):
     )
 
 
-def _stamp_approval(operations, *, target, generation, verification_level=None, server_pid=None):
+def _stamp_approval(operations, *, target, generation, confirm=None, server_pid=None):
     """Leave the stamp a rendered ``channel_write`` approval leaves behind.
 
     Written the way the hook writes it — same directory, same file name, same
@@ -115,7 +109,7 @@ def _stamp_approval(operations, *, target, generation, verification_level=None, 
     tests is the comparison. That the hook derives the SAME key from the same
     payload is pinned on the hook's side, in ``tests/hooks``.
     """
-    key = channel_write_module._approval_stamp_key(operations, verification_level)
+    key = channel_write_module._approval_stamp_key(operations, confirm)
     directory = target_state.state_dir()
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / (
@@ -139,22 +133,19 @@ def _stamp_approval(operations, *, target, generation, verification_level=None, 
 
 
 def _write_result(channel="TEST:PV", value=42.0):
-    """A plain successful write result with a real verification object."""
-    result = MagicMock()
-    result.channel_address = channel
-    result.value_written = value
-    result.success = True
-    result.error_message = None
-    result.blocked = False
-    result.refusal_reason = None
-    result.verification = WriteVerification(
-        level="callback",
-        verified=True,
-        readback_value=value,
-        tolerance_used=0.1,
-        notes="",
+    """A confirmed write, as a connector really returns one.
+
+    A real ``ChannelWriteResult`` rather than a ``MagicMock``: a mock answers
+    every attribute truthily, so a projection reading a field no connector
+    populates would pass here and misreport in the field — and this file's
+    whole point is that the envelope an operator sees is exactly what it was.
+    """
+    return ChannelWriteResult(
+        channel_address=channel,
+        value_written=value,
+        outcome=WriteOutcome.CONFIRMED,
+        observed_value=value,
     )
-    return result
 
 
 @contextmanager
@@ -216,7 +207,7 @@ async def test_write_proceeds_and_looks_unchanged_without_target_state(tmp_path,
     assert set(data["summary"]) == EXPECTED_SUMMARY_KEYS
     assert set(data["summary"]["results"][0]) == EXPECTED_RESULT_KEYS
     assert data["status"] == "success"
-    assert data["summary"]["successful"] == 1
+    assert data["summary"]["outcomes"] == {"confirmed": 1}
     connector.write_channel.assert_awaited_once()
 
 
@@ -261,7 +252,7 @@ async def test_same_target_respawn_does_not_trip_the_binding(tmp_path, monkeypat
     )
 
     assert data["status"] == "success"
-    assert data["summary"]["successful"] == 1
+    assert data["summary"]["outcomes"] == {"confirmed": 1}
     connector.write_channel.assert_awaited_once()
     # The respawn really did land in the middle of the call.
     assert target_state.read()["children"] == [9876]
@@ -562,6 +553,154 @@ async def test_no_stamp_means_no_approval_comparison(tmp_path, monkeypatch):
     data = extract_response_dict(await _run_single(connector))
 
     assert data["status"] == "success"
+    connector.write_channel.assert_awaited_once()
+
+
+@pytest.mark.unit
+async def test_a_stamp_approved_for_a_different_confirmation_is_not_consulted(
+    tmp_path, monkeypatch
+):
+    """``confirm`` is half the payload, so it is half the stamp's identity.
+
+    The prompt the operator saw named a confirmation setting; a call made with
+    another one is a different write. Keying on it is also what keeps the two
+    halves of the hash in step — if one side stopped hashing ``confirm`` the
+    keys would agree only for the omitted case, and the window check would go
+    quiet for every explicit one without failing anything.
+    """
+    _prepare(tmp_path, monkeypatch)
+    operations = [{"channel": "TEST:PV", "value": 42.0}]
+    _publish_start("live", 4)
+    # An approval rendered for a write that would NOT be confirmed. This call
+    # asks for confirmation, so that prompt does not vouch for it.
+    _stamp_approval(operations, target="va", generation=3, confirm=False)
+
+    connector = AsyncMock()
+    connector.write_channel.return_value = _write_result()
+
+    with _patched(connector):
+        fn = _get_channel_write()
+        data = extract_response_dict(await fn(operations=operations, confirm=True))
+
+    assert data["status"] == "success"
+    connector.write_channel.assert_awaited_once()
+
+
+@pytest.mark.unit
+async def test_a_stamp_matching_this_calls_confirmation_binds(tmp_path, monkeypatch):
+    """The same write with the same ``confirm`` finds its own approval.
+
+    The other half of the parity: the key the tool derives for an explicit
+    ``confirm`` has to be the key the stamp was filed under, or no explicitly
+    confirmed write would ever be compared at all.
+    """
+    _prepare(tmp_path, monkeypatch)
+    operations = [{"channel": "TEST:PV", "value": 42.0}]
+    _publish_start("live", 4)
+    _stamp_approval(operations, target="va", generation=3, confirm=True)
+
+    connector = AsyncMock()
+    connector.write_channel.return_value = _write_result()
+
+    with _patched(connector):
+        fn = _get_channel_write()
+        with assert_raises_error(error_type="target_changed") as ctx:
+            await fn(operations=operations, confirm=True)
+
+    assert ctx["envelope"]["details"]["window"] == channel_write_module.WINDOW_APPROVAL
+    connector.write_channel.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# the stale-hook warning on a stamp miss
+# ---------------------------------------------------------------------------
+
+
+def _tool_warnings(caplog):
+    """Warnings this tool emitted, and nothing else's.
+
+    ``caplog`` captures the whole run, and building a server context warns about
+    an absent archiver section — asserting on the raw text would make "quiet"
+    mean "no warning from anywhere", which is not what any of these tests claim.
+    """
+    return [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == channel_write_module.logger.name and record.levelname == "WARNING"
+    ]
+
+
+@pytest.mark.unit
+async def test_a_miss_with_this_servers_stamps_present_warns_about_the_render(
+    tmp_path, monkeypatch, caplog
+):
+    """Stamps from this server plus a miss means the two key spellings disagree.
+
+    The failure this warning exists for is silent by construction: a project
+    rendered before the stamp key changed files its stamps under the old
+    derivation, every lookup misses, and the approval-window check stops running
+    without anything going red. Stamps this process's own prompts left behind
+    are the evidence that the hook is stamping and only the key is wrong.
+    """
+    _prepare(tmp_path, monkeypatch)
+    _publish_start("live", 4)
+    # A stamp this server rendered — for some other write, as an un-rebuilt
+    # project's stamps all effectively are.
+    _stamp_approval([{"channel": "OTHER:PV", "value": 1.0}], target="live", generation=4)
+
+    connector = AsyncMock()
+    connector.write_channel.return_value = _write_result()
+
+    with caplog.at_level("WARNING", logger=channel_write_module.logger.name):
+        data = extract_response_dict(await _run_single(connector))
+
+    assert data["status"] == "success", "the warning is advice, never a refusal"
+    assert any("osprey build" in message for message in _tool_warnings(caplog))
+    connector.write_channel.assert_awaited_once()
+
+
+@pytest.mark.unit
+async def test_a_miss_with_only_another_sessions_stamps_stays_quiet(tmp_path, monkeypatch, caplog):
+    """Two sessions share the directory: the other one's stamps prove nothing.
+
+    Without the pid filter this is the ordinary case — a second session on the
+    same checkout has stamps on disk, and every unstamped write in this one
+    would tell the operator to rebuild a project that is perfectly current.
+    """
+    _prepare(tmp_path, monkeypatch)
+    _publish_start("live", 4)
+    _stamp_approval(
+        [{"channel": "OTHER:PV", "value": 1.0}],
+        target="live",
+        generation=4,
+        server_pid=os.getpid() + 1,
+    )
+
+    connector = AsyncMock()
+    connector.write_channel.return_value = _write_result()
+
+    with caplog.at_level("WARNING", logger=channel_write_module.logger.name):
+        data = extract_response_dict(await _run_single(connector))
+
+    assert data["status"] == "success"
+    assert _tool_warnings(caplog) == []
+    connector.write_channel.assert_awaited_once()
+
+
+@pytest.mark.unit
+async def test_a_miss_with_no_stamps_at_all_stays_quiet(tmp_path, monkeypatch, caplog):
+    """A deployment whose policy never asks has no stamps and needs no advice."""
+    _prepare(tmp_path, monkeypatch)
+    _publish_start("live", 4)
+
+    connector = AsyncMock()
+    connector.write_channel.return_value = _write_result()
+
+    with caplog.at_level("WARNING", logger=channel_write_module.logger.name):
+        data = extract_response_dict(await _run_single(connector))
+
+    assert data["status"] == "success"
+    assert _tool_warnings(caplog) == []
     connector.write_channel.assert_awaited_once()
 
 
