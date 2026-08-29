@@ -210,7 +210,7 @@ async def test_list_devices_request_response_mapping(monkeypatch):
 
     def fake_get(path, **kwargs):
         captured["path"] = path
-        return 200, devices
+        return 200, {"devices": devices, "total": 2, "offset": 0, "limit": 500}
 
     monkeypatch.setattr(f"{_MOD}._http_get_json", fake_get)
 
@@ -219,9 +219,11 @@ async def test_list_devices_request_response_mapping(monkeypatch):
     assert captured["path"] == "/devices"
     data = extract_response_dict(result)
     assert data["status"] == "success"
-    # Relayed whole: a flag the bridge starts reporting reaches the agent
+    # The envelope is unpacked by named key, but the ENTRIES inside it are
+    # relayed verbatim: a flag the bridge starts reporting reaches the agent
     # without a code change here.
     assert data["devices"] == devices
+    assert (data["total"], data["offset"], data["limit"]) == (2, 0, 500)
 
 
 async def test_list_devices_unreachable(monkeypatch):

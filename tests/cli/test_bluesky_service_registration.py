@@ -282,6 +282,92 @@ def test_inject_bluesky_devices_file_default_written_when_unset(tmp_path: Path) 
     assert config["services"]["bluesky"]["devices_file"] == "data/bluesky_devices.yml"
 
 
+# ---------------------------------------------------------------------------
+# Device-listing page size: the omit-when-EQUALS-DEFAULT facility plan key.
+#
+# The third contract in `_facility_plan_keys`, and the only one whose key is
+# never "unset": `device_page_size` is an int with a dataclass default, so a
+# profile that says nothing and a profile that authors 500 arrive identical.
+# Both must render NO line, so that every project built before the key existed
+# keeps its exact config.yml (and its exact compose render).
+# ---------------------------------------------------------------------------
+
+
+def test_inject_bluesky_device_page_size_written_to_config(tmp_path: Path) -> None:
+    """A non-default device_page_size is emitted into services.bluesky config."""
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    _write_config(project_path)
+
+    _inject_bluesky(BlueskyConfig(device_page_size=200), project_path)
+
+    config = _read_config(project_path)
+    assert config["services"]["bluesky"]["device_page_size"] == 200
+
+
+def test_inject_bluesky_default_device_page_size_omits_key(tmp_path: Path) -> None:
+    """An unstated device_page_size -> no key at all (omit-when-default).
+
+    The regression pin: the bridge falls back to the same default when the env
+    var is absent, so an unauthored page size must leave the rendered block
+    exactly as it was before this key existed.
+    """
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    _write_config(project_path)
+
+    _inject_bluesky(BlueskyConfig(), project_path)
+
+    config = _read_config(project_path)
+    assert "device_page_size" not in config["services"]["bluesky"]
+
+
+def test_inject_bluesky_device_page_size_authored_at_default_omits_key(
+    tmp_path: Path,
+) -> None:
+    """Authoring the default EXPLICITLY renders no line either.
+
+    Where this key parts company with `devices_file`: spelling the default out
+    is not a request for a line in config.yml, because the value it would carry
+    is the one the bridge already falls back to. Same deployed behaviour, same
+    rendered artifact — asserted against the dataclass default rather than a
+    literal, so the test cannot drift from the schema.
+    """
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    _write_config(project_path)
+
+    _inject_bluesky(BlueskyConfig(device_page_size=BlueskyConfig.device_page_size), project_path)
+
+    config = _read_config(project_path)
+    assert "device_page_size" not in config["services"]["bluesky"]
+
+
+def test_inject_bluesky_device_page_size_written_to_both_lanes(tmp_path: Path) -> None:
+    """On a two-lane deploy BOTH lane blocks carry the authored page size.
+
+    The page size describes the facility's device file, not a control-system
+    target, so it belongs to the shared facility plan keys: two lanes reading
+    one devices file must page it the same way.
+    """
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    _write_config(project_path)
+    # `second_lane` needs a switchable baseline; a VA baseline pairs lane 1 (va)
+    # with a `live` second lane and needs no VA block passed in.
+    yaml = YAML()
+    config = _read_config(project_path)
+    config["control_system"] = {"type": "virtual_accelerator"}
+    with open(project_path / "config.yml", "w") as fh:
+        yaml.dump(config, fh)
+
+    _inject_bluesky(BlueskyConfig(second_lane=True, device_page_size=250), project_path)
+
+    config = _read_config(project_path)
+    assert config["services"]["bluesky"]["device_page_size"] == 250
+    assert config["services"]["bluesky_live"]["device_page_size"] == 250
+
+
 def test_inject_bluesky_devices_file_survives_the_omit_when_unset_neighbours(
     tmp_path: Path,
 ) -> None:
@@ -480,3 +566,74 @@ def test_profile_bluesky_devices_file_empty_raises() -> None:
     """An empty string is a path to nothing, not an opt-out of the default."""
     with pytest.raises(BuildProfileError):
         _parse_profile({"name": "bad", "bluesky": {"devices_file": ""}})
+
+
+# ---------------------------------------------------------------------------
+# Device-listing page size through the rendered compose file.
+#
+# The other half of the omit-when-EQUALS-DEFAULT contract asserted above: what
+# `_facility_plan_keys` writes into config.yml has to survive the template's
+# `{% if svc.device_page_size %}` guard and arrive at the bridge under the name
+# `device_page_size()` reads. Rendered end to end, because a key written to
+# config.yml that no container ever sees is indistinguishable from a key that
+# was never written.
+# ---------------------------------------------------------------------------
+
+
+def test_device_page_size_env_round_trips_through_compose(tmp_path: Path) -> None:
+    """An authored page size reaches the bridge as BLUESKY_DEVICE_PAGE_SIZE.
+
+    Quoted, because a compose environment carries strings: the bridge parses
+    the number back out, and pinning the rendered spelling keeps the template
+    from drifting into an unquoted int the YAML loader would type differently.
+    """
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    _write_config(project_path)
+
+    _inject_bluesky(BlueskyConfig(device_page_size=200), project_path)
+    config = _read_config(project_path)
+    rendered = _render_copied_compose(project_path, config)
+
+    bridge = rendered["services"]["bluesky-bridge"]
+    assert bridge["environment"]["BLUESKY_DEVICE_PAGE_SIZE"] == "200"
+
+
+def test_default_device_page_size_omits_the_env(tmp_path: Path) -> None:
+    """Regression: an unauthored page size renders the key nowhere at all.
+
+    This is what keeps every project built before the key existed rendering
+    byte-for-byte what it rendered then — the guard has to emit zero bytes, not
+    an empty assignment, so the assertion is against the whole rendered file
+    rather than one container's environment.
+    """
+    import yaml as pyyaml
+
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    _write_config(project_path)
+
+    _inject_bluesky(BlueskyConfig(), project_path)
+    config = _read_config(project_path)
+    rendered = _render_copied_compose(project_path, config)
+
+    assert "BLUESKY_DEVICE_PAGE_SIZE" not in pyyaml.safe_dump(rendered)
+
+
+def test_device_page_size_stops_at_the_bridge(tmp_path: Path) -> None:
+    """The queueserver block carries no page size even when one is authored.
+
+    The RE Manager's worker builds devices; it never serves a listing, so the
+    bound on `GET /devices` and on the unknown-device refusal's inline
+    threshold belongs to the HTTP facade alone.
+    """
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    _write_config(project_path)
+
+    _inject_bluesky(BlueskyConfig(device_page_size=200), project_path)
+    config = _read_config(project_path)
+    rendered = _render_copied_compose(project_path, config)
+
+    queueserver = rendered["services"]["queueserver"]
+    assert "BLUESKY_DEVICE_PAGE_SIZE" not in (queueserver["environment"] or {})

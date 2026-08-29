@@ -85,6 +85,7 @@ def test_every_valid_key_is_accepted_and_read() -> None:
             "plan_dir": "/facility/plans",
             "excluded_plans": ["orm"],
             "devices_file": "data/facility_devices.yml",
+            "device_page_size": 250,
         },
     }
 
@@ -98,6 +99,7 @@ def test_every_valid_key_is_accepted_and_read() -> None:
         plan_dir="/facility/plans",
         excluded_plans=["orm"],
         devices_file="data/facility_devices.yml",
+        device_page_size=250,
     )
 
 
@@ -106,6 +108,33 @@ def test_empty_block_still_takes_the_defaults() -> None:
     profile = _parse_profile({"name": "x", "bluesky": {}})
 
     assert profile.bluesky == BlueskyConfig()
+
+
+# ── values are validated, not just key names ─────────────────────────────────
+
+
+@pytest.mark.parametrize("value", [0, -5, True, "abc"])
+def test_device_page_size_rejects_a_value_that_is_not_a_positive_int(value: Any) -> None:
+    """The key is auto-accepted (it is a dataclass field), so the VALUE check is
+    the only thing standing between a nonsense page size and a shipped build.
+
+    ``True`` is in the set on purpose: it is an ``int`` to ``isinstance``, and a
+    boolean page size is an authoring mistake, not a size of one.
+    """
+    with pytest.raises(BuildProfileError) as excinfo:
+        _parse_profile({"name": "x", "bluesky": {"device_page_size": value}})
+
+    message = str(excinfo.value)
+    assert "bluesky.device_page_size" in message
+    assert repr(value) in message
+
+
+def test_device_page_size_accepts_one() -> None:
+    """The floor is inclusive — a one-device page is small, not invalid."""
+    profile = _parse_profile({"name": "x", "bluesky": {"device_page_size": 1}})
+
+    assert profile.bluesky is not None
+    assert profile.bluesky.device_page_size == 1
 
 
 # ── unknown keys are rejected ────────────────────────────────────────────────

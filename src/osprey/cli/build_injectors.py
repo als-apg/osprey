@@ -962,15 +962,37 @@ def _facility_plan_keys(bluesky: BlueskyConfig) -> dict[str, Any]:
     ``os.pathsep`` join is done Python-side because the Jinja render context has
     no ``os`` module.
 
+    ``device_page_size`` is a THIRD contract: omit-when-EQUALS-DEFAULT. It is
+    neither always-written like ``devices_file`` nor omit-when-unset like its
+    two neighbours, because the key is never unset — it is an ``int`` with a
+    dataclass default, so "unset" and "authored at the default" arrive here as
+    the same value and cannot be told apart. Writing it unconditionally would
+    put a line into every existing project's config.yml and an env var into
+    every rendered bridge, changing renders that are otherwise unchanged; so
+    the line is written only when the profile asks for something OTHER than the
+    default. A profile that authors the default explicitly therefore renders no
+    line at all — and that is exactly right, because the bridge falls back to
+    the same default when the env var is absent, so the two spellings deploy
+    identical behaviour. The comparison is against
+    ``BlueskyConfig.device_page_size``, the dataclass default itself, so the
+    build and the bridge cannot drift apart over a literal.
+
     Shared by both lanes, because plans and devices are properties of the
     facility rather than of a target — a per-lane restatement is how the two
     lanes would end up loading different plans from one profile.
     """
+    # Runtime import: the class is otherwise only a TYPE_CHECKING name here, and
+    # the omit-when-default comparison needs the dataclass default itself rather
+    # than a literal repeated on this side of the build.
+    from osprey.cli.build_profile_schema import BlueskyConfig
+
     keys: dict[str, Any] = {"devices_file": bluesky.devices_file}
     if bluesky.plan_dir:
         keys["plan_dir"] = bluesky.plan_dir
     if bluesky.excluded_plans:
         keys["excluded_plans"] = os.pathsep.join(bluesky.excluded_plans)
+    if bluesky.device_page_size != BlueskyConfig.device_page_size:
+        keys["device_page_size"] = bluesky.device_page_size
     return keys
 
 

@@ -506,6 +506,26 @@ class BlueskyConfig:
     devices, so the only question is which file names them, and an unwritten
     key would leave the staging step re-deriving this default for itself.
     """
+    device_page_size: int = 500
+    """How many devices one page of the bridge's device listing carries.
+
+    ONE number bounds both halves of the same contract: the page size the
+    bridge's ``GET /devices`` returns, and the inline threshold in the body of
+    its ``400`` refusal for an unknown device — below that count the refusal
+    spells the addressable devices out, above it the caller is pointed at the
+    paged listing instead. Keeping them the same number means a facility never
+    tunes one against the other.
+
+    Authored per facility, because "how many devices is too many to read in one
+    breath" is a property of the facility's device file, not of OSPREY. The
+    default is deliberately generous: a deployment whose device file is smaller
+    than this never sees a second page and never sees a truncated refusal.
+
+    At the default value this key renders NOTHING into ``config.yml`` or the
+    compose file — the rendered deployment carries the key only when a profile
+    authors a value that differs, and the bridge falls back to the same default
+    when the env var is absent.
+    """
 
     def second_lane_port(self, base: int | None = None) -> int:
         """Host port lane 2's bridge publishes, derived from lane 1's.

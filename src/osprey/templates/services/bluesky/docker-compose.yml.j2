@@ -268,6 +268,14 @@ services:
       # set omits the key entirely, so this env var never renders.
       BLUESKY_EXCLUDED_PLANS: "{{ svc.excluded_plans }}"
 {% endif %}
+{%- if svc.device_page_size %}
+      # Device-listing page size: the bridge's `device_page_size()` reads
+      # BLUESKY_DEVICE_PAGE_SIZE as ONE number bounding both the `GET /devices`
+      # page and the unknown-device refusal's inline threshold. Written by
+      # _inject_bluesky (build_injectors.py) only when the profile departs from
+      # the default, so a default-valued deploy never renders this key at all.
+      BLUESKY_DEVICE_PAGE_SIZE: "{{ svc.device_page_size }}"
+{% endif %}
 {% if svc.ca_name_servers %}
       # This lane serves the LIVE target, so its Channel Access addressing is
       # the facility's own gateway, supplied by the operator rather than known
