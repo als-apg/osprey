@@ -576,16 +576,16 @@ the worker to run.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w">                            </span><span class="c1"># renders the container repo too</span>
 <span class="nb">cd</span><span class="w"> </span>build/.image/my-project<span class="w">              </span><span class="c1"># the context the build rendered</span>
 docker<span class="w"> </span>build<span class="w"> </span>-t<span class="w"> </span>my-project<span class="w"> </span>-f<span class="w"> </span>build/Dockerfile<span class="w"> </span>.
-docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>-p<span class="w"> </span><span class="m">8087</span>:8087<span class="w"> </span>--env-file<span class="w"> </span>.env<span class="w"> </span>my-project
+docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>-p<span class="w"> </span><span class="m">10100</span>:10100<span class="w"> </span>--env-file<span class="w"> </span>.env<span class="w"> </span>my-project
 </pre></div>
 </div>
-<p>Then open <a class="reference external" href="http://localhost:8087">http://localhost:8087</a>. The container’s <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> prints a login
+<p>Then open <a class="reference external" href="http://localhost:10100">http://localhost:10100</a>. The container’s <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> prints a login
 URL (<code class="docutils literal notranslate"><span class="pre">…/?token=…</span></code>) to its logs at startup; open that URL to set your session
 cookie, after which it redirects to the clean address. Anything that can read
 those logs can read the token, so treat both like a password. If your <code class="docutils literal notranslate"><span class="pre">.env</span></code>
 sets <code class="docutils literal notranslate"><span class="pre">OSPREY_TERMINAL_SECRET</span></code> itself, the container uses that value and
 explains why it is printing no URL — browse to
-<code class="docutils literal notranslate"><span class="pre">http://localhost:8087/?token=&lt;that</span> <span class="pre">value&gt;</span></code> instead. Secrets are
+<code class="docutils literal notranslate"><span class="pre">http://localhost:10100/?token=&lt;that</span> <span class="pre">value&gt;</span></code> instead. Secrets are
 passed at runtime via <code class="docutils literal notranslate"><span class="pre">--env-file</span></code> — the <code class="docutils literal notranslate"><span class="pre">.dockerignore</span></code> guarantees
 <code class="docutils literal notranslate"><span class="pre">.env</span></code> itself never enters the image.</p>
 </section>
@@ -965,7 +965,7 @@ the one the server runs as.</p>
 <section id="runtime-state-and-volumes">
 <h2>Runtime State and Volumes<a class="headerlink" href="#runtime-state-and-volumes" title="Link to this heading">#</a></h2>
 <p>Two kinds of state are worth persisting across container restarts:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>-p<span class="w"> </span><span class="m">8087</span>:8087<span class="w"> </span>--env-file<span class="w"> </span>.env<span class="w"> </span><span class="se">\</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>-p<span class="w"> </span><span class="m">10100</span>:10100<span class="w"> </span>--env-file<span class="w"> </span>.env<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-v<span class="w"> </span>my-project-agent-data:/app/my-project/var/agent_data<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-v<span class="w"> </span>my-project-home:/home/osprey<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>my-project
@@ -994,7 +994,7 @@ not survive pod rescheduling otherwise.</p></li>
 regen and restore, exactly as <code class="docutils literal notranslate"><span class="pre">--user</span></code> does. Let the entrypoint do the
 drop, or accept that the agent artifacts are whatever the image was built
 with.</p></li>
-<li><p>Expose port <code class="docutils literal notranslate"><span class="pre">8087</span></code> (or override the <code class="docutils literal notranslate"><span class="pre">CMD</span></code> with <code class="docutils literal notranslate"><span class="pre">--port</span></code>).</p></li>
+<li><p>Expose port <code class="docutils literal notranslate"><span class="pre">10100</span></code> (or override the <code class="docutils literal notranslate"><span class="pre">CMD</span></code> with <code class="docutils literal notranslate"><span class="pre">--port</span></code>).</p></li>
 </ul>
 </section>
 </section>
@@ -1006,7 +1006,7 @@ so an arm64 build must compile them from source, which is where it breaks.
 Build (and run) the amd64 image under Docker Desktop’s emulation instead; it
 matches the usual amd64 deployment target:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>build<span class="w"> </span>--platform<span class="w"> </span>linux/amd64<span class="w"> </span>-t<span class="w"> </span>my-project<span class="w"> </span>.
-docker<span class="w"> </span>run<span class="w"> </span>--platform<span class="w"> </span>linux/amd64<span class="w"> </span>--rm<span class="w"> </span>-p<span class="w"> </span><span class="m">8087</span>:8087<span class="w"> </span>--env-file<span class="w"> </span>.env<span class="w"> </span>my-project
+docker<span class="w"> </span>run<span class="w"> </span>--platform<span class="w"> </span>linux/amd64<span class="w"> </span>--rm<span class="w"> </span>-p<span class="w"> </span><span class="m">10100</span>:10100<span class="w"> </span>--env-file<span class="w"> </span>.env<span class="w"> </span>my-project
 </pre></div>
 </div>
 </section>
@@ -1018,7 +1018,7 @@ docker<span class="w"> </span>run<span class="w"> </span>--platform<span class="
 <code class="docutils literal notranslate"><span class="pre">FROM</span></code> it in a small site Dockerfile that adds credentials helpers,
 enterprise settings, or extra processes.</p></li>
 <li><p><strong>Change the entrypoint</strong>: the default <code class="docutils literal notranslate"><span class="pre">CMD</span></code> runs
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">--host</span> <span class="pre">0.0.0.0</span> <span class="pre">--port</span> <span class="pre">8087</span></code> (the deployment is discovered
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">--host</span> <span class="pre">0.0.0.0</span> <span class="pre">--port</span> <span class="pre">10100</span></code> (the deployment is discovered
 from the working directory); override it to run a process supervisor if you
 add sidecars.</p></li>
 <li><p><strong>Carry the edit in the profile</strong>: put your Dockerfile in the profile’s

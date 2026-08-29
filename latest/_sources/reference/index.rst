@@ -5,7 +5,7 @@ Reference
 What is the exact key, the exact shape, the exact command. These pages are
 lookup material; the how-to guides link here for every value they mention.
 
-.. grid:: 1 1 3 3
+.. grid:: 1 1 2 2
    :gutter: 3
 
    .. grid-item-card:: CLI Reference
@@ -28,9 +28,17 @@ lookup material; the how-to guides link here for every value they mention.
       The JSON and tool shapes services exchange: health reports, connectors,
       the Python executor, ARIEL, Channel Finder, and the facility graph.
 
+   .. grid-item-card:: Ports
+      :link: ports
+      :link-type: doc
+
+      Every host port a deployment publishes, as an offset from
+      ``deployment.port_base`` -- and which setting wins when two disagree.
+
 .. toctree::
    :hidden:
 
    cli
    configuration/index
    contracts/index
+   ports

@@ -400,6 +400,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../contracts/audit-trail.html">Audit Trail Contract</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="../ports.html">Ports</a></li>
 </ul>
 </div>
 </nav></div>
@@ -1029,7 +1030,7 @@ by <code class="docutils literal notranslate"><span class="pre">osprey</span> <s
 <a class="reference internal" href="../../how-to/control-systems/use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a>).</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">virtual_accelerator</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5064</span>
-<span class="w">  </span><span class="nt">live_standin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5074</span>
+<span class="w">  </span><span class="nt">live_standin</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 </pre></div>
 </div>
 <div class="pst-scrollable-table-container"><table class="table">
@@ -1052,8 +1053,10 @@ build writes follows this value, so changing it moves both.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">live_standin</span></code></p></td>
 <td><p>absent</p></td>
-<td><p>Port for a <strong>second</strong> copy of the simulator, deployed as this
-deployment’s <code class="docutils literal notranslate"><span class="pre">live</span></code> target. Absent means one machine, as before.</p></td>
+<td><p>Deploy a <strong>second</strong> copy of the simulator as this deployment’s <code class="docutils literal notranslate"><span class="pre">live</span></code>
+target. <code class="docutils literal notranslate"><span class="pre">true</span></code> puts it on the port layout’s <code class="docutils literal notranslate"><span class="pre">va_standin</span></code> slot
+(<code class="docutils literal notranslate"><span class="pre">10090</span></code> at the default base — see <a class="reference internal" href="../ports.html#reference-ports"><span class="std std-ref">Ports</span></a>); a number
+pins it somewhere else. Absent means one machine, as before.</p></td>
 </tr>
 </tbody>
 </table>
@@ -1382,13 +1385,15 @@ build</strong> and prints the valid set:</p>
 </thead>
 <tbody>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">port</span></code></p></td>
-<td><p>The bridge’s port (default 8090).</p></td>
+<td><p>The bridge’s port. Defaults to its slot in the port layout, <code class="docutils literal notranslate"><span class="pre">10080</span></code>
+at the default base (<a class="reference internal" href="../ports.html#reference-ports"><span class="std std-ref">Ports</span></a>); the second plan lane takes
+the next slot up.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tiled_enabled</span></code></p></td>
 <td><p>Deploy the Tiled data store alongside the stack.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tiled_port</span></code></p></td>
-<td><p>Tiled’s port (default 8091).</p></td>
+<td><p>Tiled’s port. Defaults to the layout’s <code class="docutils literal notranslate"><span class="pre">10070</span></code>.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">second_lane</span></code></p></td>
 <td><p>Run a second plan lane, so one deployment serves both its live

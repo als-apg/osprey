@@ -45,7 +45,7 @@ the entries for you):
      panels:
        events:
          label: EVENTS
-         url: http://127.0.0.1:9900    # the backing service
+         url: http://127.0.0.1:10010   # the backing service
          path: /dashboard              # optional: page the tab opens (default /)
          health_endpoint: /healthz     # optional: lets the hub report status
 

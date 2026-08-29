@@ -536,13 +536,15 @@ container path.</p>
 <p>Event dispatch lets an external event start an agent run with no human at a
 keyboard. It is built from two services:</p>
 <ul class="simple">
-<li><p><strong>Event dispatcher</strong> (<code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-m</span> <span class="pre">osprey.dispatch</span></code>, port <code class="docutils literal notranslate"><span class="pre">9900</span></code>) — accepts
+<li><p><strong>Event dispatcher</strong> (<code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-m</span> <span class="pre">osprey.dispatch</span></code>, port <code class="docutils literal notranslate"><span class="pre">10010</span></code>) — accepts
 authenticated webhook <code class="docutils literal notranslate"><span class="pre">POST</span></code>s (and cron ticks), matches them to a trigger,
 applies the trigger’s tool allowlist and error policy, and forwards the run to
 a worker. It also serves the monitoring <strong>dashboard</strong>.</p></li>
 <li><p><strong>Dispatch worker</strong> (<code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-m</span> <span class="pre">osprey.mcp_server.dispatch_worker</span></code>, port
-<code class="docutils literal notranslate"><span class="pre">9901</span></code>) — runs the headless agent session and streams progress back.</p></li>
+<code class="docutils literal notranslate"><span class="pre">10011</span></code>) — runs the headless agent session and streams progress back.</p></li>
 </ul>
+<p>Both numbers are the deployment’s port layout at its default base; move
+<code class="docutils literal notranslate"><span class="pre">deployment.port_base</span></code> and they move with it. See <a class="reference internal" href="../../reference/ports.html#reference-ports"><span class="std std-ref">Ports</span></a>.</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 960 304" role="img" aria-labelledby="event-dispatch-title event-dispatch-desc">
   <title id="event-dispatch-title">Event dispatch</title>
@@ -570,11 +572,11 @@ a worker. It also serves the monitoring <strong>dashboard</strong>.</p></li>
   <rect class="mask" x="304" y="96" width="192" height="56" rx="6"/>
   <rect class="nb-foc" x="304" y="96" width="192" height="56" rx="6"/>
   <text class="tn" x="400" y="120" text-anchor="middle">event dispatcher</text>
-  <text class="ts" x="400" y="136" text-anchor="middle">:9900 · allowlist · policy</text>
+  <text class="ts" x="400" y="136" text-anchor="middle">:10010 · allowlist · policy</text>
   <rect class="mask" x="568" y="96" width="160" height="56" rx="6"/>
   <rect class="nb" x="568" y="96" width="160" height="56" rx="6"/>
   <text class="tn" x="648" y="120" text-anchor="middle">dispatch worker</text>
-  <text class="ts" x="648" y="136" text-anchor="middle">:9901 · headless agent</text>
+  <text class="ts" x="648" y="136" text-anchor="middle">:10011 · headless agent</text>
   <rect class="mask" x="816" y="96" width="104" height="56" rx="6"/>
   <rect class="nb-st" x="816" y="96" width="104" height="56" rx="6"/>
   <text class="tn" x="868" y="120" text-anchor="middle">result</text>
@@ -628,7 +630,7 @@ a dispatch image:</p>
 </pre></div>
 </div>
 <p class="sd-card-text">Inside the compose network the worker is reachable as
-<code class="docutils literal notranslate"><span class="pre">dispatch-worker-1:9901</span></code> — the default <code class="docutils literal notranslate"><span class="pre">dispatch_target</span></code> in
+<code class="docutils literal notranslate"><span class="pre">dispatch-worker-1:10011</span></code> — the default <code class="docutils literal notranslate"><span class="pre">dispatch_target</span></code> in
 <code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code>. See <a class="reference internal" href="../deploy-project/index.html"><span class="doc">Container Deployment</span></a> for the deploy mechanics.</p>
 </div>
 </details><details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
@@ -638,7 +640,7 @@ a dispatch image:</p>
 your venv — handy for development. First repoint the worker URL in
 <code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code> (the Docker hostname does not resolve on the host):</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">dispatcher</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">dispatch_target</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http://localhost:9901</span>
+<span class="w">  </span><span class="nt">dispatch_target</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http://localhost:10011</span>
 </pre></div>
 </div>
 <p class="sd-card-text">Generate the two bearer tokens once (the containerized path does this for you;
@@ -650,7 +652,7 @@ here you set them by hand) and export them so both shells share them:</p>
 <p class="sd-card-text">Start the <strong>worker</strong> (it reads <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> to inject the same provider auth
 the web server uses):</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">OSPREY_PROJECT_DIR</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="nv">DISPATCH_WORKER_TOKEN</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$DISPATCH_WORKER_TOKEN</span><span class="s2">&quot;</span><span class="w"> </span><span class="nv">DISPATCH_WORKER_PORT</span><span class="o">=</span><span class="m">9901</span><span class="w"> </span><span class="se">\</span>
+<span class="nv">DISPATCH_WORKER_TOKEN</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$DISPATCH_WORKER_TOKEN</span><span class="s2">&quot;</span><span class="w"> </span><span class="nv">DISPATCH_WORKER_PORT</span><span class="o">=</span><span class="m">10011</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>-m<span class="w"> </span>osprey.mcp_server.dispatch_worker
 </pre></div>
 </div>
@@ -658,7 +660,7 @@ the web server uses):</p>
 there first):</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">TRIGGERS_YML</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">/triggers.yml&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="nv">EVENT_DISPATCHER_TOKEN</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$EVENT_DISPATCHER_TOKEN</span><span class="s2">&quot;</span><span class="w"> </span><span class="nv">DISPATCH_WORKER_TOKEN</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$DISPATCH_WORKER_TOKEN</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="nv">FASTMCP_TRANSPORT</span><span class="o">=</span>http<span class="w"> </span><span class="nv">FASTMCP_HOST</span><span class="o">=</span><span class="m">127</span>.0.0.1<span class="w"> </span><span class="nv">FASTMCP_PORT</span><span class="o">=</span><span class="m">9900</span><span class="w"> </span><span class="se">\</span>
+<span class="nv">FASTMCP_TRANSPORT</span><span class="o">=</span>http<span class="w"> </span><span class="nv">FASTMCP_HOST</span><span class="o">=</span><span class="m">127</span>.0.0.1<span class="w"> </span><span class="nv">FASTMCP_PORT</span><span class="o">=</span><span class="m">10010</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>-m<span class="w"> </span>osprey.dispatch
 </pre></div>
 </div>
@@ -685,20 +687,20 @@ denylist rejects it regardless of the trigger’s allowlist.</p></li>
 </div>
 <p>Then <code class="docutils literal notranslate"><span class="pre">POST</span></code> to a trigger’s webhook (the JSON body is passed to the agent as
 untrusted payload):</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:9900/webhook/hello-dispatch<span class="w"> </span><span class="se">\</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:10010/webhook/hello-dispatch<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer </span><span class="nv">$EVENT_DISPATCHER_TOKEN</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{}&#39;</span>
 </pre></div>
 </div>
 <p>To see a payload reach the agent, fire <code class="docutils literal notranslate"><span class="pre">triage-event</span></code> with a realistic body:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:9900/webhook/triage-event<span class="w"> </span><span class="se">\</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>http://localhost:10010/webhook/triage-event<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer </span><span class="nv">$EVENT_DISPATCHER_TOKEN</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;signal&quot;:&quot;demo:vacuum:pressure&quot;,&quot;value&quot;:4.2,&quot;threshold&quot;:3.0,&quot;severity&quot;:&quot;warning&quot;}&#39;</span>
 </pre></div>
 </div>
-<p>Watch runs stream live on the dashboard at <a class="reference external" href="http://localhost:9900/dashboard">http://localhost:9900/dashboard</a>, or
+<p>Watch runs stream live on the dashboard at <a class="reference external" href="http://localhost:10010/dashboard">http://localhost:10010/dashboard</a>, or
 in the <strong>EVENTS</strong> tab of <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>.</p>
 </section>
 <section id="the-events-panel">
@@ -742,7 +744,7 @@ every persona follows it, and a persona that pins a different one is refused.</p
 <code class="docutils literal notranslate"><span class="pre">dispatcher:</span></code> block (where the dispatcher finds its worker) and a list of
 <code class="docutils literal notranslate"><span class="pre">triggers:</span></code>. A minimal webhook trigger:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">dispatcher</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">dispatch_target</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http://dispatch-worker-1:9901</span><span class="w">   </span><span class="c1"># worker URL</span>
+<span class="w">  </span><span class="nt">dispatch_target</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http://dispatch-worker-1:10011</span><span class="w">  </span><span class="c1"># worker URL</span>
 <span class="w">  </span><span class="nt">max_concurrent_runs</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
 <span class="w">  </span><span class="nt">max_queue_depth</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">50</span>
 

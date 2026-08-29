@@ -637,7 +637,7 @@ how Bluesky plans behave while a session is switched.</p>
 <h2>Rehearsing against a live target<a class="headerlink" href="#rehearsing-against-a-live-target" title="Link to this heading">#</a></h2>
 <p>A deployment usually has nothing to switch <em>to</em>: the live connector points at a
 facility gateway that may not exist yet, or not from this laptop. Setting
-<code class="docutils literal notranslate"><span class="pre">virtual_accelerator.live_standin:</span> <span class="pre">5074</span></code> in the build profile gives it one —
+<code class="docutils literal notranslate"><span class="pre">virtual_accelerator.live_standin:</span> <span class="pre">true</span></code> in the build profile gives it one —
 a <strong>second</strong> simulator container, deployed as this deployment’s <code class="docutils literal notranslate"><span class="pre">live</span></code> target.
 <code class="docutils literal notranslate"><span class="pre">control_target_set</span> <span class="pre">live</span></code> then rehearses the whole go-live ritual with nothing
 to edit and no real machine involved. The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships it

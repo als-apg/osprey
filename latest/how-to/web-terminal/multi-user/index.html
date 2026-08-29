@@ -571,7 +571,7 @@ HTTPS, and what happens when someone leaves.</p>
 </pre></div>
 </div>
 <p>launches the single-user Web Terminal as one local process — no containers, no
-proxy, ready in seconds at <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:8087</span></code>. It prints a login URL
+proxy, ready in seconds at <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:10100</span></code>. It prints a login URL
 (<code class="docutils literal notranslate"><span class="pre">…/?token=…</span></code>, once, at startup) that signs you in for 12 hours by default —
 the cookie outlives closing the browser — before redirecting to the clean
 address. The token is that server’s operator secret rather than a one-shot
@@ -594,7 +594,7 @@ for everything else.</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 960 312" role="img" aria-labelledby="multi-user-title multi-user-desc">
   <title id="multi-user-title">Multi-user landing page</title>
-  <desc id="multi-user-desc">One nginx landing page on port 9080 routes each person by path to their own terminal container — alice, bob, and the standalone ARIEL logbook — all of which share the same databases and telemetry services; when login is on, nginx asks the auth service about every request before proxying.</desc>
+  <desc id="multi-user-desc">One nginx landing page on port 10000 routes each person by path to their own terminal container — alice, bob, and the standalone ARIEL logbook — all of which share the same databases and telemetry services; when login is on, nginx asks the auth service about every request before proxying.</desc>
   <defs>
     <marker id="multi-user-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
@@ -611,8 +611,8 @@ for everything else.</p>
   <line class="e-thin" x1="760" y1="156" x2="808" y2="156"/>
   <line class="e-thin" x1="760" y1="232" x2="808" y2="232"/>
   <!-- edge labels -->
-  <rect class="mask" x="204" y="136" width="40" height="12" rx="2"/>
-  <text class="ta" x="224" y="145" text-anchor="middle">:9080</text>
+  <rect class="mask" x="202" y="136" width="44" height="12" rx="2"/>
+  <text class="ta" x="224" y="145" text-anchor="middle">:10000</text>
   <rect class="mask" x="496" y="100" width="56" height="12" rx="2"/>
   <text class="ta" x="524" y="109" text-anchor="middle">/u/alice/</text>
   <rect class="mask" x="504" y="136" width="48" height="12" rx="2"/>
@@ -705,12 +705,6 @@ the <code class="docutils literal notranslate"><span class="pre">control-assista
 <span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">    </span><span class="nt">image_source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span><span class="w">       </span><span class="c1"># osprey up builds persona images itself</span>
-<span class="w">    </span><span class="nt">nginx_port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9080</span><span class="w">          </span><span class="c1"># the landing page</span>
-<span class="w">    </span><span class="nt">web_base_port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9100</span><span class="w">       </span><span class="c1"># per-user ports: base + user index</span>
-<span class="w">    </span><span class="nt">artifact_base_port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9200</span>
-<span class="w">    </span><span class="nt">ariel_base_port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9300</span>
-<span class="w">    </span><span class="nt">lattice_base_port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9400</span>
-<span class="w">    </span><span class="nt">channel_finder_base_port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9500</span>
 <span class="w">    </span><span class="nt">default_persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readonly</span>
 <span class="w">    </span><span class="nt">landing</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">groups</span><span class="p">:</span>
@@ -771,15 +765,19 @@ an explicit <code class="docutils literal notranslate"><span class="pre">persona
 becomes that user’s browser tab title. An entry may name a <strong>role</strong>
 instead of a persona — one mapping written once rather than a persona
 pinned per user, and the half a single sign-on provider’s groups can
-decide; see <a class="reference internal" href="login.html#multi-user-role-from-sso"><span class="std std-ref">Let single sign-on pick the tier</span></a>. Each user’s host ports are
-<code class="docutils literal notranslate"><span class="pre">base</span> <span class="pre">+</span> <span class="pre">index</span></code> in every port family — one family per companion panel
-(artifact gallery, ARIEL, channel finder, lattice dashboard, …) plus the
-terminal itself — so alice (index 0) serves her terminal on <code class="docutils literal notranslate"><span class="pre">9100</span></code>,
-bob (index 1) on <code class="docutils literal notranslate"><span class="pre">9101</span></code>, ariel (index 2) on <code class="docutils literal notranslate"><span class="pre">9102</span></code> and carol
-(index 3) on <code class="docutils literal notranslate"><span class="pre">9103</span></code>. A panel
-whose <code class="docutils literal notranslate"><span class="pre">*_base_port</span></code> you don’t set falls back to its built-in default,
-so that <code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code> block lists them only to make the
-layout visible.</p>
+decide; see <a class="reference internal" href="login.html#multi-user-role-from-sso"><span class="std std-ref">Let single sign-on pick the tier</span></a>. The roster sets no ports.
+Each user’s host ports come from the deployment’s port layout — one
+hundred-port family per companion panel (artifact gallery, ARIEL,
+channel finder, lattice dashboard, …) plus the terminal itself, and
+each user takes the family’s first port plus their index. At the
+default <code class="docutils literal notranslate"><span class="pre">deployment.port_base</span></code> that puts alice (index 0) on
+<code class="docutils literal notranslate"><span class="pre">10100</span></code>, bob (index 1) on <code class="docutils literal notranslate"><span class="pre">10101</span></code>, ariel (index 2) on <code class="docutils literal notranslate"><span class="pre">10102</span></code>
+and carol (index 3) on <code class="docutils literal notranslate"><span class="pre">10103</span></code>, with their artifact galleries on
+<code class="docutils literal notranslate"><span class="pre">10200</span></code>–<code class="docutils literal notranslate"><span class="pre">10203</span></code>. <a class="reference internal" href="../../../reference/ports.html#reference-ports-panels"><span class="std std-ref">The panel bands</span></a> lists every family;
+move the whole deployment with <code class="docutils literal notranslate"><span class="pre">deployment.port_base</span></code> rather than a
+family at a time. A facility that must pin one family on its own can
+still set that family’s <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.&lt;family&gt;_base_port</span></code>
+here — see <a class="reference internal" href="../../../reference/ports.html#reference-ports-keys"><span class="std std-ref">The keys</span></a>.</p>
 <p class="sd-card-text">One optional key belongs beside these rather than in the roster:
 <code class="docutils literal notranslate"><span class="pre">external_origin</span></code>, the address browsers actually reach this deployment
 on. Leave it out and that address is derived from <code class="docutils literal notranslate"><span class="pre">deploy.fqdn</span></code> and
@@ -923,10 +921,10 @@ is reported as a stale or partial build, with a rebuild as the remedy.</p></li>
 <code class="docutils literal notranslate"><span class="pre">my-control-assistant-readwrite:local</span></code>) from that rendered project —
 no registry, no CI.</p></li>
 <li><p><strong>Brings up the web tier.</strong> An nginx reverse proxy (container <code class="docutils literal notranslate"><span class="pre">ca-nginx</span></code>)
-serves the landing page on <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:9080</span></code>, and one Web Terminal
-container comes up per user — <code class="docutils literal notranslate"><span class="pre">ca-web-alice</span></code> on host port <code class="docutils literal notranslate"><span class="pre">9100</span></code>,
-<code class="docutils literal notranslate"><span class="pre">ca-web-bob</span></code> on <code class="docutils literal notranslate"><span class="pre">9101</span></code>, <code class="docutils literal notranslate"><span class="pre">ca-web-ariel</span></code> on <code class="docutils literal notranslate"><span class="pre">9102</span></code> and
-<code class="docutils literal notranslate"><span class="pre">ca-web-carol</span></code> on <code class="docutils literal notranslate"><span class="pre">9103</span></code> — each reached
+serves the landing page on <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:10000</span></code>, and one Web Terminal
+container comes up per user — <code class="docutils literal notranslate"><span class="pre">ca-web-alice</span></code> on host port <code class="docutils literal notranslate"><span class="pre">10100</span></code>,
+<code class="docutils literal notranslate"><span class="pre">ca-web-bob</span></code> on <code class="docutils literal notranslate"><span class="pre">10101</span></code>, <code class="docutils literal notranslate"><span class="pre">ca-web-ariel</span></code> on <code class="docutils literal notranslate"><span class="pre">10102</span></code> and
+<code class="docutils literal notranslate"><span class="pre">ca-web-carol</span></code> on <code class="docutils literal notranslate"><span class="pre">10103</span></code> — each reached
 through the landing page. (The
 <code class="docutils literal notranslate"><span class="pre">ca-</span></code> prefix is the preset’s <code class="docutils literal notranslate"><span class="pre">facility.prefix</span></code>; change it for your
 site.)</p></li>
@@ -936,19 +934,19 @@ site.)</p></li>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>The web stack runs with host networking. On Linux,
-<code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:9080</span></code> is reachable as-is. On <strong>macOS</strong>, a container’s
+<code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:10000</span></code> is reachable as-is. On <strong>macOS</strong>, a container’s
 “host” is Docker Desktop’s Linux VM — enable <em>host networking</em> in Docker
 Desktop (Settings → Resources → Network) so the stack’s ports reach your
 browser.</p>
-<p>If another OSPREY deployment already occupies a service port on this host,
-change it in the profile and rebuild — for example
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span> <span class="pre">config.services.postgresql.port_host=5433</span> <span class="pre">&amp;&amp;</span> <span class="pre">osprey</span> <span class="pre">build</span></code> —
-before <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>.</p>
+<p>If another OSPREY deployment already occupies these ports on this host, give
+this one its own block rather than moving services one by one — for example
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span> <span class="pre">config.deployment.port_base=20000</span> <span class="pre">&amp;&amp;</span> <span class="pre">osprey</span> <span class="pre">build</span></code> — before
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>. See <a class="reference internal" href="../../../reference/ports.html#reference-ports"><span class="std std-ref">Ports</span></a>.</p>
 </div>
 </section>
 <section id="the-landing-page">
 <h3>The landing page<a class="headerlink" href="#the-landing-page" title="Link to this heading">#</a></h3>
-<p>Open <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:9080</span></code>. The landing page groups the users into cards,
+<p>Open <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:10000</span></code>. The landing page groups the users into cards,
 each labelled with the persona it resolves to:</p>
 <figure class="align-center" id="id1">
 <a class="reference internal image-reference" href="../../../_images/multi_user_landing.png"><img alt="The multi-user landing page — alice's and bob's cards under a Users heading, and the ARIEL terminal in a Standalone deployments panel beneath them" src="../../../_images/multi_user_landing.png" style="width: 100%;" />
@@ -990,7 +988,7 @@ about the text lives in <code class="docutils literal notranslate"><span class="
 project. It is yours: rewrite it for your facility, or drop it and list your own
 files instead. Sections appear in the order you list them, and each one gets an
 id from its filename, so you can point someone at
-<code class="docutils literal notranslate"><span class="pre">http://…:9080/#local-procedures</span></code> rather than at the page.</p>
+<code class="docutils literal notranslate"><span class="pre">http://…:10000/#local-procedures</span></code> rather than at the page.</p>
 <p>Two edge cases are worth knowing:</p>
 <ul class="simple">
 <li><p><strong>Leave ``notices`` out entirely</strong> and you get OSPREY’s built-in safety

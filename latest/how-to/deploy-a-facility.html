@@ -585,7 +585,7 @@ on port 5064 and standing in for the real machine.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">facility-mcp</span></code></p></td>
 <td><p>this profile</p></td>
-<td><p>The facility’s own MCP server on port 8200, built from a Dockerfile that
+<td><p>The facility’s own MCP server on port 10900, built from a Dockerfile that
 lives in the profile.</p></td>
 </tr>
 </tbody>
@@ -701,11 +701,11 @@ line and the commented <code class="docutils literal notranslate"><span class="p
 <span class="w">  </span><span class="nt">facility-mcp</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">services/facility-mcp</span>
 <span class="w">    </span><span class="nt">config</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8200</span>
+<span class="w">      </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10900</span>
 
 <span class="nt">mcp_servers</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">facility</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8200</span>
+<span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10900</span>
 <span class="w">    </span><span class="nt">transport</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http</span>
 <span class="w">    </span><span class="nt">permissions</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">allow</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">machine_status</span><span class="p p-Indicator">]</span>
@@ -713,7 +713,10 @@ line and the commented <code class="docutils literal notranslate"><span class="p
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">template:</span></code> is profile-relative, so the next thing to do is write that
 directory. The port appears twice because it is the same fact told to two
-parties: the container publishes it, and the agent dials it.</p>
+parties: the container publishes it, and the agent dials it. <code class="docutils literal notranslate"><span class="pre">10900</span></code> is the
+first port of the facility band, the hundred ports the framework publishes
+nothing in so that a facility’s own services can claim them without ever
+colliding — see <a class="reference internal" href="../reference/ports.html#reference-ports-facility"><span class="std std-ref">The facility band</span></a>.</p>
 <p>Now create <code class="docutils literal notranslate"><span class="pre">services/facility-mcp/</span></code> with four files.</p>
 <p><code class="docutils literal notranslate"><span class="pre">requirements.txt</span></code>:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>mcp==1.9.4
@@ -734,7 +737,7 @@ be installed alongside it.</p>
 
 <span class="n">STATUS_FILE</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;FACILITY_STATUS_FILE&quot;</span><span class="p">,</span> <span class="s2">&quot;/data/machine-status.json&quot;</span><span class="p">))</span>
 
-<span class="n">mcp</span> <span class="o">=</span> <span class="n">FastMCP</span><span class="p">(</span><span class="s2">&quot;demo-facility&quot;</span><span class="p">,</span> <span class="n">host</span><span class="o">=</span><span class="s2">&quot;0.0.0.0&quot;</span><span class="p">,</span> <span class="n">port</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;PORT&quot;</span><span class="p">,</span> <span class="s2">&quot;8200&quot;</span><span class="p">)))</span>
+<span class="n">mcp</span> <span class="o">=</span> <span class="n">FastMCP</span><span class="p">(</span><span class="s2">&quot;demo-facility&quot;</span><span class="p">,</span> <span class="n">host</span><span class="o">=</span><span class="s2">&quot;0.0.0.0&quot;</span><span class="p">,</span> <span class="n">port</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;PORT&quot;</span><span class="p">,</span> <span class="s2">&quot;10900&quot;</span><span class="p">)))</span>
 
 
 <span class="nd">@mcp</span><span class="o">.</span><span class="n">tool</span><span class="p">()</span>
@@ -769,7 +772,7 @@ job in the pipeline:</p>
 <span class="c"># Unbuffered so container logs appear as the server writes them rather than</span>
 <span class="c"># when the process exits.</span>
 <span class="k">ENV</span><span class="w"> </span><span class="nv">PYTHONUNBUFFERED</span><span class="o">=</span><span class="m">1</span>
-<span class="k">EXPOSE</span><span class="w"> </span><span class="s">8200</span>
+<span class="k">EXPOSE</span><span class="w"> </span><span class="s">10900</span>
 
 <span class="k">CMD</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;python&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;server.py&quot;</span><span class="p">]</span>
 </pre></div>
@@ -790,6 +793,12 @@ compose template per service directory, rendered by the build.</p>
 <span class="x">    container_name: </span><span class="cp">{{</span> <span class="nv">osprey_labels.project_name</span> <span class="cp">}}</span><span class="x">-facility-mcp</span>
 <span class="x">    labels:</span>
 <span class="x">      osprey.project.name: &quot;</span><span class="cp">{{</span> <span class="nv">osprey_labels.project_name</span> <span class="cp">}}</span><span class="x">&quot;</span>
+<span class="x">      # Which deployment repo this container belongs to. A facility service</span>
+<span class="x">      # carries it for the same reason every packaged one does: the preflight</span>
+<span class="x">      # reads it to tell &quot;a port of ours, already up&quot; from &quot;somebody else&#39;s</span>
+<span class="x">      # process on our port&quot;, and an unlabelled container can only be guessed</span>
+<span class="x">      # at from the compose project name.</span>
+<span class="x">      com.osprey.repo-id: &quot;</span><span class="cp">{{</span> <span class="nv">osprey_labels.repo_id</span> <span class="cp">}}</span><span class="x">&quot;</span>
 <span class="x">      osprey.project.root: &quot;</span><span class="cp">{{</span> <span class="nv">osprey_labels.project_root</span> <span class="cp">}}</span><span class="x">&quot;</span>
 <span class="x">      # Content hashes of the env chain and the rendered config this service</span>
 <span class="x">      # reads. They are what makes an edit to either file restart this</span>
@@ -798,9 +807,9 @@ compose template per service directory, rendered by the build.</p>
 <span class="x">      osprey.config.digest: &quot;${OSPREY_CONFIG_DIGEST:-}&quot;</span>
 <span class="x">    restart: unless-stopped</span>
 <span class="x">    ports:</span>
-<span class="x">      - &quot;</span><span class="cp">{{</span> <span class="nv">deployment.bind_address</span> <span class="o">|</span> <span class="nf">default</span><span class="o">(</span><span class="s1">&#39;127.0.0.1&#39;</span><span class="o">)</span> <span class="cp">}}</span><span class="x">:</span><span class="cp">{{</span> <span class="o">(</span><span class="nv">services</span><span class="o">[</span><span class="s1">&#39;facility-mcp&#39;</span><span class="o">]</span> <span class="o">|</span> <span class="nf">default</span><span class="o">({}))</span><span class="nv">.port</span> <span class="o">|</span> <span class="nf">default</span><span class="o">(</span><span class="m">8200</span><span class="o">)</span> <span class="cp">}}</span><span class="x">:8200/tcp&quot;</span>
+<span class="x">      - &quot;</span><span class="cp">{{</span> <span class="nv">deployment.bind_address</span> <span class="o">|</span> <span class="nf">default</span><span class="o">(</span><span class="s1">&#39;127.0.0.1&#39;</span><span class="o">)</span> <span class="cp">}}</span><span class="x">:</span><span class="cp">{{</span> <span class="o">(</span><span class="nv">services</span><span class="o">[</span><span class="s1">&#39;facility-mcp&#39;</span><span class="o">]</span> <span class="o">|</span> <span class="nf">default</span><span class="o">({}))</span><span class="nv">.port</span> <span class="o">|</span> <span class="nf">default</span><span class="o">(</span><span class="m">10900</span><span class="o">)</span> <span class="cp">}}</span><span class="x">:10900/tcp&quot;</span>
 <span class="x">    environment:</span>
-<span class="x">      PORT: &quot;8200&quot;</span>
+<span class="x">      PORT: &quot;10900&quot;</span>
 <span class="x">      FACILITY_STATUS_FILE: /data/machine-status.json</span>
 <span class="x">      TZ: </span><span class="cp">{{</span> <span class="nv">system.timezone</span> <span class="cp">}}</span>
 <span class="x">    volumes:</span>
@@ -808,7 +817,7 @@ compose template per service directory, rendered by the build.</p>
 <span class="x">    networks:</span>
 <span class="x">      - osprey-network</span>
 <span class="x">    healthcheck:</span>
-<span class="x">      test: [&quot;CMD-SHELL&quot;, &quot;python -c \&quot;import socket,sys; s=socket.socket(); s.settimeout(3); sys.exit(0 if s.connect_ex((&#39;localhost&#39;, 8200)) == 0 else 1)\&quot;&quot;]</span>
+<span class="x">      test: [&quot;CMD-SHELL&quot;, &quot;python -c \&quot;import socket,sys; s=socket.socket(); s.settimeout(3); sys.exit(0 if s.connect_ex((&#39;localhost&#39;, 10900)) == 0 else 1)\&quot;&quot;]</span>
 <span class="x">      interval: 10s</span>
 <span class="x">      timeout: 5s</span>
 <span class="x">      retries: 5</span>

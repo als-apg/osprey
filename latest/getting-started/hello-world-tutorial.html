@@ -572,10 +572,10 @@ install dependencies. Subsequent builds are near-instant.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>web
 </pre></div>
 </div>
-<p>This starts the OSPREY Web Terminal on <a class="reference external" href="http://127.0.0.1:8087">http://127.0.0.1:8087</a> — a browser
+<p>This starts the OSPREY Web Terminal on <a class="reference external" href="http://127.0.0.1:10100">http://127.0.0.1:10100</a> — a browser
 interface with the agent in a terminal pane on the left and a live workspace
 viewer on the right, where plots and other artifacts the agent produces appear.
-The command prints a login URL (<code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:8087/?token=…</span></code>) once, at
+The command prints a login URL (<code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:10100/?token=…</span></code>) once, at
 startup; opening it sets a session cookie and redirects to the clean address.
 The token is the server’s own secret, so treat that URL like a password.
 No containers are involved; it is a local process serving your <code class="docutils literal notranslate"><span class="pre">build/</span></code>.

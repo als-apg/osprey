@@ -25,12 +25,15 @@ Overview
 Event dispatch lets an external event start an agent run with no human at a
 keyboard. It is built from two services:
 
-- **Event dispatcher** (``python -m osprey.dispatch``, port ``9900``) — accepts
+- **Event dispatcher** (``python -m osprey.dispatch``, port ``10010``) — accepts
   authenticated webhook ``POST``\s (and cron ticks), matches them to a trigger,
   applies the trigger's tool allowlist and error policy, and forwards the run to
   a worker. It also serves the monitoring **dashboard**.
 - **Dispatch worker** (``python -m osprey.mcp_server.dispatch_worker``, port
-  ``9901``) — runs the headless agent session and streams progress back.
+  ``10011``) — runs the headless agent session and streams progress back.
+
+Both numbers are the deployment's port layout at its default base; move
+``deployment.port_base`` and they move with it. See :ref:`reference-ports`.
 
 .. raw:: html
    :file: ../../_diagrams/event-dispatch.html
@@ -84,7 +87,7 @@ worker runs on.
         osprey up
 
    Inside the compose network the worker is reachable as
-   ``dispatch-worker-1:9901`` — the default ``dispatch_target`` in
+   ``dispatch-worker-1:10011`` — the default ``dispatch_target`` in
    ``triggers.yml``. See :doc:`../deploy-project/index` for the deploy mechanics.
 
 .. dropdown:: Run without containers (dev)
@@ -97,7 +100,7 @@ worker runs on.
    .. code-block:: yaml
 
       dispatcher:
-        dispatch_target: http://localhost:9901
+        dispatch_target: http://localhost:10011
 
    Generate the two bearer tokens once (the containerized path does this for you;
    here you set them by hand) and export them so both shells share them:
@@ -113,7 +116,7 @@ worker runs on.
    .. code-block:: bash
 
       OSPREY_PROJECT_DIR="$PWD" \
-      DISPATCH_WORKER_TOKEN="$DISPATCH_WORKER_TOKEN" DISPATCH_WORKER_PORT=9901 \
+      DISPATCH_WORKER_TOKEN="$DISPATCH_WORKER_TOKEN" DISPATCH_WORKER_PORT=10011 \
         uv run python -m osprey.mcp_server.dispatch_worker
 
    Start the **dispatcher** in a second shell (re-export the same two tokens
@@ -123,7 +126,7 @@ worker runs on.
 
       TRIGGERS_YML="$PWD/triggers.yml" \
       EVENT_DISPATCHER_TOKEN="$EVENT_DISPATCHER_TOKEN" DISPATCH_WORKER_TOKEN="$DISPATCH_WORKER_TOKEN" \
-      FASTMCP_TRANSPORT=http FASTMCP_HOST=127.0.0.1 FASTMCP_PORT=9900 \
+      FASTMCP_TRANSPORT=http FASTMCP_HOST=127.0.0.1 FASTMCP_PORT=10010 \
         uv run python -m osprey.dispatch
 
 .. _event-dispatch-fire:
@@ -155,7 +158,7 @@ untrusted payload):
 
 .. code-block:: bash
 
-   curl -X POST http://localhost:9900/webhook/hello-dispatch \
+   curl -X POST http://localhost:10010/webhook/hello-dispatch \
      -H "Authorization: Bearer $EVENT_DISPATCHER_TOKEN" \
      -H "Content-Type: application/json" \
      -d '{}'
@@ -164,12 +167,12 @@ To see a payload reach the agent, fire ``triage-event`` with a realistic body:
 
 .. code-block:: bash
 
-   curl -X POST http://localhost:9900/webhook/triage-event \
+   curl -X POST http://localhost:10010/webhook/triage-event \
      -H "Authorization: Bearer $EVENT_DISPATCHER_TOKEN" \
      -H "Content-Type: application/json" \
      -d '{"signal":"demo:vacuum:pressure","value":4.2,"threshold":3.0,"severity":"warning"}'
 
-Watch runs stream live on the dashboard at http://localhost:9900/dashboard, or
+Watch runs stream live on the dashboard at http://localhost:10010/dashboard, or
 in the **EVENTS** tab of ``osprey web``.
 
 The EVENTS Panel
@@ -222,7 +225,7 @@ Authoring Triggers
    .. code-block:: yaml
 
       dispatcher:
-        dispatch_target: http://dispatch-worker-1:9901   # worker URL
+        dispatch_target: http://dispatch-worker-1:10011  # worker URL
         max_concurrent_runs: 2
         max_queue_depth: 50
 

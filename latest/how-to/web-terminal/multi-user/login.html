@@ -751,7 +751,8 @@ user’s terminal:</p>
 </div>
 <p>Under <code class="docutils literal notranslate"><span class="pre">password</span></code> or <code class="docutils literal notranslate"><span class="pre">oidc</span></code> a small authentication service joins the stack
 and nginx asks it about every request under <code class="docutils literal notranslate"><span class="pre">/u/&lt;name&gt;/</span></code> before proxying
-anything. Optional keys: <code class="docutils literal notranslate"><span class="pre">auth.port</span></code> (default <code class="docutils literal notranslate"><span class="pre">9070</span></code>),
+anything. Optional keys: <code class="docutils literal notranslate"><span class="pre">auth.port</span></code> (the port layout’s <code class="docutils literal notranslate"><span class="pre">10001</span></code> unless you
+set it — see <a class="reference internal" href="../../../reference/ports.html#reference-ports"><span class="std std-ref">Ports</span></a>),
 <code class="docutils literal notranslate"><span class="pre">auth.session_lifetime</span></code> in whole seconds (default <code class="docutils literal notranslate"><span class="pre">43200</span></code>), and
 <code class="docutils literal notranslate"><span class="pre">auth.image</span></code>, required with <code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">registry</span></code>.
 <code class="docutils literal notranslate"><span class="pre">auth.session_lifetime</span></code> also reaches past this page: it sets how long a

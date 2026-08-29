@@ -1,0 +1,926 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Ports &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=1819b4a7" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=30646c52"></script>
+    <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'reference/ports';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/reference/ports.html" />
+    <link rel="icon" href="../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Contributing to Osprey" href="../contributing/index.html" />
+    <link rel="prev" title="Audit Trail Contract" href="contracts/audit-trail.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Aug 29, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="cli.html">CLI Reference</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="configuration/index.html">Configuration</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="configuration/profile.html">Build Profile — profile.yml</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration/config.html">Runtime Configuration — config.yml</a></li>
+<li class="toctree-l2"><a class="reference internal" href="configuration/environment-variables.html">Environment Variables</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="contracts/index.html">Contracts</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="contracts/health-json.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="contracts/connectors.html">Connector Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="contracts/python-executor.html">Python Executor Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="contracts/ariel.html">ARIEL Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="contracts/channel-finder.html">Channel Finder Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="contracts/facility-graph.html">Facility Graph Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="contracts/audit-trail.html">Audit Trail Contract</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Ports</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Reference</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Ports</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="ports">
+<span id="reference-ports"></span><h1>Ports<a class="headerlink" href="#ports" title="Link to this heading">#</a></h1>
+<p>Every host port a deployment publishes is one number plus a fixed offset. The
+number is <code class="docutils literal notranslate"><span class="pre">deployment.port_base</span></code>, which is <code class="docutils literal notranslate"><span class="pre">10000</span></code> unless you set it, and
+it reserves the thousand ports from there up – <code class="docutils literal notranslate"><span class="pre">10000</span></code>–<code class="docutils literal notranslate"><span class="pre">10999</span></code> by
+default. Move the base and the whole deployment moves with it, so a second
+deployment can share the host without being renumbered service by service:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># profile.yml</span>
+<span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">deployment</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">port_base</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">20000</span>
+</pre></div>
+</div>
+<p>With that base the web terminal answers on <code class="docutils literal notranslate"><span class="pre">20100</span></code> instead of <code class="docutils literal notranslate"><span class="pre">10100</span></code>, the
+database on <code class="docutils literal notranslate"><span class="pre">20800</span></code> instead of <code class="docutils literal notranslate"><span class="pre">10800</span></code>, and so on for every row of the
+table below.</p>
+<section id="the-layout">
+<span id="reference-ports-layout"></span><h2>The layout<a class="headerlink" href="#the-layout" title="Link to this heading">#</a></h2>
+<p>Offsets count from <code class="docutils literal notranslate"><span class="pre">deployment.port_base</span></code>; the <strong>Port</strong> column is what each
+offset comes to at the default base of <code class="docutils literal notranslate"><span class="pre">10000</span></code>. A row with a range is a band
+– one port per user, per worker, or per instance – and the first port of the
+band is the one a build publishes when only one of that thing exists. The
+virtual accelerator is the exception, and has its own section below.</p>
+<div class="pst-scrollable-table-container"><table class="osprey-ports table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Offset</p></th>
+<th class="head"><p>Port</p></th>
+<th class="head"><p>Service</p></th>
+<th class="head"><p>Tier</p></th>
+<th class="head"><p>Override key</p></th>
+<th class="head"><p>Environment variable</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+0</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10000</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">nginx</span></code></p></td>
+<td><p>gateway</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">modules.web_terminals.nginx_port</span></code></p></td>
+<td><p>—</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+1</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10001</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">auth</span></code></p></td>
+<td><p>gateway</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">modules.web_terminals.auth.port</span></code></p></td>
+<td><p>—</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+10</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10010</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">dispatcher</span></code></p></td>
+<td><p>dispatch</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.event_dispatcher.port</span></code></p></td>
+<td><p>—</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+11</span> <span class="pre">to</span> <span class="pre">+49</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10011-10049</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">worker</span></code></p></td>
+<td><p>dispatch</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.dispatch_worker.worker_port_base</span></code></p></td>
+<td><p>—</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+50</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10050</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">openobserve</span></code></p></td>
+<td><p>services</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.openobserve.port</span></code></p></td>
+<td><p>—</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+60</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10060</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">qmd</span></code></p></td>
+<td><p>services</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.qmd.port</span></code></p></td>
+<td><p>—</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+70</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10070</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">tiled</span></code></p></td>
+<td><p>services</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky.tiled_port</span></code></p></td>
+<td><p>—</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+71</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10071</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">bluesky_web</span></code></p></td>
+<td><p>services</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky_web.port</span></code></p></td>
+<td><p>—</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+80</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10080</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">bluesky</span></code></p></td>
+<td><p>services</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky.port</span></code></p></td>
+<td><p>—</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+81</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10081</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">bluesky_second_lane</span></code></p></td>
+<td><p>services</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky.port</span></code></p></td>
+<td><p>—</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+90</span> <span class="pre">to</span> <span class="pre">+99</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10090-10099</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">va_standin</span></code></p></td>
+<td><p>services</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.live_standin.port</span></code></p></td>
+<td><p>—</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+100</span> <span class="pre">to</span> <span class="pre">+199</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10100-10199</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">web</span></code></p></td>
+<td><p>panels</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">modules.web_terminals.web_base_port</span></code></p></td>
+<td><p>—</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+200</span> <span class="pre">to</span> <span class="pre">+299</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10200-10299</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">artifact</span></code></p></td>
+<td><p>panels</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">modules.web_terminals.artifact_base_port</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_ARTIFACT_SERVER_PORT</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+300</span> <span class="pre">to</span> <span class="pre">+399</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10300-10399</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">ariel</span></code></p></td>
+<td><p>panels</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">modules.web_terminals.ariel_base_port</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_ARIEL_PORT</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+400</span> <span class="pre">to</span> <span class="pre">+499</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10400-10499</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">lattice</span></code></p></td>
+<td><p>panels</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">modules.web_terminals.lattice_base_port</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_LATTICE_DASHBOARD_PORT</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+500</span> <span class="pre">to</span> <span class="pre">+599</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10500-10599</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">channel_finder</span></code></p></td>
+<td><p>panels</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">modules.web_terminals.channel_finder_base_port</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_CHANNEL_FINDER_PORT</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+600</span> <span class="pre">to</span> <span class="pre">+699</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10600-10699</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">okf</span></code></p></td>
+<td><p>panels</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">modules.web_terminals.okf_base_port</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_FACILITY_KNOWLEDGE_PORT</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+700</span> <span class="pre">to</span> <span class="pre">+799</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10700-10799</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">system_health</span></code></p></td>
+<td><p>panels</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">modules.web_terminals.system_health_base_port</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_HEALTH_PORT</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+800</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10800</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">postgres</span></code></p></td>
+<td><p>stores</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.postgresql.port_host</span></code></p></td>
+<td><p>—</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+801</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10801</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">mongo</span></code></p></td>
+<td><p>stores</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.mongodb.port_host</span></code></p></td>
+<td><p>—</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+802</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10802</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">graphdb_bolt</span></code></p></td>
+<td><p>stores</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.graphdb.port_host</span></code></p></td>
+<td><p>—</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">+803</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10803</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">graphdb_http</span></code></p></td>
+<td><p>stores</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.graphdb.http_port_host</span></code></p></td>
+<td><p>—</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">+900</span> <span class="pre">to</span> <span class="pre">+999</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10900-10999</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">facility</span></code></p></td>
+<td><p>facility</p></td>
+<td><p>—</p></td>
+<td><p>—</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>Service</strong> is the slot name. It is what a deployment template spells as
+<code class="docutils literal notranslate"><span class="pre">osprey_ports.&lt;slot&gt;</span></code>, and for the panels it is also the port-family name the
+per-user config keys are built from (<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.&lt;family&gt;_base_port</span></code>).</p>
+<p>Two rows share a key on purpose. The second Bluesky lane sits directly above
+the first and is derived from it, so <code class="docutils literal notranslate"><span class="pre">services.bluesky.port</span></code> moves both.</p>
+</section>
+<section id="which-value-wins">
+<span id="reference-ports-resolution"></span><h2>Which value wins<a class="headerlink" href="#which-value-wins" title="Link to this heading">#</a></h2>
+<p>A service settles on its port in this order, and the first one that is set
+wins:</p>
+<ol class="arabic simple">
+<li><p><strong>The environment variable</strong>, for the panels that have one. It is meant for
+a single run – the container the build renders sets it from the config, and
+setting it by hand overrides that container’s port for as long as it lives.</p></li>
+<li><p><strong>The</strong> <code class="docutils literal notranslate"><span class="pre">--port</span></code> <strong>flag</strong>, on the commands that take one (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>,
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">web</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">artifacts</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span></code>). It
+moves that one run and nothing else.</p></li>
+<li><p><strong>The service’s own key</strong> in the rendered <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> – the <strong>Override
+key</strong> column. The value is an absolute port, not an offset, so a service
+pinned this way stays where it is put when <code class="docutils literal notranslate"><span class="pre">port_base</span></code> moves. Set it in
+<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> under <code class="docutils literal notranslate"><span class="pre">config:</span></code> so the next build keeps it.</p></li>
+<li><p><strong>The layout</strong> – <code class="docutils literal notranslate"><span class="pre">deployment.port_base</span></code> plus the offset in the table.</p></li>
+</ol>
+<p>Nothing in OSPREY reads a port from anywhere else, so a port you did not expect
+is always one of these four.</p>
+<p>The web terminal is the one row of the table with an empty environment-variable
+cell that still has a variable behind it. The column lists what a panel’s own
+service reads, and the terminal is not one of those panels; its port comes from
+<code class="docutils literal notranslate"><span class="pre">--port</span></code> or the config. In a multi-user deployment, though, each per-user
+container is started with <code class="docutils literal notranslate"><span class="pre">OSPREY_TERMINAL_WEB_PORT</span></code> set, and that
+declaration outranks both – it is how the reverse proxy and the container stay
+agreed on which port the container is actually listening on, so nothing you
+pass on the command line inside that container can desync them.</p>
+</section>
+<section id="the-panel-bands">
+<span id="reference-ports-panels"></span><h2>The panel bands<a class="headerlink" href="#the-panel-bands" title="Link to this heading">#</a></h2>
+<p>Each panel family owns a hundred ports, one per user: user <em>i</em> answers on the
+family’s first port plus <em>i</em>, so the user index reads off the port. With the
+default base, the second user’s terminal is on <code class="docutils literal notranslate"><span class="pre">10101</span></code> and their artifact
+gallery on <code class="docutils literal notranslate"><span class="pre">10201</span></code>.</p>
+<p>Single-user mode is user index 0, which is the same slot the first user of a
+multi-user deployment takes. Two deployments at the same base therefore collide
+on those ports whichever mode they are in – give the second one its own
+<code class="docutils literal notranslate"><span class="pre">port_base</span></code> rather than moving panels individually.</p>
+</section>
+<section id="the-worker-band">
+<span id="reference-ports-workers"></span><h2>The worker band<a class="headerlink" href="#the-worker-band" title="Link to this heading">#</a></h2>
+<p>The worker band is used only when event dispatch runs in host-network mode.
+Under the default bridge network the workers reach the dispatcher inside the
+container network and publish nothing on the host, so the band stays empty.</p>
+<p>In host mode, worker 1 takes the first port of the band and each further worker
+the next one up. <code class="docutils literal notranslate"><span class="pre">dispatch.worker_port_stride</span></code> (default <code class="docutils literal notranslate"><span class="pre">1</span></code>) widens the gap
+between them when a worker needs a range of its own. The band ends at
+<code class="docutils literal notranslate"><span class="pre">+49</span></code>: a build whose last worker would land past that is refused, and the
+message names the service the overflow would have collided with.</p>
+</section>
+<section id="the-facility-band">
+<span id="reference-ports-facility"></span><h2>The facility band<a class="headerlink" href="#the-facility-band" title="Link to this heading">#</a></h2>
+<p>The framework publishes nothing between <code class="docutils literal notranslate"><span class="pre">+900</span></code> and <code class="docutils literal notranslate"><span class="pre">+999</span></code>, which is
+<code class="docutils literal notranslate"><span class="pre">10900</span></code>–<code class="docutils literal notranslate"><span class="pre">10999</span></code> at the default base. That band is yours: a facility’s own
+services, added to a deployment alongside the ones OSPREY ships, can claim
+ports there without ever colliding with the framework. The exemplar profile’s
+facility MCP server takes the first of them, <code class="docutils literal notranslate"><span class="pre">10900</span></code>.</p>
+</section>
+<section id="the-channel-access-exception">
+<span id="reference-ports-channel-access"></span><h2>The Channel Access exception<a class="headerlink" href="#the-channel-access-exception" title="Link to this heading">#</a></h2>
+<p>Virtual-accelerator instance 1 is the one port <code class="docutils literal notranslate"><span class="pre">port_base</span></code> does not move. It
+serves EPICS on <code class="docutils literal notranslate"><span class="pre">5064</span></code>, the Channel Access protocol port, so that clients
+configured for a real facility reach it without being reconfigured. A second
+deployment on the same host that also runs a virtual accelerator has to move it
+by hand, with <code class="docutils literal notranslate"><span class="pre">services.virtual_accelerator.port</span></code>.</p>
+<p>Every further virtual accelerator is inside the block, in the <code class="docutils literal notranslate"><span class="pre">va_standin</span></code>
+band, and moves with the base like everything else.</p>
+</section>
+<section id="the-keys">
+<span id="reference-ports-keys"></span><h2>The keys<a class="headerlink" href="#the-keys" title="Link to this heading">#</a></h2>
+<p>All three are set in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, but not at the same level of it, and a
+key written at the wrong level is simply not read.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 28.0%" />
+<col style="width: 10.0%" />
+<col style="width: 22.0%" />
+<col style="width: 40.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Default</p></th>
+<th class="head"><p>Where it goes</p></th>
+<th class="head"><p>What it does</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">deployment.port_base</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10000</span></code></p></td>
+<td><p>Under <code class="docutils literal notranslate"><span class="pre">config:</span></code></p></td>
+<td><p>The first port of the deployment’s block. Everything in the table above
+is this number plus an offset.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">worker_port_stride</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">1</span></code></p></td>
+<td><p>Top-level <code class="docutils literal notranslate"><span class="pre">dispatch:</span></code></p></td>
+<td><p>The gap between one dispatch worker’s port and the next, in host-network
+mode. A build profile key, not a <code class="docutils literal notranslate"><span class="pre">config:</span></code> one – the build writes it
+through to <code class="docutils literal notranslate"><span class="pre">services.dispatch_worker.worker_port_stride</span></code> in the
+rendered config.</p></td>
+</tr>
+<tr class="row-even"><td><p>Each row’s <strong>Override key</strong></p></td>
+<td><p>–</p></td>
+<td><p>Under <code class="docutils literal notranslate"><span class="pre">config:</span></code></p></td>
+<td><p>An absolute port for that one service, ignoring the layout.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># profile.yml</span>
+<span class="nt">dispatch</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">network</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">host</span>
+<span class="w">  </span><span class="nt">worker_port_stride</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
+
+<span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">deployment</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">port_base</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">20000</span>
+</pre></div>
+</div>
+<p>A base below <code class="docutils literal notranslate"><span class="pre">1024</span></code> is refused: those ports are privileged, and the
+deployment could not bind its own block without running as root. A base whose
+block would run past <code class="docutils literal notranslate"><span class="pre">65535</span></code> is refused for the same practical reason. A base
+of <code class="docutils literal notranslate"><span class="pre">32768</span></code> or above builds, but warns – part of the block then overlaps the
+range the kernel hands out for outgoing connections, where a service can find
+its port already taken.</p>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="contracts/audit-trail.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Audit Trail Contract</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="../contributing/index.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Contributing to Osprey</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-layout">The layout</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#which-value-wins">Which value wins</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-panel-bands">The panel bands</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-worker-band">The worker band</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-facility-band">The facility band</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-channel-access-exception">The Channel Access exception</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-keys">The keys</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/reference/ports.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

@@ -128,7 +128,7 @@ Rehearsing against a live target
 
 A deployment usually has nothing to switch *to*: the live connector points at a
 facility gateway that may not exist yet, or not from this laptop. Setting
-``virtual_accelerator.live_standin: 5074`` in the build profile gives it one —
+``virtual_accelerator.live_standin: true`` in the build profile gives it one —
 a **second** simulator container, deployed as this deployment's ``live`` target.
 ``control_target_set live`` then rehearses the whole go-live ritual with nothing
 to edit and no real machine involved. The ``control-assistant`` preset ships it

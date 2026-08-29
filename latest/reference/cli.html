@@ -400,6 +400,7 @@
 <li class="toctree-l2"><a class="reference internal" href="contracts/audit-trail.html">Audit Trail Contract</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="ports.html">Ports</a></li>
 </ul>
 </div>
 </nav></div>
@@ -718,7 +719,7 @@ whose project is missing. Those follow the user roster rather than the build, so
 a roster edit takes effect on the next start.</p>
 <p>Whether the deployment is reachable off-host is a property of the build, not of
 this command: the bind address is rendered into every published port. Change it
-with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span> <span class="pre">deployment.bind_address=0.0.0.0</span></code>, then rebuild.</p>
+with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span> <span class="pre">config.deployment.bind_address=0.0.0.0</span></code>, then rebuild.</p>
 <p><code class="docutils literal notranslate"><span class="pre">-d,</span> <span class="pre">--detached</span></code> — Run services in the background.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--dev</span></code> — Bake the local osprey checkout into the images instead of the
 published release.</p>
@@ -1239,14 +1240,14 @@ analysis sessions. Artifacts are written by the Osprey agent via <code class="do
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">execute</span></code> or the <code class="docutils literal notranslate"><span class="pre">artifact_register</span></code> MCP tool.</p>
 <dl>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">artifacts</span> <span class="pre">web</span> <span class="pre">[OPTIONS]</span></code></dt><dd><p>Launch the Artifact Gallery web interface. Starts a FastAPI server on
-<code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:8086</span></code> by default.</p>
-<p><code class="docutils literal notranslate"><span class="pre">-p,</span> <span class="pre">--port</span> <span class="pre">INTEGER</span></code> — Port (default: from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> or <code class="docutils literal notranslate"><span class="pre">8086</span></code>).</p>
+<code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:10200</span></code> by default.</p>
+<p><code class="docutils literal notranslate"><span class="pre">-p,</span> <span class="pre">--port</span> <span class="pre">INTEGER</span></code> — Port (default: from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, else the port layout’s <code class="docutils literal notranslate"><span class="pre">10200</span></code>).</p>
 <p><code class="docutils literal notranslate"><span class="pre">-h,</span> <span class="pre">--host</span> <span class="pre">TEXT</span></code> — Host to bind to (default: from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> or
 <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code>).</p>
 <p><code class="docutils literal notranslate"><span class="pre">--reload</span></code> — Enable auto-reload for development.</p>
 </dd>
 </dl>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>artifacts<span class="w"> </span>web<span class="w">                    </span><span class="c1"># Start on localhost:8086</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>artifacts<span class="w"> </span>web<span class="w">                    </span><span class="c1"># Start on localhost:10200</span>
 osprey<span class="w"> </span>artifacts<span class="w"> </span>web<span class="w"> </span>--port<span class="w"> </span><span class="m">9000</span><span class="w">        </span><span class="c1"># Custom port</span>
 osprey<span class="w"> </span>artifacts<span class="w"> </span>web<span class="w"> </span>--host<span class="w"> </span><span class="m">0</span>.0.0.0<span class="w">     </span><span class="c1"># Bind to all interfaces</span>
 osprey<span class="w"> </span>artifacts<span class="w"> </span>web<span class="w"> </span>--reload<span class="w">           </span><span class="c1"># Development mode</span>
@@ -1257,7 +1258,7 @@ osprey<span class="w"> </span>artifacts<span class="w"> </span>web<span class="w
 <h2>osprey web<a class="headerlink" href="#osprey-web" title="Link to this heading">#</a></h2>
 <p>Launch the Web Terminal interface. See <a class="reference internal" href="../how-to/web-terminal/operate.html"><span class="doc">Run the Web Terminal</span></a>.</p>
 <dl>
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">[OPTIONS]</span></code></dt><dd><p>Start the web terminal server (default: <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:8087</span></code>). On
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">[OPTIONS]</span></code></dt><dd><p>Start the web terminal server (default: <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:10100</span></code>). On
 startup it prints a login URL (<code class="docutils literal notranslate"><span class="pre">…/?token=…</span></code>) that signs you in and then
 redirects to the clean address. The cookie it sets lasts
 <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.auth.session_lifetime</span></code> seconds (default <code class="docutils literal notranslate"><span class="pre">43200</span></code>,
@@ -1265,7 +1266,7 @@ redirects to the clean address. The cookie it sets lasts
 disk, so restarting the server on the same port leaves them signed in. The
 URL is printed once, but its token is the server’s own secret and stays
 valid for the life of the process — treat it like a password.</p>
-<p><code class="docutils literal notranslate"><span class="pre">-p,</span> <span class="pre">--port</span> <span class="pre">INTEGER</span></code> — Port (default: from config or 8087).</p>
+<p><code class="docutils literal notranslate"><span class="pre">-p,</span> <span class="pre">--port</span> <span class="pre">INTEGER</span></code> — Port (default: from config, else the port layout’s <code class="docutils literal notranslate"><span class="pre">10100</span></code>).</p>
 <p><code class="docutils literal notranslate"><span class="pre">--host</span> <span class="pre">TEXT</span></code> — Host to bind to (default: <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code>).</p>
 <p><code class="docutils literal notranslate"><span class="pre">--shell</span> <span class="pre">TEXT</span></code> — Shell command to run (default: <code class="docutils literal notranslate"><span class="pre">claude</span></code>).</p>
 <p><code class="docutils literal notranslate"><span class="pre">--repo</span> <span class="pre">PATH</span></code> — Deployment repo to act on (default: nearest <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> at or above cwd).</p>

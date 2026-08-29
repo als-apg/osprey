@@ -520,7 +520,7 @@
 <p>Services bind to <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code> by default. Reaching them from off-host is a
 property of the build, not of a start-time flag: the bind address is rendered
 into every published port. Change it with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">set</span>
-<span class="pre">deployment.bind_address=0.0.0.0</span></code> and rebuild, and only when you have
+<span class="pre">config.deployment.bind_address=0.0.0.0</span></code> and rebuild, and only when you have
 authentication and firewalling in place.</p>
 <p>Container networking uses service names as hostnames (e.g.,
 <code class="docutils literal notranslate"><span class="pre">postgresql:5432</span></code>). For host access from inside containers, use
@@ -567,10 +567,10 @@ which tells you to set <code class="docutils literal notranslate"><span class="p
   <text class="ts" x="32" y="70">osprey-network — the compose project network</text>
   <rect class="nb" x="48" y="84" width="380" height="48" rx="6"/>
   <text class="tn" x="238" y="106" text-anchor="middle">event_dispatcher</text>
-  <text class="ts" x="238" y="122" text-anchor="middle">publishes 9900</text>
+  <text class="ts" x="238" y="122" text-anchor="middle">publishes 10010</text>
   <rect class="nb" x="48" y="148" width="380" height="48" rx="6"/>
   <text class="tn" x="238" y="170" text-anchor="middle">dispatch_worker</text>
-  <text class="ts" x="238" y="186" text-anchor="middle">publishes 9901</text>
+  <text class="ts" x="238" y="186" text-anchor="middle">listens on 10011</text>
   <rect class="nb" x="48" y="212" width="380" height="48" rx="6"/>
   <text class="tn" x="238" y="234" text-anchor="middle">chat bridge</text>
   <text class="ts" x="238" y="250" text-anchor="middle">no published port</text>
@@ -584,13 +584,13 @@ which tells you to set <code class="docutils literal notranslate"><span class="p
   <text class="ts" x="516" y="70">the host's own network namespace — network_mode: host</text>
   <rect class="nb" x="532" y="84" width="380" height="48" rx="6"/>
   <text class="tn" x="722" y="106" text-anchor="middle">event_dispatcher</text>
-  <text class="ts" x="722" y="122" text-anchor="middle">listens on 127.0.0.1:9900</text>
+  <text class="ts" x="722" y="122" text-anchor="middle">listens on 127.0.0.1:10010</text>
   <rect class="nb" x="532" y="148" width="380" height="48" rx="6"/>
   <text class="tn" x="722" y="170" text-anchor="middle">dispatch_worker</text>
-  <text class="ts" x="722" y="186" text-anchor="middle">listens on 127.0.0.1:9901</text>
+  <text class="ts" x="722" y="186" text-anchor="middle">listens on 127.0.0.1:10011</text>
   <rect class="nb" x="532" y="212" width="380" height="48" rx="6"/>
   <text class="tn" x="722" y="234" text-anchor="middle">chat bridge</text>
-  <text class="ts" x="722" y="250" text-anchor="middle">reaches localhost:9900</text>
+  <text class="ts" x="722" y="250" text-anchor="middle">reaches localhost:10010</text>
 
   <text class="ts" x="500" y="302">no ports: block — the listening socket is already a host socket</text>
   <text class="ta ta-warn" x="500" y="318">binds 127.0.0.1 only — off-host access is a deliberate act</text>
@@ -637,9 +637,10 @@ restarting a running stack stays quiet.</p>
 their host bindings are worked out from the rendered configuration instead of
 read out of a <code class="docutils literal notranslate"><span class="pre">ports:</span></code> block. That covers the case most likely to catch you
 out — two projects whose dispatch pairs are both on the host network take the
-same default ports (<code class="docutils literal notranslate"><span class="pre">9900</span></code> for the dispatcher, <code class="docutils literal notranslate"><span class="pre">9901</span></code> upward for the
+same default ports (<code class="docutils literal notranslate"><span class="pre">10010</span></code> for the dispatcher, <code class="docutils literal notranslate"><span class="pre">10011</span></code> upward for the
 workers), and no <code class="docutils literal notranslate"><span class="pre">ports:</span></code> line anywhere would have shown it. Give the second
-project its own <code class="docutils literal notranslate"><span class="pre">dispatch.dispatcher_port</span></code> and <code class="docutils literal notranslate"><span class="pre">dispatch.worker_port_base</span></code>.
+project its own <code class="docutils literal notranslate"><span class="pre">deployment.port_base</span></code> (<a class="reference internal" href="../../reference/ports.html#reference-ports"><span class="std std-ref">Ports</span></a>), which moves
+the pair along with everything else.
 A facility service you place on the host network is covered the same way,
 read from its <code class="docutils literal notranslate"><span class="pre">services.&lt;name&gt;.port</span></code> key; one without that key cannot be
 checked, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> says so rather than skipping it silently.</p>

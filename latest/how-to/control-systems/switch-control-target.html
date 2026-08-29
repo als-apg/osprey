@@ -880,7 +880,7 @@ single-lane deployment shows no picker and nothing about its panel changes.</p>
 <p>A generated project renders both connector blocks, but the live one points at a
 facility gateway — so on a laptop, or before the deployment is wired to your
 machine, the live half of this page cannot be tried at all. Setting
-<code class="docutils literal notranslate"><span class="pre">virtual_accelerator.live_standin:</span> <span class="pre">5074</span></code> in the build profile fixes that: the
+<code class="docutils literal notranslate"><span class="pre">virtual_accelerator.live_standin:</span> <span class="pre">true</span></code> in the build profile fixes that: the
 deploy brings up a <strong>second</strong> simulator container and makes it this deployment’s
 <code class="docutils literal notranslate"><span class="pre">live</span></code> target. <code class="docutils literal notranslate"><span class="pre">control_target_set</span> <span class="pre">live</span></code> then walks the whole go-live path —
 the probe, the acknowledgment, the strict limits posture, the approval prompts —
