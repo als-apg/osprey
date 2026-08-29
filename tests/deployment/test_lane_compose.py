@@ -452,6 +452,54 @@ def standin_baseline() -> dict[str, Any]:
     return _render(_standin_baseline_context())
 
 
+#: The stand-in baseline WITHOUT ``bluesky.second_lane``: the one single-lane
+#: shape whose block carries ``target`` and ``ca_name_servers``. The template's
+#: no-target fallback addresses the co-deployed VA container, which on every
+#: other single-lane baseline is the right machine and on this one is the
+#: simulator standing next to the machine the baseline actually names.
+STANDIN_SINGLE_LANE = {
+    "bluesky": _lane_block(
+        BLUESKY_PORT, tiled_enabled=True, target="standin", ca_name_servers=STANDIN_DIAL
+    ),
+}
+
+
+@pytest.fixture
+def standin_single_lane() -> dict[str, Any]:
+    """A ``live_standin`` baseline deploying its single lane."""
+    return _render(
+        _context(
+            lanes=STANDIN_SINGLE_LANE,
+            deployed_services=["bluesky", "virtual_accelerator", "live_standin"],
+        )
+    )
+
+
+def test_a_standin_single_lane_is_one_stack_pointed_at_the_stand_in(
+    standin_single_lane: dict[str, Any],
+) -> None:
+    """One lane, the historical service keys, and the stand-in's address.
+
+    The single-lane shape of every other baseline is pinned byte-for-byte by
+    the goldens above; this one is pinned by what it must say instead, because
+    the whole point of its ``target`` is to move the lane OFF the fallback
+    address those goldens render.
+    """
+    assert set(standin_single_lane["services"]) == {
+        "bluesky-bridge",
+        "queueserver",
+        "bluesky-redis",
+        "tiled",
+    }
+    for service in ("bluesky-bridge", "queueserver"):
+        env = _env(standin_single_lane, service)
+        assert env["EPICS_CA_NAME_SERVERS"] == STANDIN_DIAL, service
+        assert env["EPICS_CA_AUTO_ADDR_LIST"] == "NO", service
+        depends = standin_single_lane["services"][service]["depends_on"]
+        assert depends["live-standin"] == {"condition": "service_healthy"}, service
+        assert "virtual-accelerator" not in depends, service
+
+
 def test_a_standin_baseline_renders_a_standin_lane_and_a_va_lane(
     standin_baseline: dict[str, Any],
 ) -> None:

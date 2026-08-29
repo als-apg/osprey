@@ -846,13 +846,22 @@ def _standin_lane_ca_name_servers(virtual_accelerator: VAConfig | None) -> str:
     return f"{_LIVE_STANDIN_COMPOSE_SERVICE}:{virtual_accelerator.live_standin}"
 
 
+def _rendered_control_system_type(config: Any) -> str:
+    """The ``control_system.type`` the rendered config carries, ``mock`` if none.
+
+    Read from the rendered ``config.yml`` rather than from the profile, because
+    that is the value every other holder resolves the deployment baseline from
+    — injectors run after ``_apply_config_overrides``, so the key is already
+    final by the time this is called.
+    """
+    control_system = config.get("control_system") or {}
+    if not hasattr(control_system, "get"):
+        return "mock"
+    return str(control_system.get("type") or "mock")
+
+
 def _baseline_lane_target(config: Any, virtual_accelerator: VAConfig | None) -> str:
     """Resolve which target the deployment baseline lane serves.
-
-    Read from the rendered ``control_system.type`` rather than from the profile,
-    because that is the value every other holder resolves the deployment
-    baseline from — injectors run after ``_apply_config_overrides``, so the key
-    is already final by the time this is called.
 
     The VA service is checked here too, because the two questions have one
     answer: on a ``live`` or ``standin`` baseline the second lane is the VA lane
@@ -876,10 +885,7 @@ def _baseline_lane_target(config: Any, virtual_accelerator: VAConfig | None) -> 
             a switch target, or if the VA lane it pairs with would have no VA
             service to address.
     """
-    control_system = config.get("control_system") or {}
-    cs_type = (
-        str(control_system.get("type") or "mock") if hasattr(control_system, "get") else "mock"
-    )
+    cs_type = _rendered_control_system_type(config)
     target = _LANE_TARGET_BY_CONTROL_SYSTEM_TYPE.get(cs_type)
     if target is None:
         raise BuildProfileError(
@@ -1071,7 +1077,8 @@ def _inject_bluesky(
             from ``config.yml`` because ``_inject_va`` writes that block AFTER
             this injector runs, so the rendered config cannot answer either
             question yet. Defaults to ``None`` — the right answer for every
-            single-lane caller, which reaches neither.
+            single-lane caller except one baselined on the stand-in, whose
+            single lane dials it too.
         base: The base the deployment resolved from ``deployment.port_base``.
             Lane 2's port is derived from lane 1's, and the derivation is
             re-checked against the layout AT THIS BASE, so a caller that can
@@ -1132,16 +1139,26 @@ def _inject_bluesky(
     svc_config.update(_facility_plan_keys(bluesky))
 
     lanes: list[tuple[str, dict[str, Any]]] = [("bluesky", svc_config)]
+    # Addressing is by TARGET, not by lane index — which lane serves which
+    # machine differs by baseline, but what a target IS on this deployment does
+    # not. `va` is the one target with nothing to write: its gateway is the
+    # `virtual-accelerator` container, which the compose template already
+    # addresses without being told.
+    lane_addressing = {
+        connector_types.TARGET_LIVE: lambda: _LIVE_LANE_CA_NAME_SERVERS,
+        connector_types.TARGET_STANDIN: lambda: _standin_lane_ca_name_servers(virtual_accelerator),
+    }
     if bluesky.second_lane:
         # Two lanes: lane 1 serves the deployment baseline, lane 2 the target
         # `_SECOND_LANE_TARGET` pairs it with. Both carry `target` — a lane's
         # identity is fixed here, at render time, and the bridge reads it rather
         # than inferring a session target it is never told about. `target` and
-        # the addressing keys are the LANE-SCOPED ones: they are written ONLY on
-        # a two-lane deploy, so a single-lane block still carries neither. That
-        # is a narrower claim than it used to be — the facility plan keys are
-        # NOT lane-scoped, and `_facility_plan_keys` now writes `devices_file`
-        # on every lane of every deploy, single-lane deploys included.
+        # the addressing keys are the LANE-SCOPED ones: a single-lane block on
+        # any other baseline still carries neither (the stand-in case below is
+        # the one exception, and the comment there says why). That is a
+        # narrower claim than it used to be — the facility plan keys are NOT
+        # lane-scoped, and `_facility_plan_keys` now writes `devices_file` on
+        # every lane of every deploy, single-lane deploys included.
         baseline = _baseline_lane_target(config, virtual_accelerator)
         second = _SECOND_LANE_TARGET[baseline]
         second_config: dict[str, Any] = {
@@ -1152,24 +1169,24 @@ def _inject_bluesky(
         # load the same plan directory and hide the same exclusions.
         second_config.update(_facility_plan_keys(bluesky))
         # No tiled keys: tiled is shared, and lane 1 is where it lives.
-        #
-        # Addressing is by TARGET, not by lane index — which lane serves which
-        # machine differs by baseline, but what a target IS on this deployment
-        # does not. `va` is the one target with nothing to write: its gateway is
-        # the `virtual-accelerator` container, which the compose template
-        # already addresses without being told.
-        lane_addressing = {
-            connector_types.TARGET_LIVE: lambda: _LIVE_LANE_CA_NAME_SERVERS,
-            connector_types.TARGET_STANDIN: lambda: _standin_lane_ca_name_servers(
-                virtual_accelerator
-            ),
-        }
         for lane_config, lane_target in ((svc_config, baseline), (second_config, second)):
             lane_config["target"] = lane_target
             addressing = lane_addressing.get(lane_target)
             if addressing is not None:
                 lane_config["ca_name_servers"] = addressing()
         lanes.append((_SECOND_LANE_SERVICE_KEY[second], second_config))
+    elif _rendered_control_system_type(config) == connector_types.LIVE_STANDIN:
+        # The one single-lane deploy that DOES declare its target. A lane with no
+        # `target` is addressed by the compose template's fallback, and that
+        # fallback is the co-deployed virtual accelerator — the right machine on
+        # every baseline that has served a single lane so far, and the wrong one
+        # here: a stand-in deployment runs TWO soft IOCs, and its single lane
+        # would quietly queue plans against the simulator while the bridge
+        # reported the stand-in. Writing the target and the dial is what points
+        # the lane at the machine the baseline names; every other baseline's
+        # single lane still renders byte-for-byte what it always has.
+        svc_config["target"] = connector_types.TARGET_STANDIN
+        svc_config["ca_name_servers"] = lane_addressing[connector_types.TARGET_STANDIN]()
 
     _warn_underivable_lane_targets(config, lanes)
 
@@ -1198,20 +1215,20 @@ def _inject_bluesky(
             second_block["target"],
             second_block["port"],
         )
-        lane_targets = {block.get("target") for _, block in lanes}
-        if connector_types.TARGET_STANDIN in lane_targets:
-            logger.debug(
-                "    Standin:    dials the co-deployed %s container on port %d — the "
-                "stand-in is this deployment's own soft IOC, so there is nothing to "
-                "supply and nothing for `osprey up` to refuse over.",
-                _LIVE_STANDIN_COMPOSE_SERVICE,
-                virtual_accelerator.live_standin if virtual_accelerator else None,
-            )
-        if connector_types.TARGET_LIVE in lane_targets:
-            logger.debug(
-                "    Live lane:  set EPICS_CA_NAME_SERVERS to <host>:<port> of the "
-                "live control-system gateway; `osprey up` refuses without it."
-            )
+    lane_targets = {block.get("target") for _, block in lanes}
+    if connector_types.TARGET_STANDIN in lane_targets:
+        logger.debug(
+            "    Standin:    dials the co-deployed %s container on port %d — the "
+            "stand-in is this deployment's own soft IOC, so there is nothing to "
+            "supply and nothing for `osprey up` to refuse over.",
+            _LIVE_STANDIN_COMPOSE_SERVICE,
+            virtual_accelerator.live_standin if virtual_accelerator else None,
+        )
+    if connector_types.TARGET_LIVE in lane_targets:
+        logger.debug(
+            "    Live lane:  set EPICS_CA_NAME_SERVERS to <host>:<port> of the "
+            "live control-system gateway; `osprey up` refuses without it."
+        )
     logger.debug(
         "    Token:      `osprey up` writes BLUESKY_LAUNCH_TOKEN to .env; "
         "a host-run agent's queue tools read it automatically. Deployed web "

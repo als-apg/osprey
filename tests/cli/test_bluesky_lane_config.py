@@ -652,25 +652,59 @@ def test_a_stand_in_dial_survives_a_rebuild_unquoted(tmp_path: Path) -> None:
     assert _read_config(project)["services"]["bluesky"]["ca_name_servers"] == STANDIN_DIAL
 
 
-@pytest.mark.parametrize("cs_type", ["virtual_accelerator", "live_standin"])
-def test_a_single_lane_deploy_carries_no_gateway_key_even_with_a_stand_in(
-    tmp_path: Path, cs_type: str
-) -> None:
-    """`ca_name_servers` stays LANE-SCOPED. The stand-in does not widen it.
+def test_a_single_lane_deploy_beside_a_stand_in_carries_no_gateway_key(tmp_path: Path) -> None:
+    """`ca_name_servers` stays LANE-SCOPED. A co-deployed stand-in does not widen it.
 
-    A one-lane deployment serves the baseline and nothing else, so it declares
-    no lane identity at all — writing the dial anyway would hand the single
-    lane an addressing key it never had, including on a project baselined on
-    the stand-in itself.
+    A one-lane deployment on the VA baseline serves the VA and nothing else, so
+    it declares no lane identity at all — writing the dial anyway would hand
+    the single lane an addressing key it never had, and the stand-in running
+    beside it is a machine this lane does not serve.
     """
     project = tmp_path / "project"
-    _write_config(project, cs_type=cs_type)
+    _write_config(project, cs_type="virtual_accelerator")
 
     _inject_bluesky(BlueskyConfig(), project, VAConfig(live_standin=STANDIN_PORT))
 
     services = _read_config(project)["services"]
     assert "ca_name_servers" not in services["bluesky"]
     assert "target" not in services["bluesky"]
+
+
+def test_a_single_lane_deploy_on_the_stand_in_dials_the_stand_in(tmp_path: Path) -> None:
+    """The one single lane that declares its target.
+
+    A lane with no ``target`` is addressed by the compose template's fallback,
+    and that fallback is the co-deployed virtual accelerator. On a stand-in
+    baseline that is the WRONG machine: the deployment runs two soft IOCs, and
+    a bare single lane would queue every plan against the simulator while the
+    bridge reported the stand-in. So this lane — alone among single lanes —
+    carries the target the baseline names and the dial that reaches it, and
+    still renders no sibling: one lane, pointed at the right machine.
+    """
+    project = tmp_path / "project"
+    _write_config(project, cs_type="live_standin")
+
+    _inject_bluesky(BlueskyConfig(), project, VAConfig(live_standin=STANDIN_PORT))
+
+    config = _read_config(project)
+    lane = config["services"]["bluesky"]
+    assert lane["target"] == "standin"
+    assert lane["ca_name_servers"] == STANDIN_DIAL
+    for key in SECOND_LANE_KEYS.values():
+        assert key not in config["services"], key
+    assert config["deployed_services"] == ["postgresql", "bluesky"]
+
+
+def test_a_single_lane_deploy_on_the_stand_in_refuses_without_a_stand_in_port(
+    tmp_path: Path,
+) -> None:
+    """The refusal the two-lane case gets, for the same reason: the lane the
+    baseline names has to have a machine behind it."""
+    project = tmp_path / "project"
+    _write_config(project, cs_type="live_standin")
+
+    with pytest.raises(BuildProfileError, match="live_standin"):
+        _inject_bluesky(BlueskyConfig(), project, VAConfig())
 
 
 # ---------------------------------------------------------------------------

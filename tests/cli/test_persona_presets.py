@@ -863,7 +863,13 @@ class TestControlAssistantPersonas:
                 "database_name": host["services"]["postgresql"]["database_name"],
             },
             "openobserve": {"port": host["services"]["openobserve"]["port"]},
-            "bluesky": {"port": host["services"]["bluesky"]["port"]},
+            # `target` rides along because the hosting render's single lane
+            # declares one: the preset baselines on the stand-in, and that lane
+            # is pointed at it explicitly rather than left to the VA fallback.
+            "bluesky": {
+                "port": host["services"]["bluesky"]["port"],
+                "target": host["services"]["bluesky"]["target"],
+            },
             "virtual_accelerator": {"port": host["services"]["virtual_accelerator"]["port"]},
             "live_standin": {"port": host["services"]["live_standin"]["port"]},
             "archiver_recorder": {"path": host["services"]["archiver_recorder"]["path"]},
