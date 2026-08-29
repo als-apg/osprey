@@ -301,7 +301,14 @@ def warn_if_web_stack_unreachable(
     if _host_port_answers(url, attempts, delay):
         return
 
-    desktop = on_docker_desktop(config)
+    try:
+        desktop = on_docker_desktop(config)
+    except RuntimeError:
+        # No runtime resolved on this host. An advisory probe must not sink
+        # the deploy it is advising on, and without a runtime there is no
+        # Docker Desktop to blame, so the generic warning below is the most
+        # this host can honestly be told.
+        desktop = False
     # Asked once, up front, because it decides two separate things below: whether
     # the self-heal bounce is worth attempting at all, and how confidently the
     # warning at the end is allowed to speak. ``None`` means this host could not

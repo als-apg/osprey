@@ -420,7 +420,12 @@ def _warn_if_host_networking_is_off(config: dict) -> None:
         nginx_port = resolve_nginx_port(config)
     except ValueError:
         return
-    if not on_docker_desktop(config):
+    try:
+        if not on_docker_desktop(config):
+            return
+    except RuntimeError:
+        # No runtime resolved on this host. This warning is advisory and the
+        # start it precedes will say so itself, with the remedy.
         return
     if host_networking_enabled() is not False:
         return
