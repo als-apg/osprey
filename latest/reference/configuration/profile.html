@@ -1371,7 +1371,7 @@ message, along with the <code class="docutils literal notranslate"><span class="
 <h2>bluesky<a class="headerlink" href="#bluesky" title="Link to this heading">#</a></h2>
 <p>The <code class="docutils literal notranslate"><span class="pre">bluesky:</span></code> section configures the Bluesky stack a deployment brings up —
 the bridge, the queue server, the BLUESKY panel and, optionally, the Tiled data
-store. It accepts exactly seven keys; a misspelled or unknown key <strong>fails the
+store. It accepts exactly eight keys; a misspelled or unknown key <strong>fails the
 build</strong> and prints the valid set:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
@@ -1410,6 +1410,12 @@ machine and its virtual accelerator.</p></td>
 <td><p>The file listing the devices plans may drive or record
 (default <code class="docutils literal notranslate"><span class="pre">data/bluesky_devices.yml</span></code>) — see
 <a class="reference internal" href="../../how-to/bluesky/write-plans.html"><span class="doc">Write Your Own Plans</span></a>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">device_page_size</span></code></p></td>
+<td><p>How many devices the bridge lists at once (default 500). A larger set
+is served a page at a time and can be narrowed by an exact name
+prefix. The same number decides when a refusal for an unknown device
+stops listing every device it does know and gives a count instead.</p></td>
 </tr>
 </tbody>
 </table>
