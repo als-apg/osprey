@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
+from osprey.connectors.control_system.base import WriteOutcome
 from osprey.connectors.control_system.mock_connector import MockConnector
 
 TEST_MACHINE = {
@@ -153,11 +154,8 @@ class TestMockConnectorSimulation:
         ):
             await connector.connect({"response_delay_ms": 0, "simulation_file": str(machine_file)})
 
-            result = await connector.write_channel(
-                "T:Q1:CUR:SP", 30.0, verification_level="readback", tolerance=0.001
-            )
-            assert result.success is True
-            assert result.verification.verified is True
+            result = await connector.write_channel("T:Q1:CUR:SP", 30.0, confirm=True)
+            assert result.outcome is WriteOutcome.CONFIRMED
 
             rb = await connector.read_channel("T:Q1:CUR:RB")
             assert rb.value == 30.0  # exact: expr readback, no legacy offset

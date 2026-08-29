@@ -1,187 +1,31 @@
 """
-Tests for automatic verification configuration in connectors.
+Tests for automatic confirmation policy resolution in connectors.
 
-Verifies that connectors automatically determine verification level and tolerance
-from per-channel config (limits database) or global config, as documented.
+The limits database is the single home of write policy: a connector asked to
+write with ``confirm=None`` resolves the channel's own ``confirm`` entry, then
+the ``defaults`` block's, then the fleet default of ``True``. An explicit
+``confirm`` from the caller outranks all three, and a batch resolves per
+channel exactly as a sequence of single writes would.
 """
 
 import json
 from unittest.mock import patch
 
-import pytest
-
+from osprey.connectors.control_system.base import WriteOutcome
 from osprey.connectors.control_system.mock_connector import MockConnector
 
 
 def _config_with_writes_enabled(key, default=None):
+    """Config lookup that enables writes and leaves everything else defaulted."""
     if key == "control_system.writes_enabled":
         return True
     return default
 
 
-class TestAutomaticVerification:
-    """Test automatic verification configuration lookup."""
-
-    @pytest.mark.asyncio
-    async def test_automatic_verification_without_config(self):
-        """Test that connector works with automatic verification when no config available."""
-        connector = MockConnector()
-        with patch(
-            "osprey.utils.config.get_config_value",
-            side_effect=_config_with_writes_enabled,
-        ):
-            await connector.connect({"response_delay_ms": 1})
-
-            # Call without verification_level - should use hardcoded default (callback)
-            result = await connector.write_channel("TEST:CHANNEL", 100.0)
-
-            assert result.success is True
-            assert result.verification is not None
-            assert result.verification.level == "callback"
-            assert result.verification.verified is True
-
-            await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_automatic_verification_with_per_channel_config(self, tmp_path, monkeypatch):
-        """Test automatic verification uses per-channel config from limits database."""
-        # Create limits database with per-channel verification
-        limits_db = {
-            "_comment": "Test limits database",
-            "defaults": {"writable": True, "verification": {"level": "callback"}},
-            "CRITICAL:CHANNEL": {
-                "min_value": 0.0,
-                "max_value": 100.0,
-                "verification": {
-                    "level": "readback",
-                },
-            },
-            "NORMAL:CHANNEL": {
-                "min_value": 0.0,
-                "max_value": 100.0,
-                # No verification override - uses defaults
-            },
-        }
-
-        limits_file = tmp_path / "limits.json"
-        limits_file.write_text(json.dumps(limits_db, indent=2))
-
-        # Mock config to enable limits checking
-        def mock_get_config_value(key, default=None):
-            config_map = {
-                "control_system.limits_checking.enabled": True,
-                "control_system.limits_checking.database_path": str(limits_file),
-                "control_system.limits_checking.allow_unlisted_channels": False,
-                "control_system.limits_checking.on_violation": "skip",
-                "control_system.writes_enabled": True,
-                "control_system.write_verification.default_level": "callback",
-                "control_system.write_verification.default_tolerance_percent": 0.1,
-            }
-            return config_map.get(key, default)
-
-        monkeypatch.setattr("osprey.utils.config.get_config_value", mock_get_config_value)
-
-        # Create connector with limits validator
-        connector = MockConnector()
-        await connector.connect(
-            {
-                "response_delay_ms": 1,
-                "noise_level": 0.0,  # No noise for reliable verification tests
-            }
-        )
-
-        # Write to critical channel - should use readback verification
-        result = await connector.write_channel("CRITICAL:CHANNEL", 50.0)
-
-        assert result.success is True
-        assert result.verification is not None
-        assert result.verification.level == "readback"  # Per-channel config
-        assert result.verification.verified is True
-        assert result.verification.readback_value is not None
-
-        # Write to normal channel - should use callback (from defaults)
-        result = await connector.write_channel("NORMAL:CHANNEL", 50.0)
-
-        assert result.success is True
-        assert result.verification is not None
-        assert result.verification.level == "callback"  # From defaults
-        assert result.verification.verified is True
-
-        await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_manual_override_still_works(self):
-        """Test that manual verification_level parameter still works (override)."""
-        connector = MockConnector()
-        with patch(
-            "osprey.utils.config.get_config_value",
-            side_effect=_config_with_writes_enabled,
-        ):
-            await connector.connect({"response_delay_ms": 1})
-
-            # Explicitly request 'none' verification
-            result = await connector.write_channel("TEST:CHANNEL", 100.0, verification_level="none")
-
-            assert result.success is True
-            assert result.verification is not None
-            assert result.verification.level == "none"
-            assert result.verification.verified is False
-
-            # Explicitly request 'readback' with tolerance
-            result = await connector.write_channel(
-                "TEST:CHANNEL", 100.0, verification_level="readback", tolerance=1.0
-            )
-
-            assert result.success is True
-            assert result.verification is not None
-            assert result.verification.level == "readback"
-            assert result.verification.tolerance_used == 1.0
-
-            await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_automatic_tolerance_calculation(self, tmp_path, monkeypatch):
-        """Test that tolerance is automatically calculated from percentage."""
-        limits_db = {
-            "MOTOR:POSITION": {
-                "min_value": -100.0,
-                "max_value": 100.0,
-                "verification": {"level": "readback", "tolerance_percent": 0.5},  # 0.5%
-            }
-        }
-
-        limits_file = tmp_path / "limits.json"
-        limits_file.write_text(json.dumps(limits_db, indent=2))
-
-        def mock_get_config_value(key, default=None):
-            config_map = {
-                "control_system.limits_checking.enabled": True,
-                "control_system.limits_checking.database_path": str(limits_file),
-                "control_system.limits_checking.allow_unlisted_channels": False,
-                "control_system.limits_checking.on_violation": "skip",
-                "control_system.writes_enabled": True,
-            }
-            return config_map.get(key, default)
-
-        monkeypatch.setattr("osprey.utils.config.get_config_value", mock_get_config_value)
-
-        connector = MockConnector()
-        await connector.connect(
-            {
-                "response_delay_ms": 1,
-                "noise_level": 0.0,  # No noise for reliable verification tests
-            }
-        )
-
-        # Write value of 50.0 - tolerance should be 50.0 * 0.5% = 0.25
-        result = await connector.write_channel("MOTOR:POSITION", 50.0)
-
-        assert result.success is True
-        assert result.verification is not None
-        assert result.verification.level == "readback"
-        assert result.verification.tolerance_used == pytest.approx(0.25, abs=0.01)
-
-        await connector.disconnect()
+def _write_limits_db(tmp_path, limits_db):
+    limits_file = tmp_path / "limits.json"
+    limits_file.write_text(json.dumps(limits_db, indent=2))
+    return limits_file
 
 
 def _limits_config(limits_file, **extra):
@@ -201,194 +45,252 @@ def _limits_config(limits_file, **extra):
     return get_config_value
 
 
-def _write_limits_db(tmp_path, limits_db):
-    limits_file = tmp_path / "limits.json"
-    limits_file.write_text(json.dumps(limits_db, indent=2))
-    return limits_file
+async def _connected_mock(monkeypatch, limits_file=None, **extra):
+    """A connected mock with writes enabled and noise switched off.
+
+    Noise off is what makes the assertions about the *outcome* rather than the
+    mock's synthetic jitter; the confirming read is noise-free either way.
+    """
+    config = (
+        _config_with_writes_enabled if limits_file is None else _limits_config(limits_file, **extra)
+    )
+    monkeypatch.setattr("osprey.utils.config.get_config_value", config)
+
+    connector = MockConnector()
+    await connector.connect({"response_delay_ms": 0, "noise_level": 0.0})
+    return connector
 
 
-class TestVerificationPrecedence:
-    """Pin the four-layer resolution order documented on ``write_channel``.
+class TestConfirmResolution:
+    """Pin the resolution order documented on ``write_channel``.
 
-    1. the channel's own ``verification`` entry, 2. the limits database
-    ``defaults.verification`` block, 3. global ``control_system.write_verification``
-    config, 4. the hard-coded ``("callback", None)`` fallback.
+    1. the channel's own ``confirm`` entry, 2. the limits database's
+    ``defaults.confirm``, 3. the fleet default ``True``.
     """
 
-    @pytest.mark.asyncio
-    async def test_channel_entry_beats_defaults_block(self, tmp_path, monkeypatch):
-        """Layer 1 wins over layer 2: a channel entry overrides the defaults block."""
+    async def test_fleet_default_confirms_without_a_limits_database(self, monkeypatch):
+        """Layer 3: no database means no policy to read, so the write confirms."""
+        connector = await _connected_mock(monkeypatch)
+        assert connector._limits_validator is None
+
+        result = await connector.write_channel("TEST:CHANNEL", 100.0)
+
+        assert result.outcome is WriteOutcome.CONFIRMED
+
+        await connector.disconnect()
+
+    async def test_fleet_default_confirms_when_the_database_is_silent(self, tmp_path, monkeypatch):
+        """Layer 3 again: a database that mentions no ``confirm`` still confirms."""
         limits_file = _write_limits_db(
             tmp_path,
             {
-                "defaults": {"writable": True, "verification": {"level": "none"}},
-                "PICKY:CHANNEL": {
-                    "min_value": 0.0,
-                    "max_value": 100.0,
-                    "verification": {"level": "readback", "tolerance_absolute": 0.5},
-                },
+                "defaults": {"writable": True},
+                "QUIET:CHANNEL": {"min_value": 0.0, "max_value": 100.0},
+            },
+        )
+        connector = await _connected_mock(monkeypatch, limits_file)
+
+        result = await connector.write_channel("QUIET:CHANNEL", 50.0)
+
+        assert result.outcome is WriteOutcome.CONFIRMED
+
+        await connector.disconnect()
+
+    async def test_defaults_block_beats_the_fleet_default(self, tmp_path, monkeypatch):
+        """Layer 2: a fleet that has opted out of confirmation writes blind."""
+        limits_file = _write_limits_db(
+            tmp_path,
+            {
+                "defaults": {"writable": True, "confirm": False},
                 "PLAIN:CHANNEL": {"min_value": 0.0, "max_value": 100.0},
             },
         )
-        monkeypatch.setattr("osprey.utils.config.get_config_value", _limits_config(limits_file))
+        connector = await _connected_mock(monkeypatch, limits_file)
 
-        connector = MockConnector()
-        await connector.connect({"response_delay_ms": 1, "noise_level": 0.0})
+        result = await connector.write_channel("PLAIN:CHANNEL", 50.0)
 
-        assert connector._get_verification_config("PICKY:CHANNEL", 10.0) == ("readback", 0.5)
-        # The channel without its own entry falls through to the defaults block.
-        assert connector._get_verification_config("PLAIN:CHANNEL", 10.0) == ("none", None)
+        assert result.outcome is WriteOutcome.UNREQUESTED
+        assert result.observed_value is None
 
         await connector.disconnect()
 
-    @pytest.mark.asyncio
-    async def test_defaults_block_beats_global_config(self, tmp_path, monkeypatch):
-        """Layer 2 wins over layer 3: the limits database outranks config.yml."""
+    async def test_channel_entry_beats_the_defaults_block(self, tmp_path, monkeypatch):
+        """Layer 1: one channel's entry overrides the block, in both directions."""
         limits_file = _write_limits_db(
             tmp_path,
             {
-                "defaults": {
-                    "writable": True,
-                    "verification": {"level": "readback", "tolerance_percent": 1.0},
-                },
-                "ANY:CHANNEL": {"min_value": 0.0, "max_value": 100.0},
+                "defaults": {"writable": True, "confirm": False},
+                "PICKY:CHANNEL": {"min_value": 0.0, "max_value": 100.0, "confirm": True},
+                "PLAIN:CHANNEL": {"min_value": 0.0, "max_value": 100.0},
             },
         )
-        monkeypatch.setattr(
-            "osprey.utils.config.get_config_value",
-            _limits_config(
-                limits_file,
-                **{
-                    "control_system.write_verification.default_level": "none",
-                    "control_system.write_verification.default_tolerance_percent": 25.0,
-                },
-            ),
-        )
+        connector = await _connected_mock(monkeypatch, limits_file)
 
-        connector = MockConnector()
-        await connector.connect({"response_delay_ms": 1, "noise_level": 0.0})
+        picky = await connector.write_channel("PICKY:CHANNEL", 50.0)
+        plain = await connector.write_channel("PLAIN:CHANNEL", 50.0)
 
-        level, tolerance = connector._get_verification_config("ANY:CHANNEL", 40.0)
-        assert level == "readback"
-        assert tolerance == pytest.approx(0.4)  # 1 % of 40.0, not the global 25 %
+        assert picky.outcome is WriteOutcome.CONFIRMED
+        assert plain.outcome is WriteOutcome.UNREQUESTED
 
         await connector.disconnect()
 
-    def test_global_config_used_without_limits_database(self, monkeypatch):
-        """Layer 3: with no limits database, config.yml supplies level and tolerance."""
-        config_map = {
-            "control_system.write_verification.default_level": "readback",
-            "control_system.write_verification.default_tolerance_percent": 0.5,
-        }
-        monkeypatch.setattr(
-            "osprey.utils.config.get_config_value",
-            lambda key, default=None: config_map.get(key, default),
-        )
-
-        connector = MockConnector()
-        assert connector._limits_validator is None
-
-        level, tolerance = connector._get_verification_config("TEST:CHANNEL", 100.0)
-        assert level == "readback"
-        assert tolerance == pytest.approx(0.5)  # 0.5 % of 100.0
-
-    def test_hardcoded_fallback_when_config_unavailable(self, monkeypatch):
-        """Layer 4: no limits database and no config leaves the safe built-in default."""
-
-        def no_config(key, default=None):
-            raise FileNotFoundError("no config.yml in this project")
-
-        monkeypatch.setattr("osprey.utils.config.get_config_value", no_config)
-
-        connector = MockConnector()
-        assert connector._get_verification_config("TEST:CHANNEL", 100.0) == ("callback", None)
-
-    @pytest.mark.asyncio
-    async def test_explicit_level_overrides_every_layer(self, tmp_path, monkeypatch):
-        """An explicit ``verification_level`` outranks all four layers."""
+    async def test_channel_entry_can_opt_out_of_a_confirming_fleet(self, tmp_path, monkeypatch):
+        """The other direction of layer 1: one channel declines confirmation."""
         limits_file = _write_limits_db(
             tmp_path,
             {
-                "defaults": {"writable": True, "verification": {"level": "callback"}},
-                "STRICT:CHANNEL": {
-                    "min_value": 0.0,
-                    "max_value": 100.0,
-                    "verification": {"level": "readback"},
-                },
+                "defaults": {"writable": True, "confirm": True},
+                "BLIND:CHANNEL": {"min_value": 0.0, "max_value": 100.0, "confirm": False},
             },
         )
-        monkeypatch.setattr("osprey.utils.config.get_config_value", _limits_config(limits_file))
+        connector = await _connected_mock(monkeypatch, limits_file)
 
-        connector = MockConnector()
-        await connector.connect({"response_delay_ms": 1, "noise_level": 0.0})
+        result = await connector.write_channel("BLIND:CHANNEL", 50.0)
 
-        # Omitted: the channel entry decides.
-        omitted = await connector.write_channel("STRICT:CHANNEL", 50.0)
-        assert omitted.verification.level == "readback"
-
-        # Explicit: the caller decides, database entry notwithstanding.
-        explicit = await connector.write_channel("STRICT:CHANNEL", 50.0, verification_level="none")
-        assert explicit.verification.level == "none"
+        assert result.outcome is WriteOutcome.UNREQUESTED
 
         await connector.disconnect()
 
 
-class TestBatchVerificationResolution:
-    """``write_multiple_channels`` resolves per channel instead of pinning "callback"."""
+class TestExplicitConfirmOverridesTheDatabase:
+    """An explicit ``confirm`` is the caller's answer and outranks every layer."""
 
-    @pytest.mark.asyncio
-    async def test_batch_resolves_defaults_block_per_channel(self, tmp_path, monkeypatch):
-        """An omitted level lets every channel in the batch resolve its own.
+    async def test_explicit_false_overrides_a_confirming_channel(self, tmp_path, monkeypatch):
+        limits_file = _write_limits_db(
+            tmp_path,
+            {
+                "defaults": {"writable": True, "confirm": True},
+                "PICKY:CHANNEL": {"min_value": 0.0, "max_value": 100.0, "confirm": True},
+            },
+        )
+        connector = await _connected_mock(monkeypatch, limits_file)
 
-        This is the ``osprey.runtime.write_channels`` parity change: batches used to
-        arrive at the connector pinned at "callback".
+        assert (await connector.write_channel("PICKY:CHANNEL", 50.0)).outcome is (
+            WriteOutcome.CONFIRMED
+        )
+
+        overridden = await connector.write_channel("PICKY:CHANNEL", 50.0, confirm=False)
+        assert overridden.outcome is WriteOutcome.UNREQUESTED
+
+        await connector.disconnect()
+
+    async def test_explicit_true_overrides_a_declining_channel(self, tmp_path, monkeypatch):
+        limits_file = _write_limits_db(
+            tmp_path,
+            {
+                "defaults": {"writable": True, "confirm": False},
+                "BLIND:CHANNEL": {"min_value": 0.0, "max_value": 100.0},
+            },
+        )
+        connector = await _connected_mock(monkeypatch, limits_file)
+
+        result = await connector.write_channel("BLIND:CHANNEL", 50.0, confirm=True)
+
+        assert result.outcome is WriteOutcome.CONFIRMED
+        assert result.observed_value is not None
+
+        await connector.disconnect()
+
+    async def test_explicit_none_resolves_like_an_omitted_confirm(self, tmp_path, monkeypatch):
+        """``confirm=None`` is "no opinion", never ``False``.
+
+        The batch path forwards nothing rather than ``False``, but a caller that
+        does pass ``None`` explicitly must land in the same place as one that
+        leaves the keyword off.
         """
         limits_file = _write_limits_db(
             tmp_path,
             {
-                "defaults": {"writable": True, "verification": {"level": "readback"}},
-                "BATCH:CH1": {"min_value": 0.0, "max_value": 100.0},
+                "defaults": {"writable": True, "confirm": False},
+                "PLAIN:CHANNEL": {"min_value": 0.0, "max_value": 100.0},
+            },
+        )
+        connector = await _connected_mock(monkeypatch, limits_file)
+
+        explicit_none = await connector.write_channel("PLAIN:CHANNEL", 50.0, confirm=None)
+        omitted = await connector.write_channel("PLAIN:CHANNEL", 50.0)
+
+        assert explicit_none.outcome is WriteOutcome.UNREQUESTED
+        assert omitted.outcome is WriteOutcome.UNREQUESTED
+
+        await connector.disconnect()
+
+
+class TestBatchConfirmResolution:
+    """``write_multiple_channels`` resolves per channel, like single writes."""
+
+    async def test_batch_resolves_each_channel_independently(self, tmp_path, monkeypatch):
+        """An omitted ``confirm`` lets every channel in the batch decide its own."""
+        limits_file = _write_limits_db(
+            tmp_path,
+            {
+                "defaults": {"writable": True, "confirm": False},
+                "BATCH:CH1": {"min_value": 0.0, "max_value": 100.0, "confirm": True},
                 "BATCH:CH2": {"min_value": 0.0, "max_value": 100.0},
             },
         )
-        monkeypatch.setattr("osprey.utils.config.get_config_value", _limits_config(limits_file))
-
-        connector = MockConnector()
-        await connector.connect({"response_delay_ms": 1, "noise_level": 0.0})
+        connector = await _connected_mock(monkeypatch, limits_file)
 
         results = await connector.write_multiple_channels(
             [("BATCH:CH1", 10.0), ("BATCH:CH2", 20.0)]
         )
 
         assert [r.channel_address for r in results] == ["BATCH:CH1", "BATCH:CH2"]
-        for result in results:
-            assert result.verification is not None
-            assert result.verification.level == "readback"
+        assert results[0].outcome is WriteOutcome.CONFIRMED
+        assert results[1].outcome is WriteOutcome.UNREQUESTED
 
         await connector.disconnect()
 
-    @pytest.mark.asyncio
-    async def test_batch_forwards_explicit_level_to_every_channel(self, tmp_path, monkeypatch):
-        """An explicit level is forwarded unchanged, overriding the database."""
+    async def test_batch_forwards_an_explicit_confirm_to_every_channel(self, tmp_path, monkeypatch):
+        """One ``confirm`` for the batch overrides what each channel declares."""
         limits_file = _write_limits_db(
             tmp_path,
             {
-                "defaults": {"writable": True, "verification": {"level": "readback"}},
-                "BATCH:CH1": {"min_value": 0.0, "max_value": 100.0},
+                "defaults": {"writable": True, "confirm": True},
+                "BATCH:CH1": {"min_value": 0.0, "max_value": 100.0, "confirm": True},
                 "BATCH:CH2": {"min_value": 0.0, "max_value": 100.0},
             },
         )
-        monkeypatch.setattr("osprey.utils.config.get_config_value", _limits_config(limits_file))
+        connector = await _connected_mock(monkeypatch, limits_file)
 
-        connector = MockConnector()
-        await connector.connect({"response_delay_ms": 1, "noise_level": 0.0})
-
-        results = await connector.write_multiple_channels(
-            [("BATCH:CH1", 10.0), ("BATCH:CH2", 20.0)], verification_level="none"
+        declined = await connector.write_multiple_channels(
+            [("BATCH:CH1", 10.0), ("BATCH:CH2", 20.0)], confirm=False
         )
-
-        for result in results:
-            assert result.verification is not None
-            assert result.verification.level == "none"
+        assert [r.outcome for r in declined] == [
+            WriteOutcome.UNREQUESTED,
+            WriteOutcome.UNREQUESTED,
+        ]
 
         await connector.disconnect()
+
+    async def test_batch_without_a_limits_database_confirms_every_channel(self, monkeypatch):
+        """No database, no policy: the fleet default applies to each channel."""
+        connector = await _connected_mock(monkeypatch)
+
+        results = await connector.write_multiple_channels(
+            [("BATCH:CH1", 10.0), ("BATCH:CH2", 20.0)]
+        )
+
+        assert [r.outcome for r in results] == [
+            WriteOutcome.CONFIRMED,
+            WriteOutcome.CONFIRMED,
+        ]
+
+        await connector.disconnect()
+
+
+class TestWritesDisabledOutranksConfirmation:
+    """The ``writes_enabled`` gate refuses before any policy is resolved."""
+
+    async def test_a_disabled_write_is_refused_not_unrequested(self):
+        connector = MockConnector()
+        with patch("osprey.utils.config.get_config_value", return_value=False):
+            await connector.connect({"response_delay_ms": 0})
+
+            result = await connector.write_channel("TEST:CHANNEL", 100.0, confirm=False)
+
+            assert result.outcome is WriteOutcome.REFUSED
+            assert result.refusal_reason == "WRITES_DISABLED"
+            assert result.error_message is not None
+
+            await connector.disconnect()

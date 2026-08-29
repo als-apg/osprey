@@ -4,13 +4,14 @@ No general EPICS connector test existed before this file (see the note in
 ``test_epics_connector_timezone.py``); gateway selection and the read timestamp
 were the only covered paths. These tests drive the connector's remaining real
 code paths — libca configuration, connect error/name-server handling, the
-write-verification result matrix (none/callback/readback), the fail-closed
-write guard, and subscription plumbing — with an injected fake ``_epics`` so no
-real Channel Access is required.
+confirm flow and its five outcomes, the fail-closed write guard, and
+subscription plumbing — with an injected fake ``_epics`` so no real Channel
+Access is required.
 
 Convention (matching ``test_epics_connector_timezone.py`` and PR #270): inject a
-fake ``_epics`` and assert on the concrete payload — verification level, notes,
-env vars, refusal reason — never merely that a call "didn't raise".
+fake ``_epics`` and assert on the concrete payload — outcome word, observed
+value, alarm fields, env vars, refusal reason — never merely that a call
+"didn't raise".
 """
 
 import asyncio
@@ -21,7 +22,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from osprey.connectors.control_system.base import ChannelMetadata, ChannelValue
+from osprey.connectors.control_system.base import (
+    ChannelMetadata,
+    ChannelValue,
+    WriteOutcome,
+    raise_for_write_result,
+)
 from osprey.connectors.control_system.epics_connector import (
     EPICSConnector,
     _ChannelSubscription,
@@ -281,177 +287,245 @@ class TestReadChannel:
 
 
 # ---------------------------------------------------------------------------
-# write_channel — verification result matrix
+# write_channel — the confirm flow
 # ---------------------------------------------------------------------------
 
 
+def _readback_pv(value, *, status=0, severity=0, pv_type="time_double", labels=None):
+    """A fake pyepics PV standing in for the channel a write confirms against."""
+    pv = _connected_pv(value=value, status=status, severity=severity)
+    pv.type = pv_type
+    if labels is not None:
+        pv.enum_strs = labels
+    return pv
+
+
+def _write_connector(*, observed=5.0, caput=True, limits=None, pv=None, read_error=None):
+    """A connector whose caput answers ``caput`` and whose channel holds ``observed``.
+
+    The confirming read runs for real, all the way down to ``pv.get()``, so the
+    injected fake ``_epics.PV`` — never a patched ``read_channel`` — is what
+    every confirm-flow test steers. Patching the read would hide the one thing
+    the confirming read exists to do differently from an ordinary read.
+    """
+    epics = MagicMock()
+    epics.caput.return_value = caput
+    if pv is None:
+        pv = _readback_pv(observed)
+    if read_error is not None:
+        pv.get.side_effect = read_error
+    epics.PV.return_value = pv
+    return _connector(epics=epics, limits_validator=limits)
+
+
 @pytest.mark.usefixtures("writes_enabled")
-class TestWriteVerification:
-    @pytest.mark.asyncio
-    async def test_none_success(self):
-        epics = MagicMock()
-        epics.caput.return_value = True
-        connector = _connector(epics=epics)
+class TestWriteConfirmation:
+    """One confirm flow, five outcomes — the same five every connector reports.
 
-        result = await connector.write_channel("SR:CH", 1.0, verification_level="none")
-
-        assert result.success is True
-        assert result.verification.level == "none"
-        assert result.verification.verified is False
-        assert "No verification requested" in result.verification.notes
-        # none path must not wait on an IOC callback.
-        assert epics.caput.call_args.kwargs["wait"] is False
+    A write is *confirmed* when the channel it wrote now holds the value sent,
+    exactly. There is no tolerance and no second verdict: the outcome word is
+    the whole result, and no consumer re-derives one.
+    """
 
     @pytest.mark.asyncio
-    async def test_none_failure(self):
-        epics = MagicMock()
-        epics.caput.return_value = False
-        connector = _connector(epics=epics)
+    async def test_a_channel_holding_the_value_sent_is_confirmed(self):
+        connector = _write_connector(observed=5.0)
 
-        result = await connector.write_channel("SR:CH", 1.0, verification_level="none")
+        result = await connector.write_channel("SR:CH", 5.0)
 
-        assert result.success is False
-        assert "Write command failed" in result.verification.notes
-        assert result.error_message is not None
+        assert result.outcome is WriteOutcome.CONFIRMED
+        assert result.observed_value == pytest.approx(5.0)
+        assert result.error_message is None
 
     @pytest.mark.asyncio
-    async def test_callback_success(self, monkeypatch):
-        epics = MagicMock()
-        epics.caput.return_value = True
-        connector = _connector(epics=epics)
+    async def test_a_channel_holding_a_different_value_is_a_mismatch(self):
+        """A clamped or rounded setpoint is reported, not tolerated."""
+        connector = _write_connector(observed=4.7)
 
-        readback = ChannelValue(value=1.0, timestamp=None, metadata=ChannelMetadata())
-        monkeypatch.setattr(connector, "read_channel", AsyncMock(return_value=readback))
+        result = await connector.write_channel("SR:CH", 5.0)
 
-        result = await connector.write_channel("SR:CH", 1.0, verification_level="callback")
-
-        assert result.success is True
-        assert result.verification.verified is True
-        assert "IOC callback confirmed" in result.verification.notes
-        assert result.verification.readback_value == pytest.approx(1.0)
-        assert epics.caput.call_args.kwargs["wait"] is True
+        assert result.outcome is WriteOutcome.MISMATCH
+        assert result.observed_value == pytest.approx(4.7)
+        # Both numbers are on the result; the raise path names them from there,
+        # and an error_message here would suppress that wording.
+        assert result.error_message is None
 
     @pytest.mark.asyncio
-    async def test_callback_failure(self):
-        epics = MagicMock()
-        epics.caput.return_value = False
-        connector = _connector(epics=epics)
+    async def test_a_confirming_read_that_raises_is_unconfirmed(self):
+        """The value was sent; what the channel holds is unknown, not wrong."""
+        connector = _write_connector(read_error=TimeoutError("ca timeout"))
 
-        result = await connector.write_channel("SR:CH", 1.0, verification_level="callback")
+        result = await connector.write_channel("SR:CH", 5.0)
 
-        assert result.success is False
-        assert result.verification.verified is False
-        assert "IOC callback failed or timeout" in result.verification.notes
-
-    @pytest.mark.asyncio
-    async def test_readback_verified_within_tolerance(self, monkeypatch):
-        epics = MagicMock()
-        epics.caput.return_value = True
-        connector = _connector(epics=epics)
-        readback = ChannelValue(value=5.0005, timestamp=None, metadata=ChannelMetadata())
-        monkeypatch.setattr(connector, "read_channel", AsyncMock(return_value=readback))
-
-        result = await connector.write_channel(
-            "SR:CH", 5.0, verification_level="readback", tolerance=0.01
-        )
-
-        assert result.success is True
-        assert result.verification.verified is True
-        assert result.verification.readback_value == pytest.approx(5.0005)
-        assert result.verification.tolerance_used == 0.01
-
-    @pytest.mark.asyncio
-    async def test_readback_mismatch_reports_unverified(self, monkeypatch):
-        epics = MagicMock()
-        epics.caput.return_value = True
-        connector = _connector(epics=epics)
-        readback = ChannelValue(value=9.9, timestamp=None, metadata=ChannelMetadata())
-        monkeypatch.setattr(connector, "read_channel", AsyncMock(return_value=readback))
-
-        result = await connector.write_channel(
-            "SR:CH", 5.0, verification_level="readback", tolerance=0.01
-        )
-
-        # The write command itself succeeded; verification did not.
-        assert result.success is True
-        assert result.verification.verified is False
-        assert "Readback mismatch" in result.verification.notes
-
-    @pytest.mark.asyncio
-    async def test_readback_caput_failure(self, monkeypatch):
-        """A failed caput on the readback path returns failure without reading back."""
-        epics = MagicMock()
-        epics.caput.return_value = False
-        connector = _connector(epics=epics)
-        read = AsyncMock()
-        monkeypatch.setattr(connector, "read_channel", read)
-
-        result = await connector.write_channel(
-            "SR:CH", 5.0, verification_level="readback", tolerance=0.01
-        )
-
-        assert result.success is False
-        assert "Write command failed" in result.verification.notes
-        read.assert_not_called()  # no readback attempted when the write itself failed
-
-    @pytest.mark.asyncio
-    async def test_readback_exception_is_non_fatal(self, monkeypatch):
-        """A readback that raises leaves the write successful but unverified."""
-        epics = MagicMock()
-        epics.caput.return_value = True
-        connector = _connector(epics=epics)
-        monkeypatch.setattr(
-            connector, "read_channel", AsyncMock(side_effect=TimeoutError("ca timeout"))
-        )
-
-        result = await connector.write_channel(
-            "SR:CH", 5.0, verification_level="readback", tolerance=0.01
-        )
-
-        assert result.success is True
-        assert result.verification.verified is False
-        assert "Readback failed" in result.verification.notes
+        assert result.outcome is WriteOutcome.UNCONFIRMED
+        assert result.observed_value is None
         assert "ca timeout" in result.error_message
 
     @pytest.mark.asyncio
-    async def test_auto_verification_level_from_global_config(self, monkeypatch):
-        """With no override and no per-channel config, the global default level is used."""
-        epics = MagicMock()
-        epics.caput.return_value = True
-        connector = _connector(epics=epics, limits_validator=None)
+    async def test_a_confirming_read_that_times_out_is_unconfirmed_not_a_mismatch(self):
+        """pyepics answers a timed-out ``get`` with ``None`` instead of raising.
 
-        def fake_get_config_value(key, default=None):
-            if key == "control_system.write_verification.default_level":
-                return "none"
-            return default
+        Compared against the setpoint that ``None`` would not match, and the
+        write would be reported as a mismatch carrying an ``observed_value`` of
+        ``None`` — an observation the machine never made. The channel's value is
+        unknown, which is what ``unconfirmed`` means.
+        """
+        connector = _write_connector(observed=None)
 
-        monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
+        result = await connector.write_channel("SR:CH", 5.0)
 
-        result = await connector.write_channel("SR:CH", 2.0)  # no verification_level
-
-        assert result.verification.level == "none"
+        assert result.outcome is WriteOutcome.UNCONFIRMED
+        assert result.observed_value is None
+        assert "timed out" in result.error_message
 
     @pytest.mark.asyncio
-    async def test_explicit_tolerance_survives_auto_level(self, monkeypatch):
-        """An explicit tolerance is kept even when the level is auto-resolved."""
+    async def test_a_put_the_control_system_did_not_take_is_failed(self):
+        connector = _write_connector(caput=False)
+
+        result = await connector.write_channel("SR:CH", 5.0)
+
+        assert result.outcome is WriteOutcome.FAILED
+        assert result.error_message is not None
+        assert result.observed_value is None
+        # Nothing was written, so there is nothing to confirm.
+        connector._epics.PV.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_confirm_false_checks_nothing(self):
+        connector = _write_connector(observed=9.9)
+
+        result = await connector.write_channel("SR:CH", 5.0, confirm=False)
+
+        assert result.outcome is WriteOutcome.UNREQUESTED
+        assert result.observed_value is None
+        assert result.error_message is None
+        # Not even a read: the channel disagreeing is not this write's verdict.
+        connector._epics.PV.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_mismatch_names_both_values_for_display(self):
+        """``notes`` is display-only — nothing classifies a write by parsing it."""
+        connector = _write_connector(observed=4.7)
+
+        result = await connector.write_channel("SR:CH", 5.0)
+
+        assert "4.7" in result.notes
+        assert "5.0" in result.notes
+
+
+@pytest.mark.usefixtures("writes_enabled")
+class TestConfirmingRead:
+    """What the confirming read does differently from an ordinary read."""
+
+    @pytest.mark.asyncio
+    async def test_the_confirming_read_bypasses_the_monitor_cache(self):
+        """pyepics' auto-monitor cache can still hold the pre-write value.
+
+        The put-callback says the IOC processed the write, not that a cached
+        subscription update has arrived. Under confirm-by-default, comparing a
+        stale cached reading against the setpoint would report a MISMATCH the
+        machine never had — so the confirming read always goes to the wire.
+        """
+        pv = _readback_pv(5.0)
+        connector = _write_connector(pv=pv)
+
+        await connector.write_channel("SR:CH", 5.0)
+
+        assert pv.get.call_args.kwargs["use_monitor"] is False
+
+    @pytest.mark.asyncio
+    async def test_an_ordinary_read_still_uses_the_monitor_cache(self):
+        """Only confirmation pays for a fresh get; plain reads keep the cache."""
+        pv = _readback_pv(5.0)
         epics = MagicMock()
-        epics.caput.return_value = True
-        connector = _connector(epics=epics, limits_validator=None)
-        readback = ChannelValue(value=5.0, timestamp=None, metadata=ChannelMetadata())
-        monkeypatch.setattr(connector, "read_channel", AsyncMock(return_value=readback))
+        epics.PV.return_value = pv
+        connector = _connector(epics=epics)
 
-        def fake_get_config_value(key, default=None):
-            if key == "control_system.write_verification.default_level":
-                return "readback"
-            return default
+        await connector.read_channel("SR:CH", timeout=1.0)
 
-        monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
+        assert pv.get.call_args.kwargs.get("use_monitor", True) is True
 
-        # verification_level is None (auto), but tolerance is explicitly provided.
-        result = await connector.write_channel("SR:CH", 5.0, tolerance=0.25)
+    @pytest.mark.asyncio
+    async def test_a_confirming_put_waits_for_the_ioc_callback(self):
+        """Put-callback is the protocol's acknowledgement that the put landed."""
+        connector = _write_connector(observed=5.0)
 
-        assert result.verification.level == "readback"
-        assert result.verification.tolerance_used == 0.25
+        await connector.write_channel("SR:CH", 5.0)
+
+        assert connector._epics.caput.call_args.kwargs["wait"] is True
+
+    @pytest.mark.asyncio
+    async def test_an_unconfirmed_put_does_not_wait(self):
+        connector = _write_connector(observed=5.0)
+
+        await connector.write_channel("SR:CH", 5.0, confirm=False)
+
+        assert connector._epics.caput.call_args.kwargs["wait"] is False
+
+    @pytest.mark.asyncio
+    async def test_an_enum_label_written_as_text_is_confirmed_by_its_index(self):
+        """An mbbo takes "ON" and reads back 1; that is the same state.
+
+        EPICS is the only connector that reports an ``enum_label``, and this is
+        what it is for: without it the comparison would see ``"ON" != 1`` and
+        report a mismatch on a write the machine took exactly as sent.
+        """
+        pv = _readback_pv(1, pv_type="time_enum", labels=("OFF", "ON"))
+        connector = _write_connector(pv=pv)
+
+        result = await connector.write_channel("SR:VALVE", "ON")
+
+        assert result.outcome is WriteOutcome.CONFIRMED
+        assert result.observed_value == 1
+
+    @pytest.mark.asyncio
+    async def test_the_observed_value_keeps_the_type_the_channel_reports(self):
+        """A string reading stays a string — nothing is coerced into a number."""
+        pv = _readback_pv("ON", pv_type="time_string")
+        connector = _write_connector(pv=pv)
+
+        result = await connector.write_channel("SR:CH", "ON")
+
+        assert result.outcome is WriteOutcome.CONFIRMED
+        assert result.observed_value == "ON"
+        assert result.observed_number is None
+
+
+@pytest.mark.usefixtures("writes_enabled")
+class TestConfirmResolution:
+    """``confirm=None`` is "no opinion", and never means ``False``."""
+
+    @pytest.mark.asyncio
+    async def test_an_omitted_confirm_takes_the_limits_database_policy(self):
+        limits = MagicMock()
+        limits.resolve_confirm.return_value = False
+        connector = _write_connector(observed=9.9, limits=limits)
+
+        result = await connector.write_channel("SR:CH", 5.0)
+
+        assert result.outcome is WriteOutcome.UNREQUESTED
+        limits.resolve_confirm.assert_called_once_with("SR:CH")
+
+    @pytest.mark.asyncio
+    async def test_a_connector_without_a_validator_confirms(self):
+        """No limits database means no policy to read — the fleet default holds."""
+        connector = _write_connector(observed=5.0, limits=None)
+
+        result = await connector.write_channel("SR:CH", 5.0)
+
+        assert result.outcome is WriteOutcome.CONFIRMED
+
+    @pytest.mark.asyncio
+    async def test_an_explicit_confirm_false_is_an_answer_not_an_omission(self):
+        """A declined confirmation must not be re-resolved back into a check."""
+        limits = MagicMock()
+        limits.resolve_confirm.return_value = True
+        connector = _write_connector(observed=5.0, limits=limits)
+
+        result = await connector.write_channel("SR:CH", 5.0, confirm=False)
+
+        assert result.outcome is WriteOutcome.UNREQUESTED
+        limits.resolve_confirm.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -462,28 +536,18 @@ class TestWriteVerification:
 @pytest.mark.usefixtures("writes_enabled")
 class TestWriteFailClosed:
     @pytest.mark.asyncio
-    async def test_invalid_level_rejected_before_any_caput(self):
-        epics = MagicMock()
-        connector = _connector(epics=epics)
-
-        with pytest.raises(ValueError, match="Invalid verification_level"):
-            await connector.write_channel("SR:CH", 1.0, verification_level="bogus")
-
-        epics.caput.assert_not_called()
-
-    @pytest.mark.asyncio
     async def test_validation_error_refuses_write_without_caput(self):
-        """A non-limits validation error fails closed: refused, blocked, no caput."""
+        """A non-limits validation error fails closed: refused, and no caput."""
         epics = MagicMock()
         limits = MagicMock()
         limits.validate.side_effect = RuntimeError("db unreadable")
         connector = _connector(epics=epics, limits_validator=limits)
 
-        result = await connector.write_channel("SR:CH", 1.0, verification_level="none")
+        result = await connector.write_channel("SR:CH", 1.0, confirm=False)
 
-        assert result.success is False
-        assert result.blocked is True
+        assert result.outcome is WriteOutcome.REFUSED
         assert result.refusal_reason == "VALIDATION_ERROR"
+        assert result.error_message is not None
         epics.caput.assert_not_called()
 
     @pytest.mark.asyncio
@@ -502,7 +566,7 @@ class TestWriteFailClosed:
         connector = _connector(epics=epics, limits_validator=limits)
 
         with pytest.raises(ChannelLimitsViolationError):
-            await connector.write_channel("SR:CH", 1.0, verification_level="none")
+            await connector.write_channel("SR:CH", 1.0, confirm=False)
 
         epics.caput.assert_not_called()
 
@@ -864,325 +928,87 @@ class TestChannelAccessEnumLabels:
 
 
 # ---------------------------------------------------------------------------
-# write_channel — readback alarm reporting and failure classification
+# write_channel — alarm state reported by the confirming read
 # ---------------------------------------------------------------------------
 
 
-def _readback(value, *, alarm=None, severity=None):
-    """A readback ChannelValue, optionally carrying alarm metadata."""
-    raw = {} if severity is None else {"severity": severity}
-    return ChannelValue(
-        value=value,
-        timestamp=None,
-        metadata=ChannelMetadata(alarm_status=alarm, raw_metadata=raw),
-    )
-
-
-def _write_connector(monkeypatch, *, readback=None, raises=None, limits=None):
-    """A connector whose caput succeeds, with ``read_channel`` stubbed.
-
-    Every write test below needs the same setup and differs only in what the
-    readback does, so that is the only thing left at the call site.
-    """
-    epics = MagicMock()
-    epics.caput.return_value = True
-    connector = _connector(epics=epics, limits_validator=limits)
-    if raises is not None:
-        monkeypatch.setattr(connector, "read_channel", AsyncMock(side_effect=raises))
-    elif readback is not None:
-        monkeypatch.setattr(connector, "read_channel", AsyncMock(return_value=readback))
-    return connector
-
-
 @pytest.mark.usefixtures("writes_enabled")
-class TestReadbackAlarmReporting:
-    """The readback carries the channel's alarm state into the result.
+class TestConfirmingReadAlarmReporting:
+    """The confirming read carries the channel's alarm state into the result.
 
-    These are the *structured* fields a consumer classifies a write from;
-    ``notes`` stays display-only and is never parsed.
+    Alarm state is *information* on a write — reported beside the outcome,
+    never a reason to raise and never a reason to withhold a confirmation.
+    ``None`` means "not reported" and stays distinct from a reported healthy
+    channel (severity ``0``).
     """
 
     @pytest.mark.asyncio
-    async def test_healthy_readback_reports_severity_zero(self, monkeypatch):
-        """Severity 0 is a reported healthy value — not "unreported" (None)."""
-        connector = _write_connector(
-            monkeypatch, readback=_readback(5.0, alarm="NO_ALARM", severity=0)
-        )
+    async def test_healthy_confirming_read_reports_severity_zero(self):
+        pv = _readback_pv(5.0, status=0, severity=0)
+        connector = _write_connector(pv=pv)
 
-        result = await connector.write_channel(
-            "SR:CH", 5.0, verification_level="readback", tolerance=0.01
-        )
+        result = await connector.write_channel("SR:CH", 5.0)
 
-        assert result.verification.verified is True
-        assert result.verification.readback_alarm_status == "NO_ALARM"
-        assert result.verification.readback_alarm_severity == 0
-        assert result.verification.readback_alarm_severity is not None
-        assert result.verification.failure_kind is None
+        assert result.outcome is WriteOutcome.CONFIRMED
+        assert result.alarm_status == "NO_ALARM"
+        assert result.alarm_severity == 0
+        assert result.alarm_severity is not None
 
     @pytest.mark.asyncio
-    async def test_matching_readback_with_major_alarm_stays_verified(self, monkeypatch):
-        """The value matched, so the write verified — but the alarm is reported.
+    async def test_a_confirmed_write_reports_a_major_alarm_and_still_returns(self):
+        """The channel took the value; that it is also in alarm is a second fact.
 
-        Suppressing the alarm here is exactly the narration hole #465 describes:
-        the caller needs both facts, not one of them.
+        Both facts are needed, and neither replaces the other — so the raise
+        path returns a confirmed result whatever its alarm severity.
         """
-        connector = _write_connector(monkeypatch, readback=_readback(5.0, alarm="HIHI", severity=2))
+        pv = _readback_pv(5.0, status=3, severity=2)
+        connector = _write_connector(pv=pv)
 
-        result = await connector.write_channel(
-            "SR:CH", 5.0, verification_level="readback", tolerance=0.01
-        )
+        result = await connector.write_channel("SR:CH", 5.0)
 
-        assert result.verification.verified is True
-        assert result.verification.readback_alarm_status == "HIHI"
-        assert result.verification.readback_alarm_severity == 2
-        assert result.verification.failure_kind is None
-
-    @pytest.mark.asyncio
-    async def test_absent_alarm_metadata_leaves_both_fields_null(self, monkeypatch):
-        """A connector that reports no alarm state says so with None, not 0."""
-        connector = _write_connector(monkeypatch, readback=_readback(5.0))
-
-        result = await connector.write_channel(
-            "SR:CH", 5.0, verification_level="readback", tolerance=0.01
-        )
-
-        assert result.verification.verified is True
-        assert result.verification.readback_alarm_status is None
-        assert result.verification.readback_alarm_severity is None
+        assert result.outcome is WriteOutcome.CONFIRMED
+        assert result.alarm_status == "HIHI"
+        assert result.alarm_severity == 2
+        assert raise_for_write_result(result) is result
 
     @pytest.mark.asyncio
-    async def test_active_alarm_mismatch_reports_alarm_without_failure_kind(self, monkeypatch):
-        """A value mismatch is not a failure *kind*: the readback itself worked."""
-        connector = _write_connector(monkeypatch, readback=_readback(9.9, alarm="HIHI", severity=2))
+    async def test_a_mismatch_carries_the_alarm_state_too(self):
+        pv = _readback_pv(9.9, status=3, severity=2)
+        connector = _write_connector(pv=pv)
 
-        result = await connector.write_channel(
-            "SR:CH", 5.0, verification_level="readback", tolerance=0.01
-        )
+        result = await connector.write_channel("SR:CH", 5.0)
 
-        assert result.success is True
-        assert result.verification.verified is False
-        assert result.verification.readback_alarm_status == "HIHI"
-        assert result.verification.readback_alarm_severity == 2
-        assert result.verification.failure_kind is None
+        assert result.outcome is WriteOutcome.MISMATCH
+        assert result.alarm_status == "HIHI"
+        assert result.alarm_severity == 2
 
     @pytest.mark.asyncio
-    async def test_plain_mismatch_leaves_failure_kind_null(self, monkeypatch):
-        connector = _write_connector(
-            monkeypatch, readback=_readback(9.9, alarm="NO_ALARM", severity=0)
-        )
+    async def test_an_unconfirmed_write_claims_no_alarm_state(self):
+        """Nothing was read, so no alarm state can be claimed."""
+        connector = _write_connector(read_error=TimeoutError("ca timeout"))
 
-        result = await connector.write_channel(
-            "SR:CH", 5.0, verification_level="readback", tolerance=0.01
-        )
+        result = await connector.write_channel("SR:CH", 5.0)
 
-        assert result.verification.verified is False
-        assert result.verification.failure_kind is None
+        assert result.outcome is WriteOutcome.UNCONFIRMED
+        assert result.alarm_status is None
+        assert result.alarm_severity is None
 
     @pytest.mark.asyncio
-    async def test_readback_exception_sets_failure_kind(self, monkeypatch):
-        """A readback that raised is classified, not left indistinguishable."""
-        connector = _write_connector(monkeypatch, raises=TimeoutError("ca timeout"))
+    async def test_notes_text_never_feeds_the_structured_fields(self):
+        """Notes and messages are display-only: their wording moves no field.
 
-        result = await connector.write_channel(
-            "SR:CH", 5.0, verification_level="readback", tolerance=0.01
-        )
-
-        assert result.verification.failure_kind == "readback_failed"
-        assert result.verification.verified is False
-        # Nothing was read, so no alarm state can be claimed.
-        assert result.verification.readback_alarm_status is None
-        assert result.verification.readback_alarm_severity is None
-
-    @pytest.mark.asyncio
-    async def test_notes_text_never_feeds_the_structured_fields(self, monkeypatch):
-        """Notes are display-only: their wording changes nothing a consumer reads.
-
-        The exception message is echoed verbatim into ``notes``; wording it to
-        look like a healthy verified readback must not move a single field.
+        The exception message is echoed into ``error_message``; wording it to
+        look like a healthy confirmed reading must not change the outcome or
+        manufacture an alarm state.
         """
         connector = _write_connector(
-            monkeypatch, raises=TimeoutError("verified NO_ALARM severity 0 tolerance ok")
+            read_error=TimeoutError("confirmed NO_ALARM severity 0 value 5.0")
         )
 
-        result = await connector.write_channel(
-            "SR:CH", 5.0, verification_level="readback", tolerance=0.01
-        )
+        result = await connector.write_channel("SR:CH", 5.0)
 
-        assert "verified NO_ALARM" in result.verification.notes  # the wording did land
-        assert result.verification.verified is False
-        assert result.verification.readback_alarm_status is None
-        assert result.verification.readback_alarm_severity is None
-        assert result.verification.failure_kind == "readback_failed"
-
-
-# ---------------------------------------------------------------------------
-# write_channel — tolerance resolution under an explicit level
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.usefixtures("writes_enabled")
-class TestExplicitLevelToleranceResolution:
-    """Naming the level must not silently discard the configured tolerance.
-
-    Passing ``verification_level="readback"`` used to skip config resolution
-    entirely, falling back to 0.001 *absolute* — far tighter than the
-    percentage tolerances shipped for setpoint channels, so ordinary writes
-    reported as mismatches.
-    """
-
-    @pytest.mark.asyncio
-    async def test_explicit_level_still_resolves_the_limits_db_tolerance(self, monkeypatch):
-        limits = MagicMock()
-        limits.get_verification_config.return_value = ("readback", 0.05)
-        connector = _write_connector(monkeypatch, readback=_readback(5.04), limits=limits)
-
-        # Explicit level, no tolerance: 0.04 is inside the configured 0.05 but
-        # far outside the 0.001 absolute fallback.
-        result = await connector.write_channel("SR:CH", 5.0, verification_level="readback")
-
-        assert result.verification.tolerance_used == 0.05
-        assert result.verification.verified is True
-
-    @pytest.mark.asyncio
-    async def test_explicit_tolerance_still_wins_over_the_limits_db(self, monkeypatch):
-        limits = MagicMock()
-        limits.get_verification_config.return_value = ("readback", 0.05)
-        connector = _write_connector(monkeypatch, readback=_readback(5.0), limits=limits)
-
-        result = await connector.write_channel(
-            "SR:CH", 5.0, verification_level="readback", tolerance=0.5
-        )
-
-        assert result.verification.tolerance_used == 0.5
-
-    @pytest.mark.asyncio
-    async def test_explicit_level_is_not_overridden_by_the_limits_db_level(self, monkeypatch):
-        """Only the tolerance is resolved — the caller's level is authoritative."""
-        limits = MagicMock()
-        limits.get_verification_config.return_value = ("none", None)
-        connector = _write_connector(monkeypatch, readback=_readback(5.0), limits=limits)
-
-        result = await connector.write_channel("SR:CH", 5.0, verification_level="readback")
-
-        assert result.verification.level == "readback"
-
-    @pytest.mark.asyncio
-    async def test_explicit_none_level_does_not_consult_the_config(self, monkeypatch):
-        """Tolerance is meaningless without a readback: no resolution happens."""
-        limits = MagicMock()
-        limits.get_verification_config.side_effect = AssertionError(
-            "verification config resolved for a level that performs no readback"
-        )
-        connector = _write_connector(monkeypatch, limits=limits)
-
-        result = await connector.write_channel("SR:CH", 1.0, verification_level="none")
-
-        assert result.verification.level == "none"
-
-
-@pytest.mark.usefixtures("writes_enabled")
-class TestCallbackReadback:
-    """A callback-level result carries the post-write readback as an enrichment.
-
-    The IOC callback is the verdict. The read that follows it fills in what the
-    channel holds now — value and alarm state — so the tool result can say so
-    without a second round trip. No tolerance is applied: comparing against
-    the setpoint is what ``readback`` level is for, and a read that fails is
-    not a verification failure, so it carries no ``failure_kind``.
-    """
-
-    @pytest.mark.asyncio
-    async def test_callback_result_carries_the_readback_value(self, monkeypatch):
-        connector = _write_connector(monkeypatch, readback=_readback(5.0004))
-
-        result = await connector.write_channel("SR:CH", 5.0, verification_level="callback")
-
-        assert result.success is True
-        assert result.verification.level == "callback"
-        assert result.verification.verified is True
-        assert result.verification.readback_value == pytest.approx(5.0004)
-        assert result.verification.tolerance_used is None
-        assert result.verification.failure_kind is None
-        connector.read_channel.assert_awaited_once()
-        assert connector.read_channel.await_args.args[0] == "SR:CH"
-
-    @pytest.mark.asyncio
-    async def test_callback_result_carries_the_alarm_state(self, monkeypatch):
-        """The alarm fields ride along, so ``verified_with_alarm`` is reachable here."""
-        connector = _write_connector(monkeypatch, readback=_readback(5.0, alarm="HIHI", severity=2))
-
-        result = await connector.write_channel("SR:CH", 5.0, verification_level="callback")
-
-        assert result.verification.verified is True
-        assert result.verification.readback_alarm_status == "HIHI"
-        assert result.verification.readback_alarm_severity == 2
-
-    @pytest.mark.asyncio
-    async def test_callback_readback_is_not_compared_against_the_setpoint(self, monkeypatch):
-        """A readback far from the setpoint stays verified: the callback is the verdict."""
-        connector = _write_connector(monkeypatch, readback=_readback(9.9))
-
-        result = await connector.write_channel("SR:CH", 5.0, verification_level="callback")
-
-        assert result.verification.verified is True
-        assert result.verification.readback_value == pytest.approx(9.9)
-        assert result.verification.tolerance_used is None
-
-    @pytest.mark.asyncio
-    async def test_failed_post_callback_read_keeps_the_callback_verdict(self, monkeypatch):
-        """The IOC confirmed the write; only the enrichment is missing."""
-        connector = _write_connector(monkeypatch, raises=TimeoutError("ca timeout"))
-
-        result = await connector.write_channel("SR:CH", 5.0, verification_level="callback")
-
-        assert result.success is True
-        assert result.error_message is None
-        assert result.verification.level == "callback"
-        assert result.verification.verified is True
-        assert result.verification.readback_value is None
-        assert result.verification.readback_alarm_status is None
-        assert result.verification.readback_alarm_severity is None
-        # "readback_failed" means a readback-level verification broke; this did not.
-        assert result.verification.failure_kind is None
-        assert "ca timeout" in result.verification.notes
-
-    @pytest.mark.asyncio
-    async def test_non_numeric_readback_leaves_the_value_unset(self, monkeypatch):
-        """A string readback is never coerced into the numeric field."""
-        connector = _write_connector(monkeypatch, readback=_readback("ON"))
-
-        result = await connector.write_channel("SR:CH", "ON", verification_level="callback")
-
-        assert result.verification.verified is True
-        assert result.verification.readback_value is None
-        assert result.verification.failure_kind is None
-        assert "ON" in result.verification.notes
-
-    @pytest.mark.asyncio
-    async def test_failed_callback_does_not_read(self, monkeypatch):
-        epics = MagicMock()
-        epics.caput.return_value = False
-        connector = _connector(epics=epics)
-        read = AsyncMock()
-        monkeypatch.setattr(connector, "read_channel", read)
-
-        result = await connector.write_channel("SR:CH", 5.0, verification_level="callback")
-
-        assert result.success is False
-        assert result.verification.readback_value is None
-        read.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_none_level_does_not_read(self, monkeypatch):
-        """``none`` is the fast path: no wait, and no read either."""
-        epics = MagicMock()
-        epics.caput.return_value = True
-        connector = _connector(epics=epics)
-        read = AsyncMock()
-        monkeypatch.setattr(connector, "read_channel", read)
-
-        result = await connector.write_channel("SR:CH", 5.0, verification_level="none")
-
-        assert result.success is True
-        assert result.verification.readback_value is None
-        read.assert_not_called()
+        assert "confirmed NO_ALARM" in result.error_message  # the wording did land
+        assert result.outcome is WriteOutcome.UNCONFIRMED
+        assert result.alarm_status is None
+        assert result.alarm_severity is None
+        assert result.observed_value is None

@@ -19,37 +19,13 @@ from osprey_connectors.control_system.base import (
     ChannelValue,
     ChannelWriteResult,
     ControlSystemConnector,
-    WriteVerification,
-    readback_number,
+    WriteOutcome,
+    values_match,
 )
 from osprey_connectors.control_system.limits_validator import LimitsValidator
 from osprey_connectors.logger import get_logger
 
 logger = get_logger("doocs_connector")
-
-
-def _compare_by_equality(written: Any, readback: Any) -> tuple[bool, str]:
-    """Verify a non-numeric readback — a string, a sequence, an array — by equality.
-
-    Returns ``(verified, notes)``. Element-wise results (numpy arrays) count as
-    verified only when every element matches. When the two values have no
-    meaningful equality at all — the comparison raises, or yields something
-    that is neither a bool nor element-wise — the write stays unverified and
-    ``notes`` says why; the readback itself worked, so this is not a failure
-    kind.
-    """
-    try:
-        equal = readback == written
-        if not isinstance(equal, bool):
-            equal = bool(equal.all()) if hasattr(equal, "all") else bool(equal)
-    except Exception as e:
-        return False, (
-            f"Readback {readback!r} ({type(readback).__name__}) cannot be compared to the "
-            f"written value {written!r} ({type(written).__name__}): {e}"
-        )
-    if equal:
-        return True, f"Readback: {readback!r} matches the written value (by equality)"
-    return False, f"Readback mismatch: {readback!r} (expected {written!r}, by equality)"
 
 
 class DOOCSConnector(ControlSystemConnector):
@@ -82,7 +58,7 @@ class DOOCSConnector(ControlSystemConnector):
         except ImportError:
             raise ImportError("doocs4py is required for the DOOCS connector.") from None
 
-        # Initialize limits validator for automatic validation and verification config
+        # Initialize limits validator for automatic validation and confirm policy
         self._limits_validator = LimitsValidator.from_config()
         if self._limits_validator:
             logger.debug("DOOCS connector: limits validator initialized")
@@ -163,31 +139,30 @@ class DOOCSConnector(ControlSystemConnector):
         channel_address: str,
         value: Any,
         timeout: float | None = None,
-        verification_level: str | None = None,
-        tolerance: float | None = None,
+        confirm: bool | None = None,
     ) -> ChannelWriteResult:
         """
-        Write value to DOOCS property with automatic limits validation and verification.
+        Write a value to a DOOCS property, confirming it unless asked not to.
 
-        The connector automatically:
-        1. Validates limits (min/max/step/writable) if limits checking enabled
-        2. Determines verification level from per-channel or global config
-        3. Executes write with appropriate verification
+        DOOCS has no acknowledgement of its own — ``set()`` either returns or
+        raises — so a confirmed write is the value sent followed by one fresh
+        read of the same property, compared with
+        :func:`~osprey_connectors.control_system.base.values_match`. DOOCS
+        reports no enum labels and no alarm state, so the comparison gets no
+        label and the alarm fields stay unset.
 
         Args:
             channel_address: DOOCS address
             value: Value to write
-            timeout: Not supported by DOOCS
-            verification_level: Optional override for verification level
-                                (auto-determined if None)
-            tolerance: Optional override for tolerance (auto-calculated if None)
+            timeout: Optional timeout for the confirming read
+            confirm: Whether to re-read the property and compare, or ``None``
+                to resolve the policy for this channel from the limits database
 
         Returns:
-            ChannelWriteResult with write status and verification details
+            ChannelWriteResult carrying the outcome and what the property was
+            seen to hold
 
         Raises:
-            ConnectionError: If channel cannot be connected
-            TimeoutError: If operation times out
             ChannelLimitsViolationError: If limits validation fails (when enabled)
         """
 
@@ -207,149 +182,63 @@ class DOOCSConnector(ControlSystemConnector):
                 # Log unexpected errors but don't block (fail-open for non-limit errors)
                 logger.warning(f"Limits validation error (non-blocking): {e}")
 
-        # Step 2: Resolve verification config.
-        #
-        # The level is auto-determined only when the caller omitted it, and the
-        # tolerance is resolved from the limits DB only when a verifying write
-        # actually needs one: passing an explicit level must not silently drop
-        # the tolerance configured for the channel, while an explicit "none"
-        # write uses no tolerance and therefore never reaches the lookup — the
-        # same guard shape Mock and EPICS use. One protocol difference: DOOCS
-        # has no callback confirmation and downgrades "callback" to readback
-        # verification (see below), so "callback" needs the tolerance here
-        # where Mock/EPICS guard on "readback" alone.
-        if verification_level is None or (
-            tolerance is None and verification_level in ("callback", "readback")
-        ):
-            # The value is only used to scale a percentage tolerance. DOOCS also
-            # writes strings, which have no numeric scale, so fall back to 0.0
-            # instead of raising on float().
-            try:
-                tolerance_scale = float(value)
-            except (TypeError, ValueError):
-                tolerance_scale = 0.0
+        # Step 2: Resolve the confirmation policy. An explicit confirm — False
+        # every bit as much as True — is an answer and is taken as given; only
+        # an omitted one is resolved from the limits database.
+        if confirm is None:
+            confirm = self._resolve_confirm(channel_address)
 
-            resolved_level, resolved_tolerance = self._get_verification_config(
-                channel_address, tolerance_scale
-            )
-            if verification_level is None:
-                verification_level = resolved_level
-            if tolerance is None:
-                tolerance = resolved_tolerance
-
-        if verification_level == "callback":
-            logger.debug(
-                "DOOCS write: callback verification not supported by DOOCS. "
-                "Will perform readback verification"
-            )
-
-        # Step 3: Execute write with verification
-        if verification_level == "none":
-            # Fast path - no verification
-            try:
-                self._doocs4py.set(channel_address, value)
-            except Exception as e:
-                return ChannelWriteResult(
-                    channel_address=channel_address,
-                    value_written=value,
-                    success=False,
-                    verification=WriteVerification(
-                        level="none", verified=False, notes="Write command failed"
-                    ),
-                    error_message=f"Failed to write to '{channel_address}': {e}",
-                )
-
-            logger.debug(f"DOOCS write (no verification): {channel_address} = {value}")
+        # Step 3: Send the value
+        try:
+            self._doocs4py.set(channel_address, value)
+        except Exception as e:
             return ChannelWriteResult(
                 channel_address=channel_address,
                 value_written=value,
-                success=True,
-                verification=WriteVerification(
-                    level="none", verified=False, notes="No verification requested"
-                ),
+                outcome=WriteOutcome.FAILED,
+                error_message=f"Failed to write to '{channel_address}': {e}",
+                notes="DOOCS did not take the value",
             )
 
-        elif verification_level == "callback" or verification_level == "readback":
-            # Full verification - readback
-            try:
-                self._doocs4py.set(channel_address, value)
-            except Exception as e:
-                return ChannelWriteResult(
-                    channel_address=channel_address,
-                    value_written=value,
-                    success=False,
-                    verification=WriteVerification(
-                        # Readback is the level this arm performs, so report it
-                        # even when the write itself never got that far.
-                        level="readback",
-                        verified=False,
-                        notes="Write command failed",
-                    ),
-                    error_message=f"Failed to write to '{channel_address}': {e}",
-                )
-
-            # Read back to verify
-            try:
-                readback = await self.read_channel(channel_address, timeout=timeout)
-            except Exception as e:
-                logger.warning(f"DOOCS readback failed for {channel_address}: {e}")
-                return ChannelWriteResult(
-                    channel_address=channel_address,
-                    value_written=value,
-                    success=True,  # Write succeeded, but readback failed
-                    verification=WriteVerification(
-                        level="readback",
-                        verified=False,
-                        notes=f"Readback failed: {str(e)}",
-                        # Machine-readable: the readback read itself raised. A
-                        # plain value mismatch leaves this None.
-                        failure_kind="readback_failed",
-                    ),
-                    error_message=f"Readback verification failed: {str(e)}",
-                )
-
-            # The read worked; what follows is comparison, which never
-            # raises into a "readback_failed" — that word is reserved for
-            # the read itself. readback_value is numeric or None: a readback
-            # that is not a number is never reported as one.
-            value_to_report = readback_number(readback.value)
-            setpoint_number = readback_number(value)
-            if value_to_report is not None and setpoint_number is not None:
-                diff = abs(value_to_report - setpoint_number)
-                verified = diff <= (tolerance or 0.001)
-                notes = (
-                    f"Readback: {readback.value}, tolerance: ±{tolerance}, diff: {diff:.6f}"
-                    if verified
-                    else (
-                        f"Readback mismatch: {readback.value} (expected {value}, "
-                        f"diff: {diff:.6f} > tolerance {tolerance})"
-                    )
-                )
-            else:
-                verified, notes = _compare_by_equality(value, readback.value)
-
-            logger.debug(
-                f"DOOCS write (readback verified={verified}): {channel_address} = {value}, "
-                f"readback = {readback.value}, tolerance = {tolerance}"
-            )
-
+        if not confirm:
+            logger.debug(f"DOOCS write (unconfirmed by request): {channel_address} = {value}")
             return ChannelWriteResult(
                 channel_address=channel_address,
                 value_written=value,
-                success=True,
-                verification=WriteVerification(
-                    level="readback",
-                    verified=verified,
-                    readback_value=value_to_report,
-                    tolerance_used=tolerance,
-                    notes=notes,
-                ),
+                outcome=WriteOutcome.UNREQUESTED,
+                notes="No confirmation requested",
             )
 
-        else:
-            raise ValueError(
-                f"Invalid verification_level: {verification_level}. Must be 'none', or 'readback'"
+        # Step 4: Confirm with one fresh read
+        try:
+            readback = await self.read_channel(channel_address, timeout=timeout)
+        except Exception as e:
+            logger.warning(f"DOOCS confirming read failed for {channel_address}: {e}")
+            return ChannelWriteResult(
+                channel_address=channel_address,
+                value_written=value,
+                outcome=WriteOutcome.UNCONFIRMED,
+                error_message=f"Confirming read of '{channel_address}' failed: {e}",
+                notes="The value was sent; what the property holds is unknown",
             )
+
+        observed = readback.value
+        confirmed = values_match(value, observed)
+
+        logger.debug(
+            f"DOOCS write ({'confirmed' if confirmed else 'mismatch'}): "
+            f"{channel_address} = {value!r}, observed {observed!r}"
+        )
+
+        return ChannelWriteResult(
+            channel_address=channel_address,
+            value_written=value,
+            outcome=WriteOutcome.CONFIRMED if confirmed else WriteOutcome.MISMATCH,
+            observed_value=observed,
+            notes=(
+                f"Observed {observed!r}" if confirmed else f"Observed {observed!r}, sent {value!r}"
+            ),
+        )
 
     async def read_multiple_channels(
         self, channel_addresses: list[str], timeout: float | None = None

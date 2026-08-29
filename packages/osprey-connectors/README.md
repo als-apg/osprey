@@ -84,7 +84,11 @@ callers that branch on them.
   last means the control system was asked and denied the write itself (EPICS
   access security, for instance).
 - `ChannelWriteFailedError` — the write was attempted but did not verifiably
-  succeed. `reason` is one of `WRITE_FAILED`, `READBACK_UNVERIFIED`.
+  succeed. `reason` is one of `FAILED` (the control system did not take the
+  value), `MISMATCH` (the channel holds a different value), or `UNCONFIRMED`
+  (the confirming re-read raised). The codes are the `WriteOutcome` words that
+  raise; the exception also carries `outcome`, `value_written` and
+  `observed_value`.
 - `ChannelLimitsViolationError` — a channel write violated configured safety
   limits (range, read-only, step size, or unlisted channel).
 

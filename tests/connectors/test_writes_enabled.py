@@ -11,6 +11,7 @@ from osprey.connectors.control_system.base import (
     ChannelValue,
     ChannelWriteResult,
     ControlSystemConnector,
+    WriteOutcome,
 )
 
 
@@ -33,8 +34,7 @@ class _StubConnector(ControlSystemConnector):
         channel_address: str,
         value: Any,
         timeout: float | None = None,
-        verification_level: str = "callback",
-        tolerance: float | None = None,
+        confirm: bool | None = None,
     ) -> ChannelWriteResult:
         raise NotImplementedError
 
@@ -77,12 +77,16 @@ class _WritableStub(ControlSystemConnector):
         return ChannelWriteResult(
             channel_address=channel_address,
             value_written=value,
-            success=True,
+            outcome=WriteOutcome.CONFIRMED,
         )
 
     async def write_multiple_channels(self, operations, **kwargs):
         return [
-            ChannelWriteResult(channel_address=addr, value_written=val, success=True)
+            ChannelWriteResult(
+                channel_address=addr,
+                value_written=val,
+                outcome=WriteOutcome.CONFIRMED,
+            )
             for addr, val in operations
         ]
 
@@ -114,12 +118,13 @@ class TestInitSubclassWrapping:
 
     @pytest.mark.asyncio
     async def test_write_blocked_when_disabled(self):
-        """With _writes_enabled=False, write returns ChannelWriteResult(success=False)."""
+        """With _writes_enabled=False, the write is refused and never attempted."""
         connector = _StubConnector()
         with patch("osprey.utils.config.get_config_value", return_value=False):
             result = await connector.write_channel("TEST:PV", 1.0)
         assert isinstance(result, ChannelWriteResult)
-        assert result.success is False
+        assert result.outcome is WriteOutcome.REFUSED
+        assert result.refusal_reason == "WRITES_DISABLED"
         assert "TEST:PV" in result.error_message
         assert "control_system.writes_enabled" in result.error_message
 
@@ -129,7 +134,7 @@ class TestInitSubclassWrapping:
         connector = _WritableStub()
         with patch("osprey.utils.config.get_config_value", return_value=True):
             result = await connector.write_channel("TEST:PV", 42.0)
-        assert result.success is True
+        assert result.outcome is WriteOutcome.CONFIRMED
         assert result.value_written == 42.0
 
     @pytest.mark.asyncio
@@ -149,7 +154,7 @@ class TestInitSubclassWrapping:
         with patch("osprey.utils.config.get_config_value", return_value=False):
             results = await connector.write_multiple_channels(ops)
         assert len(results) == 2
-        assert all(not r.success for r in results)
+        assert all(r.outcome is WriteOutcome.REFUSED for r in results)
         assert "PV:A" in results[0].error_message
         assert "PV:B" in results[1].error_message
         assert "writes are disabled" in results[0].error_message
@@ -162,7 +167,7 @@ class TestInitSubclassWrapping:
         with patch("osprey.utils.config.get_config_value", return_value=True):
             results = await connector.write_multiple_channels(ops)
         assert len(results) == 2
-        assert all(r.success for r in results)
+        assert all(r.outcome is WriteOutcome.CONFIRMED for r in results)
 
 
 class TestWritesEnabledProperty:
@@ -207,7 +212,7 @@ class TestMockWritesDisabledViaBaseClass:
         with patch("osprey.utils.config.get_config_value", return_value=False):
             await connector.connect({"response_delay_ms": 0})
             result = await connector.write_channel("TEST:PV", 1.0)
-        assert result.success is False
+        assert result.outcome is WriteOutcome.REFUSED
         assert "writes are disabled" in result.error_message  # base class message
 
     @pytest.mark.asyncio
@@ -227,7 +232,7 @@ class TestMockWritesDisabledViaBaseClass:
         ):
             await connector.connect({"response_delay_ms": 0})
             result = await connector.write_channel("TEST:PV", 1.0)
-        assert result.success is True
+        assert result.outcome is not WriteOutcome.REFUSED
 
     def test_mock_has_no_enable_writes_attr(self):
         """MockConnector must not carry an _enable_writes attribute."""
@@ -252,7 +257,7 @@ class TestWriteBlockedIntegration:
             result = await connector.write_channel("BEAM:CURRENT", 500.0)
 
         assert isinstance(result, ChannelWriteResult)
-        assert result.success is False
+        assert result.outcome is WriteOutcome.REFUSED
         assert "BEAM:CURRENT" in result.error_message
         assert "writes are disabled" in result.error_message
         assert "control_system.writes_enabled" in result.error_message
@@ -276,7 +281,7 @@ class TestWriteBlockedIntegration:
             result = await connector.write_channel("BEAM:CURRENT", 500.0)
 
         assert isinstance(result, ChannelWriteResult)
-        assert result.success is True
+        assert result.outcome is not WriteOutcome.REFUSED
         assert result.channel_address == "BEAM:CURRENT"
         assert result.value_written == 500.0
 
@@ -410,7 +415,7 @@ class TestPerTypeWritePosture:
         ):
             result = await connector.write_channel("TEST:PV", 1.0)
 
-        assert result.blocked is True
+        assert result.outcome is WriteOutcome.REFUSED
         assert "control_system.connector.epics.writes_enabled" in result.error_message
         assert "Set control_system.writes_enabled" not in result.error_message
 

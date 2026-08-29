@@ -6,14 +6,14 @@ import subprocess
 import sys
 import textwrap
 from contextlib import contextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from unittest.mock import patch
 
 import numpy as np
 import pytest
 
 from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
-from osprey.connectors.control_system.base import ChannelMetadata, ChannelValue
+from osprey.connectors.control_system.base import WriteOutcome
 from osprey.connectors.control_system.mock_connector import MockConnector
 
 
@@ -112,7 +112,7 @@ class TestMockConnector:
             channel = "TEST:SETPOINT:SP"
             test_value = 123.45
             result = await connector.write_channel(channel, test_value)
-            assert result.success is True
+            assert result.outcome is WriteOutcome.CONFIRMED
 
             # Read it back
             result = await connector.read_channel(channel)
@@ -151,7 +151,7 @@ class TestMockConnector:
             await connector.connect({"response_delay_ms": 0})
 
             result = await connector.write_channel("TEST:PV", 100.0)
-            assert result.success is False
+            assert result.outcome is WriteOutcome.REFUSED
 
             await connector.disconnect()
 
@@ -643,18 +643,18 @@ class TestKindAwareNoiseFloor:
         assert len(values) == 1, "noise_level 0.0 must produce identical reads, not just tight ones"
 
 
-class TestMockWriteVerificationContract:
-    """Mock write results must classify readback outcomes structurally.
+class TestMockWriteConfirmationContract:
+    """Mock write results carry one outcome word and the value observed.
 
-    Issue #465: consumers decide what happened from ``failure_kind`` and the
-    other structured fields, never by parsing the display-only ``notes``.
-    ``MockConnector.read_channel`` cannot fail on its own — unknown channels
-    fall back to procedural values — so the readback exception path is reached
-    by monkeypatching ``read_channel``.
+    Consumers decide what happened from ``outcome`` and ``observed_value``,
+    never by parsing the display-only ``notes``. The confirming re-read is
+    ``_confirming_read``, not ``read_channel``: confirmation reports what the
+    simulated control system holds, so it is the seam these tests patch to
+    reach the failure paths a mock cannot produce on its own.
     """
 
     @staticmethod
-    async def _connected_mock(monkeypatch):
+    async def _connected_mock(monkeypatch, noise_level=0.0):
         """A connected mock with writes enabled for the whole test.
 
         The writes_enabled gate is re-read on every write, so the config patch
@@ -662,270 +662,153 @@ class TestMockWriteVerificationContract:
         """
         monkeypatch.setattr("osprey.utils.config.get_config_value", _config_with_writes_enabled)
         connector = MockConnector()
-        await connector.connect({"response_delay_ms": 0, "noise_level": 0.0})
+        await connector.connect({"response_delay_ms": 0, "noise_level": noise_level})
         return connector
 
     @staticmethod
     def _raising_read(message):
-        async def _read(channel_address, timeout=None):
+        async def _read(channel_address):
             raise RuntimeError(message)
 
         return _read
 
-    @staticmethod
-    def _fixed_read(value):
-        async def _read(channel_address, timeout=None):
-            now = datetime.now(UTC)
-            return ChannelValue(
-                value=value,
-                timestamp=now,
-                metadata=ChannelMetadata(units="A", timestamp=now, description="stub"),
-            )
-
-        return _read
-
-    @pytest.mark.asyncio
-    async def test_readback_exception_sets_failure_kind(self, monkeypatch):
-        """A readback that raises is reported as failure_kind='readback_failed'."""
+    async def test_a_write_confirms_against_what_the_store_holds(self, monkeypatch):
+        """A re-read holding the value sent is ``confirmed``, with no message."""
         connector = await self._connected_mock(monkeypatch)
-        monkeypatch.setattr(connector, "read_channel", self._raising_read("CA disconnected"))
 
-        result = await connector.write_channel(
-            "TEST:CHANNEL:SP", 42.0, verification_level="readback", tolerance=0.5
-        )
+        result = await connector.write_channel("TEST:CHANNEL:SP", 42.0)
 
-        verification = result.verification
-        assert verification is not None
-        assert verification.level == "readback"
-        assert verification.verified is False
-        assert verification.failure_kind == "readback_failed"
-        # Mock has no alarm metadata to report; "not reported" stays None.
-        assert verification.readback_alarm_status is None
-        assert verification.readback_alarm_severity is None
-
-        await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_readback_mismatch_leaves_failure_kind_null(self, monkeypatch):
-        """An ordinary out-of-tolerance readback is not a readback failure."""
-        connector = await self._connected_mock(monkeypatch)
-        monkeypatch.setattr(connector, "read_channel", self._fixed_read(99.0))
-
-        result = await connector.write_channel(
-            "TEST:CHANNEL:SP", 42.0, verification_level="readback", tolerance=0.5
-        )
-
-        verification = result.verification
-        assert verification is not None
-        assert verification.level == "readback"
-        assert verification.verified is False
-        assert verification.failure_kind is None, "a value mismatch is not a readback failure"
-        assert verification.readback_value == pytest.approx(99.0)
-
-        await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_verified_readback_leaves_failure_kind_null(self, monkeypatch):
-        """A readback inside tolerance carries no failure classification."""
-        connector = await self._connected_mock(monkeypatch)
-        monkeypatch.setattr(connector, "read_channel", self._fixed_read(42.0))
-
-        result = await connector.write_channel(
-            "TEST:CHANNEL:SP", 42.0, verification_level="readback", tolerance=0.5
-        )
-
-        verification = result.verification
-        assert verification is not None
-        assert verification.verified is True
-        assert verification.failure_kind is None
-        assert verification.readback_alarm_status is None
-        assert verification.readback_alarm_severity is None
-
-        await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_callback_result_carries_the_readback_value(self, monkeypatch):
-        """The callback verdict is enriched with one post-write read, uncompared."""
-        connector = await self._connected_mock(monkeypatch)
-        monkeypatch.setattr(connector, "read_channel", self._fixed_read(99.0))
-
-        result = await connector.write_channel(
-            "TEST:CHANNEL:SP", 42.0, verification_level="callback"
-        )
-
-        verification = result.verification
-        assert verification.level == "callback"
-        assert verification.verified is True
-        assert verification.readback_value == pytest.approx(99.0)
-        assert verification.tolerance_used is None
-        assert verification.failure_kind is None
-        # Mock reports no alarm metadata; "not reported" stays None.
-        assert verification.readback_alarm_status is None
-        assert verification.readback_alarm_severity is None
-
-        await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_failed_post_callback_read_keeps_the_callback_verdict(self, monkeypatch):
-        """A read that raises after the callback is not a readback failure."""
-        connector = await self._connected_mock(monkeypatch)
-        monkeypatch.setattr(connector, "read_channel", self._raising_read("CA disconnected"))
-
-        result = await connector.write_channel(
-            "TEST:CHANNEL:SP", 42.0, verification_level="callback"
-        )
-
-        verification = result.verification
-        assert result.success is True
+        assert result.outcome is WriteOutcome.CONFIRMED
+        assert result.observed_value == pytest.approx(42.0)
         assert result.error_message is None
-        assert verification.level == "callback"
-        assert verification.verified is True
-        assert verification.readback_value is None
-        assert verification.failure_kind is None
-        assert "CA disconnected" in verification.notes
+        assert result.refusal_reason is None
+        # Mock has no alarm metadata to report; "not reported" stays None.
+        assert result.alarm_status is None
+        assert result.alarm_severity is None
 
         await connector.disconnect()
 
-    @pytest.mark.asyncio
-    async def test_none_level_does_not_read(self, monkeypatch):
-        """``none`` stays the fast path: a read that would raise is never issued."""
-        connector = await self._connected_mock(monkeypatch)
-        monkeypatch.setattr(connector, "read_channel", self._raising_read("must not be called"))
+    async def test_read_noise_does_not_manufacture_a_mismatch(self, monkeypatch):
+        """A noisy channel still confirms: noise is measurement, not storage.
 
-        result = await connector.write_channel("TEST:CHANNEL:SP", 42.0, verification_level="none")
+        There is no tolerance to absorb a noise draw, so a confirming read that
+        went through ``read_channel`` would report a mismatch on essentially
+        every write at the shipped default noise level.
+        """
+        connector = await self._connected_mock(monkeypatch, noise_level=0.5)
 
-        assert result.success is True
-        assert result.verification.level == "none"
-        assert result.verification.readback_value is None
+        for _ in range(5):
+            result = await connector.write_channel("TEST:CHANNEL:SP", 42.0)
+            assert result.outcome is WriteOutcome.CONFIRMED
+            assert result.observed_value == pytest.approx(42.0)
+
+        # The ordinary read path is untouched and still noisy.
+        noisy = await connector.read_channel("TEST:CHANNEL:SP")
+        assert noisy.value != pytest.approx(42.0, abs=1e-9)
 
         await connector.disconnect()
 
-    @pytest.mark.asyncio
-    async def test_notes_text_does_not_change_structured_fields(self, monkeypatch):
-        """Two readback failures with different messages classify identically.
+    async def test_a_perturbed_store_value_is_a_mismatch_without_an_error_message(
+        self, monkeypatch
+    ):
+        """A setpoint the machine did not keep is reported, not tolerated.
 
-        The exception text flows into ``notes`` and nowhere else — the machine-
-        readable fields must be byte-identical across the two runs.
+        Both numbers are already on the result, so ``error_message`` stays None
+        — it is reserved for the outcomes that carry something the numbers
+        cannot say.
         """
         connector = await self._connected_mock(monkeypatch)
 
-        monkeypatch.setattr(connector, "read_channel", self._raising_read("timeout after 3s"))
-        first = await connector.write_channel(
-            "TEST:CHANNEL:SP", 42.0, verification_level="readback", tolerance=0.5
-        )
+        def _clamping_put(channel_address, value):
+            connector._state[channel_address] = 10.0
 
-        monkeypatch.setattr(connector, "read_channel", self._raising_read("channel not found"))
-        second = await connector.write_channel(
-            "TEST:CHANNEL:SP", 42.0, verification_level="readback", tolerance=0.5
-        )
+        monkeypatch.setattr(connector, "_put", _clamping_put)
+
+        result = await connector.write_channel("TEST:CHANNEL:SP", 42.0)
+
+        assert result.outcome is WriteOutcome.MISMATCH
+        assert result.observed_value == pytest.approx(10.0)
+        assert result.value_written == pytest.approx(42.0)
+        assert result.error_message is None
+
+        await connector.disconnect()
+
+    async def test_confirming_read_that_raises_is_unconfirmed(self, monkeypatch):
+        """The value went out but what the channel holds is unknown."""
+        connector = await self._connected_mock(monkeypatch)
+        monkeypatch.setattr(connector, "_confirming_read", self._raising_read("CA disconnected"))
+
+        result = await connector.write_channel("TEST:CHANNEL:SP", 42.0)
+
+        assert result.outcome is WriteOutcome.UNCONFIRMED
+        assert result.observed_value is None
+        assert "CA disconnected" in result.error_message
+        assert result.alarm_status is None
+        assert result.alarm_severity is None
+
+        await connector.disconnect()
+
+    async def test_confirm_false_does_not_read(self, monkeypatch):
+        """``unrequested`` is the fast path: a read that would raise is never issued."""
+        connector = await self._connected_mock(monkeypatch)
+        monkeypatch.setattr(connector, "_confirming_read", self._raising_read("must not be called"))
+
+        result = await connector.write_channel("TEST:CHANNEL:SP", 42.0, confirm=False)
+
+        assert result.outcome is WriteOutcome.UNREQUESTED
+        assert result.observed_value is None
+        assert result.error_message is None
+
+        await connector.disconnect()
+
+    async def test_a_value_the_store_cannot_hold_is_a_failed_write(self, monkeypatch):
+        """The put itself failing is ``failed``: the control system did not take it."""
+        connector = await self._connected_mock(monkeypatch)
+        monkeypatch.setattr(connector, "_confirming_read", self._raising_read("must not be called"))
+
+        result = await connector.write_channel("TEST:CHANNEL:SP", "not-a-number")
+
+        assert result.outcome is WriteOutcome.FAILED
+        assert result.observed_value is None
+        assert result.error_message is not None
+
+        await connector.disconnect()
+
+    async def test_notes_text_does_not_change_the_outcome(self, monkeypatch):
+        """Two confirming reads failing differently classify identically.
+
+        The exception text flows into ``notes`` and ``error_message`` and
+        nowhere else — the machine-readable verdict must be identical.
+        """
+        connector = await self._connected_mock(monkeypatch)
+
+        monkeypatch.setattr(connector, "_confirming_read", self._raising_read("timeout after 3s"))
+        first = await connector.write_channel("TEST:CHANNEL:SP", 42.0)
+
+        monkeypatch.setattr(connector, "_confirming_read", self._raising_read("channel not found"))
+        second = await connector.write_channel("TEST:CHANNEL:SP", 42.0)
 
         def structured(result):
             return (
-                result.verification.level,
-                result.verification.verified,
-                result.verification.failure_kind,
-                result.verification.readback_alarm_status,
-                result.verification.readback_alarm_severity,
-                result.success,
+                result.outcome,
+                result.refusal_reason,
+                result.observed_value,
+                result.alarm_status,
+                result.alarm_severity,
             )
 
-        assert first.verification.notes != second.verification.notes, "notes should differ"
+        assert first.notes != second.notes, "notes should differ"
         assert structured(first) == structured(second)
 
         await connector.disconnect()
 
-    @pytest.mark.asyncio
-    async def test_explicit_level_still_resolves_limits_db_tolerance(self, tmp_path, monkeypatch):
-        """An explicit level must not drop the per-channel tolerance.
+    async def test_write_still_mirrors_the_setpoint_onto_its_readback(self, monkeypatch):
+        """The :SP -> :RB mirror is state-store cosmetics and survives untouched."""
+        connector = await self._connected_mock(monkeypatch)
 
-        Before this fix an explicit ``verification_level="readback"`` skipped the
-        limits-database lookup entirely and fell back to a hard-coded 0.001
-        absolute, which is far tighter than the 1 % most :SP channels declare.
-        """
-        limits_file = tmp_path / "limits.json"
-        limits_file.write_text(
-            json.dumps(
-                {
-                    "MAGNET:CURRENT:SP": {
-                        "min_value": 0.0,
-                        "max_value": 100.0,
-                        "verification": {"level": "readback", "tolerance_percent": 1.0},
-                    }
-                }
-            )
-        )
+        await connector.write_channel("MAGNET:CURRENT:SP", 100.0)
 
-        def _config(key, default=None):
-            return {
-                "control_system.limits_checking.enabled": True,
-                "control_system.limits_checking.database_path": str(limits_file),
-                "control_system.limits_checking.allow_unlisted_channels": False,
-                "control_system.limits_checking.on_violation": "skip",
-                "control_system.writes_enabled": True,
-            }.get(key, default)
-
-        monkeypatch.setattr("osprey.utils.config.get_config_value", _config)
-
-        connector = MockConnector()
-        await connector.connect({"response_delay_ms": 0, "noise_level": 0.0})
-
-        result = await connector.write_channel(
-            "MAGNET:CURRENT:SP", 50.0, verification_level="readback"
-        )
-
-        assert result.verification.level == "readback"
-        assert result.verification.tolerance_used == pytest.approx(0.5)
-
-        # An explicitly passed tolerance still wins over the database.
-        override = await connector.write_channel(
-            "MAGNET:CURRENT:SP", 50.0, verification_level="readback", tolerance=2.0
-        )
-        assert override.verification.tolerance_used == pytest.approx(2.0)
-
-        await connector.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_explicit_none_level_resolves_like_an_omitted_one(self, tmp_path, monkeypatch):
-        """Passing verification_level=None is identical to omitting it.
-
-        The batch path forwards ``None`` rather than dropping the keyword, so
-        the connector must resolve it from the limits database's defaults block.
-        """
-        limits_file = tmp_path / "limits.json"
-        limits_file.write_text(
-            json.dumps(
-                {
-                    "defaults": {
-                        "writable": True,
-                        "verification": {"level": "readback", "tolerance_percent": 1.0},
-                    },
-                    "MAGNET:CURRENT:SP": {"min_value": 0.0, "max_value": 100.0},
-                }
-            )
-        )
-
-        def _config(key, default=None):
-            return {
-                "control_system.limits_checking.enabled": True,
-                "control_system.limits_checking.database_path": str(limits_file),
-                "control_system.limits_checking.allow_unlisted_channels": False,
-                "control_system.limits_checking.on_violation": "skip",
-                "control_system.writes_enabled": True,
-            }.get(key, default)
-
-        monkeypatch.setattr("osprey.utils.config.get_config_value", _config)
-
-        connector = MockConnector()
-        await connector.connect({"response_delay_ms": 0, "noise_level": 0.0})
-
-        explicit_none = await connector.write_channel(
-            "MAGNET:CURRENT:SP", 50.0, verification_level=None
-        )
-        omitted = await connector.write_channel("MAGNET:CURRENT:SP", 50.0)
-
-        assert explicit_none.verification.level == "readback"
-        assert omitted.verification.level == "readback"
-        assert explicit_none.verification.tolerance_used == pytest.approx(0.5)
-        assert omitted.verification.tolerance_used == pytest.approx(0.5)
+        readback = await connector.read_channel("MAGNET:CURRENT:RB")
+        assert readback.value == pytest.approx(100.0, abs=1.0)
 
         await connector.disconnect()

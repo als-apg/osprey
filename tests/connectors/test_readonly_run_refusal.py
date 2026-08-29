@@ -18,6 +18,7 @@ import pytest
 from osprey.connectors.control_system.base import (
     ChannelWriteResult,
     ControlSystemConnector,
+    WriteOutcome,
 )
 
 
@@ -41,12 +42,13 @@ class _WriteEnabledConnector(ControlSystemConnector):
         channel_address: str,
         value: Any,
         timeout: float | None = None,
-        verification_level: str = "callback",
-        tolerance: float | None = None,
+        confirm: bool | None = None,
     ) -> ChannelWriteResult:
         self.writes.append((channel_address, value))
         return ChannelWriteResult(
-            channel_address=channel_address, value_written=value, success=True
+            channel_address=channel_address,
+            value_written=value,
+            outcome=WriteOutcome.CONFIRMED,
         )
 
     async def write_multiple_channels(self, operations, timeout=None):
@@ -81,8 +83,7 @@ async def test_readonly_run_refuses_write(monkeypatch, writes_enabled_deployment
 
     result = await connector.write_channel("SR:MAG:QF:01:CURRENT:SP", 150.0)
 
-    assert result.blocked is True
-    assert result.success is False
+    assert result.outcome is WriteOutcome.REFUSED
     assert result.refusal_reason == "WRITES_DISABLED"
     assert "readonly" in result.error_message
     assert connector.writes == []
@@ -96,7 +97,7 @@ async def test_readonly_run_refuses_multi_write(monkeypatch, writes_enabled_depl
 
     results = await connector.write_multiple_channels([("A:SP", 1.0), ("B:SP", 2.0)])
 
-    assert all(r.blocked for r in results)
+    assert all(r.outcome is WriteOutcome.REFUSED for r in results)
     assert connector.writes == []
 
 
@@ -124,7 +125,7 @@ async def test_readwrite_run_passes_through(monkeypatch, writes_enabled_deployme
 
     result = await connector.write_channel("A:SP", 1.0)
 
-    assert result.success is True
+    assert result.outcome is WriteOutcome.CONFIRMED
     assert connector.writes == [("A:SP", 1.0)]
 
 
@@ -138,7 +139,7 @@ async def test_no_mode_var_means_not_a_sandbox_run(monkeypatch, writes_enabled_d
 
     result = await connector.write_channel("A:SP", 1.0)
 
-    assert result.success is True
+    assert result.outcome is WriteOutcome.CONFIRMED
 
 
 @pytest.mark.unit
@@ -236,8 +237,7 @@ async def test_posture_refusal_names_the_posture(
 
     result = await connector.write_channel("SR:MAG:QF:01:CURRENT:SP", 150.0)
 
-    assert result.blocked is True
-    assert result.success is False
+    assert result.outcome is WriteOutcome.REFUSED
     assert "posture" in result.error_message.lower()
     assert "sandbox posture" in result.error_message.lower()
     assert connector.writes == []
@@ -326,7 +326,7 @@ async def test_posture_refusal_covers_the_multi_write_path(
 
     results = await connector.write_multiple_channels([("A:SP", 1.0), ("B:SP", 2.0)])
 
-    assert all(r.blocked for r in results)
+    assert all(r.outcome is WriteOutcome.REFUSED for r in results)
     assert all("sandbox posture" in r.error_message.lower() for r in results)
     assert connector.writes == []
 

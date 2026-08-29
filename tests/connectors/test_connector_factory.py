@@ -126,8 +126,7 @@ class TestConnectorFactory:
                 channel_address,
                 value,
                 timeout=None,
-                verification_level="callback",
-                tolerance=None,
+                confirm=None,
             ):
                 pass
 
