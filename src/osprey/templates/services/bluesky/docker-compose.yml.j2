@@ -21,12 +21,24 @@
     `docker ps`, the host-port preflight, the approval prompt — needs to know
     which machine the container talks to, and "lane 2" does not say.
 
+    The target-named keys are the whole control vocabulary a lane can serve,
+    `bluesky_standin` included: the live stand-in is a control target in its own
+    right — a soft IOC this deployment runs for itself — and not a mode of
+    `live`. The build never DERIVES a stand-in second lane (it pairs a stand-in
+    baseline with the VA, and a stand-in baseline keeps the historical `bluesky`
+    key), so that key only ever arrives from a project that declared the lane
+    itself. Rendering it anyway is what keeps this list the same set as the lane
+    registry every other holder reads — a key the template did not know would be
+    a lane `osprey up` provisions tokens and certificates for and compose then
+    renders no containers for.
+
     The list is read off `deployed_services` rather than off `services` so a
     block left in config.yml but not deployed cannot conjure a stack; that is
     the same membership rule every other service here is gated on. -#}
 {%- set lane_keys = ['bluesky'] -%}
 {%- if 'bluesky_va' in deployed_services %}{% set _ = lane_keys.append('bluesky_va') %}{% endif -%}
 {%- if 'bluesky_live' in deployed_services %}{% set _ = lane_keys.append('bluesky_live') %}{% endif -%}
+{%- if 'bluesky_standin' in deployed_services %}{% set _ = lane_keys.append('bluesky_standin') %}{% endif -%}
 # The bluesky-bridge service owns the Bluesky RunEngine + ophyd-async devices
 # behind a FastAPI HTTP boundary (see src/osprey/services/bluesky_bridge/).
 # `osprey up` builds its image locally on first run; subsequent runs
@@ -114,6 +126,26 @@ services:
       # IOC's iocInit. A bridge-only deploy (no VA in deployed_services) must
       # NOT get this — compose errors on depends_on naming an undefined service.
       virtual-accelerator:
+        condition: service_healthy
+{% endif %}
+{#- The stand-in's gate, in the same shape as the VA's above and against the
+    same failure: a `standin` lane's devices connect to the `live-standin` soft
+    IOC this deployment runs for itself, so the bridge must not open its
+    environment before that IOC's CA listener is answering. The stand-in
+    declares a healthcheck of its own (a raw TCP connect to its Channel Access
+    port, `services/virtual_accelerator/docker-compose.yml.j2`), which is what
+    makes `service_healthy` the right condition rather than `service_started`.
+
+    Keyed on the LANE's target and not on the co-deployment alone — a project
+    can run the stand-in while this lane serves the VA beside it — and on
+    membership in `deployed_services` for the reason the VA branch is: compose
+    errors outright on a `depends_on` naming a service no document defines. #}
+{%- if 'live_standin' in deployed_services and svc.target == 'standin' %}
+      # Only when the live stand-in is co-deployed AND this lane serves it:
+      # order the bridge's startup after the stand-in IOC's CA-readiness
+      # healthcheck, so the substrate devices' ophyd-async connect doesn't race
+      # its iocInit. The same guard as the VA's, on the other machine.
+      live-standin:
         condition: service_healthy
 {% endif %}
     # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
@@ -268,7 +300,24 @@ services:
       # set omits the key entirely, so this env var never renders.
       BLUESKY_EXCLUDED_PLANS: "{{ svc.excluded_plans }}"
 {% endif %}
-{% if svc.ca_name_servers %}
+{% if svc.target == 'standin' %}
+      # This lane serves the STAND-IN target: the `live-standin` soft IOC this
+      # deployment runs for itself, so a session can rehearse against the live
+      # machine's shape without touching it. Its address is a container on this
+      # network at a port the build already knows — `_standin_lane_ca_name_servers`
+      # writes `live-standin:<port>` into the lane's config block — so unlike the
+      # live lane below there is nothing for an operator to supply and so nothing
+      # to refuse over. Same kind of address, and the same treatment, as the VA
+      # lane's `virtual-accelerator:<port>`; the two just name different machines.
+      #
+      # Broadcast discovery off for the same reason it is off on the VA lane, and
+      # more sharply here: this deployment runs TWO soft IOCs on one network, so a
+      # lane pinned to one of them would still answer from the other with
+      # EPICS_CA_AUTO_ADDR_LIST left on — exactly the confusion between the two
+      # machines the stand-in exists as its own target to keep clean.
+      EPICS_CA_NAME_SERVERS: "{{ svc.ca_name_servers }}"
+      EPICS_CA_AUTO_ADDR_LIST: "NO"
+{% elif svc.ca_name_servers %}
       # This lane serves the LIVE target, so its Channel Access addressing is
       # the facility's own gateway, supplied by the operator rather than known
       # to the build. `_inject_bluesky` wrote the value as a REQUIRED compose
@@ -402,6 +451,16 @@ services:
       # ophyd-async devices against the VA's Channel Access server, so the
       # environment must not open before the IOC is answering.
       virtual-accelerator:
+        condition: service_healthy
+{% endif %}
+{#- Same stand-in gate as the bridge's, and it belongs here at least as much:
+    the RunEngine worker lives in THIS container, so it is the process whose
+    devices actually connect to the stand-in IOC. See the bridge's copy for why
+    the guard reads the lane's target rather than the co-deployment alone. #}
+{%- if 'live_standin' in deployed_services and svc.target == 'standin' %}
+      # Same iocInit race the bridge guards against, against the stand-in soft
+      # IOC this lane serves: the environment must not open before it answers.
+      live-standin:
         condition: service_healthy
 {% endif %}
     # Shell form, for the one thing it buys: `$$(...)` resolves the startup
@@ -559,7 +618,15 @@ services:
       # not be reachable by name through a hand-built queue item.
       BLUESKY_EXCLUDED_PLANS: "{{ svc.excluded_plans }}"
 {% endif %}
-{% if svc.ca_name_servers %}
+{% if svc.target == 'standin' %}
+      # The co-deployed stand-in IOC, the same container address as the bridge's
+      # copy — the worker is where the devices are actually built, so the two
+      # have to name one machine — and containment on for the same reason: two
+      # soft IOCs share this network, and a broadcast search would not tell them
+      # apart. See the bridge's block for why no required variable is involved.
+      EPICS_CA_NAME_SERVERS: "{{ svc.ca_name_servers }}"
+      EPICS_CA_AUTO_ADDR_LIST: "NO"
+{% elif svc.ca_name_servers %}
       # The live lane's operator-supplied gateway, same required-variable
       # spelling as the bridge's copy — the worker builds its devices against
       # this address, so an empty one here is the same silent nowhere.

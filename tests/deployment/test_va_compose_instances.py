@@ -379,7 +379,7 @@ def test_va_compose_standin_reads_its_own_bpm_perturbation_variable() -> None:
     )
     assert _text_lines(rendered, "VA_BPM_ERRORS:") == [
         'VA_BPM_ERRORS: "${VA_BPM_ERRORS:-}"',
-        'VA_BPM_ERRORS: "${VA_STANDIN_BPM_ERRORS:-SR:BPM:1:X=0.0001}"',
+        'VA_BPM_ERRORS: "${VA_STANDIN_BPM_ERRORS-SR:BPM:1:X=0.0001}"',
     ]
 
 
@@ -391,7 +391,134 @@ def test_va_compose_standin_perturbation_default_is_empty_until_supplied() -> No
             deployed_services=["virtual_accelerator", "live_standin"],
         )
     )
-    assert 'VA_BPM_ERRORS: "${VA_STANDIN_BPM_ERRORS:-}"' in rendered
+    assert 'VA_BPM_ERRORS: "${VA_STANDIN_BPM_ERRORS-}"' in rendered
+
+
+# --- begin: compose-standin-default-conditional ----------------------------
+# Which default the generator renders, and which interpolation operator carries
+# it. Two claims, and they only make one contract together:
+#
+# * the DEFAULT is lattice-conditional — the shipped offsets displace the
+#   builtin PyAT model, so a deployment that resolves VA_LATTICE elsewhere gets
+#   the EMPTY set and a stand-in serving its facility manifest unperturbed;
+# * the OPERATOR is `-`, not `:-` — so a deployment that explicitly asks for an
+#   empty perturbation is not rounded back up to whatever the default is.
+#
+# The generator half is exercised through `_inject_project_metadata`, the one
+# function that puts the key in the render context, so these pin what a real
+# build hands the template rather than what a hand-built context can say.
+# ---------------------------------------------------------------------------
+
+
+def _project_root(tmp_path: Path, *, env: str | None = None, build_env: str | None = None) -> Path:
+    """A deployment repo whose env chain says what these tests need it to.
+
+    Two writable rungs, because the resolver reads both and the render zone wins
+    on a key both name: the repo's own ``.env``, and the published ``build/``
+    tree the containers are actually handed.
+    """
+    if env is not None:
+        (tmp_path / ".env").write_text(env, encoding="utf-8")
+    if build_env is not None:
+        (tmp_path / "build").mkdir(exist_ok=True)
+        (tmp_path / "build" / ".env").write_text(build_env, encoding="utf-8")
+    return tmp_path
+
+
+def _rendered_default(project_root: Path) -> str:
+    """The ``standin_bpm_errors_default`` a build at *project_root* would inject."""
+    from osprey.deployment.compose_generator import _inject_project_metadata
+
+    context = _inject_project_metadata(
+        {"project_root": str(project_root), "project_name": "proj", "build_dir": "./build"}
+    )
+    return str(context["standin_bpm_errors_default"])
+
+
+def test_va_compose_standin_default_is_the_shipped_perturbation_on_the_builtin_lattice(
+    tmp_path: Path,
+) -> None:
+    """An unpinned chain is the builtin lattice, which is what the offsets need.
+
+    The shipped default is only correct where there is a PyAT model to displace,
+    and this is that case: the value reaches the template whole, and the render
+    hands the container the faults that make the stand-in tell apart from the
+    machine beside it.
+    """
+    from osprey.services.virtual_accelerator.manifest.standin_defaults import (
+        STANDIN_BPM_ERRORS_DEFAULT,
+    )
+
+    default = _rendered_default(_project_root(tmp_path))
+
+    assert default == STANDIN_BPM_ERRORS_DEFAULT
+    rendered = _render_text(
+        _context(
+            instances=STANDIN_INSTANCES,
+            deployed_services=["virtual_accelerator", "live_standin"],
+            standin_bpm_errors_default=default,
+        )
+    )
+    assert f'VA_BPM_ERRORS: "${{VA_STANDIN_BPM_ERRORS-{STANDIN_BPM_ERRORS_DEFAULT}}}"' in rendered
+
+
+def test_va_compose_standin_default_is_empty_on_a_non_builtin_lattice(tmp_path: Path) -> None:
+    """``VA_LATTICE=none`` renders the empty set rather than refusing the build.
+
+    A facility that pins its own lattice — ``none``, or a channel manifest — has
+    no model for the shipped offsets to displace. The honest render is the
+    stand-in serving that manifest unperturbed, so the default it carries is
+    empty and the container receives an empty fault set.
+    """
+    default = _rendered_default(_project_root(tmp_path, env="VA_LATTICE=none\n"))
+
+    assert default == ""
+    rendered = _render_text(
+        _context(
+            instances=STANDIN_INSTANCES,
+            deployed_services=["virtual_accelerator", "live_standin"],
+            standin_bpm_errors_default=default,
+        )
+    )
+    assert 'VA_BPM_ERRORS: "${VA_STANDIN_BPM_ERRORS-}"' in rendered
+
+
+def test_va_compose_standin_default_reads_the_render_zones_pin_too(tmp_path: Path) -> None:
+    """The published ``build/`` chain is read, and wins — as validation reads it.
+
+    The containers are handed the render zone, not the source repo, so a pin
+    there is the one that decides what boots. Resolving from the repo alone
+    would render the shipped faults for a deployment whose delivered chain says
+    there is nothing to apply them to.
+    """
+    project = _project_root(tmp_path, env="VA_LATTICE=builtin\n", build_env="VA_LATTICE=none\n")
+
+    assert _rendered_default(project) == ""
+
+
+def test_va_compose_standin_perturbation_substitutes_only_when_unset() -> None:
+    """``-``, not ``:-``: an explicit empty override is honored, not rounded up.
+
+    ``VA_STANDIN_BPM_ERRORS=`` is the documented way to run a stand-in clean on
+    a lattice that could carry faults, and ``:-`` would substitute the default
+    over it — handing the operator the shipped perturbation they just asked to
+    be rid of, and a seeded past to match it.
+    """
+    rendered = _render_text(
+        _context(
+            instances=STANDIN_INSTANCES,
+            deployed_services=["virtual_accelerator", "live_standin"],
+            standin_bpm_errors_default="BPM03:offset_x=1.5e-4",
+        )
+    )
+    line = next(
+        row for row in _text_lines(rendered, "VA_BPM_ERRORS:") if "VA_STANDIN_BPM_ERRORS" in row
+    )
+    assert line == 'VA_BPM_ERRORS: "${VA_STANDIN_BPM_ERRORS-BPM03:offset_x=1.5e-4}"'
+    assert "${VA_STANDIN_BPM_ERRORS:-" not in rendered
+
+
+# --- end: compose-standin-default-conditional ------------------------------
 
 
 def test_va_compose_instances_share_the_scenario_mounts(

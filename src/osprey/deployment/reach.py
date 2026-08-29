@@ -225,7 +225,10 @@ class ReachContract:
         credentials: The env vars entitled containers receive.
         no_client_reach: The service is dialed by nothing inside a persona
             container (a host-side writer, a worker the host dials); the
-            contract exists to say so, and ``note`` says why.
+            contract exists to say so, and ``note`` says why. Such a contract
+            declares no consumer, but may still project a fact a persona READS
+            about its host rather than dials — the recorder's block, which is
+            how a persona session knows whose history the archive holds.
         derived_by: Name of the build block that already derives this
             service's client facts for attached renders on its own path
             (the archive: :func:`osprey.cli.build_profile_archiver.va_archiver_config_overrides`).
@@ -440,33 +443,78 @@ def _second_lane_resolves(lane: str) -> Predicate:
     return _resolves
 
 
-def _va_connector_on(config: Mapping[str, Any]) -> bool:
-    from osprey_connectors.types import VIRTUAL_ACCELERATOR
+def _target_configured(config: Mapping[str, Any], target: str) -> bool:
+    """Whether *config* carries the connector a session *target* is served by.
 
-    return bool(dotted_get(config, "control_system.type") == VIRTUAL_ACCELERATOR)
+    The whole-config spelling of
+    :func:`~osprey_connectors.types.target_configured`, which is where the
+    question is answered: the connector type the target selects HERE, and
+    whether that type's own ``control_system.connector.<type>`` block is
+    written. Delegated rather than restated because the runtime enumerates a
+    deployment's machines by that same predicate, and a contract that judged
+    "this render can reach that machine" its own way could switch a consumer on
+    for a target no session will be offered. A persona render whose ``config:``
+    overlay dropped the block has no client for that machine, whatever a
+    projected port still says.
+
+    Keyed on the resolved target rather than on ``control_system.type``
+    because a deployment has up to three targets at once — the facility's own
+    machine, the virtual accelerator, the stand-in — and the type names only
+    the one it was built FOR. Reading the type would leave a stand-in-baseline
+    deployment saying it has no virtual accelerator while its VA block, its VA
+    service and its VA lane are all right there.
+    """
+    from osprey_connectors.types import target_configured
+
+    return target_configured(as_dict(config).get("control_system"), target)
+
+
+def _va_connector_on(config: Mapping[str, Any]) -> bool:
+    """Whether this render has a virtual accelerator for a session to dial.
+
+    The ``va`` target resolved and configured (:func:`_target_configured`),
+    which is what a VA connector is built from — not ``control_system.type``,
+    which says which target the deployment BOOTS on. A deployment whose
+    baseline is the live machine or the stand-in still offers ``va`` to any
+    session that switches to it, and its persona renders still have to be told
+    the port that session would dial; gating on the baseline withheld the
+    projection from exactly those renders.
+    """
+    from osprey_connectors.types import TARGET_VA
+
+    return _target_configured(config, TARGET_VA)
 
 
 def _live_standin_on(config: Mapping[str, Any]) -> bool:
-    """Whether this render has an EPICS connector pointed at a stand-in.
+    """Whether this render has a connector pointed at the deployment's stand-in.
 
     The first conjunct is the deployment's own statement that it stood one up,
     read through :func:`osprey_connectors.standin.live_standin_port` so the
     build, the roster's label and the recorder's gate all decide it from one
     reading of one key.
 
-    The second conjunct is what makes this a *consumer*: the stand-in is
-    dialled by the ``epics`` connector and by nothing else, and the port is
-    projected into every attached render ungated (see the contract's
-    ``projected``). An attached project built from a template that has no
-    ``epics`` connector at all — hello_world, ariel_standalone — therefore
-    carries the port for its label and has no client for it, and refusing that
-    render would refuse the projection that makes the label honest.
+    The second conjunct is what makes this a *consumer*: the stand-in is a
+    control target of its own, dialled through its own
+    ``control_system.connector.live_standin`` block and by nothing else. The
+    facility's ``epics`` block is never rewritten to it, so ``live`` keeps
+    meaning the machine the facility authored — and a render that carries no
+    stand-in block has no client for the stand-in, whichever other connectors
+    it configures.
+
+    The port, meanwhile, is projected into every attached render ungated (see
+    the contract's ``projected``) because the roster's LABEL reads it. A render
+    built from a template that configures no stand-in — hello_world,
+    ariel_standalone — or a persona whose overlay carries no connector block at
+    all therefore holds the port for its label and switches no consumer on, and
+    refusing that render would refuse the projection that makes the label
+    honest.
     """
     from osprey_connectors.standin import live_standin_port
+    from osprey_connectors.types import TARGET_STANDIN
 
     if live_standin_port(config) is None:
         return False
-    return isinstance(dotted_get(config, "control_system.connector.epics"), Mapping)
+    return _target_configured(config, TARGET_STANDIN)
 
 
 def _live_standin_resolves(config: Mapping[str, Any]) -> bool:
@@ -642,17 +690,30 @@ _EPICS_DEFAULT_CA_PORT = 5064
 
 
 def _live_standin_dial(config: Mapping[str, Any]) -> Dial | None:
-    """What the ``epics`` connector dials when the stand-in is the live target.
+    """What a session on the ``standin`` target dials.
 
-    Resolved the connector's own way (``epics_connector._configure_epics_env``):
-    the ``read_only`` gateway row is the one every session reaches the live
-    target through — a readonly run never leaves it, and a write-enabled run
-    only moves to ``write_access``, which the build points at the same
-    stand-in — and an absent ``port`` falls back to the Channel Access default
-    the connector itself falls back to. No gateways means the connector sets no
+    Read from the stand-in's OWN block,
+    ``control_system.connector.live_standin`` — the block the factory
+    configures the ``live_standin`` type from, which is the same
+    ``EPICSConnector`` the facility's ``epics`` block builds and resolves its
+    endpoint the same way (``epics_connector._configure_epics_env``). The
+    ``read_only`` gateway row is the one every session reaches the target
+    through — a readonly run never leaves it, and a write-enabled run only
+    moves to ``write_access``, which the build points at the same stand-in —
+    and an absent ``port`` falls back to the Channel Access default the
+    connector itself falls back to. No gateways means the connector sets no
     Channel Access environment at all, which is nothing to dial.
+
+    Nothing here reads ``control_system.connector.epics``. That block is the
+    facility's own machine; a stand-in that resolved through it could only be
+    described by describing ``live`` as something other than what the facility
+    authored.
     """
-    gateway = as_dict(dotted_get(config, "control_system.connector.epics.gateways.read_only"))
+    from osprey_connectors.types import LIVE_STANDIN
+
+    gateway = as_dict(
+        dotted_get(config, f"control_system.connector.{LIVE_STANDIN}.gateways.read_only")
+    )
     if not gateway:
         return None
     address = str(gateway.get("address") or "localhost")
@@ -671,7 +732,14 @@ def _live_standin_dial(config: Mapping[str, Any]) -> Dial | None:
 
 
 def _second_lane_contract(lane: str) -> ReachContract:
-    """The contract of one second plan lane (``bluesky_va`` or ``bluesky_live``)."""
+    """The contract of one second plan lane, by its ``services.<lane>`` key.
+
+    Built for every name a second lane can have, from
+    :data:`~osprey.bluesky_bridge_connection.SECOND_LANE_KEYS` — the one
+    registry of lane keys, so a lane added there for a new control target
+    (the stand-in's) gets its contract, its projection, its refusal and its
+    own launch-token grant here without this module naming it.
+    """
     prefix = lane_env_prefix(lane)
     return ReachContract(
         service=lane,
@@ -893,7 +961,7 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
         consumers=(
             Consumer(
                 name="virtual-accelerator connector (controls MCP server, osprey.runtime)",
-                switch_key="control_system.type",
+                switch_key="control_system.connector.virtual_accelerator",
                 is_on=_va_connector_on,
                 # fill_gateway_ports always answers (DEFAULT_VA_PORT); the
                 # projection keeps it the host's port.
@@ -910,10 +978,10 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
         consumers=(
             Consumer(
                 name=(
-                    "epics connector dialling the live stand-in "
+                    "live stand-in connector, the `standin` target "
                     "(controls MCP server, osprey.runtime)"
                 ),
-                switch_key="control_system.connector.epics.gateways",
+                switch_key="control_system.connector.live_standin.gateways",
                 is_on=_live_standin_on,
                 resolves=_live_standin_resolves,
                 dial=_live_standin_dial,
@@ -923,15 +991,15 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
         # render carries `services: {}` except for the keys projected into it,
         # and this port is not only how a client dials the stand-in: it is the
         # whole evidence `osprey_connectors.standin.live_standin_active` reads
-        # to decide whether the roster says LIVE MACHINE or LIVE MACHINE
-        # (stand-in). A gate would withhold it from exactly the renders a
-        # multi-user deployment hands its operators, and the same machine would
-        # be labelled one way in a single-user session and another through a
-        # persona. Projecting it everywhere costs nothing it could be misread
-        # for: an SSH tunnel to a real gateway on loopback carries no such
-        # block, so it stays LIVE MACHINE, which is the truth.
+        # to decide whether the endpoint a session is on really is this
+        # deployment's own stand-in container. A gate would withhold it from
+        # exactly the renders a multi-user deployment hands its operators, and
+        # the same machine would be described one way in a single-user session
+        # and another through a persona. Projecting it everywhere costs nothing
+        # it could be misread for: an SSH tunnel to a real gateway on loopback
+        # carries no such block, so it stays a real machine, which is the truth.
         projected=(ProjectedKey("services.live_standin.port", gate=None),),
-        note="the epics gateways are pointed at the stand-in's port on loopback",
+        note="the live_standin gateways are pointed at the stand-in's port on loopback",
     ),
     "mongodb": ReachContract(
         service="mongodb",
@@ -946,7 +1014,29 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
     "archiver_recorder": ReachContract(
         service="archiver_recorder",
         no_client_reach=True,
-        note="a host-side writer; a persona reads the store, not the recorder",
+        # Nothing in a persona container dials the recorder — and one fact
+        # about it still has to travel. `archive_belongs_to_standin` reads
+        # whether the deployment records its own store to decide WHOSE history
+        # the archive holds, and on that answer the `live` target is refused:
+        # a real machine's readings spliced onto a stand-in's synthesized past
+        # is the one thing an archive must never contain. A persona reads that
+        # same store, so the gate has to hold in a multi-user session exactly
+        # as it does in a single-user one — but the host's spelling of the
+        # fact, `deployed_services`, is empty in every attached render.
+        #
+        # So the block the injector writes for a deployed recorder is
+        # projected, ungated like the stand-in port beside it. It is the
+        # host's fact that it records, not a directory the persona has: the
+        # predicate is its only reader, and no attached render grows a surface
+        # from it — a service is rendered, mounted and started off
+        # `deployed_services` (compose_generator.find_service_config is driven
+        # by that list), never off the presence of a `services:` block.
+        projected=(ProjectedKey("services.archiver_recorder.path", gate=None),),
+        note=(
+            "a host-side writer; a persona reads the store, not the recorder — "
+            "its path is projected as the host's fact that it records one, which "
+            "gates the `live` target in a persona session too"
+        ),
     ),
     "dispatch_worker": ReachContract(
         service="dispatch_worker",

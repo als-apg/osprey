@@ -92,13 +92,34 @@ def bridge_url_from_config(config: Mapping[str, Any] | None) -> str:
 #: nothing about lanes resolves exactly what it always resolved.
 LANE_ONE = "bluesky"
 
-#: The second lane's service key, by the control-system target it serves. A
-#: lane is named for its target, never for its index -- a lane's identity is
-#: fixed at render time, and "lane 2" does not say which machine it drives.
-SECOND_LANE_KEYS = {"live": "bluesky_live", "va": "bluesky_va"}
+#: A plan lane's service key, by the control-system target it serves -- and the
+#: ONE place any of those keys is spelled. A lane is named for its target,
+#: never for its index: a lane's identity is fixed at render time, and "lane 2"
+#: does not say which machine it drives.
+#:
+#: This module is the registry every other holder imports from -- the build
+#: injector, the compose generator, the container lifecycle, the Reach
+#: Contract. A second spelling elsewhere is how one holder ends up provisioning
+#: a lane another holder cannot see, so the literals live here and nowhere else
+#: under ``src/osprey`` (``tests/cli/test_bluesky_lane_config.py`` pins that).
+#: The one deliberate exception is the standalone approval hook, deployed into
+#: a project's own venv, which can import nothing from OSPREY at all.
+#:
+#: The keys are :data:`osprey_connectors.types.CONTROL_TARGETS` -- the whole
+#: vocabulary a lane can serve, ``standin`` included, because the live stand-in
+#: is a third machine with a connector block of its own rather than a mode of
+#: ``live``. Restated as literals rather than imported so this stays a leaf
+#: module; the equality is pinned by test rather than left to hope.
+SECOND_LANE_KEYS = {
+    "va": "bluesky_va",
+    "live": "bluesky_live",
+    "standin": "bluesky_standin",
+}
 
-#: Every service key that can name a lane, in render order.
-LANE_KEYS = (LANE_ONE, SECOND_LANE_KEYS["va"], SECOND_LANE_KEYS["live"])
+#: Every service key that can name a lane, in render order: lane 1's historical
+#: key followed by each target-named sibling. Derived from
+#: :data:`SECOND_LANE_KEYS` so the registry has exactly one entry point.
+LANE_KEYS = (LANE_ONE, *SECOND_LANE_KEYS.values())
 
 
 class UnknownBlueskyLaneError(ValueError):

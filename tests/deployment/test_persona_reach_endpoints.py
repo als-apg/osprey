@@ -8,10 +8,11 @@ nothing. Every URL a persona container derives therefore has to target the
 loopback address and the HOST deployment's ports — and every host-side probe of
 a persona sidecar has to knock on the port the sidecar actually binds.
 
-Both tests here join two subsystems that each have thorough unit coverage in
+Each test here joins two subsystems that have thorough unit coverage in
 isolation — the telemetry endpoint resolver and the compose render; the ariel
-health category and the web-server address registry — because the defects live
-exactly in the seam neither suite crosses.
+health category and the web-server address registry; the reach projection and
+the connectors' own endpoint resolvers — because the defects live exactly in
+the seam neither suite crosses.
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ from osprey.build.claude_code_telemetry import (
     _resolve_telemetry_endpoint,
     openobserve_published_port,
 )
+from osprey.deployment.reach import project_attached_overrides, reach_dials, reach_errors
 from osprey.deployment.web_terminals.personas import resolve_personas
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.health.core.ariel import ariel
@@ -225,3 +227,88 @@ async def test_ariel_health_probes_the_port_the_panel_listens_on(monkeypatch) ->
         "ariel.web.port / the 8085 default only and ignores the multi-user env "
         "override — so every multi-user terminal reports ARIEL unreachable."
     )
+
+
+# ---------------------------------------------------------------------------
+# Every control target a persona can switch to, on the host's own ports
+# ---------------------------------------------------------------------------
+
+_HOST_STANDIN_PORT = 5074
+_HOST_VA_PORT = 5064
+
+
+def _standin_baseline_host() -> dict:
+    """A hosting deployment whose baseline is the live stand-in.
+
+    Three targets at once: the facility's ``epics`` block naming the real
+    machine ``live`` still means, the sandbox virtual accelerator, and the
+    stand-in soft IOC this deployment stood up for itself — each with its own
+    connector block, each published on its own port.
+    """
+    return {
+        "control_system": {
+            "type": "live_standin",
+            "connector": {
+                "epics": {
+                    "gateways": {"read_only": {"address": "gateway.facility.org", "port": 5066}}
+                },
+                "virtual_accelerator": {"gateways": {"read_only": {"address": "localhost"}}},
+                "live_standin": {
+                    "gateways": {
+                        "read_only": {
+                            "address": "localhost",
+                            "port": _HOST_STANDIN_PORT,
+                            "use_name_server": True,
+                        }
+                    }
+                },
+            },
+        },
+        "services": {
+            "virtual_accelerator": {"port": _HOST_VA_PORT},
+            "live_standin": {"port": _HOST_STANDIN_PORT},
+        },
+        "deployed_services": ["virtual_accelerator", "live_standin"],
+    }
+
+
+def _with_overrides(render: dict, overrides: dict) -> dict:
+    """*render* with each dotted override written in, as the build writes them."""
+    for dotted, value in overrides.items():
+        node = render
+        *parents, leaf = dotted.split(".")
+        for part in parents:
+            node = node.setdefault(part, {})
+        node[leaf] = value
+    return render
+
+
+def test_a_standin_baseline_persona_dials_the_hosts_ports_on_loopback() -> None:
+    """A persona of a stand-in-baseline deployment must reach BOTH self-standing
+    machines where the host actually publishes them.
+
+    An attached persona container shares the host's network namespace, renders
+    ``services: {}``, and is told each port by the projection — so what its
+    connectors dial is decided entirely by what the reach registry projected
+    into it. Gated on ``control_system.type``, the virtual accelerator's port
+    was withheld from exactly these renders (the baseline is the stand-in, not
+    the VA), and a session switched to ``va`` inside the container fell back to
+    the connector's compiled-in default port — a dial at a port this deployment
+    does not publish. SC-9: the VA port a persona carries is the host's.
+    """
+    host = _standin_baseline_host()
+    persona = {
+        "control_system": host["control_system"],
+        "services": {},
+        "deployed_services": [],
+    }
+
+    rendered = _with_overrides(persona, project_attached_overrides(host, persona))
+
+    dials = {contract.service: dial for contract, _consumer, dial in reach_dials(rendered)}
+    assert dials["virtual_accelerator"] == ("localhost", _HOST_VA_PORT)
+    assert dials["live_standin"] == ("localhost", _HOST_STANDIN_PORT)
+    for service, dial in dials.items():
+        if service in {"virtual_accelerator", "live_standin"}:
+            assert dial is not None and dial[0] in _LOOPBACK_HOSTS, (service, dial)
+    assert reach_errors(rendered) == []

@@ -178,7 +178,14 @@ services:
       # makes this one a stand-in; sharing VA_BPM_ERRORS would instead apply
       # one operator's fault to both machines at once. The gain below stays
       # shared, so a fault set there is set on both.
-      VA_BPM_ERRORS: "${VA_STANDIN_BPM_ERRORS:-{{ standin_bpm_errors_default | default('') }}}"
+      #
+      # `-`, NOT `:-`: substitute the default only when the variable is UNSET.
+      # An explicit empty VA_STANDIN_BPM_ERRORS= is a deployment asking for an
+      # unperturbed stand-in, and `:-` would round that request back up to the
+      # shipped faults. The default itself is empty for a deployment whose
+      # lattice cannot apply the shipped offsets (compose_generator's
+      # `_standin_perturbation`), so both routes to "unperturbed" arrive here.
+      VA_BPM_ERRORS: "${VA_STANDIN_BPM_ERRORS-{{ standin_bpm_errors_default | default('') }}}"
 {%- endif %}
       VA_CORR_GAIN: "${VA_CORR_GAIN:-}"
       # Facility-neutral source configuration (entrypoint.py + Dockerfile CMD
