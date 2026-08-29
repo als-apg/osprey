@@ -55,6 +55,10 @@ from osprey.deployment.web_terminals.ports import (
     allocate_ports,
     base_ports_from_config,
 )
+
+# The one definition of the session-lifetime default lives in web_auth, which is
+# stdlib-only, so importing it here cannot cycle.
+from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
 from osprey.utils.facility import resolve_facility_name
 from osprey.utils.workspace import AUDIT_DIR_RELPATH, agent_data_base_dir
 
@@ -113,10 +117,6 @@ SUPPORTED_AUTH_METHODS = ("none", "token", "password", "oidc")
 #: with the roster) so a default-port sidecar can't collide with user N's
 #: terminal; lint joins the effective value into its port-collision check.
 _DEFAULT_AUTH_PORT = 9070
-
-#: How long an unlocked-user entry stays valid when ``auth.session_lifetime``
-#: is unset, in seconds (12 hours — one operator shift plus slack).
-_DEFAULT_SESSION_LIFETIME = 12 * 60 * 60
 
 #: The auth sidecar's audit identity — the subdirectory of ``var/audit/`` it
 #: binds and writes its login and denial events to. A FIXED name, unlike every
@@ -1887,7 +1887,7 @@ def _auth_tls_context(web_terminals: dict[str, Any]) -> dict[str, Any]:
         "open_perimeter": auth_method == "none",
         "auth_port": _positive_int(auth.get("port"), _DEFAULT_AUTH_PORT),
         "auth_session_lifetime": _positive_int(
-            auth.get("session_lifetime"), _DEFAULT_SESSION_LIFETIME
+            auth.get("session_lifetime"), DEFAULT_SESSION_LIFETIME
         ),
         "auth_allow_insecure_http": bool(auth.get("allow_insecure_http", False)),
         "auth_image": auth.get("image") or None,

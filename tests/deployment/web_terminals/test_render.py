@@ -3313,6 +3313,67 @@ def test_auth_env_isolation_no_web_service_carries_an_auth_variable() -> None:
         assert not [env for env in _env_names(service) if env.startswith("OSPREY_AUTH")]
 
 
+def _session_lifetime_config(method: str, **auth: object) -> dict:
+    """A rendering config in `method`, with any extra `auth:` keys applied.
+
+    Built here rather than through `_auth_config()` because this test spans all
+    four methods and the two wall-less ones must carry no `allow_insecure_http`:
+    that gate guards a sidecar's cookies over cleartext, and `none`/`token`
+    render no sidecar to guard.
+    """
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    stanza: dict = {"method": method}
+    if method in {"password", "oidc"}:
+        stanza["allow_insecure_http"] = True
+    if method == "oidc":
+        stanza["oidc"] = {"issuer": "https://sso.dls.example.org"}
+    stanza.update(auth)
+    config["modules"]["web_terminals"]["auth"] = stanza
+    return config
+
+
+@pytest.mark.parametrize("method", ["none", "token", "password", "oidc"])
+def test_every_terminal_carries_the_session_lifetime_under_every_method(method: str) -> None:
+    """`auth.session_lifetime` reaches every per-user container, in every posture.
+
+    The setting governs the terminal's OWN session cookie, minted in one place:
+    this app's `?token=` exchange. Every entry enters that way under `token`,
+    and so do the `login: false` entries under `none`/`password`/`oidc` — those
+    reach their terminal by the same `?token=` URL. A non-exempt entry under
+    those three is authenticated by the injected terminal secret instead, so the
+    number is inert for that container. Which case a given container is in is an
+    entry-level fact the render cannot fold into a posture, so the value is
+    emitted to all of them: gating it on the method would starve exactly the
+    `login: false` entries the other three postures leave standing on that
+    cookie. It has to travel as environment: the persona's `config.yml` is baked
+    into the image at build time, so a deploy-time edit re-renders this overlay
+    and nothing else.
+
+    Emitted in the `OSPREY_TERMINAL_*` namespace, never `OSPREY_AUTH_*` — the
+    isolation this file pins elsewhere, re-asserted here so the two rulings
+    cannot drift apart.
+    """
+    # Arrange
+    configured = _session_lifetime_config(method, session_lifetime=3600)
+    default = _session_lifetime_config(method)
+
+    # Act
+    configured_services = _compose(configured)["services"]
+    default_services = _compose(default)["services"]
+
+    # Assert
+    terminals = [name for name in configured_services if name.startswith("web-")]
+    assert terminals == ["web-alice", "web-bob", "web-carol"]
+    for name in terminals:
+        assert "OSPREY_TERMINAL_SESSION_LIFETIME=3600" in configured_services[name]["environment"]
+        # An absent key leaves the framework default, stated once in the
+        # renderer and pinned here by value.
+        assert "OSPREY_TERMINAL_SESSION_LIFETIME=43200" in default_services[name]["environment"]
+        assert not [
+            env for env in _env_names(configured_services[name]) if env.startswith("OSPREY_AUTH")
+        ]
+
+
 def test_auth_sidecar_carries_the_env_auth_digest_as_a_label() -> None:
     """The digest of `.env.auth` is rendered INTO the sidecar's service definition.
 

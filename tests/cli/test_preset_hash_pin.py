@@ -126,12 +126,21 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # in the base preset changed value, so every control-assistant entry moved
     # together, as the note above predicts. Deploy-visible: a rebuilt project's
     # terminals and companion panels bind the new numbers.
-    "control-assistant": "sha256:fd767ae0e5ff0d9f7174080a156b9e1b3359b0df88772a504713b07f6ca84115",
+    # Moved again, and again ALL SIX at once, when the base preset gained
+    # `modules.web_terminals.auth.session_lifetime: 43200`. That key is the one
+    # thing `osprey web` reads out of this block, and it is also what every
+    # multi-user terminal sets its session cookie from, so a signed-in browser
+    # expires the same way in both shapes. The value is the default the render
+    # already substituted for the absent key, so a rebuilt deployment's sessions
+    # expire exactly as before — but the resolved content now names the
+    # lifetime, so the staleness advisory firing on already-deployed
+    # control-assistant projects is the correct signal.
+    "control-assistant": "sha256:7a665c1470e87ef79cb4630eed76aaa8bfe18276ad5baa39fbf0dbf8b323d6bd",
     "control-assistant-admin": (
-        "sha256:465c94b6784cce0198483f0a854930af939ee1a731c140ae3b99234a10c1dfca"
+        "sha256:7e74fb59a286a9cd5974d1223fc6564db66626674958d28349efee129d70db7f"
     ),
     "control-assistant-ariel": (
-        "sha256:7f9f9b2bab08fc48b854f37f4dfee3d80f3461b715196d39a41cb7e7986fbcaf"
+        "sha256:fed7620efa96bac98f7a728c4e5b14d1c1991e8e0f867c072f396678b5d62713"
     ),
     # The two operator tiers below moved together, and alone, when each gained
     # the single dotted key `services.graphdb.port_host: 7687` in its `config:`
@@ -189,10 +198,10 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # same commit contributed nothing, which is the digest being comment-blind
     # exactly as the note at the top of this table says.
     "control-assistant-readonly": (
-        "sha256:2253255dcf73b05faceb35eea7d3bdae4fdefc3810d8cb9a5dc315c742403b21"
+        "sha256:b96576c5cff98ae1529538f4cbba79d03cc04826eafa6403847ca521d7a26067"
     ),
     "control-assistant-readwrite": (
-        "sha256:59143a5343c5d0830ae1a3ee8db540f05cd6f5a8ed05fadd0881618763c6563e"
+        "sha256:6ea02e8e8c86f097ebd742f6e032407c7c161c7b61169be6e4d4d35974bb603d"
     ),
     # New with per-target write posture, not a moved entry: the rung between
     # the two flat tiers, armed on the virtual accelerator alone. It pins the
@@ -201,7 +210,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # it, so which machine the session is pointed at decides whether its writes
     # land.
     "control-assistant-va-readwrite": (
-        "sha256:f9aa58dd3f9204a974a3026f95e37ca94120495bafede968bbc886e42d01855c"
+        "sha256:392127430a1af9d8f6985551399057aaa595277666495c01087fed6295657d32"
     ),
     # Moved when the onboarding rewrite dropped the `facility` rule. The
     # wholesale comment rewrite that shipped alongside it contributed nothing:

@@ -4,8 +4,9 @@ A browser handed a login URL arrives at an exchange page (``/`` or
 ``/static/session.html``) carrying ``?token=<operator secret>``.
 :class:`~osprey.interfaces.common_middleware.WebAuthMiddleware` answers that
 request itself: it mints a session, sets it as an ``HttpOnly``,
-``SameSite=Lax`` cookie and redirects to the token-stripped URL, and the cookie
-carries authentication from then on.
+``SameSite=Lax`` cookie carrying the configured lifetime as ``Max-Age`` and
+redirects to the token-stripped URL, and the cookie carries authentication from
+then on.
 
 The exchange lives in the **gate**, not in a route, and the first module
 section is what pins that: it runs the exchange against *every* app that
@@ -180,7 +181,14 @@ def test_no_gated_app_renders_a_page_at_the_token_url(gated_app):
 
 
 def test_exchange_cookie_carries_the_prescribed_attributes(app):
-    """HttpOnly + SameSite=Lax + Path=/, and — for loopback http — no Secure."""
+    """HttpOnly + SameSite=Lax + Path=/ + Max-Age, and — loopback http — no Secure.
+
+    Attributes are asserted as substrings because their *order* in the header is
+    not load-bearing — a browser parses ``Set-Cookie`` as an unordered
+    attribute list. ``Max-Age`` is the one exception to substring-only checking:
+    it must appear exactly once, since a second copy would leave the cookie's
+    expiry decided by whichever the browser happens to keep.
+    """
     response = _client(app).get(f"/?token={OPERATOR_SECRET}", follow_redirects=False)
     header = _set_cookie_header(response).lower()
 
@@ -188,9 +196,39 @@ def test_exchange_cookie_carries_the_prescribed_attributes(app):
     assert "samesite=lax" in header
     assert "samesite=strict" not in header  # Strict would drop the login navigation
     assert "path=/" in header
+    # The default 12-hour lifetime, so the cookie survives a browser restart and
+    # expires on the same schedule the server expires the session.
+    assert "max-age=43200" in header
+    assert header.count("max-age=") == 1
     # Secure would make the browser refuse the cookie over the single-user
     # loopback http origin, breaking the exchange the moment it is set.
     assert "secure" not in header
+
+
+def test_exchange_cookie_max_age_follows_the_configured_lifetime(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A deployment that shortens the session shortens the cookie with it.
+
+    The number is not a constant in the cookie renderer: it is read off the
+    credential holder, which is where the deployment's configured lifetime
+    lands. A cookie that outlived the server-side deadline would be presented
+    long after the session was forgotten, and the operator would meet a 401
+    rather than the login page.
+    """
+    monkeypatch.setenv("OSPREY_WEB_PORT", WEB_PORT)
+    application = create_app(shell_command="echo")
+    application.state.web_credentials = WebCredentials(
+        operator_secret=OPERATOR_SECRET,
+        panel_token=PANEL_TOKEN,
+        session_ttl_seconds=60,
+    )
+
+    response = _client(application).get(f"/?token={OPERATOR_SECRET}", follow_redirects=False)
+    header = _set_cookie_header(response).lower()
+
+    assert "max-age=60" in header
+    assert header.count("max-age=") == 1
 
 
 def test_cookie_is_secure_over_an_https_request(app):

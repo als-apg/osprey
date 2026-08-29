@@ -335,8 +335,13 @@ class TestControlAssistantWebTier:
         assert wt["default_persona"] == "readonly"
         assert wt["nginx_port"] == 9080
         # Password login ships ON, in the demo posture: plain HTTP is only
-        # acceptable because the preset's fqdn is loopback.
-        assert wt["auth"] == {"method": "password", "allow_insecure_http": True}
+        # acceptable because the preset's fqdn is loopback. The lifetime is the
+        # framework default spelled out, so the preset shows where to change it.
+        assert wt["auth"] == {
+            "method": "password",
+            "allow_insecure_http": True,
+            "session_lifetime": 43200,
+        }
 
         assert wt["users"][0] == {
             "name": "alice",

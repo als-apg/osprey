@@ -225,6 +225,17 @@
       there. Joined into lint's port-collision check against the per-user
       families, so this port is guaranteed not to be some user's panel port.
     auth_session_lifetime: int, required (seconds) -> OSPREY_AUTH_SESSION_LIFETIME
+      (sidecar) + OSPREY_TERMINAL_SESSION_LIFETIME (every per-user terminal)
+      One number, emitted twice, on both sides of the auth/terminal namespace
+      line. Which of the two actually expires an operator's session is an
+      ENTRY-level question, not a deployment-level one: wherever the terminal's
+      own token->cookie gate is the one left standing — every entry under `token`,
+      the `login: false` entries under `none`/`password`/`oidc` — this number,
+      not the sidecar's, is what expires it; elsewhere it is inert and
+      harmless. Emitted unconditionally because the container cannot know at
+      build time which it is, and it cannot ride in the persona's `config.yml`,
+      which is baked into the image at build time and so cannot see a
+      deploy-time edit.
     auth_image: str | None
       Registry-mode image for the sidecar. When unset, the local-build tag
       `<facility_prefix>-assistant-auth:local` is referenced instead — the
@@ -834,6 +845,33 @@ services:
       - OSPREY_TERMINAL_BIND_HOST={{ bind_host }}
       - OSPREY_TERMINAL_WEB_PORT={{ svc.web }}
       - OSPREY_WEB_PORT={{ svc.web }}
+      {#- How long this terminal's OWN session cookie stays valid — the
+         deployment's `auth.session_lifetime`, emitted under every method
+         because every method can leave a terminal standing on that cookie.
+         The one place it is minted is this app's `?token=` exchange, which
+         trades a magic link for a session. Under `token` every entry enters
+         that way; under `none`/`password`/`oidc` the `login: false` entries
+         do, reaching their terminal by the same `?token=` URL. For a
+         NON-exempt entry under those three the injected terminal secret
+         authenticates the request instead (and under `password`/`oidc` nginx
+         cuts the cookie jar as well), so this number is inert for that
+         container and it is the sidecar's own cookie, carrying
+         OSPREY_AUTH_SESSION_LIFETIME, that expires the session. A container
+         cannot know at build time which of the two it is, so the line is
+         emitted unconditionally.
+
+         It travels as an environment variable rather than through this
+         persona's `config.yml` because that file is BAKED INTO the persona
+         image at build time — a deploy-time edit of `auth.session_lifetime`
+         re-renders this overlay but not the image, so env is the only carrier
+         that tracks the edit.
+
+         Deliberately in the `OSPREY_TERMINAL_*` namespace, not
+         `OSPREY_AUTH_*`: no `web-*` service may carry an `OSPREY_AUTH*`
+         variable at all (test_render pins it both ways), because that prefix
+         is the sidecar's, and the sidecar's environment holds the session
+         signing key. Same number, two names, one per side of that line. #}
+      - OSPREY_TERMINAL_SESSION_LIFETIME={{ auth_session_lifetime }}
 {%- if perimeter_open %}
       {#- The navigation-only perimeter, and the ports it fronts. Under
          `auth.method: none` nginx injects this user's operator secret on every

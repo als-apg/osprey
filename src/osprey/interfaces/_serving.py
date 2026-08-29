@@ -160,7 +160,10 @@ def authorize_browser_context(context: Any, *, host: str = "127.0.0.1") -> str:
     credential holder the session is minted in. A server in a *separate* process
     — a detached ``osprey web`` — issues its own sessions from its own holder and
     will not recognise this cookie; a browser reaching such a server authorizes
-    through the ``?token=`` login URL instead.
+    through the ``?token=`` login URL instead. The session is minted ephemeral
+    (unpersisted) for the same reason: it is same-process by construction and
+    must never reach a persisted store, since the docs screenshot runner and the
+    Playwright suites drive this path.
 
     Args:
         context: A Playwright ``BrowserContext`` (the sync API). Only its
@@ -180,7 +183,7 @@ def authorize_browser_context(context: Any, *, host: str = "127.0.0.1") -> str:
     from osprey.interfaces.common_middleware import session_cookie_name
     from osprey.interfaces.web_auth import get_web_credentials
 
-    session_id = get_web_credentials().create_session()
+    session_id = get_web_credentials().create_session(persist=False)
     context.add_cookies(
         [
             {
