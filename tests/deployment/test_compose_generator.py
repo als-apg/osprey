@@ -1674,7 +1674,7 @@ def test_setup_build_dir_stages_a_config_naming_no_interpreter(
 
     template_path = str(Path("services") / "worker" / "docker-compose.yml.j2")
     config = {"project_name": "staged-no-interp", "build_dir": "./build"}
-    container_cfg = {"copy_src": False, "render_kernel_templates": False}
+    container_cfg = {"copy_src": False}
 
     setup_build_dir(template_path, config, container_cfg)
 
@@ -1728,7 +1728,7 @@ def test_setup_build_dir_stages_the_execution_block_verbatim(
 
     template_path = str(Path("services") / "worker" / "docker-compose.yml.j2")
     config = {"project_name": "pep-fixture-2", "build_dir": "./build"}
-    container_cfg = {"copy_src": False, "render_kernel_templates": False}
+    container_cfg = {"copy_src": False}
 
     setup_build_dir(template_path, config, container_cfg)
 

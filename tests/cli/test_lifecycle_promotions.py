@@ -1106,18 +1106,6 @@ class TestDemotedRowsOnTheMiscDeployPath:
         assert framework_rule.read_text(encoding="utf-8") == "# facility\n"
         assert _levels_for(caplog, "profile overrides framework rule") == {logging.DEBUG}
 
-    def test_the_kernel_template_render_is_a_debug_line(self, monkeypatch, tmp_path, caplog):
-        """Rows 40 and 41: a per-file path inside a loop, and its announcement."""
-        source_dir, out_dir = _a_kernel_template(tmp_path)
-        # The render itself is jinja's business; only what it narrates is under
-        # test, and a real render needs the loader root the pipeline sets up.
-        monkeypatch.setattr(compose_generator, "render_template", lambda *a, **k: None)
-
-        with caplog.at_level(logging.DEBUG):
-            compose_generator.render_kernel_templates(str(source_dir), {}, str(out_dir))
-
-        assert _levels_for(caplog, "Rendered kernel template") == {logging.DEBUG}
-
     def test_the_legacy_clean_narration_is_debug_lines(self, monkeypatch, tmp_path, caplog):
         """Rows 10, 38 and 39: raw argv, and a bare completion with no phase."""
         _stub_the_legacy_clean(monkeypatch, tmp_path)
@@ -1313,16 +1301,6 @@ def _rendered_project(tmp_path: Path, name: str) -> Path:
     return TemplateManager().create_project(
         project_name=name, output_dir=tmp_path, data_bundle="hello_world"
     )
-
-
-def _a_kernel_template(tmp_path: Path) -> tuple[Path, Path]:
-    """A source tree holding one kernel template, and somewhere to render it."""
-    source_dir = tmp_path / "service"
-    (source_dir / "kernels").mkdir(parents=True)
-    (source_dir / "kernels" / "kernel.json.j2").write_text("{}", encoding="utf-8")
-    out_dir = tmp_path / "out"
-    out_dir.mkdir()
-    return source_dir, out_dir
 
 
 def _stub_the_legacy_clean(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
