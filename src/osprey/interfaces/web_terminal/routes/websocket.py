@@ -15,10 +15,11 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
+from osprey.interfaces.common_middleware import read_cookie_candidates, session_cookie_name
 from osprey.interfaces.web_auth import PANEL_TOKEN_ENV, get_web_credentials
 from osprey.interfaces.web_terminal.operator_session import (
     POSTURE_SESSION_ENV,
@@ -1304,8 +1305,51 @@ async def get_terminal_posture(session_id: str, request: Request):
 
 
 @router.post("/api/terminal/logout")
-async def logout_terminal(request: Request):
-    """Terminate the user's warm PTY (and operator) session(s) on logout.
+async def logout_terminal(request: Request, response: Response):
+    """Revoke the browser session, then terminate the warm PTY (and operator) pools.
+
+    **Revocation first, because it is the only part that is a guarantee.**
+    A cookie value that has already left this process cannot be un-sent —
+    it is sitting in a browser jar, possibly in a proxy log, possibly in a
+    second tab — so clearing it in the browser is a courtesy the client is
+    free to ignore and an attacker certainly will. What makes logout real
+    is the server no longer holding the session: ``revoke_session`` drops
+    the digest from the in-memory map *and* rewrites the on-disk store, so
+    the credential is refused from the next request onward and stays
+    refused across a restart. That has to happen before the pools are
+    emptied, so that a request racing this one cannot re-attach to a
+    session on its way out with a cookie this handler has not yet dropped.
+
+    **Every candidate cookie is revoked, not just the first — and the
+    header is read the way the gate reads it.** A browser can be made to
+    send two cookies of the same name: a page on a sibling host under the
+    same registrable domain sets a ``Domain``-scoped one and the browser
+    then sends it alongside the app's own host-scoped cookie, in an order
+    this app does not control (see ``read_cookie_candidates`` in
+    ``common_middleware``). The gate accepts *any* of them, so logging out
+    only the one that happened to come first would leave a live session
+    behind, and the operator would have no way to tell. That primitive is
+    also what rejoins the repeated ``Cookie`` *headers*: HTTP/2 permits a
+    client to split the cookie header, so a session offered only in the
+    second one is a credential the gate honours. Reading the header any
+    differently from the gate is precisely how a credential ends up
+    admitted but never revoked, which is why neither side spells the rule
+    itself and both go through one reader. The count is
+    reported back in the body so the client — and a test — can see how many
+    were actually live rather than how many were offered.
+
+    **The delete cookie carries no ``Secure``.** A browser matches a cookie
+    for deletion by name, domain and path — never by its other attributes —
+    so an expiry that omits ``Secure`` still clears a cookie that was set
+    with it. The reverse is not true: a ``Secure`` delete sent over plain
+    ``http`` is discarded before it can match anything, which is exactly
+    the single-user loopback shape. The exchange derives ``Secure`` from
+    the browser-facing origin (``WebAuthMiddleware._session_cookie`` /
+    ``_cookie_is_secure``) because it is handing out a credential that must
+    not travel in the clear; mirroring that derivation here would buy
+    nothing and would silently strand the delete on the one shape where it
+    is wrong. Set through ``response.headers`` so the ordinary dict body
+    below is still serialised by FastAPI, with this header merged onto it.
 
     Each Web Terminal container serves a single user (the multi-user
     topology puts one container behind each ``/u/<user>/`` path), so — like
@@ -1322,6 +1366,44 @@ async def logout_terminal(request: Request):
     clears its stored session id and navigates to the landing page
     afterward — it does not reconnect.
     """
+    # The name is re-derived rather than read back from the gate because no
+    # app pins one: every interface installs ``WebAuthMiddleware`` with no
+    # ``cookie_name`` (``_app_setup.py``), so both sides resolve the same
+    # ``session_cookie_name()`` from ``OSPREY_WEB_PORT``. A deployment that
+    # ever does pin the middleware's name has to route the settled name here
+    # too — logout would otherwise revoke nothing and expire a cookie the
+    # browser does not hold, a total failure reported as a cheerful 200.
+    cookie_name = session_cookie_name()
+    credentials = get_web_credentials(request.app)
+    cookie_headers = request.headers.getlist("cookie")
+
+    def _revoke_candidates() -> int:
+        """Revoke every offered candidate, returning how many were live.
+
+        Off the event loop: a revocation that hits writes the session store
+        through a full atomic replace — temp file, ``json.dump``, ``fsync``,
+        rename — and there can be one per candidate. That is a handful of
+        milliseconds of blocking disk I/O in the best case and unbounded on a
+        stalled filesystem, and every other connection this process is serving
+        would wait it out.
+        """
+        live = 0
+        for candidate in read_cookie_candidates(cookie_headers, cookie_name):
+            if credentials.revoke_session(candidate):
+                live += 1
+        return live
+
+    # Revoke before the pools are torn down: see the docstring.
+    sessions_revoked = await run_in_threadpool(_revoke_candidates)
+    if sessions_revoked:
+        logger.info("Browser session(s) revoked for logout: %d", sessions_revoked)
+
+    # No ``Secure``: a delete must be able to land on the plain-http shape too.
+    response.headers.append(
+        "set-cookie",
+        f"{cookie_name}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax",
+    )
+
     pty_registry = request.app.state.pty_registry
     operator_registry = request.app.state.operator_registry
 
@@ -1335,7 +1417,11 @@ async def logout_terminal(request: Request):
     except Exception:
         pass  # May not have active operator sessions
 
-    return {"status": "ok", "message": "Logged out — terminal session terminated"}
+    return {
+        "status": "ok",
+        "message": "Logged out — terminal session terminated",
+        "sessions_revoked": sessions_revoked,
+    }
 
 
 @router.websocket("/ws/operator")

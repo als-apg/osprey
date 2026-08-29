@@ -45,7 +45,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 
 from tests.interfaces._panel_launch import publish_artifact_url
-from tests.interfaces.conftest import _run_app_server
+from tests.interfaces.conftest import _authorize_browser_context, _run_app_server
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -254,6 +254,17 @@ def test_logout_and_return_starts_fresh_session(tmp_path, monkeypatch, chromium_
         # back on the terminal origin below.
 
         # --- Return to the terminal origin: a FRESH station, not a resume ---
+        # Logout revoked the browser session server-side and expired its cookie
+        # (``logout_terminal``, routes/websocket.py), which is the point: the
+        # credential must not survive the round trip. So the return visit needs
+        # a NEW one, exactly as a returning operator gets from the perimeter
+        # (nginx + the auth sidecar) before nginx ever proxies them back to this
+        # container. ``chromium_browser``'s seam mints the first session at
+        # ``new_page()`` and cannot re-mint mid-test, so the perimeter's re-issue
+        # is stood in for here. Without it the navigation below is refused 401
+        # and never opens a socket — which would say nothing about resume.
+        _authorize_browser_context(page.context)
+
         with page.expect_websocket() as return_ws:
             page.goto(base_url, wait_until="load")
         fresh_url = return_ws.value.url
