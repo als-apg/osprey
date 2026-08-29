@@ -98,6 +98,55 @@ def test_every_other_deploy_proceeds_untouched(config):
     assert _refuse_invented_history(config) is None
 
 
+# ---------------------------------------------------------------------------
+# The message names the machine it refused
+#
+# The pairing covers every type with no recorded past, so a deployment
+# baselined on the live stand-in reaches this refusal too — and the operator
+# reading it has no virtual accelerator to go looking for. A message naming one
+# would send them to a `control_system:` section that says something else.
+# ---------------------------------------------------------------------------
+
+STANDIN_MOCK_NESTED = {
+    "control_system": {"type": "live_standin", "writes_enabled": True},
+    # The stand-in is a second container of the virtual-accelerator service,
+    # so this is what a deployment standing one up actually lists.
+    "deployed_services": ["virtual_accelerator", "bluesky"],
+    "archiver": {"type": "mock_archiver"},
+}
+STANDIN_ARCHIVER_UNSET = {"control_system": {"type": "live_standin"}}
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param(STANDIN_MOCK_NESTED, id="standin-nested-mock"),
+        pytest.param(STANDIN_ARCHIVER_UNSET, id="standin-archiver-unset"),
+    ],
+)
+def test_a_stand_in_is_refused_under_its_own_name(config):
+    with pytest.raises(RuntimeError) as excinfo:
+        _refuse_invented_history(config)
+    message = str(excinfo.value)
+
+    assert "'live_standin'" in message
+    # Not the machine this deployment does not run. The shared reason sentence
+    # names both kinds in prose; what must not appear is the *type* the
+    # operator would then go hunting for in `control_system:`.
+    assert "'virtual_accelerator'" not in message
+
+
+def test_the_virtual_accelerator_is_still_named_when_it_is_the_one_refused():
+    """The type comes from the config rather than from a literal, so the case
+    that motivated the rule keeps the message it had."""
+    with pytest.raises(RuntimeError) as excinfo:
+        _refuse_invented_history(VA_MOCK_NESTED)
+    message = str(excinfo.value)
+
+    assert "'virtual_accelerator'" in message
+    assert "'live_standin'" not in message
+
+
 def test_an_attached_project_deploying_no_va_container_is_still_refused():
     """Keyed on what the deployment claims about itself, not on
     ``deployed_services``: a project that deploys no VA of its own still points

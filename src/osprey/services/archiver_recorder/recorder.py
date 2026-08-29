@@ -27,7 +27,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
-from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY
+from osprey_connectors.standin import DEPLOYED_SERVICES_KEY, LIVE_STANDIN_PORT_KEY
 
 from .config import RecorderConfigError, RecorderSettings, read_recording_facts
 from .store import ArchiveWriter
@@ -37,30 +37,34 @@ logger = logging.getLogger(__name__)
 #: The control-system type that, on its own, makes this deployment's machine one
 #: whose past this deployment authored.
 #:
-#: **The archive belongs to the machine, and a model has no past.** This service
-#: samples whatever machine the deployment calls its machine, and stores it in
-#: the collection that already holds that machine's history. For a virtual
-#: accelerator — the type named here — the past was synthesized and the present
-#: is recorded, and the two halves are the same kind of thing on one timeline.
-#: A sandbox model nobody calls their machine has no archive of its own to be
-#: written into. And a real machine's readings are never spliced onto a
-#: synthesized past: that two-world archive is what this gate exists to prevent.
+#: **The archive belongs to the machine it records, and a model has no past.**
+#: This service samples whatever machine the deployment calls its machine, and
+#: stores it in the collection that already holds that machine's history. For a
+#: virtual accelerator — the type named here — the past was synthesized and the
+#: present is recorded, and the two halves are the same kind of thing on one
+#: timeline. A sandbox model nobody calls their machine has no archive of its
+#: own to be written into. And a real machine's readings are never spliced onto
+#: a synthesized past: that two-world archive is what this gate exists to
+#: prevent.
 #:
 #: Which is why this constant is only half the gate. A deployment can stand a
-#: *stand-in* up — a second virtual accelerator wired in as the ``live`` target,
-#: with its own physics state and its own history seeded to match — and that
-#: stand-in is as much this deployment's machine as the baseline is. It is also
-#: reached through the ``epics`` connector, so ``osprey set connector=epics``
-#: rewrites the rendered ``control_system.type`` to something that does not
-#: match here while the machine on the other end of the Channel Access
-#: connection has not changed at all. Recording follows the machine, not the
-#: spelling, so the second half of the gate asks
-#: :func:`~osprey_connectors.standin.live_standin_active` — through
-#: :func:`~osprey.services.archiver_recorder.config.read_recording_facts`, and
-#: through the same resolver the roster's label uses — whether the live endpoint
-#: is that stand-in. The build refuses the combination that would make this
-#: matter; this is the layer behind it, so a machine that is still the stand-in
-#: cannot be quietly dropped out of its own archive.
+#: *stand-in* up — a second virtual accelerator wired in as its own ``standin``
+#: control target, with its own physics state and its own history seeded to
+#: match — and a deployment that records its own store beside one records the
+#: stand-in: the machine whose present is sampled and the machine whose past was
+#: seeded are then the same one. Nothing is relabelled ``live``; ``live`` always
+#: means the facility's authored ``epics`` block. But ``osprey set
+#: connector=epics`` still rewrites the rendered ``control_system.type`` to
+#: something that does not match here, while the machine on the other end of the
+#: Channel Access connection has not changed at all. Recording follows the
+#: machine, not the spelling, so the second half of the gate asks
+#: :func:`~osprey_connectors.standin.archive_belongs_to_standin` — whose past is
+#: in this store — through
+#: :func:`~osprey.services.archiver_recorder.config.read_recording_facts`, which
+#: then derives the ``standin`` target's own endpoint through the same resolver
+#: the roster's label uses. It is the one predicate the recorder's compose entry
+#: and the deploy-time archive seed bind to as well, so a machine that is still
+#: the stand-in cannot be quietly dropped out of its own archive.
 RECORDING_CONTROL_SYSTEM = "virtual_accelerator"
 
 #: Reads a set of addresses and returns the ones that answered.
@@ -121,14 +125,14 @@ class Recorder:
 
         # Two ways for the machine on the other end to be one whose past this
         # deployment authored, and neither implies the other: a deployment whose
-        # own type is the virtual accelerator, and a deployment whose live target
-        # is the stand-in it stood up. See RECORDING_CONTROL_SYSTEM.
+        # own type is the virtual accelerator, and a deployment whose archive is
+        # its stand-in's. See RECORDING_CONTROL_SYSTEM.
         should_record = facts.control_system_type == RECORDING_CONTROL_SYSTEM or facts.live_standin
         if should_record != self._recording or not self._announced:
             if should_record:
                 logger.info(
                     "Recording %d channels every %ds into %s.%s "
-                    "(control_system.type=%s, live target is the stand-in: %s).",
+                    "(control_system.type=%s, this archive is the stand-in's: %s).",
                     len(self._addresses),
                     self._settings.cadence_sec,
                     self._settings.database,
@@ -138,13 +142,16 @@ class Recorder:
                 )
             else:
                 logger.info(
-                    "Idle, writing nothing: control_system.type=%s is not %s, and the live "
-                    "target is not this deployment's stand-in. History is recorded for a "
-                    "machine whose past this deployment authored, and either of those two "
-                    "makes it one. Setting either in %s takes effect within %ds — no "
-                    "restart needed; a stand-in is named by `%s`.",
+                    "Idle, writing nothing: control_system.type=%s is not %s, and this "
+                    "deployment's archive is not its stand-in's — either no stand-in was "
+                    "stood up, or `%s` does not list this recorder, or the `standin` "
+                    "target's own gateways no longer select the stand-in. History is "
+                    "recorded for a machine whose past this deployment authored, and "
+                    "either of those two makes it one. Setting either in %s takes effect "
+                    "within %ds — no restart needed; a stand-in is named by `%s`.",
                     facts.control_system_type or "<unset>",
                     RECORDING_CONTROL_SYSTEM,
+                    DEPLOYED_SERVICES_KEY,
                     self._config_path,
                     self._settings.poll_sec,
                     LIVE_STANDIN_PORT_KEY,

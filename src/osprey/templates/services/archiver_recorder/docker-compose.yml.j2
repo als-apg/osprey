@@ -32,9 +32,20 @@
     startup ordering and Channel Access addressing below must never name
     different instances.
 
-    The archive belongs to the MACHINE, not to the model — so when this
-    deployment stands a live stand-in up, the stand-in IS the machine this
-    project calls `live`, and its readings are the history the store holds.
+    The archive belongs to the MACHINE it records, and a model has no past — so
+    a deployment that records its own store beside a stand-in records the
+    STAND-IN: the machine whose present is sampled and the machine whose past
+    was seeded are then the same one, and the sandbox virtual accelerator keeps
+    no archive of its own. `standin` is its own control target; nothing here is
+    a relabelled `live`.
+
+    Both conjuncts are spelled out because they are the two
+    `osprey_connectors.standin.archive_belongs_to_standin` answers with — the
+    same predicate the recorder's own enablement gate and the deploy-time
+    archive seed bind to, so the three cannot disagree about one collection.
+    The recorder conjunct is redundant in THIS file (a service template renders
+    only for a deploy that runs the service) and is written out anyway, so the
+    condition an operator reads here is the condition the code applies.
 
     `recorded_port` deliberately gets no default on the stand-in branch. 5064
     is the virtual accelerator's port, so defaulting to it would point the
@@ -42,16 +53,18 @@
     history. `| int` refuses at RENDER time instead, because `int()` of an
     undefined raises rather than falling back; a real port passes through
     unchanged. -#}
-{%- set standin_deployed = 'live_standin' in deployed_services %}
+{%- set standin_deployed = 'live_standin' in deployed_services
+                           and 'archiver_recorder' in deployed_services %}
 {%- set recorded_key = 'live_standin' if standin_deployed else 'virtual_accelerator' %}
 {%- set recorded_service = recorded_key | replace('_', '-') %}
 {%- set recorded_port = services.live_standin.port | int if standin_deployed
                         else (services.virtual_accelerator | default({})).port | default(5064) %}
 {%- if standin_deployed %}
 #
-# THIS DEPLOYMENT RECORDS THE LIVE STAND-IN. `live-standin` is the machine this
-# project calls `live`, so it — and not the `virtual-accelerator` beside it —
-# is what this recorder samples, because the archive belongs to the machine.
+# THIS DEPLOYMENT RECORDS ITS LIVE STAND-IN. The store this recorder writes into
+# already holds the stand-in's seeded past, so `live-standin` — and not the
+# `virtual-accelerator` beside it — is what this recorder samples: the archive
+# belongs to the machine it records.
 {%- endif %}
 
 services:
@@ -107,7 +120,7 @@ services:
 {%- if standin_deployed %}
       # Only when the recorded IOC is co-deployed: the recorder's CA client
       # connects at startup, so it must not open before iocInit is answering.
-      # This deployment stands a LIVE STAND-IN up, so the machine being
+      # This deployment records its LIVE STAND-IN, so the machine being
       # recorded is `live-standin`, not the virtual accelerator beside it. A
       # recorder deployed against an EXTERNAL IOC must NOT get this — compose
       # errors on depends_on naming an undefined service.
@@ -166,9 +179,9 @@ services:
 {% if va_co_deployed %}
 {%- if standin_deployed %}
       # Reach the co-deployed LIVE STAND-IN over Channel Access — not the
-      # virtual accelerator beside it. The archive belongs to the machine: the
-      # stand-in is the machine this deployment calls `live`, so its readings
-      # are the history this store holds.
+      # virtual accelerator beside it. The archive belongs to the machine it
+      # records: this store already holds the stand-in's seeded past, so the
+      # stand-in's readings are the history it goes on holding.
       # Name-server TCP transport is the one host<->container CA config proven
       # to work — UDP broadcast discovery doesn't cross the VM boundary. Port
       # matches services.live_standin.port so an operator override stays
