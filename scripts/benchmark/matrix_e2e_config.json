@@ -171,6 +171,10 @@
       "reason": "Same shape as test_loopback_chokepoint.py and no LLM anywhere: launches `osprey web` with --shell true (the PTY runs /usr/bin/true, never spawning an agent) and asserts the web-auth gate's statuses over raw HTTP/WebSocket plus one real python-executor sandbox call."
     },
     {
+      "path": "tests/e2e/web_terminals/test_session_restart_e2e.py",
+      "reason": "Same shape as test_terminal_auth_e2e.py and no LLM anywhere: launches `osprey web --detach` with --shell true twice on the same port and asserts over raw HTTP that the browser's session cookie survives the restart; the PTY never spawns an agent."
+    },
+    {
       "path": "tests/e2e/web_terminals/test_prefix_routing.py",
       "reason": "Fully in-process FastAPI TestClient checks of URL-prefix routing/injection plus rendered-nginx text assertions; no LLM or agent session anywhere."
     },
