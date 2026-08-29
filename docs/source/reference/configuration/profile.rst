@@ -918,7 +918,7 @@ bluesky
 
 The ``bluesky:`` section configures the Bluesky stack a deployment brings up —
 the bridge, the queue server, the BLUESKY panel and, optionally, the Tiled data
-store. It accepts exactly seven keys; a misspelled or unknown key **fails the
+store. It accepts exactly eight keys; a misspelled or unknown key **fails the
 build** and prints the valid set:
 
 .. list-table::
@@ -945,6 +945,11 @@ build** and prints the valid set:
      - The file listing the devices plans may drive or record
        (default ``data/bluesky_devices.yml``) — see
        :doc:`/how-to/bluesky/write-plans`.
+   * - ``device_page_size``
+     - How many devices the bridge lists at once (default 500). A larger set
+       is served a page at a time and can be narrowed by an exact name
+       prefix. The same number decides when a refusal for an unknown device
+       stops listing every device it does know and gives a count instead.
 
 Whether a deployment can execute plans at all is not set here: it follows from
 the control system the deployment runs. See :doc:`/how-to/bluesky/queue` for

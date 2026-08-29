@@ -742,6 +742,15 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             raise BuildProfileError(
                 f"bluesky.devices_file must be a non-empty path string (got {devices_file!r})"
             )
+        device_page_size = bluesky_raw.get("device_page_size", BlueskyConfig.device_page_size)
+        if (
+            not isinstance(device_page_size, int)
+            or isinstance(device_page_size, bool)
+            or device_page_size < 1
+        ):
+            raise BuildProfileError(
+                f"bluesky.device_page_size must be an integer >= 1 (got {device_page_size!r})"
+            )
         bluesky = BlueskyConfig(
             port=bluesky_raw.get("port", 8090),
             tiled_enabled=bluesky_raw.get("tiled_enabled", False),
@@ -750,6 +759,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             plan_dir=bluesky_raw.get("plan_dir"),
             excluded_plans=excluded_plans,
             devices_file=devices_file,
+            device_page_size=device_page_size,
         )
 
     va_raw = raw.get("virtual_accelerator")

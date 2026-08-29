@@ -83,6 +83,7 @@ def _render(
     deployed_services: list[str] | None = None,
     plan_dir: str | None = None,
     excluded_plans: str | None = None,
+    device_page_size: int | None = None,
     devices_present: bool = False,
     limits_mount: dict[str, str] | None = None,
 ) -> dict[str, Any]:
@@ -119,6 +120,8 @@ def _render(
         bluesky["plan_dir"] = plan_dir
     if excluded_plans is not None:
         bluesky["excluded_plans"] = excluded_plans
+    if device_page_size is not None:
+        bluesky["device_page_size"] = device_page_size
 
     # ``lane_keys`` is seeded with 'bluesky' unconditionally (the template's
     # lane axis), so every render defines lane 1's containers whatever
@@ -704,6 +707,42 @@ def test_no_plan_dir_omits_the_mount_and_env(rendered: dict[str, Any]) -> None:
     queueserver = rendered["services"]["queueserver"]
     assert "BLUESKY_PLAN_DIRS" not in queueserver["environment"]
     assert not any(str(v).endswith(":/app/project/plans:ro") for v in queueserver["volumes"])
+
+
+def test_device_page_size_reaches_the_bridge_when_authored() -> None:
+    """An authored page size renders BLUESKY_DEVICE_PAGE_SIZE on the bridge.
+
+    The bridge's ``device_page_size()`` reads exactly this name, and the value
+    is a STRING in the container environment even though it is an int in the
+    profile — compose environments carry no other type, so the quoting in the
+    template is part of the contract rather than cosmetic.
+    """
+    bridge = _render(device_page_size=200)["services"]["bluesky-bridge"]
+    assert bridge["environment"]["BLUESKY_DEVICE_PAGE_SIZE"] == "200"
+
+
+def test_default_device_page_size_renders_no_env_anywhere(rendered: dict[str, Any]) -> None:
+    """The omit-when-default contract, asserted through the rendered artifact.
+
+    ``_facility_plan_keys`` writes the key only when the profile departs from
+    ``BlueskyConfig.device_page_size``, so a stock render carries no such
+    service key and the template's guard must therefore emit nothing at all —
+    not an empty value, and not a line in some other container.
+    """
+    assert "BLUESKY_DEVICE_PAGE_SIZE" not in yaml.safe_dump(rendered)
+
+
+def test_only_the_bridge_is_given_the_device_page_size() -> None:
+    """The worker never pages a device listing, so the key stops at the bridge.
+
+    One number bounds the ``GET /devices`` page and the unknown-device
+    refusal's inline threshold — both of which live in the HTTP facade. Handing
+    it to the RE Manager would advertise a knob the worker process does not
+    read, which reads to an operator as a setting that has an effect.
+    """
+    rendered = _render(device_page_size=200)
+    queueserver = rendered["services"]["queueserver"]
+    assert "BLUESKY_DEVICE_PAGE_SIZE" not in (queueserver["environment"] or {})
 
 
 # ---------------------------------------------------------------------------
