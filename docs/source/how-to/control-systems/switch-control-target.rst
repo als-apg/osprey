@@ -4,25 +4,27 @@
 Switch the Control Target at Run Time
 =====================================
 
-How to rehearse a piece of work on the **virtual accelerator** and then run the
-same work on the **live machine**, without rebuilding the project or restarting
-anything.
+How to move a running session between the machines a deployment describes —
+rehearse a piece of work on the **virtual accelerator**, run it on the **live
+machine**, or rehearse the whole go-live procedure on a **stand-in** — without
+rebuilding the project or restarting anything.
 
 .. dropdown:: What You'll Learn
    :color: primary
    :icon: book
 
+   - The three control targets, and which machine each one names
    - The rehearse-then-run workflow, and the two tools it uses
-   - What a deployment needs before either target can be selected
+   - What a deployment needs before a target can be selected
    - How to read the target roster, including what its reachability rows can
      and cannot prove
    - What the switch refuses, and what each refusal is asking you to do
    - How you can tell, at every step, which machine a call is about
    - What happens to Bluesky plans while a session is switched
 
-   **Prerequisites:** a deployment that describes both a real control system and
-   a virtual accelerator (see `What a deployment needs first`_), and
-   :doc:`use-virtual-accelerator` for the simulator itself.
+   **Prerequisites:** a deployment that describes more than one machine (see
+   `What a deployment needs first`_), and :doc:`use-virtual-accelerator` for the
+   simulator itself.
 
 The workflow
 ============
@@ -33,17 +35,45 @@ it against the simulator, look at what it did, and then run it for real —
 in one session, with the same tools, the same limits and the same approval
 prompts on both.
 
-Two tools do this:
+Three machines
+--------------
+
+A **control target** names a machine, and OSPREY knows three of them. A
+deployment has the ones its config describes, which is often two:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 16 84
+
+   * - Target
+     - The machine it names
+   * - ``live``
+     - The facility's own control system — the gateways written under
+       ``control_system.connector.epics``. A write here moves real hardware.
+       ``osprey build`` never rewrites that block, so ``live`` means the same
+       machine on every deployment.
+   * - ``va``
+     - The virtual accelerator: a simulator this deployment stands up, serving
+       the same channel names over real Channel Access. A write here moves
+       nothing real.
+   * - ``standin``
+     - The **live stand-in**: a second soft IOC the deployment runs for itself,
+       configured from its own ``control_system.connector.live_standin`` block.
+       It is a machine of its own, not a relabelled ``live`` — and it is
+       operated like the real one, which is what makes it worth rehearsing on.
+
+Two tools move between them:
 
 ``control_target``
-   Reports where the session is pointed and where else it could go. Read-only:
-   it opens no connections and changes nothing, so it is safe to ask at any
-   moment, including before anything has ever been switched.
+   Reports where the session is pointed and where else it could go — one row
+   per target this deployment configures. Read-only: it opens no connections
+   and changes nothing, so it is safe to ask at any moment, including before
+   anything has ever been switched.
 
 ``control_target_set(target)``
-   Moves the session. ``target`` is either ``va`` (the virtual accelerator) or
-   ``live`` (the real machine this deployment describes). It asks for your
-   approval first, and the prompt names the machine you would be moving to.
+   Moves the session. ``target`` is ``va``, ``live`` or ``standin``, spelled
+   exactly. It asks for your approval first, and the prompt names the machine
+   you would be moving to.
 
 Ask the OSPREY agent for these in plain language — *"what am I pointed at?"*,
 *"switch to the virtual accelerator"*. A session on the simulator looks like a
@@ -83,32 +113,63 @@ about the tools changes; only the machine behind them does.
 Go live
 -------
 
-When the rehearsal looks right::
+A deployment baselined on the stand-in
+(``control_system.type: live_standin``) starts every session on ``standin``, so
+going to the real machine is one tool call — the same call, and the same
+prompts, as on a deployment that never had a stand-in at all.
+
+Read the roster before you ask for it, so you know what will happen::
+
+   > what control target is this session on, and where else could it go?
+
+Each row carries ``available_now`` and, when that is ``false``, the ``reason``
+the switch itself would refuse with. Clearing those reasons **is** the go-live
+procedure. Then::
 
    > switch to the live machine
 
-Moving **toward** the live machine is the one direction with an extra gate.
-Two things must already be true of the deployment:
+Moving toward the live machine is the direction with the extra gates. The switch
+checks them in this order and reports the first one that fails, so the answer
+names the nearest thing to fix rather than the whole list.
 
-**A strict limits posture.** ``control_system.limits_checking.enabled`` must be
-``true`` and ``control_system.limits_checking.allow_unlisted_channels`` must be
-``false`` — that is, every writable channel is on the list, and a channel that
-is not on the list is refused rather than allowed through.
+**A probe channel** (``probe_channel_missing``).
+``control_system.connector.epics.probe_channel`` names the channel the switch
+reads to prove the machine answered before the session moves onto it. It ships
+commented out — a facility's channel names cannot be guessed, and a placeholder
+would make the live target look ready while naming a channel nothing answers.
+Set it to a channel your facility actually serves.
 
-**An operator acknowledgment.** ``control_system.target_switch.live_gateway_acknowledged``
-must be set, to the hostname of the live gateway this deployment is configured
-against. Setting it is you saying *"the gateways in this config really are my
-facility's machine"*. Nothing infers that: the shipped example value looks like
-a real hostname, so no check could tell an operator's answer from a placeholder.
-The key ships commented out, and a deployment that has not answered cannot
-switch to live. The build answers this itself for a deployment whose live target
-is a stand-in it deployed (`Rehearse with a stand-in live machine`_): it knows
-exactly what the gateways dial, so it writes the answer in.
+**A strict limits posture** (``limits_posture``).
+``control_system.limits_checking.enabled`` must be ``true`` and
+``control_system.limits_checking.allow_unlisted_channels`` must be ``false`` —
+every writable channel is on the list, and a channel that is not on the list is
+refused rather than allowed through. This one guards ``standin`` too: both are
+machines you meet hardware behaviour on, and a rehearsal on a permissive posture
+rehearses the wrong facility.
 
-There is one exemption. If the live machine **is** this deployment's baseline —
-the target it was built for — a session that has wandered off to the simulator
-can always come home, with neither the posture nor the acknowledgment. Stranding
-a session on a simulator when the operator asked for the real machine is the
+**An operator acknowledgment** (``operator_ack_missing``).
+``control_system.target_switch.live_gateway_acknowledged`` must be set, to the
+hostname of the live gateway this deployment is configured against. Setting it
+is you saying *"the gateways in this config really are my facility's machine"*.
+Nothing infers that: the shipped example value looks like a real hostname, so no
+check could tell an operator's answer from a placeholder. It is the live
+machine's gate alone — the stand-in's equivalent was said in the build profile,
+by the line that stood the stand-in up.
+
+**An archive that is not the stand-in's** (``archive_belongs_to_standin``).
+A deployment that runs a stand-in *and* records its own archive store is
+recording the stand-in, so the history in that store is the stand-in's.
+Selecting the live machine would splice a real machine's readings onto a
+stand-in's past in one store, with nothing afterwards able to tell them apart.
+Clear it by stopping one of the two — take ``archiver_recorder`` out of the
+deployment's services, or drop ``virtual_accelerator.live_standin`` from the
+build profile — and rebuild. The archive belongs to the machine it records.
+
+There is one exemption. A session can always come **home** to the deployment's
+own baseline — whichever of the three that is — with neither the limits posture,
+the acknowledgment, nor the archive gate applied. The probe still runs: a target
+that cannot prove itself reachable is never switched to, in either direction.
+Stranding a session away from the machine its deployment was built for is the
 less safe outcome of the two.
 
 Coming home
@@ -122,18 +183,35 @@ the session is enough.
 What a deployment needs first
 =============================
 
-A project can only switch if its config describes **both** targets. That is a
-build-time property, and ``osprey build`` renders both connector blocks for you:
-a project generated from the standard template gets a ``virtual_accelerator:``
-block beside its ``epics:`` one, with the simulator's gateway pointed at the
-Virtual Accelerator the stack deploys.
+A session can only be moved to a target this config describes. Each target reads
+its settings from a connector block of its own, and a target with no block is
+not offered at all — it has no roster row, rather than a row saying a machine
+nobody deployed is unavailable.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 16 84
+
+   * - Target
+     - Its connector block
+   * - ``live``
+     - ``control_system.connector.epics`` — the facility's own, and yours to
+       write. The build never touches it.
+   * - ``va``
+     - ``control_system.connector.virtual_accelerator`` — rendered for you, with
+       the simulator's gateway pointed at the Virtual Accelerator the stack
+       deploys.
+   * - ``standin``
+     - ``control_system.connector.live_standin`` — derived, and only when the
+       build profile asks for a stand-in. See `Rehearse on a stand-in live
+       machine`_.
 
 One key is not filled in for you. Each target names a ``probe_channel`` — the
 channel the switch reads to prove that target is reachable:
 
 .. list-table::
    :header-rows: 1
-   :widths: 30 70
+   :widths: 20 80
 
    * - Target
      - ``probe_channel``
@@ -144,6 +222,10 @@ channel the switch reads to prove that target is reachable:
      - Shipped **commented out**. A facility's channel names cannot be guessed,
        and a placeholder here would make the live target look ready while naming
        a channel nothing answers.
+   * - ``standin``
+     - Copied from the simulator's. The stand-in is the same soft IOC over the
+       same machine model, so the channel that proves one proves the other. A
+       deployment whose simulator names none gets none here either.
 
 A target with no ``probe_channel`` is never switched to, and the roster says so
 by name. Naming the live machine's probe channel is therefore a deliberate act
@@ -262,13 +344,23 @@ usable right now".
      - The target names no ``probe_channel``, so nothing could prove it
        reachable. For the live machine this is the shipped state — see
        `What a deployment needs first`_.
+   * - **The stand-in is not this deployment's**
+     - ``standin`` is refused unless the endpoint its block selects really is
+       the stand-in this deployment co-deploys, on that port over loopback.
+       Anything else — a tunnel, a gateway someone repointed — is a machine in
+       its own right, and it must not sit behind a soft label. Use ``live`` for
+       the machine your facility runs.
    * - **A simulated present with an invented past**
-     - Switching to the virtual accelerator is refused while the deployment's
-       archiver is the mock one, which makes history up at read time. The pairing
-       would put a made-up past next to a modelled present with nothing linking
-       them. See "The honesty rule" in :doc:`use-virtual-accelerator`.
-   * - **The live posture is not in place**
-     - Strict limits, or the operator acknowledgment, or both. See `Go live`_.
+     - Switching to a machine this deployment stands up for itself — the virtual
+       accelerator or the stand-in — is refused while the deployment's archiver
+       is the mock one, which makes history up at read time. The pairing would
+       put a made-up past next to a modelled present with nothing linking them.
+       See "The honesty rule" in :doc:`use-virtual-accelerator`.
+   * - **The strict limits posture is not in place**
+     - Required toward ``live`` and toward ``standin`` alike. See `Go live`_.
+   * - **The live machine's gates**
+     - The operator acknowledgment, or the archive that belongs to the stand-in.
+       Both are the live machine's alone. See `Go live`_.
 
 Two more refusals arrive *after* a switch rather than instead of one, and both
 exist for the same reason: something was approved for one machine and must not
@@ -286,14 +378,14 @@ quietly land on another.
 Finally, two surfaces stay deliberately pinned to the deployment baseline while
 a session is switched, and say so rather than following along: driving a Phoebus
 widget is refused, and ``osprey health`` keeps reporting against the baseline
-with an added line naming both targets. Both talk to the deployment's own
+with an added line naming the targets. Both talk to the deployment's own
 configured stack, which the session's choice does not move.
 
 Failures name the machine they happened on
 ==========================================
 
-On a deployment with two targets, "the read of ``SR:...:RB`` timed out" is a
-materially different situation on the live machine than on the simulator. So
+On a deployment with more than one target, "the read of ``SR:...:RB`` timed out"
+is a materially different situation on the live machine than on the simulator. So
 every control-system failure envelope — a connect failure, a timeout, a limits
 refusal, a write the control system itself denied — names the target the
 session was pointed at when it failed: a human clause in the message
@@ -311,7 +403,8 @@ The switch would be a hazard if it were quiet. It is not:
 - **Every approval prompt names the target**, not only the write prompts — a
   queue start, a patch or an execution all carry the line too, so its absence is
   never something you learn to read as safe. The live machine is named as
-  ``LIVE MACHINE`` with the gateway the session actually holds; the simulator as
+  ``LIVE MACHINE`` with the gateway the session actually holds; the stand-in as
+  ``LIVE MACHINE (stand-in)``; the simulator as
   ``virtual accelerator (simulation)``. If the target cannot be read at all, the
   line says so explicitly instead of disappearing.
 - **Results and artifacts are stamped.** Archive reads carry the session's
@@ -341,62 +434,106 @@ does not serve. The refusal says which target the lane serves, and that adding a
 second lane is a deployment change rather than something to retry.
 
 Setting ``bluesky.second_lane: true`` in the build profile renders a second
-complete lane, one per target. The switch then stops being a refusal and becomes
-an address: a plan is routed to the lane serving the session's target, ``queue_add``
-reports the lane it bound the plan to, and ``queue_start`` must name that lane —
-so a plan composed for the simulator cannot be started on the machine because
-the session moved in between. See :doc:`../bluesky/index` for the plan stack
-itself.
+complete lane. Which machine each lane serves is **derived**, never authored:
+the first lane serves the deployment's baseline, and the second covers the other
+interesting machine — a ``live`` or ``standin`` baseline gets a ``va`` lane, and
+a ``va`` baseline gets a ``live`` lane. A ``standin`` lane dials the co-deployed
+soft IOC by name, so there is nothing for you to supply; a ``live`` lane always
+dials the facility's own gateway through ``EPICS_CA_NAME_SERVERS``, and
+``osprey up`` refuses to start rather than let that lane come up searching for
+channels at nowhere.
+
+The switch then stops being a refusal and becomes an address: a plan is routed
+to the lane serving the session's target, ``queue_add`` reports the lane it
+bound the plan to, and ``queue_start`` must name that lane — so a plan composed
+for the simulator cannot be started on the machine because the session moved in
+between. Switching a session moves which lane it addresses; it does not restart
+any lane's containers. See :doc:`../bluesky/index` for the plan stack itself.
 
 The **BLUESKY panel** follows the same two-lane deployment with a picker of its
 own. A panel is shared by every session, so it cannot follow any one session's
-target; instead it shows which machine it is pointed at in its status strip —
-labelled by target, ``live`` / ``va`` — and switching lanes there reloads the
-panel onto the other lane's bridge: its plans, shared draft, queue and results
-all move together, and starting the queue uses that lane's own launch token. A
-single-lane deployment shows no picker and nothing about its panel changes.
+target; instead it shows which machine it is pointed at in its status strip,
+labelled by target, and switching lanes there reloads the panel onto the other
+lane's bridge: its plans, shared draft, queue and results all move together, and
+starting the queue uses that lane's own launch token. A single-lane deployment
+shows no picker and nothing about its panel changes.
 
-Rehearse with a stand-in live machine
-=====================================
+Rehearse on a stand-in live machine
+===================================
 
-A generated project renders both connector blocks, but the live one points at a
-facility gateway — so on a laptop, or before the deployment is wired to your
-machine, the live half of this page cannot be tried at all. Setting
-``virtual_accelerator.live_standin: 5074`` in the build profile fixes that: the
-deploy brings up a **second** simulator container and makes it this deployment's
-``live`` target. ``control_target_set live`` then walks the whole go-live path —
-the probe, the acknowledgment, the strict limits posture, the approval prompts —
-straight out of ``osprey up``, with nothing to edit. The ``control-assistant``
-preset ships it on.
+A generated project describes a simulator and a facility gateway, but the
+gateway may not exist yet, or not from this laptop — so the ``live`` half of
+this page cannot be tried at all. A **live stand-in** gives you something to
+rehearse the procedure on: a second soft IOC the deployment runs for itself,
+deployed as a third control target of its own.
 
-The two machines are not copies you cannot tell apart. They run one image over
-one lattice, but the stand-in's BPM readouts carry a small fixed offset, so a
-read that comes back different is how you know which machine answered.
+Setting ``virtual_accelerator.live_standin: 5074`` in the build profile deploys
+it, and the ``control-assistant`` preset ships that line on. What the build
+derives from it is the stand-in's own ``control_system.connector.live_standin``
+block and nothing else — where the stand-in listens, and what proves it
+reachable. The ``epics`` block beside it is untouched, so a facility already
+pointed at its own control system can stand a rehearsal up next to it without
+losing sight of its machine.
+
+**Set the posture yourself.** The strict limits pair is the profile's to state,
+in its ``config:`` block:
+
+.. code-block:: yaml
+
+   config:
+     control_system.limits_checking.enabled: true
+     control_system.limits_checking.allow_unlisted_channels: false
+
+That is what a switch to either real-machine target requires. Without it
+``control_target_set standin`` refuses with ``limits_posture``, which is the
+right refusal: a rehearsal on a permissive posture rehearses a facility you do
+not have.
+
+**Three rows on the roster.** Ask where the session could go and you get one row
+per configured machine::
+
+   > what control target is this session on, and where else could it go?
+   > switch to the stand-in
+
+``control_target_set standin`` moves the session the same way every other switch
+does — the probe, the approval prompt, the write posture that follows the
+target. From there, ``control_target_set live`` walks the real go-live path
+(`Go live`_) against a machine that cannot move a magnet.
+
+**Start there rather than switch there.** ``osprey set connector=live_standin``
+writes ``control_system.type: live_standin`` into the profile, and from the next
+``osprey build`` every session *starts* on the stand-in — the posture for a
+deployment that is not yet wired to its facility, or whose machine is down.
+``osprey set connector=epics`` flips it back. ``osprey init`` does not offer the
+stand-in, and the build refuses ``control_system.type: live_standin`` on a
+profile that asks for no ``virtual_accelerator.live_standin``: both would name a
+machine the deployment does not run.
 
 **The label stays honest.** Nothing calls the stand-in the live machine. The
-banner and the posture badge read ``LIVE MACHINE (stand-in)``, and the target
-roster says the same. What the stand-in rehearses is the procedure, not the
-risk.
+banner and the posture badge read ``LIVE MACHINE (stand-in)``, and the roster
+says the same. It carries a real machine's posture — the same limits, the same
+approval prompts — because it is operated as one, not because a write reaches
+the facility. What the stand-in rehearses is the procedure, not the risk.
+
+**Telling the two machines apart.** Both run one image over one lattice, so the
+stand-in ships a small fixed offset on its BPM readouts: a read that comes back
+different is how you know which machine answered. That perturbation needs the
+shipped built-in lattice behind it. A deployment whose environment pins
+``VA_LATTICE=none``, or points the IOC at a facility channel file, serves that
+manifest unperturbed instead — and the stand-in then reads identically to the
+virtual accelerator beside it. The labels still tell them apart; the readings do
+not.
 
 **The archive belongs to the machine.** The recorder records the stand-in, and
 the history seeded on the first deploy carries the same offsets the stand-in
 reads — so its past and its present describe one machine, the way a real
-machine's do. ``osprey sim apply`` reaches both machines too: a scenario changes
+machine's do. That is also why the live machine is gated while both are running:
+see `Go live`_. ``osprey sim apply`` reaches both machines: a scenario changes
 the world, not one lane.
 
-**Going live for real is three steps**, and the third is the one that is easy to
-miss:
-
-1. Delete ``virtual_accelerator.live_standin`` from the build profile.
-2. Point ``control_system.connector.epics.gateways`` in ``config.yml`` at your
-   facility.
-3. Replace ``control_system.target_switch.live_gateway_acknowledged`` — the build
-   wrote the stand-in's loopback address there, because that is what the gateways
-   were dialing — with your own live gateway's hostname.
-
-On a laptop, delete the line sooner rather than later: the simulator image is
-amd64-only, so on Apple Silicon a second container doubles what QEMU has to
-emulate — one more emulated soft-IOC for the life of the deployment.
+On a laptop the second container is a real cost — the simulator image is
+amd64-only, so on Apple Silicon a second one doubles what QEMU has to emulate,
+for the life of the deployment. Delete the line when the rehearsal is over.
 
 .. seealso::
 

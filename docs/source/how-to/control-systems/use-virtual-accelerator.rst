@@ -14,9 +14,9 @@ How it is put together is :doc:`/architecture/virtual-accelerator`.
    :icon: book
 
    - What the Virtual Accelerator is (and is not)
-   - The three-state ``control_system.type`` switch
+   - What ``control_system.type`` selects, and which machine each value names
    - Pointing a project at the Virtual Accelerator the stack already deploys
-   - Moving a running session between the simulator and the real machine
+   - Moving a running session between the machines a deployment describes
    - Switching back to the mock, and why plans go browse-only there
    - How ``osprey sim apply`` scenarios behave in Virtual Accelerator mode
    - Write limits
@@ -28,8 +28,9 @@ How it is put together is :doc:`/architecture/virtual-accelerator`.
 Overview
 ========
 
-The Control Assistant tutorial ships three interchangeable control-system
-backends, selected by a single ``control_system.type`` value:
+The Control Assistant tutorial ships interchangeable control-system backends,
+selected by a single ``control_system.type`` value. The value picks the machine
+a session **starts** on:
 
 .. list-table::
    :header-rows: 1
@@ -49,6 +50,11 @@ backends, selected by a single ``control_system.type`` value:
    * - ``epics``
      - Production EPICS, pointed at the facility gateway. Untouched by this
        guide.
+   * - ``live_standin``
+     - The **live stand-in** — a second soft IOC the deployment runs for
+       itself, served by the EPICS connector from its own connector block.
+       Available only where the build profile stood one up; see `Rehearsing
+       against a live target`_.
 
 The Virtual Accelerator is a **local physics simulator**, not a digital twin —
 it is not synced to any real machine. The OSPREY agent reads and writes it
@@ -113,10 +119,10 @@ Switching a running session
 ===========================
 
 Those three commands set which control system the deployment **starts** on; on a
-deployment that describes both a real machine and a Virtual Accelerator, a
-running session can also be moved between the two — rehearse a script against
-the simulator, then run it on the machine — with one approval-gated tool call and
-no rebuild, no redeploy and no restart.
+deployment that describes more than one machine, a running session can also be
+moved between them — rehearse a script against the simulator, then run it on the
+machine — with one approval-gated tool call and no rebuild, no redeploy and no
+restart.
 
 See :doc:`switch-control-target` for the whole workflow: the two tools, the
 reachability proof that keeps a failed switch from stranding the session, the
@@ -126,24 +132,32 @@ how Bluesky plans behave while a session is switched.
 Rehearsing against a live target
 ================================
 
-A deployment usually has nothing to switch *to*: the live connector points at a
-facility gateway that may not exist yet, or not from this laptop. Setting
-``virtual_accelerator.live_standin: 5074`` in the build profile gives it one —
-a **second** simulator container, deployed as this deployment's ``live`` target.
-``control_target_set live`` then rehearses the whole go-live ritual with nothing
-to edit and no real machine involved. The ``control-assistant`` preset ships it
-on; delete the line to run one machine again.
+A deployment usually has nothing to rehearse the real-machine procedure on: the
+``epics`` connector points at a facility gateway that may not exist yet, or not
+from this laptop. Setting ``virtual_accelerator.live_standin: 5074`` in the build
+profile gives it a machine to rehearse on — a **second** simulator container,
+deployed as a control target of its own, ``standin``. The ``control-assistant``
+preset ships it on; delete the line to run one machine again.
 
-The two are told apart by reading them: one image over one lattice, but a small
-fixed offset on the stand-in's BPM readouts. The label stays honest throughout —
-the banner and the posture badge read ``LIVE MACHINE (stand-in)``.
-:doc:`switch-control-target` has the ritual itself, and the three steps that
-turn the stand-in into your facility.
+The stand-in is a third machine, not a rewrite of ``live``. It has its own
+connector block, and ``control_system.connector.epics`` stays whatever your
+facility wrote there — so ``live`` still names your machine while the rehearsal
+runs beside it. ``control_target_set standin`` moves a session onto the stand-in;
+``control_target_set live`` from there walks the real go-live path, gates and
+all.
+
+The two simulated machines are told apart by reading them: one image over one
+lattice, but a small fixed offset on the stand-in's BPM readouts. (Where the
+environment pins ``VA_LATTICE=none`` or a facility channel file, there is no
+lattice to displace — the stand-in serves that manifest unperturbed, and reads
+identically to the Virtual Accelerator beside it.) The label stays honest either
+way: the banner and the posture badge read ``LIVE MACHINE (stand-in)``.
+:doc:`switch-control-target` has the ritual itself.
 
 **Scenarios reach both machines.** ``osprey sim apply`` writes one scenario file
 and both containers poll it, so a scenario changes the world rather than one
-lane. There is no scenario that applies to the simulator but not to the machine
-standing in for the live one, and switching targets does not undo one.
+lane. There is no scenario that applies to the simulator but not to the stand-in,
+and switching targets does not undo one.
 
 **The archive belongs to the machine.** The recorder records the stand-in when
 one is deployed, and the history seeded on the first deploy carries the same BPM
@@ -151,7 +165,10 @@ offsets the stand-in reads — so its past and its present describe one machine,
 the way a real machine's do. What the two halves share is the systematic error,
 not the individual samples: the seeded past carries the same systematic offsets
 as the stand-in's readout, not the same numbers, because the seed's values are
-generated rather than read off the running IOC.
+generated rather than read off the running IOC. While that store is being
+recorded, the ``live`` target is refused — a real machine's readings must not
+land in a stand-in's archive. :doc:`switch-control-target` says how to clear
+that.
 
 Switching back to the mock
 ==========================
@@ -189,7 +206,8 @@ honest answer to "is this archive still being written". Flipping back to
 
 A stand-in changes that answer, because the recorder follows the machine rather
 than the ``control_system.type`` line: the stand-in keeps running and is still
-this deployment's live machine, so it keeps being recorded on ``mock`` as well.
+the machine this deployment records, so it keeps being recorded on ``mock`` as
+well.
 
 Connecting to the IOC
 =====================
@@ -298,18 +316,19 @@ exactly that pair of keys.
 
 .. note::
 
-   The limits posture here follows the stand-in. Without one, the limits
-   checker runs permissive (``limits_checking.allow_unlisted_channels:
-   true``): a channel *absent* from ``channel_limits.json`` is not blocked,
-   range enforcement covers the listed channels, and it is not a closed
-   allowlist.
+   The limits posture is a separate decision, and it is the profile's to make.
+   Shipped permissive (``limits_checking.allow_unlisted_channels: true``), the
+   limits checker does not block a channel *absent* from
+   ``channel_limits.json``: range enforcement covers the listed channels, and
+   it is not a closed allowlist.
 
-   Set ``virtual_accelerator.live_standin`` in the build profile — the
-   ``control-assistant`` preset does — and the build runs the deployment
-   strict instead: limits checking on, unlisted channels refused, on both
-   machines. That is the posture a switch to the live machine requires, and
-   rehearsing it is what the stand-in is for, so an unlisted channel is
-   refused on the simulator too. See `Rehearsing against a live target`_.
+   A deployment that rehearses on a stand-in wants the strict posture instead —
+   limits checking on, unlisted channels refused — because that is what a switch
+   to either real-machine target requires, and rehearsing it is what the
+   stand-in is for. Write the pair in the build profile's ``config:`` block; the
+   ``control-assistant`` preset does. It applies to the whole deployment, so an
+   unlisted channel is refused on the simulator too. See `Rehearsing against a
+   live target`_.
 
 The archive
 ===========
@@ -394,9 +413,10 @@ it has.
 The honesty rule
 ================
 
-There is one configuration this stack refuses: a ``virtual_accelerator`` control
-system paired with the **mock archiver** — or with no archiver set at all, which
-resolves to the same thing.
+There is one configuration this stack refuses: a machine the deployment stands
+up for itself — the ``virtual_accelerator`` control system, or the
+``live_standin`` one — paired with the **mock archiver**, or with no archiver
+set at all, which resolves to the same thing.
 
 The reason is what the two do differently. The Virtual Accelerator serves
 channels that move for modelled reasons: you step a corrector, the orbit

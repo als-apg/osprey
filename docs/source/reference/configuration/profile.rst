@@ -589,47 +589,77 @@ by ``osprey up`` and served from the lattice the build renders (see
        build writes follows this value, so changing it moves both.
    * - ``live_standin``
      - absent
-     - Port for a **second** copy of the simulator, deployed as this
-       deployment's ``live`` target. Absent means one machine, as before.
+     - Port for a **second** copy of the simulator, deployed as a third control
+       target of its own, ``standin``. Absent means one machine, as before.
 
 The live stand-in
 -----------------
 
 ``live_standin`` deploys a second simulator container on its own Channel Access
-port and points the deployment's ``epics`` gateways at it on loopback — so the
-deployment's ``live`` target is a machine you own. Both containers run one image
-over the same lattice and the same active scenarios; what differs is a small
-fixed offset on the stand-in's BPM readouts, which is what lets you tell the two
-apart by reading them.
+port and gives the deployment a third control target, ``standin``, dialled
+through its own ``control_system.connector.live_standin`` block. Both containers
+run one image over the same lattice and the same active scenarios; what differs
+is a small fixed offset on the stand-in's BPM readouts, which is what lets you
+tell the two apart by reading them.
 
-What the stand-in rehearses is the procedure, not the risk:
-``control_target_set live`` walks the real go-live path straight out of
-``osprey up``, with no configuration edits. See
-:doc:`/how-to/control-systems/switch-control-target` for that rehearsal, and for
-the three steps that turn the stand-in into your own facility.
+The stand-in is a machine of its own, **not** a rewrite of ``live``. The build
+never writes a key under ``control_system.connector.epics``, so ``live`` means
+the gateways the facility authored on a stand-in deployment exactly as on one
+without: a facility already pointed at its own control system can stand a
+rehearsal up beside it. What the stand-in rehearses is the procedure, not the
+risk — ``control_target_set standin`` moves a session onto it, and
+``control_target_set live`` from there walks the real go-live path. See
+:doc:`/how-to/control-systems/switch-control-target`.
 
-**One fact, one home.** The key is where the live target is described, and the
-build derives up to nine keys from it: the six
-``control_system.connector.epics.gateways.*`` keys — address, port and
-name-server mode for each of the two roles —
-``control_system.connector.epics.probe_channel`` (copied from the simulator's
-own probe channel; a deployment that names none gets none), and the strict
-limits pair ``control_system.limits_checking.enabled`` and
-``control_system.limits_checking.allow_unlisted_channels``. It also writes
-``control_system.target_switch.live_gateway_acknowledged`` with the stand-in's
-loopback address, because that is what the gateways now dial, and leaves a note
-in ``config.yml`` saying so — unless that key already names something else, in
-which case the build leaves it alone and warns which key it skipped. A profile
-that spells any of the nine in its own
-``config:`` block is refused by name at build time rather than silently having
-the derived copy win: two homes for one fact are free to disagree, and a real
-gateway hostname left in ``config:`` reads as the machine this deployment talks
-to while every session is on the stand-in.
+**One fact, one home.** The key is where the stand-in is described, and the build
+derives exactly seven keys from it, all under
+``control_system.connector.live_standin``:
 
-Turning the stand-in on therefore runs the **whole deployment** under the strict
-limits posture — limits checking on, unlisted channels refused, on the baseline
-simulator as much as on the stand-in — because that is what a switch to the live
-machine requires.
+- the six ``gateways.*`` keys — ``address``, ``port`` and ``use_name_server``
+  for each of the ``read_only`` and ``write_access`` roles, pointing both lanes
+  at loopback on the stand-in's port over the Channel Access name server;
+- ``probe_channel``, copied from the simulator's own, since the stand-in is the
+  same soft IOC over the same machine model. A deployment whose simulator names
+  none gets none here either.
+
+A profile that spells any of the seven in its own ``config:`` block is refused by
+name at build time rather than silently having the derived copy win: two homes
+for one fact are free to disagree, and an address left in ``config:`` reads as
+the endpoint the ``standin`` target dials while every session on it is somewhere
+else. The refusal is scoped to those leaves — a persona's own
+``control_system.connector.live_standin.writes_enabled`` says something the build
+has no opinion about, and is yours to write.
+
+**What the block does not decide.** Write posture, limits checking and the
+operator acknowledgment are the profile's, on a stand-in deployment exactly as on
+any other: they describe how the *deployment* is run, not where one of its
+targets lives. In particular, a switch to ``standin`` (like one to ``live``)
+requires the strict limits posture, so a profile that stands a stand-in up
+normally writes the pair itself:
+
+.. code-block:: yaml
+
+   config:
+     control_system.limits_checking.enabled: true
+     control_system.limits_checking.allow_unlisted_channels: false
+
+``control_system.target_switch.live_gateway_acknowledged`` stays the live
+machine's alone — the stand-in's equivalent is the ``live_standin`` line itself.
+
+**What the build refuses.** Beside the duplicate-key refusal above:
+
+- a stand-in port that collides with ``virtual_accelerator.port``, with another
+  port this profile spends, or with a hand-authored virtual-accelerator gateway
+  port — the simulator and its stand-in are two endpoints, never one;
+- a stand-in on a build with no built-in lattice behind it, because the shipped
+  readout perturbation needs a model to displace and the IOC treats a
+  perturbation it cannot apply as fatal at boot;
+- ``control_system.type: live_standin`` on a profile that sets no
+  ``virtual_accelerator.live_standin`` — a baseline naming a machine the
+  deployment does not stand up;
+- a ``va_archiver`` block beside a stand-in on a baseline that is neither
+  simulated nor the stand-in, since the recorder would sample one machine into a
+  store the deployment reads as another's.
 
 On a laptop the second container is a real cost — the simulator image is
 amd64-only, so Apple Silicon emulates both — and deleting the line is the

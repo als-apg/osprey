@@ -140,7 +140,7 @@ Expected subdirectories in `{{ agent_data_root }}/`:
 | `.claude/settings.json` | Cold | Requires new Claude Code session |
 | Hook scripts | Cold | Requires new Claude Code session |
 
-Switching control target is not a config change: `control_system.type` only sets the target the agent starts on, and the `control_target_set` tool switches live ↔ virtual at run time for the current session (it asks for approval first). Never send an operator to `osprey build` to change target.
+Switching control target is not a config change: `control_system.type` only sets the target the agent starts on, and the `control_target_set` tool moves the current session between the machines this deployment has — `live` (the facility's own control system), `va` (the virtual accelerator) and `standin` (the live stand-in this deployment runs for itself) — at run time (it asks for approval first). `control_target` reports which of the three exist here and which is active. Never send an operator to `osprey build` to change target.
 
 ---
 

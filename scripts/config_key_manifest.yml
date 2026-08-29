@@ -602,6 +602,26 @@ keys:
       before it becomes the active one. Written by the templates ahead of the
       switch's own reader (this branch); a target without one is ineligible,
       which is why the VA block ships it set and the epics block does not.
+  control_system.connector.live_standin:
+    rendered: false
+    covered-by: control_system.connector
+    note: >-
+      The live stand-in's own connector block. Never authored and never
+      rendered by a template: the build derives it from
+      `virtual_accelerator.live_standin` (see `services.live_standin.*` above,
+      which carries the same `rendered: false` standing), and the factory reads
+      it exactly as it reads any other `control_system.connector.<type>` block,
+      so the parent carries the evidence the same way the `epics` and
+      `virtual_accelerator` entries do.
+  control_system.connector.live_standin.writes_enabled:
+    rendered: false
+    evidence: 'block\[TYPE_WRITES_ENABLED_LEAF\] is True'
+    note: >-
+      The one leaf of the derived block a profile is free to write. Anchored on
+      the per-type resolver's read in `osprey_connectors.types`
+      (`type_writes_enabled`), which is the single reader of every
+      `control_system.connector.<type>.writes_enabled` leaf — the same site
+      `control_system.writes_enabled` above names as its inherit fallback.
   control_system.connector.epics.probe_channel:
     rendered: false
     evidence: '"probe_channel": str\(block\.get\(PROBE_CHANNEL_KEY\)'
