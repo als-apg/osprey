@@ -28,7 +28,10 @@ enforcement reads the same declaration:
   laid over them, which is where a host that differs is named.
 * **The build refuses.** :func:`reach_errors` reads a rendered config and
   refuses a consumer that is on with nothing to resolve — the generic backstop
-  for a render whose host, or whose app template, deploys no such service.
+  for a render whose host, or whose app template, deploys no such service —
+  and, on a deploying render, a consumer that is on for a service the
+  deployment does not run: its client would resolve the compiled-in loopback
+  default and dial a port nothing publishes.
 * **Tests check the seams.** The credential grants and shared paths declared
   here are what ``tests/deployment/test_reach_contract.py`` walks over a real
   built stack: switch on ⇒ endpoint resolves ∧ credential in the container's
@@ -50,6 +53,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -108,6 +112,9 @@ Predicate = Callable[[Mapping[str, Any]], bool]
 #: ``(host, port)`` — what a consumer's client actually connects to.
 Dial = tuple[str, int]
 Dialer = Callable[[Mapping[str, Any]], "Dial | None"]
+#: The host directory a shared path binds, anchored on the deployment repo
+#: root (``None`` resolves it from the config), or ``None`` when unconfigured.
+HostDir = Callable[[Mapping[str, Any], "str | Path | None"], "Path | None"]
 
 
 def dotted_get(config: Mapping[str, Any] | None, dotted_key: str) -> Any:
@@ -222,6 +229,12 @@ class ReachContract:
         derived_by: Name of the build block that already derives this
             service's client facts for attached renders on its own path
             (the archive: :func:`osprey.cli.build_profile_archiver.va_archiver_config_overrides`).
+        names_external: Whether the render names a service of this kind that
+            the deployment does not run itself — an explicit URI, DSN or URL
+            rather than the port a deployed one would publish. The one shape
+            in which a deploying render keeps a consumer on for a service
+            absent from ``deployed_services``. ``None`` where the service has
+            no such form (the sidecar and the plan lanes are loopback-only).
         note: One line for the completeness report.
     """
 
@@ -231,6 +244,7 @@ class ReachContract:
     credentials: tuple[CredentialGrant, ...] = ()
     no_client_reach: bool = False
     derived_by: str | None = None
+    names_external: Predicate | None = None
     note: str = ""
 
 
@@ -242,11 +256,63 @@ class SharedPath:
         config_key: The dotted key naming the directory.
         gate: Which renders are entitled — the predicate the render mounts by.
         describe: What lives there, for messages.
+        host_dir: The bind source on the host, read through the one reader the
+            deploy provisions from and the renderers emit the mount from — so
+            the directory this refuses over is the directory that would have
+            been bound.
+        provisioned: Whether the deploy creates the directory before the first
+            bind (:func:`~osprey.deployment.compose_generator.ensure_shared_corpus_dir`).
+            ``True`` for a writer's output, where "not there yet" is the
+            ordinary first-deploy state and only a directory the deploy could
+            not create refuses; ``False`` for authored content, which nothing
+            fills for the operator, so it has to be there at build time.
     """
 
     config_key: str
     gate: Predicate
     describe: str
+    host_dir: HostDir
+    provisioned: bool = False
+
+    def resolves(self, config: Mapping[str, Any], repo_root: str | Path | None = None) -> bool:
+        """Whether this render's bind source is — or can be — on the host."""
+        return self.unresolved(config, repo_root) is None
+
+    def unresolved(
+        self, config: Mapping[str, Any], repo_root: str | Path | None = None
+    ) -> str | None:
+        """Why the bind source is not on the host, or ``None`` when it is.
+
+        The counterpart of :attr:`Consumer.resolves` for a directory: a
+        consumer with nothing to dial fails at first use, and a container
+        handed a bind whose source is missing has the runtime create it —
+        root-owned under a rootful daemon, so nothing that runs as ``osprey``
+        can write it — or, for authored content, binds an empty directory the
+        deploy provisioned on the spot, so every reader inside finds nothing.
+        """
+        path = self.host_dir(config, repo_root)
+        if path is None:
+            return f"{self.config_key} names no directory"
+        if path.is_dir():
+            return None
+        if path.exists():
+            return f"{path} is not a directory"
+        if not self.provisioned:
+            return f"this host has no directory at {path}"
+        blocker = _nearest_existing(path)
+        if blocker is not None and blocker.is_dir() and os.access(blocker, os.W_OK):
+            return None
+        return f"the deploy cannot create {path}: " + (
+            f"{blocker} is not a directory this user can write" if blocker else "no such root"
+        )
+
+
+def _nearest_existing(path: Path) -> Path | None:
+    """The first ancestor of *path* that exists, or ``None``."""
+    for ancestor in path.parents:
+        if ancestor.exists():
+            return ancestor
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -424,6 +490,41 @@ def _panel_url_resolves(panel_id: str) -> Predicate:
 
 def _always(_config: Mapping[str, Any]) -> bool:
     return True
+
+
+# ---------------------------------------------------------------------------
+# A service named elsewhere — the external shapes a deploying render may keep
+# a consumer on for without running the service
+# ---------------------------------------------------------------------------
+
+
+def _graphdb_named(config: Mapping[str, Any]) -> bool:
+    # The template's documented external store: an explicit `uri:` with
+    # `graphdb` left out of `deployed_services`.
+    return bool(dotted_get(config, f"services.{GRAPHDB_SERVICE_NAME}.uri"))
+
+
+def _ariel_database_named(config: Mapping[str, Any]) -> bool:
+    # resolve_ariel_dsn's first two rungs: a DSN that may point at a database
+    # with no `services.postgresql` counterpart.
+    database = as_dict(dotted_get(config, "ariel.database"))
+    return bool(database.get("uri") or database.get("connection_string"))
+
+
+def _bridge_named(config: Mapping[str, Any]) -> bool:
+    # bridge_url_from_config's first rung: a bridge that is not the one this
+    # deployment publishes.
+    return bool(dotted_get(config, "bluesky.bridge_url"))
+
+
+def _va_gateway_named(config: Mapping[str, Any]) -> bool:
+    # _va_dial's rule: a gateway row that names its own address is dialed
+    # there, wherever the simulator runs.
+    gateways = as_dict(dotted_get(config, "control_system.connector.virtual_accelerator.gateways"))
+    return any(
+        isinstance(gateway, Mapping) and bool(gateway.get("address"))
+        for gateway in gateways.values()
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -690,6 +791,7 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
             ProjectedKey(f"services.{GRAPHDB_SERVICE_NAME}.username", gate=_graph_store_wanted),
         ),
         credentials=(CredentialGrant(GRAPHDB_PASSWORD_ENV, config_needs_graphdb_password),),
+        names_external=_graphdb_named,
         note="the graph MCP server and the graph channel finder dial bolt on loopback",
     ),
     "postgresql": ReachContract(
@@ -711,6 +813,7 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
             ProjectedKey("services.postgresql.database_name", gate=_ariel_on),
         ),
         credentials=(CredentialGrant("ARIEL_DB_PASSWORD", config_needs_ariel_password),),
+        names_external=_ariel_database_named,
         note="resolve_ariel_dsn derives the DSN from the block on loopback",
     ),
     "openobserve": ReachContract(
@@ -755,6 +858,7 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
             ProjectedKey("services.bluesky.target", gate=_bluesky_server_on),
         ),
         credentials=(CredentialGrant("BLUESKY_LAUNCH_TOKEN", _launch_token_needed(LANE_ONE)),),
+        names_external=_bridge_named,
         note="resolve_bridge_url dials the published port on loopback",
     ),
     # The SECOND plan lane a deploying profile opts into (`bluesky.second_lane`),
@@ -786,6 +890,9 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
         # secret — is in the sidecar's OWN compose file (services/bluesky_web,
         # rendered in the services stack), keyed on the same panel declaration
         # (personas.bluesky_panel_secret_env_vars).
+        # The url IS the endpoint: a profile that pins one for a sidecar it
+        # does not deploy has named it.
+        names_external=_panel_url_resolves(BLUESKY_PANEL_ID),
         note="the panel proxy dials the sidecar at web.panels.bluesky.url with the user's own secret",
     ),
     "event_dispatcher": ReachContract(
@@ -804,6 +911,7 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
             for leaf in ("url", "path", "label", "health_endpoint")
         ),
         credentials=(CredentialGrant("EVENT_DISPATCHER_TOKEN", config_needs_dispatcher_token),),
+        names_external=_panel_url_resolves(EVENTS_PANEL_ID),
         note="the panel proxy dials the dispatcher at web.panels.events.url",
     ),
     "virtual_accelerator": ReachContract(
@@ -820,6 +928,7 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
             ),
         ),
         projected=(ProjectedKey("services.virtual_accelerator.port", gate=_va_connector_on),),
+        names_external=_va_gateway_named,
         note="the connector fills every gateway port from the block",
     ),
     "live_standin": ReachContract(
@@ -882,6 +991,21 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
     ),
 }
 
+
+def _bundle_host_dir(config: Mapping[str, Any], repo_root: str | Path | None) -> Path | None:
+    # Imported here, as :mod:`osprey.deployment.web_terminals.personas` does:
+    # compose_generator imports the web-terminal package at module level.
+    from osprey.deployment.compose_generator import resolve_facility_bundle_dir
+
+    return resolve_facility_bundle_dir(config, repo_root)
+
+
+def _mirror_host_dir(config: Mapping[str, Any], repo_root: str | Path | None) -> Path | None:
+    from osprey.deployment.compose_generator import resolve_ariel_mirror_dir
+
+    return resolve_ariel_mirror_dir(config, repo_root)
+
+
 #: Host directories bound into entitled persona containers, each at the path
 #: the container's own resolver derives for the key (see
 #: :mod:`osprey.deployment.web_terminals.render`).
@@ -890,11 +1014,14 @@ SHARED_PATHS: tuple[SharedPath, ...] = (
         "facility_knowledge.bundle_path",
         config_needs_facility_bundle,
         "the facility-knowledge bundle (OKF panel, facility_knowledge MCP server)",
+        _bundle_host_dir,
     ),
     SharedPath(
         "ariel.enhancement_modules.qmd_export.mirror_path",
         config_needs_ariel_mirror,
         "the ARIEL qmd mirror (qmd_export writes it; the sidecar indexes it)",
+        _mirror_host_dir,
+        provisioned=True,
     ),
 )
 
@@ -972,7 +1099,15 @@ def reach_dials(config: Mapping[str, Any]) -> list[tuple[ReachContract, Consumer
     ]
 
 
-def reach_errors(config: Mapping[str, Any]) -> list[str]:
+def _deployed_services(config: Mapping[str, Any]) -> frozenset[str]:
+    """The services *config* deploys; empty for an attached render."""
+    deployed = config.get("deployed_services")
+    if not isinstance(deployed, list):
+        return frozenset()
+    return frozenset(str(service) for service in deployed)
+
+
+def reach_errors(config: Mapping[str, Any], *, repo_root: str | Path | None = None) -> list[str]:
     """Refuse a rendered config whose consumer is on with nothing to resolve.
 
     Read on the RENDERED config — the ground truth every client loads — so it
@@ -980,23 +1115,67 @@ def reach_errors(config: Mapping[str, Any]) -> list[str]:
     for an attached render whose host projected nothing, and for a standalone
     attached profile that pinned nothing, alike.
 
+    Two states refuse. A consumer on with no endpoint to resolve, whatever
+    the render. And, on a DEPLOYING render (``deployed_services`` non-empty),
+    a consumer on for a service the deployment does not run and the render
+    does not name elsewhere (:attr:`ReachContract.names_external`): its
+    client would resolve the port a deployed one publishes — a compiled-in
+    loopback default answers whether or not anything listens — and fail at
+    first use. An attached render (``deploy_services: false``, empty list)
+    dials its HOST's published ports on the shared network namespace, which
+    is the projection's whole point, so the second rule never reads one.
+
+    A third refuses a shared path: a render entitled to a host directory
+    (:data:`SHARED_PATHS`) whose bind source is not on the host and will not
+    be by the time it is bound (:meth:`SharedPath.unresolved`). Read against
+    *repo_root* when the build passes it — the tree the render anchors on,
+    which a ``--runtime-root`` render's own ``project_root`` does not name —
+    and otherwise resolved from the config the way every bind source is.
+
     Returns:
         One error per unresolvable consumer whose contract refuses, naming
-        the switch and the key that fixes it.
+        the switch and the key — or the service — that fixes it; one per
+        entitled shared path that is not there, naming the key.
     """
     errors: list[str] = []
+    deployed = _deployed_services(config)
     for contract, consumer in live_consumers(config):
-        if not consumer.refuse or consumer.resolves(config):
+        if not consumer.refuse:
             continue
-        keys = ", ".join(projected.key for projected in contract.projected) or (
-            f"services.{contract.service}"
-        )
-        errors.append(
-            f"{consumer.name} is switched on ({consumer.switch_key}) but this render carries "
-            f"nothing for it to dial: no {keys}. An attached render (deploy_services: false) "
-            f"is told these by the build — from its hosting deployment's render, or, built "
-            f"on its own, from what its app template deploys — so the deployment it shares "
-            f"a host with runs no such service. Name one under `config:` ({keys}), or "
-            f"switch the consumer off."
-        )
+        if not consumer.resolves(config):
+            keys = ", ".join(projected.key for projected in contract.projected) or (
+                f"services.{contract.service}"
+            )
+            errors.append(
+                f"{consumer.name} is switched on ({consumer.switch_key}) but this render "
+                f"carries nothing for it to dial: no {keys}. An attached render "
+                f"(deploy_services: false) is told these by the build — from its hosting "
+                f"deployment's render, or, built on its own, from what its app template "
+                f"deploys — so the deployment it shares a host with runs no such service. "
+                f"Name one under `config:` ({keys}), or switch the consumer off."
+            )
+        elif (
+            deployed
+            and contract.service not in deployed
+            and not (contract.names_external and contract.names_external(config))
+        ):
+            elsewhere = ", name one this deployment does not run" if contract.names_external else ""
+            errors.append(
+                f"{consumer.name} is switched on ({consumer.switch_key}) but this deployment "
+                f"does not run `{contract.service}`: it is not in deployed_services, so the "
+                f"client would dial the port a deployed `{contract.service}` publishes and "
+                f"find nothing listening. Deploy it{elsewhere}, or switch the consumer off."
+            )
+    for shared in SHARED_PATHS:
+        if not shared.gate(config):
+            continue
+        why = shared.unresolved(config, repo_root)
+        if why is not None:
+            errors.append(
+                f"This render is entitled to {shared.describe} ({shared.config_key}), "
+                f"but {why}. Bound anyway, the container runtime would create the "
+                f"source itself — root-owned under a rootful daemon, so nothing running "
+                f"as `osprey` could write it — or the container would read an empty "
+                f"directory. Put it there, or point {shared.config_key} at where it is."
+            )
     return errors

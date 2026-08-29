@@ -226,6 +226,15 @@ agents:
 output_styles:
   - control-operator  # Terse, actionable output style for control-room operators
 
+# Tabs the web workspace offers beside the terminal. To turn on a panel
+# the framework already ships, uncomment one listed under this key.
+# A panel of your own is a list entry plus its address under `config:`:
+#
+#   web_panels:
+#     - elog
+#
+# and, under `config:`, web.panels.elog.url alongside web.panels.elog.label,
+# web.panels.elog.path and — optional — web.panels.elog.health_endpoint.
 web_panels:
   - ariel           # ARIEL search interface (past experiments, papers)
   - channel-finder  # Interactive channel-finder web UI
@@ -239,8 +248,10 @@ web_panels:
 # ── Scanning and simulated hardware ──────────────────────────────────────────
 # These three blocks give you a working plan setup with no real hardware: a
 # Bluesky bridge with a Tiled data catalog, a simulated accelerator that speaks
-# EPICS, and the web panels for both. Delete this section (and the bluesky
-# panel above) if you do not want it.
+# EPICS, and the web panels for both. To drop it, delete this section, the
+# bluesky panel above, AND the `claude_code.servers.bluesky.enabled: true`
+# line under `config:` below — the block deploys the bridge, the line switches
+# on the server that dials it, and the build refuses the line left on alone.
 bluesky:
   # The bridge and its Tiled catalog publish inside this deployment's port
   # block, so neither needs a number here. Add `port:` or `tiled_port:` only to
@@ -353,8 +364,9 @@ config:
   web.theme: light
   # ── Web terminals ──────────────────────────────────────────────────────────
   # `osprey up` runs a landing page and one terminal per user listed below.
-  # `osprey web` ignores all of this, so a single terminal on your own machine
-  # works at any time. Set `modules.web_terminals.enabled: false` for backend
+  # `osprey web` honours only `auth.session_lifetime` from this block, so a
+  # single terminal on your own machine works at any time. Set
+  # `modules.web_terminals.enabled: false` to have `osprey up` deploy backend
   # services only.
   #
   # Short prefix for the web container names (`<prefix>-nginx`, `<prefix>-web-
@@ -391,6 +403,9 @@ config:
     # so on — set in this repo's .env; rotate with `osprey users passwd`).
     auth:
       method: password
+      # How long a browser stays signed in, in whole seconds. Applies to every
+      # terminal here and to `osprey web`; 43200 is twelve hours.
+      session_lifetime: 43200
       # Accepts login over plain HTTP, which fits 127.0.0.1 and nothing else.
       # For any reachable host, delete this line and configure tls instead.
       allow_insecure_http: true
@@ -491,6 +506,19 @@ dispatch:
 # the service refuses to start without them. `osprey up` generates a strong
 # random value for each one into this repo's .env, so a new deployment is
 # secure with no editing. Put your own values in .env to override.
+# Environment variables the deployment needs. Replace `env: {}` with any
+# of `required` (the variable must be set somewhere), `pinned` (this
+# repo's own env chain owns it outright, and nowhere else), `defaults`
+# (name to value) and `file` (a profile-relative path copied in as .env):
+#
+#   env:
+#     required: [EPICS_CA_ADDR_LIST]
+#     pinned: [ARIEL_DB_PASSWORD]
+#     defaults:
+#       EPICS_CA_ADDR_LIST: 127.0.0.1
+#     file: env/facility.env
+#
+# If `env:` already has children, add yours under it.
 env:
   required:
     - EVENT_DISPATCHER_TOKEN
@@ -539,8 +567,18 @@ panel_presets: {}
 # "http"; "sse" is the legacy event-stream wire and needs an explicit url.
 # Tool names under permissions are bare — `allow` runs them unprompted, `ask`
 # prompts the operator on every call.
+# A Python server's package lives at mcp_servers/<package>/ beside this file;
+# the build copies it to build/_mcp_servers/<package>/ for `-m <package>`.
 #
 # mcp_servers:
+#   my_server:
+#     command: "{current_python_env}"
+#     args: [-m, my_server]
+#     env:
+#       OSPREY_CONFIG: "{project_root}/build/config.yml"
+#       PYTHONPATH: "{project_root}/build/_mcp_servers"
+#     permissions:
+#       allow: [my_tool]
 #   matlab:
 #     command: /opt/matlab/bin/mcp-matlab
 #     args: [--workspace, /opt/matlab/scripts]
@@ -1119,10 +1157,13 @@ GITIGNORE = """\
 # `osprey reset` — anchored for the same reason the zones above are.
 /.osprey-compose.yml
 
-# OS / editor noise. Deliberately unanchored: these are junk at any depth.
+# OS / editor noise, and the bytecode Python leaves beside any server package
+# run in place. Deliberately unanchored: these are junk at any depth.
 .DS_Store
 *.swp
 *.swo
+__pycache__/
+*.py[co]
 """
 
 ENV_EXAMPLE = """\
@@ -1343,6 +1384,63 @@ is a copy of those two, and a restore is:
 ```bash
 git clone <this repo> && tar xf state.tar.gz && osprey build && osprey up -d
 ```
+
+## Common questions
+
+### Adding an MCP server of your own
+
+Put the server's Python package at `mcp_servers/<name>/`. `osprey build` copies
+it to `build/_mcp_servers/<name>/`, and an entry under `mcp_servers:`
+in `profile.yml` says how to start it:
+
+```yaml
+mcp_servers:
+  my_server:
+    command: "{current_python_env}"
+    args: [-m, my_server]
+    env:
+      PYTHONPATH: "{project_root}/build/_mcp_servers"
+```
+
+The hello-world preset ships `example_server` as a worked copy to read. Which
+buckets the artifact gallery sorts into is a separate, top-level key, one entry
+per bucket:
+
+```yaml
+artifact_server:
+  categories:
+    beam_studies: {label: Beam studies, color: "#4C6EF5"}
+```
+
+### Adding a panel of your own
+
+A panel is two halves, and one without the other is a tab that opens nothing.
+The id goes in the `web_panels:` list, and its address goes under `config:`, as
+the comment above `web_panels:` in `profile.yml` shows:
+
+```yaml
+web_panels:
+  - elog
+
+config:
+  web.panels.elog.url: http://elog.example.org
+  web.panels.elog.label: Elog
+  web.panels.elog.path: /elog
+```
+
+### Mounting an extra directory into a web terminal
+
+Deployments that give people their own web terminals mount per persona, under
+`config:`. Each entry is a container volume string of two or three non-empty
+parts, `source:target` or `source:target:mode`:
+
+```yaml
+config:
+  modules.web_terminals.personas.operator.extra_mounts:
+    - /opt/facility/data:/data:ro
+```
+
+Every key named here is written up in full at https://als-apg.github.io/osprey/.
 """
 
 

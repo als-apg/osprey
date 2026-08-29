@@ -11,27 +11,37 @@ credentials rather than each minting its own.
 
 from __future__ import annotations
 
+import hashlib
 import threading
+import time
 from types import SimpleNamespace
 
 import pytest
 from starlette.applications import Starlette
 
 from osprey.interfaces import web_auth
+from osprey.interfaces.common_middleware import WEB_PORT_ENV
 from osprey.interfaces.web_auth import (
+    _SESSION_DECOY,
     BIND_HOST_ENV,
+    DEFAULT_SESSION_LIFETIME,
     OPERATOR_SECRET_ENV,
     PANEL_TOKEN_ENV,
     ROSTER_ACCEPT_ENV,
     ROSTER_SECRET_ENV_PREFIX,
+    SESSION_LIFETIME_ENV,
+    SESSION_STORE_DIR_ENV,
+    SessionStore,
     WebCredentials,
+    _digest,
     get_web_credentials,
     mint_secret,
     reset_web_credentials,
 )
 
 #: Length of ``secrets.token_urlsafe(32)``, the minting recipe every absent
-#: credential falls back to.
+#: credential falls back to. Still the length of the id ``create_session``
+#: returns — the map key derived from it is a 64-character digest.
 _MINTED_LENGTH = 43
 
 
@@ -44,7 +54,14 @@ def _isolated_credentials(monkeypatch: pytest.MonkeyPatch):
     the environment-driven paths below would never execute. ``delenv`` also
     hands teardown the job of restoring anything the module's ``pop`` removed.
     """
-    for var in (OPERATOR_SECRET_ENV, PANEL_TOKEN_ENV, BIND_HOST_ENV):
+    for var in (
+        OPERATOR_SECRET_ENV,
+        PANEL_TOKEN_ENV,
+        BIND_HOST_ENV,
+        SESSION_LIFETIME_ENV,
+        SESSION_STORE_DIR_ENV,
+        WEB_PORT_ENV,
+    ):
         monkeypatch.delenv(var, raising=False)
     reset_web_credentials()
     yield
@@ -233,6 +250,120 @@ def test_bind_host_is_not_popped(monkeypatch: pytest.MonkeyPatch) -> None:
     get_web_credentials()
 
     assert os.environ[BIND_HOST_ENV] == "127.0.0.1"
+
+
+# ---------------------------------------------------------------------------
+# Population: the configured session lifetime
+# ---------------------------------------------------------------------------
+
+
+def test_session_lifetime_defaults_when_nothing_configures_it() -> None:
+    """An unset carrier means nothing configured it, which is the default."""
+    assert get_web_credentials().session_ttl_seconds == DEFAULT_SESSION_LIFETIME
+
+
+def test_session_lifetime_is_read_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The launcher resolves env > config > default and publishes it here."""
+    monkeypatch.setenv(SESSION_LIFETIME_ENV, "3600")
+
+    assert get_web_credentials().session_ttl_seconds == 3600
+
+
+def test_session_lifetime_is_stripped(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A value out of a ``.env`` may carry surrounding whitespace."""
+    monkeypatch.setenv(SESSION_LIFETIME_ENV, " 60 ")
+
+    assert get_web_credentials().session_ttl_seconds == 60
+
+
+@pytest.mark.parametrize("blank", ["", "   ", "\n\t "])
+def test_blank_session_lifetime_takes_the_default(
+    monkeypatch: pytest.MonkeyPatch, blank: str
+) -> None:
+    """``${VAR:-}`` of an unset compose variable is 'nothing configured it'.
+
+    This is the one non-numeric value that is not a typo, so it is the one that
+    may fall back rather than refuse.
+    """
+    monkeypatch.setenv(SESSION_LIFETIME_ENV, blank)
+
+    assert get_web_credentials().session_ttl_seconds == DEFAULT_SESSION_LIFETIME
+
+
+@pytest.mark.parametrize("bad", ["0", "-1", "12h", "1.5", "abc", "1e3", " -0 "])
+def test_unreadable_session_lifetime_refuses_to_start(
+    monkeypatch: pytest.MonkeyPatch, bad: str
+) -> None:
+    """A lifetime that is not a positive whole number of seconds is fatal.
+
+    Substituting the default would hide a config typo on a shared console: the
+    deployment would believe it had shortened the lifetime while every terminal
+    went on handing out twelve-hour sessions. Zero and negatives are refused
+    rather than clamped for the same reason — neither is a lifetime anyone
+    means, and a session that expires the instant it is minted is a login page
+    that never lets anybody in.
+    """
+    monkeypatch.setenv(SESSION_LIFETIME_ENV, bad)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        get_web_credentials()
+
+    message = str(excinfo.value)
+    assert "modules.web_terminals.auth.session_lifetime" in message, (
+        "the error must name the config key an operator would edit"
+    )
+    assert SESSION_LIFETIME_ENV in message, "and the environment variable carrying it"
+
+
+def test_session_lifetime_carrier_is_not_popped(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A duration is not a credential, and every terminal in the deployment reads it.
+
+    ``osprey web`` reads the same variable back after publishing it, and the
+    multi-user compose hands it to each terminal container. Consuming it here
+    would leave the next reader looking at an unset name and silently falling
+    back to the default.
+    """
+    import os
+
+    monkeypatch.setenv(SESSION_LIFETIME_ENV, "3600")
+
+    get_web_credentials()
+
+    assert os.environ[SESSION_LIFETIME_ENV] == "3600"
+
+
+def test_a_refused_session_lifetime_is_not_cached(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The second call refuses too, rather than defaulting on a consumed carrier."""
+    monkeypatch.setenv(SESSION_LIFETIME_ENV, "0")
+
+    with pytest.raises(RuntimeError):
+        get_web_credentials()
+    with pytest.raises(RuntimeError):
+        get_web_credentials()
+
+
+def test_a_refused_lifetime_still_consumes_the_credential_carriers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """This refusal is fatal like the container-shape one, and must leak no less.
+
+    A caller may catch the ``RuntimeError`` and keep serving, so the ordering
+    property the container shape pins holds here too: both credentials are
+    popped before anything can raise.
+    """
+    import os
+
+    monkeypatch.setenv(OPERATOR_SECRET_ENV, "supplied-operator-secret")
+    monkeypatch.setenv(PANEL_TOKEN_ENV, "supplied-panel-token")
+    monkeypatch.setenv(SESSION_LIFETIME_ENV, "12h")
+
+    with pytest.raises(RuntimeError):
+        get_web_credentials()
+
+    assert OPERATOR_SECRET_ENV not in os.environ
+    assert PANEL_TOKEN_ENV not in os.environ
 
 
 # ---------------------------------------------------------------------------
@@ -433,10 +564,12 @@ def test_single_user_shape_has_no_roster() -> None:
 
 
 def test_non_ascii_candidate_is_refused_not_raised(credentials: WebCredentials) -> None:
-    """``compare_digest`` raises on non-ASCII ``str``; the bytes encoding is why it does not here.
+    """``compare_digest`` raises on non-ASCII ``str``; nothing here lets it.
 
     Headers and cookies are attacker-controlled, so one accented character
-    would otherwise be an unhandled 500 rather than a 401.
+    would otherwise be an unhandled 500 rather than a 401. The two secret
+    comparisons encode to UTF-8 bytes first; the session path digests the
+    candidate first, which is ASCII hex whatever arrived.
     """
     assert credentials.verify_operator("öperator-value") is False
     assert credentials.verify_panel("pänel-value") is False
@@ -455,6 +588,62 @@ def test_session_round_trip(credentials: WebCredentials) -> None:
     assert len(session_id) == _MINTED_LENGTH
     assert credentials.verify_session(session_id) is True
     assert credentials.verify_session(mint_secret()) is False
+
+
+def test_create_session_uses_the_configured_lifetime() -> None:
+    """With no argument, a session lasts what the deployment configured.
+
+    The serving callers all mint sessions with no argument, so this is the only
+    thing that carries ``session_lifetime`` from the environment to a real
+    session's deadline.
+    """
+    credentials = WebCredentials(
+        operator_secret="operator-value",
+        panel_token="panel-value",
+        session_ttl_seconds=5,
+    )
+
+    before = time.time()
+    session_id = credentials.create_session()
+    after = time.time()
+
+    deadline = credentials.sessions[_digest(session_id)]
+    assert before + 5 <= deadline <= after + 5
+
+
+def test_the_deadline_is_wall_clock() -> None:
+    """Deadlines are epoch seconds, because the store persists them across a restart.
+
+    A monotonic reading is meaningless to the process that loads it, so this is
+    the property the on-disk store depends on rather than a free choice.
+    """
+    credentials = WebCredentials(operator_secret="operator-value", panel_token="panel-value")
+
+    session_id = credentials.create_session(ttl_seconds=1000)
+    deadline = credentials.sessions[_digest(session_id)]
+
+    assert abs(deadline - (time.time() + 1000)) < 5
+
+
+def test_an_explicit_ttl_overrides_the_configured_one(credentials: WebCredentials) -> None:
+    """The argument is still there for tests that need a deadline they control."""
+    session_id = credentials.create_session(ttl_seconds=1000)
+
+    assert credentials.sessions[_digest(session_id)] <= time.time() + 1000
+
+
+def test_a_populated_holder_carries_the_configured_lifetime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """End to end: the environment value reaches the process's own holder."""
+    monkeypatch.setenv(SESSION_LIFETIME_ENV, "3600")
+
+    assert get_web_credentials().session_ttl_seconds == 3600
+
+
+def test_the_holder_default_is_the_module_default(credentials: WebCredentials) -> None:
+    """A directly-constructed holder is not a second opinion on the lifetime."""
+    assert credentials.session_ttl_seconds == DEFAULT_SESSION_LIFETIME
 
 
 def test_sessions_are_distinct(credentials: WebCredentials) -> None:
@@ -481,7 +670,7 @@ def test_expired_sessions_are_purged(credentials: WebCredentials) -> None:
     live = credentials.create_session()
 
     assert credentials.verify_session(live) is True
-    assert list(credentials.sessions) == [live]
+    assert list(credentials.sessions) == [_digest(live)]
 
 
 def test_purge_happens_on_create_too(credentials: WebCredentials) -> None:
@@ -503,33 +692,59 @@ def test_revoke_session_invalidates_the_cookie(credentials: WebCredentials) -> N
     assert credentials.revoke_session(session_id) is False
 
 
-def test_the_cost_equalizing_decoy_is_not_a_credential(credentials: WebCredentials) -> None:
-    """A candidate equal to the miss-path decoy must still be refused.
+@pytest.mark.parametrize("forged", ["\x00" * 43, _SESSION_DECOY])
+def test_the_cost_equalizing_decoy_is_not_a_credential(
+    credentials: WebCredentials, forged: str
+) -> None:
+    """A candidate shaped like — or equal to — the miss-path decoy is still refused.
 
     The decoy exists only so a miss costs what a hit costs. If the answer were
     read off the comparison alone, sending the decoy's own value would compare
-    equal to it and authenticate against an EMPTY session map — and a NUL run
-    survives a ``%00`` query string, a JSON body and a websocket frame intact,
-    so it is a value an attacker can actually deliver to the token exchange
-    this map serves.
+    equal to it and authenticate against an EMPTY session map. The cases here
+    are the ones an attacker can actually deliver to the token exchange this
+    map serves: a NUL run, which survives a ``%00`` query string, a JSON body
+    and a websocket frame intact; and the decoy's own hex spelling, which is
+    plain ASCII and survives anything.
     """
-    forged = "\x00" * 43
-
     assert credentials.verify_session(forged) is False
     assert credentials.sessions == {}
 
     # Still refused once the map is non-empty, so a live session cannot be the
-    # thing that makes the forgery work either.
+    # thing that makes the forgery work either — and the attempt adds nothing
+    # to the map.
     credentials.create_session()
     assert credentials.verify_session(forged) is False
+    assert len(credentials.sessions) == 1
 
 
-@pytest.mark.parametrize("length", [1, 42, 44, 200])
+@pytest.mark.parametrize("length", [1, 42, 44, 63, 65, 200])
 def test_wrong_length_forgeries_are_refused(credentials: WebCredentials, length: int) -> None:
-    """A NUL run of any other length is refused too — the decoy's length is not a key."""
+    """A NUL run of any other length is refused too — no length is a key."""
     credentials.create_session()
 
     assert credentials.verify_session("\x00" * length) is False
+
+
+def test_a_map_key_presented_as_the_cookie_is_refused(credentials: WebCredentials) -> None:
+    """The map — and the file it is persisted to — authenticates nobody.
+
+    This is the property that lets the store live on a volume the agent's own
+    PTY can read: what is written there is a digest, and a digest handed back
+    as a cookie is digested AGAIN before the lookup, so it misses.
+    """
+    credentials.create_session()
+    key = next(iter(credentials.sessions))
+
+    assert credentials.verify_session(key) is False
+
+
+def test_the_map_holds_no_raw_session_id(credentials: WebCredentials) -> None:
+    """What is keyed is the digest, never the value the browser sends back."""
+    session_id = credentials.create_session()
+
+    assert session_id not in credentials.sessions
+    assert hashlib.sha256(session_id.encode("utf-8")).hexdigest() in credentials.sessions
+    assert credentials.verify_session(session_id) is True
 
 
 def test_a_secret_is_not_a_session(credentials: WebCredentials) -> None:
@@ -539,6 +754,419 @@ def test_a_secret_is_not_a_session(credentials: WebCredentials) -> None:
     assert credentials.verify_session("operator-value") is False
     assert credentials.verify_operator(session_id) is False
     assert credentials.verify_panel(session_id) is False
+
+
+def test_a_non_persisting_session_is_marked_ephemeral(credentials: WebCredentials) -> None:
+    """``persist=False`` records the digest the store's snapshot must skip.
+
+    The session is otherwise ordinary — it verifies like any other; the flag
+    only decides whether it may reach the disk.
+    """
+    session_id = credentials.create_session(persist=False)
+    digest = _digest(session_id)
+
+    assert digest in credentials.sessions
+    assert digest in credentials._ephemeral
+    assert credentials.verify_session(session_id) is True
+
+
+def test_a_persisting_session_is_not_marked_ephemeral(credentials: WebCredentials) -> None:
+    """The default is persistable: an ordinary login must survive a restart."""
+    session_id = credentials.create_session()
+
+    assert _digest(session_id) not in credentials._ephemeral
+    assert credentials._ephemeral == set()
+
+
+def test_revoking_clears_both_the_map_and_the_ephemeral_set(
+    credentials: WebCredentials,
+) -> None:
+    """A logout must not leave the digest behind in the set that tracks the map."""
+    session_id = credentials.create_session(persist=False)
+
+    assert credentials.revoke_session(session_id) is True
+    assert credentials.sessions == {}
+    assert credentials._ephemeral == set()
+
+
+def test_expiry_purges_the_ephemeral_set_too(credentials: WebCredentials) -> None:
+    """Otherwise the set would accumulate digests of sessions that are long gone."""
+    credentials.create_session(ttl_seconds=0, persist=False)
+    assert credentials._ephemeral != set()
+
+    credentials.create_session()
+
+    assert len(credentials.sessions) == 1
+    assert credentials._ephemeral == set()
+
+
+# ---------------------------------------------------------------------------
+# Browser sessions: the on-disk store
+# ---------------------------------------------------------------------------
+
+
+def _write_store(path, sessions: dict[str, float]) -> None:
+    """Put a store file on disk in the shape :class:`SessionStore` reads."""
+    import json
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"v": 1, "sessions": sessions}), encoding="utf-8")
+
+
+def _read_store(path) -> dict[str, float]:
+    """Read the persisted ``{digest: deadline}`` map straight off the disk."""
+    import json
+
+    return json.loads(path.read_text(encoding="utf-8"))["sessions"]
+
+
+def test_restored_deadlines_are_clamped_to_the_configured_lifetime(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """A restart that SHORTENED the lifetime must shorten the sessions it inherits.
+
+    The stored deadline was written under whatever lifetime was configured
+    then. An operator who cuts the lifetime and restarts has said what the
+    longest live session may now be, so a deadline from the old value is capped
+    at ``now + ttl`` rather than honoured. A deadline already inside the new
+    window is untouched — clamping is a ceiling, never an extension.
+    """
+    now = time.time()
+    store_dir = tmp_path / "web_terminal"
+    _write_store(store_dir / "sessions.json", {"far": now + 100_000, "near": now + 30})
+    monkeypatch.setenv(SESSION_STORE_DIR_ENV, str(store_dir))
+    monkeypatch.setenv(SESSION_LIFETIME_ENV, "3600")
+
+    sessions = get_web_credentials().sessions
+
+    assert set(sessions) == {"far", "near"}
+    # Two-sided: a clamp that landed short would log every operator out on the
+    # restart the store exists to carry them through, which is the same failure
+    # as not clamping at all, only in the other direction.
+    assert sessions["far"] <= time.time() + 3600
+    assert sessions["far"] >= now + 3599
+    assert sessions["near"] == pytest.approx(now + 30)
+
+
+def test_an_expired_store_restores_nothing_and_the_next_login_replaces_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Restoring is not resurrecting: a deadline in the past is gone for good.
+
+    And the stale entries are not merely hidden in memory — the first login
+    after the restart writes the map as it now is, so the dead digests leave
+    the disk as well.
+    """
+    store_dir = tmp_path / "web_terminal"
+    path = store_dir / "sessions.json"
+    _write_store(path, {"stale": time.time() - 1})
+    monkeypatch.setenv(SESSION_STORE_DIR_ENV, str(store_dir))
+
+    credentials = get_web_credentials()
+    assert credentials.sessions == {}
+
+    session_id = credentials.create_session()
+
+    assert set(_read_store(path)) == {_digest(session_id)}
+
+
+def test_an_ephemeral_session_never_reaches_the_store(tmp_path) -> None:
+    """``persist=False`` is what keeps a process-scoped session off the disk.
+
+    The persisting session written in the same call proves the write happened
+    at all, so an empty file cannot pass this by accident.
+    """
+    store = SessionStore(tmp_path / "web_terminal", "")
+    credentials = WebCredentials(
+        operator_secret="operator-value", panel_token="panel-value", store=store
+    )
+
+    ephemeral = credentials.create_session(persist=False)
+    persisting = credentials.create_session()
+
+    assert set(_read_store(store.path)) == {_digest(persisting)}
+    assert _digest(ephemeral) not in _read_store(store.path)
+    # The excluded session is still an ordinary one in this process.
+    assert credentials.verify_session(ephemeral) is True
+
+
+def test_a_revoke_that_matched_nothing_does_not_rewrite_the_store(tmp_path) -> None:
+    """A logout tries every cookie candidate; at most one of them is a session.
+
+    ``revoke_session`` purges no expiries, so a call that matched nothing has
+    left the map exactly as it found it and has nothing to persist. Writing
+    anyway would turn one interactive logout into a full atomic rewrite per
+    candidate.
+    """
+    saves: list[int] = []
+
+    class CountingStore(SessionStore):
+        def save(self, snapshot, seq):
+            saves.append(seq)
+            super().save(snapshot, seq)
+
+    store = CountingStore(tmp_path / "web_terminal", "")
+    credentials = WebCredentials(
+        operator_secret="operator-value", panel_token="panel-value", store=store
+    )
+    live = credentials.create_session()
+    saves.clear()
+
+    assert credentials.revoke_session(mint_secret()) is False
+    assert saves == []
+
+    # The revoke that DOES match still writes — and the map it leaves is empty,
+    # which is exactly the snapshot that has to reach the disk to clear it.
+    assert credentials.revoke_session(live) is True
+    assert len(saves) == 1
+    assert _read_store(store.path) == {}
+
+
+def test_a_store_that_is_not_utf8_costs_a_re_login_not_the_console(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Bytes that do not decode are just another unusable file.
+
+    A decode failure is a ``ValueError``, not an ``OSError``, so it would slip
+    past the read guard and out of population — and a failed population is
+    deliberately not cached, which makes it permanent: every request for the
+    life of the process would be refused over a file that holds nothing but
+    deadlines. Re-resolving here is what pins that, since a raise on the second
+    call is what a lockout actually looks like.
+    """
+    store_dir = tmp_path / "web_terminal"
+    store_dir.mkdir(parents=True)
+    (store_dir / "sessions.json").write_bytes(b"\xff\xfe not utf8")
+    monkeypatch.setenv(SESSION_STORE_DIR_ENV, str(store_dir))
+
+    credentials = get_web_credentials()
+
+    assert credentials.store is not None
+    assert credentials.sessions == {}
+    assert get_web_credentials() is credentials
+
+
+def test_population_survives_a_store_read_that_raises(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """The second guard, at the call site that would turn a raise into a lockout.
+
+    :meth:`SessionStore.load` promises never to raise and is tested on its own
+    for that. This pins the promise being broken anyway: a process must serve
+    with no restored sessions rather than not serve at all.
+    """
+
+    def explode(self):
+        raise RuntimeError("the volume went away mid-read")
+
+    monkeypatch.setenv(SESSION_STORE_DIR_ENV, str(tmp_path / "web_terminal"))
+    monkeypatch.setattr(SessionStore, "load", explode)
+
+    credentials = get_web_credentials()
+
+    assert credentials.store is not None
+    assert credentials.sessions == {}
+
+
+def test_no_store_dir_means_no_store_and_no_write(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The unconfigured process must not touch a disk at all.
+
+    A default store path would put the deployment's session file wherever the
+    process happened to start. ``os.replace`` is the last step of every write
+    the store makes, so a call that never arrives there is a write that never
+    happened. ``pathlib.Path.write_text`` is guarded the same way even though
+    :meth:`SessionStore._write_atomic` does not use it — belt-and-suspenders
+    against a future write path taking that shortcut instead of the atomic
+    temp-file-and-replace one.
+
+    This also doubles as the guard for the reason
+    ``tests/conftest.py::reset_web_credentials_between_tests`` clears
+    ``SESSION_STORE_DIR_ENV`` (and ``SESSION_LIFETIME_ENV``) before every
+    test in the suite: a worker that inherited a real store directory from an
+    earlier in-process ``osprey web`` launch would fail exactly this test.
+    """
+    import os
+    from pathlib import Path
+
+    replacements: list[tuple] = []
+
+    def refuse(*args, **kwargs):
+        replacements.append(args)
+        raise AssertionError("a holder with no store wrote a file")
+
+    def refuse_write_text(*args, **kwargs):
+        raise AssertionError("a holder with no store wrote a file via Path.write_text")
+
+    monkeypatch.setattr(os, "replace", refuse)
+    monkeypatch.setattr(Path, "write_text", refuse_write_text)
+
+    credentials = get_web_credentials()
+    assert credentials.store is None
+
+    session_id = credentials.create_session()
+    credentials.revoke_session(session_id)
+
+    assert replacements == []
+
+
+def test_population_never_writes_to_the_store(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    """Starting up must not replace the store it just read.
+
+    A process that rewrote the store at population would empty it on the way
+    through a crash loop — each start would persist the sessions it had not yet
+    been handed. Nothing here is allowed to reach :meth:`SessionStore.save`, so
+    a ``save`` that raises must not stop the process from populating.
+    """
+    live = time.time() + 600
+    store_dir = tmp_path / "web_terminal"
+    _write_store(store_dir / "sessions.json", {"live": live})
+    monkeypatch.setenv(SESSION_STORE_DIR_ENV, str(store_dir))
+
+    def explode(self, snapshot, seq):
+        raise AssertionError("population wrote to the store")
+
+    monkeypatch.setattr(SessionStore, "save", explode)
+
+    credentials = get_web_credentials()
+
+    assert credentials.sessions == {"live": pytest.approx(live)}
+    assert credentials.store is not None
+
+
+def test_a_slow_save_does_not_block_verification(tmp_path) -> None:
+    """The write happens outside the lock, so a stalled disk cannot stall a request.
+
+    :meth:`verify_session` runs on every cookie-bearing request. If the store
+    were written while the session map's lock was held, a full or hung
+    filesystem would queue every page load and every websocket frame behind it
+    — the outage the store exists to be cheaper than.
+    """
+    inside_save = threading.Event()
+    release = threading.Event()
+
+    class BlockingStore(SessionStore):
+        def save(self, snapshot, seq):
+            inside_save.set()
+            release.wait(5)
+
+    credentials = WebCredentials(operator_secret="operator-value", panel_token="panel-value")
+    live = credentials.create_session()
+    credentials.store = BlockingStore(tmp_path / "web_terminal", "")
+
+    writer = threading.Thread(target=credentials.create_session, daemon=True)
+    writer.start()
+    try:
+        assert inside_save.wait(5), "the store write never started"
+        started = time.monotonic()
+        verified = credentials.verify_session(live)
+        elapsed = time.monotonic() - started
+    finally:
+        release.set()
+        writer.join(5)
+
+    assert verified is True
+    assert elapsed < 0.2, f"verify_session waited {elapsed:.2f}s on a blocked store write"
+
+
+def test_a_slow_load_does_not_block_another_holders_verification(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Population reads the disk; a holder already serving must not feel it.
+
+    The two hold different locks — a companion app's credentials are only
+    shared once population finishes — so a terminal starting up against a slow
+    volume must not freeze the sessions of one already answering requests.
+    """
+    inside_load = threading.Event()
+    release = threading.Event()
+
+    def blocking_load(self):
+        inside_load.set()
+        release.wait(5)
+        return {}
+
+    monkeypatch.setenv(SESSION_STORE_DIR_ENV, str(tmp_path / "web_terminal"))
+    monkeypatch.setattr(SessionStore, "load", blocking_load)
+
+    serving = WebCredentials(operator_secret="operator-value", panel_token="panel-value")
+    live = serving.create_session()
+
+    populating = threading.Thread(target=get_web_credentials, daemon=True)
+    populating.start()
+    try:
+        assert inside_load.wait(5), "the store read never started"
+        started = time.monotonic()
+        verified = serving.verify_session(live)
+        elapsed = time.monotonic() - started
+    finally:
+        release.set()
+        populating.join(5)
+
+    assert verified is True
+    assert elapsed < 0.2, f"verify_session waited {elapsed:.2f}s on a blocked store read"
+
+
+def test_the_store_file_is_named_for_the_served_port(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Two terminals on one host each keep their own sessions.
+
+    The port is derived exactly as the session cookie's name is, so the browser
+    holding a cookie named for one port finds its session in the store named
+    for the same one.
+    """
+    monkeypatch.setenv(SESSION_STORE_DIR_ENV, str(tmp_path / "web_terminal"))
+    monkeypatch.setenv(WEB_PORT_ENV, "8080")
+
+    store = get_web_credentials().store
+
+    assert store is not None
+    assert store.path == tmp_path / "web_terminal" / "sessions-8080.json"
+
+
+def test_a_non_numeric_port_gives_the_bare_store_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """A stray value names no port, and must not name a file either.
+
+    The same fallback :func:`session_cookie_name` takes: an unset compose
+    variable or a hostname left in the carrier would otherwise produce a store
+    file the next start does not look for.
+    """
+    monkeypatch.setenv(SESSION_STORE_DIR_ENV, str(tmp_path / "web_terminal"))
+    monkeypatch.setenv(WEB_PORT_ENV, "not-a-port")
+
+    store = get_web_credentials().store
+
+    assert store is not None
+    assert store.path == tmp_path / "web_terminal" / "sessions.json"
+
+
+def test_the_store_carriers_are_read_never_popped(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """Neither the store directory nor the port is a credential, and both outlive population.
+
+    Two later readers depend on it: a re-population in the same process has to
+    resolve the same directory and the same port-named file, and the CLI that
+    clears a deployment's sessions resolves the store the same way. Popping
+    either — which is one well-meaning line in
+    :func:`close_env_carriers` — would leave the second reader looking at a
+    different file, or at no store at all, with nothing to say why.
+    """
+    import os
+
+    store_dir = str(tmp_path / "web_terminal")
+    monkeypatch.setenv(SESSION_STORE_DIR_ENV, store_dir)
+    monkeypatch.setenv(WEB_PORT_ENV, "8080")
+
+    get_web_credentials()
+    web_auth.close_env_carriers()
+
+    assert os.environ[SESSION_STORE_DIR_ENV] == store_dir
+    assert os.environ[WEB_PORT_ENV] == "8080"
 
 
 # ---------------------------------------------------------------------------
@@ -570,6 +1198,22 @@ def test_module_exports_the_documented_surface() -> None:
     """Later tasks import these names; ``__all__`` is the contract they build on."""
     for name in web_auth.__all__:
         assert hasattr(web_auth, name), f"__all__ names {name}, which the module does not define"
+
+
+def test_session_lifetime_default_is_defined_exactly_once() -> None:
+    """Every surface that needs the default imports it rather than repeating 12 hours.
+
+    A second literal would drift the moment one of the three is tuned, and the
+    two shapes would then disagree about how long a session lasts. Identity —
+    not equality — is what is pinned: the render path and the auth sidecar must
+    hold *this* object, so re-defining either locally fails here.
+    """
+    from osprey.deployment.web_terminals import render
+    from osprey.services.auth_sidecar import app
+
+    assert render.DEFAULT_SESSION_LIFETIME is web_auth.DEFAULT_SESSION_LIFETIME
+    assert app.DEFAULT_SESSION_LIFETIME is web_auth.DEFAULT_SESSION_LIFETIME
+    assert web_auth.DEFAULT_SESSION_LIFETIME == 12 * 60 * 60
 
 
 # ---------------------------------------------------------------------------

@@ -1881,6 +1881,9 @@ def _tier_repo(tmp_path: Path, paradigm: str, tier: int | None = None) -> Path:
     if tier is not None:
         profile_data["tier"] = tier
     (repo / "profile.yml").write_text(yaml.dump(profile_data, default_flow_style=False))
+    # The bundle's source zone `osprey init` lays down beside the profile; the
+    # Reach Contract refuses a render whose bind source is not there.
+    (repo / "data" / "facility_knowledge").mkdir(parents=True)
     return repo
 
 

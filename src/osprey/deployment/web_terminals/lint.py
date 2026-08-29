@@ -65,6 +65,7 @@ from osprey.deployment.web_terminals.render import (
     _configured_external_origin,
     _external_origin,
 )
+from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
 from osprey.port_layout import resolve_port_base
 from osprey_connectors.types import TYPE_WRITES_ENABLED_LEAF, WRITES_ENABLED_KEY
 
@@ -236,6 +237,7 @@ def lint_web_terminals(
     findings.extend(_check_nginx_image(web_terminals))
     findings.extend(_check_external_origin(web_terminals))
     findings.extend(_check_auth_method(web_terminals))
+    findings.extend(_check_auth_session_lifetime(web_terminals))
     findings.extend(_check_auth_transport(root, web_terminals))
     findings.extend(_check_auth_oidc(root, web_terminals))
     findings.extend(_check_auth_credential_collisions(web_terminals, users))
@@ -2643,7 +2645,7 @@ def _check_external_origin(web_terminals: dict[str, Any]) -> list[Finding]:
 # so nothing here may be the only thing standing between a bad config and a
 # deployment — every check below mirrors a gate that also exists downstream,
 # except where the downstream path *cannot* see the mistake (see
-# :func:`_check_auth_method`).
+# :func:`_check_auth_method` and :func:`_check_auth_session_lifetime`).
 
 
 def _auth_context(
@@ -2662,6 +2664,10 @@ def _auth_context(
     reports on its own. Every check keyed on a parsed method is meaningless for
     such a config, so this degrades to ``None`` and they skip themselves rather
     than reporting confused follow-on findings.
+
+    The few checks that do read the raw stanza (:func:`_check_auth_method`,
+    :func:`_check_auth_session_lifetime`) read it for well-formedness only — a
+    value render would silently normalise away — never for its meaning.
 
     Args:
         web_terminals: The ``modules.web_terminals`` block being linted.
@@ -2825,6 +2831,48 @@ def _check_auth_method(web_terminals: dict[str, Any]) -> list[Finding]:
             message=(
                 f"modules.web_terminals.auth.method {method!r} is not a supported "
                 f"authentication method; expected one of {', '.join(SUPPORTED_AUTH_METHODS)}"
+            ),
+        )
+    ]
+
+
+def _check_auth_session_lifetime(web_terminals: dict[str, Any]) -> list[Finding]:
+    """``modules.web_terminals.auth.session_lifetime`` must be a positive int.
+
+    How long a terminal session cookie stays valid, in whole seconds. render
+    reads it defensively and substitutes the default for anything that is not a
+    whole number greater than zero, so ``0``, ``-1``, ``true`` and ``'12h'``
+    all render as the default lifetime without a word — a deployment that meant
+    to shorten its sessions silently keeps the long ones. Nothing downstream
+    sees the mistake, so like :func:`_check_auth_method` this module is its only
+    surface.
+
+    An absent key, and a ``session_lifetime:`` written with no value at all
+    (``None`` after YAML load), are the documented default and are not flagged.
+    A non-mapping ``auth`` stanza is :func:`_check_auth_method`'s finding rather
+    than this one's, so it is passed over here.
+    """
+    auth_raw = web_terminals.get("auth")
+    if not isinstance(auth_raw, dict):
+        return []
+    if "session_lifetime" not in auth_raw:
+        return []
+    lifetime = auth_raw["session_lifetime"]
+    if lifetime is None:
+        return []
+    # `bool` is excluded for render's reason (see `render._positive_int`): it
+    # passes `isinstance(..., int)`, and `session_lifetime: true` becoming a
+    # one-second session would be a baffling deployment.
+    if isinstance(lifetime, int) and not isinstance(lifetime, bool) and lifetime > 0:
+        return []
+    return [
+        Finding(
+            severity="error",
+            code="web_terminals.invalid_session_lifetime",
+            message=(
+                f"modules.web_terminals.auth.session_lifetime {lifetime!r} is not a whole "
+                f"number of seconds greater than zero; render would silently fall back to "
+                f"the default ({DEFAULT_SESSION_LIFETIME} s)"
             ),
         )
     ]

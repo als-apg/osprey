@@ -744,6 +744,63 @@ class TestMockWriteVerificationContract:
         await connector.disconnect()
 
     @pytest.mark.asyncio
+    async def test_callback_result_carries_the_readback_value(self, monkeypatch):
+        """The callback verdict is enriched with one post-write read, uncompared."""
+        connector = await self._connected_mock(monkeypatch)
+        monkeypatch.setattr(connector, "read_channel", self._fixed_read(99.0))
+
+        result = await connector.write_channel(
+            "TEST:CHANNEL:SP", 42.0, verification_level="callback"
+        )
+
+        verification = result.verification
+        assert verification.level == "callback"
+        assert verification.verified is True
+        assert verification.readback_value == pytest.approx(99.0)
+        assert verification.tolerance_used is None
+        assert verification.failure_kind is None
+        # Mock reports no alarm metadata; "not reported" stays None.
+        assert verification.readback_alarm_status is None
+        assert verification.readback_alarm_severity is None
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_failed_post_callback_read_keeps_the_callback_verdict(self, monkeypatch):
+        """A read that raises after the callback is not a readback failure."""
+        connector = await self._connected_mock(monkeypatch)
+        monkeypatch.setattr(connector, "read_channel", self._raising_read("CA disconnected"))
+
+        result = await connector.write_channel(
+            "TEST:CHANNEL:SP", 42.0, verification_level="callback"
+        )
+
+        verification = result.verification
+        assert result.success is True
+        assert result.error_message is None
+        assert verification.level == "callback"
+        assert verification.verified is True
+        assert verification.readback_value is None
+        assert verification.failure_kind is None
+        assert "CA disconnected" in verification.notes
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_none_level_does_not_read(self, monkeypatch):
+        """``none`` stays the fast path: a read that would raise is never issued."""
+        connector = await self._connected_mock(monkeypatch)
+        monkeypatch.setattr(connector, "read_channel", self._raising_read("must not be called"))
+
+        result = await connector.write_channel("TEST:CHANNEL:SP", 42.0, verification_level="none")
+
+        assert result.success is True
+        assert result.verification.level == "none"
+        assert result.verification.readback_value is None
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
     async def test_notes_text_does_not_change_structured_fields(self, monkeypatch):
         """Two readback failures with different messages classify identically.
 

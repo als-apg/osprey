@@ -1214,6 +1214,50 @@ def _rendered_config(render_dir: Path) -> dict[str, Any]:
         return yaml.safe_load(fh) or {}
 
 
+def _resolve_rendered_execution_method(render_dir: Path) -> list[str]:
+    """Run the execution-backend resolver on a render, writing back what runs.
+
+    ``execution.execution_method`` is read by every container's python
+    executor through :func:`osprey_connectors.config.resolve_execution_method`
+    — at its first ``execute`` call. A profile's ``config:`` overlay writes
+    whatever it says into the render and nothing else reads it back, so a
+    typo used to survive build, deploy and MCP startup. The same resolver
+    runs here instead: an unknown backend is a refusal carrying the
+    resolver's own message, and a legacy spelling (``local``, ``container``)
+    is rewritten into the render as the backend that runs — ``container``'s
+    one-time deprecation warning fires here, where the operator is, rather
+    than once per container.
+
+    Returns:
+        The refusal, as one message, or nothing.
+    """
+    from osprey_connectors.config import resolve_execution_method
+
+    config_path = render_dir / "config.yml"
+    config = _rendered_config(render_dir)
+    try:
+        method = resolve_execution_method(config, source=str(config_path))
+    except ValueError as e:
+        return [str(e)]
+
+    execution = config.get("execution")
+    written = execution.get("execution_method") if isinstance(execution, dict) else None
+    if written == method:
+        return []
+
+    from ruamel.yaml import YAML
+
+    yaml = YAML()
+    with config_path.open("r", encoding="utf-8") as fh:
+        document = yaml.load(fh)
+    if not isinstance(document.get("execution"), Mapping):
+        document["execution"] = {}
+    document["execution"]["execution_method"] = method
+    with config_path.open("w", encoding="utf-8") as fh:
+        yaml.dump(document, fh)
+    return []
+
+
 def _template_host_config(
     shared: _SharedRenderInputs,
     build_profile: Any,
@@ -1533,10 +1577,14 @@ def _render_project(
     # deploys no such service) alike. AFTER the injectors: a deploying profile
     # that pins only `web.panels.events.path` has its `url` written by the
     # dispatch injector, and refusing before that would name a key the build
-    # was about to write.
-    unreachable = reach_errors(_rendered_config(render_dir))
-    if unreachable:
-        raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(unreachable))
+    # was about to write. The execution backend is read here for the same
+    # reason: it is the render, not the profile, that a container loads.
+    unrunnable = [
+        *_resolve_rendered_execution_method(render_dir),
+        *reach_errors(_rendered_config(render_dir), repo_root=repo_root),
+    ]
+    if unrunnable:
+        raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(unrunnable))
 
     applied = _apply_conventions(
         repo_root,

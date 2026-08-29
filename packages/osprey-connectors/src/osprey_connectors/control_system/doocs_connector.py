@@ -20,11 +20,36 @@ from osprey_connectors.control_system.base import (
     ChannelWriteResult,
     ControlSystemConnector,
     WriteVerification,
+    readback_number,
 )
 from osprey_connectors.control_system.limits_validator import LimitsValidator
 from osprey_connectors.logger import get_logger
 
 logger = get_logger("doocs_connector")
+
+
+def _compare_by_equality(written: Any, readback: Any) -> tuple[bool, str]:
+    """Verify a non-numeric readback — a string, a sequence, an array — by equality.
+
+    Returns ``(verified, notes)``. Element-wise results (numpy arrays) count as
+    verified only when every element matches. When the two values have no
+    meaningful equality at all — the comparison raises, or yields something
+    that is neither a bool nor element-wise — the write stays unverified and
+    ``notes`` says why; the readback itself worked, so this is not a failure
+    kind.
+    """
+    try:
+        equal = readback == written
+        if not isinstance(equal, bool):
+            equal = bool(equal.all()) if hasattr(equal, "all") else bool(equal)
+    except Exception as e:
+        return False, (
+            f"Readback {readback!r} ({type(readback).__name__}) cannot be compared to the "
+            f"written value {written!r} ({type(written).__name__}): {e}"
+        )
+    if equal:
+        return True, f"Readback: {readback!r} matches the written value (by equality)"
+    return False, f"Readback mismatch: {readback!r} (expected {written!r}, by equality)"
 
 
 class DOOCSConnector(ControlSystemConnector):
@@ -266,52 +291,6 @@ class DOOCSConnector(ControlSystemConnector):
             # Read back to verify
             try:
                 readback = await self.read_channel(channel_address, timeout=timeout)
-
-                verified = False
-                value_to_report = None
-                diff = 0.0
-
-                # Check tolerance if numerical data
-                if isinstance(readback.value, (float, int)):
-                    diff = abs(float(readback.value) - float(value))
-                    verified = diff <= (tolerance or 0.001)
-                    value_to_report = float(readback.value)
-
-                # Check only equivalence if string data
-                elif isinstance(readback.value, str):
-                    verified = value == readback.value
-                    value_to_report = 0.0
-
-                logger.debug(
-                    f"DOOCS write (readback verified={verified}): "
-                    f"{channel_address} = {value}, "
-                    f"readback = {readback.value}, diff = {diff:.6f}, "
-                    f"tolerance = {tolerance}"
-                )
-
-                return ChannelWriteResult(
-                    channel_address=channel_address,
-                    value_written=value,
-                    success=True,
-                    verification=WriteVerification(
-                        level="readback",
-                        verified=verified,
-                        readback_value=value_to_report,
-                        tolerance_used=tolerance,
-                        notes=(
-                            (
-                                f"Readback: {readback.value}, tolerance: ±{tolerance}, "
-                                f"diff: {diff:.6f}"
-                            )
-                            if verified
-                            else (
-                                f"Readback mismatch: {readback.value} (expected "
-                                f"{value}, diff: {diff:.6f} > tolerance {tolerance})"
-                            )
-                        ),
-                    ),
-                )
-
             except Exception as e:
                 logger.warning(f"DOOCS readback failed for {channel_address}: {e}")
                 return ChannelWriteResult(
@@ -328,6 +307,44 @@ class DOOCSConnector(ControlSystemConnector):
                     ),
                     error_message=f"Readback verification failed: {str(e)}",
                 )
+
+            # The read worked; what follows is comparison, which never
+            # raises into a "readback_failed" — that word is reserved for
+            # the read itself. readback_value is numeric or None: a readback
+            # that is not a number is never reported as one.
+            value_to_report = readback_number(readback.value)
+            setpoint_number = readback_number(value)
+            if value_to_report is not None and setpoint_number is not None:
+                diff = abs(value_to_report - setpoint_number)
+                verified = diff <= (tolerance or 0.001)
+                notes = (
+                    f"Readback: {readback.value}, tolerance: ±{tolerance}, diff: {diff:.6f}"
+                    if verified
+                    else (
+                        f"Readback mismatch: {readback.value} (expected {value}, "
+                        f"diff: {diff:.6f} > tolerance {tolerance})"
+                    )
+                )
+            else:
+                verified, notes = _compare_by_equality(value, readback.value)
+
+            logger.debug(
+                f"DOOCS write (readback verified={verified}): {channel_address} = {value}, "
+                f"readback = {readback.value}, tolerance = {tolerance}"
+            )
+
+            return ChannelWriteResult(
+                channel_address=channel_address,
+                value_written=value,
+                success=True,
+                verification=WriteVerification(
+                    level="readback",
+                    verified=verified,
+                    readback_value=value_to_report,
+                    tolerance_used=tolerance,
+                    notes=notes,
+                ),
+            )
 
         else:
             raise ValueError(

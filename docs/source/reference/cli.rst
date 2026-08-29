@@ -110,7 +110,7 @@ profile (repeatable). RHS is parsed as YAML. Top-level shorthands: ``provider``,
 repository, discarding edits to ``profile.yml``, ``data/``, ``personas/``,
 ``triggers.yml``, ``web-terminal-context/``, and ``.env.example``. Never touches
 ``.env``, ``.git``, ``var/``, ``build/``, ``.gitignore``, ``README.md``,
-``ci-extra.yml``, the CI file, or ``scripts/verify.sh``.
+``ci-extra.yml``, the CI file, ``scripts/verify.sh``, or ``mcp_servers/``.
 
 ``--no-git`` — Skip ``git init`` and the initial commit.
 
@@ -941,10 +941,13 @@ Launch the Web Terminal interface. See :doc:`/how-to/web-terminal/operate`.
 
 ``osprey web [OPTIONS]``
    Start the web terminal server (default: ``http://127.0.0.1:10100``). On
-   startup it prints a login URL (``…/?token=…``) that sets a session cookie
-   and then redirects to the clean address. The URL is printed once, but its
-   token is the server's own secret and stays valid for the life of the
-   process — treat it like a password.
+   startup it prints a login URL (``…/?token=…``) that signs you in and then
+   redirects to the clean address. The cookie it sets lasts
+   ``modules.web_terminals.auth.session_lifetime`` seconds (default ``43200``,
+   12 hours) and survives a browser restart; signed-in sessions are kept on
+   disk, so restarting the server on the same port leaves them signed in. The
+   URL is printed once, but its token is the server's own secret and stays
+   valid for the life of the process — treat it like a password.
 
    ``-p, --port INTEGER`` — Port (default: from config, else the port layout's ``10100``).
 
@@ -963,12 +966,25 @@ Launch the Web Terminal interface. See :doc:`/how-to/web-terminal/operate`.
 ``osprey web stop``
    Stop a background web terminal server.
 
+``osprey web sessions clear``
+   Forget the sessions this project has kept on disk, so everyone has to open
+   the login URL again. It refuses to run while a server is using them — stop
+   it first with ``osprey web stop``.
+
+   ``--force`` — Delete them even so. Browsers already signed in to the running
+   server keep working until that server exits.
+
+   This is not the multi-user terminal's **Logout** button: there, Logout ends
+   one person's session in a running server, while ``sessions clear`` empties
+   the stored sessions of a stopped one.
+
 .. code-block:: bash
 
    osprey web
    osprey web --port 9000 --host 0.0.0.0
    osprey web --detach
    osprey web stop
+   osprey web sessions clear
 
 osprey theme-lab
 ================

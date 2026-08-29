@@ -932,10 +932,13 @@ class TestEveryFrameworkServerLaunchesThroughRunMcpServer:
         by that rule rather than by name.
         """
         rostered = {_module_path(module) for module in _expanded_roster().values()}
+        # App bundles under ``osprey/templates`` ship example servers for the
+        # deployment repo to own; they are seeded into repos, never rostered.
+        bundles = SRC_ROOT.joinpath("osprey", "templates")
         on_disk = {
             path.parent
             for path in SRC_ROOT.joinpath("osprey").rglob("__main__.py")
-            if path.parent in _fastmcp_constructing_packages()
+            if path.parent in _fastmcp_constructing_packages() and not path.is_relative_to(bundles)
         }
         assert on_disk, "found no FastMCP entry points at all — the walk is broken"
         assert on_disk == rostered

@@ -1308,7 +1308,7 @@ def _server_to_dict(sdef: ServerDefinition, ctx: dict) -> dict:
         command = ""
         args = []
     elif sdef.is_external:
-        command = sdef.external_command or ""
+        command = _resolve_placeholder(sdef.external_command or "", ctx)
         args = [_resolve_placeholder(a, ctx) for a in sdef.external_args]
     else:
         command = ctx.get("current_python_env", "python")

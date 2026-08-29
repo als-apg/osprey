@@ -186,6 +186,35 @@ PY
 #: share a group, and joining it twice is noise at best.
 JOINED_GIDS=''
 
+#: Where the kernel reports how this container's uids map onto its parent
+#: namespace. One line, `0 0 4294967295`, is the identity: container root is
+#: the host's root. Anything else is a user namespace of the container's own.
+UID_MAP=/proc/self/uid_map
+
+# Whether this container's root is an unprivileged host user rather than the
+# host's root — the rootless shape (rootless podman, rootless docker), where
+# the invoking user maps to uid/gid 0 inside and everything that user owns on
+# the host presents as root-owned in here.
+#
+# Read off the uid map rather than guessed from the runtime, because the map
+# is the one thing the kernel states about it: a rootful daemon with an
+# ownership remap (Docker Desktop's file sharing) runs its containers under
+# the identity map and is NOT this case. A container with no readable map —
+# a non-Linux test host, a kernel without user namespaces — is not this case
+# either: the answer that grants nothing is the safe default.
+container_root_is_host_user() {
+    [ -r "$UID_MAP" ] || return 1
+    _mapped=0
+    while read -r _inside _outside _count; do
+        [ -n "$_inside" ] || continue
+        _mapped=1
+        if [ "$_inside" = 0 ] && [ "$_outside" = 0 ] && [ "$_count" = 4294967295 ]; then
+            return 1
+        fi
+    done < "$UID_MAP"
+    [ "$_mapped" = 1 ]
+}
+
 join_mounted_group() {
     _var=$1
     _dir=$2
@@ -226,7 +255,20 @@ join_mounted_group() {
     # and those pass this branch. They are caught one level down instead:
     # `groupadd` refuses a gid over GID_MAX and the join warns, which is why
     # that warning names the case too.
-    if [ "$_gid" -lt 100 ]; then
+    #
+    # The one gid the floor lets through, and only in one shape: gid 0 in a
+    # ROOTLESS container. There the invoking host user IS container root, so
+    # a directory that user owns and deliberately provisioned (setgid 2770,
+    # the host user's own group) presents as gid 0 in here — exactly what the
+    # floor was written to reject, for a reason that does not hold: joining
+    # gid 0 hands `osprey` the host user's own group, which is what the setgid
+    # design meant all along, and no host privilege grows because the
+    # container never had any. The system range (1-99) stays refused — no
+    # mount the render names is owned by `disk` or `shadow` on any host.
+    if [ "$_gid" -eq 0 ] && container_root_is_host_user; then
+        log "$_var=$_dir is owned by gid 0 in a rootless container, where container"
+        log "         root is the host user that provisioned it; joining that group."
+    elif [ "$_gid" -lt 100 ]; then
         log "WARNING: $_var=$_dir is owned by gid $_gid — the root group or a system"
         log "         group. REFUSING to add osprey to it. A bind mount that looks"
         log "         root-owned inside the container usually means the host's"

@@ -585,10 +585,14 @@ async def test_figure_artifacts_created_post_execution(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 async def test_executor_error_returns_failure_result(tmp_path, monkeypatch):
-    """When execution setup fails, execute_code returns ExecutionResult(success=False)."""
+    """When execution setup fails, execute_code returns ExecutionResult(success=False).
+
+    The result is stamped ``failure_kind=FAILURE_KIND_SETUP`` — the response
+    builder reads that to class the failure as the sandbox's, not the code's.
+    """
     monkeypatch.chdir(tmp_path)
 
-    from osprey.mcp_server.python_executor.executor import execute_code
+    from osprey.mcp_server.python_executor.executor import FAILURE_KIND_SETUP, execute_code
 
     with (
         patch(
@@ -608,6 +612,7 @@ async def test_executor_error_returns_failure_result(tmp_path, monkeypatch):
 
     assert result.success is False
     assert "disk full" in result.error_message
+    assert result.failure_kind == FAILURE_KIND_SETUP
 
 
 @pytest.mark.unit

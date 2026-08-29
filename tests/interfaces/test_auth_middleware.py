@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from types import SimpleNamespace
 from typing import Any
 
@@ -1402,3 +1403,181 @@ def test_unavailable_credentials_refuse_a_websocket_with_503(downstream, monkeyp
         assert not downstream.called
     finally:
         reset_web_credentials()
+
+
+# --------------------------------------------------------------------------- #
+# Restart survival: the in-process half
+# --------------------------------------------------------------------------- #
+#
+# "A browser session survives a restart" spans a process boundary, and only one
+# side of it can be asserted from inside one interpreter. What is pinned here is
+# that in-process half: a credential holder populated from the environment reads
+# a store written by an earlier holder, and the cookie that earlier holder minted
+# still clears the gate. The restart is simulated by forgetting BOTH copies of
+# the credentials — the module-level process holder and the one the app cached on
+# ``app.state`` — so the second admission cannot come from the first holder still
+# being reachable.
+#
+# The other half — that a real ``osprey web`` process, stopped and started again,
+# keeps a browser logged in — needs two actual processes and is Task 4.3's
+# browser test. Neither test replaces the other: this one proves the restore
+# logic, that one proves the wiring that hands it a real store directory.
+
+RESTART_PORT = "8091"
+
+
+def _restart_gated_app():
+    """A minimal real app behind the gate, with NO credentials seeded on it.
+
+    Deliberately not seeded: these tests are about the holder the gate resolves
+    from the *environment*, so ``app.state.web_credentials`` has to start absent
+    and be populated by the first request — which is also what makes deleting it
+    a faithful stand-in for the app being rebuilt by a restart.
+    """
+    from starlette.applications import Starlette
+    from starlette.responses import PlainTextResponse
+    from starlette.routing import Route
+
+    app = Starlette(
+        routes=[
+            Route("/", lambda request: PlainTextResponse("page")),
+            Route("/api/config", lambda request: PlainTextResponse("config")),
+        ]
+    )
+    app.add_middleware(WebAuthMiddleware, cookie_name=session_cookie_name(RESTART_PORT))
+    return app
+
+
+@pytest.fixture
+def restart_env(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    """Point env-driven population at a store under ``tmp_path``, on a fixed port.
+
+    Yields a namespace whose ``start_process()`` publishes the deployment's
+    environment and forgets the process holder — one call per simulated process
+    start. The operator secret is re-published on *every* call because
+    population pops it (it must never reach a child process), while a real
+    restart reads it out of the deploy ``.env`` again; without the re-publish the
+    second holder would mint a secret of its own and the exchange under test
+    would be testing a different credential.
+    """
+    from osprey.interfaces import web_auth
+
+    store_dir = tmp_path / "web_terminal"
+
+    def start_process() -> None:
+        monkeypatch.setenv(web_auth.OPERATOR_SECRET_ENV, OPERATOR_SECRET)
+        monkeypatch.setenv(web_auth.PANEL_TOKEN_ENV, PANEL_TOKEN)
+        monkeypatch.setenv(web_auth.SESSION_STORE_DIR_ENV, str(store_dir))
+        monkeypatch.setenv(WEB_PORT_ENV, RESTART_PORT)
+        # No bind host: this is the single-user shape, where a missing secret
+        # would be minted rather than fatal. It is set above regardless.
+        monkeypatch.delenv(web_auth.BIND_HOST_ENV, raising=False)
+        reset_web_credentials()
+
+    start_process()
+    yield SimpleNamespace(
+        start_process=start_process,
+        store_dir=store_dir,
+        path=store_dir / f"sessions-{RESTART_PORT}.json",
+    )
+    reset_web_credentials()
+
+
+@pytest.mark.no_auth_seam
+def test_a_session_survives_a_restart_through_the_store(restart_env):
+    """The cookie minted before a restart is admitted by the holder after it.
+
+    The store is asserted on directly as well as through the gate, because the
+    two failures look identical from the outside: a cookie admitted by a holder
+    that was never actually replaced would pass the 200 alone.
+    """
+    from starlette.testclient import TestClient
+
+    from osprey.interfaces import web_auth
+
+    app = _restart_gated_app()
+    client = TestClient(app)
+    client.cookies.clear()
+
+    exchange = client.get(f"/?token={OPERATOR_SECRET}", follow_redirects=False)
+    assert exchange.status_code == 303
+    name, _, session_id = exchange.headers["set-cookie"].split(";", 1)[0].partition("=")
+    assert name == session_cookie_name(RESTART_PORT)
+    assert session_id
+
+    # What reached the disk is the digest, never the id the browser holds.
+    stored = json.loads(restart_env.path.read_text(encoding="utf-8"))
+    assert stored["v"] == 1
+    assert web_auth._digest(session_id) in stored["sessions"]
+    assert session_id not in stored["sessions"]
+
+    minting_holder = app.state.web_credentials
+
+    # The restart: the process holder is forgotten and so is the app's cached
+    # copy, so the next request has to build a holder from the environment.
+    restart_env.start_process()
+    del app.state.web_credentials
+
+    revived = TestClient(app)
+    revived.cookies.clear()
+    revived.cookies.set(name, session_id)
+    assert revived.get("/api/config").status_code == 200
+
+    restored_holder = app.state.web_credentials
+    assert restored_holder is not minting_holder
+    assert web_auth._digest(session_id) in restored_holder.sessions
+
+
+@pytest.mark.no_auth_seam
+def test_a_restored_session_is_clamped_to_the_new_lifetime_after_restart(
+    restart_env, monkeypatch: pytest.MonkeyPatch
+):
+    """A restart that shortens the lifetime shortens the sessions it restores.
+
+    An operator who cuts ``session_lifetime`` and restarts has said what the
+    longest session may now be; a twelve-hour deadline written under the old
+    value must not survive that as twelve more hours. The store holds digests,
+    so the entry is written as the digest of an id this test keeps, and that id
+    is what is presented as the cookie.
+    """
+    from osprey.interfaces import web_auth
+
+    session_id = "a-session-id-written-before-the-restart"
+    written_deadline = time.time() + web_auth.DEFAULT_SESSION_LIFETIME
+    restart_env.store_dir.mkdir(parents=True, exist_ok=True)
+    restart_env.path.write_text(
+        json.dumps({"v": 1, "sessions": {web_auth._digest(session_id): written_deadline}}),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv(web_auth.SESSION_LIFETIME_ENV, "60")
+    restart_env.start_process()
+
+    started_at = time.time()
+    credentials = web_auth.get_web_credentials()
+    assert credentials.session_ttl_seconds == 60
+
+    restored = credentials.sessions[web_auth._digest(session_id)]
+    assert restored < written_deadline, "the old twelve-hour deadline survived the restart"
+    later = started_at + 61
+    assert restored < later, "population took longer than the lifetime under test"
+
+    downstream = RecordingApp()
+    guard = WebAuthMiddleware(downstream, cookie_name=session_cookie_name(RESTART_PORT))
+    app_stub = SimpleNamespace(state=SimpleNamespace(web_credentials=credentials))
+    cookie = {"cookie": f"{session_cookie_name(RESTART_PORT)}={session_id}"}
+
+    # Inside the new, shorter lifetime the restored session still authenticates.
+    assert status_of(drive(guard, http_scope(headers=cookie, app=app_stub))) == 200
+    assert downstream.called
+
+    # Past it — but far short of the twelve hours the store's deadline was
+    # written with — it is refused. ``time`` is replaced on the web_auth module
+    # rather than on the stdlib module it names, so nothing outside the code
+    # under test sees the moved clock.
+    monkeypatch.setattr(web_auth, "time", SimpleNamespace(time=lambda: later))
+    expired = RecordingApp()
+    guard = WebAuthMiddleware(expired, cookie_name=session_cookie_name(RESTART_PORT))
+    sent = drive(guard, http_scope(headers=cookie, app=app_stub))
+    assert status_of(sent) == 401
+    assert not expired.called

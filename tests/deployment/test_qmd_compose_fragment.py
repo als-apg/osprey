@@ -534,7 +534,7 @@ def test_render_service_templates_renders_siblings_and_skips_the_compose_templat
     (source / "docker-compose.yml.j2").write_text("compose")
     (source / "index.yml.j2").write_text("hello {{ name }}")
     (source / "Dockerfile").write_text("FROM scratch")
-    (source / "sub" / "kernel.json.j2").write_text("{}")
+    (source / "sub" / "nested.yml.j2").write_text("{}")
     out = tmp_path / "out"
     monkeypatch.chdir(tmp_path)
 

@@ -907,6 +907,11 @@ class TestDeployServicesKnob:
         profile = tmp_path / "smoke" / "profile.yml"
         profile.parent.mkdir()
         profile.write_text(self._PROFILE + extra)
+        # The bundle's source zone, which `osprey init` lays down beside the
+        # profile and the deploy binds into every entitled container. A bare
+        # profile without it is refused by the Reach Contract (the bind source
+        # would be an empty directory), and this class is about the knob.
+        (profile.parent / "data" / "facility_knowledge").mkdir(parents=True)
         result = _render_from(runner, str(profile))
         assert result.exit_code == 0, result.output
         return _project(tmp_path, "smoke")

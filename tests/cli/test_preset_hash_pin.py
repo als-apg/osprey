@@ -126,6 +126,16 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # in the base preset changed value, so every control-assistant entry moved
     # together, as the note above predicts. Deploy-visible: a rebuilt project's
     # terminals and companion panels bind the new numbers.
+    # Moved again, and again ALL SIX at once, when the base preset gained
+    # `modules.web_terminals.auth.session_lifetime: 43200`. That key is the one
+    # thing `osprey web` reads out of this block, and it is also what every
+    # multi-user terminal sets its session cookie from, so a signed-in browser
+    # expires the same way in both shapes. The value is the default the render
+    # already substituted for the absent key, so a rebuilt deployment's sessions
+    # expire exactly as before — but the resolved content now names the
+    # lifetime, so the staleness advisory firing on already-deployed
+    # control-assistant projects is the correct signal.
+    #
     # Moved once more — all six control-assistant entries together — when host
     # ports became `deployment.port_base` plus a fixed offset. The base
     # preset's `bluesky.port`/`tiled_port`, `bluesky_web.port` and the
@@ -137,12 +147,12 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # block. Deploy-visible: a rebuilt project's landing page, terminals,
     # companion panels, bluesky sidecar and live-standin simulator all bind to
     # the port-block addresses instead of the retired literals.
-    "control-assistant": "sha256:f36109de1c97d693fd65417dee3a10aa8a0cba41a1e2c2957c7fabc821d77c7d",
+    "control-assistant": "sha256:677af2f2e7f09828aba744be36cb8adf788e8970a113beae4defcdc88e302327",
     "control-assistant-admin": (
-        "sha256:14ff56c3fababd916d9d97c0fa0f7893b698a2902bb7b1bb0ed97b2c1fdec4f7"
+        "sha256:a428cb2187e76770aa9921832712532a5f45fa45d26e94d8ce236531c701649b"
     ),
     "control-assistant-ariel": (
-        "sha256:2ed55879966cdf8de7fb9313ed266971e4d1db7c19e41eb25feda06a40b94770"
+        "sha256:7447f714e81382292a6cc1f45612251d698086f1e964f9d5da5e7d20946f1c15"
     ),
     # The two operator tiers below moved together, and alone, when each gained
     # the single dotted key `services.graphdb.port_host: 7687` in its `config:`
@@ -200,10 +210,10 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # same commit contributed nothing, which is the digest being comment-blind
     # exactly as the note at the top of this table says.
     "control-assistant-readonly": (
-        "sha256:0fe65a84b4e54b76a78a7a81dc53e6a128f445578a040f55c8a886205ac2934d"
+        "sha256:539d67ccdf6ac02a8d5dfefccd74bc484061c7485a01a8bb6106650ce5515b8b"
     ),
     "control-assistant-readwrite": (
-        "sha256:54114c2ce82ba97e987b382f05752be0a7d43c1fbeed4102a67a5deaebeb3a12"
+        "sha256:72d2d257eacffb939c09e8fd0a1241e23b09b72906beaa66bccd27d826989ae7"
     ),
     # New with per-target write posture, not a moved entry: the rung between
     # the two flat tiers, armed on the virtual accelerator alone. It pins the
@@ -212,7 +222,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # it, so which machine the session is pointed at decides whether its writes
     # land.
     "control-assistant-va-readwrite": (
-        "sha256:d606f68d20f18105132c5864ffa282e70d0b15d6a61050a860ce26b1581627cf"
+        "sha256:0b24b2acdf39954b8c6d86dba8f2e478b2b8cba39ccd6f142070120671cc4752"
     ),
     # Moved when the onboarding rewrite dropped the `facility` rule. The
     # wholesale comment rewrite that shipped alongside it contributed nothing:
@@ -223,7 +233,10 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # The comment-only fixes that shipped alongside it (correcting the
     # mislabelled memory-guard/writes-check comments in the other presets)
     # contributed nothing to any digest, including this one.
-    "hello-world": "sha256:b737b03979d25bec8de1aa4d382fa07ebc64971a093b59e8b0be21f1197ef395",
+    # Moved again when the preset gained a live `mcp_servers.example_server`
+    # block, so a rebuilt project launches the seeded example MCP server and
+    # its `example_status` tool appears in the session.
+    "hello-world": "sha256:fdd41e470ce46d49f206640e558eaab9e909ce034b6bcc456ff50e3edb1e0436",
 }
 
 

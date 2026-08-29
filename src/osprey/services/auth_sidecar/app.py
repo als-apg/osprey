@@ -65,6 +65,10 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from osprey.deployment.web_terminals.personas import env_var_suffix, env_var_suffix_collisions
 
+# The session-lifetime default is defined once, in the stdlib-only web_auth
+# module; the terminal cookie and this sidecar share it.
+from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
+
 from .revocation import RevocationStore
 from .sessions import SessionCodec
 from .throttle import AttemptThrottle
@@ -133,7 +137,6 @@ ENV_OIDC_SUBJECT_PREFIX = "OSPREY_AUTH_OIDC_SUBJECT_"
 DEFAULT_OIDC_CLIENT_ID_ENV = "OSPREY_AUTH_OIDC_CLIENT_ID"
 DEFAULT_OIDC_CLIENT_SECRET_ENV = "OSPREY_AUTH_OIDC_CLIENT_SECRET"
 DEFAULT_OIDC_CLAIM = "sub"
-DEFAULT_SESSION_LIFETIME = 12 * 60 * 60
 
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 _FALSE_VALUES = frozenset({"0", "false", "no", "off"})

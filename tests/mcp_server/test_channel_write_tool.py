@@ -180,6 +180,53 @@ async def test_channel_write_with_readback(tmp_path, monkeypatch):
 
 
 @pytest.mark.unit
+async def test_callback_result_projects_its_readback_value(tmp_path, monkeypatch):
+    """A callback-level result carries the post-write readback into the summary.
+
+    The projection is level-agnostic: whatever the connector read after the
+    IOC callback reaches the agent, so no prompt rule has to declare it absent.
+    """
+    _prepare(tmp_path, monkeypatch)
+
+    write_result = _make_write_result(
+        channel="TEST:PV", value=42.0, verification_level="callback", readback_value=42.01
+    )
+    mock_connector = AsyncMock()
+    mock_connector.write_channel.return_value = write_result
+
+    with _patched(mock_connector):
+        fn = _get_channel_write()
+        result = await fn(operations=[{"channel": "TEST:PV", "value": 42.0}])
+
+    data = extract_response_dict(result)
+    verification = data["summary"]["results"][0]["verification"]
+    assert verification["level"] == "callback"
+    assert verification["readback_value"] == 42.01
+    assert _write_states(data)["TEST:PV"] == "verified"
+
+
+@pytest.mark.unit
+async def test_callback_level_alarm_reaches_verified_with_alarm(tmp_path, monkeypatch):
+    """The alarm fields a callback-level readback carries classify the write."""
+    _prepare(tmp_path, monkeypatch)
+
+    results = [
+        _make_write_result(channel="PV:OK", value=1.0),
+        _make_write_result(
+            channel="PV:SUBJECT",
+            value=2.0,
+            verification_level="callback",
+            verified=True,
+            readback_alarm_severity=2,
+            readback_alarm_status="HIHI",
+        ),
+    ]
+    data, _ = await _run_batch(results)
+
+    assert _write_states(data)["PV:SUBJECT"] == "verified_with_alarm"
+
+
+@pytest.mark.unit
 async def test_channel_write_limits_violation(tmp_path, monkeypatch):
     """Write exceeding channel limits (via inline validator) returns structured error."""
     from osprey.errors import ChannelLimitsViolationError

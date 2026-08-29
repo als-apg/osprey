@@ -75,6 +75,18 @@ REAL_FIND = shutil.which("find") or ""
 #: because mount paths in these tests deliberately contain spaces.
 GID_MAP_SEP = "\t"
 
+#: Where the script reads the container's user-namespace mapping. The sandbox
+#: points the script's copy at a fabricated file, because no test host is a
+#: rootless container and macOS has no ``/proc`` at all.
+UID_MAP_PATH = "/proc/self/uid_map"
+
+#: The kernel's spelling of "no user namespace": container root is host root.
+IDENTITY_UID_MAP = "         0          0 4294967295\n"
+
+#: rootless podman with the default subuid layout: the invoking host user
+#: (here uid 1000) is container root; everything else maps into a subuid range.
+ROOTLESS_UID_MAP = "         0       1000          1\n         1     100000      65536\n"
+
 
 @pytest.fixture(scope="module")
 def text() -> str:
@@ -153,6 +165,13 @@ class TestScriptShape:
         assert RENDER_NAMED_VARS <= read, f"a render-named mount is never joined: {read}"
         others = read - RENDER_NAMED_VARS
         assert not others, f"the join reads variables the render does not name: {others}"
+
+    def test_the_uid_map_is_the_kernels(self, text: str):
+        """Read from the one path the kernel states it at — not from the env,
+        which is the render's to name and this script's to trust for mounts
+        only, and not guessed from the runtime."""
+        assert f"UID_MAP={UID_MAP_PATH}\n" in text
+        assert not re.search(r"OSPREY_[A-Z_]*UID_MAP", text), "the map path is taken from the env"
 
     def test_the_gid_is_stat_ed_off_the_mount(self, text: str):
         """Not passed in. A gid rendered into the compose file is the host's
@@ -271,7 +290,20 @@ class Sandbox:
         stat_rc: int | None = None,
         stat_out: str | None = None,
         probe_rc: int = 0,
+        uid_map: str | None = None,
     ) -> Run:
+        # The map is read off a path the script hardcodes, so the sandbox's
+        # copy of the script is re-pointed at a file holding the fabricated
+        # map — the same move as the stubbed `stat`, for the same reason: the
+        # real one answers for the test host, never for the case under test.
+        # `None` leaves the real path in, which no test host can read.
+        script_text = TEMPLATE.read_text()
+        if uid_map is not None:
+            uid_map_file = self.tmp / "uid_map"
+            uid_map_file.write_text(uid_map)
+            assert UID_MAP_PATH in script_text
+            script_text = script_text.replace(UID_MAP_PATH, str(uid_map_file))
+        self.script.write_text(script_text)
         bindir = self._stubs(
             uid=uid,
             groupadd_rc=groupadd_rc,
@@ -787,6 +819,110 @@ class TestTheGidFloor:
         run = sandbox.run(audit_dir=audit, bundle_dir=bundle)
 
         assert _usermods(run) == ["usermod osprey-mount-4000 osprey"]
+
+
+class TestTheFloorInARootlessContainer:
+    """gid 0 is joinable exactly when container root is the host user.
+
+    Under rootless podman the invoking host user maps to uid/gid 0 inside, so
+    the audit subdir and the bundle that user provisioned (setgid, the user's
+    own group) present as gid 0 — the floor's signature for a remap, for a
+    reason that does not hold there. The script tells the two apart by the
+    kernel's uid map, which is fabricated here: no test host is a rootless
+    container, and the logic under test is the guard, not the kernel.
+    """
+
+    def test_gid_0_is_joined_when_the_uid_map_is_not_the_identity(self, sandbox: Sandbox):
+        audit = sandbox.audit_mount(gid=0)
+
+        run = sandbox.run(audit_dir=audit, uid_map=ROOTLESS_UID_MAP)
+
+        assert run.returncode == 0, run.stderr
+        assert _groupadds(run) == [], "gid 0 is `root` in every image's /etc/group"
+        assert _usermods(run) == ["usermod root osprey"]
+        assert _warnings(run) == [], run.stderr
+
+    def test_the_join_is_verified_like_any_other(self, sandbox: Sandbox):
+        """Membership in gid 0 is the mechanism; the probe still asks whether
+        the write the audit trail depends on actually works."""
+        audit = sandbox.audit_mount(gid=0)
+
+        run = sandbox.run(audit_dir=audit, uid_map=ROOTLESS_UID_MAP)
+
+        assert _probes(run) == [f"probe osprey -w {audit}"]
+        assert "joined osprey to group root (gid 0)" in run.stderr
+
+    def test_the_log_says_why_the_floor_was_lifted(self, sandbox: Sandbox):
+        audit = sandbox.audit_mount(gid=0)
+
+        run = sandbox.run(audit_dir=audit, uid_map=ROOTLESS_UID_MAP)
+
+        lifted = [line for line in run.stderr.splitlines() if "rootless container" in line]
+        assert len(lifted) == 1, run.stderr
+        assert AUDIT_VAR in lifted[0]
+        assert str(audit) in lifted[0]
+
+    def test_gid_0_stays_refused_under_the_identity_map(self, sandbox: Sandbox):
+        """A rootful daemon — Docker Desktop's remap included — runs under the
+        identity map, and there gid 0 still means the host's root group."""
+        audit = sandbox.audit_mount(gid=0)
+
+        run = sandbox.run(audit_dir=audit, uid_map=IDENTITY_UID_MAP)
+
+        assert run.group_ops == [], "osprey was added to gid 0 under the identity map"
+        assert len(_warnings(run)) == 1, run.stderr
+        assert "gid 0" in _warnings(run)[0]
+
+    def test_gid_0_stays_refused_with_no_readable_map(self, sandbox: Sandbox):
+        """No map, no evidence: the default is the answer that grants nothing.
+        (This is also what every test above this class runs under.)"""
+        audit = sandbox.audit_mount(gid=0)
+
+        run = sandbox.run(audit_dir=audit, uid_map=None)
+
+        assert run.group_ops == []
+        assert len(_warnings(run)) == 1, run.stderr
+
+    def test_an_empty_map_is_not_evidence_either(self, sandbox: Sandbox):
+        audit = sandbox.audit_mount(gid=0)
+
+        run = sandbox.run(audit_dir=audit, uid_map="")
+
+        assert run.group_ops == []
+
+    @pytest.mark.parametrize("gid", [1, 20, 99])
+    def test_the_system_range_stays_refused_in_a_rootless_container(
+        self, sandbox: Sandbox, gid: int
+    ):
+        """Only gid 0 is the host user in a rootless container; a mount that
+        presents `daemon` or `dialout` is still not a group the render meant."""
+        audit = sandbox.audit_mount(gid=gid)
+
+        run = sandbox.run(audit_dir=audit, uid_map=ROOTLESS_UID_MAP)
+
+        assert run.group_ops == [], f"osprey was added to gid {gid}"
+        assert len(_warnings(run)) == 1, run.stderr
+
+    def test_a_host_group_joins_the_same_way_in_a_rootless_container(self, sandbox: Sandbox):
+        """The map changes nothing above the floor."""
+        audit = sandbox.audit_mount(gid=3000)
+
+        run = sandbox.run(audit_dir=audit, uid_map=ROOTLESS_UID_MAP)
+
+        assert _usermods(run) == ["usermod osprey-mount-3000 osprey"]
+
+    def test_gid_0_and_a_host_gid_are_each_joined_once(self, sandbox: Sandbox):
+        """The audit subdir at gid 0 and a bundle at a host gid — the mixed
+        shape a rootless host with one shared bundle group produces."""
+        audit = sandbox.audit_mount(gid=0)
+        bundle = sandbox.bundle_mount(gid=0)
+        mirror = sandbox.mirror_mount(gid=3000)
+
+        run = sandbox.run(
+            audit_dir=audit, bundle_dir=bundle, mirror_dir=mirror, uid_map=ROOTLESS_UID_MAP
+        )
+
+        assert _usermods(run) == ["usermod root osprey", "usermod osprey-mount-3000 osprey"]
 
 
 class TestTheJoinFailsOpen:

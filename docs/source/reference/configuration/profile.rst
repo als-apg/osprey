@@ -209,10 +209,10 @@ configuration) and ``.claude/settings.json`` (tool permissions) — so a later
 
    mcp_servers:
      my_server:
-       command: python
+       command: "{current_python_env}"
        args: ["-m", "my_server"]
        env:
-         CONFIG: "{project_root}/config.yml"
+         CONFIG: "{project_root}/build/config.yml"
          API_KEY: "${MY_API_KEY}"
        permissions:
          allow: ["safe_tool"]
@@ -244,8 +244,11 @@ own key — so name the compose service after the ``mcp_servers:`` key or that
 URL points at no host.
 
 **Placeholders:** ``{project_root}`` resolves at build time to the absolute
-project path; ``${ENV_VAR}`` is preserved for the container or shell to resolve
-at runtime.
+project path, and ``{current_python_env}`` to the interpreter the framework's
+own MCP servers run under (the project venv under the default
+``python_env: project``; see the key table above), which is what a Python
+server shipped with the profile should launch under too. ``${ENV_VAR}`` is
+preserved for the container or shell to resolve at runtime.
 
 **Permission wiring:** for a server named ``my_server`` with
 ``allow: ["safe_tool"]``, the build adds ``mcp__my_server__safe_tool`` to the
@@ -255,8 +258,8 @@ Shipping the server's code
 --------------------------
 
 Put the package in the profile's ``mcp_servers/`` directory — one directory per
-server. The build copies it to ``_mcp_servers/`` in the project, so the launch
-command finds it:
+server. The build copies it to ``build/_mcp_servers/`` in the project, so the
+launch command finds it:
 
 .. code-block:: text
 
@@ -271,11 +274,11 @@ command finds it:
 
    mcp_servers:
      phoebus:
-       command: python
+       command: "{current_python_env}"
        args: ["-m", "phoebus"]
        env:
-         OSPREY_CONFIG: "{project_root}/config.yml"
-         PYTHONPATH: "{project_root}/_mcp_servers"
+         OSPREY_CONFIG: "{project_root}/build/config.yml"
+         PYTHONPATH: "{project_root}/build/_mcp_servers"
        permissions:
          allow: ["phoebus_launch"]
 
@@ -523,7 +526,12 @@ The qmd sidecar behind hybrid logbook search is guarded the same way. The
 answers it, but an attached project renders ``services: {}`` — so on its own it
 would keep the mode with nothing behind it, and every logbook query would fail
 with *no qmd sidecar is configured*. ``osprey build`` refuses that instead of
-rendering it.
+rendering it. A deploying profile is held to the same rule from the other side:
+a client left switched on for a service the profile no longer deploys — the
+bluesky MCP server after the ``bluesky:`` block was removed — is refused naming
+the service missing from ``deployed_services``, unless the profile names one
+this deployment does not run (an external store's ``uri``, an ARIEL database
+DSN).
 
 An attached project rarely has to say anything, because **the build tells it
 where the host's services are**. Every client-facing fact — the sidecar's port,

@@ -219,9 +219,9 @@ class GraphStoreError(Exception):
 class GraphNotConfigured(GraphStoreError):
     """No graph store is described by this deployment's config."""
 
-    #: Not a key of the hook's table, so it classes as "Internal" — which is the
-    #: right reading here and the one case where that is true: no wording of the
-    #: query fixes a missing config block, and an operator has to edit config.yml.
+    #: Classes as "Internal" in the hook's table — the right reading here: no
+    #: wording of the query fixes a missing config block, and an operator has
+    #: to edit config.yml.
     error_type = "not_configured"
 
     @staticmethod

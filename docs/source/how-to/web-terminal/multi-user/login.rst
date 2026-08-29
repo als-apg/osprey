@@ -121,6 +121,11 @@ anything. Optional keys: ``auth.port`` (the port layout's ``10001`` unless you
 set it — see :ref:`reference-ports`),
 ``auth.session_lifetime`` in whole seconds (default ``43200``), and
 ``auth.image``, required with ``image_source: registry``.
+``auth.session_lifetime`` also reaches past this page: it sets how long a
+terminal session cookie lasts wherever that cookie is used — ``osprey web``,
+``auth.method: token``, and ``login: false`` roster entries. For everyone who
+does go through the login page, nginx rather than that cookie is what lets
+them through, so here the key sets the login page's cookie.
 
 .. warning::
 
@@ -267,9 +272,23 @@ A credential can outlive an account, so:
 - **A plaintext** ``OSPREY_AUTH_PW_ALICE`` **in** ``.env`` **survives
   decommission** and would be hashed straight back in for the next alice.
   Delete the line by hand when the person leaves.
-- Logging out is remembered in the authentication service's memory only; a
-  cookie captured before a logout can be replayed until it expires, within
-  ``auth.session_lifetime``.
+- **Logging out ends a terminal session** on the server: the cookie it was
+  carrying is refused from that moment on. The login page's cookie is the
+  other case — that logout is remembered in the authentication service's
+  memory only, so a copy captured beforehand can be replayed until it
+  expires, within ``auth.session_lifetime``.
+- **Terminal sessions are kept on disk** — the ones behind ``login: false``
+  entries here, and behind ``auth.method: token`` and ``osprey web``
+  elsewhere — so they outlive a restart of the web terminals and a change of
+  the operator secret. A password change or a decommission ends the
+  login-page session, not this one.
+- **A shortened** ``auth.session_lifetime`` **reaches sessions already
+  running** at the next restart of the web terminals, when their deadlines
+  are clamped to the new value.
+- **A terminal already on screen outlives its deadline** until that page is
+  closed, reloaded, or logged out from — the deadline is checked when a page
+  connects, not on a timer, so a logout elsewhere does not cut a terminal that
+  is already open.
 
 To turn the login page off, set ``auth.method: token`` and run ``osprey up``;
 ``.env.auth`` is kept, so turning it back on keeps everyone's password.

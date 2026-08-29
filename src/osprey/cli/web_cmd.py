@@ -21,6 +21,7 @@ command serves.
 
 from __future__ import annotations
 
+import json
 import os
 import signal
 import socket
@@ -29,11 +30,12 @@ import sys
 import time
 from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 import click
 
 from osprey.port_layout import default_port, resolve_port_base
-from osprey.utils.workspace import STATE_DIR_NAME
+from osprey.utils.workspace import STATE_DIR_NAME, agent_data_base_dir, anchored_path
 
 from . import output
 from .repo_resolver import find_repo_root, repo_option
@@ -50,6 +52,20 @@ PID_FILE = f"{STATE_DIR_NAME}/osprey-web.pid"
 LOG_FILE = f"{STATE_DIR_NAME}/osprey-web.log"
 DECLARED_BIND_ENV = "OSPREY_TERMINAL_BIND_HOST"
 DECLARED_WEB_PORT_ENV = "OSPREY_TERMINAL_WEB_PORT"
+#: The carrier for the terminal session lifetime. Spelled literally rather than
+#: imported at module scope because this module keeps its ``osprey`` imports
+#: function-local (see the lazy-loading CLI convention); it MUST equal
+#: :data:`osprey.interfaces.web_auth.SESSION_LIFETIME_ENV`, which is the name
+#: the serving process reads. ``test_web_session_lifetime.py`` pins the two
+#: spellings equal so this copy cannot drift.
+DECLARED_SESSION_LIFETIME_ENV = "OSPREY_TERMINAL_SESSION_LIFETIME"
+#: The carrier for the DIRECTORY holding the terminal's browser-session store.
+#: Spelled literally for the same reason :data:`DECLARED_SESSION_LIFETIME_ENV`
+#: is — this module keeps its ``osprey`` imports function-local — and it MUST
+#: equal :data:`osprey.interfaces.web_auth.SESSION_STORE_DIR_ENV`, which is the
+#: name the serving process reads. ``test_web_session_lifetime.py`` pins the two
+#: spellings equal so this copy cannot drift.
+DECLARED_SESSION_STORE_DIR_ENV = "OSPREY_TERMINAL_SESSION_STORE_DIR"
 
 
 def resolve_bind_host(
@@ -126,6 +142,111 @@ def resolve_web_port(
     if declared:
         return int(declared)
     return cli_port or config_port or default_port("web", 0, base=base)
+
+
+def _refuse_session_lifetime(value: object, source: str) -> click.ClickException:
+    """The one refusal message for a session lifetime that cannot be honoured.
+
+    Names the offending SOURCE as well as the value: the same key reaches this
+    launcher from two places — a deploy-time environment declaration and the
+    render's own ``config.yml`` — and an operator staring at one of them cannot
+    fix a message that only quotes the other.
+    """
+    return click.ClickException(
+        f"modules.web_terminals.auth.session_lifetime must be a whole number of "
+        f"seconds greater than zero — {source} says {value!r}.\n\n"
+        "That value is the Max-Age stamped on every terminal session cookie, so "
+        "there is no honest way to read it as a duration. Starting anyway would "
+        "silently fall back to the 12-hour default while the deployment believed "
+        "it had set its own lifetime, which is exactly the mistake worth failing "
+        "on. Set it to a positive number of seconds and start again."
+    )
+
+
+def _session_seconds_from_env(text: str, source: str) -> int:
+    """Coerce the environment carrier's text to a positive int, or refuse.
+
+    Kept apart from :func:`_session_seconds_from_config` because the two sources
+    are read differently on purpose: an environment variable is text by nature,
+    so it is stripped and read as base 10, while the config value has to be a
+    real YAML int.
+    """
+    try:
+        seconds = int(text.strip(), 10)
+    except ValueError:
+        raise _refuse_session_lifetime(text, source) from None
+    if seconds <= 0:
+        raise _refuse_session_lifetime(text, source)
+    return seconds
+
+
+def _session_seconds_from_config(value: object, source: str) -> int:
+    """Coerce a configured lifetime to a positive int, or refuse.
+
+    Unlike the environment carrier, the config value must be a REAL YAML int:
+    the multi-user render lint (``_check_auth_session_lifetime``) reports any
+    other type as an ERROR, so accepting a quoted ``"3600"`` here would let
+    ``osprey web`` start happily on a config that ``osprey build`` refuses — and
+    the two deployment shapes have to agree about which configs are valid.
+
+    ``bool`` is excluded even though ``True`` is an ``int`` in Python: it is
+    never a duration.
+    """
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise _refuse_session_lifetime(value, source)
+    return value
+
+
+def resolve_session_lifetime(config: Mapping[str, Any], env: Mapping[str, str] = os.environ) -> int:
+    """Single source of the terminal session lifetime, in seconds.
+
+    Precedence is env > config > default, and the environment wins for the same
+    reason it wins in :func:`resolve_bind_host` and :func:`resolve_web_port`: a
+    per-user terminal container bakes its ``config.yml`` into the image, so the
+    only spelling that can track a deploy-time edit is the
+    ``OSPREY_TERMINAL_SESSION_LIFETIME`` the multi-user compose sets on every
+    ``web-*`` service. Single-user ``osprey web`` sets no such env and reads
+    ``modules.web_terminals.auth.session_lifetime`` out of its own render.
+
+    Deliberately a plain function rather than a ``@click.option(envvar=...)``,
+    for the reason spelled out in :func:`resolve_bind_host`: a Click env default
+    LOSES to an explicit flag, which is the opposite of the declaration-wins
+    precedence this exists to provide.
+
+    A value that is PRESENT but not a positive whole number refuses the launch —
+    and for the config source that means a real YAML ``int``, matching what the
+    multi-user render lint accepts, so a config cannot be one the launcher
+    starts on and the build refuses.
+    :func:`osprey.interfaces.web_auth._session_ttl_from_env` refuses too, but it
+    runs at credential population inside the server — far too late for a message
+    an operator can act on. Validating here means the launcher publishes a value
+    the server can only agree with.
+
+    Args:
+        config: The rendered deployment config (top-level mapping). Every level
+            down to ``session_lifetime`` is read defensively; absent or ``None``
+            anywhere along the path means nothing configured a lifetime.
+        env: The environment to consult, for tests.
+
+    Returns:
+        The session lifetime in seconds.
+
+    Raises:
+        click.ClickException: When either source holds an unusable value.
+    """
+    from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
+
+    declared = env.get(DECLARED_SESSION_LIFETIME_ENV, "")
+    if declared.strip():
+        return _session_seconds_from_env(declared, DECLARED_SESSION_LIFETIME_ENV)
+
+    section: Any = config
+    for key in ("modules", "web_terminals", "auth"):
+        section = section.get(key) if isinstance(section, Mapping) else None
+    configured = section.get("session_lifetime") if isinstance(section, Mapping) else None
+    if configured is None:
+        return DEFAULT_SESSION_LIFETIME
+    return _session_seconds_from_config(configured, "build/config.yml")
 
 
 def get_config_value(key: str, default=None):
@@ -721,6 +842,7 @@ def web(
         osprey web --detach                # Start in background
         osprey web --repo ~/als-assistant  # Serve another deployment
         osprey web stop                    # Stop background server
+        osprey web sessions clear          # Drop the persisted browser sessions
     """
     if ctx.invoked_subcommand is not None:
         return
@@ -737,6 +859,43 @@ def web(
 
     wt_config = get_config_value("web_terminal", {})
     cc_config = get_config_value("claude_code", {})
+
+    # Resolve the session lifetime here, beside the other config reads and
+    # before anything else is printed, then publish the ANSWER — the same
+    # publication `OSPREY_WEB_PORT` gets at the bottom of this function, and for
+    # the same reason. `_start_detached`'s child inherits `os.environ` (no `env=`
+    # kwarg), so does the `--reload` worker, and the serving process reads this
+    # carrier in `web_auth._session_ttl_from_env()`. That reader refuses a bad
+    # value too, but it runs at credential population inside the server, which
+    # is too late for a message the operator can act on; validating in the
+    # launcher means every downstream reader sees a value already known good.
+    os.environ[DECLARED_SESSION_LIFETIME_ENV] = str(
+        resolve_session_lifetime({"modules": get_config_value("modules", {})})
+    )
+
+    # Publish the DIRECTORY the session store lives in, from the same config
+    # read and for the same downstream readers. Deliberately the directory
+    # only: the store file is named for the settled `OSPREY_WEB_PORT` (two
+    # terminals on one host must not share a store), and the port is NOT
+    # settled here — the busy-port auto-move happens further down in this
+    # function. So the file name is resolved at credential population, in the
+    # process that has already bound, from the port publication made below.
+    #
+    # `get_config_value` is the read the rest of `web()` uses (it is
+    # `load_osprey_config()` behind a section lookup), and the anchor is the
+    # `repo_root` `_resolve_render()` settled on rather than
+    # `resolve_project_root(config)`: this command has already chdir'ed into
+    # the render, and a `--repo` launch serves a deployment the ambient
+    # project root does not name. Same reasoning as the file watcher's anchor
+    # in `osprey.interfaces.web_terminal.app`.
+    store_dir = (
+        anchored_path(
+            agent_data_base_dir({"agent_data": get_config_value("agent_data", {})}), repo_root
+        )
+        / "web_terminal"
+    )
+    os.environ[DECLARED_SESSION_STORE_DIR_ENV] = str(store_dir)
+
     _notice_declared_override(DECLARED_BIND_ENV, "--host", host, "chokepoint")
     host = resolve_bind_host(host, wt_config.get("host"))
     _notice_declared_override(DECLARED_WEB_PORT_ENV, "--port", port, "port mapping")
@@ -934,7 +1093,25 @@ def _start_detached(host: str, port: int, shell: str | None, repo_root: Path) ->
     # foreground path and finds the secret already set, so it stays silent and
     # nothing carrying the token is written to the server's log; the parent here
     # is the one that prints the login URL, exactly once.
-    login_url, announce = _mint_operator_url(host, port)
+    #
+    # Blind THIS process to the session store while it settles its credentials.
+    # Minting populates the parent's credential holder, and a holder built with
+    # the store directory in the environment would open the deployment's real
+    # store, restore its sessions, and hold them in a process that never serves
+    # a request — where a later save would rewrite the file underneath the
+    # child that does. Binding no store (``store is None``) makes the parent's
+    # holder a pure secret carrier: no restore, no write. The real value is put
+    # back before ``Popen``, which inherits ``os.environ``, so the child — the
+    # process that actually serves — gets the directory.
+    declared_store_dir = os.environ.get(DECLARED_SESSION_STORE_DIR_ENV)
+    os.environ[DECLARED_SESSION_STORE_DIR_ENV] = ""
+    try:
+        login_url, announce = _mint_operator_url(host, port)
+    finally:
+        if declared_store_dir is None:
+            os.environ.pop(DECLARED_SESSION_STORE_DIR_ENV, None)
+        else:
+            os.environ[DECLARED_SESSION_STORE_DIR_ENV] = declared_store_dir
 
     # Build the child command (no --detach to avoid recursion). --skip-preflight
     # is always appended: the parent already ran the pre-flight in the foreground
@@ -1045,3 +1222,172 @@ def web_stop(ctx: click.Context, repo: Path | None) -> None:
 
     pid_path.unlink(missing_ok=True)
     log_path.unlink(missing_ok=True)
+
+
+@web.group("sessions")
+def web_sessions() -> None:
+    """Manage the browser sessions the terminal has persisted to disk."""
+
+
+def _inherited_repo(ctx: click.Context) -> Path | None:
+    """The nearest ``--repo`` an enclosing group parsed, if any.
+
+    ``osprey web --repo X sessions clear`` and
+    ``osprey web sessions clear --repo X`` are the same request, and the group
+    parses its own ``--repo`` before the subcommand name. ``web stop`` reads
+    ``ctx.parent`` for this; a verb one level deeper has to walk, because its
+    parent is the ``sessions`` group, which carries no repo of its own.
+    """
+    node = ctx.parent
+    while node is not None:
+        inherited = node.params.get("repo")
+        if inherited is not None:
+            return Path(inherited)
+        node = node.parent
+    return None
+
+
+def _port_is_answering(host: str, port: int) -> bool:
+    """Whether something is already listening on *host*:*port*.
+
+    The PID file only exists for a ``--detach`` launch; a foreground
+    ``osprey web`` writes none. So the socket is the probe that catches the
+    shape the PID file cannot see, and the two are read together.
+
+    A server bound to a wildcard is reached on that family's own loopback
+    address -- ``0.0.0.0`` on ``127.0.0.1``, ``::`` on ``::1`` -- because the
+    wildcard is a bind target, not a destination, and connecting to it is
+    undefined on some platforms.
+
+    Only the CONFIGURED port is probed. A foreground launch that found that port
+    busy and auto-moved off it therefore answers somewhere this cannot see;
+    that server has to be stopped by hand.
+    """
+    target = {"0.0.0.0": "127.0.0.1", "::": "::1"}.get(host, host)
+    try:
+        with socket.create_connection((target, port), timeout=0.5):
+            return True
+    except OSError:
+        return False
+
+
+def _persisted_session_count(path: Path) -> int:
+    """How many session digests *path* holds — 0 for anything unreadable.
+
+    Mirrors :class:`osprey.interfaces.web_auth.SessionStore`'s own posture on
+    reading: a store that is truncated, hand-edited or owned by another user is
+    worth no traceback here either. The count is a courtesy in the report, not
+    a precondition for the delete, so a file that cannot be counted is still a
+    file that gets removed.
+
+    What it counts is the digests ON DISK, expired-but-not-yet-pruned entries
+    included -- the store is rewritten on login and logout, not on a timer, so
+    a deadline that has passed can sit in it for as long as the file does. The
+    number is therefore what was dropped from the file, not how many sessions
+    were still usable.
+    """
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return 0
+    if not isinstance(payload, Mapping):
+        return 0
+    sessions = payload.get("sessions")
+    return len(sessions) if isinstance(sessions, Mapping) else 0
+
+
+@web_sessions.command("clear")
+@repo_option
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Clear the store even while a server is running (it keeps its live sessions).",
+)
+@click.pass_context
+def web_sessions_clear(ctx: click.Context, repo: Path | None, force: bool) -> None:
+    """Delete the terminal's persisted browser sessions.
+
+    Sessions survive a restart because the terminal writes them to a small file
+    under the deployment's agent-data directory. That is a convenience right up
+    until it is not: an operator who suspects a cookie leaked, or who has just
+    shortened session_lifetime and does not want yesterday's twelve-hour
+    sessions riding through the change, wants every persisted session gone --
+    and should not have to know the file's name or which port it is keyed to in
+    order to get that.
+
+    Refuses while a detached server's PID file is present, or while anything
+    answers on the CONFIGURED host and port, because clearing then would not do
+    what it looks like it does. The in-memory session map is what admits a
+    request; the file is only its backup. A running server would go on honoring
+    every cookie it already holds and would rewrite the file from that memory on
+    the next login or logout, so the delete would be undone within minutes and
+    would never have logged anyone out in the first place. Stop the server, and
+    the same command means exactly what it says.
+
+    One server escapes both checks and has to be stopped by hand: a FOREGROUND
+    launch that found the configured port busy and auto-moved off it writes no
+    PID file and no longer answers where this verb looks, so stop it before
+    clearing.
+    """
+    if repo is None:
+        repo = _inherited_repo(ctx)
+
+    # `_resolve_render` chdirs into the render so `get_config_value` reads the
+    # served deployment's config -- the same sequence `web()` runs, which is
+    # what makes this verb look at the store the launcher would bind rather
+    # than at one guessed from the current directory. Unlike `web()`, this
+    # command does not go on to serve from there, so the cwd is handed back.
+    # Only the cwd: `OSPREY_CONFIG` and the repo `.env` `_resolve_render` loads
+    # stay published for the life of this process, as they do for every other
+    # verb that resolves a render. Nothing after this reads them, and the
+    # process is about to exit -- the tests restore the environment themselves.
+    cwd = Path.cwd()
+    try:
+        repo_root, _build_dir, _config_path = _resolve_render(repo)
+        wt_config = get_config_value("web_terminal", {})
+        store_dir = (
+            anchored_path(
+                agent_data_base_dir({"agent_data": get_config_value("agent_data", {})}), repo_root
+            )
+            / "web_terminal"
+        )
+    finally:
+        os.chdir(cwd)
+
+    host = resolve_bind_host(None, wt_config.get("host"))
+    port = resolve_web_port(None, wt_config.get("port"))
+
+    output.section("", {"Repo": repo_root, "Store": store_dir})
+
+    pid = _read_pid(repo_root)
+    live = pid is not None or _port_is_answering(host, port)
+    if live and not force:
+        output.fail(
+            "The web terminal is still running, so its sessions are still live",
+            "The running server holds the session map in memory and rewrites "
+            "the store from it on the next login or logout, so clearing the "
+            "files now would neither log anyone out nor stay cleared.",
+            "stop the server first: osprey web stop",
+        )
+        raise SystemExit(1)
+    if live:
+        output.warn(
+            "Clearing the store while a server is running",
+            "That server keeps its live sessions and warm terminals in memory "
+            "until it exits. Clearing the files only stops them surviving the "
+            "NEXT restart -- nobody is logged out right now.",
+        )
+
+    dropped = 0
+    if not store_dir.is_dir():
+        output.note(f"No session store directory at {store_dir} -- nothing has been persisted.")
+    else:
+        stores = sorted(p for p in store_dir.glob("sessions-*.json") if p.is_file())
+        bare = store_dir / "sessions.json"
+        if bare.is_file():
+            stores.append(bare)
+        for store in stores:
+            dropped += _persisted_session_count(store)
+            store.unlink(missing_ok=True)
+
+    output.report(f"Dropped {dropped} persisted session(s).")

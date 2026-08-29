@@ -4,7 +4,7 @@ Handles Jinja2 template rendering, service discovery, build directory
 management, and Docker Compose file creation for container deployments.
 
 Working-directory precondition: the render helpers here (:func:`setup_build_dir`,
-:func:`render_kernel_templates`, :func:`_incremental_setup_build_dir`) resolve
+:func:`_incremental_setup_build_dir`) resolve
 ``build_dir`` and each service's declared ``path`` RELATIVELY, against the
 process working directory, and are called from the build with that directory at
 the repo root. They are not safe to call from anywhere else. The one function
@@ -1398,8 +1398,8 @@ def render_template(template_path, config, out_dir):
 
     This function processes Jinja2 templates using the configuration
     as context, generating concrete configuration files for container deployment.
-    The system supports multiple template types including Docker Compose files
-    and Jupyter kernel configurations, with intelligent output filename detection.
+    The output filename is derived from the template's: ``docker-compose.yml.j2``
+    renders to the compose file name, anything else drops its ``.j2`` suffix.
 
     Template rendering uses the complete configuration dictionary as Jinja2 context,
     enabling templates to access any configuration value including environment
@@ -1428,24 +1428,8 @@ def render_template(template_path, config, out_dir):
             ... )
             >>> print(output_path)  # 'build/services/mongo/docker-compose.yml'
 
-        Jupyter kernel template rendering::
-
-            >>> config = {'project_root': '/home/user/project'}
-            >>> output_path = render_template(
-            ...     'services/jupyter/python3-epics/kernel.json.j2',
-            ...     config,
-            ...     'build/services/jupyter/python3-epics'
-            ... )
-            >>> print(output_path)  # 'build/services/jupyter/python3-epics/kernel.json'
-
-    .. note::
-       The function automatically determines output filenames based on template
-       naming conventions: .j2 extension is removed, and specific patterns
-       like docker-compose.yml.j2 and kernel.json.j2 are recognized.
-
     .. seealso::
        :func:`setup_build_dir` : Uses this function for service template processing
-       :func:`render_kernel_templates` : Batch processing of kernel templates
     """
     env = Environment(loader=FileSystemLoader("."))
     template = env.get_template(template_path)
@@ -1457,8 +1441,6 @@ def render_template(template_path, config, out_dir):
     # Determine output filename based on template type
     if template_path.endswith("docker-compose.yml.j2"):
         output_filename = COMPOSE_FILE_NAME
-    elif template_path.endswith("kernel.json.j2"):
-        output_filename = "kernel.json"
     else:
         # Generic fallback: remove .j2 extension
         output_filename = os.path.basename(template_path)[:-3]
@@ -1512,74 +1494,6 @@ def _stage_dev_wheel_for_context(out_dir, dev_mode):
     _copy_local_framework_for_override(out_dir)
     logger.debug("Development mode: Osprey override prepared")
     return True
-
-
-def render_kernel_templates(source_dir, config, out_dir):
-    """Process all Jupyter kernel templates in a service directory.
-
-    This function provides batch processing for Jupyter kernel configuration
-    templates, automatically discovering all kernel.json.j2 files within a
-    service directory and rendering them with the current configuration context.
-    This is particularly useful for Jupyter services that provide multiple
-    kernel environments with different configurations.
-
-    The function recursively searches the source directory for kernel template
-    files and processes each one, maintaining the relative directory structure
-    in the output. This ensures that kernel configurations are placed in the
-    correct locations for Jupyter to discover them.
-
-    :param source_dir: Source directory to search for kernel templates
-    :type source_dir: str
-    :param config: Configuration dictionary for template rendering
-    :type config: dict
-    :param out_dir: Base output directory for rendered kernel files
-    :type out_dir: str
-
-    Examples:
-        Kernel template processing for Jupyter service::
-
-            >>> # Source structure:
-            >>> # services/jupyter/
-            >>> #   ├── python3-epics-readonly/kernel.json.j2
-            >>> #   └── python3-epics-write/kernel.json.j2
-            >>>
-            >>> render_kernel_templates(
-            ...     'services/jupyter',
-            ...     {'project_root': '/home/user/project'},
-            ...     'build/services/jupyter'
-            ... )
-            >>> # Output structure:
-            >>> # build/services/jupyter/
-            >>> #   ├── python3-epics-readonly/kernel.json
-            >>> #   └── python3-epics-write/kernel.json
-
-    .. note::
-       This function is typically called automatically by setup_build_dir when
-       a service configuration includes 'render_kernel_templates: true'.
-
-    .. seealso::
-       :func:`render_template` : Core template rendering used by this function
-       :func:`setup_build_dir` : Calls this function for kernel template processing
-    """
-    kernel_templates = []
-
-    # Look for kernel.json.j2 files in subdirectories
-    for root, _dirs, files in os.walk(source_dir):
-        for file in files:
-            if file == "kernel.json.j2":
-                template_path = os.path.relpath(os.path.join(root, file), os.getcwd())
-                kernel_templates.append(template_path)
-
-    # Render each kernel template
-    for template_path in kernel_templates:
-        # Calculate relative output directory
-        rel_template_dir = os.path.dirname(os.path.relpath(template_path, source_dir))
-        kernel_out_dir = (
-            os.path.join(out_dir, rel_template_dir) if rel_template_dir != "." else out_dir
-        )
-
-        render_template(template_path, config, kernel_out_dir)
-        logger.debug(f"Rendered kernel template: {template_path} -> {kernel_out_dir}/kernel.json")
 
 
 #: Bits a shared corpus directory must carry: ``rwxrws---``, ORed onto whatever
@@ -2016,10 +1930,7 @@ def render_service_templates(source_dir, config, out_dir):
     ``docker-compose.yml.j2`` is rendered with the same context, dropping the
     extension (``index.yml.j2`` -> ``index.yml``).
 
-    Only the service's own directory is scanned, not its subdirectories:
-    ``kernel.json.j2`` files live one level down and belong to
-    :func:`render_kernel_templates`, which is opt-in per service and would
-    otherwise render them twice.
+    Only the service's own directory is scanned, not its subdirectories.
 
     :param source_dir: The service's template directory
     :type source_dir: str
@@ -2032,7 +1943,7 @@ def render_service_templates(source_dir, config, out_dir):
     """
     rendered = []
     for name in sorted(os.listdir(source_dir)):
-        if not name.endswith(".j2") or name in (TEMPLATE_FILENAME, "kernel.json.j2"):
+        if not name.endswith(".j2") or name == TEMPLATE_FILENAME:
             continue
         template_path = os.path.relpath(os.path.join(source_dir, name), os.getcwd())
         rendered.append(render_template(template_path, config, out_dir))
@@ -2593,7 +2504,6 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
     4. Copy source code if requested (copy_src: true)
     5. Copy additional directories as specified
     6. Create flattened configuration file for container use
-    7. Process kernel templates if specified
 
     Source code copying includes intelligent handling of requirements files,
     automatically copying global requirements.txt to the container source
@@ -2616,7 +2526,6 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
             >>> container_cfg = {
             ...     'copy_src': True,
             ...     'additional_dirs': ['docs', 'scripts'],
-            ...     'render_kernel_templates': False
             ... }
             >>> compose_path = setup_build_dir(
             ...     'services/osprey/jupyter/docker-compose.yml.j2',
@@ -2633,7 +2542,6 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
             ...         'docs',  # Simple directory copy
             ...         {'src': 'external_data', 'dst': 'data'}  # Custom mapping
             ...     ],
-            ...     'render_kernel_templates': True
             ... }
             >>> compose_path = setup_build_dir(template_path, config, container_cfg)
 
@@ -2648,7 +2556,6 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
 
     .. seealso::
        :func:`render_template` : Template rendering used by this function
-       :func:`render_kernel_templates` : Kernel template processing
        :class:`configs.config.ConfigBuilder` : Configuration flattening
     """
     # Create the build directory for this service
@@ -2709,7 +2616,7 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
         for file in [] if renders_in_place else os.listdir(source_dir):
             src_path = os.path.join(source_dir, file)
             dst_path = os.path.join(out_dir, file)
-            # Skip template files (both docker-compose and kernel templates)
+            # Skip template files: they are inputs, rendered separately
             if file != TEMPLATE_FILENAME and not file.endswith(".j2"):
                 if os.path.isdir(src_path):
                     shutil.copytree(src_path, dst_path)
@@ -2853,11 +2760,6 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
                 config_yml_dst = os.path.join(out_dir, "config.yml")
                 shutil.copy2(config_yml_src, config_yml_dst)
                 logger.debug(f"Copied original config.yml to {config_yml_dst}")
-
-        # Render kernel templates if specified in service configuration
-        if container_cfg.get("render_kernel_templates", False):
-            logger.debug(f"Processing kernel templates for {source_dir}")
-            render_kernel_templates(source_dir, config, out_dir)
 
     return compose_filepath
 

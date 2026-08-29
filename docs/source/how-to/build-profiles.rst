@@ -156,7 +156,7 @@ name *is* the declaration, and where each one lands is fixed.
      - ``services/``
      - a directory per compose service
    * - ``project/``
-     - the project root
+     - the build root (``build/``)
      - any file, mirrored verbatim
 
 Nested paths inside a markdown directory are preserved, so
@@ -846,7 +846,7 @@ What gets generated
 
 .. code-block:: text
 
-   my-project/
+   my-project/build/
    ├── .claude/
    │   ├── agents/           # built-ins, plus anything from the profile's agents/
    │   ├── rules/            # built-ins, plus the profile's rules/

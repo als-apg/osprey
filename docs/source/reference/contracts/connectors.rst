@@ -94,6 +94,11 @@ All ``write_channel()`` calls return :class:`~osprey.connectors.control_system.b
      - High
      - Critical setpoints, safety-critical operations
 
+A ``callback``-level result also carries the post-write readback -- the
+connector reads the channel once after the callback confirms and fills
+``readback_value`` and the alarm fields -- but the callback alone decides
+``verified``; only ``readback`` level compares against a tolerance.
+
 **Global default** (in ``config.yml``) and **per-channel configuration** (in
 the limits database):
 

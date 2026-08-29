@@ -62,7 +62,7 @@ Each service entry must point ``path:`` at a directory containing a
 ``docker-compose.yml.j2`` template. Everything else under the service key is
 project-specific configuration exposed to the template as
 ``{{services.<name>.<key>}}``. Beyond ``path``, a service entry may also
-declare ``copy_src``, ``additional_dirs``, and ``render_kernel_templates``
+declare ``copy_src`` and ``additional_dirs``
 (a multi-container service is expressed by the ``docker-compose.yml.j2``
 template defining more than one compose service). For how facility services
 are declared inside a build profile, see :ref:`profile-services`.

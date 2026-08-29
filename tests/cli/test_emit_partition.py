@@ -213,10 +213,18 @@ def test_hello_world_extension_surface_is_pinned() -> None:
     dropped, would quietly delete a lesson. Pin the set exactly, by name, so
     both a shrink and an unexpected growth fail here and get looked at.
 
-    The count is 13, not 14: a *bare* emission templates 14, but `osprey init`
+    The count is 12, not 13: a *bare* emission templates 13, but `osprey init`
     injects `data=data` into `set_pairs` (``profile_cmd``), which makes `data`
     an active key. What ships to the reader is the materialized profile, so
-    that is what is pinned — do not "correct" this to the bare-emission 14.
+    that is what is pinned — do not "correct" this to the bare-emission 13.
+
+    `mcp_servers` left this set deliberately, and no lesson left with it: the
+    preset now carries a live `example_server` entry for the package seeded
+    into the repo, so the key emits active instead of templated. The stdio
+    teaching moved into that block's comments in the appendix's own words,
+    and a commented `lattice:` sibling still shows the remote form, so the
+    reader sees both without uncommenting anything. That copy is guarded
+    against drift by ``tests/cli/test_example_server_launch.py``.
     """
     _, templated = _active_and_commented(_emit("hello-world", set_pairs=("data=data",)))
 
@@ -225,7 +233,6 @@ def test_hello_world_extension_surface_is_pinned() -> None:
         "tier",
         "default_panel",
         "deploy",
-        "mcp_servers",
         "artifact_server",
         "dispatch",
         "bluesky",

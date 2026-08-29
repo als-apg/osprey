@@ -11,9 +11,10 @@ its own answer:
 * the **operator secret**, which authorises everything an operator can do;
 * the **panel token**, a deliberately weaker credential for the narrow set of
   panel-arrangement calls in-process companions legitimately make;
-* an in-memory **browser-session map**, ``{session_id: expiry}``, holding the
+* a **browser-session map**, ``{digest of a session id: expiry}``, holding the
   sessions handed out when a browser exchanges a one-time URL token for a
-  cookie.
+  cookie — served from memory, and kept across a restart by
+  :class:`SessionStore` where a deployment configured a store directory.
 
 **Population happens once per process and is idempotent.** The first caller
 builds the credentials under :data:`_POPULATION_LOCK`; every later caller — on
@@ -61,24 +62,35 @@ file); both are deliberately out of scope here.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import logging
 import os
 import secrets
+import tempfile
 import threading
 import time
 import urllib.parse
+from contextlib import suppress
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "BIND_HOST_ENV",
-    "DEFAULT_SESSION_TTL_SECONDS",
+    "DEFAULT_SESSION_LIFETIME",
     "OPERATOR_SECRET_ENV",
     "ROSTER_ACCEPT_ENV",
     "ROSTER_SECRET_ENV_PREFIX",
     "PANEL_REGISTER_ROUTE",
     "PANEL_TIER_ROUTES",
     "PANEL_TOKEN_ENV",
+    "SESSION_LIFETIME_ENV",
+    "SESSION_STORE_DIR_ENV",
+    "SessionStore",
     "Tier",
     "WebCredentials",
     "classify",
@@ -124,19 +136,49 @@ PANEL_TOKEN_ENV = "OSPREY_PANEL_TOKEN"
 #: truthy value means "a deployment declared this, nginx owns the perimeter".
 BIND_HOST_ENV = "OSPREY_TERMINAL_BIND_HOST"
 
-#: How long a browser session stays valid. Twelve hours outlives a working day
-#: at the console without leaving a forgotten tab authorised indefinitely; the
-#: cookie carrying it is a session cookie, so a closed browser drops it sooner.
-DEFAULT_SESSION_TTL_SECONDS = 12 * 60 * 60
+#: How long a browser session stays valid when nothing configures it — the
+#: default behind ``modules.web_terminals.auth.session_lifetime``, which is
+#: honoured in both the single-user and the multi-user shape. Twelve hours
+#: outlives a working day at the console without leaving a forgotten tab
+#: authorised indefinitely. The cookie carrying the session is persistent: it
+#: stamps this lifetime as ``Max-Age``, so it survives a browser restart and
+#: expires on its own schedule rather than on the browser's. Defined exactly
+#: once — :mod:`osprey.deployment.web_terminals.render` and the auth sidecar
+#: import this name rather than repeating the number.
+DEFAULT_SESSION_LIFETIME = 12 * 60 * 60
+
+#: The environment carrier for ``modules.web_terminals.auth.session_lifetime``,
+#: read (never popped) for the reason :data:`BIND_HOST_ENV` is: a duration is
+#: not a credential, and more than one reader needs it. ``osprey web`` resolves
+#: env > config > default and publishes the answer here for the server it is
+#: about to spawn or become, and the multi-user compose sets the same value on
+#: every terminal container. Absent or blank means nothing configured the
+#: lifetime and :data:`DEFAULT_SESSION_LIFETIME` applies; anything else must be
+#: a positive whole number of seconds or the process refuses to start.
+SESSION_LIFETIME_ENV = "OSPREY_TERMINAL_SESSION_LIFETIME"
+
+#: Where the browser-session store keeps its file, read (never popped) for the
+#: reason :data:`SESSION_LIFETIME_ENV` is: a directory path is not a credential.
+#: Absent or blank means no store at all, which is the deliberate default for
+#: any process that has no agent-data directory to write into — the sessions
+#: then live and die with the process, exactly as they did before the store
+#: existed. Set by ``osprey web`` to ``<agent_data.base_dir>/web_terminal``,
+#: whose contents the deployment already treats as the terminal's own state.
+#: The per-user compose does not carry this variable and does not need to: a
+#: terminal container runs ``osprey web`` as its command, so the same launcher
+#: resolves the same path there from the image's baked-in ``agent_data``.
+SESSION_STORE_DIR_ENV = "OSPREY_TERMINAL_SESSION_STORE_DIR"
 
 #: Compared against when a session lookup misses, purely so a miss costs the
-#: same byte-comparison work as a hit — it is a cost-equalizer, never a
-#: credential, and :meth:`WebCredentials.verify_session` gates its answer on
-#: the map lookup so that a candidate equal to this value still refuses. Sized
-#: like a minted id (``token_urlsafe(32)`` yields 43 characters) rather than
-#: like the candidate, which is attacker-controlled and would otherwise make
-#: the decoy's length a channel of its own.
-_SESSION_DECOY = "\x00" * 43
+#: same comparison work as a hit — it is a cost-equalizer, never a credential,
+#: and :meth:`WebCredentials.verify_session` gates its answer on the map lookup
+#: so that a candidate whose digest equalled this value would still refuse.
+#: Shaped like a digest — 64 lowercase hex characters — because a digest is
+#: what the comparison now weighs: sized or spelled like anything else, the
+#: miss path would cost visibly less than the hit path, which is the one thing
+#: the decoy exists to prevent. Nothing has to *be* a preimage of it; only its
+#: shape matters.
+_SESSION_DECOY = "0" * 64
 
 
 def mint_secret() -> str:
@@ -148,6 +190,225 @@ def mint_secret() -> str:
     a ``.env`` by the deploy path without escaping.
     """
     return secrets.token_urlsafe(32)
+
+
+def _digest(session_id: str) -> str:
+    """Return the session map's key for *session_id*: its sha256, lowercase hex.
+
+    The one place the mapping is spelled, so the minting side, the verifying
+    side and the on-disk store cannot drift into keying by different things.
+    This is a plain digest with no salt and no stretching deliberately: the
+    input is 256 bits from :mod:`secrets`, so there is no dictionary to defend
+    against, and :meth:`WebCredentials.verify_session` runs this on every
+    cookie-bearing request.
+    """
+    return hashlib.sha256(session_id.encode("utf-8")).hexdigest()
+
+
+class SessionStore:
+    """The on-disk half of the browser-session map.
+
+    A browser session lives in :class:`WebCredentials.sessions` for the life of
+    one process, which means every restart of the terminal — a config reload, a
+    container roll, a crash — logs out every operator holding a valid cookie.
+    This class is what survives that: it keeps the map in a small JSON file
+    under the deployment's agent-data directory, one file per port so two
+    terminals on one host never share a store.
+
+    **What is persisted authenticates nobody.** The file holds the sha256
+    *digest* of each session id against its wall-clock expiry —
+    ``{"v": 1, "sessions": {digest: epoch}}`` — never the id a browser sends.
+    A leaked store is therefore a list of deadlines: an attacker who reads it
+    still has to produce a 256-bit id whose digest is in it. Deadlines are
+    wall-clock epoch seconds — the same clock and the same numbers
+    :attr:`WebCredentials.sessions` holds, so neither side converts anything: a
+    monotonic reading would be meaningless to the process that loads it.
+
+    **Reading never raises, and a failed write is a warning, not an error.**
+    Sessions are a convenience layered over credentials that live in memory, so
+    a store that is missing, truncated, owned by another user or on a full disk
+    must cost an operator nothing more than a re-login. A login refused because
+    a disk filled up would be a worse failure than the one being avoided. A
+    missing file is not even that much: a fresh deployment has no store, and
+    that is the ordinary first start, so it is silent. Every other failure logs
+    exactly one ``WARNING`` per process — naming the path and the reason — and
+    is then silenced, because the caller goes on calling :meth:`save` on every
+    login and logout and an unwritable directory would otherwise fill the log
+    with the same line. Silenced does not mean given up on: each later call
+    still tries, so a disk that frees up starts persisting again on its own.
+
+    **Why ``save`` takes a sequence number.** The credentials snapshot their
+    session map under their own lock and then write it *outside* that lock, so
+    that a slow disk never blocks a request holding the map. Two threads can
+    therefore reach this class in the opposite order to the one they snapshotted
+    in, and the older snapshot would land last and resurrect a session that was
+    just revoked. The sequence number is stamped at snapshot time and strictly
+    increases, so :meth:`save` can drop anything that is not newer than what it
+    last accepted.
+    """
+
+    def __init__(self, store_dir: Path, port: str) -> None:
+        """Resolve the store's path and make sure its directory exists.
+
+        Args:
+            store_dir: The directory the store file lives in — in serving use
+                ``<agent_data.base_dir>/web_terminal``.
+            port: The port this terminal serves on, which names the file
+                (``sessions-8080.json``) so two terminals sharing a host do not
+                overwrite each other's sessions. Empty — a caller with no port
+                to distinguish — gives the bare ``sessions.json``.
+
+        A directory that cannot be created is the first write failure rather
+        than a construction error: the process must still serve, memory-only.
+        """
+        self._dir = Path(store_dir)
+        self._path = self._dir / (f"sessions-{port}.json" if port else "sessions.json")
+        self._lock = threading.Lock()
+        self._warned = False
+        self._last_seq: int | None = None
+        try:
+            self._dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            self._warn(f"cannot create its directory: {exc}")
+
+    @property
+    def path(self) -> Path:
+        """The store file this instance reads and writes."""
+        return self._path
+
+    def load(self) -> dict[str, float]:
+        """Return the persisted ``{digest: epoch}`` map, or ``{}``.
+
+        Returns ``{}`` — never raises — for every reason the file might not be
+        usable: it does not exist yet, it cannot be read, it does not decode as
+        UTF-8, it is not JSON, it carries a version this code does not know, or
+        its shape is wrong anywhere (a non-object payload, a non-object
+        ``sessions``, a key that is not a string, a deadline that is not a
+        number). A partially valid file is treated as no file rather than
+        salvaged: a store that has been corrupted has no claim to the entries
+        that happen to still parse, and the cost of discarding them is one
+        re-login.
+
+        The missing-file case is silent. Every other case warns once — see the
+        class docstring.
+        """
+        try:
+            raw = self._path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            # A fresh deployment has no store. That is the ordinary first
+            # start, not a failure, so it must not warn.
+            return {}
+        except (OSError, ValueError) as exc:
+            # ``ValueError`` is here for ``UnicodeDecodeError``, which is one
+            # and is NOT an ``OSError``: a store file holding bytes that are not
+            # UTF-8 — a truncated write, a file another tool clobbered — would
+            # otherwise raise out of the read and, through _populate, refuse
+            # every request the process would ever serve. A store is never
+            # allowed to cost more than a re-login.
+            self._warn(f"cannot be read: {exc}")
+            return {}
+
+        try:
+            payload = json.loads(raw)
+        except ValueError as exc:
+            self._warn(f"is not valid JSON: {exc}")
+            return {}
+
+        if not isinstance(payload, dict):
+            self._warn(f"holds {type(payload).__name__}, not an object")
+            return {}
+        if payload.get("v") != 1:
+            self._warn(f"has unsupported version {payload.get('v')!r}, expected 1")
+            return {}
+
+        sessions = payload.get("sessions")
+        if not isinstance(sessions, dict):
+            self._warn(f"has a {type(sessions).__name__} 'sessions' field, not an object")
+            return {}
+
+        loaded: dict[str, float] = {}
+        for digest, deadline in sessions.items():
+            # ``bool`` is an ``int`` subclass; ``True`` is not a deadline.
+            if (
+                not isinstance(digest, str)
+                or isinstance(deadline, bool)
+                or not isinstance(deadline, int | float)
+            ):
+                self._warn("holds a malformed session entry")
+                return {}
+            loaded[digest] = float(deadline)
+        return loaded
+
+    def save(self, snapshot: dict[str, float], seq: int) -> None:
+        """Persist *snapshot* if *seq* is newer than the last accepted write.
+
+        Args:
+            snapshot: The ``{digest: epoch}`` map to write, already copied by
+                the caller — this method does not lock the caller's map and
+                must not be handed one that is still being mutated.
+            seq: A strictly increasing stamp taken when the snapshot was made.
+                A value that is not above the last one accepted is dropped
+                silently: it describes a state older than what is already on
+                disk, and writing it would undo a newer save (see the class
+                docstring).
+
+        Never raises. The write is a temporary file in the store's own
+        directory, fsynced, chmodded ``0600`` and then :func:`os.replace`d over
+        the target, so a reader never sees a half-written store and a crash
+        mid-write leaves the previous one intact. A failure warns once and
+        leaves the sessions valid in memory.
+        """
+        with self._lock:
+            if self._last_seq is not None and seq <= self._last_seq:
+                return
+            # Recorded before the attempt, not after it: a failed write must
+            # still shut out the older snapshots it was racing, or a retry
+            # would let a stale one through.
+            self._last_seq = seq
+            payload = {"v": 1, "sessions": dict(snapshot)}
+            try:
+                self._write_atomic(payload)
+            except OSError as exc:
+                self._warn(f"cannot be written: {exc}")
+
+    def _write_atomic(self, payload: dict[str, Any]) -> None:
+        """Write *payload* over :attr:`path`, atomically and at mode ``0600``.
+
+        The same idiom as
+        :func:`osprey.interfaces.web_terminal.feedback_store._atomic_write`. The
+        explicit ``chmod`` is redundant with :func:`tempfile.mkstemp`, which
+        already creates at ``0600``; it is here so the mode the store must have
+        is stated where the file is created rather than inherited from another
+        module's default.
+        """
+        fd, tmp_name = tempfile.mkstemp(
+            dir=self._path.parent, prefix=f".{self._path.name}.", suffix=".tmp"
+        )
+        try:
+            with os.fdopen(fd, "w") as handle:
+                json.dump(payload, handle, sort_keys=True)
+                handle.flush()
+                with suppress(OSError):
+                    os.fsync(handle.fileno())
+            os.chmod(tmp_name, 0o600)
+            os.replace(tmp_name, self._path)
+        except BaseException:
+            with suppress(OSError):
+                os.unlink(tmp_name)
+            raise
+
+    def _warn(self, reason: str) -> None:
+        """Log the first store failure of this process and silence the rest."""
+        if self._warned:
+            return
+        self._warned = True
+        logger.warning(
+            "Browser sessions will not persist across restarts: the session store %s "
+            "%s. Sessions remain valid in memory; operators keep their cookies until "
+            "this process stops.",
+            self._path,
+            reason,
+        )
 
 
 @dataclass(eq=False)
@@ -163,6 +424,12 @@ class WebCredentials:
     touch the disk or the network. The two credential comparisons are
     constant-time; the session lookup is not, for the reason
     :meth:`verify_session` gives.
+
+    **The session map holds nothing that authenticates on its own.** Its keys
+    are digests, not ids, and :meth:`verify_session` digests the cookie before
+    it looks — so a key lifted out of this map (or out of the file
+    :class:`SessionStore` writes it to) and presented as a cookie is refused
+    like any other guess.
     """
 
     operator_secret: str
@@ -175,10 +442,57 @@ class WebCredentials:
     #: variables (the host's ``osprey web`` loading the deploy ``.env``).
     roster_secrets: tuple[str, ...] = ()
 
-    #: Live browser sessions, ``{session_id: monotonic deadline}``. Monotonic
-    #: rather than wall-clock so a machine that adjusts its clock — an NTP step,
-    #: a laptop resuming — cannot retroactively extend or void a session.
+    #: How long a session this holder mints stays valid, in seconds — what
+    #: :meth:`create_session` uses when it is not told otherwise, and what the
+    #: exchange cookie's ``Max-Age`` carries, so a browser's copy of the session
+    #: and the process's copy expire together. Comes from
+    #: ``modules.web_terminals.auth.session_lifetime`` by way of
+    #: :data:`SESSION_LIFETIME_ENV`, and is :data:`DEFAULT_SESSION_LIFETIME`
+    #: when nothing configured it.
+    session_ttl_seconds: int = DEFAULT_SESSION_LIFETIME
+
+    #: Live browser sessions, ``{sha256 digest of the id: wall-clock deadline}``.
+    #: Keyed by digest so that neither this map nor the file
+    #: :class:`SessionStore` writes it to ever holds a value that would
+    #: authenticate: :meth:`verify_session` digests the cookie again before it
+    #: looks, so a leaked key is a deadline and nothing more.
+    #:
+    #: Deadlines are :func:`time.time` rather than :func:`time.monotonic`
+    #: because they are meant to outlive the process that set them — the store
+    #: persists them across a restart, and a monotonic reading taken by one
+    #: process says nothing to the next. The cost is that a clock
+    #: adjustment — an NTP step, a laptop resuming — moves every live deadline
+    #: with it. That is accepted rather than solved: it is the same exposure the
+    #: auth sidecar's own signed session cookies already carry, and while the
+    #: process runs it is bounded by :attr:`session_ttl_seconds`, since every
+    #: session a serving caller mints is one lifetime out.
     sessions: dict[str, float] = field(default_factory=dict)
+
+    #: Digests of the sessions minted with ``persist=False`` — the ones that
+    #: must stay in this process and never reach the store. The browser-context
+    #: session an interface mints for its own page loads is the case this exists
+    #: for — it is scoped to a running server, so persisting it would outlive the
+    #: thing it belongs to for no gain. Holding digests rather than ids keeps the
+    #: same property the map has — this set authenticates nobody either.
+    _ephemeral: set[str] = field(default_factory=set, repr=False)
+
+    #: Where this holder's sessions outlive the process, or ``None`` when the
+    #: deployment configured no store directory (see
+    #: :data:`SESSION_STORE_DIR_ENV`). Optional rather than always present
+    #: because persistence is a convenience, not part of the credential
+    #: contract: every other path here has to behave identically whether or not
+    #: a disk is involved, and holding ``None`` is what makes that literal —
+    #: the no-store process runs the same code with the writes skipped.
+    store: SessionStore | None = None
+
+    #: The stamp taken with each snapshot, so the store can tell a newer one
+    #: from an older. Snapshots are written *outside* the lock that made them,
+    #: so two threads can reach :meth:`SessionStore.save` in the order opposite
+    #: to the one they snapshotted in, and a stale write would resurrect a
+    #: session that was just revoked. Counting here rather than timing the write
+    #: is what makes the ordering total: two saves in the same clock tick would
+    #: be indistinguishable by time.
+    _store_seq: int = field(default=0, repr=False)
 
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
@@ -213,18 +527,48 @@ class WebCredentials:
         """
         return _same_secret(candidate, self.panel_token)
 
-    def create_session(self, ttl_seconds: float = DEFAULT_SESSION_TTL_SECONDS) -> str:
+    def create_session(self, ttl_seconds: float | None = None, *, persist: bool = True) -> str:
         """Mint a browser session id, record its expiry, and return it.
 
         Expired entries are dropped here rather than on a timer: sessions are
         only ever created by a browser exchanging a token, so this is the one
         call whose frequency tracks the map's growth, and it means the process
         carries no reaper thread for a dictionary that holds a handful of keys.
+
+        Args:
+            ttl_seconds: An explicit lifetime for this one session. Left
+                ``None`` — which is how every serving caller calls it — the
+                session lasts :attr:`session_ttl_seconds`, so the deployment's
+                one configured value governs every session the process hands
+                out. Passing a value is for tests that need a deadline they
+                control, notably one already in the past.
+            persist: Whether this session may be written to the on-disk store.
+                ``False`` records its digest in :attr:`_ephemeral`; the snapshot
+                handed to :class:`SessionStore` skips those digests, so such a
+                session never reaches the disk. The returned id is otherwise an
+                ordinary one — it verifies and revokes like any other.
+
+        The id is returned; only its digest is kept, so this is the last moment
+        the process holds the value a browser will send back.
         """
+        ttl = self.session_ttl_seconds if ttl_seconds is None else ttl_seconds
         session_id = mint_secret()
+        digest = _digest(session_id)
+        store = self.store
+        snapshot: dict[str, float] | None = None
+        seq = 0
         with self._lock:
-            self._purge_expired(time.monotonic())
-            self.sessions[session_id] = time.monotonic() + ttl_seconds
+            now = time.time()
+            self._purge_expired(now)
+            self.sessions[digest] = now + ttl
+            if not persist:
+                self._ephemeral.add(digest)
+            if store is not None:
+                snapshot, seq = self._snapshot()
+        if snapshot is not None and store is not None:
+            # Outside the lock: the write is a disk round-trip, and a request
+            # verifying a cookie must not queue behind it.
+            store.save(snapshot, seq)
         return session_id
 
     def revoke_session(self, session_id: str) -> bool:
@@ -233,18 +577,40 @@ class WebCredentials:
         Logging out has to invalidate the cookie server-side as well as clear
         it in the browser: a cookie value that has already left the process
         cannot be un-sent, so the only thing that can refuse it afterwards is
-        the map here no longer holding it.
+        the map here no longer holding it. The store is rewritten for the same
+        reason: a revocation that lived only in memory would be undone by the
+        next restart, which is precisely when the operator has stopped watching.
+        A revocation that matched nothing writes nothing: unlike
+        :meth:`create_session` this method purges no expiries, so there is no
+        other change to propagate, and a logout that has to try each of the
+        browser's cookie candidates would otherwise cost one full store rewrite
+        per candidate to record a map that never moved.
         """
+        digest = _digest(session_id)
+        store = self.store
+        snapshot: dict[str, float] | None = None
+        seq = 0
         with self._lock:
-            return self.sessions.pop(session_id, None) is not None
+            self._ephemeral.discard(digest)
+            was_live = self.sessions.pop(digest, None) is not None
+            if store is not None and was_live:
+                snapshot, seq = self._snapshot()
+        # ``is not None`` rather than truthiness: revoking the last session
+        # leaves an EMPTY snapshot, and that is precisely the one that has to
+        # reach the disk — it is what clears the file.
+        if snapshot is not None and store is not None:
+            store.save(snapshot, seq)
+        return was_live
 
     def verify_session(self, session_id: str | None) -> bool:
         """Whether ``session_id`` names a live browser session.
 
-        One dictionary lookup and one :func:`secrets.compare_digest` per call,
-        with no I/O — this runs on every cookie-bearing request, so anything
-        that read a file or opened a socket would land on the hot path of every
-        page load and every websocket frame.
+        One sha256, one dictionary lookup and one
+        :func:`secrets.compare_digest` per call, with no I/O — this runs on
+        every cookie-bearing request, so anything that read a file or opened a
+        socket would land on the hot path of every page load and every
+        websocket frame. The candidate is digested exactly once, before the
+        lookup, and the digest is what both the lookup and the comparison see.
 
         **The map lookup is what decides the answer.** The comparison below
         cannot: on a hit it weighs the candidate against itself, so it is true
@@ -256,49 +622,77 @@ class WebCredentials:
         candidate that happens to equal the decoy would otherwise compare equal
         to it and authenticate against an empty map.
 
-        Bytes rather than ``str``, because a cookie is unauthenticated input
-        and ``compare_digest`` raises ``TypeError`` on a non-ASCII ``str`` —
-        one accented character in a forged cookie would be an unhandled 500
-        instead of a refusal.
+        **Digesting first is also what keeps a hostile cookie a refusal rather
+        than a 500.** ``compare_digest`` raises ``TypeError`` on a non-ASCII
+        ``str``, and a cookie is unauthenticated input; what reaches it here is
+        the output of :func:`_digest`, which is lowercase hex whatever the
+        caller sent, so the candidate's encoding can no longer decide whether
+        the call raises.
 
         **This is not constant time, and that is accepted rather than
-        overlooked.** ``session_id in self.sessions`` hashes the candidate and,
-        on a bucket hit, falls back to ``str.__eq__``, which stops at the first
-        differing byte; the ``compare_digest`` above equalises the cost of the
-        *comparison* but cannot equalise the cost of the *lookup*. What that
-        timing could reveal is that a candidate shares a prefix with a live
-        session id — and a session id is 256 bits from :mod:`secrets`, minted
-        server-side and handed only to a browser that already authenticated, so
-        a prefix oracle buys an attacker nothing reachable: there is no
-        structure to extend, no offline check, and the id expires with the
-        session. The credentials an attacker would actually target — the
-        operator secret and the panel token — are compared by
-        :func:`_same_secret`, which is constant time.
+        overlooked.** ``digest in self.sessions`` hashes the digest and, on a
+        bucket hit, falls back to ``str.__eq__``, which stops at the first
+        differing character; the ``compare_digest`` above equalises the cost of
+        the *comparison* but cannot equalise the cost of the *lookup*. What
+        that timing could reveal is that the candidate's digest shares a prefix
+        with the digest of a live session — a fact about a value the attacker
+        computed themselves from a guess they had already made, not about any
+        id this process holds. It does not narrow the 256-bit id behind that
+        digest and does not carry to the next guess, and it is strictly less
+        than a map keyed by raw ids leaked, where the same timing spoke about a
+        prefix of the live id itself. The credentials an attacker would
+        actually target — the operator secret and the panel token — are
+        compared by :func:`_same_secret`, which is constant time.
         """
         if not session_id:
             return False
-        now = time.monotonic()
+        digest = _digest(session_id)
+        now = time.time()
         with self._lock:
             self._purge_expired(now)
-            hit = session_id in self.sessions
-            canonical = session_id if hit else _SESSION_DECOY
-            matched = secrets.compare_digest(session_id.encode("utf-8"), canonical.encode("utf-8"))
+            hit = digest in self.sessions
+            canonical = digest if hit else _SESSION_DECOY
+            matched = secrets.compare_digest(digest, canonical)
         return hit and matched
 
+    def _snapshot(self) -> tuple[dict[str, float], int]:
+        """Copy the persistable sessions and stamp the copy. Caller holds ``_lock``.
+
+        A copy rather than the map itself, because what comes back is written
+        after the lock is released and :class:`SessionStore` must never be
+        handed a dictionary another thread is still mutating. The comprehension
+        is also where :attr:`_ephemeral` is applied: a session minted with
+        ``persist=False`` is scoped to this process and has no business
+        outliving it.
+        """
+        snapshot = {
+            digest: deadline
+            for digest, deadline in self.sessions.items()
+            if digest not in self._ephemeral
+        }
+        self._store_seq += 1
+        return snapshot, self._store_seq
+
     def _purge_expired(self, now: float) -> None:
-        """Drop every session whose deadline has passed. Caller holds ``_lock``."""
-        expired = [sid for sid, deadline in self.sessions.items() if deadline <= now]
-        for sid in expired:
-            del self.sessions[sid]
+        """Drop every session whose deadline has passed. Caller holds ``_lock``.
+
+        A purged digest leaves :attr:`_ephemeral` with it, so the set tracks the
+        map rather than accumulating the digests of sessions that are long gone.
+        """
+        expired = [digest for digest, deadline in self.sessions.items() if deadline <= now]
+        for digest in expired:
+            del self.sessions[digest]
+            self._ephemeral.discard(digest)
 
 
 def _same_secret(candidate: str | None, expected: str) -> bool:
     """Compare a caller-supplied credential against the held one in constant time.
 
-    UTF-8 bytes rather than ``str`` for the same reason
-    :meth:`WebCredentials.verify_session` uses them: the candidate arrives in a
-    header an attacker writes, and ``secrets.compare_digest`` raises on a
-    non-ASCII ``str``, which would turn a refusal into a 500.
+    UTF-8 bytes rather than ``str``, because the candidate arrives in a header
+    an attacker writes and ``secrets.compare_digest`` raises ``TypeError`` on a
+    non-ASCII ``str``: one accented character would turn a refusal into a 500.
+    (:meth:`WebCredentials.verify_session` reaches the same end differently — it
+    compares digests, which are ASCII whatever the cookie held.)
     """
     if not candidate:
         return False
@@ -317,7 +711,9 @@ def _populate() -> WebCredentials:
             supplied. Minting one there would be worse than failing: nginx
             forwards the value the deploy ``.env`` pinned, so a locally minted
             secret would never match the header the reverse proxy sends and
-            every request would be refused with no indication why.
+            every request would be refused with no indication why. Also when
+            the configured session lifetime is unreadable — see
+            :func:`_session_ttl_from_env`.
     """
     # Both carriers are popped BEFORE the check below, because the check can
     # raise and the process that catches it goes on serving and spawning
@@ -343,11 +739,131 @@ def _populate() -> WebCredentials:
             )
         operator_secret = mint_secret()
 
+    # Read after the pops above, deliberately: this call can raise too, and the
+    # carriers must already be out of the environment when it does.
+    ttl_seconds = _session_ttl_from_env()
+    store = _session_store_from_env()
+
     return WebCredentials(
         operator_secret=operator_secret,
         panel_token=supplied_panel_token or mint_secret(),
         roster_secrets=roster_secrets,
+        session_ttl_seconds=ttl_seconds,
+        sessions=_restore_sessions(store, ttl_seconds),
+        store=store,
     )
+
+
+def _session_store_from_env() -> SessionStore | None:
+    """Build this process's session store, or ``None`` if none was configured.
+
+    A blank carrier is no store rather than a store in the current directory:
+    an unset compose variable interpolates to the empty string, and writing the
+    deployment's session file into whatever directory the process happened to
+    start in would be worse than not persisting at all.
+    """
+    store_dir = os.environ.get(SESSION_STORE_DIR_ENV, "").strip()
+    if not store_dir:
+        return None
+    return SessionStore(Path(store_dir), _web_port())
+
+
+def _web_port() -> str:
+    """Return the settled port the store file is named for, or ``""``.
+
+    The same derivation as
+    :func:`osprey.interfaces.common_middleware.session_cookie_name` — a
+    non-numeric value names nothing and falls back to the bare file — because
+    the two must agree: a browser holding a cookie named for one port has to
+    find its session in the store named for the same one.
+
+    The variable's name is spelled out here rather than imported from
+    :mod:`osprey.interfaces.common_middleware`, which is where it is defined:
+    that module imports this one at its top, so importing back would close a
+    cycle. A duplicated literal is the cheaper of the two.
+    """
+    text = os.environ.get("OSPREY_WEB_PORT", "").strip()
+    return text if text.isdigit() else ""
+
+
+def _restore_sessions(store: SessionStore | None, ttl_seconds: int) -> dict[str, float]:
+    """Read the persisted sessions back, clamped to the configured lifetime.
+
+    Nothing is written here. Population happens before the process serves
+    anything, and a restart that failed to reach the point of serving must not
+    have already replaced the store it read — a crash loop would otherwise
+    empty it. The first write is the first login or logout.
+
+    Every restored deadline is clamped to ``now + ttl_seconds`` because the
+    restart may be the one that *shortened* the lifetime: an operator who cuts
+    ``modules.web_terminals.auth.session_lifetime`` and restarts has said what
+    the longest session may now be, and a deadline written under the old value
+    must not outlive it. Sessions already past their deadline are dropped
+    rather than restored — the map only ever holds live entries, and
+    :meth:`WebCredentials._purge_expired` would drop them on the first call
+    anyway.
+
+    **The read is guarded here as well as inside the store, deliberately.**
+    :meth:`SessionStore.load` already promises never to raise, and this is the
+    call site that turns a broken promise into a process that answers nothing:
+    the exception would leave :func:`_populate` and, since a failed population
+    is not cached, be raised again on every request for the life of the
+    process. Two layers cost one ``try`` and mean no future change to ``load``
+    can lock an operator out of the console over a file that only holds
+    convenience.
+    """
+    if store is None:
+        return {}
+    try:
+        persisted = store.load()
+    except Exception as exc:
+        store._warn(f"could not be read: {exc}")
+        return {}
+    now = time.time()
+    ceiling = now + ttl_seconds
+    restored: dict[str, float] = {}
+    for digest, deadline in persisted.items():
+        clamped = min(deadline, ceiling)
+        if clamped > now:
+            restored[digest] = clamped
+    return restored
+
+
+def _session_ttl_from_env() -> int:
+    """Read the configured session lifetime in seconds, or refuse to start.
+
+    The only environment reader here that neither pops nor falls back on a bad
+    value. It does not pop because the value is a duration, not a credential,
+    and later readers need it (see :data:`SESSION_LIFETIME_ENV`). It does not
+    fall back because a silent default would hide a typo on a shared console:
+    the deployment would believe it had shortened the lifetime while every
+    terminal went on handing out twelve-hour sessions. An unset or blank
+    carrier is the one case that is not a typo — nothing configured the
+    lifetime — and takes :data:`DEFAULT_SESSION_LIFETIME`.
+
+    Raises:
+        RuntimeError: when the carrier holds anything but a whole number of
+            seconds greater than zero. The message names both spellings, the
+            config key and the environment variable, because the operator who
+            has to fix it may be looking at either.
+    """
+    raw = os.environ.get(SESSION_LIFETIME_ENV, "")
+    text = raw.strip()
+    if not text:
+        return DEFAULT_SESSION_LIFETIME
+
+    refusal = (
+        f"modules.web_terminals.auth.session_lifetime (carried as "
+        f"{SESSION_LIFETIME_ENV}) must be a whole number of seconds greater "
+        f"than zero, got {raw!r}"
+    )
+    try:
+        seconds = int(text, 10)
+    except ValueError as exc:
+        raise RuntimeError(refusal) from exc
+    if seconds <= 0:
+        raise RuntimeError(refusal)
+    return seconds
 
 
 def _roster_accepted() -> bool:
@@ -390,7 +906,9 @@ def get_web_credentials(app: Any = None) -> WebCredentials:
     racing to serve the first two requests cannot end up with different
     secrets. A failure to populate is not cached: the container-shape
     ``RuntimeError`` re-raises on every call, because the condition that caused
-    it — a declared bind host with no supplied secret — is still true.
+    it — a declared bind host with no supplied secret — is still true, and so
+    does a refused session lifetime, whose carrier is read rather than popped
+    and is therefore still just as unreadable on the next call.
     """
     if app is not None:
         state = getattr(app, "state", None)
