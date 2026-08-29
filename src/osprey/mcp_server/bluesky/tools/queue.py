@@ -222,10 +222,12 @@ _REFUSAL_HINTS: dict[str, list[str]] = {
     # that was never the problem; it points at the device list instead.
     "unknown_device": [
         "A device name in the staged plan is not one this worker built. Call "
-        "list_devices for the names it actually has, then set_draft the corrected "
-        "name (which mints a new revision) and add that revision.",
-        "The error's details carry available_devices — the complete set — so pick "
-        "from it rather than guessing a spelling or a nearby name.",
+        "list_devices with a prefix for the names it actually has, then set_draft the "
+        "corrected name (which mints a new revision) and add that revision.",
+        "The error's details carry available_devices when the worker's namespace fits "
+        "one page; a larger namespace reports available_count and available_devices_url "
+        "instead. Either way, list_devices is what reads the names — pick one from "
+        "there rather than guessing a spelling or a nearby name.",
     ],
     "session_plan_unvalidated": [
         "Session plans need a current passing validation; run validate_plan on the plan "
@@ -1149,9 +1151,12 @@ async def queue_add(draft_revision: int, lane: str | None = None) -> str:
           Edit the draft to mint a new revision.
         - unknown_device: a device name in the staged plan is not one this
           worker built, caught before the item was queued rather than as a
-          failed run. ``details.available_devices`` is the complete set of
-          names it does have (list_devices reads the same set) — correct the
-          name with set_draft, which mints a new revision, then add that one.
+          failed run. ``details.available_devices`` lists the names it does
+          have when the worker's namespace fits one page; a larger namespace
+          reports ``details.available_count`` and
+          ``details.available_devices_url`` instead. Read the names with
+          list_devices (pass a prefix), then correct the name with set_draft,
+          which mints a new revision, and add that one.
         - session_plan_unvalidated / session_plan_not_in_namespace: the plan is
           a session plan with no current passing validation, or its validated
           bytes are not in the worker's namespace. Run validate_plan again.

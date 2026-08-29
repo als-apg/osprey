@@ -491,6 +491,31 @@ async def test_queue_add_unknown_device_points_at_the_device_list(tmp_path, monk
     assert not any("get_draft" in s for s in envelope["suggestions"])
 
 
+async def test_queue_add_unknown_device_relays_a_capped_device_list(tmp_path, monkeypatch):
+    """A worker whose namespace exceeds one page sends a count and a URL instead
+    of the names. Both must survive into details untouched — the agent pages the
+    names with list_devices, so the hint points there either way."""
+    _armed(tmp_path, monkeypatch)
+    body = _refusal(
+        "unknown_device",
+        "plan 'grid_scan' referenced device 'COR9', which this worker did not build; "
+        "available devices: ['BPM1', 'BPM2', 'COR1'] (+2 more; full list via GET /devices)",
+        plan="grid_scan",
+        devices=["COR9"],
+        available_count=5,
+        available_devices_url="/devices",
+    )
+    with patch(f"{_MOD}._http_post_json", return_value=(400, body)):
+        with assert_raises_error(error_type="unknown_device") as ctx:
+            await _add_fn()(draft_revision=7)
+
+    details = ctx["envelope"]["details"]
+    assert details["available_count"] == 5
+    assert details["available_devices_url"] == "/devices"
+    assert "available_devices" not in details
+    assert any("list_devices" in s for s in ctx["envelope"]["suggestions"])
+
+
 @pytest.mark.parametrize("code", ["session_plan_unvalidated", "session_plan_not_in_namespace"])
 async def test_queue_add_session_plan_refusal_names_the_offending_plan(tmp_path, monkeypatch, code):
     _armed(tmp_path, monkeypatch)
