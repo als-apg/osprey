@@ -74,7 +74,7 @@
       svc.login_exempt`. Never gate one half of a predicate apart from the
       other — see the strip below for what each broken pairing costs.
 
-    auth_port: int, required when sidecar_active (defaults to 9070)
+    auth_port: int, required when sidecar_active (the layout's `auth` slot)
       The loopback port the auth sidecar listens on. Reached at bind_host, the
       same way every per-user app is: the sidecar shares the host network
       namespace with nginx (see docker-compose.web.yml.j2) and publishes
@@ -411,7 +411,7 @@ server {
     # absolute URL built from `$host` plus ITS OWN listening port. That is
     # wrong for precisely the topology `auth.allow_insecure_http` exists to
     # support: with a facility TLS terminator in front, a browser on
-    # `https://facility/u/alice` gets walked to `http://facility:9080/u/alice/`
+    # `https://facility/u/alice` gets walked to `http://facility:10000/u/alice/`
     # — cleartext, where a Secure cookie will not follow and a non-Secure one
     # would be exposed — while advertising the internal port on the way. A
     # relative Location keeps whatever origin the client already had.

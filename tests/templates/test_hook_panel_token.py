@@ -95,7 +95,9 @@ def _record_urlopen(monkeypatch, request_module, *, raises=None):
 
 def _unauthorized():
     """The 401 a token-requiring terminal API answers an anonymous call with."""
-    return urllib.error.HTTPError("http://127.0.0.1:8087/api/panels", 401, "Unauthorized", {}, None)
+    return urllib.error.HTTPError(
+        "http://127.0.0.1:10200/api/panels", 401, "Unauthorized", {}, None
+    )
 
 
 def _authorization_of(target):
@@ -265,7 +267,7 @@ def test_focus_artifact_sends_bearer_when_token_set(monkeypatch):
     monkeypatch.setenv(TOKEN_ENV, "s3cret-panel-token")
     seen = _record_urlopen(monkeypatch, urllib.request)
 
-    approval._focus_artifact("http://127.0.0.1:8087", "artifact-7")
+    approval._focus_artifact("http://127.0.0.1:10200", "artifact-7")
 
     assert len(seen) == 1
     request = seen[0]
@@ -280,7 +282,7 @@ def test_focus_artifact_sends_no_header_when_token_unset(monkeypatch):
     approval = _import_approval()
     seen = _record_urlopen(monkeypatch, urllib.request)
 
-    approval._focus_artifact("http://127.0.0.1:8087", "artifact-7")
+    approval._focus_artifact("http://127.0.0.1:10200", "artifact-7")
 
     assert _authorization_of(seen[0]) is None
     assert seen[0].get_header("Content-type") == "application/json"
@@ -293,7 +295,7 @@ def test_focus_artifact_sends_no_header_for_blank_token(monkeypatch, value):
     monkeypatch.setenv(TOKEN_ENV, value)
     seen = _record_urlopen(monkeypatch, urllib.request)
 
-    approval._focus_artifact("http://127.0.0.1:8087", "artifact-7")
+    approval._focus_artifact("http://127.0.0.1:10200", "artifact-7")
 
     assert _authorization_of(seen[0]) is None
 
@@ -304,7 +306,7 @@ def test_focus_artifact_strips_a_padded_token(monkeypatch):
     monkeypatch.setenv(TOKEN_ENV, "\t s3cret-panel-token ")
     seen = _record_urlopen(monkeypatch, urllib.request)
 
-    approval._focus_artifact("http://127.0.0.1:8087", "artifact-7")
+    approval._focus_artifact("http://127.0.0.1:10200", "artifact-7")
 
     assert _authorization_of(seen[0]) == "Bearer s3cret-panel-token"
 
@@ -315,4 +317,4 @@ def test_focus_artifact_swallows_401(monkeypatch):
     monkeypatch.setenv(TOKEN_ENV, "wrong-token")
     _record_urlopen(monkeypatch, urllib.request, raises=_unauthorized())
 
-    assert approval._focus_artifact("http://127.0.0.1:8087", "artifact-7") is None
+    assert approval._focus_artifact("http://127.0.0.1:10200", "artifact-7") is None

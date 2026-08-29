@@ -54,7 +54,9 @@ from osprey.deployment.web_terminals.ports import (
     PANEL_ENV_VARS,
     allocate_ports,
     base_ports_from_config,
+    resolve_nginx_port,
 )
+from osprey.port_layout import default_port, resolve_port_base
 from osprey.utils.facility import resolve_facility_name
 from osprey.utils.workspace import AUDIT_DIR_RELPATH, agent_data_base_dir
 
@@ -108,11 +110,13 @@ TLS_LISTEN_PORT = 443
 #: booleans :func:`_auth_tls_context` returns beside ``auth_method``.
 SUPPORTED_AUTH_METHODS = ("none", "token", "password", "oidc")
 
-#: Port the auth sidecar listens on when ``auth.port`` is unset. Deliberately
-#: outside the per-user port families (which start at ``*_base_port`` and grow
-#: with the roster) so a default-port sidecar can't collide with user N's
-#: terminal; lint joins the effective value into its port-collision check.
-_DEFAULT_AUTH_PORT = 9070
+#: Layout slot the auth sidecar listens on when ``auth.port`` is unset. It sits
+#: in the gateway tier, one above nginx and far below the per-user families
+#: (which start a hundred ports up and grow with the roster), so a default-port
+#: sidecar can't collide with user N's terminal; lint joins the effective value
+#: into its port-collision check. Resolved per deployment rather than pinned
+#: here — see :func:`_auth_tls_context`'s ``base``.
+_AUTH_PORT_SLOT = "auth"
 
 #: How long an unlocked-user entry stays valid when ``auth.session_lifetime``
 #: is unset, in seconds (12 hours — one operator shift plus slack).
@@ -836,8 +840,9 @@ def render_web_terminals(
         cannot survive a re-render.
 
     Raises:
-        ValueError: If ``modules.web_terminals.nginx_port`` is missing/not an int,
-            if a configured user can't resolve a full port-family set, if
+        ValueError: If ``modules.web_terminals.nginx_port`` is set to something
+            that is not an int (an unset one resolves to the layout's gateway
+            slot), if a configured user can't resolve a full port-family set, if
             ``deploy.fqdn`` is missing while the deployment needs an external
             origin — at least one user configured (the host baked into
             ``OSPREY_TERMINAL_LANDING_URL``) or authentication enabled (see
@@ -875,7 +880,10 @@ def render_web_terminals(
     # kept apart on purpose — see `roster_role_by_name`.
     roster_roles = roster_role_by_name(web_terminals)
 
-    base_ports = base_ports_from_config(web_terminals)
+    # The base every per-user port is derived from: the one the deployment
+    # actually resolved, read off the config in hand rather than defaulted, so
+    # a deployment on its own block publishes its own ports.
+    base_ports = base_ports_from_config(web_terminals, base=resolve_port_base(root))
     services = []
     for entry in resolved_users:
         user_ports = allocate_ports(base_ports, entry["index"])
@@ -1099,13 +1107,15 @@ def render_web_terminals(
             }
         )
 
-    nginx_port = web_terminals.get("nginx_port")
-    if not isinstance(nginx_port, int):
-        raise ValueError("modules.web_terminals.nginx_port is required and must be an int")
+    # Resolved, not required: an unset `nginx_port` is nginx on the gateway
+    # slot of this deployment's block, derived from the base above rather than
+    # demanded of the author (see `resolve_nginx_port`). Only a value that is
+    # present and is not a port number refuses.
+    nginx_port = resolve_nginx_port(root)
 
     image_source = effective_image_source(web_terminals)
 
-    auth_tls_ctx = _auth_tls_context(web_terminals)
+    auth_tls_ctx = _auth_tls_context(web_terminals, base=resolve_port_base(root))
     if auth_tls_ctx["tls_enabled"] and not (auth_tls_ctx["tls_cert"] and auth_tls_ctx["tls_key"]):
         raise ValueError(
             "modules.web_terminals.tls.enabled is true but tls.cert/tls.key are not both "
@@ -1589,17 +1599,15 @@ def deployment_external_origin(config: Any) -> str:
         ``http://<fqdn>:<nginx_port>`` without.
 
     Raises:
-        ValueError: If ``modules.web_terminals.nginx_port`` is missing or is not
-            an int; if ``modules.web_terminals.external_origin`` is set to
+        ValueError: If ``modules.web_terminals.nginx_port`` is set to something
+            that is not an int; if ``modules.web_terminals.external_origin`` is set to
             something that is not an origin; or if it is unset and
             ``deploy.fqdn`` is missing or blank — the values an origin cannot be
             assembled without.
     """
     root = as_dict(config)
     web_terminals = as_dict(as_dict(root.get("modules")).get("web_terminals"))
-    nginx_port = web_terminals.get("nginx_port")
-    if not isinstance(nginx_port, int):
-        raise ValueError("modules.web_terminals.nginx_port is required and must be an int")
+    nginx_port = resolve_nginx_port(root)
     tls_enabled = bool(_auth_tls_context(web_terminals)["tls_enabled"])
     return _external_origin(root, nginx_port, tls_enabled=tls_enabled)
 
@@ -1790,7 +1798,7 @@ def _user_groups(resolved_users: list[dict[str, Any]], default_label: Any) -> li
     return groups
 
 
-def _auth_tls_context(web_terminals: dict[str, Any]) -> dict[str, Any]:
+def _auth_tls_context(web_terminals: dict[str, Any], *, base: int | None = None) -> dict[str, Any]:
     """Read the ``web_terminals.auth``/``web_terminals.tls`` stanzas into the context
     keys the nginx seam and the auth sidecar's compose service consume.
 
@@ -1841,6 +1849,12 @@ def _auth_tls_context(web_terminals: dict[str, Any]) -> dict[str, Any]:
     Args:
         web_terminals: The already-unwrapped ``modules.web_terminals`` dict (as
             passed to :func:`render_web_terminals`'s Jinja contexts).
+        base: The port base this deployment resolved, from
+            :func:`osprey.port_layout.resolve_port_base`. Only consulted when
+            ``auth.port`` is unset, in which case the sidecar takes the ``auth``
+            slot of *this* deployment's block. ``None`` means the layout's own
+            default base, which is right only for the callers that read the
+            derived booleans and never look at ``auth_port`` at all.
 
     Returns:
         A dict with the auth keys ``auth_method`` (one of
@@ -1885,7 +1899,7 @@ def _auth_tls_context(web_terminals: dict[str, Any]) -> dict[str, Any]:
         "walled": sidecar_active,
         "token_exchange": auth_method == "token",
         "open_perimeter": auth_method == "none",
-        "auth_port": _positive_int(auth.get("port"), _DEFAULT_AUTH_PORT),
+        "auth_port": _positive_int(auth.get("port"), default_port(_AUTH_PORT_SLOT, base=base)),
         "auth_session_lifetime": _positive_int(
             auth.get("session_lifetime"), _DEFAULT_SESSION_LIFETIME
         ),

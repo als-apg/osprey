@@ -399,7 +399,7 @@ def test_external_origin_env_is_consulted_on_the_header_path(
     browser surface rather than for the cookie alone.
     """
     monkeypatch.setenv(EXTERNAL_ORIGIN_ENV, "https://osprey.example.org")
-    base = {OPERATOR_SECRET_HEADER: OPERATOR_SECRET, "host": "web-terminal-alice:8087"}
+    base = {OPERATOR_SECRET_HEADER: OPERATOR_SECRET, "host": "web-terminal-alice:10100"}
 
     allowed = drive(
         middleware,
@@ -680,8 +680,8 @@ def test_https_request_derives_an_https_origin(middleware, downstream, app_stub,
 ORIGIN_DEFAULT_PORT_CASES = [
     ("http://h:80", "http://h", True),
     ("https://h:443", "https://h", True),
-    ("http://h:9080", "http://h:9080", True),
-    ("http://h:9080", "http://h", False),
+    ("http://h:10000", "http://h:10000", True),
+    ("http://h:10000", "http://h", False),
     ("http://h", "https://h", False),
 ]
 
@@ -700,7 +700,7 @@ def test_declared_origin_is_compared_with_default_ports_elided(
     """
     monkeypatch.setenv(EXTERNAL_ORIGIN_ENV, expected)
     headers = {
-        "host": "web-terminal-alice:8087",
+        "host": "web-terminal-alice:10100",
         "origin": origin,
         **session_cookie(credentials),
     }
@@ -730,7 +730,7 @@ def test_operator_header_origin_is_normalized_too(middleware, downstream, app_st
     monkeypatch.setenv(EXTERNAL_ORIGIN_ENV, "http://osprey.example.org:80")
     headers = {
         OPERATOR_SECRET_HEADER: OPERATOR_SECRET,
-        "host": "web-terminal-alice:8087",
+        "host": "web-terminal-alice:10100",
         "origin": "http://osprey.example.org",
     }
     sent = drive(middleware, http_scope("/api/config", "PATCH", headers, app=app_stub))
@@ -756,7 +756,7 @@ def test_an_origin_refusal_names_both_origins_in_the_log(
     monkeypatch.setenv(EXTERNAL_ORIGIN_ENV, "https://osprey.example.org")
     headers = {
         OPERATOR_SECRET_HEADER: OPERATOR_SECRET,
-        "host": "web-terminal-alice:8087",
+        "host": "web-terminal-alice:10100",
         "origin": "https://evil.test",
     }
     with caplog.at_level(logging.WARNING, logger=MIDDLEWARE_LOGGER):

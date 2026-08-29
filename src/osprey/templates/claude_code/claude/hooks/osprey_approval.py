@@ -353,20 +353,68 @@ def _focus_artifact(gallery_base_url: str, artifact_id: str) -> None:
         pass
 
 
-# Default Bluesky bridge base URL — mirrors
-# osprey.bluesky_bridge_connection.resolve_bridge_url's fallback
-# (`DEFAULT_BRIDGE_URL`) without importing that module: this hook runs
-# standalone, in a different process/venv from OSPREY's own package.
-_DEFAULT_BRIDGE_URL = "http://127.0.0.1:8090"
+def _layout_port(slot: str, config: dict) -> int | None:
+    """The port one layout slot takes at *config*'s own ``deployment.port_base``.
+
+    This hook's single derivation of a framework default port, and the reason
+    no port number is written out below. A deployment names the first port of
+    its block once, and every framework port is that base plus a fixed offset;
+    a number frozen here would address whichever deployment happened to be on
+    the default base, which on a host running two is the wrong one.
+
+    The import is lazy and guarded for the same reason every other ``osprey``
+    import in this file is: the hook is rendered into a project that may run it
+    under a different interpreter than the one OSPREY is installed in.
+    ``osprey.port_layout`` is a stdlib-only leaf, so where osprey *is*
+    importable this costs nothing and cannot cycle.
+
+    Args:
+        slot: Layout slot name, as ``osprey.port_layout.LAYOUT`` spells it —
+            ``"bluesky"`` for the plan bridge, ``"artifact"`` for the gallery.
+        config: The loaded ``config.yml`` mapping, which is what carries
+            ``deployment.port_base``.
+
+    Returns:
+        ``base + offset`` for the slot, or ``None`` when ``osprey`` is not
+        importable here. ``None`` means "this hook cannot know the address",
+        and every caller treats that the way it treats a bridge that does not
+        answer — it renders less detail, never an error.
+    """
+    try:
+        from osprey.port_layout import default_port, resolve_port_base
+
+        return default_port(slot, base=resolve_port_base(config))
+    except Exception:
+        return None
 
 
 def _resolve_bridge_url(config: dict) -> str:
     """Resolve the Bluesky bridge base URL: env wins outright over config.yml.
 
-    Resolution order mirrors `osprey.bluesky_bridge_connection.resolve_bridge_url`
+    Resolution order mirrors `osprey.bluesky_bridge_connection.bridge_url_from_config`
     exactly: ``BLUESKY_BRIDGE_URL`` env var, then ``bluesky.bridge_url`` in
     config.yml, then the port the deployment publishes its bridge on
-    (``services.bluesky.port``, dialed on loopback), then the default above.
+    (``services.bluesky.port``, dialed on loopback), then the ``bluesky`` slot
+    at *this config's own* port base — the port the build would have published
+    had it written the key. That last step is a derivation rather than a
+    constant on purpose: on a host running two deployments, a frozen default
+    would dial the other one's bridge.
+
+    That order is duplicated here deliberately — this hook runs standalone, in
+    a different process and possibly a different venv, and cannot import the
+    module that owns it — so a change there is a change here.
+
+    Args:
+        config: The loaded ``config.yml`` mapping.
+
+    Returns:
+        The base URL, trailing slash stripped, or ``""`` when no address can be
+        derived at all — which takes every step above failing at once: no
+        ``BLUESKY_BRIDGE_URL``, no ``bluesky.bridge_url``, no
+        ``services.bluesky.port``, and an ``osprey`` this interpreter cannot
+        import to take the layout from. The bridge calls are fail-open, so an
+        empty base reads as "the bridge said nothing"; the lane resolver turns
+        it into the ``None`` that renders the unaddressable-lane line.
     """
     full = os.environ.get("BLUESKY_BRIDGE_URL")
     if full:
@@ -378,9 +426,9 @@ def _resolve_bridge_url(config: dict) -> str:
     services = config.get("services") or {}
     block = services.get("bluesky") if isinstance(services, dict) else None
     port = block.get("port") if isinstance(block, dict) else None
-    if port:
-        return f"http://127.0.0.1:{port}"
-    return _DEFAULT_BRIDGE_URL
+    if not port:
+        port = _layout_port("bluesky", config)
+    return f"http://127.0.0.1:{port}" if port else ""
 
 
 def _bridge_get_json(base_url: str, path: str, timeout: float = 3.0):
@@ -1484,7 +1532,13 @@ def _lane_bridge_url(situation: dict, lane_key, config: dict) -> str | None:
     that never published an address, the other an address nobody answered.
     """
     if not lane_key or lane_key == _LANE_ONE:
-        return _resolve_bridge_url(config)
+        # ``or None``: :func:`_resolve_bridge_url` returns "" when it can derive
+        # no address at all, and this function's contract is None for that. An
+        # empty string would slip past every caller's ``is None`` branch and be
+        # dialed as a relative URL instead of rendering the unaddressable-lane
+        # line — the same "config published no address" case a second lane hits
+        # two lines below.
+        return _resolve_bridge_url(config) or None
     full = os.environ.get(f"{lane_key.upper()}_BRIDGE_URL")
     if full:
         return full.rstrip("/")
@@ -1836,7 +1890,17 @@ def _gallery_base_url(config: dict) -> str:
 
     This hook is rendered into projects that may run against a different osprey
     install than the one it shipped with, so the import is lazy and a failure
-    falls back to the same resolution order done inline. Never raises.
+    falls back to the same resolution order done inline: the per-user env
+    override, then the config section's own port, then the gallery's slot at
+    this config's port base. Never raises.
+
+    Args:
+        config: The loaded ``config.yml`` mapping.
+
+    Returns:
+        The gallery's base URL, or ``""`` when the port cannot be derived at
+        all — no env override, no configured port, and no importable osprey to
+        take the layout from. The caller renders no gallery link for that.
     """
     try:
         from osprey.registry.web import resolve_web_server_base_url
@@ -1845,8 +1909,12 @@ def _gallery_base_url(config: dict) -> str:
     except Exception:
         art_config = config.get("artifact_server") or {}
         host = art_config.get("host") or "127.0.0.1"
-        port = os.environ.get("OSPREY_ARTIFACT_SERVER_PORT") or art_config.get("port") or 8086
-        return f"http://{host}:{port}"
+        port = (
+            os.environ.get("OSPREY_ARTIFACT_SERVER_PORT")
+            or art_config.get("port")
+            or _layout_port("artifact", config)
+        )
+        return f"http://{host}:{port}" if port else ""
 
 
 def _create_pre_execution_notebook(code: str, exec_mode: str, config: dict) -> str | None:
@@ -1888,6 +1956,10 @@ def _create_pre_execution_notebook(code: str, exec_mode: str, config: dict) -> s
 
         # Build gallery URL and bring the notebook into focus
         base_url = _gallery_base_url(config)
+        if not base_url:
+            # No derivable gallery address; the notebook is saved, but a link
+            # to a port nobody is serving would be worse than no link.
+            return None
 
         # Fire-and-forget POST to switch gallery focus to this notebook
         _focus_artifact(base_url, entry.id)

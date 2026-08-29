@@ -24,6 +24,7 @@ from pydantic import BaseModel
 from osprey.agent_runner.artifact_resolve import deployed_render_dir
 from osprey.interfaces._app_setup import configure_interface_app
 from osprey.interfaces.vendor import vendor_url
+from osprey.port_layout import default_port
 from osprey.utils.timeseries import (
     downsample_channel_map,
     extract_channel_series,
@@ -975,7 +976,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
 def run_server(
     host: str = "127.0.0.1",
-    port: int = 8086,
+    port: int = default_port("artifact"),
     workspace_root: Path | None = None,
 ) -> None:
     """Run the artifact gallery server.
@@ -989,7 +990,13 @@ def run_server(
 
     Args:
         host: Host to bind to.
-        port: Port to run on.
+        port: Port to run on. The default is the ``artifact`` slot at the
+            layout's *default* base, which is right only for a programmatic
+            caller with no config to resolve a base from. ``osprey artifacts
+            web`` — the one caller — passes the port it resolved from this
+            deployment's ``deployment.port_base``. A multi-user deployment does
+            not come through here at all: its launcher builds the app from the
+            registry's factory and serves it itself.
         workspace_root: Workspace root dir.
     """
     import os

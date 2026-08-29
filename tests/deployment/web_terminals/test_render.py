@@ -29,6 +29,8 @@ from osprey.deployment.web_terminals.render import (
     render_web_terminals,
     terminal_secret_env_var,
 )
+from osprey.port_layout import DEFAULT_PORT_BASE, default_port
+from osprey.registry.web import framework_web_port_default
 
 # The sidecar's own env-var names, imported rather than spelled out: the compose
 # service and the app factory are the two ends of one contract, and a rename on
@@ -53,10 +55,42 @@ from osprey.utils.workspace import agent_data_base_dir
 # render actually allocates from also carries every registry default
 # (channel_finder, okf, ...) — resolved once here so `allocate_ports(_BASE_PORTS,
 # i)` calls throughout this module see the same full set the render does.
-_CONFIGURED_BASE_PORTS = {"web": 9091, "artifact": 9291, "ariel": 9391, "lattice": 9491}
+# A second, non-default base the explicit overrides below sit in. It MUST stay
+# distinct from the default base: that distinctness is what makes "the
+# configured value wins" a real assertion here rather than two numbers that
+# happen to agree. 20000 rather than the block immediately above the default,
+# because the next block up is the one a second deployment would actually take,
+# and a future `port_base` test on it would make these assertions vacuous. Same
+# name and value as test_lint.py's, so the two files share one convention.
+_OVERRIDE_PORT_BASE = 20000
+_CONFIGURED_BASE_PORTS = {
+    family: default_port(family, 0, base=_OVERRIDE_PORT_BASE)
+    for family in ("web", "artifact", "ariel", "lattice")
+}
+# No test config in this module sets `deployment.port_base`, so the render
+# resolves the layout's default base and the unconfigured families land on their
+# layout bands there.
 _BASE_PORTS = base_ports_from_config(
-    {f"{family}_base_port": port for family, port in _CONFIGURED_BASE_PORTS.items()}
+    {f"{family}_base_port": port for family, port in _CONFIGURED_BASE_PORTS.items()},
+    base=DEFAULT_PORT_BASE,
 )
+
+# The auth sidecar's port when `auth.port` is unset — the layout's `auth` slot at
+# the base these configs resolve, derived rather than pinned to a literal so
+# moving the slot moves the expectation with it.
+_DEFAULT_AUTH_PORT = default_port("auth", 0, base=DEFAULT_PORT_BASE)
+
+# The port a facility that MOVED the sidecar off its layout default puts it on —
+# the `auth` slot of `_OVERRIDE_PORT_BASE`'s block. Every test below that sets
+# `auth.port` explicitly uses this one value: each exists to prove the render
+# follows the configured port, so all that matters is that it differ from
+# `_DEFAULT_AUTH_PORT`, which being in another block it always will.
+_OVERRIDE_AUTH_PORT = default_port("auth", 0, base=_OVERRIDE_PORT_BASE)
+
+# The gateway port every config in this module renders nginx on — the layout's
+# `nginx` slot at the base these configs resolve. Derived for the same reason
+# `_DEFAULT_AUTH_PORT` is: the expectation moves when the slot does.
+_NGINX_PORT = default_port("nginx", 0, base=DEFAULT_PORT_BASE)
 
 
 def _config(users: list[str], groups: list[dict] | None = None) -> dict:
@@ -64,7 +98,7 @@ def _config(users: list[str], groups: list[dict] | None = None) -> dict:
     render_web_terminals() reads."""
     web_terminals: dict = {
         "enabled": True,
-        "nginx_port": 9080,
+        "nginx_port": _NGINX_PORT,
         "web_base_port": _CONFIGURED_BASE_PORTS["web"],
         "artifact_base_port": _CONFIGURED_BASE_PORTS["artifact"],
         "ariel_base_port": _CONFIGURED_BASE_PORTS["ariel"],
@@ -165,9 +199,10 @@ def test_nginx_image_custom_value_lands_on_the_nginx_service() -> None:
     assert compose["services"]["nginx"]["image"] == custom
 
 
-def test_compose_service_env_has_terminal_user_and_8087_constant_per_service() -> None:
-    """Each per-user service sets OSPREY_TERMINAL_USER, and the 8087 web-internal
-    default is referenced (in the healthcheck commentary) once per service."""
+def test_compose_service_env_has_terminal_user_and_web_slot_commentary_per_service() -> None:
+    """Each per-user service sets OSPREY_TERMINAL_USER, and the healthcheck
+    commentary names the layout's ``web`` slot — the fallback a bare
+    ``osprey web`` would take — once per service."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
     users = config["modules"]["web_terminals"]["users"]
@@ -181,9 +216,12 @@ def test_compose_service_env_has_terminal_user_and_8087_constant_per_service() -
     for user in users:
         env = compose["services"][f"web-{user}"]["environment"]
         assert f"OSPREY_TERMINAL_USER={user}" in env
-    # The healthcheck commentary mentions the fixed 8087 default twice per
-    # per-user service block (docker-compose.web.yml.j2's healthcheck comment).
-    assert compose_text.count("8087") == 2 * len(users)
+    # The healthcheck commentary names the layout fallback once per per-user
+    # service block (docker-compose.web.yml.j2's healthcheck comment). Spelled
+    # as the slot, not as a number: the port this deployment actually binds is
+    # OSPREY_WEB_PORT, and the commentary exists to say so.
+    assert compose_text.count("layout's `web` slot") == len(users)
+    assert "8087" not in compose_text
 
 
 def test_compose_ports_are_non_colliding_families_matching_allocate_ports() -> None:
@@ -193,7 +231,9 @@ def test_compose_ports_are_non_colliding_families_matching_allocate_ports() -> N
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
     users = config["modules"]["web_terminals"]["users"]
-    effective_base_ports = base_ports_from_config(config["modules"]["web_terminals"])
+    effective_base_ports = base_ports_from_config(
+        config["modules"]["web_terminals"], base=DEFAULT_PORT_BASE
+    )
 
     # Act
     artifacts = render_web_terminals(config)
@@ -831,7 +871,10 @@ def test_external_origin_without_tls_is_plain_http_on_the_published_nginx_port()
     contexts = _capture_render_contexts(config)
 
     # Assert
-    assert contexts["nginx.conf.j2"]["external_origin"] == "http://dls-deploy.dls.example.org:9080"
+    assert (
+        contexts["nginx.conf.j2"]["external_origin"]
+        == f"http://dls-deploy.dls.example.org:{_NGINX_PORT}"
+    )
 
 
 def test_external_origin_with_tls_is_https_with_443_left_implicit() -> None:
@@ -907,7 +950,7 @@ def test_landing_url_without_tls_is_unchanged_from_today() -> None:
 
     # Assert
     assert (
-        "OSPREY_TERMINAL_LANDING_URL=http://dls-deploy.dls.example.org:9080"
+        f"OSPREY_TERMINAL_LANDING_URL=http://dls-deploy.dls.example.org:{_NGINX_PORT}"
         in compose["services"]["web-alice"]["environment"]
     )
 
@@ -926,22 +969,27 @@ def test_external_origin_is_required_by_auth_even_with_an_empty_roster() -> None
         render_web_terminals(config)
 
 
-def test_render_missing_web_base_port_raises_value_error() -> None:
-    """A user list that can't fully resolve allocate_ports() must fail loudly, not
-    silently. Only `web` can be missing — every companion family carries a
-    registry default (see test_render_missing_companion_base_port_uses_default)."""
+def test_render_missing_web_base_port_uses_the_layout_default() -> None:
+    """`web` is a layout slot like every other family now, so a config that names
+    no terminal base port renders on the block rather than failing to allocate."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
     del config["modules"]["web_terminals"]["web_base_port"]
 
-    # Act / Assert
-    with pytest.raises(ValueError, match="web"):
-        render_web_terminals(config)
+    # Act
+    artifacts = render_web_terminals(config)
+    compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
+
+    # Assert — the terminal renders from its layout band for every user.
+    default_base = default_port("web", 0, base=DEFAULT_PORT_BASE)
+    for index, user in enumerate(["alice", "bob", "carol"]):
+        env = compose["services"][f"web-{user}"]["environment"]
+        assert f"OSPREY_WEB_PORT={default_base + index}" in env
 
 
-def test_render_missing_companion_base_port_uses_registry_default() -> None:
+def test_render_missing_companion_base_port_uses_layout_default() -> None:
     """A config omitting a companion family's base port (e.g. written before that
-    panel existed) must render with the registry default, not fail — the
+    panel existed) must render with the layout default, not fail — the
     zero-migration guarantee that keeps feature parity from breaking old configs."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
@@ -951,13 +999,52 @@ def test_render_missing_companion_base_port_uses_registry_default() -> None:
     artifacts = render_web_terminals(config)
     compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
 
-    # Assert — lattice family renders from its registry default for every user.
-    from osprey.registry.web import FRAMEWORK_WEB_SERVERS
-
-    default_base = FRAMEWORK_WEB_SERVERS["lattice_dashboard"].multi_user_base_port
+    # Assert — lattice family renders from its layout band for every user.
+    default_base = framework_web_port_default("lattice_dashboard", base=DEFAULT_PORT_BASE)
     for index, user in enumerate(["alice", "bob", "carol"]):
         env = compose["services"][f"web-{user}"]["environment"]
         assert f"OSPREY_LATTICE_DASHBOARD_PORT={default_base + index}" in env
+
+
+def test_render_derives_every_family_from_port_base_20000() -> None:
+    """The pin: with `deployment.port_base: 20000` and a stanza naming no port at
+    all, user 0's seven families land on the 20000 block — 20100 (terminal),
+    20200 (gallery), 20300 (ARIEL), 20400 (lattice), 20500 (channel finder),
+    20600 (OKF), 20700 (system health). This is the whole feature in one
+    assertion: one knob moves the deployment, and nothing here reads a default
+    base."""
+    # Arrange — strip every base-port key, then set the block's base.
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    web_terminals = config["modules"]["web_terminals"]
+    for family in ("web", "artifact", "ariel", "lattice"):
+        web_terminals.pop(f"{family}_base_port", None)
+    config["deployment"] = {"port_base": 20000}
+
+    # Act
+    artifacts = render_web_terminals(config)
+    compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
+    env = compose["services"]["web-alice"]["environment"]
+    env_map = dict(item.split("=", 1) for item in env if "=" in item)
+
+    # Assert
+    assert int(env_map["OSPREY_WEB_PORT"]) == 20100
+    assert int(env_map[PANEL_ENV_VARS["artifact"]]) == 20200
+    assert int(env_map[PANEL_ENV_VARS["ariel"]]) == 20300
+    assert int(env_map[PANEL_ENV_VARS["lattice"]]) == 20400
+    assert int(env_map[PANEL_ENV_VARS["channel_finder"]]) == 20500
+    assert int(env_map[PANEL_ENV_VARS["okf"]]) == 20600
+    assert int(env_map[PANEL_ENV_VARS["system_health"]]) == 20700
+    # Every family accounted for — a newly registered companion cannot slip past
+    # this pin by simply not being listed above.
+    assert set(PANEL_ENV_VARS) | {"web"} == set(allocate_ports(_BASE_PORTS, 0))
+
+    # And user N is user 0 plus N, in every family, on the same block.
+    for index, user in enumerate(["alice", "bob", "carol"]):
+        user_env = compose["services"][f"web-{user}"]["environment"]
+        user_map = dict(item.split("=", 1) for item in user_env if "=" in item)
+        assert int(user_map["OSPREY_WEB_PORT"]) == 20100 + index
+        for family, env_var in PANEL_ENV_VARS.items():
+            assert int(user_map[env_var]) == default_port(family, index, base=20000)
 
 
 def test_removing_user_regenerates_without_their_service_route_and_volumes() -> None:
@@ -1684,7 +1771,7 @@ def test_auth_context_defaults_are_inert_without_an_auth_stanza() -> None:
     assert context["auth_allow_insecure_http"] is False
     assert context["auth_image"] is None
     assert context["auth_oidc_issuer"] is None
-    assert context["auth_port"] == 9070
+    assert context["auth_port"] == _DEFAULT_AUTH_PORT
     assert context["auth_session_lifetime"] == 12 * 60 * 60
 
 
@@ -1694,7 +1781,7 @@ def test_auth_context_reads_every_configured_scalar() -> None:
     web_terminals = copy.deepcopy(_MULTI_USER_CONFIG)["modules"]["web_terminals"]
     web_terminals["auth"] = {
         "method": "password",
-        "port": 9401,
+        "port": _OVERRIDE_AUTH_PORT,
         "session_lifetime": 3600,
         "allow_insecure_http": True,
         "image": "git.dls.example.org:5050/physics/production/dls-auth:2026.8.1",
@@ -1705,7 +1792,7 @@ def test_auth_context_reads_every_configured_scalar() -> None:
 
     # Assert
     assert context["auth_method"] == "password"
-    assert context["auth_port"] == 9401
+    assert context["auth_port"] == _OVERRIDE_AUTH_PORT
     assert context["auth_session_lifetime"] == 3600
     assert context["auth_allow_insecure_http"] is True
     assert context["auth_image"].endswith("dls-auth:2026.8.1")
@@ -1791,7 +1878,7 @@ def test_auth_context_malformed_scalars_fall_back_to_defaults() -> None:
     context = _auth_tls_context(web_terminals)
 
     # Assert
-    assert context["auth_port"] == 9070
+    assert context["auth_port"] == _DEFAULT_AUTH_PORT
     assert context["auth_session_lifetime"] == 12 * 60 * 60
     assert context["auth_image"] is None
     assert context["auth_oidc_issuer"] is None
@@ -2280,19 +2367,19 @@ def test_auth_location_verifies_against_the_sidecar_with_a_render_time_username(
     nginx_conf = _render_nginx(_auth_config(["alice", "bob"]))
 
     # Assert
-    assert "proxy_pass http://127.0.0.1:9070/verify?user=alice;" in nginx_conf
-    assert "proxy_pass http://127.0.0.1:9070/verify?user=bob;" in nginx_conf
+    assert f"proxy_pass http://127.0.0.1:{_DEFAULT_AUTH_PORT}/verify?user=alice;" in nginx_conf
+    assert f"proxy_pass http://127.0.0.1:{_DEFAULT_AUTH_PORT}/verify?user=bob;" in nginx_conf
 
 
 def test_auth_location_follows_the_configured_auth_port() -> None:
-    """A facility that moves the sidecar off 9070 is routed to the new port —
-    the template reads `auth_port`, it never hardcodes the default."""
+    """A facility that moves the sidecar off its layout default is routed to the
+    new port — the template reads `auth_port`, it never hardcodes the default."""
     # Act
-    nginx_conf = _render_nginx(_auth_config(["alice"], port=9471))
+    nginx_conf = _render_nginx(_auth_config(["alice"], port=_OVERRIDE_AUTH_PORT))
 
     # Assert
-    assert "proxy_pass http://127.0.0.1:9471/verify?user=alice;" in nginx_conf
-    assert ":9070/verify" not in nginx_conf
+    assert f"proxy_pass http://127.0.0.1:{_OVERRIDE_AUTH_PORT}/verify?user=alice;" in nginx_conf
+    assert f":{_DEFAULT_AUTH_PORT}/verify" not in nginx_conf
 
 
 def test_auth_location_is_internal_only() -> None:
@@ -2381,7 +2468,7 @@ def test_no_sidecar_surface_when_the_method_runs_no_sidecar() -> None:
     for conf in (default_conf, explicit_conf):
         assert "_osprey_auth" not in conf
         assert "auth_request" not in conf
-        assert "9070" not in conf
+        assert str(_DEFAULT_AUTH_PORT) not in conf
 
     # Assert — and the one thing that DOES separate them. Read off the
     # directives: the template names this very include in the prose above it.
@@ -2446,20 +2533,20 @@ def test_auth_public_location_proxies_the_login_surface_to_the_sidecar() -> None
 
     # Assert
     assert "    location /auth/ {" in nginx_conf
-    assert "proxy_pass http://127.0.0.1:9070/auth/;" in _location_body(
+    assert f"proxy_pass http://127.0.0.1:{_DEFAULT_AUTH_PORT}/auth/;" in _location_body(
         nginx_conf, "location /auth/"
     )
 
 
 def test_auth_public_location_follows_the_configured_auth_port() -> None:
     """The public surface and the internal verify targets are pointed at the same
-    configured sidecar port — neither hardcodes the 9070 default."""
+    configured sidecar port — neither hardcodes the layout default."""
     # Act
-    nginx_conf = _render_nginx(_auth_config(port=9471))
+    nginx_conf = _render_nginx(_auth_config(port=_OVERRIDE_AUTH_PORT))
 
     # Assert
-    assert "proxy_pass http://127.0.0.1:9471/auth/;" in nginx_conf
-    assert ":9070" not in nginx_conf
+    assert f"proxy_pass http://127.0.0.1:{_OVERRIDE_AUTH_PORT}/auth/;" in nginx_conf
+    assert f":{_DEFAULT_AUTH_PORT}" not in nginx_conf
 
 
 def test_auth_public_location_is_not_behind_auth_request() -> None:
@@ -2593,7 +2680,8 @@ def test_cookie_strip_absent_when_method_is_token() -> None:
     nginx_conf = _render_nginx(copy.deepcopy(_MULTI_USER_CONFIG))
 
     # Assert
-    for user, port in (("alice", 9091), ("bob", 9092), ("carol", 9093)):
+    for index, user in enumerate(("alice", "bob", "carol")):
+        port = allocate_ports(_BASE_PORTS, index)["web"]
         body = _directives(_location_body(nginx_conf, f"location /u/{user}/"))
         cookie = f"osprey_terminal_session_{port}"
         assert f'proxy_set_header Cookie "{cookie}=$cookie_{cookie}";' in body
@@ -2734,7 +2822,7 @@ def test_negotiated_401_every_redirect_is_relative_to_the_clients_own_origin() -
     Left on, nginx rebuilds a relative redirect target into an absolute URL
     from `$host` plus its OWN listening port — wrong for the very topology
     `auth.allow_insecure_http` exists to serve: behind a facility TLS
-    terminator, `https://facility/u/alice` becomes `http://facility:9080/u/alice/`,
+    terminator, `https://facility/u/alice` becomes `http://facility:10000/u/alice/`,
     downgrading the scheme and advertising the internal port. Scoping it to the
     login handler alone would leave the `/u/<user>` bookmark 301s — a link an
     operator is far more likely to have saved — still absolute.
@@ -2823,7 +2911,7 @@ def test_tls_redirect_off_renders_exactly_one_server_block() -> None:
     # Assert
     assert len(_server_blocks(nginx_conf)) == 1
     assert "return 301 https://" not in nginx_conf
-    assert "listen 9080;" in nginx_conf
+    assert f"listen {_NGINX_PORT};" in nginx_conf
 
 
 def test_tls_redirect_splits_into_a_redirect_server_and_a_content_server() -> None:
@@ -2839,13 +2927,13 @@ def test_tls_redirect_splits_into_a_redirect_server_and_a_content_server() -> No
     # Assert
     assert len(blocks) == 2
     redirect, content = blocks
-    assert "listen 9080;" in redirect
-    assert "listen [::]:9080;" in redirect
+    assert f"listen {_NGINX_PORT};" in redirect
+    assert f"listen [::]:{_NGINX_PORT};" in redirect
     assert "listen 443 ssl;" in content
     assert "listen [::]:443 ssl;" in content
     # Neither listener answers on the other's port.
     assert "443" not in redirect
-    assert "listen 9080;" not in content
+    assert f"listen {_NGINX_PORT};" not in content
 
 
 def test_tls_redirect_server_serves_nothing_but_the_redirect() -> None:
@@ -3026,7 +3114,7 @@ def test_auth_sidecar_service_serves_a_single_uvicorn_bound_to_loopback() -> Non
     both (a logged-out session still valid on whichever worker missed the logout).
     """
     # Act
-    auth = _compose(_auth_config(port=9411))["services"]["auth"]
+    auth = _compose(_auth_config(port=_OVERRIDE_AUTH_PORT))["services"]["auth"]
 
     # Assert
     assert auth["command"] == [
@@ -3036,7 +3124,7 @@ def test_auth_sidecar_service_serves_a_single_uvicorn_bound_to_loopback() -> Non
         "--host",
         "127.0.0.1",
         "--port",
-        "9411",
+        str(_OVERRIDE_AUTH_PORT),
     ]
     assert "--workers" not in auth["command"]
     assert auth["network_mode"] == "host"
@@ -3121,7 +3209,7 @@ def test_auth_sidecar_service_tls_flag_and_origin_follow_the_deployment() -> Non
 
     # Assert
     assert f"{ENV_TLS_ENABLED}=false" in plain_env
-    assert f"{ENV_EXTERNAL_ORIGIN}=http://dls-deploy.dls.example.org:9080" in plain_env
+    assert f"{ENV_EXTERNAL_ORIGIN}=http://dls-deploy.dls.example.org:{_NGINX_PORT}" in plain_env
     assert f"{ENV_TLS_ENABLED}=true" in secured_env
     assert f"{ENV_EXTERNAL_ORIGIN}=https://dls-deploy.dls.example.org" in secured_env
 
@@ -3258,12 +3346,12 @@ def test_auth_sidecar_service_healthcheck_probes_its_own_health_route() -> None:
     crash-looping. Probed in-image with python: `curl` is not in an OSPREY service
     image (the nginx service's curl probe runs in the nginx image)."""
     # Act
-    auth = _compose(_auth_config(port=9411))["services"]["auth"]
+    auth = _compose(_auth_config(port=_OVERRIDE_AUTH_PORT))["services"]["auth"]
 
     # Assert
     probe = auth["healthcheck"]["test"]
     assert probe[0] == "CMD-SHELL"
-    assert "http://127.0.0.1:9411/health" in probe[1]
+    assert f"http://127.0.0.1:{_OVERRIDE_AUTH_PORT}/health" in probe[1]
     assert "curl" not in probe[1]
 
 
@@ -3805,8 +3893,8 @@ _SECOND_LANE_TOKEN_LINE = "BLUESKY_LIVE_LAUNCH_TOKEN=${BLUESKY_LIVE_LAUNCH_TOKEN
 def _two_lane_persona_config() -> dict:
     config = _events_persona_config()
     config["services"] = {
-        "bluesky": {"port": 8090, "target": "va"},
-        "bluesky_live": {"port": 8190, "target": "live"},
+        "bluesky": {"port": 10080, "target": "va"},
+        "bluesky_live": {"port": default_port("bluesky_second_lane"), "target": "live"},
     }
     return config
 
@@ -3861,8 +3949,8 @@ def _va_lane_persona_config() -> dict:
     """A deployment whose baseline is the live machine, plus an opt-in VA lane."""
     config = _events_persona_config()
     config["services"] = {
-        "bluesky": {"port": 8090, "target": "live"},
-        "bluesky_va": {"port": 8190, "target": "va"},
+        "bluesky": {"port": 10080, "target": "live"},
+        "bluesky_va": {"port": default_port("bluesky_second_lane"), "target": "va"},
     }
     return config
 
@@ -3910,8 +3998,8 @@ def test_persona_less_roster_with_a_va_lane_gets_that_lanes_token() -> None:
     config["control_system"] = {"writes_enabled": True}
     config["claude_code"] = {"servers": {"bluesky": {"enabled": True}}}
     config["services"] = {
-        "bluesky": {"port": 8090, "target": "live"},
-        "bluesky_va": {"port": 8190, "target": "va"},
+        "bluesky": {"port": 10080, "target": "live"},
+        "bluesky_va": {"port": default_port("bluesky_second_lane"), "target": "va"},
     }
 
     # Act
@@ -4480,7 +4568,7 @@ def test_each_service_carries_the_deployments_external_origin() -> None:
 
     # Assert
     for service in context["services"]:
-        assert service["external_origin"] == "http://dls-deploy.dls.example.org:9080"
+        assert service["external_origin"] == f"http://dls-deploy.dls.example.org:{_NGINX_PORT}"
 
 
 def test_service_external_origin_drops_the_port_under_tls() -> None:
@@ -5039,7 +5127,10 @@ def _external_origin_of(config: dict) -> str:
 def test_external_origin_defaults_to_the_derivation_from_deploy_fqdn() -> None:
     """Unset, nothing changes: the origin is this nginx's own address."""
     # Act / Assert
-    assert _external_origin_of(_config(["alice"])) == "http://dls-deploy.dls.example.org:9080"
+    assert (
+        _external_origin_of(_config(["alice"]))
+        == f"http://dls-deploy.dls.example.org:{_NGINX_PORT}"
+    )
 
 
 def test_a_configured_external_origin_is_what_every_container_checks_against() -> None:
@@ -5107,7 +5198,7 @@ def test_the_missing_fqdn_refusal_names_the_override_as_the_other_way_out() -> N
         "https://terminals.example.org?x=1",  # a query
         "https://user:pw@terminals.example.org",  # credentials
         "https://terminals.example.org:notaport",
-        9080,
+        _NGINX_PORT,  # a bare port number
     ],
 )
 def test_render_refuses_an_external_origin_that_is_not_an_origin(value: object) -> None:
@@ -5135,7 +5226,7 @@ def test_a_blank_external_origin_falls_back_to_the_derivation() -> None:
     config["modules"]["web_terminals"]["external_origin"] = "   "
 
     # Act / Assert
-    assert _external_origin_of(config) == "http://dls-deploy.dls.example.org:9080"
+    assert _external_origin_of(config) == f"http://dls-deploy.dls.example.org:{_NGINX_PORT}"
 
 
 def test_envsubst_output_tmpfs_is_not_world_readable() -> None:

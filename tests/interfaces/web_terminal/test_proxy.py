@@ -160,7 +160,7 @@ def panels_app(workspace_dir):
             "configDefined": True,
         },
         # Loopback but registered at runtime — the shape an agent can create.
-        {"id": "registered", "label": "REGISTERED", "url": "http://127.0.0.1:9100"},
+        {"id": "registered", "label": "REGISTERED", "url": "http://127.0.0.1:9001"},
     ]
     yield from _build_app(workspace_dir, custom, framework_url="http://127.0.0.1:9200")
 
@@ -318,8 +318,8 @@ class TestBrowserOriginIsNotRelayed:
     ``Origin`` names the page that made the request — the terminal — and the
     terminal's own gate has already held it against the terminal's origin
     before this route runs. Relayed onward it reaches a backend whose gate
-    compares it against *that backend's* address (``localhost:8095`` for the
-    bluesky sidecar), which the terminal's origin never equals: every write
+    compares it against *that backend's* address (the bluesky sidecar's own
+    slot, say), which the terminal's origin never equals: every write
     from a proxied panel is then refused as cross-origin while every read
     succeeds. On this hop the proxy is a new client, and a client that sends
     no ``Origin`` is what a gated backend admits on the operator secret (see

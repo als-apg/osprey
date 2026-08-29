@@ -39,6 +39,7 @@ import pytest
 import yaml
 
 from osprey.deployment.web_terminals.render import render_web_terminals
+from osprey.port_layout import default_port
 
 _BASE_PORTS = {"web": 9091, "artifact": 9291, "ariel": 9391, "lattice": 9491}
 
@@ -249,7 +250,8 @@ def test_seam_auth_target_asks_the_sidecar_about_a_render_time_username() -> Non
     # Assert
     for user in users:
         body = _location_body(nginx_conf, f"location = /_osprey_auth/{user}")
-        assert f"proxy_pass http://127.0.0.1:9070/verify?user={user};" in body
+        auth_port = default_port("auth")
+        assert f"proxy_pass http://127.0.0.1:{auth_port}/verify?user={user};" in body
         assert "proxy_pass_request_body off;" in body
         assert 'proxy_set_header Content-Length "";' in body
         assert "proxy_connect_timeout 2s;" in body
@@ -315,7 +317,7 @@ def test_seam_auth_redirects_stay_on_the_clients_own_origin() -> None:
     Left at nginx's default, a relative Location becomes an absolute URL built
     from `$host` plus nginx's OWN listening port: a browser on
     `https://facility/u/alice` behind a facility TLS terminator would be walked
-    to `http://facility:9080/u/alice/`. It is gated on auth being on, so the
+    to `http://facility:10000/u/alice/`. It is gated on auth being on, so the
     `method: none` render must not carry it at all.
     """
     # Act

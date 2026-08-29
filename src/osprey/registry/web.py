@@ -12,6 +12,13 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from osprey.port_layout import (
+    DEFAULT_PORT_BASE,
+    PORT_BASE_CONFIG_KEY,
+    default_port,
+    resolve_port_base,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -40,7 +47,6 @@ class WebServerDefinition:
             :func:`web_server_config_section`'s job, never a caller's — see that
             function for why writing the key at the other depth is an error.
         host_default: Fallback host when not in config.
-        port_default: Fallback port when not in config.
         pass_workspace: If True, ``workspace_root`` is passed to the factory.
         auto_launch_default: Default ``auto_launch`` value when key is absent.
         require_section: If True, missing/empty top-level section → auto_launch=False.
@@ -50,21 +56,22 @@ class WebServerDefinition:
             ``bundle_path=``.
         import_error_message: Custom message when the factory import fails.
             If None, ImportError propagates normally.
-        port_family: Multi-user port-family name for this server (drives the
-            ``modules.web_terminals.<family>_base_port`` config field). ``None``
-            means the family name is the server's registry key. Only set when a
-            server's family is conventionally named something else
-            (``lattice_dashboard`` → ``lattice``).
-        multi_user_base_port: Default first per-user port for this server's
-            family in multi-user deployments (user *i* gets ``base + i``; see
-            ``deployment/web_terminals/ports.py``). Every entry MUST set it —
-            per-user containers share the host network namespace, so a server
-            without its own family collides with itself across users. Config
-            overrides it via ``<family>_base_port``. Convention: one hundred
-            per family with the base ending in ``00``, so the user index reads
-            off the port — ``91xx`` is the terminal itself, ``92xx``–``97xx``
-            the companion families here, ``98xx``/``99xx`` the singleton
-            services (qmd, dispatcher + workers).
+        port_family: Port-family name for this server: the
+            :data:`osprey.port_layout.LAYOUT` slot its ports come from, and the
+            ``modules.web_terminals.<family>_base_port`` config field that
+            overrides them. ``None`` means the family name is the server's
+            registry key. Only set when a server's family is conventionally
+            named something else (``lattice_dashboard`` → ``lattice``).
+
+            No port is authored in this registry. Every companion server's
+            default is its family's offset from the deployment's
+            ``deployment.port_base``, and user *i* of a multi-user deployment
+            listens on ``port_base + offset + i``: the families sit one hundred
+            ports apart so the user index reads off the port, and the whole
+            deployment moves by moving its base. Read a default through
+            :func:`framework_web_port_default`, which is handed the registry
+            key the family name falls back to; :mod:`osprey.port_layout` holds
+            the block as a whole.
     """
 
     name: str
@@ -73,14 +80,12 @@ class WebServerDefinition:
     panel_id: str
     config_web_subkey: str | None = None
     host_default: str = "127.0.0.1"
-    port_default: int = 8080
     pass_workspace: bool = False
     auto_launch_default: bool = True
     require_section: bool = False
     factory_config_kwargs: dict[str, str] = field(default_factory=dict)
     import_error_message: str | None = None
     port_family: str | None = None
-    multi_user_base_port: int | None = None
 
     @property
     def port_env_var(self) -> str:
@@ -95,15 +100,16 @@ class WebServerDefinition:
         return f"OSPREY_{self.config_key.upper()}_PORT"
 
 
+#: Every companion web server, keyed by registry key. No entry names a port: a
+#: server's default is its port family's offset from the deployment's
+#: ``deployment.port_base``, read through :func:`framework_web_port_default`.
 FRAMEWORK_WEB_SERVERS: dict[str, WebServerDefinition] = {
     "artifact": WebServerDefinition(
         name="Artifact gallery",
         factory_path="osprey.interfaces.artifacts.app:create_app",
         config_key="artifact_server",
         panel_id="artifacts",
-        port_default=8086,
         pass_workspace=True,
-        multi_user_base_port=9200,
     ),
     "ariel": WebServerDefinition(
         name="ARIEL server",
@@ -111,8 +117,6 @@ FRAMEWORK_WEB_SERVERS: dict[str, WebServerDefinition] = {
         config_key="ariel",
         panel_id="ariel",
         config_web_subkey="web",
-        port_default=8085,
-        multi_user_base_port=9300,
     ),
     "channel_finder": WebServerDefinition(
         name="Channel Finder",
@@ -120,20 +124,16 @@ FRAMEWORK_WEB_SERVERS: dict[str, WebServerDefinition] = {
         config_key="channel_finder",
         panel_id="channel-finder",
         config_web_subkey="web",
-        port_default=8092,
         require_section=True,
-        multi_user_base_port=9500,
     ),
     "lattice_dashboard": WebServerDefinition(
         name="Lattice dashboard",
         factory_path="osprey.interfaces.lattice_dashboard.app:create_app",
         config_key="lattice_dashboard",
         panel_id="lattice",
-        port_default=8097,
         pass_workspace=True,
         require_section=True,
         port_family="lattice",
-        multi_user_base_port=9400,
     ),
     # OKF "KNOWLEDGE" panel. config_key is the shared facility_knowledge section
     # (also read by the MCP server + CLI); require_section gates auto-launch on
@@ -146,10 +146,8 @@ FRAMEWORK_WEB_SERVERS: dict[str, WebServerDefinition] = {
         factory_path="osprey.interfaces.okf_panel.app:create_app",
         config_key="facility_knowledge",
         panel_id="okf",
-        port_default=8093,
         require_section=True,
         factory_config_kwargs={"bundle_path": "facility_knowledge.bundle_path"},
-        multi_user_base_port=9600,
     ),
     # System-health dashboard panel. Port/host live under the nested `web`
     # subkey (config is `health.web.host`/`health.web.port`); env override is
@@ -162,9 +160,7 @@ FRAMEWORK_WEB_SERVERS: dict[str, WebServerDefinition] = {
         config_key="health",
         panel_id="system-health",
         config_web_subkey="web",
-        port_default=8094,
         require_section=False,
-        multi_user_base_port=9700,
     ),
 }
 
@@ -182,6 +178,37 @@ FRAMEWORK_WEB_SERVERS: dict[str, WebServerDefinition] = {
 PANEL_ID_TO_REGISTRY_KEY: dict[str, str] = {
     definition.panel_id: key for key, definition in FRAMEWORK_WEB_SERVERS.items()
 }
+
+
+def framework_web_port_default(key: str, base: int | None = None) -> int:
+    """Return the layout default port for one companion web server.
+
+    The registry's only source of a port. A :class:`WebServerDefinition` cannot
+    carry its own default: a definition does not know the registry key it is
+    filed under, and that key is what names its port family. So the default is
+    computed here, where the key is in hand, and every caller that used to read
+    a ``port_default`` field reads this instead.
+
+    Args:
+        key: Key into :data:`FRAMEWORK_WEB_SERVERS`, e.g. ``"artifact"``.
+        base: The port base the deployment resolved, from
+            :func:`osprey.port_layout.resolve_port_base`. ``None`` means
+            :data:`osprey.port_layout.DEFAULT_PORT_BASE`, which is right only
+            when there is no config to resolve at all — a caller that can reach
+            the deployment's config passes the base it resolved, so a
+            deployment running on another base is never described in terms of
+            the default one.
+
+    Returns:
+        The port this server listens on at *base* — index 0 of its family,
+        which in a single-user deployment is the only index there is.
+
+    Raises:
+        KeyError: *key* is not a known companion web server.
+        ValueError: *base* is outside the range a block can start at.
+    """
+    definition = FRAMEWORK_WEB_SERVERS[key]
+    return default_port(definition.port_family or key, 0, base=base)
 
 
 def panel_url_state_attr(key: str) -> str:
@@ -216,8 +243,9 @@ class WebServerConfigDepthError(ValueError):
     Raised instead of silently ignoring the key. ``ariel.auto_launch: false``
     (correct depth: ``ariel.web.auto_launch``) used to read back as the default
     ``True`` and launch the panel the operator had just switched off; the
-    mirror-image mistake, ``artifact_server.web.port``, left the gallery on
-    8086 while the operator believed they had moved it.
+    mirror-image mistake, ``artifact_server.web.port``, left the gallery on its
+    layout default (``deployment.port_base`` plus the gallery's offset) while
+    the operator believed they had moved it.
 
     Subclasses ``ValueError`` so the launch surfaces that already fail open on a
     bad config section (``osprey chat``'s per-server guard, the web terminal's
@@ -309,9 +337,16 @@ def resolve_web_server_address(
     """Resolve the ``(host, port)`` a companion web server listens on.
 
     The single derivation every producer and consumer of a companion server's
-    address shares: the server's config section (honouring
-    ``config_web_subkey``), falling back to the definition's defaults, with
-    ``WebServerDefinition.port_env_var`` overriding the port.
+    address shares. The port resolves in one order — ``port_env_var``, then the
+    server's config section (honouring ``config_web_subkey``), then the port
+    family's place in the block ``deployment.port_base`` opens.
+
+    That last step is a derivation, not a constant: the default is taken at the
+    base *this* config resolved, so a deployment on a moved base is never
+    described in terms of the layout's default base. The one case where the
+    default base is right is a caller that omits *config* on a host where no
+    config can be loaded at all; that path says so at warning level rather than
+    quietly reporting a port from a deployment that is not this one.
 
     The env override is not optional detail. Multi-user compose renders export
     ``OSPREY_<CONFIG_KEY>_PORT`` per user because the per-user containers share
@@ -326,13 +361,16 @@ def resolve_web_server_address(
     Args:
         key: Key into :data:`FRAMEWORK_WEB_SERVERS`, e.g. ``"artifact"``.
         config: Already-loaded ``config.yml`` mapping. Loaded on demand when
-            omitted — pass it when the caller has one in hand.
+            omitted — pass it when the caller has one in hand, both to skip the
+            load and because it is what carries ``deployment.port_base``.
 
     Returns:
         The resolved ``(host, port)`` pair.
 
     Raises:
         KeyError: *key* is not a known companion web server.
+        ValueError: The config sets a ``deployment.port_base`` whose block
+            cannot exist (below 1024, or running past port 65535).
         WebServerConfigDepthError: The config writes ``host``/``port``/
             ``auto_launch`` at the depth this server does not read.
     """
@@ -343,12 +381,24 @@ def resolve_web_server_address(
     if config is None:
         from osprey.utils.workspace import load_osprey_config
 
-        config = load_osprey_config()
+        config = load_osprey_config() or {}
+        if not config:
+            logger.warning(
+                "No OSPREY config could be loaded, so %s falls back to the default port "
+                "base %d and its port defaults to %d. If this deployment sets %s, pass "
+                "its config to resolve_web_server_address().",
+                key,
+                DEFAULT_PORT_BASE,
+                framework_web_port_default(key),
+                PORT_BASE_CONFIG_KEY,
+            )
 
     section = web_server_config_section(definition, config)
 
     host = section.get("host") or definition.host_default
-    port = int(section.get("port") or definition.port_default)
+    port = int(
+        section.get("port") or framework_web_port_default(key, base=resolve_port_base(config))
+    )
 
     env_value = os.environ.get(definition.port_env_var)
     if env_value:

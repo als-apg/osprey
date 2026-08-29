@@ -47,7 +47,9 @@ async def test_system_health_server_config_endpoint_returns_proxy_path():
     from osprey.interfaces.web_terminal.routes import panels as panels_module
 
     available = SimpleNamespace(
-        app=SimpleNamespace(state=SimpleNamespace(system_health_server_url="http://127.0.0.1:8094"))
+        app=SimpleNamespace(
+            state=SimpleNamespace(system_health_server_url="http://127.0.0.1:10700")
+        )
     )
     result = await panels_module.system_health_server_config(available)
     assert result == {"url": "/panel/system-health", "available": True}

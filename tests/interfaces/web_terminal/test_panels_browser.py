@@ -70,6 +70,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import requests
 
+from osprey.port_layout import default_port
 from tests.interfaces._panel_launch import publish_artifact_url
 from tests.interfaces.conftest import _free_port, _run_app_server
 
@@ -142,7 +143,7 @@ def _live_server(
     enabled_panels,
     custom_panels=None,
     allow_runtime: bool = False,
-    artifact_url: str | None = "http://127.0.0.1:8086",
+    artifact_url: str | None = f"http://127.0.0.1:{default_port('artifact')}",
     artifact_config_delay: float = 0.0,
     project_cwd: str | None = None,
     ui_mode: str | None = None,
@@ -151,7 +152,8 @@ def _live_server(
 
     Companion backends (artifact server, ARIEL, etc.) are bypassed via patches
     so no external process dependencies are required.  The artifacts panel
-    reports its URL as http://127.0.0.1:8086 (the standard fallback).
+    reports its URL as the artifact slot of the default block (the standard
+    fallback).
 
     Pass ``artifact_url=None`` to make /api/artifact-server report no URL, which
     leaves the default panel loaded-but-unhealthy.  That is the only way to keep

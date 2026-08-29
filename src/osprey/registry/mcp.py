@@ -350,10 +350,11 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             # No literal default: an unset variable reaches the server EMPTY,
             # which resolve_bridge_url reads as "no override" and falls back
             # to the rendered config — `services.bluesky.port`, the port this
-            # deployment actually publishes. A `:-http://127.0.0.1:8090`
-            # default here was a second copy of the bridge's port that the
-            # config could never correct, so a bridge moved on the profile
-            # left every agent dialing the old port.
+            # deployment actually publishes. A baked-in default here was a
+            # second copy of the bridge's port that the config could never
+            # correct, so a bridge moved on the profile left every agent
+            # dialing the old one. The default this replaced, kept here
+            # because it is the history: `:-http://127.0.0.1:8090`.  # osprey:not-a-port
             "BLUESKY_BRIDGE_URL": "${BLUESKY_BRIDGE_URL:-}",
             "BLUESKY_LAUNCH_TOKEN": "${BLUESKY_LAUNCH_TOKEN:-}",
         },

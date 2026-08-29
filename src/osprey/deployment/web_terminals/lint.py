@@ -53,6 +53,7 @@ from osprey.deployment.web_terminals.ports import (
     FAMILY_BASE_FIELDS,
     allocate_ports,
     base_ports_from_config,
+    resolve_nginx_port,
 )
 from osprey.deployment.web_terminals.render import (
     _RESERVED_AUDIT_IDENTITY_RE,
@@ -64,6 +65,7 @@ from osprey.deployment.web_terminals.render import (
     _configured_external_origin,
     _external_origin,
 )
+from osprey.port_layout import resolve_port_base
 from osprey_connectors.types import TYPE_WRITES_ENABLED_LEAF, WRITES_ENABLED_KEY
 
 # The TLS seam's listener port (`listen 443 ssl` in the gated nginx block) is
@@ -166,7 +168,7 @@ def lint_web_terminals(
     findings.extend(_check_invalid_index(users))
     findings.extend(_check_duplicate_index(users))
     findings.extend(_check_bare_list_port_drift_risk(users))
-    findings.extend(_check_port_families_allocatable(web_terminals, users))
+    findings.extend(_check_port_families_allocatable(root, web_terminals, users))
     findings.extend(_check_port_overlap(root, web_terminals, users))
     findings.extend(_check_persona_charset(web_terminals))
     findings.extend(_check_persona_seed_base(web_terminals))
@@ -656,18 +658,52 @@ def _check_bare_list_port_drift_risk(users: list[Any]) -> list[Finding]:
     ]
 
 
+def _roster_indices(users: list[Any]) -> list[int]:
+    """The per-user port index each roster entry allocates on.
+
+    Mirrors ``personas.normalize_users``: an object entry carries its own
+    ``index``, a legacy bare string takes its position in the list. An object
+    entry with an unusable index is skipped — that is
+    :func:`_check_invalid_index`'s finding, and guessing a number for it here
+    would report a second, wrong one.
+
+    Args:
+        users: The raw ``modules.web_terminals.users`` list.
+
+    Returns:
+        The indices, in roster order.
+    """
+    indices: list[int] = []
+    for position, user in enumerate(users):
+        if isinstance(user, dict):
+            index = _valid_index(user)
+            if index is not None:
+                indices.append(index)
+        else:
+            indices.append(position)
+    return indices
+
+
 def _check_port_families_allocatable(
-    web_terminals: dict[str, Any], users: list[Any]
+    root: dict[str, Any], web_terminals: dict[str, Any], users: list[Any]
 ) -> list[Finding]:
     """Consistency rule: every user must resolve a full port-family set (the
     ``web`` family plus one family per registry companion server — see
-    ``ports.FAMILY_BASE_FIELDS``). Companion families carry registry defaults,
-    so in practice only a missing ``web_base_port`` can fail this."""
+    ``ports.FAMILY_BASE_FIELDS``) at an index its family band holds.
+
+    Every family now has a layout default, so no port key can be *missing*.
+    What can still fail is the roster outgrowing the block: a family band holds
+    one hundred users, so a user index past
+    :data:`osprey.port_layout.INDEX_MAX` would take a port belonging to the
+    next family. The highest index in the roster is the one that decides it."""
     if not users:
         return []
-    base_ports = base_ports_from_config(web_terminals)
+    base_ports = base_ports_from_config(web_terminals, base=resolve_port_base(root))
+    indices = _roster_indices(users)
+    if not indices:
+        return []
     try:
-        allocate_ports(base_ports, index=0)
+        allocate_ports(base_ports, index=max(indices))
     except ValueError as exc:
         return [
             Finding(
@@ -707,7 +743,9 @@ def _check_port_overlap(
     entries: list[tuple[int, str]] = []
 
     # Per-user families: one range per family, over the N configured users.
-    base_ports = base_ports_from_config(web_terminals)
+    # Derived from the base this deployment resolved, so the overlap set is the
+    # ports it will actually bind rather than the default block's.
+    base_ports = base_ports_from_config(web_terminals, base=resolve_port_base(root))
     for base_field, family in FAMILY_BASE_FIELDS.items():
         base = base_ports.get(family)
         if base is None:
@@ -716,9 +754,15 @@ def _check_port_overlap(
             entries.append((base + index, f"web_terminals.{base_field}[index={index}]"))
 
     # nginx's own listener, the one port the stack is reached on from off-host.
-    nginx_port = web_terminals.get("nginx_port")
-    if isinstance(nginx_port, int) and not isinstance(nginx_port, bool):
-        entries.append((nginx_port, "web_terminals.nginx_port"))
+    # Resolved rather than read off the key: an unset `nginx_port` is not an
+    # absent listener, it is the gateway slot of this deployment's block, and a
+    # port the stack will bind belongs in the collision set however it was
+    # spelled. A value that is not a port binds nothing and joins nothing —
+    # render refuses that config outright, and this rule is about collisions.
+    try:
+        entries.append((resolve_nginx_port(root), "web_terminals.nginx_port"))
+    except ValueError:
+        pass
 
     # Every host port the deployed services publish.
     services = root.get("services")
@@ -748,7 +792,11 @@ def _check_port_overlap(
     tls = as_dict(web_terminals.get("tls"))
     if bool(tls.get("enabled", False)):
         entries.append((TLS_LISTEN_PORT, "web_terminals.tls (listen 443 ssl)"))
-    auth_context = _auth_context(web_terminals)
+    # The deployment's own base, the same one the port families above were
+    # allocated at: a sidecar port resolved at the layout default would land in
+    # a different block and make this collision set mixed-base — missing a real
+    # collision and inventing a false one.
+    auth_context = _auth_context(web_terminals, base=resolve_port_base(root))
     if auth_context is not None and auth_context["sidecar_active"]:
         # The sidecar's own listener, published on the host beside every other
         # service in the stack. Unlike `nginx_port` it has no `ports.*` mirror
@@ -2598,7 +2646,9 @@ def _check_external_origin(web_terminals: dict[str, Any]) -> list[Finding]:
 # :func:`_check_auth_method`).
 
 
-def _auth_context(web_terminals: dict[str, Any]) -> dict[str, Any] | None:
+def _auth_context(
+    web_terminals: dict[str, Any], *, base: int | None = None
+) -> dict[str, Any] | None:
     """render.py's parsed view of the ``auth``/``tls`` stanzas, or ``None``.
 
     Every check below reads the derived values the nginx template and the
@@ -2612,9 +2662,20 @@ def _auth_context(web_terminals: dict[str, Any]) -> dict[str, Any] | None:
     reports on its own. Every check keyed on a parsed method is meaningless for
     such a config, so this degrades to ``None`` and they skip themselves rather
     than reporting confused follow-on findings.
+
+    Args:
+        web_terminals: The ``modules.web_terminals`` block being linted.
+        base: The port base this deployment resolved. Only the caller that reads
+            ``auth_port`` needs it — :func:`_check_port_overlap`, whose collision
+            set is built at that base, so an un-based sidecar port would put two
+            halves of one set on two different bases. Every other caller reads
+            only the derived booleans and leaves it ``None``.
+
+    Returns:
+        The parsed context, or ``None`` when ``auth.method`` names no method.
     """
     try:
-        return _auth_tls_context(web_terminals)
+        return _auth_tls_context(web_terminals, base=base)
     except ValueError:
         return None
 
@@ -2919,14 +2980,21 @@ def _check_auth_oidc(root: dict[str, Any], web_terminals: dict[str, Any]) -> lis
             )
 
     # Only `deploy.fqdn` can make the origin underivable; the published port
-    # merely fills the ':port' suffix when TLS is off. A malformed `nginx_port`
-    # is render's own error, reported there — substituting one here keeps this
-    # check to the one thing it is about.
-    nginx_port = web_terminals.get("nginx_port")
+    # merely fills the ':port' suffix when TLS is off. The port is resolved the
+    # way render resolves it, because an unset `nginx_port` is a legal config
+    # whose origin is perfectly derivable — reading the key raw would have this
+    # check report a placeholder origin for every deployment that takes the
+    # layout's gateway slot. Only a value that is not a port has no port to
+    # substitute, and that is render's own error, reported there; standing a
+    # zero in for it keeps this check to the one thing it is about.
+    try:
+        nginx_port = resolve_nginx_port(root)
+    except ValueError:
+        nginx_port = 0
     try:
         _external_origin(
             root,
-            nginx_port if isinstance(nginx_port, int) else 0,
+            nginx_port,
             tls_enabled=bool(context["tls_enabled"]),
         )
     except ValueError as exc:

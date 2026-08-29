@@ -33,9 +33,10 @@ byte-for-byte what it rendered before this feature, with exactly two exceptions:
      ``X-Osprey-Auth-Subject: root`` straight to a terminal container, which
      reads that header to learn who is on the other end.
 
-Everything else — every port, volume, header, ``location`` block, comment and
-blank line — must be untouched, with one REPLACEMENT the feature makes rather
-than an addition: the interim per-user audit bind the baseline already carries
+Everything else — every volume, header, ``location`` block, comment and blank
+line, and every port *site* (see the mask below) — must be untouched, with one
+REPLACEMENT the feature makes rather than an addition: the interim per-user audit
+bind the baseline already carries
 (``./var/audit/<user>`` mounted at the container's audit ROOT, shipped for the
 executor's old refusal ledger) becomes the identity-addressed bind above. The
 old line and its two comment lines are the only pre-feature lines that may
@@ -53,6 +54,37 @@ that ``token`` reproduces the old ``none``.
 ``test_the_frozen_baseline_really_predates_the_feature`` exists to make that
 mistake fail loudly rather than silently.
 
+**Ports are masked, not pinned.** The baseline was frozen when every host port
+was an authored literal — nginx on 9080, alice's terminal on 9100. Today they
+come from the port layout, so this same posture renders the same artifacts on
+different numbers: 10000 and 10100 at the default ``deployment.port_base``, and
+different numbers again at every other base. Comparing raw bytes would report
+the whole port table as a difference and drown the question SC6 actually asks.
+So both sides go through :func:`_mask_ports` first, which replaces the number at
+every *structural* port site with ``<port>``:
+
+  * an nginx ``listen`` directive, in both its ``9080`` and ``[::]:9080`` forms;
+  * the ``host:port`` authority of any URL — ``proxy_pass``, the healthcheck
+    ``curl``, ``OSPREY_TERMINAL_LANDING_URL``, the external origin;
+  * an ``OSPREY_…_PORT=`` emitter in the compose environment;
+  * a compose publish pair (``- "9080:9080"``), which this host-network render
+    does not emit today but a bridge-mode topology would;
+  * the port inside the ``osprey_terminal_session_<port>`` cookie name and the
+    ``$cookie_…`` variable that reads it back.
+
+The mask keys on shape, never on a list of numbers, so it holds at any
+``port_base`` and needs no edit when the layout moves. What survives it is what
+SC6 is about: which directives, mounts, headers and ``location`` blocks a
+``token`` render emits. The numbers themselves are pinned elsewhere — by
+``test_golden_render.py`` for today's output and ``test_ports.py`` for the
+layout — which is where a wrong port belongs as a failure.
+
+A mask over the numbers would also mask a *refreshed* baseline's numbers, so
+``test_the_frozen_baseline_really_predates_the_feature`` reads them back
+unmasked: the frozen copy must still spell ports the layout cannot produce for
+this config, which is exactly what a copy regenerated from today's renderer
+could not do.
+
 **When a hunk here fails**, the question is not "how do I widen the allowlist".
 It is: does the new line belong in a ``token``, roles-off render at all? If it
 carries authorization, a role, a claim or a login, the answer is no and the
@@ -67,12 +99,14 @@ from __future__ import annotations
 
 import copy
 import difflib
+import re
 from collections import Counter
 from pathlib import Path
 
 import yaml
 
 from osprey.deployment.web_terminals.render import render_web_terminals
+from osprey.port_layout import default_port, resolve_port_base
 from osprey.services.auth_sidecar.routes.recheck import ENV_ROSTER_ROLE_PREFIX
 
 from .test_golden_render import EXAMPLE_CONFIG, _rendered_repo_id
@@ -90,6 +124,114 @@ _ARTIFACTS = {
 #: `com.osprey.repo-id` label hashes the resolved deployment path, so it cannot
 #: be committed literally.
 _REPO_ID_SENTINEL = "@REPO_ID@"
+
+# --- The port mask -----------------------------------------------------------
+# See "Ports are masked, not pinned" in the module docstring. Every pattern
+# carries exactly one group named `port`, and only that group's span is
+# replaced, so a host or a path that happens to hold the same digits is left
+# alone.
+
+#: What a masked port reads as. Deliberately not a number, so a site the mask
+#: reaches can never compare equal to a site it missed.
+_PORT_MASK = "<port>"
+
+#: The structural port sites, across the two dialects the baseline covers.
+_PORT_SITES: tuple[re.Pattern[str], ...] = (
+    # `listen 9080;` and `listen [::]:9080;`
+    re.compile(r"listen\s+(?:\[::\]:)?(?P<port>\d+)"),
+    # The authority of any URL: `proxy_pass http://127.0.0.1:9100/`, the
+    # healthcheck `curl`, `OSPREY_TERMINAL_LANDING_URL`, the external origin.
+    # Anchored on `://` so the registry reference `git.dls.example.org:5050/…`
+    # — a port the layout does not own, and one this pin should keep watching
+    # byte for byte — is not a site.
+    re.compile(r'://[^\s/:"]+:(?P<port>\d+)'),
+    # `- OSPREY_TERMINAL_WEB_PORT=9100`, and the panel emitters beside it.
+    re.compile(r"_PORT=(?P<port>\d+)"),
+    # A compose publish pair, `- "9080:9080"`. This render is host-network and
+    # emits none; a bridge-mode topology would, and the host half is the one
+    # `port_base` moves.
+    re.compile(r'^\s*-\s*"?(?P<port>\d+):\d+"?\s*$', re.MULTILINE),
+    # `osprey_terminal_session_9100` — the cookie name nginx sets and the
+    # `$cookie_osprey_terminal_session_9100` variable that reads it back.
+    re.compile(r"osprey_terminal_session_(?P<port>\d+)"),
+)
+
+
+def _mask_one(match: re.Match[str]) -> str:
+    """Replace just the ``port`` group inside one matched site.
+
+    Args:
+        match: A match of one of :data:`_PORT_SITES`.
+
+    Returns:
+        The matched text with the ``port`` group's digits replaced by
+        :data:`_PORT_MASK` and every other character kept as it was.
+    """
+    start, end = match.span("port")
+    text = match.group(0)
+    return text[: start - match.start()] + _PORT_MASK + text[end - match.start() :]
+
+
+def _mask_ports(text: str) -> str:
+    """Blank out the number at every structural port site in one artifact.
+
+    Args:
+        text: A rendered or frozen artifact.
+
+    Returns:
+        The same text with each port site's number replaced by
+        :data:`_PORT_MASK`, so an artifact rendered at one ``port_base``
+        compares equal to the same artifact rendered at another — or to the
+        frozen baseline, whose ports predate the layout entirely.
+    """
+    for pattern in _PORT_SITES:
+        text = pattern.sub(_mask_one, text)
+    return text
+
+
+def _ports_in(text: str) -> frozenset[int]:
+    """Every port number one artifact spells at a structural site.
+
+    The inverse of :func:`_mask_ports` over the same patterns, so the numbers
+    read back here are exactly the ones the diffs below stop seeing.
+
+    Args:
+        text: A rendered or frozen artifact.
+
+    Returns:
+        The set of ports found — empty for an artifact that carries none, as
+        ``landing.html`` does not: it addresses users by relative path.
+    """
+    return frozenset(
+        int(match.group("port")) for pattern in _PORT_SITES for match in pattern.finditer(text)
+    )
+
+
+#: The registry port families `EXAMPLE_CONFIG`'s roster renders, one port per
+#: user in each.
+_RENDERED_FAMILIES = (
+    "web",
+    "artifact",
+    "ariel",
+    "lattice",
+    "channel_finder",
+    "okf",
+    "system_health",
+)
+
+#: Every port the layout gives `EXAMPLE_CONFIG`, which declares no
+#: `deployment.port_base` and so resolves to the default one. Derived rather
+#: than typed out: the frozen baseline predates the layout, and "predates" is
+#: asserted below as "spells none of these".
+_LAYOUT_PORTS = frozenset(
+    [default_port("nginx", base=resolve_port_base(EXAMPLE_CONFIG))]
+    + [
+        default_port(family, index, base=resolve_port_base(EXAMPLE_CONFIG))
+        for family in _RENDERED_FAMILIES
+        for index in range(len(EXAMPLE_CONFIG["modules"]["web_terminals"]["users"]))
+    ]
+)
+
 
 # --- The allowlist -----------------------------------------------------------
 # Exact rendered lines, indentation included, with the multiplicity they are
@@ -119,6 +261,24 @@ _REPLACED_COMPOSE_LINES = frozenset(
         "      # so the record survives a recreate and is readable from the host.",
         "      - ./var/audit/alice:/app/dls-assistant/var/audit",
         "      - ./var/audit/bob:/app/dls-assistant/var/audit",
+    }
+)
+
+#: The per-user healthcheck comment as the pre-feature render worded it, when
+#: `osprey web`'s bare default was the fixed constant 8087. The port-block
+#: layout rewords it (the default is now the `web` slot at the deployment's
+#: base), so these exact comment lines — and ONLY these — may be replaced in
+#: the `token` render. The frozen copy keeps the old wording: it is a
+#: historical record and is never refreshed (see the module docstring).
+_REWORDED_COMPOSE_LINES = frozenset(
+    {
+        "      # osprey web's own default listen port is the fixed constant 8087",
+        "      # (cli/web_cmd.py) — only relevant to a bare `osprey web` with no",
+        "      # OSPREY_WEB_PORT override. Every per-user container here sets",
+        "      # OSPREY_WEB_PORT above, so the probe targets the ACTUAL bound port,",
+        "      # never the bare 8087 default. Probed via bind_host itself (not a",
+        '      # hardcoded "127.0.0.1" literal) since that\'s the same loopback',
+        "      # address OSPREY_TERMINAL_BIND_HOST bakes into the app's own bind.",
     }
 )
 
@@ -177,12 +337,15 @@ def _opcodes(
 ) -> tuple[list[str], list[str], list[tuple]]:
     """Baseline lines, current lines, and the line-level edit script between them.
 
+    Both sides are port-masked first (see the module docstring), so the edit
+    script reports structure and never renumbering.
+
     ``artifacts`` defaults to the absent-stanza render; pass the explicit-token
     render to hold that spelling to the same frozen baseline.
     """
     rendered = _token_render() if artifacts is None else artifacts
-    old = _baseline(name).splitlines()
-    new = rendered[_ARTIFACTS[name]].splitlines()
+    old = _mask_ports(_baseline(name)).splitlines()
+    new = _mask_ports(rendered[_ARTIFACTS[name]]).splitlines()
     return old, new, difflib.SequenceMatcher(a=old, b=new, autojunk=False).get_opcodes()
 
 
@@ -207,10 +370,48 @@ def test_the_frozen_baseline_really_predates_the_feature() -> None:
         assert line in compose, (
             f"the frozen baseline lacks the interim bind it is said to carry: {line!r}"
         )
+    for line in _REWORDED_COMPOSE_LINES:
+        assert line in compose, (
+            f"the frozen baseline lacks the pre-layout comment it is said to carry: {line!r}"
+        )
 
     nginx = (_BASELINE_DIR / "nginx.conf").read_text()
     assert "X-Osprey-Auth-Subject" not in nginx
     assert "X-Osprey-Auth-Role" not in nginx
+
+    _assert_the_frozen_ports_predate_the_layout()
+
+
+def _assert_the_frozen_ports_predate_the_layout() -> None:
+    """The same anti-tamper argument, for the one axis the port mask hides.
+
+    Every marker above is one the diffs still see, so a refreshed baseline is
+    caught there. The ports are the exception: :func:`_mask_ports` blanks them
+    on both sides, so a refreshed baseline's renumbered ports would slip
+    through every comparison in this module unnoticed. They are therefore read
+    back unmasked here, and the claim is the strongest one available without
+    naming a single old number — the frozen copy spells ports the layout does
+    not produce for this config, and today's render spells only ports it does.
+    A copy regenerated from the current renderer fails both halves.
+    """
+    live = frozenset().union(*(_ports_in(text) for text in _token_render().values()))
+    assert live, "today's render spells no port at all — the mask has stopped matching anything"
+    assert live <= _LAYOUT_PORTS, (
+        f"today's `token` render spells port(s) the layout does not give this config: "
+        f"{sorted(live - _LAYOUT_PORTS)}. Either a port escaped the layout, or "
+        f"`_RENDERED_FAMILIES` no longer names every family this config renders."
+    )
+
+    frozen = frozenset().union(
+        *(_ports_in((_BASELINE_DIR / name).read_text()) for name in _ARTIFACTS)
+    )
+    assert frozen, "the frozen baseline spells no port at all — it is not the artifact it claims"
+    assert frozen.isdisjoint(_LAYOUT_PORTS), (
+        f"the frozen baseline spells port(s) only the CURRENT layout produces: "
+        f"{sorted(frozen & _LAYOUT_PORTS)}. `golden/pre_audit_roles/` predates the "
+        f"layout and must never be regenerated from the current renderer — see the "
+        f"module docstring."
+    )
 
 
 def test_the_frozen_golden_holds_todays_token_bytes_under_both_spellings() -> None:
@@ -257,7 +458,11 @@ def test_no_pre_feature_line_is_removed_or_reworded() -> None:
     insertions only)."""
     for name in _ARTIFACTS:
         old, new, opcodes = _opcodes(name)
-        replaceable = _REPLACED_COMPOSE_LINES if name == "docker-compose.web.yml" else frozenset()
+        replaceable = (
+            _REPLACED_COMPOSE_LINES | _REWORDED_COMPOSE_LINES
+            if name == "docker-compose.web.yml"
+            else frozenset()
+        )
         lost = [
             (tag, old[i1:i2], new[j1:j2])
             for tag, i1, i2, j1, j2 in opcodes

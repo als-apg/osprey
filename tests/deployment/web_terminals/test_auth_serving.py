@@ -393,10 +393,6 @@ def _config(nginx_port: int) -> dict[str, Any]:
             "web_terminals": {
                 "enabled": True,
                 "nginx_port": nginx_port,
-                "web_base_port": 9091,
-                "artifact_base_port": 9291,
-                "ariel_base_port": 9391,
-                "lattice_base_port": 9491,
                 "users": list(_USERS),
                 "auth": {"method": "password", "allow_insecure_http": True},
             }

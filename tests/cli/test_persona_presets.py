@@ -55,6 +55,14 @@ from osprey.cli.build_profile import BuildProfile, list_presets, resolve_build_p
 from osprey.deployment.qmd_service import DEFAULT_PORT as QMD_DEFAULT_PORT
 from osprey.deployment.qmd_service import resolve_qmd_service_config
 from osprey.deployment.web_terminals.lint import Finding, lint_web_terminals
+from osprey.deployment.web_terminals.ports import resolve_nginx_port
+from osprey.port_layout import (
+    CA_DEFAULT_PORT,
+    SLOTS_BY_NAME,
+    default_port,
+    layout_ports,
+    resolve_port_base,
+)
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 from osprey.utils.config_writer import config_update_fields
 from osprey_connectors.types import CONTROL_TARGETS, target_writes_enabled
@@ -333,7 +341,11 @@ class TestControlAssistantWebTier:
         assert wt["enabled"] is True
         assert wt["image_source"] == "local"
         assert wt["default_persona"] == "readonly"
-        assert wt["nginx_port"] == 9080
+        # The roster names no port at all: every one of them comes from this
+        # deployment's own block, so giving a second deployment its own
+        # `deployment.port_base` moves the whole tier with it.
+        assert [key for key in wt if "port" in key] == []
+        assert resolve_nginx_port(rendered) == default_port("nginx")
         # Password login ships ON, in the demo posture: plain HTTP is only
         # acceptable because the preset's fqdn is loopback.
         assert wt["auth"] == {"method": "password", "allow_insecure_http": True}
@@ -393,26 +405,29 @@ class TestControlAssistantWebTier:
         assert wt["landing"]["groups"] == [{"type": "users", "label": "Users"}]
 
     def test_port_families_clear_tutorial_service_ports(self, tmp_path: Path) -> None:
-        """Every per-user port family sits above the tutorial's own published
-        service ports (VA 5064, dispatcher 8020, bluesky 8090/8091, panels
-        8095) — the containers share the host network namespace, so a family
-        landing on a service port would collide at deploy time."""
+        """No terminal a roster user opens lands on a port one of the tutorial's
+        own services already publishes.
+
+        The containers share the host network namespace, so a family landing on
+        a service port would collide at deploy time. The preset no longer pins
+        the families itself — that is the point: it writes no port keys, and
+        the separation is the block layout's, checked here at the base this
+        preset actually resolves for the roster it actually ships."""
         rendered = _render_config_overrides(tmp_path, {"system": {}})
         wt = rendered["modules"]["web_terminals"]
-        service_ports = {5064, 8020, 8090, 8091, 8095}
-        n_users = len(wt["users"])
-        for family in (
-            "nginx_port",
-            "web_base_port",
-            "artifact_base_port",
-            "ariel_base_port",
-            "lattice_base_port",
-            "channel_finder_base_port",
-        ):
-            base_port = wt[family]
-            spread = 1 if family == "nginx_port" else n_users
-            for offset in range(spread):
-                assert base_port + offset not in service_ports, (
+        base = resolve_port_base(rendered)
+        ports = layout_ports(base)
+        # Everything the deployment publishes once, plus the Channel Access
+        # port the virtual accelerator keeps outside the block.
+        service_ports = {
+            port for name, port in ports.items() if not SLOTS_BY_NAME[name].per_index
+        } | {CA_DEFAULT_PORT}
+        families = [name for name, slot in SLOTS_BY_NAME.items() if slot.per_index]
+        assert "web" in families and "channel_finder" in families
+
+        for family in families:
+            for index in range(len(wt["users"])):
+                assert default_port(family, index, base) not in service_ports, (
                     f"{family} collides with a tutorial service port"
                 )
 
@@ -484,7 +499,8 @@ class TestControlAssistantWebTier:
 
         rendered = _render_config_overrides(tmp_path, {"system": {}})
         fqdn = rendered["deploy"]["fqdn"]
-        nginx_port = rendered["modules"]["web_terminals"]["nginx_port"]
+        nginx_port = resolve_nginx_port(rendered)
+        assert nginx_port == default_port("nginx")
         assert _landing_url(rendered, nginx_port) == f"http://{fqdn}:{nginx_port}"
 
 
@@ -774,7 +790,9 @@ class TestControlAssistantPersonas:
         assert project.is_dir(), f"{persona} was never rendered"
 
         config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
-        assert (config.get("services") or {}).get("graphdb") == {"port_host": 7687}
+        assert (config.get("services") or {}).get("graphdb") == {
+            "port_host": default_port("graphdb_bolt")
+        }
 
         permissions = json.loads((project / ".claude" / "settings.json").read_text())["permissions"]
         assert _graph_entries(permissions["allow"]) == _graph_permission_entries()

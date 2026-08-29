@@ -29,6 +29,12 @@ runtime surprise in a downstream lifecycle/e2e test.
 ``EXAMPLE_CONFIG`` is the reference "no-personas" shape a facility profile's
 web-terminals section is patterned on: two bare-string users, the `users` +
 `links` landing groups, and no `personas:` block.
+
+It also carries **no port keys at all** — no ``nginx_port``, no
+``*_base_port``. That is deliberate and load-bearing: every port in the three
+golden files is one the port layout supplied from ``deployment.port_base``, so
+this baseline pins the defaults a facility gets for free. Adding a port key
+back would render that facility's override instead and stop covering them.
 """
 
 from __future__ import annotations
@@ -71,11 +77,6 @@ EXAMPLE_CONFIG: dict = {
     "modules": {
         "web_terminals": {
             "enabled": True,
-            "nginx_port": 9080,
-            "web_base_port": 9100,
-            "artifact_base_port": 9200,
-            "ariel_base_port": 9300,
-            "lattice_base_port": 9400,
             "users": ["alice", "bob"],
             "landing": {
                 "groups": [
