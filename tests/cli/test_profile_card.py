@@ -169,8 +169,12 @@ def test_the_machine_group_reads_connector_archiver_and_channels(
     exemplar_lines: list[str],
 ) -> None:
     control = line_with(exemplar_lines, "control ")
-    assert "virtual accelerator" in control
+    # The baseline connector type, spelled the way the card spells one
+    # (underscores to spaces), then the two simulator ports the preset
+    # declares: the sandbox on 5064 and the stand-in the baseline names.
+    assert "live standin" in control
     assert "EPICS :5064" in control
+    assert "live stand-in :5074" in control
     archiver = line_with(exemplar_lines, "archiver")
     assert "mongodb · 30 d retention" in archiver
     channels = line_with(exemplar_lines, "channels")

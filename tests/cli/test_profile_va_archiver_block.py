@@ -10,8 +10,10 @@ is refused too — one fact with two homes is free to disagree, and a stale
 duplicate reads as an empty archive rather than as a broken one.
 
 The honesty rule's build-time site is here too: declining to declare a store is
-a legal choice for most deployments, but a profile that pairs a virtual
-accelerator with the mock archiver is refused outright.
+a legal choice for most deployments, but a profile that pairs a machine this
+deployment stands up for itself — a virtual accelerator or the live stand-in —
+with the mock archiver is refused outright, under the name of whichever of the
+two it selected.
 """
 
 from __future__ import annotations
@@ -498,6 +500,63 @@ def test_the_refusal_names_both_ways_out() -> None:
     assert "va_archiver" in message
     assert "mongodb_archiver" in message
     assert "run yourself" in message
+
+
+# ---------------------------------------------------------------------------
+# The refusal names the machine the profile actually selected
+#
+# The rule covers every machine a deployment stands up for itself, so a profile
+# baselined on the live stand-in is refused here too. A message naming the
+# virtual accelerator would send its author to a `config:` key that says
+# `live_standin`, and the fix it names would be for a machine they never asked
+# for.
+# ---------------------------------------------------------------------------
+
+_STANDIN = "live_standin"
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param(
+            {"control_system.type": _STANDIN, "archiver.type": "mock_archiver"}, id="flat"
+        ),
+        pytest.param(
+            {"control_system": {"type": _STANDIN}, "archiver": {"type": "mock_archiver"}},
+            id="nested",
+        ),
+        pytest.param({"control_system.type": _STANDIN}, id="archiver-unset"),
+    ],
+)
+def test_a_stand_in_with_an_invented_past_is_refused_under_its_own_name(
+    config: dict[str, Any],
+) -> None:
+    errors = _pairing_errors(config)
+
+    assert len(errors) == 1
+    assert f"control_system.type to {_STANDIN!r}" in errors[0]
+    # The shared reason sentence names both machines in prose; the *type* named
+    # back must be the one this profile carries.
+    assert repr(_VA) not in errors[0]
+
+
+def test_the_virtual_accelerator_is_still_named_when_it_is_the_invented_machine() -> None:
+    """The type is read from the profile rather than assumed, so the case that
+    motivated the rule keeps the message it had."""
+    errors = _pairing_errors({"control_system.type": _VA, "archiver.type": "mock_archiver"})
+
+    assert f"control_system.type to {_VA!r}" in errors[0]
+    assert repr(_STANDIN) not in errors[0]
+
+
+def test_a_baseline_spelled_two_ways_is_named_by_the_invented_one() -> None:
+    """Both spellings are live, and the pairing fails closed on either being a
+    machine with no recorded past — so the message names the spelling that was
+    refused, not whichever would win at render time."""
+    errors = _pairing_errors({"control_system.type": "epics", "control_system": {"type": _STANDIN}})
+
+    assert len(errors) == 1
+    assert f"control_system.type to {_STANDIN!r}" in errors[0]
 
 
 def test_the_pairing_is_reported_with_the_profiles_other_problems(
