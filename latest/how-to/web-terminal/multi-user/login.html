@@ -753,7 +753,12 @@ user’s terminal:</p>
 and nginx asks it about every request under <code class="docutils literal notranslate"><span class="pre">/u/&lt;name&gt;/</span></code> before proxying
 anything. Optional keys: <code class="docutils literal notranslate"><span class="pre">auth.port</span></code> (default <code class="docutils literal notranslate"><span class="pre">9070</span></code>),
 <code class="docutils literal notranslate"><span class="pre">auth.session_lifetime</span></code> in whole seconds (default <code class="docutils literal notranslate"><span class="pre">43200</span></code>), and
-<code class="docutils literal notranslate"><span class="pre">auth.image</span></code>, required with <code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">registry</span></code>.</p>
+<code class="docutils literal notranslate"><span class="pre">auth.image</span></code>, required with <code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">registry</span></code>.
+<code class="docutils literal notranslate"><span class="pre">auth.session_lifetime</span></code> also reaches past this page: it sets how long a
+terminal session cookie lasts wherever that cookie is used — <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>,
+<code class="docutils literal notranslate"><span class="pre">auth.method:</span> <span class="pre">token</span></code>, and <code class="docutils literal notranslate"><span class="pre">login:</span> <span class="pre">false</span></code> roster entries. For everyone who
+does go through the login page, nginx rather than that cookie is what lets
+them through, so here the key sets the login page’s cookie.</p>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
 <p>No secret may contain a <code class="docutils literal notranslate"><span class="pre">$</span></code> — not in <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code>, <code class="docutils literal notranslate"><span class="pre">.env</span></code> or
@@ -883,9 +888,23 @@ OIDC, ends the session.</p></li>
 <li><p><strong>A plaintext</strong> <code class="docutils literal notranslate"><span class="pre">OSPREY_AUTH_PW_ALICE</span></code> <strong>in</strong> <code class="docutils literal notranslate"><span class="pre">.env</span></code> <strong>survives
 decommission</strong> and would be hashed straight back in for the next alice.
 Delete the line by hand when the person leaves.</p></li>
-<li><p>Logging out is remembered in the authentication service’s memory only; a
-cookie captured before a logout can be replayed until it expires, within
-<code class="docutils literal notranslate"><span class="pre">auth.session_lifetime</span></code>.</p></li>
+<li><p><strong>Logging out ends a terminal session</strong> on the server: the cookie it was
+carrying is refused from that moment on. The login page’s cookie is the
+other case — that logout is remembered in the authentication service’s
+memory only, so a copy captured beforehand can be replayed until it
+expires, within <code class="docutils literal notranslate"><span class="pre">auth.session_lifetime</span></code>.</p></li>
+<li><p><strong>Terminal sessions are kept on disk</strong> — the ones behind <code class="docutils literal notranslate"><span class="pre">login:</span> <span class="pre">false</span></code>
+entries here, and behind <code class="docutils literal notranslate"><span class="pre">auth.method:</span> <span class="pre">token</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>
+elsewhere — so they outlive a restart of the web terminals and a change of
+the operator secret. A password change or a decommission ends the
+login-page session, not this one.</p></li>
+<li><p><strong>A shortened</strong> <code class="docutils literal notranslate"><span class="pre">auth.session_lifetime</span></code> <strong>reaches sessions already
+running</strong> at the next restart of the web terminals, when their deadlines
+are clamped to the new value.</p></li>
+<li><p><strong>A terminal already on screen outlives its deadline</strong> until that page is
+closed, reloaded, or logged out from — the deadline is checked when a page
+connects, not on a timer, so a logout elsewhere does not cut a terminal that
+is already open.</p></li>
 </ul>
 <p>To turn the login page off, set <code class="docutils literal notranslate"><span class="pre">auth.method:</span> <span class="pre">token</span></code> and run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>;
 <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code> is kept, so turning it back on keeps everyone’s password.

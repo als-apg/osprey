@@ -523,11 +523,14 @@
 </div>
 <p>It boots a local server on <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:8087</span></code> and prints a login URL of
 the form <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:8087/?token=…</span></code>. Opening that URL (your browser
-opens it for you) sets a session cookie and then redirects to the clean
-<code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:8087</span></code> address; every later request rides that cookie. The
-URL is printed once, but the token in it is the server’s own secret and keeps
-working for as long as that server runs — treat it like a password rather than
-a one-shot code.</p>
+opens it for you) signs you in and then redirects to the clean
+<code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:8087</span></code> address; every later request rides the cookie it
+sets. That cookie is good for 12 hours by default and outlives closing the
+browser, so on a console other people sit at, shorten it — set
+<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.auth.session_lifetime</span></code> in the deployment’s config
+(see <a class="reference internal" href="multi-user/login.html"><span class="doc">Require a Login</span></a>). The URL is printed once, but the token in it is
+the server’s own secret and keeps working for as long as that server runs —
+treat it like a password rather than a one-shot code.</p>
 <p>If <code class="docutils literal notranslate"><span class="pre">OSPREY_TERMINAL_SECRET</span></code> is already set in the environment you launch
 from, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> uses that value rather than minting one, and says so
 instead of printing a URL — the URL was printed wherever that secret came from.
@@ -544,7 +547,9 @@ osprey<span class="w"> </span>web<span class="w"> </span>stop<span class="w">   
 login token lives only in the running process’s memory and is never written to
 disk, so if you lose the printed URL there is no way to recover it: stop the
 server and start it again (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">stop</span></code> then <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">--detach</span></code>) to
-mint a fresh one.</p>
+mint a fresh one. Browsers already signed in stay signed in across that
+restart — their sessions live in a store on disk; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">sessions</span> <span class="pre">clear</span></code>
+(with the server stopped) forgets them.</p>
 <section id="what-you-get">
 <h2>What you get<a class="headerlink" href="#what-you-get" title="Link to this heading">#</a></h2>
 <p>The window has three working areas plus a header:</p>
@@ -735,6 +740,10 @@ and command-line flags override those for a single run. <code class="docutils li
 browser <strong>UI</strong> the process renders, including the header name badge and
 the bounds on the Simple-mode chat pool; those keys are catalogued in
 <a class="reference internal" href="../../reference/configuration/config.html#config-web"><span class="std std-ref">web: — documentation, feedback and the chat pool</span></a>.</p>
+<p class="sd-card-text">One key sits outside both, in the multi-user <code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code>
+block: <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.auth.session_lifetime</span></code> sets how long a
+login cookie stays valid, in whole seconds, and defaults to <code class="docutils literal notranslate"><span class="pre">43200</span></code>
+(12 hours). It is the only key <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> reads from that block.</p>
 </div>
 <input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-1">

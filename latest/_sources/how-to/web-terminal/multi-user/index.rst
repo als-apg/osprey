@@ -59,20 +59,23 @@ The everyday workflow stands on its own. From any project directory,
 
 launches the single-user Web Terminal as one local process — no containers, no
 proxy, ready in seconds at ``http://127.0.0.1:8087``. It prints a login URL
-(``…/?token=…``, once, at startup) that sets a session cookie before
-redirecting to the clean address. The token is that server's operator secret
-rather than a one-shot code, so treat the URL like a password. It is the
-fastest way to try OSPREY and the right tool whenever one person sits in front
-of one machine; :doc:`../operate` covers it.
+(``…/?token=…``, once, at startup) that signs you in for 12 hours by default —
+the cookie outlives closing the browser — before redirecting to the clean
+address. The token is that server's operator secret rather than a one-shot
+code, so treat the URL like a password. It is the fastest way to try OSPREY and
+the right tool whenever one person sits in front of one machine;
+:doc:`../operate` covers it.
 
 The multi-user stack is strictly opt-in. It lives in a
 ``modules.web_terminals`` block in the deployment's built ``config.yml``, read
 only by the lifecycle verbs (and validated by
 ``osprey scaffold web-terminals lint``).
-``osprey web`` never looks at it — so a project that carries the block (the
-``control-assistant`` preset ships one) runs single-user exactly like one that
-does not. Reach for the multi-user stack when several people need their own
-terminal on a shared machine, and stay with ``osprey web`` for everything else.
+``osprey web`` reads exactly one key from it — ``auth.session_lifetime``, which
+sets how long its own login cookie lasts — and nothing else, so a project that
+carries the block (the ``control-assistant`` preset ships one) still runs
+single-user like one that does not. Reach for the multi-user stack when several
+people need their own terminal on a shared machine, and stay with ``osprey web``
+for everything else.
 
 How it works
 ============
