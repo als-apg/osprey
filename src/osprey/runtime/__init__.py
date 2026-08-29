@@ -317,17 +317,20 @@ async def _write_channel_async(channel_address: str, value: Any, **kwargs) -> No
 
     connector = await _get_connector()
     # write_channel_checked is the reference monitor's denial contract: it raises
-    # on a refusal, on a failed write, AND on a write whose readback did not
-    # confirm the setpoint. Calling write_channel directly would let an
-    # unverified write return silently and get logged as "Wrote ...".
+    # on a refusal, on a failed write, AND on a write whose confirming re-read
+    # did not hold the setpoint. Calling write_channel directly would let an
+    # unconfirmed write return silently and get logged as "Wrote ...".
     result = await connector.write_channel_checked(channel_address, value, **kwargs)
 
-    # Reaching here means verified, or no verification was requested at all.
-    verification = result.verification
-    if verification is not None and verification.verified:
-        logger.debug(f"Wrote {channel_address} = {value} [{verification.level} verified]")
+    # Reaching here means the outcome is confirmed, or confirmation was not
+    # requested (unrequested) — every other outcome already raised above.
+    if result.observed_value is not None:
+        logger.debug(
+            f"Wrote {channel_address} = {value} [{result.outcome}, "
+            f"observed {result.observed_value}]"
+        )
     else:
-        logger.debug(f"Wrote {channel_address} = {value} [no verification requested]")
+        logger.debug(f"Wrote {channel_address} = {value} [{result.outcome}]")
 
 
 async def _read_channel_async(channel_address: str, **kwargs) -> Any:
@@ -357,7 +360,7 @@ async def _write_channels_async(channel_values: dict[str, Any], **kwargs) -> Non
         connector = await _get_connector()
         results = await connector.write_multiple_channels(list(channel_values.items()), **kwargs)
         # Same denial contract as the single-channel path: a refusal or an
-        # unverified write must raise rather than return.
+        # unconfirmed write must raise rather than return.
         for result in results:
             raise_for_write_result(result)
 
@@ -398,18 +401,20 @@ def write_channel(channel_address: str, value: Any, **kwargs) -> None:
         value: Value to write (will be coerced to appropriate type)
         **kwargs: Additional arguments passed to connector
                   - timeout: Operation timeout in seconds
-                  - verification_level: 'none', 'callback', or 'readback'.
-                    Omit to let each channel resolve its own level (see the
-                    connector's four-layer resolution)
-                  - tolerance: Tolerance for readback verification
+                  - confirm: Whether to re-read the channel and compare it
+                    against the value sent. Omit (or pass None) to let the
+                    channel resolve its own confirm default; pass True or
+                    False to override it for this write.
 
     Raises:
         ChannelLimitsViolationError: If value violates channel safety limits
         ChannelWriteBlockedError: If the write was refused and no value was
             written — by policy, limits, or validation (never attempted), or by
             the control system itself (CONTROL_SYSTEM_REFUSED)
-        ChannelWriteFailedError: If the write was attempted but failed, or came
-            back unverified because the readback did not match the setpoint
+        ChannelWriteFailedError: If the write was attempted but did not come
+            back confirmed — the control system did not take it (FAILED), a
+            confirming re-read holds a different value (MISMATCH), or the
+            confirming re-read itself failed (UNCONFIRMED)
         ControlTargetChangedError: If the session switched control target after
             this execution started; nothing was written
         TimeoutError: If operation times out
@@ -463,18 +468,19 @@ def write_channels(channel_values: dict[str, Any], **kwargs) -> None:
 
     Args:
         channel_values: Dictionary mapping channel names to values
-        **kwargs: Additional arguments passed to each write (timeout,
-                  verification_level, tolerance -- see write_channel).
-                  Omit verification_level to let each channel resolve its
-                  own level (see the connector's four-layer resolution)
+        **kwargs: Additional arguments passed to each write (timeout, confirm
+                  -- see write_channel). A batch carries one confirm for
+                  every channel in it; omit it (or pass None) to let each
+                  channel resolve its own confirm default instead.
 
     Raises:
         ChannelLimitsViolationError: If a value violates channel safety limits
         ChannelWriteBlockedError: If any write was refused and no value was
             written — by policy, limits, or validation (never attempted), or by
             the control system itself (CONTROL_SYSTEM_REFUSED)
-        ChannelWriteFailedError: If any write failed or came back unverified.
-            Writes before the failing one have already been applied.
+        ChannelWriteFailedError: If any write did not come back confirmed —
+            FAILED, MISMATCH, or UNCONFIRMED. Writes before the failing one
+            have already been applied.
         ControlTargetChangedError: If the session switched control target after
             this execution started; nothing was written
 
