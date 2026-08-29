@@ -504,10 +504,23 @@ target. From there, ``control_target_set live`` walks the real go-live path
 writes ``control_system.type: live_standin`` into the profile, and from the next
 ``osprey build`` every session *starts* on the stand-in — the posture for a
 deployment that is not yet wired to its facility, or whose machine is down.
-``osprey set connector=epics`` flips it back. ``osprey init`` does not offer the
-stand-in, and the build refuses ``control_system.type: live_standin`` on a
-profile that asks for no ``virtual_accelerator.live_standin``: both would name a
-machine the deployment does not run.
+
+Flipping it back is three settings, not one, because the archive goes with the
+machine. The ``va_archiver:`` block records *this* deployment's history from
+the stand-in, and the build refuses to serve that store as the facility's past
+— so the recorded store is dropped and the archiver pointed at the facility's
+own appliance in the same step:
+
+.. code-block:: bash
+
+   osprey set connector=epics
+   osprey set config.archiver.type=epics_archiver
+   osprey set va_archiver=null
+
+``osprey init`` does not offer the stand-in, and the build refuses
+``control_system.type: live_standin`` on a profile that asks for no
+``virtual_accelerator.live_standin``: both would name a machine the deployment
+does not run.
 
 **The label stays honest.** Nothing calls the stand-in the live machine. The
 banner and the posture badge read ``LIVE MACHINE (stand-in)``, and the roster

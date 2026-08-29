@@ -368,10 +368,14 @@ in ``profile.yml``:
 
    osprey set connector=epics
    osprey set config.archiver.type=epics_archiver
+   osprey set va_archiver=null
 
 The archive this tutorial deploys is a *simulated* machine's history, which is
 not what you want against hardware — so the archiver moves to your facility's
-appliance at the same time as the control system.
+appliance at the same time as the control system, and the recorded store is
+dropped. All three lines are needed: the build refuses a facility baseline that
+still carries a ``va_archiver:`` block, because that store would be served as
+the real machine's past.
 
 Because these are build-time inputs, re-render the agent's artifacts and
 relaunch:

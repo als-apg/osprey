@@ -331,7 +331,9 @@ config:
   # while this deployment records its own archive from the stand-in, because
   # that store's history is the stand-in's (see `va_archiver:` above).
   # `osprey set connector=epics` makes your facility's machine the session
-  # baseline again, in place of the stand-in.
+  # baseline again, in place of the stand-in — together with
+  # `osprey set config.archiver.type=epics_archiver` and
+  # `osprey set va_archiver=null`, because the recorded archive goes with it.
   control_system.type: live_standin
   # Every write checked against data/channel_limits.json, and a channel that
   # file does not list refused rather than waved through. Both hardware-shaped
