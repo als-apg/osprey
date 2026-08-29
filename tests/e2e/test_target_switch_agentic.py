@@ -392,12 +392,15 @@ def _overlay_text(*, bench_port: int, va_port: int) -> str:
         Mandatory in BOTH directions (a switch probes its destination), and
         shipped commented out in the template, so it must be set here or every
         switch fails at the probe.
+    ``control_system.type: virtual_accelerator``
+        The deployment baseline. The preset baselines on its live stand-in,
+        and with that stand-in nulled below the build refuses a baseline
+        naming a machine nothing serves — so the baseline is set back to the
+        simulator here, explicitly. It has to be the simulator: a switch
+        toward the bench is then a move AWAY from the baseline, and the
+        acknowledgment gate is genuinely exercised rather than sidestepped.
     ``target_switch.live_gateway_acknowledged``
-        The operator acknowledgment naming this run's bench endpoint. The
-        deployment baseline is deliberately left as the preset's
-        ``virtual_accelerator``, so a switch toward the bench is a move AWAY
-        from the baseline and the acknowledgment gate is genuinely exercised
-        rather than sidestepped.
+        The operator acknowledgment naming this run's bench endpoint.
     ``limits_checking.allow_unlisted_channels``
         The ONLY limits key set. The render already ships its own 2908-channel
         ``data/channel_limits.json`` as ``database_path``; the template
@@ -467,6 +470,9 @@ def _overlay_text(*, bench_port: int, va_port: int) -> str:
         "    - logbook-deep-research",
         "",
         "config:",
+        "  # The baseline: the simulator, spelled out because the preset baselines",
+        "  # on the stand-in nulled above and the build refuses that pairing.",
+        "  control_system.type: virtual_accelerator",
         "  # The live machine: the bench IOC, on the port it is already serving.",
         f"  control_system.connector.epics.probe_channel: {BENCH_PROBE_CHANNEL}",
         "  control_system.connector.epics.gateways.read_only.address: localhost",

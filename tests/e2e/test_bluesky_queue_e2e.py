@@ -15,10 +15,10 @@ Redis durability, the CurveZMQ control socket, the document plane, and the
 capability record's dependence on the deployed connector are the other half,
 and only a real deploy exercises them.
 
-**The preset is the subject, not a fixture detail.** ``control-assistant`` now
-defaults ``control_system.type`` to ``virtual_accelerator``, so this module
+**The preset is the subject, not a fixture detail.** ``control-assistant``
+baselines ``control_system.type`` on its live stand-in, so this module
 deliberately does NOT override it (unlike ``tests/e2e/_orm_stack.py``, written
-when ``mock`` was the default): stage 1 asserts the *shipped default* is the
+when ``mock`` was the default): stage 1 asserts the *shipped baseline* is the
 executable one. The three ``--override`` entries and four ``--set`` ports are
 host-hygiene only -- drop the event-dispatcher/web-terminal stacks this proof
 never touches, and move every published port off the defaults so this can run
@@ -661,7 +661,7 @@ def _override_yaml() -> str:
     first, none of which this proof reads. Nothing here touches what the stack
     IS, which is the property the docstring above is about: this module inherits
     ``control_system.type`` from the preset on purpose, so that a preset that
-    stopped defaulting to the virtual accelerator would fail these stages rather
+    stopped baselining on an executable machine would fail these stages rather
     than be papered over here.
 
     Written as flat dotted-string keys under ``config:`` (the preset's own
@@ -869,8 +869,8 @@ def test_1_capability_is_executable_on_the_shipped_preset(stack: QueueStack) -> 
 
     capability = body["capability"]
     assert capability["can_execute"] is True, (
-        "the shipped control-assistant preset must deploy EXECUTABLE (it defaults "
-        f"control_system.type to virtual_accelerator): {capability}"
+        "the shipped control-assistant preset must deploy EXECUTABLE (it baselines "
+        f"control_system.type on the live stand-in): {capability}"
     )
     assert capability["reason"] == REASON_EXECUTABLE, f"unexpected reason: {capability}"
     assert capability["detail"], "capability carries no operator-facing detail sentence"

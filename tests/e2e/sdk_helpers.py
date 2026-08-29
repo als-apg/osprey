@@ -260,11 +260,11 @@ def init_project(
     ``git init`` is pure latency here.
 
     ``connector`` is pinned to ``mock`` rather than inherited from the preset:
-    the control-assistant preset defaults to ``virtual_accelerator``, which
-    needs the deployed VA container to answer Channel Access — this harness
-    runs projects without their containers, so the preset's production default
-    would turn every channel read/write into a connection timeout. Tests that
-    deploy a real stack build through their own fixtures, not this helper.
+    the control-assistant preset baselines on its live stand-in, a deployed
+    soft IOC that has to answer Channel Access — this harness runs projects
+    without their containers, so the preset's production default would turn
+    every channel read/write into a connection timeout. Tests that deploy a
+    real stack build through their own fixtures, not this helper.
 
     ``archiver`` is pinned for the same reason and is the archive half of that
     same fact: the preset selects ``mongodb_archiver`` and declares the
