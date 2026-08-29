@@ -1345,6 +1345,7 @@ def web_sessions_clear(ctx: click.Context, repo: Path | None, force: bool) -> No
     try:
         repo_root, _build_dir, _config_path = _resolve_render(repo)
         wt_config = get_config_value("web_terminal", {})
+        port_base = resolve_port_base({"deployment": get_config_value("deployment", {})})
         store_dir = (
             anchored_path(
                 agent_data_base_dir({"agent_data": get_config_value("agent_data", {})}), repo_root
@@ -1355,7 +1356,7 @@ def web_sessions_clear(ctx: click.Context, repo: Path | None, force: bool) -> No
         os.chdir(cwd)
 
     host = resolve_bind_host(None, wt_config.get("host"))
-    port = resolve_web_port(None, wt_config.get("port"))
+    port = resolve_web_port(None, wt_config.get("port"), base=port_base)
 
     output.section("", {"Repo": repo_root, "Store": store_dir})
 
