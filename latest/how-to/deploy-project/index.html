@@ -569,7 +569,7 @@ the <code class="docutils literal notranslate"><span class="pre">control-assista
 <code class="docutils literal notranslate"><span class="pre">docker-compose.yml.j2</span></code> template. Everything else under the service key is
 project-specific configuration exposed to the template as
 <code class="docutils literal notranslate"><span class="pre">{{services.&lt;name&gt;.&lt;key&gt;}}</span></code>. Beyond <code class="docutils literal notranslate"><span class="pre">path</span></code>, a service entry may also
-declare <code class="docutils literal notranslate"><span class="pre">copy_src</span></code>, <code class="docutils literal notranslate"><span class="pre">additional_dirs</span></code>, and <code class="docutils literal notranslate"><span class="pre">render_kernel_templates</span></code>
+declare <code class="docutils literal notranslate"><span class="pre">copy_src</span></code> and <code class="docutils literal notranslate"><span class="pre">additional_dirs</span></code>
 (a multi-container service is expressed by the <code class="docutils literal notranslate"><span class="pre">docker-compose.yml.j2</span></code>
 template defining more than one compose service). For how facility services
 are declared inside a build profile, see <a class="reference internal" href="../../reference/configuration/profile.html#profile-services"><span class="std std-ref">Services</span></a>.</p>
