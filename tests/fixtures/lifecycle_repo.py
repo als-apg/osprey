@@ -359,8 +359,9 @@ config:
   web.theme: light
   # ── Web terminals ──────────────────────────────────────────────────────────
   # `osprey up` runs a landing page and one terminal per user listed below.
-  # `osprey web` ignores all of this, so a single terminal on your own machine
-  # works at any time. Set `modules.web_terminals.enabled: false` for backend
+  # `osprey web` honours only `auth.session_lifetime` from this block, so a
+  # single terminal on your own machine works at any time. Set
+  # `modules.web_terminals.enabled: false` to have `osprey up` deploy backend
   # services only.
   #
   # Short prefix for the web container names (`<prefix>-nginx`, `<prefix>-web-
@@ -397,6 +398,9 @@ config:
     # so on — set in this repo's .env; rotate with `osprey users passwd`).
     auth:
       method: password
+      # How long a browser stays signed in, in whole seconds. Applies to every
+      # terminal here and to `osprey web`; 43200 is twelve hours.
+      session_lifetime: 43200
       # Accepts login over plain HTTP, which fits 127.0.0.1 and nothing else.
       # For any reachable host, delete this line and configure tls instead.
       allow_insecure_http: true

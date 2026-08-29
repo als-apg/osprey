@@ -2153,6 +2153,7 @@ _AUTH_CODES = frozenset(
         "web_terminals.auth_oidc_unresolvable_origin",
         "web_terminals.auth_oidc_subject_unsafe",
         "web_terminals.auth_credential_collision",
+        "web_terminals.invalid_session_lifetime",
     }
 )
 
@@ -2298,6 +2299,75 @@ def test_lint_unknown_auth_method_suppresses_downstream_auth_findings() -> None:
 
     # Assert
     assert [f.code for f in _auth_findings(findings)] == ["web_terminals.unknown_auth_method"]
+
+
+@pytest.mark.parametrize("value", [-1, 0, True, "12h"])
+def test_lint_unusable_session_lifetime_is_an_error(value: object) -> None:
+    """render substitutes the default for anything that is not a positive whole
+    number of seconds, so a shortened session silently stays long — lint is the
+    only surface that catches it."""
+    # Arrange
+    config = _auth_config({"method": "password", "session_lifetime": value})
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = [f for f in _errors(findings) if f.code == "web_terminals.invalid_session_lifetime"]
+    assert errors, [f.code for f in findings]
+    assert repr(value) in errors[0].message
+
+
+def test_lint_valid_session_lifetime_reports_no_auth_findings() -> None:
+    """A positive whole number of seconds is exactly what render wants."""
+    # Arrange
+    config = _auth_config({"method": "password", "session_lifetime": 3600})
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _auth_findings(findings) == []
+    assert _errors(findings) == []
+
+
+def test_lint_absent_session_lifetime_reports_no_auth_findings() -> None:
+    """Leaving `session_lifetime` out is the documented default, not a mistake."""
+    # Arrange
+    config = _auth_config({"method": "password"})
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.invalid_session_lifetime" for f in findings)
+    assert _errors(findings) == []
+
+
+def test_lint_empty_session_lifetime_reports_no_auth_findings() -> None:
+    """`session_lifetime:` with no value loads as None — the same default, written
+    out — and must not be read as a type mistake."""
+    # Arrange
+    config = _auth_config({"method": "password", "session_lifetime": None})
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.invalid_session_lifetime" for f in findings)
+    assert _errors(findings) == []
+
+
+def test_lint_session_lifetime_on_a_non_mapping_auth_stanza_is_not_reported_twice() -> None:
+    """A scalar `auth` has no keys to read; the stanza ERROR is the whole story."""
+    # Arrange
+    config = _auth_config("password")
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert [f.code for f in _auth_findings(findings)] == ["web_terminals.invalid_auth_stanza"]
 
 
 def test_lint_auth_port_joins_the_port_overlap_set() -> None:

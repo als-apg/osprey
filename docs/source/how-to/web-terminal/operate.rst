@@ -9,11 +9,14 @@ Start the Web Terminal from any OSPREY project directory:
 
 It boots a local server on ``http://127.0.0.1:8087`` and prints a login URL of
 the form ``http://127.0.0.1:8087/?token=…``. Opening that URL (your browser
-opens it for you) sets a session cookie and then redirects to the clean
-``http://127.0.0.1:8087`` address; every later request rides that cookie. The
-URL is printed once, but the token in it is the server's own secret and keeps
-working for as long as that server runs — treat it like a password rather than
-a one-shot code.
+opens it for you) signs you in and then redirects to the clean
+``http://127.0.0.1:8087`` address; every later request rides the cookie it
+sets. That cookie is good for 12 hours by default and outlives closing the
+browser, so on a console other people sit at, shorten it — set
+``modules.web_terminals.auth.session_lifetime`` in the deployment's config
+(see :doc:`multi-user/login`). The URL is printed once, but the token in it is
+the server's own secret and keeps working for as long as that server runs —
+treat it like a password rather than a one-shot code.
 
 If ``OSPREY_TERMINAL_SECRET`` is already set in the environment you launch
 from, ``osprey web`` uses that value rather than minting one, and says so
@@ -35,7 +38,9 @@ In background mode the process id and logs are written to
 login token lives only in the running process's memory and is never written to
 disk, so if you lose the printed URL there is no way to recover it: stop the
 server and start it again (``osprey web stop`` then ``osprey web --detach``) to
-mint a fresh one.
+mint a fresh one. Browsers already signed in stay signed in across that
+restart — their sessions live in a store on disk; ``osprey web sessions clear``
+(with the server stopped) forgets them.
 
 What you get
 ------------
@@ -233,6 +238,11 @@ value means are in :ref:`config-web`.
          browser **UI** the process renders, including the header name badge and
          the bounds on the Simple-mode chat pool; those keys are catalogued in
          :ref:`config-web`.
+
+         One key sits outside both, in the multi-user ``modules.web_terminals``
+         block: ``modules.web_terminals.auth.session_lifetime`` sets how long a
+         login cookie stays valid, in whole seconds, and defaults to ``43200``
+         (12 hours). It is the only key ``osprey web`` reads from that block.
 
       .. tab-item:: Companion servers
 

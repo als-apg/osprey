@@ -222,7 +222,7 @@ _AUTH_SEAM_ON = True
 
 
 @pytest.fixture(autouse=True, scope="function")
-def reset_web_credentials_between_tests():
+def reset_web_credentials_between_tests(monkeypatch: pytest.MonkeyPatch):
     """Forget the process web credentials before and after every test.
 
     The env-driven population path (``web_auth._populate``) is decided once per
@@ -236,9 +236,28 @@ def reset_web_credentials_between_tests():
     ``tests/interfaces/conftest.py`` read the PROCESS holder instead, so a
     module-level app must be re-pointed at it with
     ``use_process_web_credentials(app)`` before those seams can authenticate.
+
+    Also clears ``SESSION_LIFETIME_ENV`` and ``SESSION_STORE_DIR_ENV`` before
+    every test, for the same leak-prevention reason: ``tests/cli/test_discovery_
+    rewire.py`` runs the real ``osprey web`` command in-process, and the
+    launcher publishes both ``OSPREY_TERMINAL_SESSION_LIFETIME`` and
+    ``OSPREY_TERMINAL_SESSION_STORE_DIR`` into ``os.environ`` for the child
+    process to read. Left in place, every later test sharing that worker would
+    populate a holder pointed at a real, on-disk store directory instead of the
+    unconfigured one most tests assume. ``monkeypatch`` restores whichever
+    value (if any) was present before the test once it tears down, rather than
+    each of the two sides here reset unconditionally the way the credentials
+    calls above do.
     """
-    from osprey.interfaces.web_auth import reset_web_credentials
+    from osprey.interfaces.web_auth import (
+        SESSION_LIFETIME_ENV,
+        SESSION_STORE_DIR_ENV,
+        reset_web_credentials,
+    )
     from osprey.mcp_server.http import reset_panel_token_latch
+
+    monkeypatch.delenv(SESSION_LIFETIME_ENV, raising=False)
+    monkeypatch.delenv(SESSION_STORE_DIR_ENV, raising=False)
 
     # The MCP client latches the last panel token it saw (so an in-process
     # companion launch scrubbing the carrier does not strip its bearer); that

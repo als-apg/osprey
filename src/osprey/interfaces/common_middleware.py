@@ -33,7 +33,7 @@ import html
 import json
 import logging
 import os
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, parse_qsl, urlencode
 
@@ -87,6 +87,8 @@ __all__ = [
     "compute_url_prefix",
     "forwarded_identity",
     "is_exempt_path",
+    "read_cookie_candidates",
+    "read_cookies",
     "session_cookie_name",
 ]
 
@@ -531,7 +533,7 @@ def _scope_headers(scope: Scope) -> dict[str, str]:
         if name not in headers:
             headers[name] = value
         elif name == "cookie":
-            headers[name] = f"{headers[name]}; {value}"
+            headers[name] = _join_cookie_headers((headers[name], value))
     return headers
 
 
@@ -699,7 +701,33 @@ def _emit_audit_record(build: Callable[[], dict[str, Any] | None]) -> None:
         logger.warning("Could not file an HTTP audit record", exc_info=True)
 
 
-def _read_cookies(header: str | None, name: str) -> list[str]:
+def _join_cookie_headers(values: Iterable[str]) -> str:
+    """Concatenate repeated ``Cookie`` headers into the one header they mean.
+
+    HTTP/2 clients are allowed to split the cookie header, and the halves mean
+    exactly what a single header carrying them in order would. Spelled once so
+    that no reader of an untrusted request can rejoin them differently — see
+    :func:`read_cookie_candidates`.
+    """
+    return "; ".join(values)
+
+
+def read_cookie_candidates(header_values: Iterable[str], name: str) -> list[str]:
+    """Return the values a request's ``Cookie`` headers carry under ``name``.
+
+    The raw-headers form of :func:`read_cookies`, for a caller holding the list
+    of headers a request arrived with rather than the single joined header
+    :func:`_scope_headers` hands the gate. Rejoining is not optional and not the
+    caller's to get right: a reader that took only the first header would miss a
+    session an HTTP/2 browser really sent, and a reader that rejoined them its
+    own way could offer a different set of candidates than the gate accepted —
+    which is how a credential ends up admitted on every request and revoked by
+    no logout.
+    """
+    return read_cookies(_join_cookie_headers(header_values), name)
+
+
+def read_cookies(header: str | None, name: str) -> list[str]:
     """Return the values a ``Cookie`` header carries under ``name``, in order.
 
     Hand-parsed rather than handed to :mod:`http.cookies`, which raises on input
@@ -719,6 +747,18 @@ def _read_cookies(header: str | None, name: str) -> list[str]:
     is what keeps the alternative honest: each candidate costs one constant-time
     comparison, so the work per request stays bounded by a constant instead of
     by the length of an attacker-written header.
+
+    **Public, and deliberately so.** The logout route
+    (``web_terminal/routes/websocket.py``) has to revoke exactly the candidates
+    this gate would accept, so it reaches this primitive — through
+    :func:`read_cookie_candidates`, which rejoins the raw headers first — rather
+    than deriving its own. Two readers of the same untrusted header that
+    disagree about even one shape is how a credential ends up admitted by the
+    gate and never revoked by logout — so what this returns, repeats included,
+    is a contract an external caller depends on rather than an internal detail.
+    Note that it takes a header that has already been *joined*, as the gate's is;
+    a caller holding the headers a request arrived with wants
+    :func:`read_cookie_candidates`.
     """
     if not header:
         return []
@@ -1094,7 +1134,7 @@ class WebAuthMiddleware:
             return
 
         cookie_name = self._cookie_name or session_cookie_name()
-        session_ids = _read_cookies(headers.get("cookie"), cookie_name)
+        session_ids = read_cookies(headers.get("cookie"), cookie_name)
         if session_ids:
             await self._authenticate_session(
                 scope, receive, send, credentials, headers, session_ids
@@ -1309,7 +1349,7 @@ class WebAuthMiddleware:
 
         Answered by the gate itself, not passed downstream: the exchange is the
         same on every interface, and a handler-level implementation is one each
-        app has to remember to write. Five properties are load-bearing:
+        app has to remember to write. Six properties are load-bearing:
 
         * **303, not 302.** The exchange is a GET, and 303 states plainly that
           the follow-up is a GET too.
@@ -1329,9 +1369,18 @@ class WebAuthMiddleware:
           set; the Origin check, not ``SameSite``, is what refuses forged
           cross-site requests.
         * **``Secure`` is derived, never assumed.** See :meth:`_cookie_is_secure`.
+        * **``Max-Age`` is the configured session lifetime**, which makes the
+          cookie persistent rather than a browser-session cookie that dies with
+          the window: it survives a browser restart, and an operator who closes
+          the control-room browser is not logged out by that alone. Stating the
+          same number the server holds keeps the two expiries from disagreeing —
+          a longer cookie would be presented after the server had already
+          forgotten the session, a shorter one would drop a session still good.
+          The browser's copy is a convenience, not the authority: the server
+          refuses the session after its own deadline either way.
         """
         session_id = credentials.create_session()
-        cookie = self._session_cookie(scope, headers, session_id)
+        cookie = self._session_cookie(scope, headers, session_id, credentials.session_ttl_seconds)
         location = self._exchange_location(scope)
         await send(
             {
@@ -1360,10 +1409,23 @@ class WebAuthMiddleware:
             location = f"{location}?{urlencode(remaining)}"
         return location
 
-    def _session_cookie(self, scope: Scope, headers: dict[str, str], session_id: str) -> str:
-        """Render the ``Set-Cookie`` value the exchange hands the browser."""
+    def _session_cookie(
+        self, scope: Scope, headers: dict[str, str], session_id: str, max_age: int
+    ) -> str:
+        """Render the ``Set-Cookie`` value the exchange hands the browser.
+
+        ``max_age`` is the session lifetime in seconds the server will honour,
+        written out as ``Max-Age`` so the browser expires the cookie on the same
+        schedule the server expires the session.
+        """
         name = self._cookie_name or session_cookie_name()
-        attributes = [f"{name}={session_id}", "Path=/", "HttpOnly", "SameSite=Lax"]
+        attributes = [
+            f"{name}={session_id}",
+            "Path=/",
+            "HttpOnly",
+            "SameSite=Lax",
+            f"Max-Age={max_age}",
+        ]
         if self._cookie_is_secure(scope, headers):
             attributes.append("Secure")
         return "; ".join(attributes)

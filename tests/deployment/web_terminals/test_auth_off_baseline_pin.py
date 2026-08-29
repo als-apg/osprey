@@ -18,7 +18,8 @@ describes ``none``; its render is pinned by ``test_nginx_auth_surface.py``.
 
 So: a facility whose ``modules.web_terminals`` declares ``auth.method: token``
 (or no ``auth:`` block at all) and no ``authorization:`` block must render
-byte-for-byte what it rendered before this feature, with exactly two exceptions:
+byte-for-byte what it rendered before this feature, with exactly three
+exceptions:
 
   1. **the audit emitters and mounts** — ``OSPREY_AUDIT_IDENTITY``,
      ``OSPREY_AUDIT_DIR`` and the per-identity ``./var/audit/<identity>`` bind,
@@ -32,6 +33,16 @@ byte-for-byte what it rendered before this feature, with exactly two exceptions:
      anyway: a location that names neither would hand a client's own
      ``X-Osprey-Auth-Subject: root`` straight to a terminal container, which
      reads that header to learn who is on the other end.
+  3. **the terminal session lifetime** — ``OSPREY_TERMINAL_SESSION_LIFETIME``
+     on every per-user container. ``token`` mints a session cookie of its own
+     (the ``?token=`` exchange trades the magic link for one), so the setting
+     that governs how long it lives is not an authentication feature this
+     posture opted out of; it is the posture's own cookie. It rides in the
+     environment because the persona's ``config.yml`` is baked into the image
+     at build time, and an operator who edits ``auth.session_lifetime`` and
+     re-renders would otherwise see nothing change. The value emitted here is
+     the default an absent ``auth:`` block already resolved to, so nothing
+     about a baseline deployment's behaviour moves.
 
 Everything else — every port, volume, header, ``location`` block, comment and
 blank line — must be untouched, with one REPLACEMENT the feature makes rather
@@ -58,9 +69,10 @@ It is: does the new line belong in a ``token``, roles-off render at all? If it
 carries authorization, a role, a claim or a login, the answer is no and the
 template is wrong. If it is an injected terminal secret, the ``none`` work has
 leaked into ``token`` and the fix is in the template's predicate, not here. If
-it is a genuine third exception to SC6, add it to the allowlist below *and* say
-so in the PROPOSAL — SC6 is a promise to operators who never asked for any of
-this, and it is worth exactly as much as the list.
+it is a genuine further exception to SC6, add it to the allowlist below, extend
+the enumeration above, *and* say so in the PROPOSAL — SC6 is a promise to
+operators who never asked for any of this, and it is worth exactly as much as
+the list.
 """
 
 from __future__ import annotations
@@ -106,6 +118,16 @@ _ALLOWED_COMPOSE_LINES = Counter(
         "      - OSPREY_AUDIT_IDENTITY=bob": 1,
         "      - OSPREY_AUDIT_DIR=/app/dls-assistant/var/audit/bob": 1,
         "      - ./var/audit/bob:/app/dls-assistant/var/audit/bob": 1,
+        # The cookie-lifecycle feature — the deliberate THIRD exception to SC6,
+        # stated in its PROPOSAL. The terminal's own session-cookie lifetime now
+        # travels to every per-user container, under `token` as under every
+        # other method, because every method mints that cookie and the persona's
+        # `config.yml` is baked into the image at build time — so a deploy-time
+        # edit of `auth.session_lifetime` is visible to a running container only
+        # as environment. Count 2 = alice + bob. The value is the default an
+        # absent `auth:` block already resolves to, so the line restates today's
+        # behaviour rather than changing it.
+        "      - OSPREY_TERMINAL_SESSION_LIFETIME=43200": 2,
     }
 )
 
