@@ -432,10 +432,14 @@ def sidecar_over_models_dir(
     }
     if state_volume:
         volumes[state_volume] = {"bind": SIDECAR_STATE_DIR, "mode": "rw"}
+    # The entrypoint takes its port from OSPREY_QMD_PORT before it looks at
+    # the models and refuses to guess, so a run outside a rendered deployment
+    # has to say the port even though nothing here ever connects to it.
+    environment = {"OSPREY_QMD_PORT": str(SIDECAR_CONTAINER_PORT), **(env or {})}
     container = client.containers.run(
         image,
         detach=True,
-        environment=dict(env or {}),
+        environment=environment,
         volumes=volumes,
     )
     try:
