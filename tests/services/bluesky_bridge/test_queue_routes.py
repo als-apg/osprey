@@ -839,6 +839,74 @@ def test_the_refusal_sentence_caps_a_long_device_list(client: TestClient, connec
     assert "BPM49" in detail["available_devices"]
 
 
+def test_unknown_device_refusal_reports_available_count_above_cap(
+    client: TestClient, connector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A namespace larger than one device page does not ride in the refusal
+    body. The caller gets the size and the route that pages the names, which
+    is the same bound `GET /devices` serves — a refusal never hands over more
+    in one response than the route would."""
+    monkeypatch.setenv("BLUESKY_DEVICE_PAGE_SIZE", "3")
+    connector("virtual_accelerator")
+    built = [f"BPM{n}" for n in range(5)]
+    manager = FakeManager(status=status_doc(), devices_allowed=_devices(*built))
+    _install(manager)
+    revision = _make_draft(client)
+
+    resp = client.post("/queue/items", json={"draft_revision": revision})
+
+    assert resp.status_code == 400
+    detail = resp.json()["detail"]
+    assert detail["code"] == "unknown_device"
+    assert detail["devices"] == ["COR1"]
+    assert detail["available_count"] == 5
+    assert detail["available_devices_url"] == "/devices"
+    assert "available_devices" not in detail
+    # The sentence points at the surface that actually carries the names.
+    assert detail["detail"].endswith("more; full list via GET /devices)")
+
+
+def test_the_refusal_inlines_the_device_list_at_exactly_the_page_size(
+    client: TestClient, connector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The boundary is inclusive: a namespace that exactly fills one page is
+    still small enough to hand over whole, so the body reads as it always has
+    and no caller has to make a second request to correct one name."""
+    monkeypatch.setenv("BLUESKY_DEVICE_PAGE_SIZE", "5")
+    connector("virtual_accelerator")
+    built = [f"BPM{n}" for n in range(5)]
+    manager = FakeManager(status=status_doc(), devices_allowed=_devices(*built))
+    _install(manager)
+    revision = _make_draft(client)
+
+    detail = client.post("/queue/items", json={"draft_revision": revision}).json()["detail"]
+
+    assert detail["available_devices"] == sorted(built)
+    assert "available_count" not in detail
+    assert "available_devices_url" not in detail
+    assert "GET /devices" not in detail["detail"]
+
+
+def test_the_sentence_points_at_the_inline_list_at_exactly_the_page_size(
+    client: TestClient, connector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """At the boundary the sentence can still summarize — it is capped for
+    readability well before the page size matters — and when it does, it must
+    point at the inline list rather than at the route."""
+    monkeypatch.setenv("BLUESKY_DEVICE_PAGE_SIZE", "25")
+    connector("virtual_accelerator")
+    built = [f"BPM{n}" for n in range(25)]
+    manager = FakeManager(status=status_doc(), devices_allowed=_devices(*built))
+    _install(manager)
+    revision = _make_draft(client)
+
+    detail = client.post("/queue/items", json={"draft_revision": revision}).json()["detail"]
+
+    assert "(+5 more; full list in available_devices)" in detail["detail"]
+    assert len(detail["available_devices"]) == 25
+    assert "available_count" not in detail
+
+
 def test_a_declared_field_absent_from_the_params_is_not_checked(
     client: TestClient, connector, monkeypatch: pytest.MonkeyPatch
 ) -> None:

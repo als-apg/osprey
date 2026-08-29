@@ -69,6 +69,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import uuid
 from typing import Any, NoReturn
 
@@ -452,19 +453,75 @@ def _referenced_channel_names(spec: PlanSpec[Any], plan_args: Any) -> tuple[set[
 
 # How many device names the refusal SENTENCE lists before summarizing the
 # rest. A real facility worker builds hundreds, and the sentence is prose an
-# agent and an operator read — the complete set is always on the wire
-# structurally in ``available_devices``, so nothing is lost by capping the
-# readable copy.
+# agent and an operator read. It is a ceiling, not the only one: the sentence
+# never names more devices than a single device page holds either, so the
+# effective cap is this limit or `device_page_size()`, whichever is smaller.
+# Capping the readable copy loses nothing — the names it drops are either in
+# the body's own ``available_devices`` (a namespace that fits in one page) or
+# one ``GET /devices`` away (one that does not).
 _SENTENCE_DEVICE_LIMIT = 20
 
+#: Env var carrying the one number that bounds this bridge's device surfaces.
+#: Authored per facility in the build profile, rendered into the compose file;
+#: the container cannot read `config.yml`, so the env var is the whole channel.
+DEVICE_PAGE_SIZE_ENV = "BLUESKY_DEVICE_PAGE_SIZE"
 
-def _available_devices_phrase(available: set[str]) -> str:
-    """The refusal sentence's device list, capped at `_SENTENCE_DEVICE_LIMIT`."""
+#: Used when the variable is unset — large enough that a facility whose worker
+#: builds a normal namespace never notices a bound at all.
+DEFAULT_DEVICE_PAGE_SIZE = 500
+
+
+def device_page_size() -> int:
+    """How many device names this bridge publishes at once.
+
+    ONE number bounds both device surfaces: the page `GET /devices` returns,
+    and the inline threshold in the 400 `unknown_device` refusal body. A
+    facility that raises it raises both together, so the two can never
+    disagree about how much of a namespace is reasonable to hand over.
+
+    Read from `os.environ` on every call — never cached at import — so a test
+    (and a re-exec'd process) sees the value its environment declares.
+
+    Raises:
+        ValueError: if the variable is set to something that is not an
+            integer, or to an integer below 1. A bound of zero publishes
+            nothing, which is a misconfiguration, not a policy.
+    """
+    raw = os.environ.get(DEVICE_PAGE_SIZE_ENV)
+    if raw is None:
+        return DEFAULT_DEVICE_PAGE_SIZE
+    try:
+        value = int(raw)
+    except ValueError:
+        raise ValueError(
+            f"{DEVICE_PAGE_SIZE_ENV}={raw!r} is not an integer; "
+            f"set it to a whole number >= 1 (default {DEFAULT_DEVICE_PAGE_SIZE})"
+        ) from None
+    if value < 1:
+        raise ValueError(
+            f"{DEVICE_PAGE_SIZE_ENV}={raw!r} must be >= 1; "
+            f"a bound below 1 would publish no devices at all"
+        )
+    return value
+
+
+def _available_devices_phrase(available: set[str], page_size: int) -> str:
+    """The refusal sentence's device list, capped for readability.
+
+    The cap is `_SENTENCE_DEVICE_LIMIT` or *page_size*, whichever is smaller —
+    the sentence is prose, and it never names more devices than one page of
+    `GET /devices` would hand over. When it summarizes, it says where the rest
+    of the names actually are: in this same body's ``available_devices`` when
+    the namespace fits in one page, and behind ``GET /devices`` when it does
+    not, which is exactly when the body omits the inline list.
+    """
     names = sorted(available)
-    if len(names) <= _SENTENCE_DEVICE_LIMIT:
+    cap = min(_SENTENCE_DEVICE_LIMIT, page_size)
+    if len(names) <= cap:
         return f"{names}"
-    shown = names[:_SENTENCE_DEVICE_LIMIT]
-    return f"{shown} (+{len(names) - len(shown)} more; full list in available_devices)"
+    shown = names[:cap]
+    where = "in available_devices" if len(names) <= page_size else "via GET /devices"
+    return f"{shown} (+{len(names) - len(shown)} more; full list {where})"
 
 
 def _refuse_unknown_devices(
@@ -487,10 +544,17 @@ def _refuse_unknown_devices(
     Three deliberate differences from the run-time version, all additive:
     ``devices`` carries EVERY unknown name across both roles (the run-time raise
     can only ever report the first one it tripped over), the in-sentence device
-    list is capped — `available_devices` carries it whole — and the one name the
-    sentence quotes is drawn from the movable names when there are any, because
-    that is the reading under which a start would have driven hardware toward a
-    channel the worker never built.
+    list is capped, and the one name the sentence quotes is drawn from the
+    movable names when there are any, because that is the reading under which a
+    start would have driven hardware toward a channel the worker never built.
+
+    How much of the namespace rides in the body is decided by one threshold,
+    `device_page_size()`, read per request. At or below it the body carries
+    ``available_devices``, every built name sorted — the common case, and the
+    one a caller picks a correction straight out of. Above it the body carries
+    ``available_count`` and ``available_devices_url`` instead, and the caller
+    pages the names from `GET /devices`. The same number bounds that page, so
+    a refusal never promises more names in one response than the route serves.
 
     400, not 409: the request itself names something that does not exist, and
     the fix is in the caller's hands — pick a name `GET /devices` lists.
@@ -498,19 +562,22 @@ def _refuse_unknown_devices(
     unknown = unknown_movable | unknown_readable
     first = sorted(unknown_movable or unknown_readable)[0]
     label = "session plan" if session_tier else "plan"
-    raise HTTPException(
-        status_code=400,
-        detail={
-            "code": "unknown_device",
-            "detail": (
-                f"{label} {plan_name!r} referenced device {first!r}, which this worker "
-                f"did not build; available devices: {_available_devices_phrase(available)}"
-            ),
-            "plan": plan_name,
-            "devices": sorted(unknown),
-            "available_devices": sorted(available),
-        },
-    )
+    cap = device_page_size()
+    detail: dict[str, Any] = {
+        "code": "unknown_device",
+        "detail": (
+            f"{label} {plan_name!r} referenced device {first!r}, which this worker "
+            f"did not build; available devices: {_available_devices_phrase(available, cap)}"
+        ),
+        "plan": plan_name,
+        "devices": sorted(unknown),
+    }
+    if len(available) <= cap:
+        detail["available_devices"] = sorted(available)
+    else:
+        detail["available_count"] = len(available)
+        detail["available_devices_url"] = "/devices"
+    raise HTTPException(status_code=400, detail=detail)
 
 
 async def _check_devices_exist(backend: QueueBackend, plan_name: str, plan_args: Any) -> None:
