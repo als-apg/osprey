@@ -1283,16 +1283,26 @@ _LANE_ONE = "bluesky"
 #: Every service key that can name a lane, in render order. Literals for the
 #: same reason the describer tables' keys are: this hook is deployed standalone
 #: and cannot import `osprey.bluesky_bridge_connection.LANE_KEYS`.
-_LANE_KEYS = ("bluesky", "bluesky_va", "bluesky_live")
+_LANE_KEYS = ("bluesky", "bluesky_va", "bluesky_live", "bluesky_standin")
 
 
-#: The control-system type whose deployments run against a simulator, and the
-#: two target names every lane is wired to. Literals for the same reason the
-#: lane keys are: this hook is deployed standalone and can import neither
-#: ``osprey_connectors.types`` nor ``target_state``'s ``TARGET_VA``/``TARGET_LIVE``.
+#: The two control-system types whose deployments run a machine they stand up
+#: themselves, and the three target names a lane can be wired to. Literals for
+#: the same reason the lane keys are: this hook is deployed standalone and can
+#: import neither ``osprey_connectors.types`` nor ``target_state``'s
+#: ``TARGET_VA``/``TARGET_LIVE``/``TARGET_STANDIN``.
 _VIRTUAL_ACCELERATOR_TYPE = "virtual_accelerator"
+_LIVE_STANDIN_TYPE = "live_standin"
 _TARGET_VA = "va"
 _TARGET_LIVE = "live"
+_TARGET_STANDIN = "standin"
+
+#: The target each self-standing machine's type is the baseline of. A type
+#: absent from this table describes the facility's own machine, hence ``live``.
+_BASELINE_TARGETS = {
+    _VIRTUAL_ACCELERATOR_TYPE: _TARGET_VA,
+    _LIVE_STANDIN_TYPE: _TARGET_STANDIN,
+}
 
 
 def _baseline_target(config: dict) -> str:
@@ -1306,13 +1316,20 @@ def _baseline_target(config: dict) -> str:
     key was dropped) would render "no lane serves your target" over a deployment
     whose lanes cover it perfectly.
 
+    ``va`` for a virtual accelerator, ``standin`` for the live stand-in, and
+    ``live`` for everything else. A stand-in deployment answering ``live`` here
+    would name its lanes for the facility's own machine, which is the one
+    direction a wrong answer must never go.
+
     This is lane TOPOLOGY, not identity: it answers what the deployment is wired
     to, which is a render-time fact config is the authority on. Where the SESSION
     is pointed is a different question, and only the state file may answer it.
     """
     section = config.get("control_system") if isinstance(config, dict) else None
     cs_type = section.get("type") if isinstance(section, dict) else None
-    return _TARGET_VA if cs_type == _VIRTUAL_ACCELERATOR_TYPE else _TARGET_LIVE
+    if not isinstance(cs_type, str):
+        return _TARGET_LIVE
+    return _BASELINE_TARGETS.get(cs_type, _TARGET_LIVE)
 
 
 def _lane_block(config: dict, lane_key: str) -> dict:
@@ -1969,7 +1986,7 @@ def _lane_posture(config, section, tool_input):
         target = lanes[0][1]
     else:
         target = next((declared for key, declared in lanes if key == lane), None)
-    if target not in (_TARGET_LIVE, _TARGET_VA):
+    if target not in (_TARGET_LIVE, _TARGET_VA, _TARGET_STANDIN):
         # Includes the unplaced lane. A `services.<lane>.target` naming
         # something else is a config this hook cannot read as a target, and
         # `writes_posture` would answer it from the deployment-wide key — a
