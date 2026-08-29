@@ -2100,7 +2100,7 @@ def _stage_channel_snapshot(config, source_dir, out_dir):
 _ROSTER_SECRET_SERVICE = "bluesky_web"
 
 
-def _bluesky_panel_secret_env_vars(config, source_dir):
+def _bluesky_panel_secret_env_vars(config, source_dir, persona_root=None):
     """The per-user secret variables the bluesky_web sidecar's compose lists.
 
     Empty for every other service render, and for a deployment with no
@@ -2111,10 +2111,19 @@ def _bluesky_panel_secret_env_vars(config, source_dir):
     so a ``bluesky-web:`` fragment there would never merge into this service
     and would instead fail that stack as an image-less service.
 
+    Entitlement is read off the personas' rendered ``config.yml`` files.
+    ``osprey build`` — the one verb that renders this file; the start verbs are
+    as-built — has those renders in its staging tree, not yet at
+    ``<repo>/build``, and names that tree as ``persona_root`` so the walk reads
+    the personas this build made rather than the previous build's.
+
     :param config: Full project configuration dictionary
     :type config: dict
     :param source_dir: Service source directory being rendered
     :type source_dir: str
+    :param persona_root: Where a build in flight has rendered its personas;
+        ``None`` reads the published build zone
+    :type persona_root: str or None
     :return: ``OSPREY_TERMINAL_SECRET_<SUFFIX>`` names, roster order
     :rtype: list[str]
     """
@@ -2122,7 +2131,7 @@ def _bluesky_panel_secret_env_vars(config, source_dir):
         return []
     from osprey.deployment.web_terminals.personas import bluesky_panel_secret_env_vars
 
-    return bluesky_panel_secret_env_vars(config, resolve_repo_root(config))
+    return bluesky_panel_secret_env_vars(config, resolve_repo_root(config), persona_root)
 
 
 #: Basename of the one service directory the Bluesky plan-device file is staged
@@ -2489,7 +2498,7 @@ def _stage_bluesky_devices(config, source_dir, out_dir):
     return False
 
 
-def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
+def setup_build_dir(template_path, config, container_cfg, dev_mode=False, persona_root=None):
     """Create complete build environment for service deployment.
 
     This function orchestrates the complete build directory setup process for
@@ -2517,6 +2526,9 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
     :type container_cfg: dict
     :param dev_mode: Development mode - copy local framework to containers
     :type dev_mode: bool
+    :param persona_root: Where a build in flight has rendered its persona
+        projects, for the roster grant (:func:`_bluesky_panel_secret_env_vars`)
+    :type persona_root: str or None
     :return: Path to the rendered Docker Compose file
     :rtype: str
 
@@ -2596,7 +2608,7 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
                     logger.warning(f"Could not remove {out_dir}, using incremental update approach")
                     # Use incremental update instead of full rebuild
                     return _incremental_setup_build_dir(
-                        template_path, config, container_cfg, out_dir, dev_mode
+                        template_path, config, container_cfg, out_dir, dev_mode, persona_root
                     )
             else:
                 raise
@@ -2640,7 +2652,9 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
         "dev_mode": dev_mode and wheel_staged,
         "channel_snapshot": _stage_channel_snapshot(config, source_dir, out_dir),
         # The bluesky_web sidecar's roster grant (see the helper); [] elsewhere.
-        "bluesky_panel_secret_env_vars": _bluesky_panel_secret_env_vars(config, source_dir),
+        "bluesky_panel_secret_env_vars": _bluesky_panel_secret_env_vars(
+            config, source_dir, persona_root
+        ),
         "bluesky_devices": _stage_bluesky_devices(config, source_dir, out_dir),
     }
     compose_filepath = render_template(template_path, render_config, out_dir)
@@ -2764,7 +2778,9 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
     return compose_filepath
 
 
-def _incremental_setup_build_dir(template_path, config, service_config, out_dir, dev_mode=False):
+def _incremental_setup_build_dir(
+    template_path, config, service_config, out_dir, dev_mode=False, persona_root=None
+):
     """Setup build directory using incremental updates when full cleanup fails.
 
     This fallback function handles cases where the build directory cannot be
@@ -2776,6 +2792,9 @@ def _incremental_setup_build_dir(template_path, config, service_config, out_dir,
         config (dict): Configuration dictionary
         service_config (dict): Service-specific configuration
         out_dir (str): Output directory path that couldn't be cleaned
+        dev_mode (bool): Development mode, as in :func:`setup_build_dir`
+        persona_root (str | None): Where a build in flight has rendered its
+            persona projects, as in :func:`setup_build_dir`
 
     Returns:
         str: Path to the rendered docker-compose.yml file
@@ -2824,7 +2843,9 @@ def _incremental_setup_build_dir(template_path, config, service_config, out_dir,
         "dev_mode": dev_mode and wheel_staged,
         "channel_snapshot": _stage_channel_snapshot(config, source_dir, out_dir),
         # The bluesky_web sidecar's roster grant (see the helper); [] elsewhere.
-        "bluesky_panel_secret_env_vars": _bluesky_panel_secret_env_vars(config, source_dir),
+        "bluesky_panel_secret_env_vars": _bluesky_panel_secret_env_vars(
+            config, source_dir, persona_root
+        ),
         "bluesky_devices": _stage_bluesky_devices(config, source_dir, out_dir),
     }
     compose_filepath = render_template(template_path, render_config, out_dir)
@@ -2996,7 +3017,12 @@ def clean_deployment(compose_files, config=None, repo_root=None):
 
 
 def prepare_compose_files(
-    config_path, dev_mode=False, expose_network=False, output_root=None, deployed_config_dir=None
+    config_path,
+    dev_mode=False,
+    expose_network=False,
+    output_root=None,
+    deployed_config_dir=None,
+    persona_root=None,
 ):
     """Prepare compose files from configuration.
 
@@ -3044,6 +3070,21 @@ def prepare_compose_files(
         ``None`` — the deploy-time case — derives it from where the config
         being loaded actually sits, which is then also where it will be read.
     :type deployed_config_dir: str or None
+    :param persona_root: The directory holding the persona renders a per-persona
+        grant is decided from — today the bluesky_web sidecar's roster grant,
+        which lists the secret of every user whose persona's rendered
+        ``config.yml`` shows the BLUESKY tab.
+
+        ``osprey build`` passes its staging tree, for the same reason it passes
+        the two parameters above: the personas it has just rendered sit there,
+        and become ``<repo>/build/<repo>-<persona>`` only when the swap lands.
+        Read where the catalog's ``project_path`` points — the published build
+        zone — the grant would name what the PREVIOUS build's personas declared,
+        or nothing on a clean build, and the start verbs re-render nothing that
+        could correct it.
+
+        ``None`` reads the published build zone.
+    :type persona_root: str or None
     :return: Tuple of (config dict, list of compose file paths)
     :rtype: tuple[dict, list[str]]
     :raises RuntimeError: If configuration loading fails
@@ -3165,7 +3206,9 @@ def prepare_compose_files(
                     f"Template file {template_path} not found for service '{service_name}'"
                 )
 
-            out = setup_build_dir(template_path, config, service_config, dev_mode)
+            out = setup_build_dir(
+                template_path, config, service_config, dev_mode, persona_root=persona_root
+            )
             compose_files.append(out)
         else:
             raise RuntimeError(f"Service '{service_name}' not found in configuration")

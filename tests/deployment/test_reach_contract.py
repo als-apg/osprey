@@ -404,7 +404,7 @@ def test_every_entitled_shared_path_is_mounted(built_stack, web_compose, entries
 
 
 def test_the_bluesky_web_sidecar_accepts_every_entitled_users_secret(
-    built_stack, host_config, web_compose, entries, monkeypatch
+    built_stack, host_config, web_compose, entries
 ):
     """A persona proxies its BLUESKY tab into the sidecar with the secret ITS
     container holds — its own, under the fixed ``OSPREY_TERMINAL_SECRET``.
@@ -412,21 +412,21 @@ def test_the_bluesky_web_sidecar_accepts_every_entitled_users_secret(
     separate single-file compose project that could never merge into it)
     lists every entitled user's variable beside the accept flag the web gate
     requires; a user whose persona shows no BLUESKY tab gets no key to it.
+
+    Read off the file ``osprey build`` wrote, because that is the file
+    ``osprey up`` starts: the start is as-built and re-renders nothing, so a
+    grant the build's render did not carry reaches no container. (This test
+    once re-rendered the services compose from ``build/`` with the persona
+    projects in place and asserted on THAT — a render no verb performs, which
+    is how a sidecar that refused every user's secret shipped green.)
     """
-    from osprey.deployment.compose_generator import prepare_compose_files
     from osprey.deployment.web_terminals.personas import config_declares_bluesky_panel
     from osprey.deployment.web_terminals.render import terminal_secret_env_var
     from osprey.interfaces.web_auth import ROSTER_ACCEPT_ENV
 
     assert "bluesky_web" in host_config["deployed_services"]
-    # The deploy-faithful render: `osprey up` re-renders every services compose
-    # file from the repo root with the persona projects in place. The build's
-    # own render precedes the persona renders, so it is the deploy's that
-    # carries the roster grant (see compose_generator._bluesky_panel_secret_env_vars).
-    monkeypatch.chdir(built_stack / "build")
-    _, compose_files = prepare_compose_files(str(built_stack / "build" / "config.yml"))
-    (sidecar_path,) = [f for f in compose_files if f.endswith("/bluesky_web/docker-compose.yml")]
-    sidecar_compose = yaml.safe_load(Path(sidecar_path).read_text(encoding="utf-8"))
+    sidecar_path = built_stack / "build" / "services" / "bluesky_web" / "docker-compose.yml"
+    sidecar_compose = yaml.safe_load(sidecar_path.read_text(encoding="utf-8"))
     environment = sidecar_compose["services"]["bluesky-web"]["environment"]
     assert isinstance(environment, dict)
     assert environment.get(ROSTER_ACCEPT_ENV) == "1"
