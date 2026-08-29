@@ -5664,14 +5664,6 @@ def test_dispatcher_default_render_matches_the_committed_one_but_for_the_digest_
     labels are removed from BOTH sides so the check keeps its meaning once the
     templates are committed — what it pins is "these labels are the only
     differences", which stays true either way.
-
-    The port block is the second enumerated delta. The committed template
-    spelled its two default ports as the literals ``9900`` and ``5080``; the
-    working tree renders the same lines from ``osprey_ports``, so those numbers
-    are moved on HEAD's side before the comparison. Only the numbers move — a
-    whitespace change, a reordered key or a line gained anywhere still fails the
-    equality, which is what keeps this a "nothing ELSE moved" check rather than
-    a blanket exemption for the template.
     """
 
     def _normalized(text: str) -> str:
@@ -5681,16 +5673,11 @@ def test_dispatcher_default_render_matches_the_committed_one_but_for_the_digest_
             .replace(_CONFIG_DIGEST_BLOCK, "", 1)
         )
 
-    def _relocated(text: str) -> str:
-        """HEAD's hardcoded ports, moved to the slots the layout gives them."""
-        text = re.sub(r"\b9900\b", str(default_port("dispatcher")), text)
-        return re.sub(r"\b5080\b", str(default_port("openobserve")), text)
-
     rendered = _render_dispatcher_template()
 
     assert rendered.count(_DIGEST_LABEL_LINE) == 1, "the digest label renders exactly once"
     assert rendered.count(_CONFIG_DIGEST_BLOCK) == 1, "the config digest renders exactly once"
-    assert _normalized(rendered) == _relocated(_normalized(_head_dispatcher_render()))
+    assert _normalized(rendered) == _normalized(_head_dispatcher_render())
 
 
 @pytest.mark.parametrize("network", [None, "bridge", "host"], ids=["unset", "bridge", "host"])
