@@ -39,19 +39,30 @@ Record shape
 ::
 
     {
-      "target": "live" | "va",
+      "target": "live" | "va" | "standin",
       "generation": 0,
       "server_pid": 4321,          # os.getpid() of the controls server
       "owner_ppid": 4200,          # os.getppid() at write-on-start: the Claude
                                    # Code process that spawned the server
       "targets": {
-        "live": {"label": str, "endpoint": str, "real_machine": bool,
-                 "probe_channel": str},   # optional; omitted when unconfigured
-        "va":   {"label": str, "endpoint": str, "real_machine": bool,
-                 "probe_channel": str}
+        "live":    {"label": str, "endpoint": str, "real_machine": bool,
+                    "probe_channel": str},  # optional; omitted when unconfigured
+        "va":      {"label": str, "endpoint": str, "real_machine": bool,
+                    "probe_channel": str},
+        "standin": {"label": str, "endpoint": str, "real_machine": bool,
+                    "probe_channel": str}
       },
       "children": [5001, 5002]     # connector-host child PIDs, may be empty
     }
+
+There is one slot per name in :data:`TARGET_NAMES` and every slot is always
+written, whether or not the deployment configures that target. An unconfigured
+target is absent-as-empty: its key exists and its ``label`` and ``endpoint`` are
+empty strings with ``real_machine`` false and no ``probe_channel`` — never a
+missing key. That is how ``va`` has always behaved on a deployment with no
+virtual accelerator, and ``standin`` behaves identically on a deployment with no
+stand-in: readers keep rendering from a fixed set of keys, and empty strings read
+as "unknown" rather than crashing the hook that displays them.
 
 The per-target display metadata is rendered ONCE, here, by the single writer,
 from a prepared mapping the caller passes in. Readers render the prompt line
@@ -89,12 +100,16 @@ from osprey_connectors.workspace import resolve_shared_data_root
 
 logger = logging.getLogger("osprey.mcp_server.control_system.target_state")
 
-#: The two target names. ``live`` is the real machine, ``va`` the virtual
-#: accelerator; both are always present in the record's ``targets`` mapping so a
-#: reader can describe the target it is *not* on without a second lookup.
+#: The control-target names. ``live`` is the real machine, ``va`` the virtual
+#: accelerator, ``standin`` the live stand-in soft IOC; every one of them is
+#: always present in the record's ``targets`` mapping so a reader can describe a
+#: target it is *not* on without a second lookup. Restated here rather than
+#: imported from :mod:`osprey_connectors.types` for the same reason the path
+#: contract is restated in the hooks: this module is the readers' vocabulary.
 TARGET_LIVE = "live"
 TARGET_VA = "va"
-TARGET_NAMES: tuple[str, str] = (TARGET_LIVE, TARGET_VA)
+TARGET_STANDIN = "standin"
+TARGET_NAMES: tuple[str, ...] = (TARGET_LIVE, TARGET_VA, TARGET_STANDIN)
 
 #: Fixed subdirectory of the agent-data root. Part of the path contract above —
 #: the hook restates this literal.
@@ -113,6 +128,7 @@ __all__ = [
     "STATE_FILE_SUFFIX",
     "TARGET_LIVE",
     "TARGET_NAMES",
+    "TARGET_STANDIN",
     "TARGET_VA",
     "delete_on_shutdown",
     "is_process_alive",
@@ -201,11 +217,14 @@ def _normalize_target_meta(value: Any) -> dict[str, Any]:
 
 
 def _normalize_targets(targets_meta: Any) -> dict[str, dict[str, Any]]:
-    """Coerce the caller's prepared metadata into both target slots.
+    """Coerce the caller's prepared metadata into one slot per target name.
 
-    Both slots always exist, so a reader rendering the prompt line never has to
-    branch on a missing key — an unsupplied target renders as empty strings,
-    which reads as "unknown" rather than crashing the hook that displays it.
+    Every name in :data:`TARGET_NAMES` gets a slot, so a reader rendering the
+    prompt line never has to branch on a missing key — an unsupplied target
+    renders as empty strings, which reads as "unknown" rather than crashing the
+    hook that displays it. A deployment without a stand-in therefore still
+    carries a ``standin`` slot, empty, exactly as one without a virtual
+    accelerator carries an empty ``va``.
     """
     meta = targets_meta if isinstance(targets_meta, dict) else {}
     return {name: _normalize_target_meta(meta.get(name)) for name in TARGET_NAMES}
@@ -272,10 +291,11 @@ def write_on_start(
     file whose ``owner_ppid`` is on its own ancestor chain.
 
     Args:
-        baseline_target: ``live`` or ``va`` — the deployment baseline.
+        baseline_target: One of :data:`TARGET_NAMES` — the deployment baseline.
         targets_meta: Prepared per-target display metadata, ``{"live": {...},
-            "va": {...}}`` with ``label`` / ``endpoint`` / ``real_machine``.
-            Rendered by the caller from config and written verbatim here.
+            "va": {...}, "standin": {...}}`` with ``label`` / ``endpoint`` /
+            ``real_machine``. Rendered by the caller from config and written
+            verbatim here; a target the caller omits is written as an empty slot.
         server_pid: Owning PID; defaults to this process.
         owner_ppid: Overrides the captured parent PID (tests, re-parenting).
         generation: Starting generation, ``0`` unless a caller says otherwise.

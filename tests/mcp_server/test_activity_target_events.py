@@ -294,10 +294,30 @@ SWITCH_RULE_MARKERS = (
     "## Which Machine You Are Talking To",
     "the real accelerator",
     "virtual accelerator",
+    "the live stand-in",
     "every approval prompt names the active target",
     "`control_target` reports the roster",
     "`control_target_set` is the only way to change targets",
     "stay refused on every target",
+)
+
+#: The three machines the rule has to name, and the one sentence about each
+#: that an operator's safety depends on. The stand-in is the one that reads
+#: wrong if it is described as a mode of ``live``: it is a machine of its own,
+#: carrying a real machine's posture.
+#:
+#: The label clause is pinned as CONDITIONAL on purpose. ``_label`` drops the
+#: ``(stand-in)`` parenthesis when the target's endpoint is not this
+#: deployment's stand-in container, and the roster still carries the row (the
+#: switch refuses it as ``standin_not_deployed``). A rule promising the
+#: parenthesis unconditionally would have the agent treat a plain LIVE MACHINE
+#: label as proof it is somewhere it is not.
+THREE_MACHINE_MARKERS = (
+    "**live** — the real accelerator",
+    "**va** — the virtual accelerator",
+    "**standin** — the live stand-in",
+    "a soft IOC this deployment runs for itself",
+    "marked **(stand-in)** only while this deployment has actually stood the soft IOC up",
 )
 
 
@@ -332,6 +352,29 @@ def test_switch_aware_rule_states_the_switchable_reality():
 
     for marker in SWITCH_RULE_MARKERS:
         assert marker in content, f"switch-aware rule missing: {marker!r}"
+
+
+def test_switch_aware_rule_names_all_three_machines():
+    """A target is a machine, and OSPREY has three of them.
+
+    The rule is frozen at build time and the render is not told which targets
+    this deployment configures, so it describes the vocabulary and points the
+    agent at ``control_target`` for what is actually here. What it must not do
+    is describe two machines: an agent told the choice is live-or-simulation
+    reads ``standin`` — when the roster offers it — as a spelling of one of
+    those, and the stand-in is neither. It carries a real machine's posture
+    without being the facility's machine, which is exactly the distinction an
+    operator approving a write is relying on.
+    """
+    content = _render_rule(
+        control_system_type="epics",
+        enabled_servers={"controls"},
+        target_switch_enabled=True,
+    )
+
+    for marker in THREE_MACHINE_MARKERS:
+        assert marker in content, f"three-machine rule missing: {marker!r}"
+    assert "either of two machines" not in content, "rule still describes only two machines"
 
 
 def test_switch_aware_rule_is_absent_without_the_switch():

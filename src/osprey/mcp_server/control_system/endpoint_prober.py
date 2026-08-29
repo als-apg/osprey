@@ -62,7 +62,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
     Endpoint,
     derive_endpoints,
 )
-from osprey_connectors.types import CONTROL_TARGETS
+from osprey_connectors.types import configured_targets
 
 logger = logging.getLogger(__name__)
 
@@ -160,8 +160,12 @@ class EndpointProber:
             config: The full rendered config mapping, as
                 :func:`~osprey.mcp_server.control_system.target_eligibility.derive_endpoints`
                 takes it.
-            targets: The session targets to probe. Defaults to every target the
-                connectors package defines.
+            targets: The session targets to probe. Defaults to the targets this
+                deployment configures
+                (:func:`~osprey_connectors.types.configured_targets`) — never
+                every target the connectors package names, which would sweep a
+                ``standin`` soft IOC on deployments that stand none up and
+                report it down forever.
             connect_timeout_s: Per-endpoint TCP connect timeout.
             interval_s: Sweep interval, overriding :data:`PROBE_INTERVAL_KEY`.
             monotonic: The monotonic clock, injectable so a test can age rows
@@ -169,7 +173,9 @@ class EndpointProber:
                 clock adjustment.
         """
         self._config = config
-        self._targets = tuple(targets) if targets is not None else tuple(CONTROL_TARGETS)
+        self._targets = (
+            tuple(targets) if targets is not None else tuple(configured_targets(_section(config)))
+        )
         self._connect_timeout_s = float(connect_timeout_s)
         self._interval_s = (
             _positive_float(interval_s, DEFAULT_PROBE_INTERVAL_S)
@@ -185,6 +191,16 @@ class EndpointProber:
         self.first_sweep_done = asyncio.Event()
 
     # -- Introspection ------------------------------------------------------
+
+    @property
+    def targets(self) -> tuple[str, ...]:
+        """The session targets this prober sweeps, after defaulting.
+
+        Worth reading back: the default is derived from the config rather than
+        fixed, so "which machines is this deployment measuring" is a question
+        with a deployment-specific answer.
+        """
+        return self._targets
 
     @property
     def probe_interval_s(self) -> float:
@@ -347,6 +363,16 @@ def _positive_float(value: Any, default: float) -> float:
     except (TypeError, ValueError):
         return default
     return number if number > 0 else default
+
+
+def _section(config: Any) -> Any:
+    """The ``control_system:`` section of a rendered config, or ``None``.
+
+    :func:`~osprey_connectors.types.configured_targets` takes the section and
+    answers a missing or malformed one with the deployment's baseline alone, so
+    an unreadable config yields one target to probe rather than a failure.
+    """
+    return config.get("control_system") if isinstance(config, dict) else None
 
 
 def _configured_interval(config: Any) -> float:

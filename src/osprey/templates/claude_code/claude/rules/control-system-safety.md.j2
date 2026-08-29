@@ -107,21 +107,30 @@ Direct {{ protocol_name }} calls skip all of these protections.
 
 {% if target_switch_enabled | default(false) %}## Which Machine You Are Talking To
 
-This deployment can point the same tools at either of two machines:
+OSPREY names three machines, and a deployment has the ones its config
+describes:
 
-- **live** — the real accelerator. A write here moves real hardware.
+- **live** — the real accelerator, the machine the facility authored. A write
+  here moves real hardware.
 - **va** — the virtual accelerator, a simulation that answers the same channel
   names. A write here moves nothing real.
+- **standin** — the live stand-in: a soft IOC this deployment runs for itself.
+  It carries a real machine's posture — the same limits, the same approval
+  prompts — because it is operated as one, not because a write reaches the
+  facility. It shows as **LIVE MACHINE**, marked **(stand-in)** only while
+  this deployment has actually stood the soft IOC up; read the label the
+  roster gives you rather than assuming which form you will see.
 
 One of them is active at a time, and every approval prompt names the active
 target, so the operator sees which machine a write would land on before they
 approve it. Read that line rather than assuming a default — a session may
 already have been switched, and the channel names look the same either way.
 
-`control_target` reports the roster: which targets this deployment has, which
-one is active, and whether the other can be switched to right now. It is the
-authority on availability. Do not infer it from a config file, from an endpoint
-seen earlier, or from a channel that happened to answer.
+`control_target` reports the roster: which of the three this deployment
+actually has, which one is active, and whether another can be switched to right
+now. A machine absent from the roster is one this deployment does not run. It
+is the authority on availability. Do not infer it from a config file, from an
+endpoint seen earlier, or from a channel that happened to answer.
 
 `control_target_set` is the only way to change targets, and it is approval-gated
 like any other write, so the operator decides. Nothing else moves a session
@@ -131,9 +140,9 @@ restart. When a request needs the other machine, ask for it with
 
 Channels the deny list refuses stay refused on every target. That list says
 which channels this deployment will never write, not which machine is active,
-so switching to the virtual accelerator does not unlock a denied channel —
-and switching in order to reach one is not a workaround, it is the same
-refusal one step later.
+so switching to the virtual accelerator or the stand-in does not unlock a
+denied channel — and switching in order to reach one is not a workaround, it
+is the same refusal one step later.
 
 {% endif %}## Write Operations
 

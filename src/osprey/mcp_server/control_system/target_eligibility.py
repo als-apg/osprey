@@ -9,10 +9,12 @@ and no side effect. It is what the roster reports for a target nobody has
 switched to yet, and it is the gate the switch consults before it spawns
 anything: is there a connector block for this target, does it have a gateways
 table containing the role this deployment will actually select, does it name a
-``probe_channel`` to prove itself with, would the switch create the one archiver
-pairing that invents history, and — for the live machine — is the deployment in
-the posture FR-8 requires. An ineligible target reports a machine-readable
-reason, so the roster can say *why* rather than merely *no*.
+``probe_channel`` to prove itself with, does the ``standin`` target's block
+still select the stand-in this deployment co-deploys, would the switch create
+the one archiver pairing that invents history, and — for the two machines an
+operator meets hardware behaviour on — is the deployment in the posture FR-8
+requires. An ineligible target reports a machine-readable reason, so the roster
+can say *why* rather than merely *no*.
 
 **VERIFICATION** is answered after the connector-host child has connected, by
 comparing what the child says it did against what this module derived it should
@@ -52,10 +54,15 @@ Session-relativity
 ------------------
 Availability is not a property of a target alone; it is a property of a target
 *and the session asking*. FR-8 gates a switch **to** the live machine on strict
-limits posture plus an operator acknowledgment, **except** when live is the
-deployment's own baseline and the session is returning to it — stranding a
-session on the simulator is the less safe outcome, so coming home is never
-gated. :func:`target_availability` therefore reports two answers:
+limits posture plus an operator acknowledgment, and a switch **to** the stand-in
+on the limits posture alone — the stand-in really is dialled and really behaves
+like hardware, but the acknowledgment it needs was already given at build time
+by the ``virtual_accelerator.live_standin`` line that stood it up. Both are
+waived **except** when the target is the deployment's own baseline and the
+session is returning to it — stranding a session on the simulator is the less
+safe outcome, so coming home is never gated, and the baseline a deployment comes
+home to may be ``standin`` as readily as ``live``.
+:func:`target_availability` therefore reports two answers:
 
 * ``available_now`` — the predicate for the switch this session would make,
   including the return exemption when it applies;
@@ -81,9 +88,16 @@ from typing import Any
 from osprey_connectors.control_system.base import is_readonly_run
 from osprey_connectors.control_system.va_connector import fill_gateway_ports
 from osprey_connectors.honesty import VA_MOCK_ARCHIVER_WHY, pairing_for_target
-from osprey_connectors.standin import live_standin_active
+from osprey_connectors.standin import (
+    ARCHIVER_RECORDER_SERVICE,
+    LIVE_STANDIN_PORT_KEY,
+    archive_belongs_to_standin,
+    live_standin_active,
+)
 from osprey_connectors.types import (
+    INVENTED_HISTORY_TYPES,
     TARGET_LIVE,
+    TARGET_STANDIN,
     VIRTUAL_ACCELERATOR,
     resolve_target,
     target_writes_enabled,
@@ -98,6 +112,9 @@ ACK_KEY = "control_system.target_switch.live_gateway_acknowledged"
 ACK_LEAF = ACK_KEY.rsplit(".", 1)[1]
 LIMITS_ENABLED_KEY = "control_system.limits_checking.enabled"
 ALLOW_UNLISTED_KEY = "control_system.limits_checking.allow_unlisted_channels"
+#: The build-profile key that stands the stand-in up. Named in a refusal so the
+#: operator is told the one line to delete, not merely which fact is true.
+STANDIN_PROFILE_KEY = "virtual_accelerator.live_standin"
 #: Leaf key on a connector block; the full key names the resolved type.
 PROBE_CHANNEL_KEY = "probe_channel"
 
@@ -133,9 +150,11 @@ REASON_CONNECTOR_BLOCK_MISSING = "connector_block_missing"
 REASON_GATEWAYS_MISSING = "gateways_missing"
 REASON_SELECTED_ROLE_MISSING = "selected_role_missing"
 REASON_PROBE_CHANNEL_MISSING = "probe_channel_missing"
+REASON_STANDIN_NOT_DEPLOYED = "standin_not_deployed"
 REASON_INVENTED_HISTORY = "invented_history"
 REASON_LIMITS_POSTURE = "limits_posture"
 REASON_OPERATOR_ACK_MISSING = "operator_ack_missing"
+REASON_ARCHIVE_BELONGS_TO_STANDIN = "archive_belongs_to_standin"
 
 
 @dataclass(frozen=True)
@@ -497,16 +516,34 @@ def evaluate_eligibility(
        is not);
     4. that block names a ``probe_channel`` — a target that cannot prove itself
        reachable is never switched to;
-    5. honesty: pointing a session at the virtual accelerator while the archiver
-       resolves to the mock would pair a modelled present with an invented past;
-    6. FR-8 posture, for the live machine only, and only for a switch toward it.
+    5. for ``standin`` only: the endpoint that block selects really is the
+       co-deployed stand-in — the deployment built one, on this port, over
+       loopback — so the block cannot be repointed at hardware under a soft
+       label (:data:`REASON_STANDIN_NOT_DEPLOYED`);
+    6. honesty: pointing a session at a machine this deployment stands up for
+       itself — the virtual accelerator or the stand-in — while the archiver
+       resolves to the mock would pair an invented present with an invented
+       past;
+    7. FR-8 posture, only for a switch *toward* a target, and split by which
+       machine it is: the strict limits posture applies to ``live`` **and**
+       ``standin``, both of which behave like hardware; the operator
+       acknowledgment applies to ``live`` alone, since the stand-in's
+       equivalent was said at build time by ``virtual_accelerator.live_standin``
+       (:data:`REASON_LIMITS_POSTURE`, :data:`REASON_OPERATOR_ACK_MISSING`);
+    8. for ``live`` only, and only toward it: the archive is not the stand-in's.
+       A deployment that records its own store beside a stand-in records the
+       stand-in, and a real machine's readings must not land in that store
+       (:data:`REASON_ARCHIVE_BELONGS_TO_STANDIN`).
 
     Args:
         config: The full rendered config mapping.
         target: The session target being judged.
         direction: :data:`DIRECTION_AWAY` for a switch toward a target that is
             not the deployment baseline, :data:`DIRECTION_BACK` for a return to
-            the baseline. Only the live machine's FR-8 gate reads it.
+            the baseline. Only the FR-8 gates (checks 7 and 8) read it, and the
+            baseline a return exempts may be any of the three targets — a
+            deployment whose own ``control_system.type`` is ``live_standin``
+            comes home to ``standin``.
         writes_enabled: See :func:`derive_endpoints`.
         readonly_run: See :func:`derive_endpoints`. It moves the *selected role*,
             which is what check 3 is asked about; it never makes a target
@@ -566,31 +603,65 @@ def evaluate_eligibility(
             "active, so a target without one is never switched to.",
         )
 
-    if connector_type == VIRTUAL_ACCELERATOR:
+    if target == TARGET_STANDIN and not endpoint_is_live_standin(
+        config, derivation.selected_endpoint()
+    ):
+        endpoint = derivation.selected_endpoint()
+        where = f"{endpoint.host}:{endpoint.port}" if endpoint is not None else "nowhere"
+        return Eligibility(
+            False,
+            REASON_STANDIN_NOT_DEPLOYED,
+            f"Refusing target {target!r}: '{block_key}.gateways.{selected_role}' "
+            f"selects {where}, which is not the stand-in this deployment "
+            f"co-deploys on '{LIVE_STANDIN_PORT_KEY}' over the loopback "
+            "interface. The stand-in target names the soft IOC the deployment "
+            "runs for itself, so a block pointed anywhere else would put a real "
+            f"machine behind a soft label. Point '{block_key}.gateways' at the "
+            f"stand-in's own port on loopback, or use {TARGET_LIVE!r} for the "
+            "machine this facility authored.",
+        )
+
+    if connector_type in INVENTED_HISTORY_TYPES:
         pairing = pairing_for_target(config, target)
         if pairing.is_invented_history:
             return Eligibility(
                 False,
                 REASON_INVENTED_HISTORY,
                 f"Refusing target {target!r}: the archive belongs to the machine. A "
-                "session pointed at the virtual accelerator needs an archiver that "
+                f"session pointed at {connector_type!r} needs an archiver that "
                 f"recorded that machine: {VA_MOCK_ARCHIVER_WHY} This deployment's "
                 f"archiver.type is {pairing.archiver_phrase}. Set `archiver.type` to "
                 "a real archiver — this deployment's own store — before switching a "
                 "session onto this target.",
             )
 
-    if target == TARGET_LIVE and direction != DIRECTION_BACK:
-        # Returning to a live deployment baseline is exempt from both: a session
-        # stranded on the simulator, unable to come home, is the less safe
-        # outcome of the two this gate can produce.
+    # Returning to a deployment's own baseline is exempt from FR-8 — a session
+    # stranded on the simulator, unable to come home, is the less safe outcome
+    # of the two this gate can produce — and the baseline may be either machine
+    # a session can be careful around, so the exemption follows the direction
+    # rather than naming a target.
+    switching_away = direction != DIRECTION_BACK
+
+    if switching_away and target in (TARGET_LIVE, TARGET_STANDIN):
+        # The strict limits posture guards both machines an operator meets
+        # hardware behaviour on. The stand-in really is dialled, really refuses
+        # out-of-limit writes and really carries `real_machine` — a rehearsal on
+        # a permissive posture would rehearse the wrong facility.
         if not _strict_limits(config):
             return Eligibility(
                 False,
                 REASON_LIMITS_POSTURE,
-                "Switching to the live machine requires the strict limits posture: "
+                f"Switching to target {target!r} requires the strict limits posture: "
                 f"'{LIMITS_ENABLED_KEY}' true and '{ALLOW_UNLISTED_KEY}' false.",
             )
+
+    if target == TARGET_LIVE and switching_away:
+        # The acknowledgment is the live machine's alone. It is the operator
+        # saying the configured gateways really are this facility's, and the
+        # stand-in's equivalent was already said at build time by the profile
+        # line that stood it up: `virtual_accelerator.live_standin` names the
+        # port, and nothing about that endpoint is a gateway anyone could
+        # mistake for the facility's.
         if not _acknowledged(config):
             return Eligibility(
                 False,
@@ -598,6 +669,21 @@ def evaluate_eligibility(
                 f"Switching to the live machine requires '{ACK_KEY}' to be set — the "
                 "operator confirming the configured gateways really are this "
                 "facility's. Set it to your live gateway's hostname.",
+            )
+        if archive_belongs_to_standin(config):
+            return Eligibility(
+                False,
+                REASON_ARCHIVE_BELONGS_TO_STANDIN,
+                f"Refusing target {target!r}: the deployment behind this archive "
+                f"store records it from the stand-in ('{STANDIN_PROFILE_KEY}' stood "
+                f"one up and its '{ARCHIVER_RECORDER_SERVICE}' samples it), so the "
+                "history in that store is the stand-in's. Selecting the live machine "
+                "would splice a real machine's readings onto a stand-in's past, in "
+                "one store nothing afterwards can tell apart. Switch that "
+                f"deployment's '{ARCHIVER_RECORDER_SERVICE}' service off, or drop "
+                f"'{STANDIN_PROFILE_KEY}' so it stops standing a stand-in up — in "
+                "the hosting profile, for an attached session — and rebuild before "
+                "switching a session onto the live machine.",
             )
 
     return Eligibility(

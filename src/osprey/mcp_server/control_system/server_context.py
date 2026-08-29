@@ -60,7 +60,7 @@ from osprey.mcp_server.control_system.connector_host_manager import (
     switch_capable,
 )
 from osprey_connectors.ipc.proxy import ConnectorHostProxy
-from osprey_connectors.types import CONTROL_TARGETS, target_writes_enabled
+from osprey_connectors.types import configured_targets, target_writes_enabled
 
 __all__ = [
     "ConnectorEntry",
@@ -178,9 +178,14 @@ class ControlSystemContext:
             "writes_by_target=%s, serving=%s)",
             self._config.control_system.get("type", "not configured"),
             self._config.archiver.get("type", "not configured"),
+            # The targets this config configures, not every target the
+            # connectors package names: a log line over the constant would
+            # report a posture for a `standin` soft IOC this deployment never
+            # stood up, answered out of the deployment-wide key by
+            # `target_writes_enabled`'s unresolvable-target fallback.
             {
                 target: target_writes_enabled(self._config.control_system, target)
-                for target in CONTROL_TARGETS
+                for target in configured_targets(self._config.control_system)
             },
             "connector-host child" if self.switch_capable else "in-process connector",
         )
@@ -393,7 +398,8 @@ class ControlSystemContext:
                 logger.warning("Unknown archiver.type: %s (registered: %s)", arch_type, known_arch)
 
     def _refuse_invented_history(self) -> None:
-        """Abort startup on a virtual accelerator with a synthesizing archiver.
+        """Abort startup on a machine with no recorded past and a synthesizing
+        archiver.
 
         Judged by :func:`~osprey.connectors.honesty.pairing_in_rendered_config`,
         which resolves both keys through *nested sections only* — exactly as
@@ -401,17 +407,27 @@ class ControlSystemContext:
         do a few lines above, and exactly as the factory then reads what they
         hand it. A guard that resolved a config differently from the reader it
         guards would not be a guard; the divergence would be the way through.
+
+        The refused machine is *named* rather than assumed: the pairing covers
+        every type in :data:`~osprey.connectors.types.INVENTED_HISTORY_TYPES`,
+        so a deployment baselined on the live stand-in is told about the
+        stand-in and not sent looking for a virtual accelerator its
+        ``control_system:`` section does not name.
         """
         from osprey.connectors.honesty import VA_MOCK_ARCHIVER_WHY, pairing_in_rendered_config
-        from osprey.connectors.types import MOCK, MONGODB_ARCHIVER, VIRTUAL_ACCELERATOR
+        from osprey.connectors.types import MOCK, MONGODB_ARCHIVER, resolve_control_system_type
 
         pairing = pairing_in_rendered_config(self.config.raw)
         if not pairing.is_invented_history:
             return
 
+        # The same section the pairing just judged, read by the same resolver,
+        # so the message cannot name a machine other than the refused one.
+        control_system_type = resolve_control_system_type(self.config.control_system)
+
         raise ConfigurationError(
             f"Refusing to start: {self.config.config_path} pairs control_system.type "
-            f"{VIRTUAL_ACCELERATOR!r} with archiver.type "
+            f"{control_system_type!r} with archiver.type "
             f"{pairing.archiver_phrase} — {VA_MOCK_ARCHIVER_WHY} "
             f"Under this file's `archiver:` section, set `type:` to a connector that "
             f"reads a store this deployment actually writes (a project built from the "
