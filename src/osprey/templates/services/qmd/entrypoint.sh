@@ -64,7 +64,15 @@ COLLECTIONS_SPEC="${OSPREY_QMD_COLLECTIONS:-}"
 # to depends on the environment. Either way it is unreachable from outside its
 # own network namespace. INTERNAL_PORT is where the daemon actually listens;
 # PORT is the routable port the forwarder owns and clients connect to.
-PORT="${OSPREY_QMD_PORT:-9800}"
+#
+# PORT carries no fallback on purpose. The compose fragment sets
+# OSPREY_QMD_PORT unconditionally from the port the deployment resolved, so an
+# unset variable here means the sidecar was started outside a rendered
+# deployment -- and a guessed number would publish the forwarder somewhere no
+# client is looking. Fail loudly instead. INTERNAL_PORT keeps its default:
+# nothing sets it, and it is the daemon's container-internal loopback port,
+# which does not move with the deployment.
+PORT="${OSPREY_QMD_PORT:?must be set by the qmd compose fragment}"
 INTERNAL_PORT="${OSPREY_QMD_INTERNAL_PORT:-8181}"
 
 # Fallback sweep interval. The marker file is the primary freshness trigger --

@@ -51,6 +51,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 import httpx
 
 from osprey.cli import output
+from osprey.port_layout import default_port, resolve_port_base
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -80,9 +81,11 @@ ROOT_PASSWORD_VAR = "ZO_ROOT_USER_PASSWORD"
 HARVEST_BANNER = "Harvested OpenObserve ingest token (osprey up)"
 
 # Store address defaults, mirroring the openobserve compose template and the
-# health category that probes the same endpoint.
+# health category that probes the same endpoint. There is no port default here:
+# an unset ``services.openobserve.port`` means the store sits at the layout's
+# ``openobserve`` slot, which moves with this project's own ``port_base`` and so
+# can only be read off the config in hand (see :func:`store_base_url`).
 _DEFAULT_BIND = "127.0.0.1"
-_DEFAULT_PORT = 5080
 _DEFAULT_ORG = "default"
 
 #: Readiness budget. The store answered ``/healthz`` about a second after start
@@ -172,12 +175,26 @@ def store_base_url(config: Mapping[str, Any]) -> str:
 
     Read exactly the way the ``openobserve`` health category reads it, so the
     provisioner and the health row can never disagree about which store they are
-    talking about.
+    talking about — including the port an unset key falls back to, which is the
+    layout's ``openobserve`` slot at *this* project's base. A second deployment
+    on the same host runs its store inside its own block, so a fixed default
+    here would send the harvest at the neighbour's store and mint the ingest
+    account in a machine this deploy does not own.
+
+    Args:
+        config: The rendered project config.
+
+    Returns:
+        ``http://<bind>:<port>`` — no path, no trailing slash.
+
+    Raises:
+        ValueError: ``deployment.port_base`` is set to a base no block can
+            start at (:func:`~osprey.port_layout.resolve_port_base`).
     """
     services = config.get("services") or {}
     settings = services.get(SERVICE) or {}
     bind = (config.get("deployment") or {}).get("bind_address", _DEFAULT_BIND)
-    port = settings.get("port", _DEFAULT_PORT)
+    port = settings.get("port", default_port("openobserve", base=resolve_port_base(config)))
     return f"http://{bind}:{port}"
 
 

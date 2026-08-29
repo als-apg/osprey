@@ -255,6 +255,15 @@ def captured_web_runs(monkeypatch, tmp_path):
     its own rendering is covered by ``tests/deployment/web_terminals/``, not
     here — but still records that it was called with the config.
 
+    The post-up host-reachability probe answers ``True``, i.e. this deploy's
+    landing page is reachable — the ordinary outcome, and the only one these
+    tests are about. Left real it would open a socket to the deployment's real
+    gateway port five times over ten seconds and then, finding nothing, ask
+    Docker Desktop about host networking and bounce the stack, putting three
+    host-inspection commands into ``calls`` that no test here is asserting
+    about. Its unreachable and self-heal branches are covered directly in
+    ``tests/deployment/web_terminals/test_postup_hooks.py``.
+
     Defaults to registry mode (no ``image_source`` key), so a
     ``.env.users`` marker is pre-written to ``tmp_path``:
     ``ensure_env_production``'s registry-mode branch only exists-checks (see
@@ -280,6 +289,7 @@ def captured_web_runs(monkeypatch, tmp_path):
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
     monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
     monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
+    monkeypatch.setattr(postup_hooks, "_host_port_answers", lambda url, attempts, delay: True)
     monkeypatch.setattr(
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
@@ -483,6 +493,7 @@ def captured_combined_runs(monkeypatch, tmp_path):
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
     monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
     monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
+    monkeypatch.setattr(postup_hooks, "_host_port_answers", lambda url, attempts, delay: True)
     monkeypatch.setattr(
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
@@ -635,6 +646,7 @@ def test_web_deploy_callsenable_linger_in_post_up_hook(monkeypatch, tmp_path):
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
     monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["podman", "compose"])
     monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["podman", "compose"])
+    monkeypatch.setattr(postup_hooks, "_host_port_answers", lambda url, attempts, delay: True)
     monkeypatch.setattr(
         container_lifecycle, "get_runtime_command", lambda config: ["podman", "compose"]
     )
@@ -711,6 +723,7 @@ def _mode_wiring_collab(monkeypatch, tmp_path):
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
     monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
     monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
+    monkeypatch.setattr(postup_hooks, "_host_port_answers", lambda url, attempts, delay: True)
     monkeypatch.setattr(
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
@@ -1872,7 +1885,7 @@ def test_deploy_up_prints_endpoint_summary_on_web_path(_wiring_calls, monkeypatc
         container_lifecycle,
         "prepare_compose_files",
         lambda *a, **k: (
-            {"modules": {"web_terminals": {"enabled": True, "nginx_port": 9080}}},
+            {"modules": {"web_terminals": {"enabled": True}}},
             ["docker-compose.yml"],
         ),
     )

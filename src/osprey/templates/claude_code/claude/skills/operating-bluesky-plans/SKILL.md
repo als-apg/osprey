@@ -130,9 +130,16 @@ something should not land on a plan that drives channels.
 **`list_devices()`** lists the device names this worker actually
 built, which is where every device name in `plan_args` must come from — read it
 rather than guessing a name, and put a name in the parameter whose declared
-role matches how the operator wants it used. Then stage the **entire** plan
-configuration in a **single** `set_draft` call and note the `revision` it
-returns:
+role matches how the operator wants it used. One call hands back one page of
+names plus a count of every name that matched, so "that is all of them" is
+never mistaken for "there is more"; a page holding only part of the match says
+so, and says how many it left behind. To reach a particular family of devices,
+pass a `prefix` and read that family back directly — the match is literal and
+case-sensitive — rather than paging to the end of the namespace. An unfiltered
+call is the way in when the naming is unknown: its page shows how this
+deployment spells names, and its count shows how much is behind them. Then
+stage the **entire** plan configuration in a **single** `set_draft` call and
+note the `revision` it returns:
 
 ```
 set_draft(plan_name="grid_scan", plan_args_patch={<every parameter, complete>})
@@ -148,13 +155,15 @@ it.
 
 A plan that drives several devices together deserves one more look before the
 draft goes in front of the human. `orbit_bump_sweep` is the shipped case: it
-moves three or four correctors at once on a stored beam, so read every
-corrector *and* every BPM name back from `list_devices()` rather than trusting
-a name you carried in, and be ready for the run to end early without moving
-anything — it measures the orbit noise first and refuses a `tolerance`
-narrower than twice what it measured, before its first write. Report that as
-the plan declining a band it could not verify, and say the answer is a wider
-tolerance or a quieter machine; it is not a failure to retry as-is.
+moves three or four correctors at once on a stored beam, so read each device
+family back with its own `list_devices(prefix=...)` call — the correctors
+under one prefix, the BPMs under another — rather than trusting a name you
+carried in or expecting one unpaged list to hold them all. Be ready, too, for
+the run to end early without moving anything: it measures the orbit noise
+first and refuses a `tolerance` narrower than twice what it measured, before
+its first write. Report that as the plan declining a band it could not verify,
+and say the answer is a wider tolerance or a quieter machine; it is not a
+failure to retry as-is.
 
 ---
 

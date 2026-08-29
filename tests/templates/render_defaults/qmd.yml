@@ -60,12 +60,12 @@ services:
       osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"
     restart: unless-stopped
     ports:
-      - "127.0.0.1:9800:9800"
+      - "127.0.0.1:10060:10060"
     environment:
       # The routable port socat owns inside the container. It must equal the
       # container side of the publish above, or the published port forwards to
       # nothing.
-      OSPREY_QMD_PORT: "9800"
+      OSPREY_QMD_PORT: "10060"
       # Fallback sweep period, NOT the expected freshness lag: a corpus writer
       # touches its `.qmd-touch` marker and the sidecar re-indexes within a
       # poll. The sweep only catches writers that forgot to touch it, and its
@@ -93,7 +93,7 @@ services:
     healthcheck:
       # /health is the daemon's own probe, reached through the forwarder — so a
       # pass means the whole published path works, not just that qmd is alive.
-      test: ["CMD-SHELL", "curl -fsS -o /dev/null --max-time 5 http://127.0.0.1:9800/health"]
+      test: ["CMD-SHELL", "curl -fsS -o /dev/null --max-time 5 http://127.0.0.1:10060/health"]
       interval: 30s
       timeout: 10s
       retries: 3

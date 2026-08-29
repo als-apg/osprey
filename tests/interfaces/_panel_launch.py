@@ -14,7 +14,7 @@ from typing import Any
 from osprey.registry.web import panel_url_state_attr
 
 #: The address the pre-launched/faked gallery is reachable at in these tests.
-DEFAULT_ARTIFACT_URL = "http://127.0.0.1:8086"
+DEFAULT_ARTIFACT_URL = "http://127.0.0.1:10200"
 
 
 def publish_artifact_url(url: str | None = DEFAULT_ARTIFACT_URL):

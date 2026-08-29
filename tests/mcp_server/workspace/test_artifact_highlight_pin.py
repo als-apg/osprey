@@ -77,7 +77,7 @@ class TestPinned:
         store.set_pinned(entry.id, True)
 
         refreshed = store.get_entry(entry.id)
-        resp = refreshed.to_tool_response(gallery_url="http://localhost:8086")
+        resp = refreshed.to_tool_response(gallery_url="http://localhost:10200")
         assert resp["pinned"] is True
         assert "gallery_url" in resp
 

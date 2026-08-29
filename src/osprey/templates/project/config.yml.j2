@@ -52,7 +52,7 @@ services:
   # queryable observability store out of the box. Bound to localhost.
   openobserve:
     path: ./services/openobserve
-    port: 5080          # Host port for the OpenObserve UI + OTLP ingest
+    port: {{ osprey_ports.openobserve }}         # Host port for the OpenObserve UI + OTLP ingest
     retention_days: 14  # Growth bound: drop data older than N days (min 3). A
                         # named volume has no size cap, so age is the size knob.
 
@@ -150,15 +150,17 @@ file_paths:
 # WORKSPACE tab of `osprey web` — the artifact gallery, served by its own web
 # server. No section ships here, so it runs at its defaults: it is a universal
 # panel — launched at `osprey web` startup whatever panels are configured, and
-# on the first artifact save in headless runs — and it binds 127.0.0.1:8086.
+# on the first artifact save in headless runs — and it binds
+# 127.0.0.1:{{ osprey_ports.artifact }}.
 # Port resolution is the one shared function every launcher and URL builder
 # uses: OSPREY_ARTIFACT_SERVER_PORT wins (multi-user deployments
-# export it per user), then `port` below, then the built-in 8086. `host` has no
+# export it per user), then `port` below, then this deployment's layout slot
+# ({{ osprey_ports.artifact }}). `host` has no
 # env override. Uncomment to move it, or set `auto_launch: false` to switch it
 # off — the tab is then reported unavailable rather than serving a dead iframe.
 # artifact_server:
 #   host: "127.0.0.1"
-#   port: 8086
+#   port: {{ osprey_ports.artifact }}
 #   auto_launch: true
 
 # ============================================================
@@ -282,18 +284,20 @@ control_system:
       # deployed soft-IOC's port is a one-place edit. Set `port:` on a gateway
       # only to reach a VA this project does not deploy - one on another host,
       # or a container published on a host port different from the one it
-      # serves on. The example below reads 5094, not 5074, on purpose: the
-      # shipped build-profile example puts the live stand-in VA on 5074
-      # (`virtual_accelerator.live_standin`), so the example here names a port no
-      # OSPREY service claims.
+      # serves on. The example below reads {{ osprey_ports.va_standin + 1 }}, not
+      # {{ osprey_ports.va_standin }}, on purpose: the shipped build-profile
+      # example puts the live stand-in VA on {{ osprey_ports.va_standin }}
+      # (`virtual_accelerator.live_standin`), the first port of this
+      # deployment's VA band, so the example here names the next one up — a
+      # port no OSPREY service claims unless a second stand-in is deployed.
       gateways:
         read_only:
           address: localhost
-          # port: 5094
+          # port: {{ osprey_ports.va_standin + 1 }}
           use_name_server: true
         write_access:
           address: localhost
-          # port: 5094
+          # port: {{ osprey_ports.va_standin + 1 }}
           use_name_server: true
     epics:
       timeout: 5.0
@@ -447,7 +451,7 @@ claude_code:
   # ── Telemetry / Observability (on by default, local + loopback-bound) ──
   # The agent emits OTLP logs + metrics to the co-deployed OpenObserve store
   # (declared in `services:` and listed in `deployed_services:` above; UI at
-  # http://localhost:5080). On by default: the underlying harness already records
+  # http://localhost:{{ osprey_ports.openobserve }}). On by default: the underlying harness already records
   # every prompt, response, and API body to disk, so this adds no new exposure —
   # it just makes that data queryable in a local store you own. To turn it off,
   # set `enabled: false`. Tracing and OTEL_LOG_TOOL_CONTENT are intentionally
@@ -457,8 +461,10 @@ claude_code:
     backend: openobserve                 # openobserve | generic
     protocol: http/protobuf              # http/protobuf | grpc — grpc requires an explicit `endpoint:` below; it is refused against the auto-derived openobserve endpoint (HTTP only)
     # backend: openobserve auto-derives the endpoint per network context —
-    # http://localhost:5080/api/<org> on the host, http://openobserve:5080/api/<org>
-    # inside the deploy network — so `endpoint` is intentionally OMITTED here.
+    # http://localhost:{{ osprey_ports.openobserve }}/api/<org> on the host,
+    # http://openobserve:5080/api/<org> inside the deploy network (5080 there is
+    # the store's own listen port inside its container, which port_base does not
+    # move) — so `endpoint` is intentionally OMITTED here.
     # (Hardcoding localhost would make the in-container dispatch worker emit to
     # its own loopback and silently drop everything. For a GENERIC OTLP backend
     # instead, set backend: generic and endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT}.)
@@ -498,7 +504,7 @@ claude_code:
 #                        # sets it on every per-user container so nginx is the
 #                        # only off-host path — overrides both this key and
 #                        # --host, so this cannot punch through that chokepoint.
-#   port: 8087           # Likewise outranked by OSPREY_TERMINAL_WEB_PORT.
+#   port: {{ osprey_ports.web }}          # Likewise outranked by OSPREY_TERMINAL_WEB_PORT.
 #   shell: /path/to/claude
 #                        # argv spawned in every PTY. Setting it REPLACES the
 #                        # launcher, so it also defeats the

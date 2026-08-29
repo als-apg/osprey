@@ -2851,7 +2851,7 @@ class TestInjectVAArchiver:
         self._inject(project_path)
 
         mongodb = self._read_config(project_path)["services"]["mongodb"]
-        assert mongodb["port_host"] == 27017
+        assert mongodb["port_host"] == 10801
         assert mongodb["username"] == "osprey"
         assert mongodb["compression"] == "zstd"
 

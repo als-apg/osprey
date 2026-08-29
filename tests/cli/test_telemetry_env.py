@@ -27,6 +27,7 @@ from osprey.build.claude_code_telemetry import (
     _openobserve_host_override,
     _running_in_container,
 )
+from osprey.port_layout import default_port
 
 # ── on / off gating ──────────────────────────────────────────────
 
@@ -584,19 +585,45 @@ def test_no_port_falls_back_to_the_listen_port():
 
 
 def test_published_port_reads_the_services_block():
-    """``openobserve_published_port`` follows ``services.openobserve.port``."""
-    from osprey.build.claude_code_telemetry import (
-        OPENOBSERVE_LISTEN_PORT,
-        openobserve_published_port,
-    )
+    """``openobserve_published_port`` follows ``services.openobserve.port``.
+
+    With no key it is the layout's ``openobserve`` slot, not the port the image
+    listens on: the published port and the listen port are different numbers,
+    and only the published one can be dialled from off the store's network.
+    """
+    from osprey.build.claude_code_telemetry import openobserve_published_port
 
     assert openobserve_published_port({"services": {"openobserve": {"port": 15080}}}) == 15080
     assert openobserve_published_port({"services": {"openobserve": {"port": "15080"}}}) == 15080
-    assert openobserve_published_port({"services": {}}) == OPENOBSERVE_LISTEN_PORT
-    assert openobserve_published_port({}) == OPENOBSERVE_LISTEN_PORT
-    assert openobserve_published_port(None) == OPENOBSERVE_LISTEN_PORT
+    assert openobserve_published_port({"services": {}}) == default_port("openobserve")
+    assert openobserve_published_port({}) == default_port("openobserve")
+    assert openobserve_published_port(None) == default_port("openobserve")
     with pytest.raises(TelemetryConfigError, match="services.openobserve.port"):
         openobserve_published_port({"services": {"openobserve": {"port": "five"}}})
+
+
+def test_both_resolvers_follow_the_port_base(monkeypatch):
+    """A moved base moves the store, with no ``services.openobserve.port`` key.
+
+    The number is the layout's: base 20000 + the openobserve offset. Both the
+    build-time reader and the runtime one derive it from the config in hand, so
+    a second deployment on the host dials its own store rather than the first
+    one's.
+    """
+    from osprey.build.claude_code_telemetry import (
+        OPENOBSERVE_PORT_ENV_VAR,
+        openobserve_published_port,
+        resolve_openobserve_port,
+    )
+
+    monkeypatch.delenv(OPENOBSERVE_PORT_ENV_VAR, raising=False)
+    moved = {"deployment": {"port_base": 20000}}
+    assert openobserve_published_port(moved) == 20050
+    assert resolve_openobserve_port(moved) == 20050
+    # An explicit port still wins over the block it sits in.
+    pinned = {"deployment": {"port_base": 20000}, "services": {"openobserve": {"port": 15080}}}
+    assert openobserve_published_port(pinned) == 15080
+    assert resolve_openobserve_port(pinned) == 15080
 
 
 def test_port_override_helper(monkeypatch):

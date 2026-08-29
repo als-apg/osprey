@@ -39,7 +39,7 @@ HOST = {
         "graphdb": {"port_host": 17687, "heap_max_size": "1G"},
         "postgresql": {"port_host": 15432, "username": "ariel", "database_name": "ariel"},
         "openobserve": {"port": 15080, "retention_days": 14},
-        "bluesky": {"port": 18090, "tiled_port": 8091},
+        "bluesky": {"port": 18090, "tiled_port": 18091},
         "virtual_accelerator": {"port": 15064},
     },
     "web": {
@@ -358,7 +358,7 @@ def test_a_selected_tab_told_no_address_is_refused():
     """``web_panels: [events]`` is a consumer the profile switches on; when
     the host it was told about runs no dispatcher, the render would simply
     lack the tab. Named instead, with the service and the key."""
-    rendered = {"web": {"panels": {"bluesky": {"url": "http://localhost:8095"}}}}
+    rendered = {"web": {"panels": {"bluesky": {"url": "http://localhost:10071"}}}}
     (error,) = selected_panel_errors(["events", "bluesky", "okf"], rendered, told_by="the host")
     assert "web.panels.events.url" in error
     assert "event_dispatcher" in error
@@ -376,7 +376,7 @@ def test_an_inherited_fragment_of_an_unselected_tab_is_dropped():
         "web": {
             "panels": {
                 "events": {"path": "/custom-route"},
-                "bluesky": {"url": "http://localhost:8095", "path": "/bluesky/"},
+                "bluesky": {"url": "http://localhost:10071", "path": "/bluesky/"},
                 "okf": {"enabled": True},
             }
         }

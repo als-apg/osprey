@@ -467,7 +467,7 @@ this page cannot be tried at all. A **live stand-in** gives you something to
 rehearse the procedure on: a second soft IOC the deployment runs for itself,
 deployed as a third control target of its own.
 
-Setting ``virtual_accelerator.live_standin: 5074`` in the build profile deploys
+Setting ``virtual_accelerator.live_standin: true`` in the build profile deploys
 it, and the ``control-assistant`` preset ships that line on. What the build
 derives from it is the stand-in's own ``control_system.connector.live_standin``
 block and nothing else — where the stand-in listens, and what proves it

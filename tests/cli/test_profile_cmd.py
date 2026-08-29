@@ -172,8 +172,6 @@ config:
   facility.prefix: demo
   modules.web_terminals:
     enabled: true
-    nginx_port: 9080
-    web_base_port: 9091
     default_persona: readwrite
     users:
       - name: operator

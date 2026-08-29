@@ -37,6 +37,7 @@ import yaml
 
 import osprey.templates
 from osprey.cli.templates.manager import TemplateManager
+from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
 
 TEMPLATE_ROOT = Path(osprey.templates.__file__).parent
 PROJECT_TEMPLATE = "project/config.yml.j2"
@@ -102,6 +103,8 @@ def _render_project_template() -> str:
         keep_trailing_newline=True,
     )
     return env.get_template(PROJECT_TEMPLATE).render(
+        port_base=DEFAULT_PORT_BASE,
+        osprey_ports=layout_ports(DEFAULT_PORT_BASE),
         project_name="demo",
         facility_name="Demo Facility",
         default_provider="anthropic",
@@ -119,7 +122,10 @@ def _render_project_template() -> str:
 def _render_control_assistant_template() -> str:
     """The app template renders with no context at all."""
     manager = TemplateManager()
-    return manager.jinja_env.get_template(CONTROL_ASSISTANT_TEMPLATE).render()
+    return manager.jinja_env.get_template(CONTROL_ASSISTANT_TEMPLATE).render(
+        port_base=DEFAULT_PORT_BASE,
+        osprey_ports=layout_ports(DEFAULT_PORT_BASE),
+    )
 
 
 def _control_system(rendered: str) -> dict[str, Any]:
@@ -175,27 +181,37 @@ def test_va_gateways_never_render_a_live_port():
             )
 
 
+#: The port the shipped build-profile example gives the live stand-in VA — the
+#: first index of the layout's VA band at the default base.
+_STANDIN_PORT = default_port("va_standin", base=DEFAULT_PORT_BASE)
+
+#: The port the commented gateway override example names: one above the
+#: stand-in, so uncommenting it verbatim cannot land on a running service.
+_EXAMPLE_PORT = _STANDIN_PORT + 1
+
+
 def test_va_gateway_port_override_ships_as_a_commented_example():
     for name, rendered in _both_templates().items():
-        assert "# port: 5094" in rendered, (
+        assert f"# port: {_EXAMPLE_PORT}" in rendered, (
             f"{name}: the override a project needs to reach a VA it does not "
             "deploy must stay documented"
         )
 
 
 def test_va_gateway_port_example_avoids_the_live_standin_port():
-    """5074 is the stand-in's conventional port, so it is a poor example.
+    """The stand-in's own port is a poor example, so the template avoids it.
 
-    The shipped build-profile example puts the live stand-in VA on 5074 via
-    ``virtual_accelerator.live_standin``. An operator who uncomments this
-    example verbatim would then point the primary VA's gateways at the stand-in,
-    so the example names a port no OSPREY service claims.
+    The shipped build-profile example puts the live stand-in VA on the first
+    port of the layout's VA band via ``virtual_accelerator.live_standin``. An
+    operator who uncomments this example verbatim would then point the primary
+    VA's gateways at the stand-in, so the example names a port no OSPREY
+    service claims.
     """
     for name, rendered in _both_templates().items():
-        assert "# port: 5074" not in rendered, (
-            f"{name}: 5074 is where the shipped build-profile example puts the "
-            "live stand-in VA (virtual_accelerator.live_standin); the override "
-            "example must not steer an operator onto it"
+        assert f"# port: {_STANDIN_PORT}" not in rendered, (
+            f"{name}: {_STANDIN_PORT} is where the shipped build-profile example "
+            "puts the live stand-in VA (virtual_accelerator.live_standin); the "
+            "override example must not steer an operator onto it"
         )
 
 

@@ -15,8 +15,13 @@ from types import SimpleNamespace
 from osprey.infrastructure import server_launcher
 from osprey.interfaces.web_terminal import app as web_terminal_app
 from osprey.interfaces.web_terminal.routes import proxy as proxy_module
+from osprey.port_layout import DEFAULT_PORT_BASE, SLOTS_BY_NAME
 from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS, BUILTIN_PANELS
-from osprey.registry.web import FRAMEWORK_WEB_SERVERS, WebServerDefinition
+from osprey.registry.web import (
+    FRAMEWORK_WEB_SERVERS,
+    WebServerDefinition,
+    framework_web_port_default,
+)
 
 
 def _fresh_source(obj) -> str:
@@ -47,9 +52,17 @@ def test_okf_web_server_definition_constructs_with_required_config_key():
     # config_key has no default — omitting it would be a TypeError at import (DA CF-3).
     assert defn.config_key == "facility_knowledge"
     assert defn.factory_path == "osprey.interfaces.okf_panel.app:create_app"
-    assert defn.port_default == 8093
     assert defn.require_section is True
     assert defn.factory_config_kwargs == {"bundle_path": "facility_knowledge.bundle_path"}
+
+
+def test_okf_port_default_is_its_layout_slot_at_the_resolved_base():
+    # The definition carries no port. The default is the ``okf`` layout slot,
+    # taken at whatever base the deployment resolved — so it moves with the base
+    # instead of pinning the panel to the layout's own default.
+    offset = SLOTS_BY_NAME["okf"].offset
+    assert framework_web_port_default("okf") == DEFAULT_PORT_BASE + offset
+    assert framework_web_port_default("okf", base=20000) == 20000 + offset
 
 
 def test_port_env_override_key_is_facility_knowledge():
@@ -108,7 +121,7 @@ async def test_okf_server_config_endpoint_returns_proxy_path():
     from osprey.interfaces.web_terminal.routes import panels as panels_module
 
     available = SimpleNamespace(
-        app=SimpleNamespace(state=SimpleNamespace(okf_server_url="http://127.0.0.1:8093"))
+        app=SimpleNamespace(state=SimpleNamespace(okf_server_url="http://127.0.0.1:10600"))
     )
     result = await panels_module.okf_server_config(available)
     assert result == {"url": "/panel/okf", "available": True}

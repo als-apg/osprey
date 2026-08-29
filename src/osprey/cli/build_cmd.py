@@ -50,6 +50,7 @@ import click
 
 from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
 from osprey.errors import BuildProfileError
+from osprey.port_layout import resolve_port_base
 from osprey.utils.logger import get_logger
 from osprey.utils.workspace import (
     BUILD_DIR_NAME,
@@ -89,6 +90,7 @@ from .build_persistence import (
     _register_convention_artifacts,
     _resolve_context_roster,
 )
+from .build_profile_emit import effective_config_subtree
 from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 from .templates.manager import TemplateManager
 
@@ -793,7 +795,7 @@ def _names_service(value: str, dns_name: str) -> bool:
     value or follow something that is not part of a name (never a path
     separator, except the ``//`` that opens a URL authority), and must be
     followed by a port, a path, or the end of the value. So
-    ``http://event-dispatcher:9900``, ``event-dispatcher:9900`` and a bare
+    ``http://event-dispatcher:10010``, ``event-dispatcher:10010`` and a bare
     ``event-dispatcher`` all count, while ``/app/event-dispatcher`` and
     ``event-dispatcher-external`` do not.
     """
@@ -2810,6 +2812,34 @@ def _profile_setup_patch_capable(build_profile: Any) -> bool:
     return is_setup_patch_capable(persona_capability_document(overrides))
 
 
+def _profile_port_base(build_profile: Any) -> int:
+    """The first port of the block this profile's deployment publishes into.
+
+    The profile's ``config:`` is a flat bag of dotted keys, so the deployment
+    block is read through :func:`effective_config_subtree` — which folds
+    ``deployment:``, ``deployment.port_base`` and any nesting of the two into
+    one subtree in the right order — and then re-wrapped as
+    ``{"deployment": ...}`` for :func:`resolve_port_base`. The re-wrap is what
+    keeps the resolver on its single rendered-config-shaped input, so a base
+    that arrives through a profile is range-checked by exactly the same code
+    that checks one read from a rendered ``config.yml``.
+
+    Args:
+        build_profile: The resolved profile being rendered.
+
+    Returns:
+        The configured base, or the layout default when the profile names none.
+
+    Raises:
+        ValueError: If the profile's base is below 1024 or its block would run
+            past port 65535. The build stops here rather than rendering the
+            deployment at the default base, which would silently publish
+            somewhere the author did not ask for.
+    """
+    deployment = effective_config_subtree(build_profile.config, ("deployment",))
+    return resolve_port_base({"deployment": deployment})
+
+
 def _repo_render_context(
     build_profile: Any,
     *,
@@ -2841,6 +2871,15 @@ def _repo_render_context(
     whole derivation for a render whose processes start on another machine
     (:data:`_CONTAINER_INTERPRETER`), where none of this filesystem's answers
     exist.
+
+    ``port_base`` is the third, and it is resolved here because this is the
+    one place that holds both the profile and every render made from it: the
+    project render, the persona renders and the reading of what the app
+    template deploys at its defaults all take their ports from this value.
+
+    Raises:
+        ValueError: If the profile's ``deployment.port_base`` is out of range;
+            see :func:`_profile_port_base`.
     """
     context: dict[str, Any] = {
         # Gates the rendered config's `services:`/`deployed_services:` blocks.
@@ -2856,6 +2895,11 @@ def _repo_render_context(
         # lifts the base floor — because the rendered config those keys land in
         # does not exist yet when this context is built.
         "is_setup_patch_capable": _profile_setup_patch_capable(build_profile),
+        # The base this deployment's whole port block hangs off, resolved from
+        # the profile ONCE and handed down: every framework port the render
+        # writes is derived from this value by the template manager, so no
+        # consumer downstream falls back to the layout's own default.
+        "port_base": _profile_port_base(build_profile),
     }
     if build_profile.provider:
         context["default_provider"] = build_profile.provider
@@ -2951,7 +2995,15 @@ def _inject_services(build_profile: Any, profile_dir: Path, project_path: Path) 
         # The VA block is handed over because a two-lane deploy on a live
         # baseline puts its second lane on the virtual accelerator, and
         # _inject_va has not written that service to config.yml yet.
-        _inject_bluesky(build_profile.bluesky, project_path, build_profile.virtual_accelerator)
+        # The base travels with the call: lane 2's port is re-checked against
+        # the layout at the base this deployment resolved, and the injector has
+        # no config of its own to read one from.
+        _inject_bluesky(
+            build_profile.bluesky,
+            project_path,
+            build_profile.virtual_accelerator,
+            base=_profile_port_base(build_profile),
+        )
         injected.append("bluesky bridge")
     if build_profile.bluesky_web is not None:
         _inject_bluesky_web(build_profile.bluesky_web, project_path)

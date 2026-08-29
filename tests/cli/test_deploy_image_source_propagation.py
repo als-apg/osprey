@@ -43,8 +43,8 @@ DEPLOY_BLOCK: dict[str, Any] = {
 # without one.
 WEB_TERMINALS: dict[str, Any] = {
     "enabled": True,
-    "nginx_port": 9080,
-    "web_base_port": 9091,
+    "nginx_port": 20000,
+    "web_base_port": 20100,
     "users": ["operator"],
 }
 
@@ -239,8 +239,8 @@ def test_the_propagated_leaf_does_not_displace_the_rest_of_the_module(
 
     web_terminals = _build_project(runner, tmp_path, body)["modules"]["web_terminals"]
 
-    assert web_terminals["nginx_port"] == 9080
-    assert web_terminals["web_base_port"] == 9091
+    assert web_terminals["nginx_port"] == 20000
+    assert web_terminals["web_base_port"] == 20100
     assert web_terminals["users"] == ["operator"]
 
 

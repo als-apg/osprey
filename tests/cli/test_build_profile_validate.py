@@ -544,10 +544,10 @@ def test_bluesky_tiled_port_out_of_range_is_rejected(tmp_path: Path) -> None:
 def test_bluesky_tiled_port_colliding_with_bridge_port_is_rejected(tmp_path: Path) -> None:
     """Tiled and the bridge cannot bind the same port in one container."""
     profile = BuildProfile(
-        name="x", bluesky=BlueskyConfig(port=8090, tiled_enabled=True, tiled_port=8090)
+        name="x", bluesky=BlueskyConfig(port=10080, tiled_enabled=True, tiled_port=10080)
     )
     assert _errors(profile, tmp_path) == [
-        "bluesky.tiled_port must differ from bluesky.port (both 8090)"
+        "bluesky.tiled_port must differ from bluesky.port (both 10080)"
     ]
 
 

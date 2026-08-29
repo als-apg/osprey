@@ -124,11 +124,12 @@ pytestmark = [
 ]
 
 # ---------------------------------------------------------------------------
-# This module's own port block. Every value here is distinct from BOTH the
-# preset defaults (8090 bridge / 8091 tiled / 8095 panels / 5064 VA / 5432
-# postgres / 5080 openobserve / 27017 mongodb, all of which a tutorial stack
-# deployed on the same host holds) and every sibling e2e module's pin. Those
-# sibling pins, per service:
+# This module's own port block. Every value here is outside BOTH the
+# thousand-port block a deployment claims from ``deployment.port_base``
+# (10000-10999 at the default base, which is where a tutorial stack deployed
+# on the same host publishes bridge, tiled, panels, openobserve, postgres and
+# mongodb; the VA's Channel Access 5064 is the one port the base does not
+# move) and every sibling e2e module's pin. Those sibling pins, per service:
 #
 #   bridge      18090 test_bluesky_deploy · 18099 test_va_substrate_equivalence
 #               18101 test_tiled_roundtrip · 18102 _orm_stack's default
@@ -156,7 +157,7 @@ VA_CA_PORT = 15067
 POSTGRES_PORT = 25436
 OPENOBSERVE_PORT = 25085
 MONGODB_PORT = 27118
-QMD_PORT = 28180  # preset default 8180 collides with any tutorial stack on the host
+QMD_PORT = 28180  # clear of the qmd slot any tutorial stack on the host holds
 
 BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
 

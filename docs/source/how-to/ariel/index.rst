@@ -120,7 +120,7 @@ delegated to the Osprey agent layer.
 
                   osprey ariel web
 
-               Then open ``http://localhost:8085`` in your browser.
+               Then open ``http://localhost:10300`` in your browser.
 
             .. tab-item:: CLI Search
 

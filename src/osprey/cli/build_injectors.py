@@ -15,6 +15,7 @@ and facility-declared service templates.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 from collections.abc import Mapping
 from pathlib import Path
@@ -40,19 +41,73 @@ if TYPE_CHECKING:
 
 logger = get_logger("build")
 
-# Spacing between consecutive dispatch workers' host-side ports: worker ``i``
-# binds ``worker_port_base + (i - 1) * _WORKER_PORT_STRIDE``. On the compose
-# bridge every worker has its own network namespace and they all listen on the
-# base port; on the host network they share one namespace, so the ports have to
-# fan out. The stride is recorded in the worker's service config (host mode
-# only) so the compose template and the host-port preflight derive the same
-# ports from the same declared rule rather than each hardcoding the step.
-_WORKER_PORT_STRIDE = 1
+
+#: A ``dispatch_target`` that names a worker by the compose service name the
+#: bundled ``dispatch_worker`` template renders (``dispatch-worker-<N>``). The
+#: port in such a target is a FRAMEWORK port — it is whatever that container
+#: binds — so it has to move with ``deployment.port_base`` like every other one.
+#: A target naming any other host is the facility's own routing decision and is
+#: left exactly as authored.
+_BUNDLED_WORKER_TARGET_RE = re.compile(
+    r"^(?P<prefix>https?://dispatch-worker-(?P<index>\d+):)(?P<port>\d+)(?P<suffix>/.*)?$"
+)
 
 
-def _worker_port(worker_port_base: int, index: int) -> int:
-    """Return the host-side port of dispatch worker ``index`` (1-based)."""
-    return worker_port_base + (index - 1) * _WORKER_PORT_STRIDE
+def _worker_port(worker_port_base: int, index: int, stride: int) -> int:
+    """Return the host-side port of one dispatch worker.
+
+    On the compose bridge every worker has its own network namespace and they
+    all listen on the base port; on the host network they share one namespace,
+    so the ports have to fan out. The spacing is the profile's own
+    ``dispatch.worker_port_stride`` rather than a constant here, and the build
+    records it in the worker's service config (host mode only) so the compose
+    template and the host-port preflight derive the same ports from one declared
+    rule instead of each hardcoding the step.
+
+    Args:
+        worker_port_base: Host port worker 1 publishes.
+        index: 1-based worker number.
+        stride: Host-port spacing between consecutive workers.
+
+    Returns:
+        ``worker_port_base + (index - 1) * stride``.
+    """
+    return worker_port_base + (index - 1) * stride
+
+
+def _rebased_bundled_worker_target(target: Any, worker_port_base: int) -> str | None:
+    """Return ``target`` with a bundled worker's port moved to this base.
+
+    A ``dispatch_target`` pointing at ``dispatch-worker-<N>`` names a container
+    this build renders, so its port is one of the deployment's own and belongs
+    inside the deployment's block. The shipped triggers file spells the port at
+    the layout's default base; a project that moved ``deployment.port_base``
+    would otherwise route every fired trigger to a port nothing is listening on
+    — a failure that appears only at the first dispatch, long after the build
+    reported success.
+
+    Bridge mode only, which is why the port is the base for every worker rather
+    than a strided one: each bridge worker owns a network namespace and listens
+    on the base port inside it, and the DNS name is what distinguishes them.
+
+    Args:
+        target: The authored ``dispatch_target``, of whatever type the YAML
+            produced.
+        worker_port_base: The base port the workers bind, already resolved from
+            this deployment's ``deployment.port_base``.
+
+    Returns:
+        The rewritten target, or ``None`` when there is nothing to rewrite —
+        the value is not a string, does not name a bundled worker, or already
+        carries this port. Returning ``None`` rather than the unchanged string
+        is what keeps a facility's own target out of the round-trip entirely.
+    """
+    if not isinstance(target, str):
+        return None
+    match = _BUNDLED_WORKER_TARGET_RE.match(target)
+    if match is None or match["port"] == str(worker_port_base):
+        return None
+    return f"{match['prefix']}{worker_port_base}{match['suffix'] or ''}"
 
 
 def _locate_pkg_services() -> Path:
@@ -493,20 +548,39 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
     with open(triggers_dest) as fh:
         triggers_doc = _trigger_yaml.load(fh)
     #
-    # The same patch carries the routing address. ``dispatch_target`` in a
-    # triggers file names the first worker by its compose service DNS name
-    # (``http://dispatch-worker-1:9901``), which resolves only on the compose
-    # bridge. On the host network the dispatcher and the worker share the host's
-    # namespace, so the worker is reachable at ``localhost`` on the port it
-    # binds — worker 1's, i.e. the base port. Left alone in bridge mode, so a
-    # facility-authored target keeps whatever it points at.
+    # The same patch carries the routing address, which is a framework port and
+    # therefore moves with ``deployment.port_base``. A triggers file names the
+    # worker by its compose service DNS name (``http://dispatch-worker-1:...``),
+    # which resolves only on the compose bridge:
+    #
+    # * On the HOST network the dispatcher and the worker share the host's
+    #   namespace, so the whole target is replaced — the worker is reachable at
+    #   ``localhost`` on the port it binds, which for worker 1 is the base port.
+    # * On the BRIDGE the DNS name is right and only the PORT can be stale. It
+    #   is rewritten to what that container actually listens on, which is the
+    #   base port for EVERY worker: each has its own network namespace, so the
+    #   fan-out the stride describes exists only in host mode (the compose
+    #   template makes the same distinction). Left alone at a base the file
+    #   already agrees with, this line would send every fired trigger to a
+    #   closed port on a deployment that moved its block.
+    #
+    # A target naming any other host is the facility's own routing decision and
+    # is never touched.
     if triggers_doc is not None:
         dispatcher_block = triggers_doc.setdefault("dispatcher", {})
         dispatcher_block["max_concurrent_runs"] = dispatch.max_concurrent_runs
         dispatcher_block["max_queue_depth"] = dispatch.max_queue_depth
         if on_host_network:
-            worker_one_port = _worker_port(dispatch.worker_port_base, 1)
+            worker_one_port = _worker_port(
+                dispatch.worker_port_base, 1, dispatch.worker_port_stride
+            )
             dispatcher_block["dispatch_target"] = f"http://localhost:{worker_one_port}"
+        else:
+            rebased = _rebased_bundled_worker_target(
+                dispatcher_block.get("dispatch_target"), dispatch.worker_port_base
+            )
+            if rebased is not None:
+                dispatcher_block["dispatch_target"] = rebased
         with open(triggers_dest, "w") as fh:
             _trigger_yaml.dump(triggers_doc, fh)
 
@@ -579,7 +653,7 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
         # template: worker ``i`` binds ``worker_port_base + (i - 1) * stride``.
         # The compose render (per-worker DISPATCH_WORKER_PORT + healthcheck) and
         # the host-port preflight both derive from these three keys.
-        worker_config["worker_port_stride"] = _WORKER_PORT_STRIDE
+        worker_config["worker_port_stride"] = dispatch.worker_port_stride
     anchored_put(config["services"], "event_dispatcher", dispatcher_config)
     anchored_put(config["services"], "dispatch_worker", worker_config)
     deployed = config.get("deployed_services", []) or []
@@ -921,15 +995,37 @@ def _facility_plan_keys(bluesky: BlueskyConfig) -> dict[str, Any]:
     ``os.pathsep`` join is done Python-side because the Jinja render context has
     no ``os`` module.
 
+    ``device_page_size`` is a THIRD contract: omit-when-EQUALS-DEFAULT. It is
+    neither always-written like ``devices_file`` nor omit-when-unset like its
+    two neighbours, because the key is never unset — it is an ``int`` with a
+    dataclass default, so "unset" and "authored at the default" arrive here as
+    the same value and cannot be told apart. Writing it unconditionally would
+    put a line into every existing project's config.yml and an env var into
+    every rendered bridge, changing renders that are otherwise unchanged; so
+    the line is written only when the profile asks for something OTHER than the
+    default. A profile that authors the default explicitly therefore renders no
+    line at all — and that is exactly right, because the bridge falls back to
+    the same default when the env var is absent, so the two spellings deploy
+    identical behaviour. The comparison is against
+    ``BlueskyConfig.device_page_size``, the dataclass default itself, so the
+    build and the bridge cannot drift apart over a literal.
+
     Shared by both lanes, because plans and devices are properties of the
     facility rather than of a target — a per-lane restatement is how the two
     lanes would end up loading different plans from one profile.
     """
+    # Runtime import: the class is otherwise only a TYPE_CHECKING name here, and
+    # the omit-when-default comparison needs the dataclass default itself rather
+    # than a literal repeated on this side of the build.
+    from osprey.cli.build_profile_schema import BlueskyConfig
+
     keys: dict[str, Any] = {"devices_file": bluesky.devices_file}
     if bluesky.plan_dir:
         keys["plan_dir"] = bluesky.plan_dir
     if bluesky.excluded_plans:
         keys["excluded_plans"] = os.pathsep.join(bluesky.excluded_plans)
+    if bluesky.device_page_size != BlueskyConfig.device_page_size:
+        keys["device_page_size"] = bluesky.device_page_size
     return keys
 
 
@@ -937,6 +1033,8 @@ def _inject_bluesky(
     bluesky: BlueskyConfig,
     project_path: Path,
     virtual_accelerator: VAConfig | None = None,
+    *,
+    base: int | None = None,
 ) -> None:
     """Wire the Bluesky bridge feature into a built project.
 
@@ -974,6 +1072,12 @@ def _inject_bluesky(
             this injector runs, so the rendered config cannot answer either
             question yet. Defaults to ``None`` — the right answer for every
             single-lane caller, which reaches neither.
+        base: The base the deployment resolved from ``deployment.port_base``.
+            Lane 2's port is derived from lane 1's, and the derivation is
+            re-checked against the layout AT THIS BASE, so a caller that can
+            reach the profile passes what it resolved. ``None`` checks against
+            the layout's own base, which is right only when there is no config
+            to resolve.
 
     Raises:
         BuildProfileError: If a lane block declares a ``target`` that is not a
@@ -1042,7 +1146,7 @@ def _inject_bluesky(
         second = _SECOND_LANE_TARGET[baseline]
         second_config: dict[str, Any] = {
             "path": "./services/bluesky",
-            "port": bluesky.second_lane_port(),
+            "port": bluesky.second_lane_port(base),
         }
         # Plans are a property of the facility, not of a target: both lanes
         # load the same plan directory and hide the same exclusions.

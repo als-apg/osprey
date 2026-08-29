@@ -9,13 +9,16 @@
 #   3. save-report       — tool use, a short multi-turn loop, and persistence
 #   4. denied-tool-demo  — the worker's server-side tool denylist (safety)
 #
-# Fire one with (`osprey up` mints EVENT_DISPATCHER_TOKEN into this repo's
-# .env; load it first: export $(grep -E '^EVENT_DISPATCHER_TOKEN=' .env | xargs)):
-#   curl -X POST http://localhost:9900/webhook/hello-dispatch \
+# The dispatcher answers on this deployment's dispatcher port:
+# `deployment.port_base` + 10, which is 10010 unless the deployment moved its
+# port block. Fire one with (`osprey up` mints EVENT_DISPATCHER_TOKEN into this
+# repo's .env; load it first:
+# export $(grep -E '^EVENT_DISPATCHER_TOKEN=' .env | xargs)):
+#   curl -X POST http://localhost:10010/webhook/hello-dispatch \
 #     -H "Authorization: Bearer $EVENT_DISPATCHER_TOKEN" \
 #     -H "Content-Type: application/json" -d '{}'
 #
-# Watch progress stream in the dashboard at http://localhost:9900/dashboard
+# Watch progress stream in the dashboard at http://localhost:10010/dashboard
 #
 # (Retries fire on *dispatch failure* — i.e. when the dispatcher cannot reach
 # the worker — via the per-trigger `on_error: retry` policy. That path is not
@@ -24,9 +27,12 @@
 
 dispatcher:
   # The dispatcher forwards each fired trigger to this worker. The compose
-  # template names the single worker "dispatch-worker-1" on port 9901.
+  # template names the single worker "dispatch-worker-1", one port above the
+  # dispatcher itself — `deployment.port_base` + 11, so 10011 at the default
+  # base. Moving the block moves both. Under `dispatch.network: host` the build
+  # rewrites this line to the worker's host address instead.
   # (Multi-worker load distribution is not yet implemented — see docs.)
-  dispatch_target: http://dispatch-worker-1:9901
+  dispatch_target: http://dispatch-worker-1:10011
   max_concurrent_runs: 2
   max_queue_depth: 50
 
@@ -43,7 +49,7 @@ triggers:
   # 2. The webhook JSON body arrives as the agent's context. Zero tools keeps
   #    this cheap and focused on the payload lesson. Try it with a realistic
   #    event body, e.g.:
-  #      curl -X POST http://localhost:9900/webhook/triage-event \
+  #      curl -X POST http://localhost:10010/webhook/triage-event \
   #        -H "Authorization: Bearer $EVENT_DISPATCHER_TOKEN" \
   #        -H "Content-Type: application/json" \
   #        -d '{"signal":"demo:vacuum:pressure","value":4.2,"threshold":3.0}'

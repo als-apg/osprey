@@ -20,6 +20,10 @@ from ruamel.yaml import YAML
 
 from osprey.cli.build_cmd import _inject_bluesky_web
 from osprey.cli.build_profile import BlueskyWebConfig
+from osprey.port_layout import default_port
+
+#: The sidecar's layout slot — what the injection writes when nothing moves it.
+_WEB_PORT = default_port("bluesky_web")
 
 
 def _write_config(project_path: Path, *, extra: dict | None = None) -> None:
@@ -62,12 +66,12 @@ def test_inject_bluesky_web_writes_service_config(tmp_path: Path) -> None:
     project_path.mkdir()
     _write_config(project_path)
 
-    _inject_bluesky_web(BlueskyWebConfig(port=8095), project_path=project_path)
+    _inject_bluesky_web(BlueskyWebConfig(port=_WEB_PORT), project_path=project_path)
 
     config = _read_config(project_path)
     sp = config["services"]["bluesky_web"]
     assert sp["path"] == "./services/bluesky_web"
-    assert sp["port"] == 8095
+    assert sp["port"] == _WEB_PORT
     assert "image" not in sp
 
     deployed = [str(s) for s in config["deployed_services"]]
@@ -100,12 +104,12 @@ def test_inject_bluesky_web_registers_the_web_panels(tmp_path: Path) -> None:
     project_path.mkdir()
     _write_config(project_path)
 
-    _inject_bluesky_web(BlueskyWebConfig(port=8095), project_path=project_path)
+    _inject_bluesky_web(BlueskyWebConfig(port=_WEB_PORT), project_path=project_path)
 
     panels = _read_config(project_path)["web"]["panels"]
 
     bluesky = panels["bluesky"]
-    assert bluesky["url"] == "${BLUESKY_WEB_URL:-http://localhost:8095}"
+    assert bluesky["url"] == f"${{BLUESKY_WEB_URL:-http://localhost:{_WEB_PORT}}}"
     assert bluesky["path"] == "/bluesky/"
     assert bluesky["label"] == "BLUESKY"
     assert "health_endpoint" not in bluesky
@@ -139,7 +143,7 @@ def test_inject_bluesky_web_explicit_url_override_wins(tmp_path: Path) -> None:
         },
     )
 
-    _inject_bluesky_web(BlueskyWebConfig(port=8095), project_path=project_path)
+    _inject_bluesky_web(BlueskyWebConfig(port=_WEB_PORT), project_path=project_path)
 
     bluesky = _read_config(project_path)["web"]["panels"]["bluesky"]
     # Explicit override preserved.
@@ -164,13 +168,13 @@ def test_inject_bluesky_web_explicit_path_label_override_wins(tmp_path: Path) ->
         },
     )
 
-    _inject_bluesky_web(BlueskyWebConfig(port=8095), project_path=project_path)
+    _inject_bluesky_web(BlueskyWebConfig(port=_WEB_PORT), project_path=project_path)
 
     bluesky = _read_config(project_path)["web"]["panels"]["bluesky"]
     assert bluesky["path"] == "/custom-results/"
     assert bluesky["label"] == "CUSTOM"
     # Derived url is still filled in.
-    assert bluesky["url"] == "${BLUESKY_WEB_URL:-http://localhost:8095}"
+    assert bluesky["url"] == f"${{BLUESKY_WEB_URL:-http://localhost:{_WEB_PORT}}}"
 
 
 def test_inject_bluesky_web_missing_config_yml_is_noop(tmp_path: Path) -> None:

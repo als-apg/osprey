@@ -33,6 +33,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
     evaluate_eligibility,
     target_availability,
 )
+from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 
 #: A config with no ``virtual_accelerator`` connector block at all — the shape
 #: of every project rendered before the generic template grew one. Carries a
@@ -334,7 +335,11 @@ def test_the_only_thing_missing_after_injection_is_the_probe_channel(tmp_path):
 # commented-out example an operator fills in by hand — comes through untouched.
 
 #: Channel Access port of the stand-in in these tests. Not 5064: the two
-#: instances serve different machines and may never share a port.
+#: instances serve different machines and may never share a port. An arbitrary
+#: operator-chosen number, deliberately NOT the layout's ``va_standin`` slot —
+#: every use passes it explicitly as ``VAConfig(live_standin=<port>)``, which is
+#: the "a facility placed the second soft-IOC somewhere specific" branch, so
+#: nothing here reads it as a default.
 STANDIN_PORT = 5074
 
 
@@ -346,7 +351,14 @@ def _render_control_assistant_template() -> str:
     """
     from osprey.cli.templates.manager import TemplateManager
 
-    return TemplateManager().jinja_env.get_template("apps/control_assistant/config.yml.j2").render()
+    return (
+        TemplateManager()
+        .jinja_env.get_template("apps/control_assistant/config.yml.j2")
+        .render(
+            port_base=DEFAULT_PORT_BASE,
+            osprey_ports=layout_ports(DEFAULT_PORT_BASE),
+        )
+    )
 
 
 def _inject_standin(tmp_path, template: str | None = None, *, port: int | None = STANDIN_PORT):

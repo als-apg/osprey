@@ -66,6 +66,7 @@ from osprey.deployment.graphdb_service import (
     resolve_graphdb_connection,
     resolve_graphdb_service_config,
 )
+from osprey.port_layout import resolve_port_base
 from osprey.utils.config import get_config_value
 from osprey.utils.workspace import load_osprey_config
 
@@ -549,7 +550,7 @@ class GraphContext:
 
         block = (config.get("services") or {}).get(GRAPHDB_SERVICE_NAME)
         try:
-            self._connection = resolve_graphdb_connection(block)
+            self._connection = resolve_graphdb_connection(block, base=resolve_port_base(config))
         except ValueError as exc:
             logger.warning(
                 "GraphContext: the services.%s block does not resolve to an address to "

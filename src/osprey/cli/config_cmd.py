@@ -23,6 +23,7 @@ from rich.syntax import Syntax
 
 from osprey.cli import output, styles
 from osprey.cli.styles import Styles
+from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 
 from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 
@@ -37,6 +38,12 @@ _DEFAULTS_EXAMPLE_CONTEXT = {
     "hostname": "localhost",
     "default_provider": "anthropic",
     "default_model": "haiku",
+    # The one sanctioned use of the layout's own default base: this view prints
+    # the FRAMEWORK's defaults and has no deployment config in hand to resolve a
+    # base from, so the ports it shows are the ports a deployment that sets no
+    # `deployment.port_base` gets.
+    "port_base": DEFAULT_PORT_BASE,
+    "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
 }
 
 

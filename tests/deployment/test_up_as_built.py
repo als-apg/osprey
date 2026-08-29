@@ -915,7 +915,6 @@ def test_the_web_stack_bakes_the_same_identity_as_the_services_stack(tmp_path):
             "modules": {
                 "web_terminals": {
                     "enabled": True,
-                    "nginx_port": 9080,
                     "web_base_port": 8100,
                     "artifact_base_port": 8200,
                     "ariel_base_port": 8300,
@@ -932,6 +931,108 @@ def test_the_web_stack_bakes_the_same_identity_as_the_services_stack(tmp_path):
     # Baked, not interpolated: a `${VAR}` here would resolve to empty for
     # anyone invoking compose without the variable exported.
     assert "${OSPREY_REPO_ID}" not in compose
+
+
+# ---------------------------------------------------------------------------
+# One deployment, one port block
+#
+# The services stack is rendered once, at build time, and never again; the
+# web-terminal stack is re-rendered at every start. So `deployment.port_base`
+# is read twice, from two places, and the two halves land in the same block
+# only if the start reads the base out of the build it is starting rather than
+# falling back to the layout's own default.
+# ---------------------------------------------------------------------------
+
+
+def test_the_web_re_render_lands_in_the_block_the_build_recorded(
+    lifecycle_repo, started, monkeypatch
+):
+    """``up``'s web re-render resolves ``port_base`` from ``build/config.yml``.
+
+    A start that lost the base would publish nginx and every panel in the
+    default block, at 10xxx, in front of a services stack built at 20xxx: two
+    halves of one deployment on two blocks, each half internally consistent and
+    the pair unusable. Nothing else in this module would notice, because every
+    other property here is about the services stack alone.
+
+    Asserted at the seam where the start hands its config to the web path, and
+    then through the real renderer: what has to hold is that the config
+    carrying the base reaches the re-render, and that the re-render's ports and
+    the built stack's published port fall inside the one block that base names.
+    """
+    import yaml
+
+    from osprey.deployment.web_terminals.ports import default_base_ports
+    from osprey.deployment.web_terminals.render import render_web_terminals
+    from osprey.port_layout import DEFAULT_PORT_BASE, block_range, default_port
+
+    base = 20000
+    handed: dict = {}
+
+    def _record_web_deploy(config, compose_files, *args, **kwargs) -> None:
+        handed["config"] = config
+
+    monkeypatch.setattr(container_lifecycle, "deploy_up_web_terminals", _record_web_deploy)
+    monkeypatch.setattr(container_lifecycle, "preflight_web_terminals", lambda *a, **k: None)
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    (lifecycle_repo / ".env.users").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+
+    # No port key anywhere under `modules.web_terminals`: the whole stanza takes
+    # its ports from the block, which is what makes this a test of the base and
+    # not of an echo.
+    build = render_build(
+        lifecycle_repo,
+        config=yaml.safe_dump(
+            {
+                "project_name": "als-exemplar",
+                "build_dir": "./build",
+                "deployment": {"port_base": base},
+                "deployed_services": ["event_dispatcher"],
+                "services": {"event_dispatcher": {"path": "services/event_dispatcher"}},
+                "claude_code": {"provider": "anthropic"},
+                "facility": {"prefix": "ex"},
+                "deploy": {"fqdn": "example.invalid"},
+                "modules": {"web_terminals": {"enabled": True, "users": ["alice"]}},
+            }
+        ),
+    )
+    dispatcher_port = default_port("dispatcher", base=base)
+    (build / "services" / "event_dispatcher" / "docker-compose.yml").write_text(
+        "services:\n"
+        "  event-dispatcher:\n"
+        "    image: example:local\n"
+        "    ports:\n"
+        f'      - "127.0.0.1:{dispatcher_port}:8020/tcp"\n',
+        encoding="utf-8",
+    )
+
+    assert run_up(lifecycle_repo, "-d").exit_code == 0
+    assert handed, "the web path never ran, so nothing was re-rendered to check"
+
+    rendered = render_web_terminals(handed["config"])
+    web_compose = rendered["docker-compose.web.yml"]
+    first, last = block_range(base)
+
+    # The panel families, taken from the production mapping rather than listed
+    # here, so a family added to the layout is covered without editing this.
+    # Each family's band at THIS base must appear, and the same family's band at
+    # the layout's own default must not — the second half is what fails on a
+    # re-render that lost the base, which the first half alone would not catch
+    # if a family ever moved.
+    for family, port in default_base_ports(base).items():
+        assert first <= port <= last, family
+        assert str(port) in web_compose, f"{family} is not published at {port}"
+        assert str(default_base_ports(DEFAULT_PORT_BASE)[family]) not in web_compose, (
+            f"{family} fell back to the layout's default base instead of the "
+            f"{base} the build recorded"
+        )
+    # The gateway itself: nginx is the block's first port, and it is rendered
+    # into nginx.conf rather than into the compose file, so nothing above
+    # reaches it.
+    assert f"listen {default_port('nginx', base=base)};" in rendered["nginx/nginx.conf"]
+    # And the half the start did not re-render: the built stack publishes into
+    # the same block, which is the agreement this test exists for.
+    assert first <= dispatcher_port <= last
 
 
 # ---------------------------------------------------------------------------
@@ -1356,7 +1457,6 @@ def test_the_web_stack_labels_every_container_and_volume_too(tmp_path):
             "modules": {
                 "web_terminals": {
                     "enabled": True,
-                    "nginx_port": 9080,
                     "web_base_port": 8100,
                     "artifact_base_port": 8200,
                     "ariel_base_port": 8300,

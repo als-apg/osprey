@@ -166,7 +166,7 @@ class TestLoadCategoriesFromConfig:
             def get(self, key, default=None):
                 if key == "artifact_server":
                     return {
-                        "port": 8086,
+                        "port": 10200,
                         "categories": {
                             "vacuum_status": {
                                 "label": "Vacuum Status",

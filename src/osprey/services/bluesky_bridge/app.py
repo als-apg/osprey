@@ -194,6 +194,8 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
       `BLUESKY_DEVICES_FILE`: the posture it guards against is a property of
       the project config, not of whether this deployment wires up any devices
       at all, and a gated guard leaves whole classes of deployment unchecked.
+      Alongside it, `queue.device_page_size()` is parsed once so a malformed
+      `BLUESKY_DEVICE_PAGE_SIZE` fails the boot instead of the first request.
     - The document plane: the 0MQ proxy the queueserver's Publisher connects
       to, and the dispatcher that turns that stream into live rows.
       Unconfigured is a no-op; see `document_plane.start_from_env`.
@@ -212,6 +214,11 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # limits checking on + an unreadable limits database), before anything
     # else is brought up.
     _assert_limits_readable_if_writable()
+
+    # A malformed device page size is a boot-time refusal too: the number is
+    # read per request downstream, so parsing it once here turns a bad env var
+    # into a failed start rather than a surprise 500 on the first caller.
+    queue.device_page_size()
 
     # The document plane's 0MQ proxy — the binding element the queueserver's
     # Publisher connects to, and the RemoteDispatcher that turns that stream
@@ -508,7 +515,11 @@ def _device_entry(name: str, description: Any) -> dict[str, Any]:
 
 
 @app.get("/devices")
-async def list_devices() -> list[dict]:
+async def list_devices(
+    prefix: str = "",
+    limit: int | None = None,
+    offset: int = 0,
+) -> dict[str, Any]:
     """Devices the queueserver worker built, by the name plans resolve them under.
 
     The companion of `GET /plans`: a plan's device parameters carry device
@@ -517,19 +528,56 @@ async def list_devices() -> list[dict]:
     fails on the run's first iteration — after an enqueue and a start — so this
     route is what turns picking a device into a lookup rather than a guess.
 
+    The response is `{"devices", "total", "offset", "limit"}`. `devices` is one
+    page, sorted by name; `total` is how many names matched *before* the page
+    was cut, so a caller can tell "that is all of them" from "there is more".
     Each entry is `{"name", ...}` plus whatever of `is_movable`/`is_readable`/
     `is_flyable` the manager reported for it, which is how a caller tells a
     drivable setpoint from a read-only readback.
+
+    `prefix` filters by literal, case-sensitive `str.startswith` — device names
+    come out of the worker's namespace verbatim, so folding case here would
+    invent matches the worker cannot resolve. A prefix nothing starts with is a
+    200 with `devices: []` and `total: 0`: an empty set is an answer, not a
+    failure to answer.
+
+    `limit` and `offset` are CLAMPED, never rejected — the same posture as
+    `runs.list_records` (`runs.py:236-241`), so a nonsensical query returns a
+    sane page instead of a 422 an agent has to learn to avoid. `limit` is
+    clamped into `1..queue.device_page_size()` (unset means the full page
+    size), `offset` up to at least 0, and both are echoed back as the
+    EFFECTIVE values used, so the caller reads the bound it actually got rather
+    than the one it asked for.
+
+    `total` is recomputed per request against the manager's current answer. A
+    `total` that changes between two pages of one walk means the worker rebuilt
+    its namespace mid-walk — the pages either side of that are from different
+    device sets, and the walk is worth restarting rather than stitching.
     """
     try:
         reply = await get_queue_backend().devices_allowed()
     except QueueBackendError as exc:
         # Same mapping as every other manager-backed read (see `list_runs`).
         raise queue._http_error(exc) from exc
+    cap = queue.device_page_size()
+    bound = max(1, min(limit if limit is not None else cap, cap))
+    start = max(0, offset)
     allowed = reply.get("devices_allowed")
     if not isinstance(allowed, dict):
-        return []
-    return [_device_entry(name, description) for name, description in sorted(allowed.items())]
+        # A manager that answered without the map has no devices to report;
+        # normalizing keeps the envelope built in exactly one place below.
+        allowed = {}
+    matches = [
+        _device_entry(name, description)
+        for name, description in sorted(allowed.items())
+        if name.startswith(prefix)
+    ]
+    return {
+        "devices": matches[start : start + bound],
+        "total": len(matches),
+        "offset": start,
+        "limit": bound,
+    }
 
 
 # ---------------------------------------------------------------------------

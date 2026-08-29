@@ -140,7 +140,7 @@ Title, host, port, and auto-launch live under ``health.title`` and
      title: "Beamline Health"   # dashboard heading (default "System Health")
      web:
        host: 127.0.0.1          # default 127.0.0.1
-       port: 8094               # default 8094
+       port: 10700              # the port layout's slot for it
        auto_launch: true        # default true
 
 The sidecar re-reads ``config.yml`` and the project ``.env`` on each refresh,

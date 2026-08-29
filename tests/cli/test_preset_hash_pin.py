@@ -147,14 +147,32 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # `data/channel_limits.json` does not list is refused rather than waved
     # through — so the staleness advisory firing on already-deployed
     # control-assistant projects is the correct signal.
-    "control-assistant": "sha256:7c06c80628d2d1446c275f9b4c64c8ba3c0f26f2710316067523987053be9e1a",
+    # Moved with the base above: `live_standin` baseline + strict limits pair.
+    #
+    # Moved once more — all six control-assistant entries together — when host
+    # ports became `deployment.port_base` plus a fixed offset. The base
+    # preset's `bluesky.port`/`tiled_port`, `bluesky_web.port` and the
+    # web-terminals' `nginx_port`/`web_base_port`/`artifact_base_port`/
+    # `ariel_base_port`/`lattice_base_port`/`channel_finder_base_port`
+    # literals all dropped — the build now derives them from the port block —
+    # and `virtual_accelerator.live_standin` went from a hardcoded
+    # second-simulator port to `true`, letting the loader place it in the same
+    # block. Deploy-visible: a rebuilt project's landing page, terminals,
+    # companion panels, bluesky sidecar and live-standin simulator all bind to
+    # the port-block addresses instead of the retired literals.
+    #
+    # The two changes above met in one merge, so the digests below are neither
+    # branch's recorded value but the one the merged preset actually hashes to:
+    # a `live_standin` baseline with the strict limits pair, placed on the port
+    # block. Deploy-visible for both reasons at once.
+    "control-assistant": "sha256:ea77ab02508d4b12f1c0dd1002770fde1070f0cdf0d182785535fcc4f175d8c6",
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     "control-assistant-admin": (
-        "sha256:6d5eb524e7b7a0a04d3df1e88f09d0ac33316f6962a6a96a69bdb1816ce3c3e5"
+        "sha256:873fdd1f43c65c15d2021a7f4869704fb943a1be2a022c0e78cdc34b48449c2b"
     ),
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     "control-assistant-ariel": (
-        "sha256:b32a935bd67779d85af69a7ae6fb339ea21def5c31227a946c51da252f3fd318"
+        "sha256:0f91798146907adef25fd6cce8429488eb58af3d9f5eb6bc93cddb55c2aaaee7"
     ),
     # The two operator tiers below moved together, and alone, when each gained
     # the single dotted key `services.graphdb.port_host: 7687` in its `config:`
@@ -213,11 +231,11 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # exactly as the note at the top of this table says.
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     "control-assistant-readonly": (
-        "sha256:2cde884019f9e8032b64b8bb3a74ddcf9b00eaca35c988d505db6cb904d74989"
+        "sha256:f0c1eec4c586057778871c2b071b9ada0f8520c919b4e79567dfb0d8e5abf082"
     ),
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     "control-assistant-readwrite": (
-        "sha256:4f6614009b3aa198016aac90e5cd88c32754205f98578f01290dcc50c543d80e"
+        "sha256:89f05aa008a36ca39dbba53af6f07490d2e64e961f999b3933fc5b44e7491f65"
     ),
     # New with per-target write posture, not a moved entry: the rung between
     # the two flat tiers, armed on the virtual accelerator alone. It pins the
@@ -227,7 +245,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # land.
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     "control-assistant-va-readwrite": (
-        "sha256:458efcb5e63e7140ab0bb844b8324d8c22a4c6cb5b8e463212667e739a15bef7"
+        "sha256:f95e419a917e20c9272bcb1431e33c8330988c7a9349d8ae261af8b8924b9cb7"
     ),
     # Moved when the onboarding rewrite dropped the `facility` rule. The
     # wholesale comment rewrite that shipped alongside it contributed nothing:

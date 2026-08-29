@@ -174,10 +174,13 @@ QUEUE_CONTROL = frozenset(
 
 # ---------------------------------------------------------------------------
 # Ports + names for the live stack (the deploy scaffold at the end of this
-# module). Every published port is deliberately distinct from BOTH the preset
-# defaults (8090 bridge / 8091 tiled / 8095 panels / 5064 VA / 5432 postgres /
-# 5080 openobserve) and every sibling e2e module's pinned port, so this module
-# can run on a shared dev machine beside an already-deployed tutorial stack —
+# module). Every published port is deliberately outside BOTH the thousand-port
+# block a deployment claims from ``deployment.port_base`` (10000-10999 at the
+# default base — bridge, tiled, panels and openobserve in the services band,
+# postgres and mongodb in the stores band; the VA's Channel Access 5064 is the
+# one port the base does not move) and every sibling e2e module's pinned port,
+# so this module can run on a shared dev machine beside an already-deployed
+# tutorial stack —
 # and beside any sibling suite — without touching, or being blocked by,
 # anything it does not own.
 #

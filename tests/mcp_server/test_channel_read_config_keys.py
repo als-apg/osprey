@@ -26,6 +26,7 @@ import yaml
 
 from osprey.cli.templates.manager import TemplateManager
 from osprey.mcp_server.control_system.tools import channel_read
+from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -55,6 +56,11 @@ def _boom(path, default=None, config_path=None):
 # harmless; missing keys render empty and the `{% if enable_* %}` pipeline
 # blocks stay off). Mirrors tests/templates/test_telemetry_optin_templates.py.
 _CTX = {
+    # The port table the real render builds in
+    # TemplateManager._project_context; these tests reach the template
+    # environment directly, so they carry it themselves.
+    "port_base": DEFAULT_PORT_BASE,
+    "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
     "project_name": "demo",
     "facility_name": "Demo",
     "default_provider": "anthropic",

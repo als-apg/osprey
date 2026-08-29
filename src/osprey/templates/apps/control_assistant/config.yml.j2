@@ -192,7 +192,7 @@ services:
     # container and the agent's ARIEL DSN — which is derived from the keys in
     # this block rather than written out, so this is the single source of
     # truth for both. Mirrors the openobserve credentials convention.
-    port_host: 5432
+    port_host: {{ osprey_ports.postgres }}
 
   # Local telemetry backend for the OSPREY agent — a single-binary OTLP
   # logs/metrics store (see docs/how-to/monitor-agent.rst). This reference
@@ -202,7 +202,7 @@ services:
   # copy. `osprey up` mints a strong ZO_ROOT_USER_PASSWORD into .env.
   openobserve:
     path: ./services/openobserve
-    port: 5080          # Host port for the OpenObserve UI + OTLP ingest
+    port: {{ osprey_ports.openobserve }}         # Host port for the OpenObserve UI + OTLP ingest
     retention_days: 14  # Growth bound: drop telemetry older than N days. A named
                         # volume has no hard size cap, so age-based retention is
                         # the "size" knob (min 3; OpenObserve default is ~10y).
@@ -227,7 +227,7 @@ services:
   # search reports itself down.
   qmd:
     path: ./services/qmd
-    port: 9800      # Host port clients talk to. Deliberately NOT qmd's own
+    port: {{ osprey_ports.qmd }}     # Host port clients talk to. Deliberately NOT qmd's own
                     # 8181: the daemon binds IPv6 loopback only, hardcoded, so
                     # the container runs it on an internal 8181 and fronts it
                     # with a forwarder that owns this port.
@@ -273,9 +273,9 @@ services:
                                  # no manifest entry for anything newer. Repoint
                                  # it at a mirror or a pre-baked image on an
                                  # air-gapped host.
-    port_host: 7687       # Bolt — the only protocol the neo4j driver speaks,
+    port_host: {{ osprey_ports.graphdb_bolt }}      # Bolt — the only protocol the neo4j driver speaks,
                           # so this is what the seeder and the agent dial.
-    http_port_host: 7474  # HTTP — the Neo4j Browser an operator opens, and the
+    http_port_host: {{ osprey_ports.graphdb_http }} # HTTP — the Neo4j Browser an operator opens, and the
                           # endpoint the container healthcheck probes.
                           # `osprey health` does NOT use this port: it dials the
                           # store over bolt on port_host (or an explicit `uri`),
@@ -547,10 +547,12 @@ control_system:
     # deployed soft-IOC's port is a one-place edit. Set `port:` on a gateway
     # only to reach a VA this project does not deploy — one on another host,
     # or a container published on a host port different from the one it
-    # serves on. The example below reads 5094, not 5074, on purpose: the
-    # shipped build-profile example puts the live stand-in VA on 5074
-    # (`virtual_accelerator.live_standin`), so the example here names a port no
-    # OSPREY service claims.
+    # serves on. The example below reads {{ osprey_ports.va_standin + 1 }}, not
+    # {{ osprey_ports.va_standin }}, on purpose: the shipped build-profile
+    # example puts the live stand-in VA on {{ osprey_ports.va_standin }}
+    # (`virtual_accelerator.live_standin`), the first port of this deployment's
+    # VA band, so the example here names the next one up — a port no OSPREY
+    # service claims unless a second stand-in is deployed.
     virtual_accelerator:
       timeout: 5.0
       simulation_file: data/simulation/machine.json
@@ -566,11 +568,11 @@ control_system:
       gateways:
         read_only:
           address: localhost
-          # port: 5094
+          # port: {{ osprey_ports.va_standin + 1 }}
           use_name_server: true
         write_access:
           address: localhost
-          # port: 5094
+          # port: {{ osprey_ports.va_standin + 1 }}
           use_name_server: true
 
     # EPICS connector (production mode) — ALS production values.
@@ -686,7 +688,7 @@ archiver:
     timeout: 60              # Timeout for archiver requests in seconds
 
   # MongoDB archiver. Its client ships with OSPREY, so there is nothing extra to
-  # install. Every key here except port and timeout is required; the connector raises on
+  # install. Every key here except timeout is required; the connector raises on
   # the first one missing. The password itself is never stored here — it is read
   # at connect time from the environment variable named by password_env, which
   # `osprey up` mints into the project's .env.
@@ -698,7 +700,11 @@ archiver:
   # what you wrote here.
   mongodb_archiver:
     host: localhost
-    port: 27017             # Optional, defaults to 27017
+    port: {{ osprey_ports.mongo }}             # Required. The build writes this
+                            # deployment's mongo layout slot; the connector
+                            # ships in its own wheel, cannot reach the layout,
+                            # and so has no fallback — deleting this line makes
+                            # the archiver raise at connect time.
     name: osprey_archiver
     collection: pv_history
     auth: admin             # Authentication database
@@ -779,11 +785,11 @@ channel_finder:
   # CHANNELS tab: the channel-finder UI is a web server of its own, configured
   # under this section. It launches when `channel-finder` is in the panel list
   # under `web:` below AND this `channel_finder:` section exists — it does, so
-  # 8092 is bound by default. Uncomment to move or disable it. (See the
+  # {{ osprey_ports.channel_finder }} is bound by default. Uncomment to move or disable it. (See the
   # COMPANION WEB SERVERS map further down for the resolution order.)
   # web:
   #   host: "127.0.0.1"
-  #   port: 8092
+  #   port: {{ osprey_ports.channel_finder }}
   #   auto_launch: true
 
   # Descriptive names for channels that belong to no device family, generated
@@ -981,11 +987,11 @@ ariel:
   # ARIEL tab: the search UI is a web server of its own, configured under this
   # section rather than a top-level one. It launches when `ariel` is in the
   # panel list under `web:` below — this section existing is not required, so
-  # 8085 is bound by default. Uncomment to move or disable it. (See the
+  # {{ osprey_ports.ariel }} is bound by default. Uncomment to move or disable it. (See the
   # COMPANION WEB SERVERS map further down for the resolution order.)
   # web:
   #   host: "127.0.0.1"
-  #   port: 8085
+  #   port: {{ osprey_ports.ariel }}
   #   auto_launch: true
 
   # Which module answers a search that names no mode — the web interface's
@@ -1212,10 +1218,10 @@ facility_knowledge:
   # itself (the launcher passes the resolved path into the panel app), while
   # the three keys below configure that panel's web server. It launches when
   # `okf` is in the panel list under `web:` below and this section exists —
-  # which it does, so this project binds 8093 by default. Uncomment to move or
-  # disable it.
+  # which it does, so this project binds {{ osprey_ports.okf }} by default.
+  # Uncomment to move or disable it.
   # host: "127.0.0.1"
-  # port: 8093
+  # port: {{ osprey_ports.okf }}
   # auto_launch: true
 
 # ============================================================
@@ -1237,21 +1243,30 @@ agent_data:
 # Every panel tab in `osprey web` is served by its own small web server, and
 # each one takes host/port/auto_launch from its own config section. These six
 # are the complete set — artifact_server is the only one this file writes a
-# stanza for, and the other five run at their defaults, so this is the map:
+# stanza for, and the other five run at their defaults. Every default is this
+# deployment's `deployment.port_base` plus the panel's fixed offset. To move
+# one panel, edit the `port` in the section named here:
 #
-#   tab        keys live under        default port   port env var
-#   WORKSPACE  artifact_server        8086           OSPREY_ARTIFACT_SERVER_PORT
-#   ARIEL      ariel.web              8085           OSPREY_ARIEL_PORT
-#   CHANNELS   channel_finder.web     8092           OSPREY_CHANNEL_FINDER_PORT
-#   LATTICE    lattice_dashboard      8097           OSPREY_LATTICE_DASHBOARD_PORT
-#   KNOWLEDGE  facility_knowledge     8093           OSPREY_FACILITY_KNOWLEDGE_PORT
-#   SYSTEM     health.web             8094           OSPREY_HEALTH_PORT
+#   tab        keys live under
+#   WORKSPACE  artifact_server
+#   ARIEL      ariel.web
+#   CHANNELS   channel_finder.web
+#   LATTICE    lattice_dashboard
+#   KNOWLEDGE  facility_knowledge
+#   SYSTEM     health.web
 #
-# The stanza for each lives in the section named above; all six carry a
-# machine-readable marker comment so they can be found by name.
+# Each of those stanzas carries a machine-readable marker comment, so they can
+# also be found by name. For the offset, the resolved default port and the port
+# environment variable of every slot in the block — panels included — see the
+# OSPREY docs page docs/source/reference/ports.rst (Sphinx label
+# `reference-ports`). That page is slot-by-slot, and its `Override key` column
+# names the multi-user per-user family key
+# (`modules.web_terminals.<family>_base_port`), not the single-user `port` keys
+# listed above; both reach the same server.
 #
-# Resolution order in every case: the env var above wins, then this config's
-# `port`, then the built-in default. Multi-user deployments export the env var
+# Resolution order in every case: the panel's env var wins, then this config's
+# `port`, then the panel's layout slot at this deployment's
+# `deployment.port_base`. Multi-user deployments export the env var
 # per user (the per-user containers share one network namespace), which is why
 # config alone is never the last word. `host` has no env override and defaults
 # to 127.0.0.1. The launcher resolves host/port through one shared function;
@@ -1273,7 +1288,7 @@ agent_data:
 # iframe.
 artifact_server:
   host: "127.0.0.1"
-  port: 8086
+  port: {{ osprey_ports.artifact }}
   auto_launch: true
 
 # osprey:panel-port lattice_dashboard
@@ -1282,18 +1297,19 @@ artifact_server:
 # `lattice` to the panel list under `web:` below.
 # lattice_dashboard:
 #   host: "127.0.0.1"
-#   port: 8097
+#   port: {{ osprey_ports.lattice }}
 #   auto_launch: true
 
 # osprey:panel-port system_health
 # SYSTEM tab. Unlike LATTICE and KNOWLEDGE it needs no section of its own — the
 # health framework has usable defaults — so with `system-health` in the panel
-# list it binds 8094 without appearing anywhere in this file. Uncomment only to
+# list it binds {{ osprey_ports.system_health }} without appearing anywhere in
+# this file. Uncomment only to
 # move it or to switch it off.
 # health:
 #   web:
 #     host: "127.0.0.1"
-#     port: 8094
+#     port: {{ osprey_ports.system_health }}
 #     auto_launch: true
 
 # ============================================================
@@ -1359,7 +1375,7 @@ claude_code:
   # + `osprey web` produces a working, production-shaped wiring where the
   # agent emits OTLP logs + metrics to the co-deployed OpenObserve store
   # (declared in `services:` and listed in `deployed_services:` above; UI at
-  # http://localhost:5080). On by default: the underlying harness already records
+  # http://localhost:{{ osprey_ports.openobserve }}). On by default: the underlying harness already records
   # every prompt, response, and API body to disk, so this adds no new exposure —
   # it just makes that data queryable in a local store you own. To turn it off,
   # set `enabled: false`. Tracing and OTEL_LOG_TOOL_CONTENT are intentionally NOT
@@ -1369,8 +1385,10 @@ claude_code:
     backend: openobserve                 # openobserve | generic
     protocol: http/protobuf              # http/protobuf | grpc — grpc requires an explicit `endpoint:` below; it is refused against the auto-derived openobserve endpoint (HTTP only)
     # backend: openobserve auto-derives the endpoint per network context —
-    # http://localhost:5080/api/<org> on the host, http://openobserve:5080/api/<org>
-    # inside the deploy network — so `endpoint` is intentionally OMITTED here.
+    # http://localhost:{{ osprey_ports.openobserve }}/api/<org> on the host,
+    # http://openobserve:5080/api/<org> inside the deploy network (5080 there is
+    # the store's own listen port inside its container, which port_base does not
+    # move) — so `endpoint` is intentionally OMITTED here.
     # (Hardcoding localhost would make the in-container dispatch worker emit to
     # its own loopback and silently drop everything.)
     #
@@ -1407,7 +1425,7 @@ claude_code:
 #                        # sets it on every per-user container so nginx is the
 #                        # only off-host path — overrides both this key and
 #                        # --host, so this cannot punch through that chokepoint.
-#   port: 8087           # Likewise outranked by OSPREY_TERMINAL_WEB_PORT.
+#   port: {{ osprey_ports.web }}          # Likewise outranked by OSPREY_TERMINAL_WEB_PORT.
 #   shell: /path/to/claude
 #                        # argv spawned in every PTY. Setting it REPLACES the
 #                        # launcher, so it also defeats the

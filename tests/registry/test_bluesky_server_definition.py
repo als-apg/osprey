@@ -51,7 +51,7 @@ def test_bluesky_server_env():
     # Shell variable references pass through untouched for runtime expansion.
     # No literal default on the URL: unset must reach the server EMPTY so the
     # resolver falls back to the rendered config's `services.bluesky.port` —
-    # a baked `http://127.0.0.1:8090` was a second copy of the port that a
+    # a baked loopback URL was a second copy of the port that a
     # moved bridge could never correct.
     assert bluesky["env"]["BLUESKY_BRIDGE_URL"] == "${BLUESKY_BRIDGE_URL:-}"
     assert bluesky["env"]["BLUESKY_LAUNCH_TOKEN"] == "${BLUESKY_LAUNCH_TOKEN:-}"

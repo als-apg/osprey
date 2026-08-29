@@ -106,6 +106,18 @@ keys:
       PRESENCE is all-templates; VALUES deliberately diverge ([] /
       [openobserve] / [postgresql, openobserve]). The guard must not assert
       value equality here.
+  deployment.port_base:
+    rendered: false
+    evidence: 'deployment\.get\("port_base"\)'
+    note: >-
+      Hidden key, unset in all five templates. First port of the thousand-port
+      block a deployment publishes into: every framework host port is this base
+      plus a fixed offset from `osprey.port_layout.LAYOUT`, so two deployments
+      coexist on one host by setting two bases and renumbering nothing else.
+      Unset means the layout's own default base, which is why no template
+      ships the key — a rendered value would be a second place the number
+      lives. The evidence anchors on `resolve_port_base`, the one resolver;
+      everything else takes the base from a caller that read it there.
   images.registry:
     rendered: false
     evidence: 'images\.get\("registry"\)'
@@ -178,12 +190,13 @@ keys:
       Same generic compose-generator read as the openobserve/postgresql `path`
       keys — it resolves any service's fragment directory, qmd included.
   services.qmd.port:
-    evidence: '_positive_int\(block\.get\("port"\)'
+    evidence: '_positive_int\(\s*block\.get\("port"\)'
     note: >-
-      Defaults to 8180, deliberately NOT qmd's own 8181: the daemon hardcodes
-      an IPv6-loopback bind, so the container fronts it with a forwarder that
-      owns the routable port. `deployment/host_ports.py` cites this key from
-      the same module, so the port-conflict remedy cannot drift from it.
+      Defaults to the layout's `qmd` slot on the deployment's base, and
+      deliberately NOT qmd's own 8181: the daemon hardcodes an IPv6-loopback
+      bind, so the container fronts it with a forwarder that owns the routable
+      port. `deployment/host_ports.py` cites this key from the same module, so
+      the port-conflict remedy cannot drift from it.
   services.qmd.interval:
     evidence: 'block\.get\("interval"\)'
     note: >-
@@ -237,7 +250,7 @@ keys:
       for a mirror or a pre-baked image; the compose fragment layers
       ${OSPREY_GRAPHDB_IMAGE} over it.
   services.graphdb.port_host:
-    evidence: '_port\(block\.get\("port_host"\)'
+    evidence: '_port\(\s*block\.get\("port_host"\)'
     note: >-
       Published bolt port (7687), the only protocol the neo4j driver speaks.
       `deployment/host_ports.py` cites GRAPHDB_PORT_CONFIG_KEY from this same
@@ -340,6 +353,18 @@ keys:
     note: >-
       OSPREY-built image, so its packaged default is assembled from the two
       `images.*` axes; this pin replaces the assembled name outright.
+  services.dispatch_worker.worker_port_stride:
+    rendered: false
+    evidence: 'worker\.get\("worker_port_stride"\)'
+    note: >-
+      Hidden key, unset in all five templates and written by the dispatch
+      injector rather than rendered — and only in host-network mode, where the
+      workers share the host's namespace and so need their host ports to fan
+      out. Worker `i` publishes `worker_port_base + (i - 1) * stride`; the
+      value comes from the profile's `dispatch.worker_port_stride`, and it is
+      recorded here so the compose render and the host-port preflight derive
+      the same ports from one declared rule. Absent means the layout's own
+      spacing of one.
   services.dispatch_worker.image:
     rendered: false
     evidence: 'OSPREY_WORKER_IMAGE:-\{\{ services\.dispatch_worker\.image'

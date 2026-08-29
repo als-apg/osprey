@@ -47,7 +47,7 @@ class TestBuildCleanEnvHookDebug:
     def test_no_debug_when_no_hooks_section(self, tmp_path, monkeypatch):
         """config without hooks section -> no env var."""
         config_file = tmp_path / "config.yml"
-        config_file.write_text(yaml.dump({"web_terminal": {"port": 8087}}))
+        config_file.write_text(yaml.dump({"web_terminal": {"port": 10100}}))
         monkeypatch.delenv("OSPREY_CONFIG", raising=False)
         monkeypatch.delenv("OSPREY_HOOK_DEBUG", raising=False)
 

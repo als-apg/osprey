@@ -51,8 +51,8 @@
     keys are ABSENT under bridge, so the defaults live here — in the boolean
     form, for the reason spelled out above the worker timeout. #}
 {%- set bridge_on_host = ((services.gchat_bridge | default({}, true)).network | default('bridge', true)) == 'host' %}
-{%- set dispatcher_port = (services.event_dispatcher | default({})).port | default(9900, true) %}
-{%- set worker_port_base = (services.dispatch_worker | default({})).worker_port_base | default(9901, true) %}
+{%- set dispatcher_port = (services.event_dispatcher | default({})).port | default(osprey_ports.dispatcher, true) %}
+{%- set worker_port_base = (services.dispatch_worker | default({})).worker_port_base | default(osprey_ports.worker, true) %}
 {%- set worker_port_stride = (services.dispatch_worker | default({})).worker_port_stride | default(1, true) %}
 {#- The instance the dispatcher routes to. Multi-worker routing is not
     implemented, so this bridge observes worker 1's runs and no others'. #}
@@ -168,7 +168,8 @@ services:
 {%- else %}
       # Co-deployed dispatcher: reach it by its compose service key on
       # osprey-network. The bridge runs IN the network, so the code default
-      # (http://localhost:8010) and the host-published port are both wrong here.
+      # (localhost at the layout's dispatcher slot) and the host-published port
+      # are both wrong here.
       DISPATCHER_URL: http://event-dispatcher:{{ dispatcher_port }}
 {%- endif %}
 {% else %}

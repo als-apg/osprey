@@ -22,6 +22,7 @@ from osprey.interfaces.web_terminal import app as web_terminal_app
 from osprey.registry.web import (
     FRAMEWORK_WEB_SERVERS,
     WebServerDefinition,
+    framework_web_port_default,
     panel_url_state_attr,
 )
 from osprey.utils import workspace
@@ -251,9 +252,7 @@ def test_missing_section_publishes_no_url(key, config, stub_app, launched):
 )
 def test_missing_section_still_launches_when_not_required(key, config, stub_app, launched):
     """``auto_launch`` defaults on — omitting the section must not disable the tab."""
-    definition = FRAMEWORK_WEB_SERVERS[key]
-
     _launch(stub_app, key)
 
-    assert _url(stub_app, key) == f"http://127.0.0.1:{definition.port_default}"
+    assert _url(stub_app, key) == f"http://127.0.0.1:{framework_web_port_default(key)}"
     assert launched == [key]

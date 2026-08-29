@@ -48,8 +48,12 @@ from osprey.deployment.web_terminals.render import (
     render_web_terminals,
     terminal_secret_env_var,
 )
+from osprey.port_layout import default_port
 
-_BASE_PORTS = {"web": 9091, "artifact": 9291, "ariel": 9391, "lattice": 9491}
+#: The per-user family bases these renders run on. Nothing in the configs below
+#: moves them, so they are the layout's own — derived here so a cookie name or a
+#: proxy_pass target asserted further down follows a slot that moves.
+_BASE_PORTS = {slot: default_port(slot) for slot in ("web", "artifact", "ariel", "lattice")}
 _NGINX_IMAGE = "nginx:1.27-alpine"
 
 #: Where the base image's entrypoint writes the envsubst'd per-user snippets, and
@@ -99,11 +103,6 @@ def _config(tls: dict | None = None, auth: dict | None = None, users: list | Non
     `login: false` one is what the open render's exempt case needs)."""
     web_terminals: dict = {
         "enabled": True,
-        "nginx_port": 9080,
-        "web_base_port": _BASE_PORTS["web"],
-        "artifact_base_port": _BASE_PORTS["artifact"],
-        "ariel_base_port": _BASE_PORTS["ariel"],
-        "lattice_base_port": _BASE_PORTS["lattice"],
         "users": ["alice", "bob"] if users is None else users,
     }
     if tls is not None:

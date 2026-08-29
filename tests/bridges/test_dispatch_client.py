@@ -27,7 +27,7 @@ from osprey.bridges.core.dispatch_client import (
 )
 
 CFG = CoreConfig(
-    dispatcher_url="http://disp:8010",
+    dispatcher_url="http://disp:10010",
     worker_url="http://work:9190",
     event_dispatcher_token="disp-token",
     dispatch_worker_token="work-token",
@@ -250,7 +250,7 @@ def test_poll_worker_non_404_http_error_raises():
 def test_fire_returns_dispatch_id():
     def handler(request):
         assert request.method == "POST"
-        assert str(request.url) == "http://disp:8010/webhook/unit-question"
+        assert str(request.url) == "http://disp:10010/webhook/unit-question"
         assert request.headers["Authorization"] == "Bearer disp-token"
         return httpx.Response(202, json={"dispatch_id": "D1"})
 

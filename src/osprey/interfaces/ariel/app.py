@@ -19,6 +19,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 
 from osprey.interfaces._app_setup import configure_interface_app
+from osprey.port_layout import default_port
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -442,7 +443,7 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
 
 def run_web(
     host: str = "127.0.0.1",
-    port: int = 8085,
+    port: int = default_port("ariel"),
     reload: bool = False,
     config_path: str | None = None,
 ) -> None:
@@ -461,7 +462,13 @@ def run_web(
 
     Args:
         host: Host to bind to.
-        port: Port to run on.
+        port: Port to run on. The default is the ``ariel`` slot at the layout's
+            *default* base, which is right only for a programmatic caller with
+            no config to resolve a base from. ``osprey ariel web`` — the one
+            caller — passes the port it resolved from this deployment's
+            ``deployment.port_base``. A multi-user deployment does not come
+            through here at all: its launcher builds the app from the registry's
+            factory and serves it itself.
         reload: Enable auto-reload for development.
         config_path: Optional path to config file.
     """

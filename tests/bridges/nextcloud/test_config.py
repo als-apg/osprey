@@ -128,14 +128,14 @@ def test_core_is_a_composed_projection_not_a_base_class():
 def test_neutral_vars_are_delegated_to_core_config():
     cfg = NextcloudBridgeConfig.from_env(
         complete(
-            DISPATCHER_URL="http://disp:8010/",
+            DISPATCHER_URL="http://disp:10010/",
             WORKER_URL="http://work:9190/",
             POLL_INTERVAL="0.5",
             DEDUP_PATH="/data/nc_dedup.json",
             HISTORY_PATH="/data/nc_history.json",
         )
     )
-    assert cfg.core.dispatcher_url == "http://disp:8010"
+    assert cfg.core.dispatcher_url == "http://disp:10010"
     assert cfg.core.worker_url == "http://work:9190"
     assert cfg.core.event_dispatcher_token == "disp-token"
     assert cfg.core.dispatch_worker_token == "work-token"

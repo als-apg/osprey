@@ -26,7 +26,22 @@ services:
       osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
     restart: unless-stopped
     ports:
-      - "127.0.0.1::5432"
+      # `port_host` used to carry no default at all: a config that named the
+      # block but omitted the key rendered an empty host half
+      # (`127.0.0.1::5432`) — no render-time error, just a malformed publish
+      # that docker compose rejected later, at `up`. It now falls back to the
+      # layout value for the deployment's own `deployment.port_base`, which is
+      # the number every other reader of this store already resolves, so an
+      # omitted key renders the port it would have had to be set to.
+      #
+      # An entirely absent `services.postgresql` block still fails the render
+      # itself, exactly as before: the attribute lookup happens first, so
+      # `| default(...)` never runs and cannot rescue an undefined parent.
+      #
+      # The container half stays 5432 — postgres's own port inside its
+      # namespace, which does not move with the block. Only the host half is
+      # layout-derived.
+      - "127.0.0.1:10800:5432"
     environment:
       POSTGRES_DB: ariel
       POSTGRES_USER: ariel

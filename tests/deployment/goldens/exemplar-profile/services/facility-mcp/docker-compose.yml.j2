@@ -21,6 +21,12 @@ services:
     container_name: {{ osprey_labels.project_name }}-facility-mcp
     labels:
       osprey.project.name: "{{ osprey_labels.project_name }}"
+      # Which deployment repo this container belongs to. A facility service
+      # carries it for the same reason every packaged one does: the preflight
+      # reads it to tell "a port of ours, already up" from "somebody else's
+      # process on our port", and an unlabelled container can only be guessed
+      # at from the compose project name.
+      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
       osprey.project.root: "{{ osprey_labels.project_root }}"
       # Content fingerprint of the rendered config this deploy built
       # (runtime_helper's as_built_config_digest, carried in by
@@ -33,9 +39,9 @@ services:
       osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
     restart: unless-stopped
     ports:
-      - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ (services['facility-mcp'] | default({})).port | default(8200) }}:8200/tcp"
+      - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ (services['facility-mcp'] | default({})).port | default(10900) }}:10900/tcp"
     environment:
-      PORT: "8200"
+      PORT: "10900"
       FACILITY_STATUS_FILE: /data/machine-status.json
       TZ: {{ system.timezone }}
     volumes:
@@ -43,7 +49,7 @@ services:
     networks:
       - osprey-network
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import socket,sys; s=socket.socket(); s.settimeout(3); sys.exit(0 if s.connect_ex(('localhost', 8200)) == 0 else 1)\""]
+      test: ["CMD-SHELL", "python -c \"import socket,sys; s=socket.socket(); s.settimeout(3); sys.exit(0 if s.connect_ex(('localhost', 10900)) == 0 else 1)\""]
       interval: 10s
       timeout: 5s
       retries: 5

@@ -53,6 +53,7 @@ import osprey.health.core.containers as containers_mod
 from osprey.cli.build_cmd import build as build_command
 from osprey.health.core.containers import containers
 from osprey.health.models import CheckResult, Status
+from osprey.port_layout import default_port
 from osprey.services.virtual_accelerator.manifest.standin_defaults import (
     STANDIN_BPM_ERRORS_DEFAULT,
 )
@@ -72,6 +73,12 @@ STANDIN_PORT = 5074
 #: The exemplar's own virtual accelerator, and therefore the port the stand-in
 #: must NOT land on.
 VA_PORT = 5064
+
+#: Where the preset's bluesky bridge lands. Looked up rather than spelled: the
+#: two collision tests below need A PORT SOME OTHER SERVICE ALREADY HOLDS, and
+#: which port that is belongs to the layout — ``tests/test_port_layout.py``
+#: pins the number itself. The preset names none, so the bridge takes this slot.
+BLUESKY_PORT = default_port("bluesky")
 
 #: What the Control Assistant template's VA block proves, and so what the
 #: ``standin`` target must prove too.
@@ -102,7 +109,7 @@ ACK_NOTE_OPENING = "# Written by `osprey build` for the live stand-in: the `epic
 #: commented gateway-port examples beside it. They are the instructions for
 #: pointing a deployment at a real machine by hand, and no build consumes them.
 COMMENTED_ACK_EXAMPLE = "# live_gateway_acknowledged:"
-COMMENTED_PORT_EXAMPLE = "# port: 5094"
+COMMENTED_PORT_EXAMPLE = "# port: 10091"
 
 #: The template's own end-of-line comment on the strict-limits key. It explains
 #: the KEY rather than the shipped value, so it stays true for a deployment that
@@ -705,9 +712,12 @@ class TestTheBuildRefusesAnIncoherentStandIn:
         ``bluesky.port`` is a port the exemplar really claims, so this is the
         collision an operator actually meets rather than a staged one.
         """
-        repo = _exemplar(tmp_path, standin=8090)
+        repo = _exemplar(tmp_path, standin=BLUESKY_PORT)
 
         text = self._refuse(repo, caplog)
 
-        assert "virtual_accelerator.live_standin (8090) collides with bluesky.port (8090)" in text
+        assert (
+            f"virtual_accelerator.live_standin ({BLUESKY_PORT}) collides with "
+            f"bluesky.port ({BLUESKY_PORT})" in text
+        )
         assert not (repo / "build" / "config.yml").exists()

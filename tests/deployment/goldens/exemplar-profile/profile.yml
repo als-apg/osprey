@@ -173,7 +173,11 @@ services:
   facility-mcp:
     template: services/facility-mcp
     config:
-      port: 8200
+      # The facility band is the last hundred ports of the deployment's block
+      # (`deployment.port_base` + 900 .. + 999) and nothing the framework
+      # publishes lives there, so a facility spends it as it likes. This one
+      # takes the first port of it.
+      port: 10900
 
 # ── Config overrides ─────────────────────────────────────────────────────────
 # These key.path entries are written into config.yml after the template renders.
@@ -242,25 +246,23 @@ config:
   # never from a preset of its own.
   modules.web_terminals:
     enabled: true
-    nginx_port: 9080            # public-facing reverse proxy / landing page
-    # Per-user port families: user i gets base + i in each family. Every
-    # companion panel gets its own family (the containers share the host
-    # network namespace, so per-user offsets are what prevent collisions);
-    # families omitted here fall back to registry defaults (registry/web.py).
-    # All families sit above the tutorial's own service ports (5064, 9900,
-    # 8090/8091/8095) so the two stacks never collide on one host.
-    web_base_port: 9100           # first per-user web-terminal port
-    artifact_base_port: 9200      # first per-user artifact-gallery port
-    ariel_base_port: 9300         # first per-user ARIEL search port
-    lattice_base_port: 9400       # first per-user lattice-dashboard port
-    channel_finder_base_port: 9500  # first per-user channel-finder panel port
+    # No port is named here, and that is the point: every one this deployment
+    # publishes is `deployment.port_base` plus a fixed offset. The landing page
+    # sits at the base itself, and each panel gets a hundred-port family above
+    # it — terminals at + 100, artifacts + 200, ARIEL + 300, lattice + 400,
+    # channel finder + 500, and the two panels this profile enables from the
+    # registry at + 600 (knowledge) and + 700 (system health). The containers
+    # share the host network namespace, so those per-user offsets are what
+    # prevent collisions. Set `nginx_port` or a `*_base_port` here only to lift
+    # one family out of its slot; to move the whole deployment — every port
+    # below except the soft-IOC's Channel Access 5064 — set `port_base`.
     default_persona: readonly   # roster entries with no persona resolve here
     users:
-      # One web terminal per entry. `index` pins the user's port offsets
-      # (each `*_base_port` above + index), so removing an entry never shifts
-      # another user's ports; `persona` names a catalog entry below. A bare
-      # string (`- alice`) is also accepted: it takes its list position as
-      # index and falls back to `default_persona`.
+      # One web terminal per entry. `index` pins the user's port offsets (each
+      # family above + index), so removing an entry never shifts another user's
+      # ports; `persona` names a catalog entry below. A bare string
+      # (`- alice`) is also accepted: it takes its list position as index and
+      # falls back to `default_persona`.
       - name: alice
         index: 0
         persona: readonly
@@ -355,7 +357,7 @@ panel_presets: {}
 # because the container publishes it and the agent dials it.
 mcp_servers:
   facility:
-    port: 8200
+    port: 10900
     transport: http
     permissions:
       allow: [machine_status]

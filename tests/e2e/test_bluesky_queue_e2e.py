@@ -155,18 +155,20 @@ _PREVIEW_KEYS = {
 _ANALYSIS_KEYS = {"available", "reason", "x_channel", "x_column", "points", "channels"}
 
 # ---------------------------------------------------------------------------
-# Ports + names. Every published port is deliberately distinct from BOTH the
-# preset defaults (8090/8091/8095/5064/5432/5080/27017) and every sibling e2e
-# module's pinned port (18090/18095/18099/18101/18102/18103/18105/18106), so
-# this module can run on a shared dev machine beside an already-deployed
-# tutorial stack without touching -- or being blocked by -- anything it does
-# not own.
+# Ports + names. Every published port is deliberately outside BOTH the
+# thousand-port block a deployment claims from ``deployment.port_base``
+# (10000-10999 at the default base, plus the VA's Channel Access 5064, the one
+# port the base does not move) and every sibling e2e module's pinned port
+# (18090/18095/18099/18101/18102/18103/18105/18106), so this module can run on
+# a shared dev machine beside an already-deployed tutorial stack without
+# touching -- or being blocked by -- anything it does not own.
 #
 # The list has to be COMPLETE to be worth anything: `osprey up` runs a host
-# port preflight and aborts the whole deploy on the first service left on a
-# default port, so one unmoved port takes every stage below down at fixture
-# setup. The support services follow one rule -- default + 20000 -- so a
-# service that joins the stack later has an obvious slot.
+# port preflight and aborts the whole deploy on the first service left inside
+# the block, so one unmoved port takes every stage below down at fixture
+# setup. The support services keep their historical pins -- each one's protocol
+# default plus 20000 -- which the block never reaches, so a service that joins
+# the stack later has an obvious slot.
 # ---------------------------------------------------------------------------
 BRIDGE_PORT = 18108
 BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"

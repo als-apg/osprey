@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from osprey.connectors.types import MOCK
+from osprey.port_layout import default_port, resolve_port_base
 from osprey.simulation.engine import (
     ACTIVE_SCENARIO_FILENAME,
     ACTIVE_SCENARIOS_FILENAME,
@@ -447,7 +448,11 @@ def archiver_store_config(config: dict, project_dir: Path) -> dict | None:
 
     return {
         "host": store["host"],
-        "port": int(store.get("port", 27017)),
+        # No ``port`` key means the store is the one this deployment publishes,
+        # so its host port is the ``mongo`` slot of THIS config's block — never
+        # the layout's default base, which would rewrite another deployment's
+        # archive on a host running two.
+        "port": int(store.get("port", default_port("mongo", base=resolve_port_base(config)))),
         "database": str(store.get("name") or "osprey_archiver"),
         "collection": str(store.get("collection") or "pv_history"),
         "auth_database": str(store.get("auth") or "admin"),

@@ -865,11 +865,6 @@ def _web_terminals_repo(root: Path, *, users=("alice", "bob")) -> Path:
         "modules": {
             "web_terminals": {
                 "enabled": True,
-                "nginx_port": 9080,
-                "web_base_port": 9091,
-                "artifact_base_port": 9291,
-                "ariel_base_port": 9391,
-                "lattice_base_port": 9491,
                 "users": [{"name": name, "index": i} for i, name in enumerate(users)],
                 "landing": {"groups": [{"type": "users"}]},
             }

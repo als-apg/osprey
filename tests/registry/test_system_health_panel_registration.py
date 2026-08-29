@@ -26,11 +26,13 @@ from osprey.cli import web_cmd
 from osprey.infrastructure import server_launcher
 from osprey.interfaces.web_terminal import app as web_terminal_app
 from osprey.interfaces.web_terminal.routes import proxy as proxy_module
+from osprey.port_layout import DEFAULT_PORT_BASE, SLOTS_BY_NAME
 from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS, BUILTIN_PANELS
 from osprey.registry.web import (
     FRAMEWORK_WEB_SERVERS,
     PANEL_ID_TO_REGISTRY_KEY,
     WebServerDefinition,
+    framework_web_port_default,
 )
 
 PANEL_ID = "system-health"
@@ -77,10 +79,21 @@ def test_web_server_definition_fields():
     assert defn.config_key == "health"
     assert defn.factory_path == "osprey.interfaces.health.app:create_app"
     assert defn.config_web_subkey == "web"
-    assert defn.port_default == 8094
     assert defn.require_section is False  # health ships a usable default → always launchable
-    assert defn.multi_user_base_port == 9700
     assert defn.factory_config_kwargs == {}  # create_app takes no config-derived kwargs
+    # No port is a field any more: a definition does not know the registry key
+    # its port family is named after, so it cannot carry its own default.
+    assert not hasattr(defn, "port_default")
+    assert not hasattr(defn, "multi_user_base_port")
+
+
+def test_port_default_is_its_layout_slot_at_the_resolved_base():
+    # Single-user and per-user both read off the same slot: the panel's default
+    # is index 0 of the ``system_health`` family, at whatever base the
+    # deployment resolved rather than at the layout's own default base.
+    offset = SLOTS_BY_NAME[REGISTRY_KEY].offset
+    assert framework_web_port_default(REGISTRY_KEY) == DEFAULT_PORT_BASE + offset
+    assert framework_web_port_default(REGISTRY_KEY, base=20000) == 20000 + offset
 
 
 def test_port_env_override_key_is_health():
@@ -138,7 +151,9 @@ async def test_system_health_server_config_endpoint_returns_proxy_path():
     from osprey.interfaces.web_terminal.routes import panels as panels_module
 
     available = SimpleNamespace(
-        app=SimpleNamespace(state=SimpleNamespace(system_health_server_url="http://127.0.0.1:8094"))
+        app=SimpleNamespace(
+            state=SimpleNamespace(system_health_server_url="http://127.0.0.1:10700")
+        )
     )
     result = await panels_module.system_health_server_config(available)
     assert result["available"] is True

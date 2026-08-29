@@ -586,7 +586,7 @@ def test_direct_serve_app_construction_closes_a_republished_secret(
     from osprey.interfaces._app_setup import configure_interface_app
     from osprey.interfaces.web_auth import mint_and_announce
 
-    mint_and_announce("127.0.0.1", 8087)
+    mint_and_announce("127.0.0.1", 10100)
     assert "OSPREY_TERMINAL_SECRET" in os.environ, (
         "the launcher no longer publishes the carrier at all, so the --reload "
         "and --detach handoffs have nothing to inherit"

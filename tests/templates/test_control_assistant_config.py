@@ -30,6 +30,7 @@ import yaml
 
 from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.templates.manager import TemplateManager, _enable_flags
+from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 
 CONFIG_TEMPLATE = "apps/control_assistant/config.yml.j2"
 README_TEMPLATE = "apps/control_assistant/README.md.j2"
@@ -48,6 +49,11 @@ _BASE_CTX: dict[str, Any] = {
     "builtin_panels": [],
     "system": {"timezone": "UTC"},
     "osprey_labels": {"project_name": "demo", "project_root": "/tmp/demo"},
+    # Every host port in the template renders from this table. These tests
+    # bypass TemplateManager._project_context, which is where the real render
+    # builds it, so they supply it themselves at the default base.
+    "port_base": DEFAULT_PORT_BASE,
+    "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
 }
 
 

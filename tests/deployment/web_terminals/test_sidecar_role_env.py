@@ -71,11 +71,6 @@ def _config(
     """
     web_terminals: dict = {
         "enabled": True,
-        "nginx_port": 9080,
-        "web_base_port": 9091,
-        "artifact_base_port": 9291,
-        "ariel_base_port": 9391,
-        "lattice_base_port": 9491,
         "users": users if users is not None else ["alice", "bob"],
         # `allow_insecure_http` because the render refuses any auth method over
         # cleartext otherwise — a gate with its own coverage, not this file's subject.

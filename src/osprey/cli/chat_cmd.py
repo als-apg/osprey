@@ -200,6 +200,7 @@ def _launch_companion_servers(project_dir: Path) -> list[tuple[str, str]]:
     from osprey.infrastructure.server_launcher import _launchers, ensure_web_server
     from osprey.interfaces.common_middleware import WEB_PORT_ENV
     from osprey.interfaces.web_auth import close_env_carriers, mint_and_announce
+    from osprey.port_layout import resolve_port_base
     from osprey.registry.web import FRAMEWORK_WEB_SERVERS
     from osprey.utils.workspace import load_osprey_config, reset_config_cache
 
@@ -209,12 +210,17 @@ def _launch_companion_servers(project_dir: Path) -> list[tuple[str, str]]:
     reset_config_cache()
 
     # Name this process's session cookie before the first app is built. The port
-    # comes from the same resolver ``osprey web`` binds by, so a chat session and
-    # the terminal for this deployment agree on the name. An empty value counts
-    # as absent: an unset compose variable interpolates to the empty string.
+    # comes from the same resolver ``osprey web`` binds by — and from the same
+    # base, taken off the config this process just settled — so a chat session
+    # and the terminal for this deployment agree on the name. An empty value
+    # counts as absent: an unset compose variable interpolates to the empty
+    # string.
     if not (os.environ.get(WEB_PORT_ENV) or "").strip():
-        web_terminal = load_osprey_config().get("web_terminal") or {}
-        os.environ[WEB_PORT_ENV] = str(resolve_web_port(None, web_terminal.get("port")))
+        chat_config = load_osprey_config()
+        web_terminal = chat_config.get("web_terminal") or {}
+        os.environ[WEB_PORT_ENV] = str(
+            resolve_web_port(None, web_terminal.get("port"), base=resolve_port_base(chat_config))
+        )
 
     started: list[tuple[str, str]] = []
     for key, defn in FRAMEWORK_WEB_SERVERS.items():

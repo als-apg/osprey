@@ -9,7 +9,7 @@ for your control-system tools. Launch it from any project directory:
 
    osprey web
 
-It opens in your browser at ``http://127.0.0.1:8087``. The command prints a
+It opens in your browser at ``http://127.0.0.1:10100``. The command prints a
 login URL (``…/?token=…``) at startup that signs you in for 12 hours by
 default, browser restarts included, and then redirects to that clean address;
 the token is the server's own secret, so treat the URL like a password. From

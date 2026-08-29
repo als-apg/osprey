@@ -16,7 +16,7 @@ Two things make this fixture more than ``run_app_server(app)``:
   ``test_channels_route.py``'s ``project_dir`` reproduces it. Launching with
   ``catalog=None`` writes no catalog, which is the "this deployment has no
   catalog" 404 path.
-- **A stubbed bridge.** The panel boots by fetching ``/plans``, ``/devices``,
+- **A stubbed bridge.** The panel boots by fetching ``/plans``,
   ``/bridge/health``, ``/draft``, ``/queue``, ``/runs`` and the two SSE relays
   through the sidecar's proxy routers, all of which read
   ``request.app.state.client``/``bridge_url`` at request time. After the
@@ -152,7 +152,9 @@ def _stub_bridge(request: httpx.Request) -> httpx.Response:
                 "capability": {"can_execute": True, "reason": None, "detail": None},
             },
         )
-    if path in ("/devices", "/runs"):
+    if path == "/devices":
+        return httpx.Response(200, json={"devices": [], "total": 0, "offset": 0, "limit": 500})
+    if path == "/runs":
         return httpx.Response(200, json=[])
     if path == "/draft":
         return httpx.Response(200, json={"draft": None, "revision": 0})

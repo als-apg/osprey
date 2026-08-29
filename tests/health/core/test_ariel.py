@@ -16,6 +16,7 @@ import httpx
 
 from osprey.health.core.ariel import ariel
 from osprey.health.models import CheckResult, Status
+from osprey.port_layout import default_port
 
 
 async def _run(config, *, transport=None) -> dict[str, CheckResult]:
@@ -217,17 +218,17 @@ async def test_status_url_defaults(monkeypatch) -> None:
     monkeypatch.delenv("OSPREY_ARIEL_PORT", raising=False)
     captured: list[str] = []
     await _run(_cfg(), transport=_ok_transport(captured=captured))
-    assert captured == ["http://127.0.0.1:8085/api/status"]
+    assert captured == [f"http://127.0.0.1:{default_port('ariel')}/api/status"]
 
 
 async def test_status_url_honours_the_multi_user_port_override(monkeypatch) -> None:
     """``OSPREY_ARIEL_PORT`` — exported per user by the multi-user compose
     render because the per-user containers share the host network namespace —
     is the port the panel binds, so it is the port the probe knocks on."""
-    monkeypatch.setenv("OSPREY_ARIEL_PORT", "9391")
+    monkeypatch.setenv("OSPREY_ARIEL_PORT", "10301")
     captured: list[str] = []
     await _run(_cfg(web={"port": 9999}), transport=_ok_transport(captured=captured))
-    assert captured == ["http://127.0.0.1:9391/api/status"]
+    assert captured == ["http://127.0.0.1:10301/api/status"]
 
 
 async def test_misplaced_address_key_is_reported_not_probed() -> None:

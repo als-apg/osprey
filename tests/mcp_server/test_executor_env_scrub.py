@@ -277,8 +277,8 @@ async def _run_with_stubbed_subprocess() -> dict[str, str]:
 @pytest.mark.unit
 def test_perimeter_ports_parse_when_the_marker_is_open():
     """Marker plus a well-formed list yields the ports, ascending and de-duplicated."""
-    env = {"OSPREY_WEB_PERIMETER": "open", "OSPREY_WEB_PERIMETER_DENY_PORTS": "9092,9080,9091"}
-    assert _perimeter_denied_ports(env) == (9080, 9091, 9092)
+    env = {"OSPREY_WEB_PERIMETER": "open", "OSPREY_WEB_PERIMETER_DENY_PORTS": "10101,10000,10100"}
+    assert _perimeter_denied_ports(env) == (10000, 10100, 10101)
 
 
 @pytest.mark.unit
@@ -289,14 +289,14 @@ def test_perimeter_ports_empty_without_the_marker():
     without it would mean a credentialed method, where denying these ports
     guards nothing and only breaks traffic entitled to them.
     """
-    env = {"OSPREY_WEB_PERIMETER_DENY_PORTS": "9080,9091"}
+    env = {"OSPREY_WEB_PERIMETER_DENY_PORTS": "10000,10100"}
     assert _perimeter_denied_ports(env) == ()
 
 
 @pytest.mark.unit
 def test_perimeter_ports_empty_when_the_marker_is_not_open():
     """Only the exact value "open" arms it — anything else stays inert."""
-    env = {"OSPREY_WEB_PERIMETER": "token", "OSPREY_WEB_PERIMETER_DENY_PORTS": "9080"}
+    env = {"OSPREY_WEB_PERIMETER": "token", "OSPREY_WEB_PERIMETER_DENY_PORTS": "10000"}
     assert _perimeter_denied_ports(env) == ()
 
 
@@ -316,9 +316,9 @@ def test_perimeter_ports_ignore_junk_entries():
     """
     env = {
         "OSPREY_WEB_PERIMETER": "open",
-        "OSPREY_WEB_PERIMETER_DENY_PORTS": "9080, ,not-a-port,,0,70000,-1,9091",
+        "OSPREY_WEB_PERIMETER_DENY_PORTS": "10000, ,not-a-port,,0,70000,-1,10100",
     }
-    assert _perimeter_denied_ports(env) == (9080, 9091)
+    assert _perimeter_denied_ports(env) == (10000, 10100)
 
 
 @pytest.mark.unit
@@ -337,7 +337,7 @@ async def test_local_wrapper_receives_the_denied_ports(tmp_path, monkeypatch):
     """
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("OSPREY_WEB_PERIMETER", "open")
-    monkeypatch.setenv("OSPREY_WEB_PERIMETER_DENY_PORTS", "9091,9080")
+    monkeypatch.setenv("OSPREY_WEB_PERIMETER_DENY_PORTS", "10100,10000")
     _write_subprocess_config(tmp_path)
 
     with patch(
@@ -346,7 +346,7 @@ async def test_local_wrapper_receives_the_denied_ports(tmp_path, monkeypatch):
     ) as mock_wrapper:
         await _run_with_stubbed_subprocess()
 
-    assert mock_wrapper.call_args.kwargs["perimeter_denied_ports"] == (9080, 9091)
+    assert mock_wrapper.call_args.kwargs["perimeter_denied_ports"] == (10000, 10100)
 
 
 @pytest.mark.unit
@@ -377,7 +377,7 @@ async def test_local_subprocess_env_excludes_the_perimeter_stamp(tmp_path, monke
     """
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("OSPREY_WEB_PERIMETER", "open")
-    monkeypatch.setenv("OSPREY_WEB_PERIMETER_DENY_PORTS", "9080,9091")
+    monkeypatch.setenv("OSPREY_WEB_PERIMETER_DENY_PORTS", "10000,10100")
     _write_subprocess_config(tmp_path)
 
     passed_env = await _run_with_stubbed_subprocess()

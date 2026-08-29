@@ -31,6 +31,8 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 import osprey
 from osprey.deployment.web_terminals.env_production import USERS_ENV_FILENAME
+from osprey.deployment.web_terminals.ports import resolve_nginx_port
+from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port, resolve_port_base
 from osprey.utils.shell_resolver import resolve_shell_command
 
 from .build_profile_deploy import DeployConfig
@@ -716,7 +718,14 @@ def _service_probes(profile: dict[str, Any]) -> tuple[Probe, ...]:
     config = _config_block(profile)
     deployed = _dotted(config, "deployed_services")
     if isinstance(deployed, list) and "openobserve" in deployed:
-        port = _as_port(_dotted(config, "services.openobserve.port"), 5080)
+        # With no port key the store sits at the layout's openobserve slot in
+        # THIS profile's block, so the base is read from the profile rather
+        # than defaulted: a deployment that moved its base has to be probed
+        # inside its own block, not at whatever holds the framework default.
+        port = _as_port(
+            _dotted(config, "services.openobserve.port"),
+            default_port("openobserve", base=_profile_port_base(config)),
+        )
         probes.append(
             Probe(
                 kind="http",
@@ -822,15 +831,30 @@ def _web_probes(profile: dict[str, Any]) -> tuple[Probe, ...]:
     if web is None:
         return ()
 
+    # The landing page's port, resolved the way every other reader of a
+    # deployment resolves it: the profile's `nginx_port` when it sets one, else
+    # the gateway slot of the block the profile's own `deployment.port_base`
+    # names. Re-wrapped into the single rendered-config shape the resolver
+    # takes, the same way the openobserve probe above reaches the base.
+    profile_config = _config_block(profile)
+    port_base = _profile_port_base(profile_config)
     probes = [
         Probe(
             kind="http",
             label="landing page",
-            port=_as_port(web.get("nginx_port"), 9080),
+            port=resolve_nginx_port(
+                {
+                    "deployment": {"port_base": _dotted(profile_config, PORT_BASE_CONFIG_KEY)},
+                    "modules": {"web_terminals": web},
+                }
+            ),
         )
     ]
 
-    base = _as_port(web.get("web_base_port"), 9100)
+    # Absent an authored `web_base_port`, user 0's terminal is the first port
+    # of the panel family in THIS profile's block — the same base the landing
+    # page above was resolved against, so the two never drift apart.
+    base = _as_port(web.get("web_base_port"), default_port("web", base=port_base))
     users = web.get("users")
     for position, entry in enumerate(users if isinstance(users, list) else []):
         if isinstance(entry, str):
@@ -866,7 +890,8 @@ def _dispatch_probes(profile: dict[str, Any]) -> tuple[Probe, ...]:
     if not isinstance(profile.get("dispatch"), dict):
         return ()
 
-    configured = _dotted(_config_block(profile), "services.event_dispatcher.port")
+    config = _config_block(profile)
+    configured = _dotted(config, "services.event_dispatcher.port")
     if configured is None:
         configured = profile["dispatch"].get("dispatcher_port")
 
@@ -874,7 +899,7 @@ def _dispatch_probes(profile: dict[str, Any]) -> tuple[Probe, ...]:
         Probe(
             kind="http",
             label="dispatcher health",
-            port=_as_port(configured, 9900),
+            port=_as_port(configured, default_port("dispatcher", base=_profile_port_base(config))),
             path="/health",
         ),
     )
@@ -902,8 +927,43 @@ def _dotted(config: dict[str, Any], key: str) -> Any:
     return node
 
 
+def _profile_port_base(config: dict[str, Any]) -> int:
+    """Return the first port of the block this profile's deployment claims.
+
+    Every default port the scaffold emits is derived from the base the profile
+    itself resolved, never from the layout's default base: a deployment that
+    moved its block has to be probed inside that block. A profile's ``config:``
+    overlay is a flat bag of dotted keys rather than a rendered config, so the
+    base is read out of it and re-wrapped into the one shape the resolver
+    takes — which is also what makes an out-of-range base refuse on this path
+    instead of quietly rendering a probe past port 65535.
+
+    Args:
+        config: The profile's ``config:`` overrides, as returned by
+            :func:`_config_block`.
+
+    Returns:
+        The base named by ``deployment.port_base`` in either spelling, or the
+        layout default when the profile names none.
+
+    Raises:
+        ValueError: If the profile names a base whose block cannot be bound.
+    """
+    return resolve_port_base({"deployment": {"port_base": _dotted(config, PORT_BASE_CONFIG_KEY)}})
+
+
 def _as_port(value: Any, default: int) -> int:
-    """Coerce a profile-supplied port, falling back to the framework default."""
+    """Coerce a profile-supplied port, falling back to what the caller derived.
+
+    Args:
+        value: Whatever the profile put where a port belongs.
+        default: The port to use when the profile supplied nothing usable. For
+            a framework service this is the caller's layout lookup at the
+            profile's own base, never a literal.
+
+    Returns:
+        ``value`` as an int, or ``default`` when it is absent or not a number.
+    """
     try:
         return int(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):

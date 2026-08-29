@@ -20,6 +20,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from osprey.mcp_server import http
+from osprey.port_layout import default_port
 
 # These tests drive the posters themselves, so they opt out of the conftest
 # stub that blocks notify_* POSTs from leaving the process. Nothing here can
@@ -49,7 +50,7 @@ def patch_config():
 @pytest.mark.unit
 def test_gallery_url_defaults(patch_config):
     with patch_config({}):
-        assert http.gallery_url() == "http://127.0.0.1:8086"
+        assert http.gallery_url() == f"http://127.0.0.1:{default_port('artifact')}"
 
 
 @pytest.mark.unit
@@ -62,14 +63,14 @@ def test_gallery_url_from_config(patch_config):
 def test_web_terminal_url_defaults(patch_config, monkeypatch):
     monkeypatch.delenv("OSPREY_WEB_PORT", raising=False)
     with patch_config({}):
-        assert http.web_terminal_url() == "http://127.0.0.1:8087"
+        assert http.web_terminal_url() == f"http://127.0.0.1:{default_port('web')}"
 
 
 @pytest.mark.unit
 def test_web_terminal_url_env_overrides_config(patch_config, monkeypatch):
     """OSPREY_WEB_PORT wins over the config port (containerized deployments)."""
     monkeypatch.setenv("OSPREY_WEB_PORT", "12345")
-    with patch_config({"web_terminal": {"host": "host.internal", "port": 8087}}):
+    with patch_config({"web_terminal": {"host": "host.internal", "port": default_port("web")}}):
         assert http.web_terminal_url() == "http://host.internal:12345"
 
 

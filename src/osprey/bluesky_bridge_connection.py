@@ -39,9 +39,13 @@ import os
 from collections.abc import Mapping
 from typing import Any
 
-#: The port the bridge publishes when nothing configures one — the schema
-#: default of the build profile's ``bluesky.port``.
-DEFAULT_BRIDGE_PORT = 8090
+from osprey.port_layout import default_port, resolve_port_base
+
+#: The port the bridge publishes when nothing configures one, **at the layout's
+#: default base** — the schema default of the build profile's ``bluesky.port``.
+#: Right only for a caller with no config to resolve a base from;
+#: :func:`bridge_url_from_config` derives the same slot at its own config's base.
+DEFAULT_BRIDGE_PORT = default_port("bluesky")
 
 DEFAULT_BRIDGE_URL = f"http://127.0.0.1:{DEFAULT_BRIDGE_PORT}"
 
@@ -68,7 +72,11 @@ def bridge_url_from_config(config: Mapping[str, Any] | None) -> str:
        on the hosting profile moves every client with it. Dialed on loopback:
        a persona container shares the host network namespace, and the host's
        own processes reach the published port there too.
-    3. :data:`DEFAULT_BRIDGE_URL`.
+    3. The ``bluesky`` layout slot at this config's own ``deployment.port_base``
+       — the port the build would have published had it written the key. Not
+       :data:`DEFAULT_BRIDGE_URL`, whose base belongs to no particular
+       deployment: on a host running two, arming the wrong one is exactly the
+       drift this module exists to prevent.
 
     Duplicated, deliberately and knowingly, by the approval hook's
     ``_resolve_bridge_url`` (``templates/claude_code/claude/hooks/osprey_approval.py``),
@@ -82,9 +90,9 @@ def bridge_url_from_config(config: Mapping[str, Any] | None) -> str:
     services = (config or {}).get("services")
     block = services.get("bluesky") if isinstance(services, Mapping) else None
     port = block.get("port") if isinstance(block, Mapping) else None
-    if port:
-        return f"http://127.0.0.1:{port}"
-    return DEFAULT_BRIDGE_URL
+    if not port:
+        port = default_port("bluesky", base=resolve_port_base(config))
+    return f"http://127.0.0.1:{port}"
 
 
 #: Service key of the plan lane every deployment has had since the bridge

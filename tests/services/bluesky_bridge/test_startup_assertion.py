@@ -34,6 +34,9 @@ Exercised here:
   the same config starts; a read-only run needs no database at all.
 - The refusal message names the resolved per-type posture key and the lane it
   refused for, but never leaks the database file's contents.
+- The other boot-time refusal in the same hook: a `BLUESKY_DEVICE_PAGE_SIZE`
+  that is not a whole number >= 1 fails the start rather than the first
+  request.
 """
 
 from __future__ import annotations
@@ -46,6 +49,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from osprey.services.bluesky_bridge import queue
 from osprey.services.bluesky_bridge.app import app, set_queue_backend
 
 _DEVICES_FILE_ENV = "BLUESKY_DEVICES_FILE"
@@ -53,6 +57,7 @@ _TILED_URI_ENV = "BLUESKY_TILED_URI"
 _TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
 _LANE_ENV = "OSPREY_BLUESKY_LANE"
 _EXECUTION_MODE_ENV = "OSPREY_EXECUTION_MODE"
+_DEVICE_PAGE_SIZE_ENV = "BLUESKY_DEVICE_PAGE_SIZE"
 
 
 class _InertBackend:
@@ -82,6 +87,7 @@ def _isolated_state(monkeypatch: pytest.MonkeyPatch):
         _TILED_API_KEY_ENV,
         _LANE_ENV,
         _EXECUTION_MODE_ENV,
+        _DEVICE_PAGE_SIZE_ENV,
     ):
         monkeypatch.delenv(var, raising=False)
     set_queue_backend(_InertBackend())
@@ -417,3 +423,46 @@ def test_readonly_run_never_requires_the_limits_db(
     # Assert
     assert resp.status_code == 200
     assert probe_calls == []
+
+
+# =========================================================================
+# The device page size is parsed at boot, not at the first request
+# =========================================================================
+
+
+@pytest.mark.parametrize("bad_value", ["abc", "0", "-1"])
+def test_malformed_device_page_size_refuses_startup(
+    monkeypatch: pytest.MonkeyPatch, bad_value: str
+) -> None:
+    """A page size that is not a whole number >= 1 fails the boot.
+
+    Read-only posture, so the limits guard passes and the only thing left that
+    can refuse the lifespan is the page-size parse.
+    """
+    # Arrange
+    _patch_config(monkeypatch, writes_enabled=False)
+    monkeypatch.setenv(_DEVICE_PAGE_SIZE_ENV, bad_value)
+
+    # Act
+    with pytest.raises(ValueError) as excinfo:
+        with TestClient(app):
+            pass
+
+    # Assert
+    message = str(excinfo.value)
+    assert _DEVICE_PAGE_SIZE_ENV in message
+    assert bad_value in message
+
+
+def test_device_page_size_defaults_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unset is the overwhelmingly common case, and it is not an error."""
+    monkeypatch.delenv(_DEVICE_PAGE_SIZE_ENV, raising=False)
+
+    assert queue.device_page_size() == 500
+
+
+def test_device_page_size_reads_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The value is read from `os.environ` on each call, never cached."""
+    monkeypatch.setenv(_DEVICE_PAGE_SIZE_ENV, "200")
+
+    assert queue.device_page_size() == 200

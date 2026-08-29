@@ -39,6 +39,7 @@ from osprey.interfaces.web_terminal.ownership import OwnershipStoreError
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_RING_MAX
+from osprey.port_layout import default_port
 from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS
 from osprey.registry.web import PANEL_ID_TO_REGISTRY_KEY, panel_url_state_attr
 
@@ -1424,7 +1425,16 @@ def create_app(
 
 
 def _open_browser_when_ready(url: str, timeout: float = 15.0) -> None:
-    """Wait for the server to accept connections, then open the browser."""
+    """Wait for the server to accept connections, then open the browser.
+
+    Args:
+        url: The URL to open. Its port is what this waits on; a URL that names
+            no port is probed at the ``web`` slot of the layout's default base,
+            which is the port :func:`run_web` binds when nothing tells it
+            otherwise.
+        timeout: Seconds to wait for the server to start answering before
+            giving up and skipping the browser open.
+    """
     import socket
     import threading
     import time
@@ -1434,7 +1444,7 @@ def _open_browser_when_ready(url: str, timeout: float = 15.0) -> None:
     def _wait_and_open():
         parsed = urlparse(url)
         host = parsed.hostname or "127.0.0.1"
-        port = parsed.port or 8087
+        port = parsed.port or default_port("web")
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             try:
@@ -1452,7 +1462,7 @@ def _open_browser_when_ready(url: str, timeout: float = 15.0) -> None:
 
 def run_web(
     host: str = "127.0.0.1",
-    port: int = 8087,
+    port: int = default_port("web"),
     shell_command: list[str] | None = None,
     config_path: str | None = None,
     project_dir: str | None = None,
@@ -1463,7 +1473,11 @@ def run_web(
 
     Args:
         host: Host to bind to.
-        port: Port to run on.
+        port: Port to run on. The default is the ``web`` slot at the layout's
+            *default* base, which is right only for a programmatic caller with
+            no config to resolve a base from. ``osprey web`` — the one caller —
+            passes the port it resolved from this deployment's
+            ``deployment.port_base``.
         shell_command: Shell command to spawn in the PTY.
         config_path: Optional path to config file.
         project_dir: Optional OSPREY project directory.

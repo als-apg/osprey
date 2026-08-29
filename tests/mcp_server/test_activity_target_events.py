@@ -67,7 +67,7 @@ def posted(monkeypatch):
         calls.append((url, payload))
 
     monkeypatch.setattr(http, "post_json", _capture)
-    monkeypatch.setattr(http, "web_terminal_url", lambda: "http://127.0.0.1:8087")
+    monkeypatch.setattr(http, "web_terminal_url", lambda: "http://127.0.0.1:10100")
     return calls
 
 

@@ -60,8 +60,9 @@ from click.testing import CliRunner
 pytestmark = pytest.mark.slow
 
 # Moved host ports — each distinct from the shipped default it replaces
-# (bluesky 8090, virtual_accelerator 5064, openobserve 5080), so a client that
-# keeps its compiled-in default is distinguishable from one that follows.
+# (bluesky and openobserve on their layout slots, virtual_accelerator on the
+# Channel Access port), so a client that keeps its compiled-in default is
+# distinguishable from one that follows.
 MOVED_BLUESKY_PORT = 18090
 MOVED_VA_PORT = 15064
 MOVED_OPENOBSERVE_PORT = 15080

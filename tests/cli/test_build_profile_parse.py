@@ -208,21 +208,93 @@ def test_virtual_accelerator_without_live_standin_parses_to_none() -> None:
     assert profile.virtual_accelerator.live_standin is None
 
 
-def test_virtual_accelerator_live_standin_must_be_an_int() -> None:
-    """A non-integer live_standin raises rather than reaching port validation."""
+def test_virtual_accelerator_live_standin_must_be_true_or_an_int() -> None:
+    """A value that is neither `true` nor an integer raises at parse time."""
     with pytest.raises(
         BuildProfileError,
-        match="virtual_accelerator.live_standin must be a Channel Access port number "
-        r"\(got '5074'\)",
+        match="virtual_accelerator.live_standin must be `true`.*"
+        r"or a Channel Access port number \(got '5074'\)",
     ):
         _parse_profile({"name": "x", "virtual_accelerator": {"live_standin": "5074"}})
 
 
-def test_virtual_accelerator_live_standin_rejects_a_boolean() -> None:
-    """`live_standin: true` names no port, so it is not a port number either."""
+def test_virtual_accelerator_live_standin_true_takes_the_layout_slot() -> None:
+    """`live_standin: true` asks for the stand-in without naming a number.
+
+    The number it gets is the layout's ``va_standin`` slot at the layout's own
+    base, since this profile configures no ``deployment.port_base``.
+    """
+    profile = _parse_profile({"name": "x", "virtual_accelerator": {"live_standin": True}})
+    assert profile.virtual_accelerator is not None
+    assert profile.virtual_accelerator.live_standin == 10090
+
+
+def test_virtual_accelerator_live_standin_true_follows_the_profiles_port_base() -> None:
+    """The slot is taken on the base the profile itself resolved, not the default."""
+    profile = _parse_profile(
+        {
+            "name": "x",
+            "config": {"deployment.port_base": 20000},
+            "virtual_accelerator": {"live_standin": True},
+        }
+    )
+    assert profile.virtual_accelerator is not None
+    assert profile.virtual_accelerator.live_standin == 20090
+
+
+def test_virtual_accelerator_live_standin_true_reads_a_nested_port_base() -> None:
+    """A nested `deployment:` subtree in `config:` moves the slot the same way."""
+    profile = _parse_profile(
+        {
+            "name": "x",
+            "config": {"deployment": {"port_base": 20000}},
+            "virtual_accelerator": {"live_standin": True},
+        }
+    )
+    assert profile.virtual_accelerator is not None
+    assert profile.virtual_accelerator.live_standin == 20090
+
+
+def test_virtual_accelerator_live_standin_false_is_refused() -> None:
+    """`false` is not a second spelling for absence — omitting the key is."""
     with pytest.raises(
         BuildProfileError,
-        match="virtual_accelerator.live_standin must be a Channel Access port number "
-        r"\(got True\)",
+        match="virtual_accelerator.live_standin: false is not a way to switch",
     ):
-        _parse_profile({"name": "x", "virtual_accelerator": {"live_standin": True}})
+        _parse_profile({"name": "x", "virtual_accelerator": {"live_standin": False}})
+
+
+def test_virtual_accelerator_live_standin_true_refuses_an_impossible_port_base() -> None:
+    """A base whose block could not exist is refused, not silently defaulted."""
+    with pytest.raises(ValueError, match="deployment.port_base is 1000"):
+        _parse_profile(
+            {
+                "name": "x",
+                "config": {"deployment.port_base": 1000},
+                "virtual_accelerator": {"live_standin": True},
+            }
+        )
+
+
+def test_dispatch_ports_default_to_the_layout_slots() -> None:
+    """A dispatch block that names no ports lands on the layout's own slots.
+
+    10010/10011 are the `dispatcher` slot and the first index of the `worker`
+    band at the layout's own base — the ports a deployment that configures no
+    `deployment.port_base` publishes. The stride defaults to the layout's own
+    spacing of one.
+    """
+    profile = _parse_profile({"name": "x", "dispatch": {"triggers": "t.yml"}})
+    assert profile.dispatch is not None
+    assert profile.dispatch.dispatcher_port == 10010
+    assert profile.dispatch.worker_port_base == 10011
+    assert profile.dispatch.worker_port_stride == 1
+
+
+def test_dispatch_worker_port_stride_is_a_recognised_key() -> None:
+    """A profile may widen the worker spacing, and the value parses through."""
+    profile = _parse_profile(
+        {"name": "x", "dispatch": {"triggers": "t.yml", "worker_port_stride": 10}}
+    )
+    assert profile.dispatch is not None
+    assert profile.dispatch.worker_port_stride == 10

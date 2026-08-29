@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context
+from osprey.port_layout import default_port
 from tests.mcp_server.ariel.conftest import get_tool_fn, make_mock_entry
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
 
@@ -338,9 +339,9 @@ async def test_entry_create_draft_url_is_browser_resolvable(tmp_path, monkeypatc
     """Without ARIEL_WEB_URL, the draft URL must be a web-terminal-relative
     proxy path — not an absolute container-internal address.
 
-    Regression: a default of ``http://127.0.0.1:8085`` is unreachable from
-    the user's browser (nothing listens on 8085 in the
-    deployed container, and 127.0.0.1 points at the user's own machine). The
+    Regression: an absolute default at ARIEL's own layout slot is unreachable
+    from the user's browser (nothing listens on that port inside the deployed
+    container, and 127.0.0.1 points at the user's own machine). The
     web terminal embeds the ARIEL panel via the relative proxy path
     ``/panel/ariel`` and resolves draft URLs with ``new URL(url, origin)``, so
     the URL must be origin-relative to load through the proxy in both the
@@ -359,7 +360,7 @@ async def test_entry_create_draft_url_is_browser_resolvable(tmp_path, monkeypatc
     url = data["url"]
     # Must NOT be an absolute container-internal URL the browser can't reach.
     assert not url.startswith("http://127.0.0.1")
-    assert "8085" not in url
+    assert str(default_port("ariel")) not in url
     # Must be the origin-relative proxy path the iframe + link resolve against.
     assert url.startswith("/panel/ariel")
     assert f"draft={data['draft_id']}" in url

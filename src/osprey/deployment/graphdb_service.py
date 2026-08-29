@@ -18,17 +18,18 @@ Config shape, as it appears in a project's ``config.yml``::
       graphdb:
         path: ./services/graphdb
         image: neo4j:5.26-community
-        port_host: 7687                            # bolt, the driver protocol
-        http_port_host: 7474                       # Neo4j Browser / HTTP API
+        port_host: 10802                           # bolt, the graphdb_bolt slot
+        http_port_host: 10803                      # HTTP, the graphdb_http slot
         ttl_path: ./data/demo_machine.ttl          # optional; corpus to seed
         heap_initial_size: 512m
         heap_max_size: 1G
         pagecache_size: 512m
 
 Two published ports, not one, and both are load-bearing: the driver speaks bolt
-on 7687 and nothing else, while the operator-facing Browser and the health
-probe speak HTTP on 7474. That is why they get one dotted-key constant each —
-a port-conflict refusal has to name *which* of the two an operator must move.
+and nothing else, while the operator-facing Browser and the health probe speak
+HTTP. Each protocol keeps its own container port and its own host slot, which
+is why they get one dotted-key constant each — a port-conflict refusal has to
+name *which* of the two an operator must move.
 
 ``bind_address`` is deliberately NOT a per-service key. Every deployed service
 publishes on the project-wide ``deployment.bind_address`` (default
@@ -72,8 +73,11 @@ from typing import Any
 
 from osprey.deployment.errors import DeploymentPreconditionError
 from osprey.deployment.qmd_service import DEFAULT_BIND_ADDRESS, resolve_bind_address
+from osprey.port_layout import default_port, resolve_port_base
 
 __all__ = [
+    "CONTAINER_BOLT_PORT",
+    "CONTAINER_HTTP_PORT",
     "DEFAULT_BIND_ADDRESS",
     "DEFAULT_HEAP_INITIAL_SIZE",
     "DEFAULT_HEAP_MAX_SIZE",
@@ -114,17 +118,33 @@ GRAPHDB_SERVICE_NAME = "graphdb"
 #: supported-set pin test beside this module's config tests — before bumping.
 DEFAULT_IMAGE = "neo4j:5.26-community"
 
+#: Container-internal port the Neo4j image serves bolt on. Fixed by the image,
+#: so it is the same number in every deployment no matter which host port that
+#: deployment publishes it as — which is why a binding, a remedy-key lookup or a
+#: browser-vs-binary decision keyed on "which of the store's two ports is this"
+#: keys on this rather than on the host port below.
+CONTAINER_BOLT_PORT = 7687
+
+#: Container-internal port the Neo4j image serves HTTP on — Browser and
+#: healthcheck. Image-fixed for the same reason as :data:`CONTAINER_BOLT_PORT`.
+CONTAINER_HTTP_PORT = 7474
+
 #: Published host port for the bolt protocol, which is the only thing the neo4j
-#: driver speaks. Matches the container-internal port, so the derived
-#: ``bolt://`` address stays the number an operator recognises.
-DEFAULT_PORT = 7687
+#: driver speaks — the ``graphdb_bolt`` layout slot **at the layout's default
+#: base**, which is right only for a caller with no config to resolve a base
+#: from. :func:`resolve_graphdb_service_config` derives it at the base its
+#: config resolved instead; this constant is the dataclass field's default.
+#: No longer the container-internal port: that is :data:`CONTAINER_BOLT_PORT`.
+DEFAULT_PORT = default_port("graphdb_bolt")
 
 #: Published host port for HTTP: the Neo4j Browser an operator opens, and the
 #: endpoint the container healthcheck probes. Not what the health category uses
 #: — that dials the store over bolt through :func:`resolve_graphdb_connection`,
-#: so its remedies name ``port_host``/``uri`` rather than this key. Also matches
-#: the container-internal port.
-DEFAULT_HTTP_PORT = 7474
+#: so its remedies name ``port_host``/``uri`` rather than this key. The
+#: ``graphdb_http`` layout slot at the default base, on the same terms as
+#: :data:`DEFAULT_PORT`; the image's own HTTP port is
+#: :data:`CONTAINER_HTTP_PORT`.
+DEFAULT_HTTP_PORT = default_port("graphdb_http")
 
 #: JVM heap the server starts with, and the ceiling it may grow to. Neo4j sizes
 #: nothing automatically inside a container — left unset it reads the *host's*
@@ -278,9 +298,19 @@ def resolve_graphdb_service_config(
         return None
     return GraphdbServiceConfig(
         image=_text(block.get("image"), DEFAULT_IMAGE, "services.graphdb.image"),
-        port_host=_port(block.get("port_host"), DEFAULT_PORT, GRAPHDB_PORT_CONFIG_KEY),
+        # Both defaults come from the base THIS config resolved, never from the
+        # layout's own: two deployments on one host differ only by their
+        # ``deployment.port_base``, and a store defaulted to the module's base
+        # would publish on top of the other deployment's graph store.
+        port_host=_port(
+            block.get("port_host"),
+            default_port("graphdb_bolt", base=resolve_port_base(config)),
+            GRAPHDB_PORT_CONFIG_KEY,
+        ),
         http_port_host=_port(
-            block.get("http_port_host"), DEFAULT_HTTP_PORT, GRAPHDB_HTTP_PORT_CONFIG_KEY
+            block.get("http_port_host"),
+            default_port("graphdb_http", base=resolve_port_base(config)),
+            GRAPHDB_HTTP_PORT_CONFIG_KEY,
         ),
         bind_address=resolve_bind_address(config),
         heap_initial_size=_memory_size(
@@ -302,6 +332,8 @@ def resolve_graphdb_connection(
     graphdb_section: Mapping[str, Any] | None,
     services: Mapping[str, Any] | None = None,
     env: Mapping[str, str] | None = None,
+    *,
+    base: int | None = None,
 ) -> GraphdbConnection:
     """Resolve what to dial, as whom, and with which password.
 
@@ -315,7 +347,8 @@ def resolve_graphdb_connection(
       1. An explicit ``uri`` wins, paired with ``username`` (default
          :data:`DEFAULT_USERNAME`). The address is used as written, never
          rebuilt from the local port.
-      2. Otherwise ``bolt://localhost:{port_host}`` as :data:`DEFAULT_USERNAME`.
+      2. Otherwise ``bolt://localhost:{port_host}`` as :data:`DEFAULT_USERNAME`,
+         with ``port_host`` defaulting to the ``graphdb_bolt`` slot at ``base``.
          A configured ``username`` is deliberately *not* honored here: the
          container authenticates on the composite ``neo4j/${GRAPHDB_PASSWORD}``,
          so any other account would be one the store does not have.
@@ -343,6 +376,14 @@ def resolve_graphdb_connection(
             parsed ``.env`` instead: run from another directory, the ambient
             value belongs to some other deployment, and using it would either
             fail confusingly or reach a store this call was never pointed at.
+        base: The port base this deployment resolved, from
+            :func:`osprey.port_layout.resolve_port_base`. Only consulted when no
+            ``port_host`` is set, in which case the derived address dials the
+            ``graphdb_bolt`` slot of *this* deployment's block — the same number
+            :func:`resolve_graphdb_service_config` publishes it on, which is the
+            whole point: dial and publish must agree. ``None`` means the
+            layout's own default base, which is right only for a caller with no
+            config to resolve one from.
 
     Returns:
         The address and credentials to open a driver with.
@@ -363,7 +404,7 @@ def resolve_graphdb_connection(
 
     port = _port(
         (services if services is not None else section).get("port_host"),
-        DEFAULT_PORT,
+        default_port("graphdb_bolt", base=base),
         GRAPHDB_PORT_CONFIG_KEY,
     )
     return GraphdbConnection(

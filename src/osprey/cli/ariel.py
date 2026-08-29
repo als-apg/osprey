@@ -616,22 +616,37 @@ def quickstart_command(source: str | None) -> None:
 
 
 @ariel_group.command("web")
-@click.option("--port", "-p", type=int, default=8085, help="Port to run on")
+@click.option(
+    "--port",
+    "-p",
+    type=int,
+    default=None,
+    help="Port to run on (default: OSPREY_ARIEL_PORT, then config, then this deployment's layout port)",
+)
 @click.option("--host", "-h", default="127.0.0.1", help="Host to bind to")
 @click.option("--reload", is_flag=True, help="Enable auto-reload for development")
-def web_command(port: int, host: str, reload: bool) -> None:
+def web_command(port: int | None, host: str, reload: bool) -> None:
     """Launch the ARIEL web interface.
 
     Starts a FastAPI server providing a web-based search interface
     for ARIEL with support for search, browsing, and entry creation.
 
     Example:
-        osprey ariel web                    # Start on localhost:8085
+        osprey ariel web                    # Start on this deployment's ARIEL port
         osprey ariel web --port 8080        # Custom port
         osprey ariel web --host 0.0.0.0     # Bind to all interfaces
         osprey ariel web --reload           # Development mode with auto-reload
     """
+    from osprey.registry.web import resolve_web_server_address
+
     _load_ariel_config()
+
+    if port is None:
+        # The framework's shared derivation: the OSPREY_ARIEL_PORT override a
+        # multi-user deployment exports, then the config section's own port,
+        # then ARIEL's slot at the base this deployment resolved. An explicit
+        # --port wins over all of it.
+        _, port = resolve_web_server_address("ariel")
 
     output.report(f"Starting ARIEL Web Interface on http://{host}:{port}")
     output.note("Press Ctrl+C to stop")

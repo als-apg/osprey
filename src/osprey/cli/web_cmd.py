@@ -34,6 +34,7 @@ from typing import Any
 
 import click
 
+from osprey.port_layout import default_port, resolve_port_base
 from osprey.utils.workspace import STATE_DIR_NAME, agent_data_base_dir, anchored_path
 
 from . import output
@@ -92,7 +93,11 @@ def resolve_bind_host(
 
 
 def resolve_web_port(
-    cli_port: int | None, config_port: int | None, env: Mapping[str, str] = os.environ
+    cli_port: int | None,
+    config_port: int | None,
+    *,
+    base: int,
+    env: Mapping[str, str] = os.environ,
 ) -> int:
     """Single source of the port ``osprey web`` binds to. Enforces criterion C3 for ports.
 
@@ -104,7 +109,7 @@ def resolve_web_port(
     passing a mismatched ``--port`` must NOT desync the container from the
     reverse-proxy's routing table. Single-user ``osprey web`` sets no such
     env, so ``--port`` (or the ``OSPREY_WEB_PORT`` click envvar fallback, or
-    config, or the 8087 default) is honored verbatim.
+    config, or the layout's ``web`` slot) is honored verbatim.
 
     ``OSPREY_TERMINAL_WEB_PORT`` is a DECLARATION set by the compose overlay
     for THIS container only — it is never re-exported to children, unlike
@@ -114,11 +119,29 @@ def resolve_web_port(
     opposite of "declared wins" this function exists to provide — the same
     reasoning that keeps ``resolve_bind_host`` a plain function rather than
     a click envvar.
+
+    Args:
+        cli_port: The port ``--port`` (or its ``OSPREY_WEB_PORT`` envvar
+            fallback) asked for, or ``None`` when unspecified.
+        config_port: ``web_terminal.port`` from the rendered config, or
+            ``None`` when the deployment sets none.
+        base: The port base this deployment resolved, from
+            :func:`~osprey.port_layout.resolve_port_base`. Keyword-only and
+            without a default on purpose: the terminal fallback is the layout's
+            ``web`` slot at *this* deployment's base, so a caller that can
+            reach the config must hand the resolved base down rather than let
+            the layout fall back to its own default.
+        env: Environment to read the declaration from. Defaults to the real
+            one; tests pass a mapping.
+
+    Returns:
+        The declared port when one is declared, else the first of ``cli_port``,
+        ``config_port`` and the layout's ``web`` port at ``base``.
     """
     declared = env.get(DECLARED_WEB_PORT_ENV)
     if declared:
         return int(declared)
-    return cli_port or config_port or 8087
+    return cli_port or config_port or default_port("web", 0, base=base)
 
 
 def _refuse_session_lifetime(value: object, source: str) -> click.ClickException:
@@ -342,6 +365,50 @@ def _preflight_vendor_check() -> None:
     raise SystemExit(1)
 
 
+def _companion_roster_failure(
+    key: str,
+    name: str,
+    family: str,
+    port: int,
+    base: int,
+    section_key: str,
+) -> str:
+    """Word a companion-port clash this deployment's own multi-user roster caused.
+
+    Single-user ``osprey web`` and roster user 0 both take index 0 of every
+    port family, so a repo whose ``modules.web_terminals.enabled`` is true
+    cannot run the two side by side at one base. That is a different diagnosis
+    from a foreign listener — the port is not stolen, it is spoken for — and it
+    has different remedies, so it gets its own wording rather than sending the
+    operator to ``lsof`` to rediscover their own deployment.
+
+    Args:
+        key: Registry key of the companion server, e.g. ``"artifact"``.
+        name: The server's display name.
+        family: Port family the clash sits in — the registry key, or the
+            definition's ``port_family`` when it names a different one.
+        port: The port a listener was found on.
+        base: The port base this deployment resolved.
+        section_key: Dotted config key that overrides this server's port.
+
+    Returns:
+        The failure line, naming both escapes there are: the per-section
+        ``port:`` override and ``osprey web --port``. Deliberately no second
+        base knob — one deployment gets one block.
+    """
+    return (
+        f"Companion panel '{key}' ({name}) port {port} is already in use: "
+        "this deployment's multi-user roster (user 0) owns this port.\n"
+        f"  modules.web_terminals.enabled is true in this repo, and {port} is the "
+        f"'{family}' family's index-0 slot at port base {base} — single-user "
+        "`osprey web` and roster user 0 share index 0, so the two cannot run "
+        "side by side at one base.\n"
+        f"  Move this panel:    set {section_key} in config.yml\n"
+        "  Move the terminal:  osprey web --port <port> "
+        "(its own index-0 slot clashes the same way)"
+    )
+
+
 def _probe_companion_ports() -> list[str]:
     """Probe 1: TCP-connect-probe every companion panel port the lifespan will bind.
 
@@ -357,10 +424,13 @@ def _probe_companion_ports() -> list[str]:
     a local translation table here drifted from the health category's copy.
 
     A listener already bound to a companion port before we start ours is
-    foreign: at best it steals the panel's tab, at worst it silently
-    reverse-proxies another project's data into this UI. Zero network I/O
-    beyond the local TCP connect probe itself — no server starts, no
-    registry init, no LLM calls.
+    usually foreign: at best it steals the panel's tab, at worst it silently
+    reverse-proxies another project's data into this UI. The one case it is
+    NOT foreign is this deployment's own multi-user roster — see
+    :func:`_companion_roster_failure` — which is why the probe resolves the
+    base and reads ``modules.web_terminals.enabled`` before it words a
+    failure. Zero network I/O beyond the local TCP connect probe itself — no
+    server starts, no registry init, no LLM calls.
     """
     from osprey.infrastructure.server_launcher import (
         _launchers,
@@ -371,10 +441,22 @@ def _probe_companion_ports() -> list[str]:
     from osprey.registry.web import (
         FRAMEWORK_WEB_SERVERS,
         WebServerConfigDepthError,
+        framework_web_port_default,
         resolve_web_server_address,
     )
+    from osprey.utils.workspace import load_osprey_config
 
     enabled_panels, _custom_panels, _default_panel = _load_panel_config()
+
+    # The render `_resolve_render()` settled on, read once and handed down:
+    # both the base every index-0 slot is derived from and the roster flag the
+    # attribution turns on come from THIS repo's config, never from an ambient
+    # default. Passing it on also spares each server a reload — except when
+    # nothing loaded, where the resolver's own no-config warning is worth more
+    # than the saved read.
+    config = load_osprey_config() or {}
+    base = resolve_port_base(config)
+    roster_enabled = bool(((config.get("modules") or {}).get("web_terminals") or {}).get("enabled"))
 
     failures: list[str] = []
     for key, defn in FRAMEWORK_WEB_SERVERS.items():
@@ -383,14 +465,29 @@ def _probe_companion_ports() -> list[str]:
         try:
             if not _make_auto_launch_checker(defn)():
                 continue  # auto_launch off, or require_section unmet
-            host, port = resolve_web_server_address(key)
+            host, port = resolve_web_server_address(key, config or None)
         except WebServerConfigDepthError as exc:
             # A misplaced host/port/auto_launch key is a config defect, not a
             # port clash — report it here rather than letting it traceback out
             # of pre-flight, so `osprey web` names the key and the fix.
             failures.append(str(exc))
             continue
-        if _launchers[key]._port_has_listener(host, port):
+        if not _launchers[key]._port_has_listener(host, port):
+            continue
+        if roster_enabled and port == framework_web_port_default(key, base=base):
+            failures.append(
+                _companion_roster_failure(
+                    key,
+                    defn.name,
+                    defn.port_family or key,
+                    port,
+                    base,
+                    ".".join(
+                        part for part in (defn.config_key, defn.config_web_subkey, "port") if part
+                    ),
+                )
+            )
+        else:
             failures.append(
                 f"Companion panel '{key}' ({defn.name}) port {port} is already in use "
                 "by another process.\n"
@@ -693,7 +790,7 @@ def _resolve_web_shell_command(
     type=int,
     default=None,
     envvar="OSPREY_WEB_PORT",
-    help="Port to run on (default: from config or 8087)",
+    help="Port to run on (default: from config, else the layout's web slot)",
 )
 @click.option("--host", default=None, help="Host to bind to (default: from config or 127.0.0.1)")
 @click.option("--reload", is_flag=True, help="Enable auto-reload for development")
@@ -737,7 +834,7 @@ def web(
     Example:
 
     \b
-        osprey web                         # Start on localhost:8087
+        osprey web                         # Start on the web slot (localhost:10100 at the default base)
         osprey web --port 9000             # Custom port
         osprey web --host 0.0.0.0          # Bind to all interfaces
         osprey web --shell zsh             # Use zsh instead of claude
@@ -805,9 +902,14 @@ def web(
     # An explicitly chosen port must never be silently reassigned: a DECLARED
     # port (multi-user compose — MUST match nginx's per-user upstream) or an
     # explicit --port / OSPREY_WEB_PORT is authoritative. Only an unspecified
-    # port (config default or the 8087 fallback) may auto-move off a busy port.
+    # port (config default or the layout's web slot) may auto-move off a busy port.
     port_pinned = os.environ.get(DECLARED_WEB_PORT_ENV) is not None or port is not None
-    port = resolve_web_port(port, wt_config.get("port"))
+    # The base comes from the render this command just resolved, never from the
+    # layout's own default: two deployments on one host differ only by their
+    # ``deployment.port_base``, and a terminal that fell back to the module
+    # default would land in the other deployment's block.
+    port_base = resolve_port_base({"deployment": get_config_value("deployment", {})})
+    port = resolve_web_port(port, wt_config.get("port"), base=port_base)
 
     user_shell_override = shell  # keep raw click value for the detached re-spawn
     try:
@@ -873,8 +975,9 @@ def web(
     # Publish the ACTUAL port to every child process (PTY shells, their MCP
     # servers): web_terminal_url() resolves OSPREY_WEB_PORT first, and
     # without this, panel tools (open_panel etc.) fire-and-forget their
-    # focus POSTs at the config default (8087) whenever --port differs —
-    # reporting success while the real terminal never hears the event.
+    # focus POSTs at the deployment's own default (the web slot) whenever
+    # --port differs — reporting success while the real terminal never hears
+    # the event.
     os.environ["OSPREY_WEB_PORT"] = str(port)
 
     # Mint the operator secret in THIS (parent) process, after the port has
@@ -1242,6 +1345,7 @@ def web_sessions_clear(ctx: click.Context, repo: Path | None, force: bool) -> No
     try:
         repo_root, _build_dir, _config_path = _resolve_render(repo)
         wt_config = get_config_value("web_terminal", {})
+        port_base = resolve_port_base({"deployment": get_config_value("deployment", {})})
         store_dir = (
             anchored_path(
                 agent_data_base_dir({"agent_data": get_config_value("agent_data", {})}), repo_root
@@ -1252,7 +1356,7 @@ def web_sessions_clear(ctx: click.Context, repo: Path | None, force: bool) -> No
         os.chdir(cwd)
 
     host = resolve_bind_host(None, wt_config.get("host"))
-    port = resolve_web_port(None, wt_config.get("port"))
+    port = resolve_web_port(None, wt_config.get("port"), base=port_base)
 
     output.section("", {"Repo": repo_root, "Store": store_dir})
 

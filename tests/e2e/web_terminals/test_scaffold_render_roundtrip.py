@@ -34,6 +34,7 @@ from osprey.deployment.web_terminals.ports import (
     base_ports_from_config,
 )
 from osprey.deployment.web_terminals.render import render_web_terminals
+from osprey.port_layout import resolve_port_base
 
 pytestmark = pytest.mark.e2e
 
@@ -68,14 +69,14 @@ def _sample_config() -> dict:
         },
         "registry": {"url": "git.dls.example.org:5050/physics/production/dls-profiles"},
         "deploy": {"host": "dls-deploy", "fqdn": "dls-deploy.dls.example.org"},
+        # This facility runs its whole block one thousand above the framework
+        # default and pins no family by hand: every port the render allocates is
+        # the layout's offset from THIS base, which is what a second deployment
+        # sharing a host actually looks like.
+        "deployment": {"port_base": 20000},
         "modules": {
             "web_terminals": {
                 "enabled": True,
-                "nginx_port": 9080,
-                "web_base_port": 9091,
-                "artifact_base_port": 9291,
-                "ariel_base_port": 9391,
-                "lattice_base_port": 9491,
                 "users": [
                     {"name": "alice", "index": 0},
                     {"name": "bob", "index": 1},
@@ -113,7 +114,7 @@ def test_scaffold_render_consistency_across_all_generated_artifacts() -> None:
     users = [entry["name"] for entry in roster]
     # Same effective base set the render allocates from: config values plus
     # registry defaults for families the config doesn't pin.
-    base_ports = base_ports_from_config(web_terminals)
+    base_ports = base_ports_from_config(web_terminals, base=resolve_port_base(config))
 
     # Act
     findings = lint_web_terminals(config)

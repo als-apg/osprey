@@ -22,6 +22,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from osprey.registry.web import framework_web_port_default
+
 _MODULE = "osprey.interfaces.artifacts.logbook"
 
 
@@ -257,10 +259,10 @@ class TestLogbookSubmit:
         """Without ARIEL_WEB_URL, the submit URL must be a web-terminal-relative
         proxy path — not an absolute container-internal address.
 
-        Regression: a default of ``http://127.0.0.1:8085`` is unreachable
-        from the user's browser. The panel embeds via /panel/ariel
-        and resolves the URL with ``new URL(url, origin)``, so it must be
-        origin-relative to load through the proxy.
+        Regression: an absolute loopback address — ARIEL's own layout port
+        included — is unreachable from the user's browser. The panel embeds via
+        /panel/ariel and resolves the URL with ``new URL(url, origin)``, so it
+        must be origin-relative to load through the proxy.
         """
         monkeypatch.delenv("ARIEL_WEB_URL", raising=False)
         with patch(f"{_MODULE}.resolve_shared_data_root", return_value=tmp_path):
@@ -271,7 +273,7 @@ class TestLogbookSubmit:
 
         url = resp.json()["url"]
         assert not url.startswith("http://127.0.0.1")
-        assert "8085" not in url
+        assert str(framework_web_port_default("ariel")) not in url
         assert url.startswith("/panel/ariel")
 
     @pytest.mark.unit

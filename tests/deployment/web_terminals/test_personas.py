@@ -1710,7 +1710,7 @@ _VA_ARMED_LIVE_DEPLOYMENT: dict = {
         "writes_enabled": False,
         "connector": {"epics": {}, "virtual_accelerator": {"writes_enabled": True}},
     },
-    "services": {"bluesky_va": {"target": "va", "port": 8091}},
+    "services": {"bluesky_va": {"target": "va", "port": 10081}},
     "claude_code": {"servers": {"bluesky": {"enabled": True}}},
 }
 
@@ -1743,7 +1743,7 @@ def test_lane_control_target_falls_back_to_the_target_the_lane_key_names() -> No
     """A lane is named for the target it serves, so a block that wrote no
     `target:` is still unambiguous -- the key itself answers."""
     # Arrange
-    config = {"services": {"bluesky_va": {"port": 8091}, "bluesky_live": {"port": 8092}}}
+    config = {"services": {"bluesky_va": {"port": 10081}, "bluesky_live": {"port": 10082}}}
 
     # Assert
     assert lane_control_target(config, "bluesky_va") == "va"
@@ -1777,7 +1777,7 @@ def test_config_needs_launch_token_for_denies_every_lane_for_the_readonly_tier()
             "writes_enabled": False,
             "connector": {"epics": {"writes_enabled": False}, "virtual_accelerator": {}},
         },
-        "services": {"bluesky_va": {"target": "va", "port": 8091}},
+        "services": {"bluesky_va": {"target": "va", "port": 10081}},
         "claude_code": {"servers": {"bluesky": {"enabled": True}}},
     }
 
@@ -1874,7 +1874,7 @@ def test_personas_needing_launch_token_by_lane_is_empty_for_the_readonly_tier(tm
                             "writes_enabled": False,
                             "connector": {"epics": {}, "virtual_accelerator": {}},
                         },
-                        "services": {"bluesky_va": {"target": "va", "port": 8091}},
+                        "services": {"bluesky_va": {"target": "va", "port": 10081}},
                         "claude_code": {"servers": {"bluesky": {"enabled": True}}},
                     },
                 ),

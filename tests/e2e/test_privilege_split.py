@@ -103,6 +103,7 @@ from osprey.cli.main import cli
 from osprey.deployment.web_terminals.naming import web_container_name
 from osprey.deployment.web_terminals.seeding import seed_user_containers
 from osprey.deployment.wheel_build import _copy_local_framework_for_override
+from osprey.port_layout import default_port
 from osprey.utils.workspace import container_image_context
 
 
@@ -114,6 +115,12 @@ def _docker_available() -> bool:
     except (OSError, subprocess.TimeoutExpired):
         return False
 
+
+#: The port the project image serves on INSIDE the container: the ``web`` slot
+#: of the layout, which ``Dockerfile.j2`` renders into its ``EXPOSE`` line. The
+#: image is built from a config that never moves ``deployment.port_base``, so
+#: the layout's default base is the right one to derive it at.
+_WEB_SLOT = default_port("web")
 
 pytestmark = [
     pytest.mark.e2e,
@@ -218,7 +225,7 @@ def _is_running(cid: str) -> bool:
 
 
 def _host_port(cid: str) -> int:
-    out = _docker("port", cid, "8087/tcp", timeout=30)
+    out = _docker("port", cid, f"{_WEB_SLOT}/tcp", timeout=30)
     assert out.returncode == 0, f"docker port failed: {out.stderr}"
     return int(out.stdout.strip().splitlines()[0].rsplit(":", 1)[1])
 
@@ -383,7 +390,9 @@ def admin_image(preset_repo: Path, admin_project: str):
 def _run_web(tag: str, *extra: str) -> str:
     """Start a container on the image's own CMD, port published on loopback."""
     name = f"{TAG_PREFIX}-{uuid.uuid4().hex[:8]}"
-    run = _docker("run", "-d", "--name", name, "-p", "127.0.0.1:0:8087", *extra, tag, timeout=120)
+    run = _docker(
+        "run", "-d", "--name", name, "-p", f"127.0.0.1:0:{_WEB_SLOT}", *extra, tag, timeout=120
+    )
     assert run.returncode == 0, f"docker run failed: {run.stderr}"
     return name
 
@@ -555,7 +564,7 @@ def admin_state(admin_image):
 
         restart = _docker("restart", cid, timeout=180)
         assert restart.returncode == 0, restart.stderr
-        # A restart re-publishes the ephemeral port: `-p 127.0.0.1:0:8087` is
+        # A restart re-publishes the ephemeral port: `-p 127.0.0.1:0:<web slot>` is
         # resolved per start, so the pre-restart URL is refused forever.
         base_url = f"http://127.0.0.1:{_host_port(cid)}"
         _wait_for_health(base_url, cid)

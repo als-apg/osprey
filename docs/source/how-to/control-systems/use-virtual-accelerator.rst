@@ -134,7 +134,7 @@ Rehearsing against a live target
 
 A deployment usually has nothing to rehearse the real-machine procedure on: the
 ``epics`` connector points at a facility gateway that may not exist yet, or not
-from this laptop. Setting ``virtual_accelerator.live_standin: 5074`` in the build
+from this laptop. Setting ``virtual_accelerator.live_standin: true`` in the build
 profile gives it a machine to rehearse on — a **second** simulator container,
 deployed as a control target of its own, ``standin``. The ``control-assistant``
 preset ships it on; delete the line to run one machine again.

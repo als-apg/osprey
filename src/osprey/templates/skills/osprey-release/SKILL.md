@@ -124,8 +124,9 @@ cd docs && make screenshots          # all container-free recipes — no contain
 
 Two recipes are opt-in because they cost more:
 
-- `ariel` needs a container runtime and a free port 5432 —
-  `make screenshots SCREENSHOTOPTS=--stack`.
+- `ariel` needs a container runtime and a free port 10800 (the layout's postgres
+  slot at the default base; `services.postgresql.port_host` if the deployment
+  moved it) — `make screenshots SCREENSHOTOPTS=--stack`.
 - `web_terminal_hero` drives a live agent session on that stack —
   `python -m docs.screenshots --agentic --only web_terminal_hero`. It spends
   real subscription budget, so re-capture it when the Web Terminal's appearance

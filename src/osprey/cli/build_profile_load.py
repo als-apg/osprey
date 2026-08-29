@@ -13,12 +13,13 @@ assembled its own raw dict.
 from __future__ import annotations
 
 import difflib
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
 from osprey.errors import BuildProfileError
+from osprey.port_layout import DEFAULT_PORT_BASE, default_port, resolve_port_base
 from osprey_connectors.types import SET_CONTROL_SYSTEM_TYPES
 
 from .build_profile_archiver import parse_va_archiver_block
@@ -221,6 +222,99 @@ _KNOWN_DISPATCH_KEYS = frozenset(f.name for f in fields(DispatchConfig))
 # and a session meant for the soft IOC runs against the same lane the operator
 # was already on.
 _KNOWN_VA_KEYS = frozenset(f.name for f in fields(VAConfig))
+
+
+def _profile_port_base(raw: dict[str, Any]) -> int:
+    """Return the port base this profile's ``config:`` block resolves to.
+
+    The one rule the port layout runs on is that a port is derived from the base
+    the deployment actually resolved, never from the layout's own default — so a
+    loader that places a service by slot has to read the profile's own
+    ``deployment.port_base`` first. A ``config:`` block is a flat bag of dotted
+    keys that may spell that path at any depth, which is what
+    :func:`~osprey.cli.build_profile_emit.effective_config_subtree` folds into
+    one subtree; re-wrapping the result under ``deployment`` keeps
+    :func:`~osprey.port_layout.resolve_port_base` on its single input shape, so
+    the range refusal fires here too.
+
+    Args:
+        raw: The fully-merged raw profile mapping — presets, ``extends``
+            parents, ``-O`` layers and ``--set`` pairs already folded in.
+
+    Returns:
+        The base the profile configures, or
+        :data:`~osprey.port_layout.DEFAULT_PORT_BASE` when it configures none.
+
+    Raises:
+        ValueError: If the profile names a base whose thousand-port block could
+            not exist (below 1024, or running past port 65535).
+    """
+    # Imported inside the function on purpose: build_profile_emit imports this
+    # module at import time, so a module-level import would close the cycle.
+    from .build_profile_emit import effective_config_subtree
+
+    config = raw.get("config")
+    if not isinstance(config, Mapping):
+        return DEFAULT_PORT_BASE
+    # Only the keys that address `deployment` are folded. Handing the whole
+    # block to the folder would make a prefix conflict anywhere in it — a
+    # scalar `env:` beside an `env.required:`, say — a refusal raised here, at
+    # profile parse, on behalf of a key this function never reads. Those
+    # conflicts belong to the axis that owns the key and are reported there.
+    deployment_keys = {
+        key: value
+        for key, value in config.items()
+        if key == "deployment" or (isinstance(key, str) and key.startswith("deployment."))
+    }
+    return resolve_port_base(
+        {"deployment": effective_config_subtree(deployment_keys, ("deployment",))}
+    )
+
+
+def _parse_live_standin(value: Any, base: int) -> int | None:
+    """Normalise ``virtual_accelerator.live_standin`` to a port or ``None``.
+
+    ``true`` is the spelling a profile should use: it asks for the stand-in
+    without naming a number, and the number it gets is the layout's
+    ``va_standin`` slot on *this deployment's* base, so two deployments on one
+    host never collide over it. An explicit integer is still honoured — a
+    facility may have to place the second soft-IOC somewhere specific — and the
+    field stays an ``int | None`` either way, so nothing downstream has to know
+    which spelling was used.
+
+    ``false`` is refused rather than read as "off": a profile that inherits the
+    key from a preset switches the stand-in off by excluding the key, and
+    silently accepting ``false`` here would leave two spellings for absence.
+
+    Args:
+        value: The raw ``live_standin`` value, or ``None`` when unset.
+        base: The base the profile resolved, from :func:`_profile_port_base`.
+
+    Returns:
+        The Channel Access port of the stand-in, or ``None`` when the profile
+        does not deploy one.
+
+    Raises:
+        BuildProfileError: If the value is ``false`` or is neither ``true`` nor
+            an integer.
+    """
+    if value is None:
+        return None
+    if value is True:
+        return default_port("va_standin", base=base)
+    if value is False:
+        raise BuildProfileError(
+            "virtual_accelerator.live_standin: false is not a way to switch the "
+            "stand-in off. Write `true` to deploy it on the layout's stand-in port, "
+            "or omit the key (exclude it, if a parent profile sets it) to deploy no "
+            "stand-in at all."
+        )
+    if not isinstance(value, int):
+        raise BuildProfileError(
+            "virtual_accelerator.live_standin must be `true` — the layout's stand-in "
+            f"port on this deployment's base — or a Channel Access port number (got {value!r})"
+        )
+    return value
 
 
 def _parse_environment(raw: dict[str, Any]) -> EnvironmentConfig:
@@ -707,6 +801,14 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
 
     dependencies = raw.get("dependencies", [])
 
+    # Resolved ONCE, here, and handed to every block below. The layout's rule is
+    # that a port comes from the base the deployment actually resolved, so an
+    # unspelled port key cannot fall back to the dataclass default: those are
+    # computed at the layout's own base and would bake 10010 into a deployment
+    # that asked for 20000, leaving the rendered config disagreeing with the
+    # compose templates that derive from `osprey_ports`.
+    port_base = _profile_port_base(raw)
+
     dispatch_raw = raw.get("dispatch")
     dispatch = None
     if dispatch_raw is not None:
@@ -721,8 +823,15 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             workspace_mode=dispatch_raw.get("workspace_mode", "isolated"),
             max_concurrent_runs=dispatch_raw.get("max_concurrent_runs", 2),
             max_queue_depth=dispatch_raw.get("max_queue_depth", 50),
-            dispatcher_port=dispatch_raw.get("dispatcher_port", 9900),
-            worker_port_base=dispatch_raw.get("worker_port_base", 9901),
+            dispatcher_port=dispatch_raw.get(
+                "dispatcher_port", default_port("dispatcher", base=port_base)
+            ),
+            worker_port_base=dispatch_raw.get(
+                "worker_port_base", default_port("worker", 1, base=port_base)
+            ),
+            worker_port_stride=dispatch_raw.get(
+                "worker_port_stride", DispatchConfig.worker_port_stride
+            ),
             timeout_sec=dispatch_raw.get("timeout_sec", 300),
             inactivity_sec=dispatch_raw.get("inactivity_sec", 120),
             facility_name=dispatch_raw.get("facility_name", ""),
@@ -752,14 +861,24 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             raise BuildProfileError(
                 f"bluesky.devices_file must be a non-empty path string (got {devices_file!r})"
             )
+        device_page_size = bluesky_raw.get("device_page_size", BlueskyConfig.device_page_size)
+        if (
+            not isinstance(device_page_size, int)
+            or isinstance(device_page_size, bool)
+            or device_page_size < 1
+        ):
+            raise BuildProfileError(
+                f"bluesky.device_page_size must be an integer >= 1 (got {device_page_size!r})"
+            )
         bluesky = BlueskyConfig(
-            port=bluesky_raw.get("port", 8090),
+            port=bluesky_raw.get("port", default_port("bluesky", base=port_base)),
             tiled_enabled=bluesky_raw.get("tiled_enabled", False),
-            tiled_port=bluesky_raw.get("tiled_port", 8091),
+            tiled_port=bluesky_raw.get("tiled_port", default_port("tiled", base=port_base)),
             second_lane=bool(bluesky_raw.get("second_lane", False)),
             plan_dir=bluesky_raw.get("plan_dir"),
             excluded_plans=excluded_plans,
             devices_file=devices_file,
+            device_page_size=device_page_size,
         )
 
     va_raw = raw.get("virtual_accelerator")
@@ -768,16 +887,9 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         if not isinstance(va_raw, dict):
             raise BuildProfileError("Profile 'virtual_accelerator' must be a mapping")
         _reject_unknown_block_keys(va_raw, _KNOWN_VA_KEYS, "virtual_accelerator")
-        live_standin = va_raw.get("live_standin")
-        if live_standin is not None and (
-            isinstance(live_standin, bool) or not isinstance(live_standin, int)
-        ):
-            raise BuildProfileError(
-                "virtual_accelerator.live_standin must be a Channel Access port number "
-                f"(got {live_standin!r})"
-            )
+        live_standin = _parse_live_standin(va_raw.get("live_standin"), port_base)
         virtual_accelerator = VAConfig(
-            port=va_raw.get("port", 5064),
+            port=va_raw.get("port", VAConfig.port),
             live_standin=live_standin,
         )
 
@@ -787,7 +899,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         if not isinstance(bluesky_web_raw, dict):
             raise BuildProfileError("Profile 'bluesky_web' must be a mapping")
         bluesky_web = BlueskyWebConfig(
-            port=bluesky_web_raw.get("port", 8095),
+            port=bluesky_web_raw.get("port", default_port("bluesky_web", base=port_base)),
         )
 
     nextcloud_bridge_raw = raw.get("nextcloud_bridge")
@@ -875,6 +987,6 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         bluesky_web=bluesky_web,
         nextcloud_bridge=nextcloud_bridge,
         gchat_bridge=gchat_bridge,
-        va_archiver=parse_va_archiver_block(raw),
+        va_archiver=parse_va_archiver_block(raw, base=port_base),
         provenance=provenance,
     )

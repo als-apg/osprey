@@ -6,7 +6,7 @@ import socket
 import time
 from unittest.mock import MagicMock, patch
 
-from osprey.registry.web import FRAMEWORK_WEB_SERVERS
+from osprey.registry.web import FRAMEWORK_WEB_SERVERS, framework_web_port_default
 
 
 def _free_port() -> int:
@@ -40,10 +40,14 @@ class TestLauncherConfigReader:
             return reader()
 
     def test_defaults_when_section_empty(self):
-        """Config reader returns default host/port when config section is empty."""
+        """Config reader returns default host/port when config section is empty.
+
+        The port is not a constant: with no ``deployment.port_base`` in the
+        config it is the Channel Finder's slot at the layout's default base.
+        """
         host, port = self._reader("channel_finder", {})
         assert host == "127.0.0.1"
-        assert port == 8092
+        assert port == framework_web_port_default("channel_finder")
 
     def test_custom_values_with_web_subkey(self):
         """Config reader navigates config_web_subkey correctly."""

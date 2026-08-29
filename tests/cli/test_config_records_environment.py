@@ -35,6 +35,7 @@ from click.testing import CliRunner
 from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
 from osprey.cli.templates.manager import TemplateManager
+from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 from osprey.utils.config import ConfigBuilder
 
 # The three bundled templates that render an ``execution:`` block. The other app
@@ -123,10 +124,18 @@ class TestTemplatesRenderTheDeclaration:
     def jinja_env(self):
         return TemplateManager().jinja_env
 
+    #: The port table the real render builds in
+    #: TemplateManager._project_context. These tests reach the
+    #: environment directly, so they carry it themselves.
+    PORTS = {
+        "port_base": DEFAULT_PORT_BASE,
+        "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
+    }
+
     @pytest.mark.parametrize("template_name", CONFIG_TEMPLATES)
     def test_renders_without_a_declaration(self, jinja_env, template_name):
         """With nothing declared the block still renders, as empty defaults."""
-        rendered = jinja_env.get_template(template_name).render({})
+        rendered = jinja_env.get_template(template_name).render(self.PORTS)
         execution = yaml.safe_load(rendered)["execution"]
 
         assert execution["execution_method"] == "subprocess"
@@ -141,6 +150,7 @@ class TestTemplatesRenderTheDeclaration:
         """The declared values reach the rendered YAML unchanged."""
         rendered = jinja_env.get_template(template_name).render(
             {
+                **self.PORTS,
                 "environment_python": "/opt/facility/analysis/bin/python",
                 "environment_packages": ["numpy>=2", "lmfit"],
                 "environment_inherit_exclude": ["pytest", "ruff"],
@@ -157,7 +167,7 @@ class TestTemplatesRenderTheDeclaration:
     @pytest.mark.parametrize("template_name", CONFIG_TEMPLATES)
     def test_no_python_env_path_key(self, jinja_env, template_name):
         """The retired key is gone from the templates entirely."""
-        rendered = jinja_env.get_template(template_name).render({})
+        rendered = jinja_env.get_template(template_name).render(self.PORTS)
 
         assert "python_env_path" not in rendered
         assert "python_env_path" not in yaml.safe_load(rendered)["execution"]

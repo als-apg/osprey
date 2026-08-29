@@ -638,7 +638,7 @@ def test_host_port_self_heal_restart_is_captured(monkeypatch, tmp_path, reporter
     monkeypatch.setattr(postup_hooks, "run_captured", recorder)
 
     postup_hooks.warn_if_web_stack_unreachable(
-        {"modules": {"web_terminals": {"nginx_port": 8080}}},
+        {"modules": {"web_terminals": {"enabled": True, "nginx_port": 8080}}},
         attempts=1,
         delay=0,
         web_cmd=["docker", "compose", "-f", "web.yml"],
@@ -672,7 +672,7 @@ def test_a_bounce_that_worked_reports_the_endpoint_as_reachable(monkeypatch, tmp
     monkeypatch.setattr(postup_hooks, "run_captured", RunRecorder())
 
     postup_hooks.warn_if_web_stack_unreachable(
-        {"modules": {"web_terminals": {"nginx_port": 8080}}},
+        {"modules": {"web_terminals": {"enabled": True, "nginx_port": 8080}}},
         attempts=1,
         delay=0,
         web_cmd=["docker", "compose", "-f", "web.yml"],
@@ -692,7 +692,7 @@ def test_host_port_probe_that_answers_runs_nothing(monkeypatch, tmp_path, report
     monkeypatch.setattr(postup_hooks, "run_captured", recorder)
 
     postup_hooks.warn_if_web_stack_unreachable(
-        {"modules": {"web_terminals": {"nginx_port": 8080}}},
+        {"modules": {"web_terminals": {"enabled": True, "nginx_port": 8080}}},
         web_cmd=["docker", "compose"],
         run_env={},
     )

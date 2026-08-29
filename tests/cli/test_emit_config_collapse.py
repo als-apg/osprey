@@ -17,6 +17,11 @@ import yaml
 from osprey.cli.build_profile import list_presets
 from osprey.cli.build_profile_emit import _collapse_config_prefixes, emit_standalone_profile_yaml
 from osprey.errors import BuildProfileError
+from osprey.port_layout import default_port
+
+#: A landing-page port for the fixtures below, spelled as the layout lookup a
+#: real config carries so no retired number rides along in a filler value.
+NGINX_PORT = default_port("nginx")
 
 
 def _emit(preset: str, overrides: tuple[Path, ...] = ()) -> str:
@@ -44,18 +49,18 @@ def test_deeper_key_wins_on_a_conflicting_leaf() -> None:
     """The whole point of the collapse: the deeper key's value survives, which
     is what applying the two in file order does today."""
     collapsed = _collapse_config_prefixes(
-        {"modules.web_terminals": {"enabled": True, "nginx_port": 9080}},
+        {"modules.web_terminals": {"enabled": True, "nginx_port": NGINX_PORT}},
     )
-    assert collapsed == {"modules.web_terminals": {"enabled": True, "nginx_port": 9080}}
+    assert collapsed == {"modules.web_terminals": {"enabled": True, "nginx_port": NGINX_PORT}}
 
     collapsed = _collapse_config_prefixes(
         {
-            "modules.web_terminals": {"enabled": True, "nginx_port": 9080},
+            "modules.web_terminals": {"enabled": True, "nginx_port": NGINX_PORT},
             "modules.web_terminals.enabled": False,
         }
     )
 
-    assert collapsed == {"modules.web_terminals": {"enabled": False, "nginx_port": 9080}}
+    assert collapsed == {"modules.web_terminals": {"enabled": False, "nginx_port": NGINX_PORT}}
 
 
 def test_deeper_key_wins_regardless_of_declaration_order() -> None:
@@ -118,7 +123,7 @@ def test_prefix_is_by_segment_not_by_string() -> None:
     delete a real override."""
     config = {
         "modules.web": {"enabled": True},
-        "modules.web_terminals.nginx_port": 9080,
+        "modules.web_terminals.nginx_port": NGINX_PORT,
     }
 
     collapsed = _collapse_config_prefixes(config)

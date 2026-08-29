@@ -34,7 +34,7 @@ the "Figure projection" section at the bottom of this file.
 
 import json
 from collections.abc import Sequence
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 import anyio
 from pydantic import ValidationError
@@ -148,8 +148,8 @@ async def list_plans() -> str:
 # Tool 4: list devices
 # ---------------------------------------------------------------------------
 @mcp.tool()
-async def list_devices() -> str:
-    """List the device names this deployment's plans accept.
+async def list_devices(prefix: str = "", limit: int | None = None, offset: int = 0) -> str:
+    """List the device names this deployment's plans accept, one page at a time.
 
     Plan parameters carry devices as strings, and this is the set those strings
     must come from — a name that is not here is not a device the worker has,
@@ -159,18 +159,76 @@ async def list_devices() -> str:
     whose declared role matches how it is meant to be used. Read this before
     staging any device name into the draft; never invent or guess one.
 
+    One page comes back per call, alongside ``total`` — how many names matched
+    before the page was cut — so "that is all of them" is always
+    distinguishable from "there is more". A facility-scale namespace is far
+    larger than one page: when a specific device is wanted, ``prefix`` is the
+    way to reach it, not paging to the end.
+
+    Args:
+        prefix: Return only names starting with this, matched literally and
+            CASE-SENSITIVELY, exactly as the worker spells them. Empty (the
+            default) returns every name.
+        limit: Maximum entries in this page. ``None`` (the default) asks for
+            the bridge's full page size. Values outside 1..page-size are
+            clamped by the bridge, never rejected.
+        offset: Index into the matching names to start this page at, counted
+            from 0. Clamped up to at least 0, likewise never rejected.
+
     Returns:
-        JSON ``{"status": "success", "devices": [...]}``, each entry
-        ``{"name"}`` plus whichever of ``is_movable``/``is_readable``/
-        ``is_flyable`` the worker reported — ``is_movable`` marks a device that
-        can be driven as a setpoint, ``is_readable`` one that can be read as a
-        readback. A missing flag means the worker did not say, not "no".
-        An empty list means this deployment's worker built no devices at all.
+        JSON ``{"status": "success", "devices": [...], "total", "offset",
+        "limit"}``. Each entry is ``{"name"}`` plus whichever of
+        ``is_movable``/``is_readable``/``is_flyable`` the worker reported —
+        ``is_movable`` marks a device that can be driven as a setpoint,
+        ``is_readable`` one that can be read as a readback. A missing flag
+        means the worker did not say, not "no".
+
+        ``total`` counts the matches before the page cut; ``offset`` and
+        ``limit`` are the EFFECTIVE values the bridge used after clamping, not
+        necessarily the ones asked for. A ``"note"`` appears whenever this page
+        holds fewer than ``total`` entries, saying how many are missing and how
+        to reach them — relay that rather than describing the page as the whole
+        set. ``devices: []`` with ``total: 0`` means nothing matched: for an
+        empty ``prefix`` the worker built no devices at all, and otherwise no
+        name starts with it (check the spelling and the case).
     """
-    status, body = await anyio.to_thread.run_sync(_http_get_json, "/devices")
+    params: dict[str, str | int] = {}
+    if prefix:
+        params["prefix"] = prefix
+    if limit is not None:
+        params["limit"] = limit
+    if offset:
+        params["offset"] = offset
+    path = "/devices" + (f"?{urlencode(params)}" if params else "")
+    status, body = await anyio.to_thread.run_sync(_http_get_json, path)
     if status != 200:
         return make_error("bluesky_bridge_error", bridge_error_message(body, status))
-    return json.dumps({"status": "success", "devices": body})
+    # The route clamps; this tool reports what came back rather than what was
+    # asked for, so `offset`/`limit` below are the bridge's effective values.
+    devices = body["devices"]
+    total = body["total"]
+    effective_offset = body["offset"]
+    result = {
+        "status": "success",
+        "devices": devices,
+        "total": total,
+        "offset": effective_offset,
+        "limit": body["limit"],
+    }
+    if len(devices) < total:
+        if effective_offset >= total:
+            result["note"] = (
+                f"This page is empty because offset {effective_offset} is past the end of "
+                f"the namespace, which holds {total} matching devices — read again from a "
+                "lower offset."
+            )
+        else:
+            result["note"] = (
+                f"{total - effective_offset - len(devices)} of the {total} matching devices "
+                "are not on this page — narrow the search with prefix, or read the next page "
+                "with offset."
+            )
+    return json.dumps(result)
 
 
 # ---------------------------------------------------------------------------

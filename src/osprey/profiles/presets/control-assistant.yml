@@ -115,9 +115,10 @@ web_panels:
 # line under `config:` below — the block deploys the bridge, the line switches
 # on the server that dials it, and the build refuses the line left on alone.
 bluesky:
-  port: 8090
+  # The bridge and its Tiled catalog publish inside this deployment's port
+  # block, so neither needs a number here. Add `port:` or `tiled_port:` only to
+  # pin one somewhere outside the block.
   tiled_enabled: true      # also runs the Tiled data catalog
-  tiled_port: 8091
 
 virtual_accelerator:
   # EPICS port the simulator serves on. The agent follows this value, so
@@ -125,7 +126,7 @@ virtual_accelerator:
   port: 5064
   # A second copy of the simulator with a small fixed offset on its readouts,
   # stood up as this deployment's own third control target: `standin`. From
-  # this port alone the build derives the target's connector block,
+  # this key alone the build derives the target's connector block,
   # `control_system.connector.live_standin` — seven leaves, nothing else.
   # `control_target_set standin` points a session at it, and what an operator
   # meets there is a real machine's behaviour — approval prompts, strict-limit
@@ -141,10 +142,14 @@ virtual_accelerator:
   # `osprey sim apply` moves both machines — a scenario changes the world, not
   # one lane. The archiver records the stand-in, and its seeded history carries
   # the same offsets: the archive belongs to the machine.
-  live_standin: 5074
+  # `true` serves the stand-in on this deployment's own stand-in port, so two
+  # deployments on one host never collide over it. Write a Channel Access port
+  # number instead only to pin it somewhere specific.
+  live_standin: true
 
-bluesky_web:
-  port: 8095
+# The block's presence is the switch, and its only key — `port:` — comes from
+# this deployment's port block, so there is nothing to write inside it.
+bluesky_web: {}
 
 # ── Stored archive (MongoDB) ─────────────────────────────────────────────────
 # With this block, `osprey up` runs a real archive: a MongoDB store that is
@@ -257,24 +262,24 @@ config:
     # No deploy block yet, so this is image_source's only home: build each
     # terminal image here rather than pulling it from a registry.
     image_source: local
-    nginx_port: 9080            # the landing page everyone opens first
-    # Browsers reach this nginx directly here, so the address they open is
-    # derived from deploy.fqdn and the port above — and that is the address
-    # every terminal checks an action against. Put something in front of this
-    # nginx (a load balancer terminating TLS, a reverse proxy, a DNS alias) and
-    # add `external_origin: https://<what browsers open>` beside this line, or
-    # every action inside a terminal is refused while every page still loads.
-    # User number i gets base + i in each family below, so removing a user
-    # never shifts anyone else's ports. One hundred per family, base ending in
-    # 00 (91 terminal, 92 artifact, 93 ariel, 94 lattice, 95 channel finder;
-    # okf 96 and health 97 come from the registry defaults), clear of the
-    # singleton services in 98xx/99xx (qmd, dispatcher + workers) and of the
-    # bluesky lanes and Channel Access below 9000 (8090/8190/8095, 5064).
-    web_base_port: 9100           # first per-user web-terminal port
-    artifact_base_port: 9200      # first per-user artifact-gallery port
-    ariel_base_port: 9300         # first per-user ARIEL search port
-    lattice_base_port: 9400       # first per-user lattice-dashboard port
-    channel_finder_base_port: 9500  # first per-user channel-finder panel port
+    # No port keys here on purpose. Every host port this deployment publishes
+    # is `deployment.port_base` (10000 unless you set it) plus a fixed offset:
+    # the landing page at the base itself, the shared services just above it,
+    # one hundred ports per per-user family from base + 100 up, and the stores
+    # at base + 800. User number i gets its family's first port + i, so
+    # removing a user never shifts anyone else's ports. Give a second
+    # deployment its own `port_base` and its whole block moves with it; the
+    # virtual accelerator's Channel Access port (5064) is the one exception.
+    # The reference guide's ports page prints the table.
+    # Browsers reach the landing page's nginx directly here, so the address
+    # they open is deploy.fqdn plus that port — and that is the address every
+    # terminal checks an action against. Put something in front of this nginx
+    # (a load balancer terminating TLS, a reverse proxy, a DNS alias) and add
+    # `external_origin: https://<what browsers open>` here, or every action
+    # inside a terminal is refused while every page still loads.
+    # To override one port rather than move the block, name it here:
+    #   nginx_port: 18000         # the landing page everyone opens first
+    #   web_base_port: 18100      # first per-user web-terminal port
     default_persona: readonly   # used for any user below with no persona
     # Every terminal below asks for a login (user alice: password alice, and
     # so on — set in this repo's .env; rotate with `osprey users passwd`).

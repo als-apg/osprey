@@ -126,11 +126,11 @@ def wait_for_worker_environment(
     environment on a poll, downloads the worker's plan and device lists, and
     only then recomputes what is allowed. An enqueue landing in that window
     is refused with exactly the 409 this gate exists to prevent. So a second
-    phase polls ``GET /devices`` until it is non-empty: the manager assigns
-    its allowed-plans and allowed-devices lists in one synchronous body
-    (plans first), so a non-empty device list proves ``plans_allowed`` has
-    already landed. Every substrate ships at least one device, so "non-empty"
-    is the right bar.
+    phase polls ``GET /devices`` until the ``devices`` array of its paginated
+    envelope is non-empty: the manager assigns its allowed-plans and
+    allowed-devices lists in one synchronous body (plans first), so a
+    non-empty device page proves ``plans_allowed`` has already landed. Every
+    substrate ships at least one device, so "non-empty" is the right bar.
 
     Returns the manager status document that satisfied the wait. Raises
     ``AssertionError`` naming the last thing seen -- a failure here says the
@@ -160,14 +160,15 @@ def wait_for_worker_environment(
     last = "(no answer yet)"
     while time.monotonic() < deadline:
         http_status, body = request(base_url, "/devices", "GET")
-        if http_status == 200 and isinstance(body, list) and body:
+        if http_status == 200 and isinstance(body, dict) and body.get("devices"):
             return status_doc
         last = body
         time.sleep(poll)
     raise AssertionError(
         f"the RE worker environment opened but the manager never published its "
         f"device list within {timeout:.0f}s -- plans_allowed is filled on the same "
-        f"path, so an enqueue now would be refused 409 (last GET /devices: {last!r})"
+        f"path, so an enqueue now would be refused 409 "
+        f"(last GET /devices envelope: {last!r})"
     )
 
 

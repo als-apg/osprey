@@ -60,19 +60,27 @@ def test_list_plans_round_trips_body_and_status() -> None:
 
 def test_list_devices_round_trips_body_and_status() -> None:
     """The operator half of device discovery: a panel reads the worker's device
-    names through the same relay the agent's tool reads them through."""
+    names through the same relay the agent's tool reads them through. The
+    bridge answers a paginated envelope, and the proxy hands it back whole --
+    counts and window included, not just the page of entries."""
+    envelope = {
+        "devices": [{"name": "COR1", "is_movable": True}],
+        "total": 1,
+        "offset": 0,
+        "limit": 500,
+    }
     seen: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
-        return _json_response(200, [{"name": "COR1", "is_movable": True}])
+        return _json_response(200, envelope)
 
     app = _build_app(handler)
     with TestClient(app) as client:
         response = client.get("/devices")
 
     assert response.status_code == 200
-    assert response.json() == [{"name": "COR1", "is_movable": True}]
+    assert response.json() == envelope
     assert str(seen[0].url) == f"{_BRIDGE_URL}/devices"
 
 
@@ -302,6 +310,25 @@ def test_plan_source_404_passes_through_verbatim() -> None:
 # ---------------------------------------------------------------------------
 # Query-param forwarding
 # ---------------------------------------------------------------------------
+
+
+def test_list_devices_forwards_prefix_limit_offset_params() -> None:
+    """All three pagination knobs reach the bridge: a panel that pages through
+    a large device list is only as good as the params the relay carries."""
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return _json_response(200, {"devices": [], "total": 0, "offset": 1, "limit": 2})
+
+    app = _build_app(handler)
+    with TestClient(app) as client:
+        response = client.get("/devices", params={"prefix": "COR", "limit": "2", "offset": "1"})
+
+    assert response.status_code == 200
+    assert seen[0].url.params["prefix"] == "COR"
+    assert seen[0].url.params["limit"] == "2"
+    assert seen[0].url.params["offset"] == "1"
 
 
 def test_list_runs_forwards_limit_param() -> None:

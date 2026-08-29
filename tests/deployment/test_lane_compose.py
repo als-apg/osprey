@@ -33,6 +33,8 @@ import pytest
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
+from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
+
 # Rooted at the templates/ PROJECT root, not services/, because service
 # templates import the shared axis macros as "services/_*.j2" — the spelling
 # compose_generator's own loader resolves. Same two-root loader as
@@ -44,6 +46,15 @@ _LOADER_ROOTS = [str(_TEMPLATES_ROOT), str(_TEMPLATES_ROOT / "services")]
 BLUESKY_TEMPLATE = "bluesky/docker-compose.yml.j2"
 
 GOLDEN_DIR = Path(__file__).parent / "goldens" / "bluesky_single_lane"
+
+#: The three lane ports at the default base, named rather than spelled. Lane 1
+#: is the layout's ``bluesky`` slot, lane 2 the ``bluesky_second_lane`` slot the
+#: injector derives from it, and Tiled's host publish the ``tiled`` slot —
+#: exactly the three numbers ``_inject_bluesky`` writes into a rendered config,
+#: so these contexts stay renders a deploy can actually produce.
+BLUESKY_PORT = default_port("bluesky")
+SECOND_LANE_PORT = default_port("bluesky_second_lane")
+TILED_HOST_PORT = default_port("tiled")
 
 #: The literal ``_inject_bluesky`` writes into the live-serving lane's config
 #: block. Restated here as a PREFIX rather than imported whole: the test cares
@@ -90,7 +101,7 @@ def _lane_block(
     block: dict[str, Any] = {"path": "./services/bluesky", "port": port}
     if tiled_enabled:
         block["tiled_enabled"] = True
-        block["tiled_port"] = tiled_port if tiled_port is not None else 8091
+        block["tiled_port"] = tiled_port if tiled_port is not None else TILED_HOST_PORT
     if plan_dir is not None:
         block["plan_dir"] = plan_dir
     if excluded_plans is not None:
@@ -169,6 +180,11 @@ def _context(
         "control_system": section,
         "services": services,
         "bluesky_devices": devices_present,
+        # The layout at this context's base. `deployment` is empty here, so
+        # that is the default base; the template reads every framework port as
+        # `<key> | default(osprey_ports.<slot>, true)`, so a context without it
+        # is not a render any deploy produces.
+        "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
     }
     if any(posture.values()):
         context["limits_mount"] = LIMITS_MOUNT
@@ -211,13 +227,13 @@ def _single_lane_contexts() -> dict[str, dict[str, Any]]:
     """
     return {
         "minimal": _context(
-            lanes={"bluesky": _lane_block(8090)},
+            lanes={"bluesky": _lane_block(BLUESKY_PORT)},
             deployed_services=["bluesky"],
         ),
         "full": _context(
             lanes={
                 "bluesky": _lane_block(
-                    8090,
+                    BLUESKY_PORT,
                     tiled_enabled=True,
                     plan_dir="/facility/plans",
                     excluded_plans="pkg.a:pkg.b",
@@ -267,9 +283,9 @@ def test_single_lane_render_is_byte_identical_to_the_pinned_shape(name: str) -> 
 # ---------------------------------------------------------------------------
 
 VA_BASELINE_LANES = {
-    "bluesky": _lane_block(8090, tiled_enabled=True, target="va"),
+    "bluesky": _lane_block(BLUESKY_PORT, tiled_enabled=True, target="va"),
     "bluesky_live": _lane_block(
-        8190,
+        SECOND_LANE_PORT,
         target="live",
         ca_name_servers=f"{CA_NAME_SERVERS_REQUIRED_PREFIX}set it to <host>:<port>}}",
     ),
@@ -323,7 +339,7 @@ def test_exactly_one_tiled_and_it_belongs_to_lane_one(two_lane: dict[str, Any]) 
     two machines' run documents into one history.
     """
     assert [name for name in two_lane["services"] if name == "tiled"] == ["tiled"]
-    assert two_lane["services"]["tiled"]["ports"] == ["127.0.0.1:8091:8000"]
+    assert two_lane["services"]["tiled"]["ports"] == [f"127.0.0.1:{TILED_HOST_PORT}:8000"]
     for service in ("bluesky-live-bridge", "bluesky-live-queueserver"):
         assert "BLUESKY_TILED_URI" not in _env(two_lane, service)
     assert _env(two_lane, "bluesky-bridge")["BLUESKY_TILED_URI"] == "http://tiled:8000"
@@ -339,9 +355,9 @@ def test_only_the_second_lanes_bridge_publishes_its_derived_port(
         if service.get("ports")
     }
     assert published == {
-        "bluesky-bridge": ["127.0.0.1:8090:8090"],
-        "bluesky-live-bridge": ["127.0.0.1:8190:8190"],
-        "tiled": ["127.0.0.1:8091:8000"],
+        "bluesky-bridge": [f"127.0.0.1:{BLUESKY_PORT}:{BLUESKY_PORT}"],
+        "bluesky-live-bridge": [f"127.0.0.1:{SECOND_LANE_PORT}:{SECOND_LANE_PORT}"],
+        "tiled": [f"127.0.0.1:{TILED_HOST_PORT}:8000"],
     }
 
 
@@ -405,9 +421,9 @@ STANDIN_DIAL = "live-standin:5074"
 #: stand-in precisely so they would not have to.
 STANDIN_BASELINE_LANES = {
     "bluesky": _lane_block(
-        8090, tiled_enabled=True, target="standin", ca_name_servers=STANDIN_DIAL
+        BLUESKY_PORT, tiled_enabled=True, target="standin", ca_name_servers=STANDIN_DIAL
     ),
-    "bluesky_va": _lane_block(8190, target="va"),
+    "bluesky_va": _lane_block(SECOND_LANE_PORT, target="va"),
 }
 
 #: What the deploy carries: both plan lanes, plus both soft IOCs. ``live_standin``
@@ -846,11 +862,11 @@ def test_a_va_second_lane_is_named_for_its_target_too() -> None:
         _context(
             lanes={
                 "bluesky": _lane_block(
-                    8090,
+                    BLUESKY_PORT,
                     target="live",
                     ca_name_servers=f"{CA_NAME_SERVERS_REQUIRED_PREFIX}set it}}",
                 ),
-                "bluesky_va": _lane_block(8190, target="va"),
+                "bluesky_va": _lane_block(SECOND_LANE_PORT, target="va"),
             },
             deployed_services=["bluesky", "bluesky_va", "virtual_accelerator"],
         )
@@ -874,8 +890,8 @@ def test_a_lane_block_present_but_undeployed_renders_nothing() -> None:
     rendered = _render(
         _context(
             lanes={
-                "bluesky": _lane_block(8090),
-                "bluesky_va": _lane_block(8190, target="va"),
+                "bluesky": _lane_block(BLUESKY_PORT),
+                "bluesky_va": _lane_block(SECOND_LANE_PORT, target="va"),
             },
             deployed_services=["bluesky"],
         )
@@ -904,7 +920,7 @@ def test_a_single_lanes_posture_is_the_deployment_wide_one() -> None:
     """
     from osprey.deployment.compose_generator import _bluesky_lane_write_posture
 
-    lane = {"bluesky": {"port": 8090}}
+    lane = {"bluesky": {"port": BLUESKY_PORT}}
 
     def posture(control_system: dict[str, Any] | None) -> bool:
         return _bluesky_lane_write_posture(lane, control_system)["bluesky"]
@@ -935,11 +951,11 @@ def test_only_the_lane_whose_target_is_armed_mounts_the_limits_db() -> None:
         _context(
             lanes={
                 "bluesky": _lane_block(
-                    8090,
+                    BLUESKY_PORT,
                     target="live",
                     ca_name_servers=f"{CA_NAME_SERVERS_REQUIRED_PREFIX}set it}}",
                 ),
-                "bluesky_va": _lane_block(8190, target="va"),
+                "bluesky_va": _lane_block(SECOND_LANE_PORT, target="va"),
             },
             deployed_services=["bluesky", "bluesky_va", "virtual_accelerator"],
             control_system=control_system,
@@ -980,9 +996,9 @@ def test_the_port_preflight_names_the_key_that_moves_each_lane(tmp_path: Path) -
     bindings = parse_host_port_bindings([compose])
 
     assert {(b.service, b.host_port) for b in bindings} == {
-        ("bluesky-bridge", 8090),
-        ("bluesky-live-bridge", 8190),
-        ("tiled", 8091),
+        ("bluesky-bridge", BLUESKY_PORT),
+        ("bluesky-live-bridge", SECOND_LANE_PORT),
+        ("tiled", TILED_HOST_PORT),
     }
     assert {b.service: _remedy_for_service(b.service) for b in bindings} == {
         "bluesky-bridge": "services.bluesky.port",
@@ -1185,8 +1201,8 @@ def test_a_lane_unaware_caller_resolves_exactly_what_it_always_did(
         resolve_launch_token,
     )
 
-    rendered_config({"bluesky": {"bridge_url": "http://bridge.example:8090/"}})
-    assert resolve_bridge_url() == "http://bridge.example:8090"
+    rendered_config({"bluesky": {"bridge_url": f"http://bridge.example:{BLUESKY_PORT}/"}})
+    assert resolve_bridge_url() == f"http://bridge.example:{BLUESKY_PORT}"
 
     rendered_config({})
     assert resolve_bridge_url() == DEFAULT_BRIDGE_URL
@@ -1209,10 +1225,10 @@ def test_each_lane_resolves_its_own_bridge_and_token(
     rendered_config(
         {
             "bluesky": {"lane_launch_tokens": {"bluesky_live": "live-token"}},
-            "services": {"bluesky_live": {"port": 8190}},
+            "services": {"bluesky_live": {"port": SECOND_LANE_PORT}},
         }
     )
-    assert resolve_bridge_url("bluesky_live") == "http://127.0.0.1:8190"
+    assert resolve_bridge_url("bluesky_live") == f"http://127.0.0.1:{SECOND_LANE_PORT}"
     assert resolve_launch_token("bluesky_live") == "live-token"
 
     monkeypatch.setenv("BLUESKY_LIVE_BRIDGE_URL", "http://elsewhere:9000/")
@@ -1270,9 +1286,9 @@ def test_the_read_proxy_relays_lane_one_when_no_lane_is_named() -> None:
     """The single-lane sidecar publishes one URL and is asked no lane."""
     from osprey.interfaces.bluesky_web.read_proxy import resolve_lane_bridge_url
 
-    request = _fake_request("http://bridge:8090/")
-    assert resolve_lane_bridge_url(request, None) == "http://bridge:8090"
-    assert resolve_lane_bridge_url(request, "bluesky") == "http://bridge:8090"
+    request = _fake_request(f"http://bridge:{BLUESKY_PORT}/")
+    assert resolve_lane_bridge_url(request, None) == f"http://bridge:{BLUESKY_PORT}"
+    assert resolve_lane_bridge_url(request, "bluesky") == f"http://bridge:{BLUESKY_PORT}"
 
 
 def test_an_empty_lane_parameter_names_no_lane_rather_than_a_missing_one() -> None:
@@ -1283,14 +1299,21 @@ def test_an_empty_lane_parameter_names_no_lane_rather_than_a_missing_one() -> No
     """
     from osprey.interfaces.bluesky_web.read_proxy import resolve_lane_bridge_url
 
-    assert resolve_lane_bridge_url(_fake_request("http://bridge:8090"), "") == "http://bridge:8090"
+    assert (
+        resolve_lane_bridge_url(_fake_request(f"http://bridge:{BLUESKY_PORT}"), "")
+        == f"http://bridge:{BLUESKY_PORT}"
+    )
 
 
 def test_the_read_proxy_relays_each_lane_to_its_own_bridge() -> None:
     from osprey.interfaces.bluesky_web.read_proxy import resolve_lane_bridge_url
 
-    request = _fake_request("http://bridge:8090", {"bluesky_live": "http://bridge-live:8190/"})
-    assert resolve_lane_bridge_url(request, "bluesky_live") == "http://bridge-live:8190"
+    request = _fake_request(
+        f"http://bridge:{BLUESKY_PORT}", {"bluesky_live": f"http://bridge-live:{SECOND_LANE_PORT}/"}
+    )
+    assert (
+        resolve_lane_bridge_url(request, "bluesky_live") == f"http://bridge-live:{SECOND_LANE_PORT}"
+    )
 
 
 def test_the_read_proxy_refuses_a_lane_it_does_not_serve() -> None:
@@ -1300,10 +1323,14 @@ def test_the_read_proxy_refuses_a_lane_it_does_not_serve() -> None:
     """
     from osprey.interfaces.bluesky_web.read_proxy import resolve_lane_bridge_url
 
-    assert resolve_lane_bridge_url(_fake_request("http://bridge:8090"), "bluesky_live") is None
+    assert (
+        resolve_lane_bridge_url(_fake_request(f"http://bridge:{BLUESKY_PORT}"), "bluesky_live")
+        is None
+    )
     assert (
         resolve_lane_bridge_url(
-            _fake_request("http://bridge:8090", {"bluesky_va": "http://x:1"}), "bluesky_live"
+            _fake_request(f"http://bridge:{BLUESKY_PORT}", {"bluesky_va": "http://x:1"}),
+            "bluesky_live",
         )
         is None
     )
@@ -1344,6 +1371,7 @@ def _web_context(
         "osprey_images": _image_defaults("proj"),
         "osprey_audit_mount_source": "./var/audit",
         "osprey_service_container_audit_dir": "/app/var/audit",
+        "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
     }
 
 
@@ -1352,7 +1380,9 @@ def _render_web(context: dict[str, Any]) -> dict[str, Any]:
     return yaml.safe_load(env.get_template(BLUESKY_WEB_TEMPLATE).render(context))
 
 
-@pytest.mark.parametrize(("lane_key", "port"), [("bluesky_va", 8190), ("bluesky_live", 8190)])
+@pytest.mark.parametrize(
+    ("lane_key", "port"), [("bluesky_va", SECOND_LANE_PORT), ("bluesky_live", SECOND_LANE_PORT)]
+)
 def test_a_two_lane_sidecar_render_carries_the_second_lanes_url_and_token(
     lane_key: str, port: int
 ) -> None:
@@ -1364,7 +1394,7 @@ def test_a_two_lane_sidecar_render_carries_the_second_lanes_url_and_token(
         _web_context(
             deployed_services=["bluesky", lane_key, "bluesky_web"],
             lanes={
-                "bluesky": _lane_block(8090, target="live"),
+                "bluesky": _lane_block(BLUESKY_PORT, target="live"),
                 lane_key: _lane_block(port, target="va"),
             },
         )
@@ -1373,7 +1403,7 @@ def test_a_two_lane_sidecar_render_carries_the_second_lanes_url_and_token(
     prefix = lane_key.upper()
     lane_service = lane_key.replace("_", "-")
 
-    assert environment["BLUESKY_BRIDGE_URL"] == "http://bluesky-bridge:8090"
+    assert environment["BLUESKY_BRIDGE_URL"] == f"http://bluesky-bridge:{BLUESKY_PORT}"
     assert environment[f"{prefix}_BRIDGE_URL"] == f"http://{lane_service}-bridge:{port}"
     assert environment[f"{prefix}_LAUNCH_TOKEN"] == f"${{{prefix}_LAUNCH_TOKEN}}"
 
@@ -1385,8 +1415,8 @@ def test_a_two_lane_sidecar_waits_on_both_bridges() -> None:
         _web_context(
             deployed_services=["bluesky", "bluesky_va", "bluesky_web"],
             lanes={
-                "bluesky": _lane_block(8090, target="live"),
-                "bluesky_va": _lane_block(8190, target="va"),
+                "bluesky": _lane_block(BLUESKY_PORT, target="live"),
+                "bluesky_va": _lane_block(SECOND_LANE_PORT, target="va"),
             },
         )
     )
@@ -1402,7 +1432,7 @@ def test_a_single_lane_sidecar_render_carries_no_second_lane_names() -> None:
     rendered = _render_web(
         _web_context(
             deployed_services=["bluesky", "bluesky_web"],
-            lanes={"bluesky": _lane_block(8090)},
+            lanes={"bluesky": _lane_block(BLUESKY_PORT)},
         )
     )
     service = rendered["services"]["bluesky-web"]

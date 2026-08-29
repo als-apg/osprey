@@ -276,17 +276,45 @@ class TestCardContent:
             deploy_summary,
             "as_built_endpoint_entries",
             lambda root: [
-                ("event-dispatcher", "http://127.0.0.1:8001"),
-                ("postgres", "127.0.0.1:5432"),
-                ("web terminal", "(not configured in this project)"),
+                ("gateway", "web terminal", "(not configured in this project)"),
+                ("dispatch", "event-dispatcher", "http://127.0.0.1:10010"),
+                ("stores", "postgres", "127.0.0.1:10800"),
             ],
         )
 
         card = "\n".join(format_summary_card(repo, "running"))
 
-        assert "http://127.0.0.1:8001" in card
+        assert "http://127.0.0.1:10010" in card
         assert "postgres" not in card
         assert "not configured" not in card
+
+    def test_the_card_keeps_the_order_the_block_puts_the_endpoints_in(
+        self, repo: Path, monkeypatch
+    ) -> None:
+        """The tier is dropped; the ordering it produced is not.
+
+        A card that re-sorted these by name would lead with whichever service
+        happens to sort first rather than with the gateway a reader opens.
+        """
+        from osprey.deployment import deploy_summary
+
+        monkeypatch.setattr(
+            deploy_summary,
+            "as_built_endpoint_entries",
+            lambda root: [
+                ("gateway", "web terminal", "http://127.0.0.1:10000  (landing page)"),
+                ("dispatch", "event-dispatcher", "http://127.0.0.1:10010"),
+                ("services", "openobserve", "http://127.0.0.1:10050"),
+            ],
+        )
+
+        card = "\n".join(format_summary_card(repo, "running"))
+
+        assert [line.split()[0] for line in card.splitlines() if "http://" in line] == [
+            "web",
+            "event-dispatcher",
+            "openobserve",
+        ]
 
     @pytest.mark.parametrize("state", ["created", "built", "stopped"])
     def test_a_deployment_that_is_not_running_advertises_no_endpoints(

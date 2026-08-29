@@ -7,10 +7,10 @@ Start the Web Terminal from any OSPREY project directory:
 
    osprey web
 
-It boots a local server on ``http://127.0.0.1:8087`` and prints a login URL of
-the form ``http://127.0.0.1:8087/?token=…``. Opening that URL (your browser
+It boots a local server on ``http://127.0.0.1:10100`` and prints a login URL of
+the form ``http://127.0.0.1:10100/?token=…``. Opening that URL (your browser
 opens it for you) signs you in and then redirects to the clean
-``http://127.0.0.1:8087`` address; every later request rides the cookie it
+``http://127.0.0.1:10100`` address; every later request rides the cookie it
 sets. That cookie is good for 12 hours by default and outlives closing the
 browser, so on a console other people sit at, shorten it — set
 ``modules.web_terminals.auth.session_lifetime`` in the deployment's config

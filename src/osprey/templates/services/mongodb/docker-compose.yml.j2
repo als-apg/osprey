@@ -70,7 +70,11 @@ services:
       # rewrite all reach the store this way (bind_address defaults to
       # loopback, so it is not exposed off-box). In-network consumers use the
       # `archiver-mongodb` alias below instead and never this port mapping.
-      - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ (services.mongodb | default({})).port_host | default(27017, true) }}:27017"
+      #
+      # The container half stays 27017 — mongod's own port inside its
+      # namespace, which does not move with the deployment's block. Only the
+      # host half is layout-derived.
+      - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ (services.mongodb | default({})).port_host | default(osprey_ports.mongo, true) }}:27017"
     environment:
       MONGO_INITDB_ROOT_USERNAME: {{ (services.mongodb | default({})).username | default('osprey', true) }}
       # Sourced from the project .env: `osprey up` mints a strong

@@ -32,6 +32,7 @@ from osprey.deployment.graphdb_service import (
     preflight_graphdb_config,
     resolve_graphdb_service_config,
 )
+from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 
 #: Every app preset that ships the graph store. Both carry the identical block.
 TEMPLATE_PATHS = [
@@ -56,8 +57,16 @@ EXPECTED_KEYS = {
 
 
 def _render(template_path: str, **context) -> dict:
+    # The preset's host ports render from `osprey_ports`, which the real render
+    # builds in TemplateManager._project_context. This helper reaches the
+    # environment directly, so it supplies the table itself at the default base.
+    ctx = {
+        "port_base": DEFAULT_PORT_BASE,
+        "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
+        **context,
+    }
     template = TemplateManager().jinja_env.get_template(template_path)
-    return yaml.safe_load(template.render(**context))
+    return yaml.safe_load(template.render(**ctx))
 
 
 @pytest.mark.parametrize("template_path", TEMPLATE_PATHS)

@@ -33,9 +33,9 @@ services of its own, so the bluesky stack ends up as the ONLY thing deployed.
 
 The bluesky stack is opt-in via profile, so the build supplies a ``bluesky:``
 block explicitly. It does so by pinning ``bluesky.port`` (BRIDGE_PORT below)
-rather than by relying on the 8090 default, since this is a shared dev machine
-and 8090 collided with an unrelated pre-existing process during development of
-this test.
+rather than by letting the bridge take its slot in the deployment's port block,
+since this is a shared dev machine and the bridge's port collided with an
+unrelated pre-existing process during development of this test.
 
 Asserts, against the REAL deployed containers:
   * the bridge binds to 127.0.0.1 (never 0.0.0.0) — ``docker port`` inspection.
@@ -86,18 +86,19 @@ from osprey.services.bluesky_bridge.queue_backend import (
 )
 from tests.e2e._volumes import remove_project_volumes
 
-# Deliberately NOT the bluesky-bridge default (8090): this is a shared dev
-# machine with other long-running services, and 8090 was observed colliding
-# with an unrelated pre-existing process during development of this test.
-# Pinned via --set bluesky.port=... below rather than relying on the default.
+# Deliberately NOT the bridge's slot in the deployment's port block: this is a
+# shared dev machine with other long-running services, and the bridge's port
+# was observed colliding with an unrelated pre-existing process during
+# development of this test. Pinned via --set bluesky.port=... below rather
+# than letting the layout place it.
 BRIDGE_PORT = 18090
 BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
 # ``hello-world`` deploys OpenObserve unconditionally (it is baked into
-# ``deployed_services``, with no profile knob to drop it) on host port 5080,
-# which a locally-running tutorial stack routinely holds — and a bound-port
-# collision aborts `up` before the bluesky containers it creates alongside it
-# ever start. Moved to a high, unassigned port, same defensive convention as
-# BRIDGE_PORT above. Nothing in this proof touches telemetry.
+# ``deployed_services``, with no profile knob to drop it) on its slot in the
+# port block, which a locally-running tutorial stack routinely holds — and a
+# bound-port collision aborts `up` before the bluesky containers it creates
+# alongside it ever start. Moved to a high, unassigned port, same defensive
+# convention as BRIDGE_PORT above. Nothing in this proof touches telemetry.
 OPENOBSERVE_PORT = 25081
 # The fixture builds/deploys under this project name; the compose template
 # renders each container_name AND the bridge's locally-built image as

@@ -43,7 +43,7 @@ approval:
 
 artifact_server:
   host: "127.0.0.1"
-  port: 8086
+  port: 10200
   auto_launch: true
 """
 

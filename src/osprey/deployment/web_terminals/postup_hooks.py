@@ -25,6 +25,7 @@ from osprey.deployment.docker_desktop import (
 )
 from osprey.deployment.runtime_helper import get_runtime_command
 from osprey.deployment.subprocess_capture import run_captured
+from osprey.deployment.web_terminals.ports import resolve_nginx_port
 from osprey.utils.logger import get_logger
 
 logger = get_logger("deployment.lifecycle")
@@ -280,15 +281,34 @@ def warn_if_web_stack_unreachable(
         ``COMPOSE_PROJECT_NAME``-pinned env the caller's other compose calls
         use.
     """
+    # "This deployment has web terminals" is `enabled`, read exactly as
+    # :func:`~osprey.deployment.container_lifecycle._web_terminals_enabled`
+    # reads it — that function decides whether the web stack is deployed at
+    # all, so anything probing that stack has to agree with it about whether
+    # it exists. A rendered nginx port used to stand in for this and can no
+    # longer: an unset `nginx_port` is a legal config whose nginx listens on
+    # the gateway slot of the deployment's block all the same, so a gate keyed
+    # on the literal would fall silent on exactly the deployments that lean on
+    # the layout. A port key that is not a port has no address to probe.
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
-    nginx_port = web_terminals.get("nginx_port")
-    if not isinstance(nginx_port, int):
+    if not web_terminals.get("enabled"):
+        return
+    try:
+        nginx_port = resolve_nginx_port(config)
+    except ValueError:
         return
     url = f"http://127.0.0.1:{nginx_port}/"
     if _host_port_answers(url, attempts, delay):
         return
 
-    desktop = on_docker_desktop(config)
+    try:
+        desktop = on_docker_desktop(config)
+    except RuntimeError:
+        # No runtime resolved on this host. An advisory probe must not sink
+        # the deploy it is advising on, and without a runtime there is no
+        # Docker Desktop to blame, so the generic warning below is the most
+        # this host can honestly be told.
+        desktop = False
     # Asked once, up front, because it decides two separate things below: whether
     # the self-heal bounce is worth attempting at all, and how confidently the
     # warning at the end is allowed to speak. ``None`` means this host could not

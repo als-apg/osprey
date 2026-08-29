@@ -128,8 +128,9 @@ USERS = ("alice", "bob")
 #: The preset the repo is materialized from — the smallest one that builds.
 PRESET = "hello-world"
 
-# Ports well clear of every other stack a developer may have up (the tutorial
-# stacks hold 5064/5080/5432, and the lifecycle fixtures the 9000s/19081).
+# Ports well clear of every other stack a developer may have up: the block a
+# default-base deployment claims (10000-10999), the CA port 5064, and the
+# registry pin 19081.
 NGINX_PORT = 19180
 AUTH_PORT = 19170
 BASE_PORTS = {

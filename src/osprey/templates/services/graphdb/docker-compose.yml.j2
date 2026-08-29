@@ -7,11 +7,12 @@
     partial: a deployment that never edited it renders exactly the numbers
     `deployment/graphdb_service.py` resolves, which is what keeps the compose
     fragment, the port-conflict sweep, the health probe and the seeder talking
-    about the same store. The defaults below are that module's DEFAULT_*
-    constants; changing one there means changing it here. -#}
+    about the same store. The host-side defaults below come from
+    `osprey_ports`, the one layout the deployment's `deployment.port_base`
+    resolves, so nothing here restates an offset. -#}
 {%- set graphdb = services.graphdb | default({}, true) -%}
-{%- set port_host = graphdb.port_host | default(7687, true) -%}
-{%- set http_port_host = graphdb.http_port_host | default(7474, true) -%}
+{%- set port_host = graphdb.port_host | default(osprey_ports.graphdb_bolt, true) -%}
+{%- set http_port_host = graphdb.http_port_host | default(osprey_ports.graphdb_http, true) -%}
 {%- set bind_address = deployment.bind_address | default('127.0.0.1', true) -%}
 {#- Whether this service shares the host's network namespace. Every conditional
     in this file keys off a CONFIG value resolved at render time, never off a

@@ -46,6 +46,7 @@ from osprey.deployment.graphdb_service import (
     resolve_graphdb_connection,
 )
 from osprey.health.models import CheckResult, Status
+from osprey.port_layout import resolve_port_base
 
 if TYPE_CHECKING:
     from osprey.health.core import CategoryCallable
@@ -100,7 +101,7 @@ def graphdb(
             return []
 
         try:
-            connection = resolve_graphdb_connection(block)
+            connection = resolve_graphdb_connection(block, base=resolve_port_base(cfg))
         except ValueError as exc:
             # A malformed block is reported as the connection row rather than
             # raised: the same typo already refuses loudly at deploy time, and

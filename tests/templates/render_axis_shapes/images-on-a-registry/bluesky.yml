@@ -63,7 +63,7 @@ services:
         "--host",
         "0.0.0.0",
         "--port",
-        "8090",
+        "10080",
       ]
     labels:
       osprey.project.name: "golden-project"
@@ -80,7 +80,7 @@ services:
       osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8090:8090"
+      - "127.0.0.1:10080:10080"
     environment:
       # No :-default — an unset token must stay EMPTY so the bridge's
       # POST /runs/{id}/launch route fails closed (HTTP 503) rather than
@@ -200,7 +200,7 @@ services:
       - osprey-network
       - bluesky-internal
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8090/health').status==200 else 1)\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:10080/health').status==200 else 1)\""]
       interval: 10s
       timeout: 5s
       retries: 5

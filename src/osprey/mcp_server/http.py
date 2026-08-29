@@ -51,15 +51,23 @@ def web_terminal_url() -> str:
     In containerized deployments the actual port is set via OSPREY_WEB_PORT
     (docker-compose env), which may differ from the default in config.yml.
     The env var takes precedence when present.
+
+    With neither the env var nor ``web_terminal.port`` set, the port is the
+    ``web`` slot at *this config's own* ``deployment.port_base`` — the port the
+    terminal binds when nothing overrides it. Derived rather than fixed: on a
+    host running two deployments, a frozen number would address the other one's
+    terminal.
     """
     import os
 
+    from osprey.port_layout import default_port, resolve_port_base
     from osprey.utils.workspace import load_osprey_config
 
     config = load_osprey_config()
     wt = config.get("web_terminal", {})
     host = wt.get("host", "127.0.0.1")
-    port = int(os.environ.get("OSPREY_WEB_PORT", wt.get("port", 8087)))
+    fallback = wt.get("port", default_port("web", 0, base=resolve_port_base(config)))
+    port = int(os.environ.get("OSPREY_WEB_PORT", fallback))
     return f"http://{host}:{port}"
 
 
