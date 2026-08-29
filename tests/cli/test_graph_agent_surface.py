@@ -282,6 +282,9 @@ def _write_profile(repo: Path, config: dict | None = None) -> Path:
         ),
         encoding="utf-8",
     )
+    # The bundle's source zone `osprey init` lays down beside the profile; the
+    # Reach Contract refuses a render whose bind source is not there.
+    (repo / "data" / "facility_knowledge").mkdir(parents=True)
     return repo
 
 

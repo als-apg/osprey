@@ -1579,7 +1579,7 @@ def _render_project(
     # reason: it is the render, not the profile, that a container loads.
     unrunnable = [
         *_resolve_rendered_execution_method(render_dir),
-        *reach_errors(_rendered_config(render_dir)),
+        *reach_errors(_rendered_config(render_dir), repo_root=repo_root),
     ]
     if unrunnable:
         raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(unrunnable))

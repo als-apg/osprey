@@ -53,6 +53,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -111,6 +112,9 @@ Predicate = Callable[[Mapping[str, Any]], bool]
 #: ``(host, port)`` — what a consumer's client actually connects to.
 Dial = tuple[str, int]
 Dialer = Callable[[Mapping[str, Any]], "Dial | None"]
+#: The host directory a shared path binds, anchored on the deployment repo
+#: root (``None`` resolves it from the config), or ``None`` when unconfigured.
+HostDir = Callable[[Mapping[str, Any], "str | Path | None"], "Path | None"]
 
 
 def dotted_get(config: Mapping[str, Any] | None, dotted_key: str) -> Any:
@@ -252,11 +256,63 @@ class SharedPath:
         config_key: The dotted key naming the directory.
         gate: Which renders are entitled — the predicate the render mounts by.
         describe: What lives there, for messages.
+        host_dir: The bind source on the host, read through the one reader the
+            deploy provisions from and the renderers emit the mount from — so
+            the directory this refuses over is the directory that would have
+            been bound.
+        provisioned: Whether the deploy creates the directory before the first
+            bind (:func:`~osprey.deployment.compose_generator.ensure_shared_corpus_dir`).
+            ``True`` for a writer's output, where "not there yet" is the
+            ordinary first-deploy state and only a directory the deploy could
+            not create refuses; ``False`` for authored content, which nothing
+            fills for the operator, so it has to be there at build time.
     """
 
     config_key: str
     gate: Predicate
     describe: str
+    host_dir: HostDir
+    provisioned: bool = False
+
+    def resolves(self, config: Mapping[str, Any], repo_root: str | Path | None = None) -> bool:
+        """Whether this render's bind source is — or can be — on the host."""
+        return self.unresolved(config, repo_root) is None
+
+    def unresolved(
+        self, config: Mapping[str, Any], repo_root: str | Path | None = None
+    ) -> str | None:
+        """Why the bind source is not on the host, or ``None`` when it is.
+
+        The counterpart of :attr:`Consumer.resolves` for a directory: a
+        consumer with nothing to dial fails at first use, and a container
+        handed a bind whose source is missing has the runtime create it —
+        root-owned under a rootful daemon, so nothing that runs as ``osprey``
+        can write it — or, for authored content, binds an empty directory the
+        deploy provisioned on the spot, so every reader inside finds nothing.
+        """
+        path = self.host_dir(config, repo_root)
+        if path is None:
+            return f"{self.config_key} names no directory"
+        if path.is_dir():
+            return None
+        if path.exists():
+            return f"{path} is not a directory"
+        if not self.provisioned:
+            return f"this host has no directory at {path}"
+        blocker = _nearest_existing(path)
+        if blocker is not None and blocker.is_dir() and os.access(blocker, os.W_OK):
+            return None
+        return f"the deploy cannot create {path}: " + (
+            f"{blocker} is not a directory this user can write" if blocker else "no such root"
+        )
+
+
+def _nearest_existing(path: Path) -> Path | None:
+    """The first ancestor of *path* that exists, or ``None``."""
+    for ancestor in path.parents:
+        if ancestor.exists():
+            return ancestor
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -909,6 +965,21 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
     ),
 }
 
+
+def _bundle_host_dir(config: Mapping[str, Any], repo_root: str | Path | None) -> Path | None:
+    # Imported here, as :mod:`osprey.deployment.web_terminals.personas` does:
+    # compose_generator imports the web-terminal package at module level.
+    from osprey.deployment.compose_generator import resolve_facility_bundle_dir
+
+    return resolve_facility_bundle_dir(config, repo_root)
+
+
+def _mirror_host_dir(config: Mapping[str, Any], repo_root: str | Path | None) -> Path | None:
+    from osprey.deployment.compose_generator import resolve_ariel_mirror_dir
+
+    return resolve_ariel_mirror_dir(config, repo_root)
+
+
 #: Host directories bound into entitled persona containers, each at the path
 #: the container's own resolver derives for the key (see
 #: :mod:`osprey.deployment.web_terminals.render`).
@@ -917,11 +988,14 @@ SHARED_PATHS: tuple[SharedPath, ...] = (
         "facility_knowledge.bundle_path",
         config_needs_facility_bundle,
         "the facility-knowledge bundle (OKF panel, facility_knowledge MCP server)",
+        _bundle_host_dir,
     ),
     SharedPath(
         "ariel.enhancement_modules.qmd_export.mirror_path",
         config_needs_ariel_mirror,
         "the ARIEL qmd mirror (qmd_export writes it; the sidecar indexes it)",
+        _mirror_host_dir,
+        provisioned=True,
     ),
 )
 
@@ -1007,7 +1081,7 @@ def _deployed_services(config: Mapping[str, Any]) -> frozenset[str]:
     return frozenset(str(service) for service in deployed)
 
 
-def reach_errors(config: Mapping[str, Any]) -> list[str]:
+def reach_errors(config: Mapping[str, Any], *, repo_root: str | Path | None = None) -> list[str]:
     """Refuse a rendered config whose consumer is on with nothing to resolve.
 
     Read on the RENDERED config — the ground truth every client loads — so it
@@ -1025,9 +1099,17 @@ def reach_errors(config: Mapping[str, Any]) -> list[str]:
     dials its HOST's published ports on the shared network namespace, which
     is the projection's whole point, so the second rule never reads one.
 
+    A third refuses a shared path: a render entitled to a host directory
+    (:data:`SHARED_PATHS`) whose bind source is not on the host and will not
+    be by the time it is bound (:meth:`SharedPath.unresolved`). Read against
+    *repo_root* when the build passes it — the tree the render anchors on,
+    which a ``--runtime-root`` render's own ``project_root`` does not name —
+    and otherwise resolved from the config the way every bind source is.
+
     Returns:
         One error per unresolvable consumer whose contract refuses, naming
-        the switch and the key — or the service — that fixes it.
+        the switch and the key — or the service — that fixes it; one per
+        entitled shared path that is not there, naming the key.
     """
     errors: list[str] = []
     deployed = _deployed_services(config)
@@ -1057,5 +1139,17 @@ def reach_errors(config: Mapping[str, Any]) -> list[str]:
                 f"does not run `{contract.service}`: it is not in deployed_services, so the "
                 f"client would dial the port a deployed `{contract.service}` publishes and "
                 f"find nothing listening. Deploy it{elsewhere}, or switch the consumer off."
+            )
+    for shared in SHARED_PATHS:
+        if not shared.gate(config):
+            continue
+        why = shared.unresolved(config, repo_root)
+        if why is not None:
+            errors.append(
+                f"This render is entitled to {shared.describe} ({shared.config_key}), "
+                f"but {why}. Bound anyway, the container runtime would create the "
+                f"source itself — root-owned under a rootful daemon, so nothing running "
+                f"as `osprey` could write it — or the container would read an empty "
+                f"directory. Put it there, or point {shared.config_key} at where it is."
             )
     return errors
