@@ -687,9 +687,10 @@ the name registers everywhere and only fails – with a clear
 environment is genuinely absent.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>DOOCS supports the <code class="docutils literal notranslate"><span class="pre">none</span></code> and <code class="docutils literal notranslate"><span class="pre">readback</span></code> write-verification
-levels. <code class="docutils literal notranslate"><span class="pre">callback</span></code> is accepted but has no DOOCS equivalent, so it
-performs a readback and reports the level as <code class="docutils literal notranslate"><span class="pre">readback</span></code>.</p>
+<p>DOOCS confirms a write the way every connector does: one fresh read
+of the channel, compared exactly against the value that was sent. A
+reading that is not a number – a string, a name – confirms by
+plain equality.</p>
 </div>
 </div>
 <input id="sd-tab-item-3" name="sd-tab-set-0" type="radio">
@@ -797,7 +798,7 @@ system OSPREY does not ship, see <a class="reference internal" href="../../contr
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <dl class="simple">
-<dt><a class="reference internal" href="../../reference/contracts/connectors.html"><span class="doc">Connector Contracts</span></a></dt><dd><p>Connector contracts: reading large values, write verification and its
+<dt><a class="reference internal" href="../../reference/contracts/connectors.html"><span class="doc">Connector Contracts</span></a></dt><dd><p>Connector contracts: reading large values, write confirmation and its
 safety gates, and the archiver <code class="docutils literal notranslate"><span class="pre">get_data</span></code> contract.</p>
 </dd>
 </dl>

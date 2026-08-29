@@ -457,7 +457,7 @@ server:</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 1280 728" role="img" aria-labelledby="write-sequence-title write-sequence-desc">
   <title id="write-sequence-title">Control-system write, end to end</title>
-  <desc id="write-sequence-desc">Sequence of a corrector bump: the operator asks, the Osprey agent resolves the channel via the channel-finder sub-agent, reads the current value through the connector, then the safety hooks check the kill switch and limits and ask the operator for approval before the control-system MCP writes through the connector and verifies the new setpoint.</desc>
+  <desc id="write-sequence-desc">Sequence of a corrector bump: the operator asks, the Osprey agent resolves the channel via the channel-finder sub-agent, reads the current value through the connector, then the safety hooks check the kill switch and limits and ask the operator for approval before the control-system MCP writes through the connector and confirms the write landed.</desc>
   <defs>
     <marker id="write-sequence-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
@@ -542,11 +542,11 @@ server:</p>
 
   <line class="e e-dash" x1="1156" y1="592" x2="956" y2="592" marker-end="url(#write-sequence-arr)"/>
   <rect class="mask" x="1016" y="572" width="80" height="12" rx="2"/>
-  <text class="ta" x="1056" y="581" text-anchor="middle">success=True</text>
+  <text class="ta" x="1056" y="581" text-anchor="middle">confirmed</text>
 
   <line class="e e-dash" x1="948" y1="624" x2="332" y2="624" marker-end="url(#write-sequence-arr)"/>
   <rect class="mask" x="556" y="604" width="168" height="12" rx="2"/>
-  <text class="ta" x="640" y="613" text-anchor="middle">write confirmed · verified 1.7 A</text>
+  <text class="ta" x="640" y="613" text-anchor="middle">write confirmed · observed 1.7 A</text>
 
   <line class="e-acc" x1="324" y1="656" x2="124" y2="656" marker-end="url(#write-sequence-arr)"/>
   <rect class="mask" x="160" y="636" width="128" height="12" rx="2"/>

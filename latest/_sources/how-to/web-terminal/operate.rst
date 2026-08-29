@@ -85,7 +85,7 @@ Every terminal session carries a **posture**, shown as a badge in the terminal
 card's header:
 
 - **Writes** --- the session runs whatever the deployment permits, under its
-  usual approval and write-verification rules. This is the baseline.
+  usual approval and write-safety rules. This is the baseline.
 - **Sandbox** --- the session refuses every control-system write, for as long as
   it stays sandboxed. Reads are untouched: the agent keeps its full view of the
   control system and of the project, and can still run analysis, plots and

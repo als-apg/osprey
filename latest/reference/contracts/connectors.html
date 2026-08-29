@@ -508,102 +508,110 @@ handle – the machine did answer.</p>
 occupy a slot. <code class="docutils literal notranslate"><span class="pre">0</span></code> keeps everything – remembering that an unattended
 polling loop will then grow the gallery without bound.</p>
 </section>
-<section id="write-verification">
-<h2>Write Verification<a class="headerlink" href="#write-verification" title="Link to this heading">#</a></h2>
-<p>All <code class="docutils literal notranslate"><span class="pre">write_channel()</span></code> calls return <code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelWriteResult</span></code>:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">connector</span><span class="o">.</span><span class="n">write_channel</span><span class="p">(</span><span class="s2">&quot;BEAM:CURRENT&quot;</span><span class="p">,</span> <span class="mf">100.0</span><span class="p">)</span>
+<section id="write-confirmation">
+<h2>Write Confirmation<a class="headerlink" href="#write-confirmation" title="Link to this heading">#</a></h2>
+<p>A write is <strong>confirmed</strong> when the channel it wrote now holds the value that was
+sent. The connector establishes that itself: it re-reads the channel once the
+control system has accepted the put, and reports what it found as a single word
+on <code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelWriteResult</span></code>, which every
+<code class="docutils literal notranslate"><span class="pre">write_channel()</span></code> call returns.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.connectors.control_system</span><span class="w"> </span><span class="kn">import</span> <span class="n">WriteOutcome</span>
 
-<span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">verification</span> <span class="ow">and</span> <span class="n">result</span><span class="o">.</span><span class="n">verification</span><span class="o">.</span><span class="n">verified</span><span class="p">:</span>
-    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Write confirmed (</span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">verification</span><span class="o">.</span><span class="n">level</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+<span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">connector</span><span class="o">.</span><span class="n">write_channel</span><span class="p">(</span><span class="s2">&quot;BEAM:CURRENT&quot;</span><span class="p">,</span> <span class="mf">100.0</span><span class="p">)</span>
 
-<span class="c1"># Override verification level</span>
-<span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">connector</span><span class="o">.</span><span class="n">write_channel</span><span class="p">(</span>
-    <span class="s2">&quot;MOTOR:POSITION&quot;</span><span class="p">,</span> <span class="mf">50.0</span><span class="p">,</span>
-    <span class="n">verification_level</span><span class="o">=</span><span class="s2">&quot;readback&quot;</span><span class="p">,</span>
-    <span class="n">tolerance</span><span class="o">=</span><span class="mf">0.1</span>
-<span class="p">)</span>
+<span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">outcome</span> <span class="ow">is</span> <span class="n">WriteOutcome</span><span class="o">.</span><span class="n">CONFIRMED</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;the channel now holds the value that was sent&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
-<p><strong>Verification levels:</strong></p>
+<p>Every write ends in exactly one of six outcomes:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 20.0%" />
-<col style="width: 15.0%" />
-<col style="width: 15.0%" />
-<col style="width: 50.0%" />
+<col style="width: 80.0%" />
 </colgroup>
 <thead>
-<tr class="row-odd"><th class="head"><p>Level</p></th>
-<th class="head"><p>Speed</p></th>
-<th class="head"><p>Confidence</p></th>
-<th class="head"><p>When to Use</p></th>
+<tr class="row-odd"><th class="head"><p>Outcome</p></th>
+<th class="head"><p>What it means</p></th>
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">none</span></code></p></td>
-<td><p>Instant</p></td>
-<td><p>Low</p></td>
-<td><p>Development, non-critical writes</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">refused</span></code></p></td>
+<td><p>Nothing was written. A gate stopped the write before it left OSPREY –
+write posture, a limit, a channel marked not writable – and
+<code class="docutils literal notranslate"><span class="pre">refusal_reason</span></code> names which one.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">callback</span></code></p></td>
-<td><p>Fast (~1-10ms)</p></td>
-<td><p>Medium</p></td>
-<td><p>Most production writes (default)</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">failed</span></code></p></td>
+<td><p>The value was sent and the control system did not take it.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">readback</span></code></p></td>
-<td><p>Slow (~50-100ms)</p></td>
-<td><p>High</p></td>
-<td><p>Critical setpoints, safety-critical operations</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">confirmed</span></code></p></td>
+<td><p>The re-read holds the value that was sent.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">mismatch</span></code></p></td>
+<td><p>The re-read holds a different value. A setpoint the machine clamped or
+rounded is reported here, not smoothed over.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">unconfirmed</span></code></p></td>
+<td><p>The value was sent, but the re-read itself failed, so what the channel
+holds is unknown.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">unrequested</span></code></p></td>
+<td><p>Confirmation is switched off for this channel; nothing was checked.</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<p>A <code class="docutils literal notranslate"><span class="pre">callback</span></code>-level result also carries the post-write readback – the
-connector reads the channel once after the callback confirms and fills
-<code class="docutils literal notranslate"><span class="pre">readback_value</span></code> and the alarm fields – but the callback alone decides
-<code class="docutils literal notranslate"><span class="pre">verified</span></code>; only <code class="docutils literal notranslate"><span class="pre">readback</span></code> level compares against a tolerance.</p>
-<p><strong>Global default</strong> (in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>) and <strong>per-channel configuration</strong> (in
-the limits database):</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">write_verification</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">default_level</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;callback&quot;</span>
-<span class="w">    </span><span class="nt">default_tolerance_percent</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.1</span><span class="w">   </span><span class="c1"># interpreted as percent</span>
-</pre></div>
-</div>
+<p>Beside the outcome, the result carries <code class="docutils literal notranslate"><span class="pre">observed_value</span></code> (what the re-read
+returned), <code class="docutils literal notranslate"><span class="pre">alarm_status</span></code> and <code class="docutils literal notranslate"><span class="pre">alarm_severity</span></code> (the channel’s alarm state,
+which is reported with the write and is never itself a reason to fail one), and
+<code class="docutils literal notranslate"><span class="pre">notes</span></code> – a short display line such as <code class="docutils literal notranslate"><span class="pre">observed</span> <span class="pre">2.4,</span> <span class="pre">sent</span> <span class="pre">2.5</span></code> that is
+there to be shown, not parsed.</p>
+<p><strong>In Python, anything short of a confirmation raises.</strong>
+<code class="docutils literal notranslate"><span class="pre">osprey.runtime.write_channel</span></code> raises <code class="docutils literal notranslate"><span class="pre">ChannelWriteBlockedError</span></code> on
+<code class="docutils literal notranslate"><span class="pre">refused</span></code> and <code class="docutils literal notranslate"><span class="pre">ChannelWriteFailedError</span></code> on <code class="docutils literal notranslate"><span class="pre">failed</span></code>, <code class="docutils literal notranslate"><span class="pre">mismatch</span></code> and
+<code class="docutils literal notranslate"><span class="pre">unconfirmed</span></code>; the mismatch message names both the value sent and the value
+observed. The <code class="docutils literal notranslate"><span class="pre">channel_write</span></code> MCP tool reports the outcome for every channel
+instead of raising, so the agent can describe a batch in which some channels
+took the value and others did not.</p>
+<section id="switching-confirmation-off">
+<h3>Switching confirmation off<a class="headerlink" href="#switching-confirmation-off" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">confirm</span></code> is a per-channel boolean in the limits database, sitting beside
+<code class="docutils literal notranslate"><span class="pre">writable</span></code>:</p>
 <div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
 <span class="w">  </span><span class="nt">&quot;defaults&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="nt">&quot;writable&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;verification&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;callback&quot;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="nt">&quot;confirm&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
 <span class="w">  </span><span class="p">},</span>
-<span class="w">  </span><span class="nt">&quot;MOTOR:POSITION&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;min_value&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">-100.0</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;max_value&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">100.0</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;max_step&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">2.0</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;SHUTTER:OPEN_CMD&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="nt">&quot;writable&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;verification&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">      </span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;readback&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;tolerance_absolute&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.1</span>
-<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="nt">&quot;confirm&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </pre></div>
 </div>
-<p>Each channel inherits any field it does not set from the <code class="docutils literal notranslate"><span class="pre">defaults</span></code> block,
-and its own value always overrides it. <code class="docutils literal notranslate"><span class="pre">writable</span></code> defaults to <code class="docutils literal notranslate"><span class="pre">true</span></code>; set
-<code class="docutils literal notranslate"><span class="pre">&quot;writable&quot;:</span> <span class="pre">false</span></code> – on a channel, or in <code class="docutils literal notranslate"><span class="pre">defaults</span></code> to lock everything
-down – to block writes. <code class="docutils literal notranslate"><span class="pre">tolerance_absolute</span></code> takes priority over
-<code class="docutils literal notranslate"><span class="pre">tolerance_percent</span></code>.</p>
-<p><strong>Where the level comes from.</strong> Passing no <code class="docutils literal notranslate"><span class="pre">verification_level</span></code> means “no
-opinion”, not “no verification”. The connector resolves the level through four
-layers, first value wins: the channel’s own limits entry, the limits
-<code class="docutils literal notranslate"><span class="pre">defaults.verification</span></code> block, <code class="docutils literal notranslate"><span class="pre">control_system.write_verification</span></code>, then
-the built-in fallback <code class="docutils literal notranslate"><span class="pre">callback</span></code> with no tolerance. The tolerance resolves
-through the same four layers – also when the level was passed explicitly –
-but a layer only supplies a tolerance when the level it resolves to is
-<code class="docutils literal notranslate"><span class="pre">readback</span></code>. <code class="docutils literal notranslate"><span class="pre">write_multiple_channels()</span></code> carries one optional level for the
-whole batch; when omitted, every channel resolves its own, which is why
-<code class="docutils literal notranslate"><span class="pre">osprey.runtime.write_channels</span></code> verifies exactly like
+<p>A channel’s own entry wins; failing that the <code class="docutils literal notranslate"><span class="pre">defaults</span></code> block applies; failing
+that, confirmation is on. Switch it off for the channels a re-read cannot answer
+for – a command channel that resets itself, a register that cannot be read back
+– so those writes report <code class="docutils literal notranslate"><span class="pre">unrequested</span></code> rather than <code class="docutils literal notranslate"><span class="pre">unconfirmed</span></code>. A call
+site may pass <code class="docutils literal notranslate"><span class="pre">confirm=True</span></code> or <code class="docutils literal notranslate"><span class="pre">confirm=False</span></code> to decide for one call;
+passing nothing means “no opinion” and leaves the choice to the configuration.
+<code class="docutils literal notranslate"><span class="pre">write_multiple_channels()</span></code> confirms each channel exactly as a single write
+would, which is why <code class="docutils literal notranslate"><span class="pre">osprey.runtime.write_channels</span></code> behaves like
 <code class="docutils literal notranslate"><span class="pre">osprey.runtime.write_channel</span></code>.</p>
+</section>
+<section id="how-values-are-compared">
+<h3>How values are compared<a class="headerlink" href="#how-values-are-compared" title="Link to this heading">#</a></h3>
+<p>One rule decides every outcome, on every connector, and there is nothing to
+configure. Two numbers agree when they are within a relative 1e-6 of each other
+– enough to absorb the rounding of a float on its way through a control system,
+not enough to hide a clamped setpoint. A string written to an enum channel is
+compared against the label the connector resolved for the reading, since the
+channel itself reads back an index. A single-element array compares as the value
+it holds, because control systems disagree about whether such a channel reads
+back boxed. A scalar never matches a longer vector, and two vectors must be the
+same length and agree element by element. Everything else compares for equality.
+If the comparison cannot be made at all, the outcome is <code class="docutils literal notranslate"><span class="pre">mismatch</span></code>: a write is
+confirmed only when the values are known to agree.</p>
+</section>
 <section id="write-safety-configuration">
 <span id="write-safety-config"></span><h3>Write Safety Configuration<a class="headerlink" href="#write-safety-configuration" title="Link to this heading">#</a></h3>
 <p>Write operations are disabled by default, and write permission is set per
@@ -665,7 +673,7 @@ per-channel configuration above.</p>
 </dd>
 <dt><code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelWriteResult</span></code></dt><dd><p>Complete write operation result</p>
 </dd>
-<dt><code class="xref py py-class docutils literal notranslate"><span class="pre">WriteVerification</span></code></dt><dd><p>Verification result data model</p>
+<dt><code class="xref py py-class docutils literal notranslate"><span class="pre">WriteOutcome</span></code></dt><dd><p>The six words a write can end in</p>
 </dd>
 </dl>
 </div>
@@ -803,7 +811,9 @@ relabeled – to your backend’s UTC wire format; <code class="docutils literal
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#reading-large-values">Reading Large Values</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#write-verification">Write Verification</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#write-confirmation">Write Confirmation</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#switching-confirmation-off">Switching confirmation off</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#how-values-are-compared">How values are compared</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#write-safety-configuration">Write Safety Configuration</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#limits-checking">Limits Checking</a></li>
 </ul>

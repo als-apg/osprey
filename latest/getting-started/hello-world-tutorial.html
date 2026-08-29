@@ -694,7 +694,7 @@ shipped file looks like this (comments abridged):</p>
 <div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
 <span class="w">  </span><span class="nt">&quot;defaults&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="nt">&quot;writable&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;verification&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;callback&quot;</span><span class="p">}</span>
+<span class="w">    </span><span class="nt">&quot;confirm&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span>
 <span class="w">  </span><span class="p">},</span>
 <span class="w">  </span><span class="nt">&quot;SR:MAG:QF:01:CURRENT:SP&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;min_value&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.0</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;max_value&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">300.0</span><span class="p">},</span>
 <span class="w">  </span><span class="nt">&quot;SR:MAG:QD:01:CURRENT:SP&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;min_value&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.0</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;max_value&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">250.0</span><span class="p">},</span>
@@ -702,6 +702,9 @@ shipped file looks like this (comments abridged):</p>
 <span class="p">}</span>
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">confirm:</span> <span class="pre">true</span></code> means every write is checked: the connector reads the
+channel back once and compares what it finds with the value that was sent, so a
+write that did not land is reported rather than assumed.</p>
 <p>Channels not listed here are still writable — the preset sets
 <code class="docutils literal notranslate"><span class="pre">allow_unlisted_channels:</span> <span class="pre">true</span></code> so the mock’s invented channels stay usable;
 a production deployment sets it <code class="docutils literal notranslate"><span class="pre">false</span></code> so an unknown channel fails closed.

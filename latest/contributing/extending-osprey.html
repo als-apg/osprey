@@ -467,8 +467,11 @@ code is to hand both to a coding agent and let it draft against them.</p>
 <code class="docutils literal notranslate"><span class="pre">ControlSystemConnector</span></code> from <code class="docutils literal notranslate"><span class="pre">osprey.connectors.control_system.base</span></code>
 — the source lives in
 <code class="docutils literal notranslate"><span class="pre">packages/osprey-connectors/src/osprey_connectors/control_system/</span></code> — and
-return the <code class="docutils literal notranslate"><span class="pre">ChannelValue</span></code>, <code class="docutils literal notranslate"><span class="pre">ChannelMetadata</span></code>, <code class="docutils literal notranslate"><span class="pre">ChannelWriteResult</span></code> and
-<code class="docutils literal notranslate"><span class="pre">WriteVerification</span></code> models it defines. Register it with
+return the <code class="docutils literal notranslate"><span class="pre">ChannelValue</span></code>, <code class="docutils literal notranslate"><span class="pre">ChannelMetadata</span></code> and <code class="docutils literal notranslate"><span class="pre">ChannelWriteResult</span></code>
+models it defines. A write’s result carries the <code class="docutils literal notranslate"><span class="pre">outcome</span></code> your connector
+determined — use the shared <code class="docutils literal notranslate"><span class="pre">values_match</span></code> helper from the same module to
+compare what you read back against what was sent, so your connector confirms a
+write exactly as every other one does. Register it with
 <code class="docutils literal notranslate"><span class="pre">ConnectorFactory.register_control_system</span></code>, or ship it as an
 <code class="docutils literal notranslate"><span class="pre">osprey.registry.base.ConnectorRegistration</span></code> passed to
 <code class="docutils literal notranslate"><span class="pre">osprey.registry.helpers.extend_framework_registry</span></code>. Pinning test:
