@@ -107,7 +107,18 @@ def _card_parts(repo_root: Path | str, state: str) -> tuple[str, list[tuple[str,
         # URLs only: a card is the "what now" surface, and the addresses someone
         # can act on are the ones they can open. The full list, bare addresses
         # and the not-configured facts included, is `osprey status`.
-        rows += [(s, a) for s, a in as_built_endpoint_entries(root) if a.startswith("http://")]
+        #
+        # The tier each row carries there is dropped rather than printed: this
+        # is a handful of rows next to "command output" and "next", and section
+        # headings among them would turn a call to action into a table. What the
+        # card does inherit is the ORDER — the endpoint list is in block order,
+        # so the card leads with the gateway a reader is looking for instead of
+        # with whichever service name sorts first.
+        rows += [
+            (service, address)
+            for _tier, service, address in as_built_endpoint_entries(root)
+            if address.startswith("http://")
+        ]
     if as_built_dangerously_allows_bash(root):
         # Above the housekeeping rows, on every state: a waiver of a safety
         # refusal is the one fact on this card that must not be skimmed past.

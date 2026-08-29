@@ -95,11 +95,6 @@ _WEB_STACK_CONFIG = _RENDERED_CONFIG + (
     "modules:\n"
     "  web_terminals:\n"
     "    enabled: true\n"
-    "    nginx_port: 8080\n"
-    "    web_base_port: 9000\n"
-    "    artifact_base_port: 9100\n"
-    "    ariel_base_port: 9200\n"
-    "    lattice_base_port: 9300\n"
     "    users:\n"
     "      - alice\n"
     "    auth:\n"
@@ -1040,11 +1035,6 @@ def test_web_stack_nginx_mounts_name_the_files_the_writer_writes(tmp_path: Path)
         "modules": {
             "web_terminals": {
                 "enabled": True,
-                "nginx_port": 8080,
-                "web_base_port": 9000,
-                "artifact_base_port": 9100,
-                "ariel_base_port": 9200,
-                "lattice_base_port": 9300,
                 "users": ["alice"],
             }
         },
@@ -1091,11 +1081,6 @@ def _web_config(users: list[str]) -> dict:
         "modules": {
             "web_terminals": {
                 "enabled": True,
-                "nginx_port": 8080,
-                "web_base_port": 9000,
-                "artifact_base_port": 9100,
-                "ariel_base_port": 9200,
-                "lattice_base_port": 9300,
                 "users": users,
                 "auth": {"method": "password", "allow_insecure_http": True},
             }

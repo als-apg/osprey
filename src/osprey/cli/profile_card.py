@@ -200,6 +200,54 @@ def _dotted_list(items: Sequence[str]) -> Cell:
     return _joined([[(item, None)] for item in items])
 
 
+def _allocated(base_ports: Mapping[str, int], index: Any) -> dict[str, int]:
+    """The host ports web-terminal user ``index`` gets, or ``{}``.
+
+    The render's own allocator, so the card cannot describe a user as reachable
+    somewhere the deployment does not put them.
+
+    Args:
+        base_ports: Each family's effective base port, from
+            :func:`~osprey.deployment.web_terminals.ports.base_ports_from_config`.
+            Empty when the profile's ports could not be resolved at all.
+        index: The user's roster index, as the profile spells it — anything that
+            is not a usable index costs this user's port cell, which is lint's
+            finding to raise rather than the card's.
+
+    Returns:
+        ``{family: port}``, or an empty mapping when nothing can be allocated.
+    """
+    from osprey.deployment.web_terminals.ports import allocate_ports
+
+    try:
+        return allocate_ports(dict(base_ports), index)
+    except (TypeError, ValueError):
+        return {}
+
+
+def _family_ports(base_ports: Mapping[str, int]) -> Cell:
+    """Every port family's first port, as one cell.
+
+    Args:
+        base_ports: Each family's effective base port.
+
+    Returns:
+        ``web :10100 · artifact :10200 · …`` as styled segments, or an empty
+        cell when the ports could not be resolved. Ascending, so the row reads
+        as the stretch of the block it is — the registry's own order is by
+        family name, which would print a higher band before a lower one. Family
+        names are shown as words, since the underscore in ``channel_finder`` is
+        a config spelling and this row is prose.
+    """
+    allocated = sorted(_allocated(base_ports, 0).items(), key=lambda item: item[1])
+    return _joined(
+        [
+            [(family.replace("_", " "), None), (f" :{port}", Styles.ACCENT)]
+            for family, port in allocated
+        ]
+    )
+
+
 def _web_terminal_group(
     profile: BuildProfile, persona_deltas: Mapping[str, Mapping[str, Any]]
 ) -> CardGroup | None:
@@ -208,12 +256,31 @@ def _web_terminal_group(
         effective_persona,
         resolve_authorization_roles,
     )
+    from osprey.deployment.web_terminals.ports import base_ports_from_config, resolve_nginx_port
+    from osprey.port_layout import resolve_port_base
 
-    from .build_profile_emit import effective_web_terminals
+    from .build_profile_emit import effective_config_subtree, effective_web_terminals
 
     web_tier = effective_web_terminals(profile.config)
     if not web_tier.get("enabled"):
         return None
+
+    # The shape the port resolvers take: they read `deployment.port_base` and
+    # `modules.web_terminals` out of ONE document, because a family's port is
+    # the base plus its band and reading either half alone describes a
+    # deployment that lives somewhere else. A profile carries the two in
+    # separate places, so they are re-wrapped here once for every port on this
+    # group. Report, not gate (see `roles` below): a base or a port key that is
+    # not a number is lint's finding to raise, and costs a cell rather than the
+    # card.
+    rendered_shape = {
+        "deployment": effective_config_subtree(profile.config, ("deployment",)),
+        "modules": {"web_terminals": web_tier},
+    }
+    try:
+        base_ports = base_ports_from_config(web_tier, base=resolve_port_base(rendered_shape))
+    except ValueError:
+        base_ports = {}
 
     # The card is a REPORT of a profile, not a gate on one: an `authorization`
     # stanza that does not parse, or an entry whose binding does not resolve,
@@ -228,7 +295,6 @@ def _web_terminal_group(
     rows: list[list[Cell]] = []
     auth = web_tier.get("auth")
     auth_method = auth.get("method") if isinstance(auth, Mapping) else None
-    base_port = web_tier.get("web_base_port")
     default_persona = web_tier.get("default_persona")
     users = web_tier.get("users")
     for position, user in enumerate(users if isinstance(users, list) else []):
@@ -251,9 +317,12 @@ def _web_terminal_group(
         else:
             auth_cell = []
         index = user.get("index", position)
-        port_cell: Cell = []
-        if isinstance(base_port, int) and isinstance(index, int):
-            port_cell = [(f":{base_port + index}", Styles.ACCENT)]
+        # The allocator the render itself uses, rather than `base + index` spelled
+        # again: it is what falls a family back to its layout band when the
+        # profile sets no base port, and what refuses an index past the end of
+        # the band instead of quietly placing a user in the next family's ports.
+        web_port = _allocated(base_ports, index).get("web")
+        port_cell: Cell = [(f":{web_port}", Styles.ACCENT)] if web_port else []
         rows.append([[(name, Styles.BOLD)], _dotted_list(rights), auth_cell, port_cell])
 
     panels = _panel_labels(profile, persona_deltas)
@@ -262,8 +331,30 @@ def _web_terminal_group(
 
     if not rows:
         return None
-    nginx_port = web_tier.get("nginx_port")
-    suffix = f":{nginx_port}" if isinstance(nginx_port, int) else ""
+
+    # Every family, at the first index of the block. The rows above give each
+    # user the one port they open — their terminal — but a deployment publishes
+    # a whole band per family, and the panels row directly above says what those
+    # bands serve without saying where any of them answers. One row settles both
+    # halves, and states the index it is showing rather than leaving a reader to
+    # infer whose ports these are.
+    #
+    # Below the guard on purpose: this row is derivable for any enabled web tier,
+    # including one with no roster and no panels, and a group that consisted of
+    # nothing but a port table would say a deployment has terminals when nobody
+    # can sign into one.
+    families = _family_ports(base_ports)
+    if families:
+        rows.append([[("ports (user 0)", Styles.DIM)], families])
+
+    # The address the card puts beside the group title, resolved rather than
+    # read: a profile that sets no `nginx_port` still lands on the gateway slot
+    # of its own block, and a card that dropped the suffix there would report a
+    # deployment with no front door.
+    try:
+        suffix = f":{resolve_nginx_port(rendered_shape)}"
+    except ValueError:
+        suffix = ""
     return CardGroup("web terminal", suffix, rows)
 
 

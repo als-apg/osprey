@@ -649,11 +649,13 @@ def _print_endpoints_section(config, compose_files):
     printed cannot diverge. It says where a service *would* answer, not that it
     is answering: whether it is running is the table above.
 
-    The pairs come from :func:`~osprey.deployment.deploy_summary.endpoint_entries`
-    rather than from the formatted text block above it, so the rows are laid out
-    by the renderer's section vocabulary rather than by a second one.
+    The rows come from :func:`~osprey.deployment.deploy_summary.endpoint_entries`
+    rather than from the formatted text block above it, so they are laid out by
+    the renderer's section vocabulary rather than by a second one — and the
+    heading and the tier grouping come from that module too, so status cannot
+    section the same endpoints differently from the deploy that printed them.
     """
-    from osprey.deployment.deploy_summary import endpoint_entries
+    from osprey.deployment.deploy_summary import endpoint_entries, summary_rows, summary_title
 
     output.report("")
     try:
@@ -661,7 +663,7 @@ def _print_endpoints_section(config, compose_files):
     except Exception as exc:
         output.warn("The endpoint list could not be read from the build", str(exc))
         return
-    output.section(f"Service endpoints ({resolve_project_name(config)}):", entries)
+    output.section(summary_title(config), summary_rows(entries))
     output.note("(listed by the build; nothing was contacted to check)")
 
 

@@ -32,6 +32,13 @@ from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from osprey.cli.profile_card import format_profile_card, print_profile_card
 from osprey.cli.profile_cmd import _parsed_persona_deltas, _persona_profile_texts
 from osprey.cli.styles import osprey_theme
+from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
+
+#: Every port the exemplar lands on, at the base a profile with no
+#: ``deployment.port_base`` resolves. Spelled through the layout rather than as
+#: literals: the card's whole claim is that these numbers ARE the block, and a
+#: literal here would keep passing after the block moved under it.
+_PORTS = layout_ports(DEFAULT_PORT_BASE)
 
 # ---------------------------------------------------------------------------
 # The exemplar: the control-assistant preset, resolved the way `init` resolves
@@ -67,7 +74,7 @@ def line_with(lines: list[str], *needles: str) -> str:
 
 def test_the_groups_come_in_the_fixed_order(exemplar_lines: list[str]) -> None:
     titles = [line.strip() for line in exemplar_lines if line and not line.startswith("    ")]
-    assert titles == ["web terminal  :9080", "agent", "machine", "services"]
+    assert titles == [f"web terminal  :{_PORTS['nginx']}", "agent", "machine", "services"]
 
 
 def test_a_blank_line_stands_before_every_group(exemplar_lines: list[str]) -> None:
@@ -78,15 +85,39 @@ def test_a_blank_line_stands_before_every_group(exemplar_lines: list[str]) -> No
 
 
 def test_each_user_row_carries_rights_auth_and_port(exemplar_lines: list[str]) -> None:
+    """The port a user opens is their index into the web family's band.
+
+    Allocated by the render's own allocator, so the index reads off the port —
+    roster position 1 is one port above position 0, and both are inside the web
+    band rather than at whatever the profile happened to spell.
+    """
     alice = line_with(exemplar_lines, "alice")
     assert "readwrite · rights approval-gated" in alice
     assert "password" in alice
-    assert alice.rstrip().endswith(":9100")
+    assert alice.rstrip().endswith(f":{_PORTS['web']}")
 
     bob = line_with(exemplar_lines, "bob")
     assert "readonly" in bob
     assert "rights approval-gated" not in bob
-    assert bob.rstrip().endswith(":9101")
+    assert bob.rstrip().endswith(f":{_PORTS['web'] + 1}")
+
+
+def test_the_card_shows_every_family_the_deployment_publishes(exemplar_lines: list[str]) -> None:
+    """The panels row says WHAT a user gets; this one says where each answers.
+
+    Each family is a hundred-port band, and user 0 takes the first port of every
+    one — so a row read at index 0 names the bands themselves.
+    """
+    ports = line_with(exemplar_lines, "ports (user 0)")
+
+    for family in ("web", "artifact", "ariel", "lattice", "channel finder", "okf", "system health"):
+        assert family in ports
+    assert f"web :{_PORTS['web']}" in ports
+    assert f"artifact :{_PORTS['artifact']}" in ports
+    assert f"system health :{_PORTS['system_health']}" in ports
+    # Ascending, so the row reads as the stretch of the block it is.
+    numbers = [int(port) for port in re.findall(r":(\d+)", ports)]
+    assert numbers == sorted(numbers)
 
 
 def test_a_single_target_render_keeps_one_unqualified_write_right(
@@ -118,7 +149,6 @@ def test_a_mixed_persona_arms_only_the_target_its_own_block_names() -> None:
         name="mixed",
         config={
             "modules.web_terminals.enabled": True,
-            "modules.web_terminals.web_base_port": 9100,
             "modules.web_terminals.users": [{"name": "dana", "index": 0, "persona": "va-write"}],
             "control_system.type": "virtual_accelerator",
             "control_system.connector.epics.gateways": ["gw.example:5064"],
@@ -140,7 +170,7 @@ def test_a_mixed_persona_arms_only_the_target_its_own_block_names() -> None:
 
 
 def test_a_login_free_user_says_no_login(exemplar_lines: list[str]) -> None:
-    ariel = line_with(exemplar_lines, "ariel", ":910")
+    ariel = line_with(exemplar_lines, "ariel", f":{_PORTS['web'] + 2}")
     assert "no login" in ariel
     assert "password" not in ariel
 
@@ -178,9 +208,9 @@ def test_the_machine_group_reads_connector_archiver_and_channels(
 
 
 def test_the_services_group_names_the_injected_stack(exemplar_lines: list[str]) -> None:
-    bluesky = line_with(exemplar_lines, "bluesky ", ":8090")
-    assert "tiled :8091" in bluesky
-    assert "web :8095" in bluesky
+    bluesky = line_with(exemplar_lines, "bluesky ", f":{_PORTS['bluesky']}")
+    assert f"tiled :{_PORTS['tiled']}" in bluesky
+    assert f"web :{_PORTS['bluesky_web']}" in bluesky
     dispatch = line_with(exemplar_lines, "dispatch")
     assert "1 worker · triggers " in dispatch
 
@@ -298,7 +328,7 @@ def test_init_prints_the_card_after_its_report(tmp_path: Path) -> None:
     )
     assert result.exit_code == 0, result.output
     # Short lines only — the wide rows are the plain renderer's tests' business.
-    assert "  web terminal  :9080" in result.output
+    assert f"  web terminal  :{_PORTS['nginx']}" in result.output
     assert "no login" in result.output
     report_at = result.output.index("✓ Created")
-    assert result.output.index("  web terminal  :9080") > report_at
+    assert result.output.index(f"  web terminal  :{_PORTS['nginx']}") > report_at

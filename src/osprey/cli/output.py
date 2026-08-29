@@ -111,8 +111,9 @@ _LEDGER_TITLE = "This deploy wrote"
 
 
 #: What a URL looks like in a line the CLI prints. Whitespace-delimited, since
-#: the values these appear in ("http://127.0.0.1:9080  (landing page)") pad the
-#: address with spaces rather than punctuation.
+#: the values these appear in ("http://127.0.0.1:10000  (landing page)" — the
+#: gateway slot of a deployment's port block) pad the address with spaces rather
+#: than punctuation.
 _URL_RE = re.compile(r"https?://\S+")
 
 #: Trailing characters that end a SENTENCE rather than the address in it, so

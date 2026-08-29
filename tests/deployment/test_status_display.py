@@ -339,3 +339,47 @@ def test_agent_section_expands_provider_placeholders_from_the_repo_env(
     assert "ANTHROPIC_BASE_URL" in output
     assert "https://gw.test" in output
     assert "${FACILITY_GATEWAY_URL}" not in output
+
+
+# ---------------------------------------------------------------------------
+# Endpoints section: the same block, the same sections, as the deploy printed
+# ---------------------------------------------------------------------------
+
+
+def test_the_endpoints_section_is_the_deploys_own_block(tmp_path, rendered):
+    """Status and ``up`` describe one deployment one way.
+
+    Both the heading and the tier grouping come from
+    :mod:`osprey.deployment.deploy_summary`, so a second layout here could
+    section the same endpoints differently from the deploy that created them —
+    and an operator comparing the two would have no way to tell which of them
+    was describing the deployment.
+    """
+    from osprey.deployment import deploy_summary
+    from osprey.port_layout import layout_ports
+
+    base = 20000
+    ports = layout_ports(base)
+    compose = tmp_path / "docker-compose.yml"
+    compose.write_text(
+        f"""
+services:
+  openobserve:
+    ports:
+      - "127.0.0.1:{ports["openobserve"]}:5080"
+  postgresql:
+    ports:
+      - "127.0.0.1:{ports["postgres"]}:5432"
+""",
+        encoding="utf-8",
+    )
+    config = {"project_name": "demo", "deployment": {"port_base": base}}
+
+    status_display._print_endpoints_section(config, [str(compose)])
+    output = rendered.export_text()
+
+    assert deploy_summary.summary_title(config) in output
+    assert output.index("services") < output.index("openobserve")
+    assert output.index("stores") < output.index("postgresql")
+    assert f"http://127.0.0.1:{ports['openobserve']}" in output
+    assert f"127.0.0.1:{ports['postgres']}" in output
