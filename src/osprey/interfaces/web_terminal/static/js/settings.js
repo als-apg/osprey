@@ -50,7 +50,6 @@ let warningGatePending = false;
 /** @type {Record<string, string[]>} */
 const ENUM_FIELDS = {
   'claude_code.effort': ['low', 'medium', 'high', 'max'],
-  'control_system.write_verification.default_level': ['none', 'callback', 'readback'],
   'approval.default_policy': ['always', 'selective', 'skip'],
   'approval.tools.channel_write': ['always', 'selective', 'skip'],
   'approval.tools.channel_read': ['always', 'selective', 'skip'],
@@ -306,7 +305,7 @@ const FIELD_FLASH_MS = 1600;
  * Routes through openDrawerTab (hence the warning gate). Degrades gracefully
  * — no throw, no highlight — if the gate is declined, the tab is vetoed, or
  * the field never renders.
- * @param {string} dotKey  e.g. 'control_system.write_verification.default_level'
+ * @param {string} dotKey  e.g. 'approval.tools.channel_write'
  * @returns {Promise<void>}
  */
 export async function revealSetting(dotKey) {

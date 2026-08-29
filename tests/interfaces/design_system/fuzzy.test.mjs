@@ -4,8 +4,8 @@
  * contract that a naive subsequence matcher fails:
  *
  *   - the query is tokenized on whitespace and EVERY token must independently
- *     subsequence-match the candidate (all-tokens-AND), so "wrt vrf" matches
- *     "control_system.write_verification" via two separate tokens
+ *     subsequence-match the candidate (all-tokens-AND), so "ctl lim" matches
+ *     "control_system.limits_checking" via two separate tokens
  *   - a token that cannot match anywhere yields null (no match)
  *   - boundary hits (. _ - / camelCase / index 0) and consecutive runs score
  *     higher; scores sum across tokens
@@ -31,31 +31,32 @@ function sliceBySpans(candidate, spans) {
 
 describe('fuzzyMatch', () => {
   it('FLAGSHIP: two space-separated tokens each subsequence-match the candidate', () => {
-    const hit = fuzzyMatch('wrt vrf', 'control_system.write_verification');
+    const hit = fuzzyMatch('ctl lim', 'control_system.limits_checking');
     expect(hit).not.toBeNull();
     // Devil's-advocate case: the whole point is that this non-null hit exists.
     if (hit === null) throw new Error('expected a match');  // narrows for checkJs
 
-    // read_verification has no "w", so token "wrt" fails -> null. Non-null wins.
-    const read = fuzzyMatch('wrt vrf', 'control_system.read_verification');
-    expect(read).toBeNull();
+    // approval.limits_checking has no "t" after its only "c", so token "ctl"
+    // fails -> null. Non-null wins.
+    const sibling = fuzzyMatch('ctl lim', 'approval.limits_checking');
+    expect(sibling).toBeNull();
 
-    // Incidental candidate with no "w" anywhere: far lower / no match.
-    const incidental = fuzzyMatch('wrt vrf', 'approval.tools.archiver_read');
+    // Incidental candidate that cannot serve either token: no match.
+    const incidental = fuzzyMatch('ctl lim', 'approval.tools.archiver_read');
     expect(incidental).toBeNull();
 
     // And an explicit "clearly outscores" against a candidate that DOES match
     // both tokens but only incidentally (scattered, no boundaries).
-    const scattered = fuzzyMatch('wrt vrf', 'wandering_river_of_verbose_fragments');
+    const scattered = fuzzyMatch('ctl lim', 'marching_octopus_tulips_limped');
     if (scattered !== null) {
       expect(hit.score).toBeGreaterThan(scattered.score);
     }
   });
 
   it('ALL-TOKENS-REQUIRED: one unmatchable token makes the whole query fail', () => {
-    expect(fuzzyMatch('write zzzz', 'control_system.write_verification')).toBeNull();
+    expect(fuzzyMatch('limits zzzz', 'control_system.limits_checking')).toBeNull();
     // The matchable token alone still matches, proving it is the zzzz that fails.
-    expect(fuzzyMatch('write', 'control_system.write_verification')).not.toBeNull();
+    expect(fuzzyMatch('limits', 'control_system.limits_checking')).not.toBeNull();
   });
 
   it('BOUNDARY BONUS: a boundary match outscores the same letters mid-word', () => {
@@ -97,13 +98,14 @@ describe('fuzzyMatch', () => {
     }
 
     // The flagship spans actually cover the matched characters.
-    const flagship = fuzzyMatch('wrt vrf', 'control_system.write_verification');
+    const flagship = fuzzyMatch('ctl lim', 'control_system.limits_checking');
     expect(flagship).not.toBeNull();
     if (flagship) {
       // Every matched span slice is a substring of the candidate; concatenation
-      // yields the highlighted characters w,r,t (from write) and v,r,f (verif).
-      const covered = sliceBySpans('control_system.write_verification', flagship.spans);
-      expect(covered).toBe('wr|t|v|r|f');
+      // yields the highlighted characters c,t,l (from control) and i,m (limits;
+      // its l is the one already covered by the first token).
+      const covered = sliceBySpans('control_system.limits_checking', flagship.spans);
+      expect(covered).toBe('c|t|l|im');
       // Sorted + non-overlapping invariant holds here too.
       for (let i = 1; i < flagship.spans.length; i++) {
         expect(flagship.spans[i][0]).toBeGreaterThan(flagship.spans[i - 1][1]);
@@ -117,8 +119,8 @@ describe('fuzzyMatch', () => {
   });
 
   it('CASE INSENSITIVITY: query and candidate casing do not affect the match', () => {
-    const lowerQ = fuzzyMatch('wrt', 'control_system.write_verification');
-    const upperQ = fuzzyMatch('WRT', 'control_system.write_verification');
+    const lowerQ = fuzzyMatch('ctl', 'control_system.limits_checking');
+    const upperQ = fuzzyMatch('CTL', 'control_system.limits_checking');
     expect(lowerQ).not.toBeNull();
     expect(upperQ).not.toBeNull();
     if (lowerQ && upperQ) {

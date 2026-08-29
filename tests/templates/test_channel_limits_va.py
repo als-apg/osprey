@@ -10,7 +10,7 @@ is a single rule --
 The manifest's 396 writable ``:SP`` addresses each get a writable entry with
 min/max bounds (family-banded from the SR lattice model's device inventory,
 ``osprey.services.virtual_accelerator.lattice``, and machine.json's simulated
-nominal values) plus readback verification. Every other manifest address -- readbacks
+nominal values) plus the post-write confirming re-read. Every other manifest address -- readbacks
 (``:RB``, BPM ``:X``/``:Y``), status/fault flags, golden references and slow
 telemetry -- gets a read-only entry (``writable: false``) so OSPREY's own
 software safety layer refuses a write to it, rather than leaving the block to
@@ -31,8 +31,8 @@ check (src/osprey/connectors/control_system/limits_validator.py) reads the
 current value via a direct, connector-unaware ``epics.caget`` -- configuring
 it on these channels would block every write to them under the mock control
 system (the preset's default type), which has no live EPICS server behind its
-addresses. min/max bounds plus readback verification already satisfy "a write
-outside its limits is rejected" (SC9) without that failure mode.
+addresses. min/max bounds plus the post-write confirming re-read already satisfy
+"a write outside its limits is rejected" (SC9) without that failure mode.
 """
 
 from __future__ import annotations
@@ -149,10 +149,10 @@ class TestDefaultsSemanticsPreserved:
     def test_defaults_block_present(self, limits_db):
         assert "defaults" in limits_db
 
-    def test_defaults_still_writable_with_callback_verification(self, limits_db):
+    def test_defaults_still_writable_and_confirmed(self, limits_db):
         defaults = limits_db["defaults"]
         assert defaults["writable"] is True
-        assert defaults["verification"]["level"] == "callback"
+        assert defaults["confirm"] is True
 
 
 class TestManifestCoverageIsComplete:
@@ -207,16 +207,26 @@ class TestStaleEntriesRemoved:
 
 
 class TestEntryShape:
-    def test_every_setpoint_entry_has_min_max_and_verification(
-        self, limits_db, manifest_sp_addresses
-    ):
+    def test_every_setpoint_entry_has_min_max(self, limits_db, manifest_sp_addresses):
         for address in manifest_sp_addresses:
             entry = limits_db[address]
             assert "min_value" in entry
             assert "max_value" in entry
             assert entry["min_value"] < entry["max_value"]
-            assert "verification" in entry
-            assert entry["verification"]["level"] in ("none", "callback", "readback")
+
+    def test_no_entry_carries_a_verification_key(self, limits_db, manifest_addresses):
+        """'verification' was replaced by 'confirm: true|false'; the retired key
+        must never reappear, per-channel or in defaults (LimitsValidator now
+        fails the load closed on it -- see limits_validator.py)."""
+        assert "verification" not in limits_db.get("defaults", {})
+        offenders = [
+            address
+            for address in manifest_addresses
+            if "verification" in limits_db.get(address, {})
+        ]
+        assert not offenders, (
+            f"entries still carry 'verification' ({len(offenders)}): {sorted(offenders)[:10]}"
+        )
 
     def test_no_entry_sets_max_step(self, limits_db, manifest_addresses):
         """See module docstring: max_step is deliberately omitted (mock-mode

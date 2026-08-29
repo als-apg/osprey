@@ -4,17 +4,13 @@
   "defaults": {
     "_comment": "Default settings inherited by all channels unless overridden.",
     "writable": true,
-    "verification": {
-      "level": "callback"
-    }
+    "confirm": true
   },
   "SR:DIAG:TEMP:01:TEMPERATURE:SP": {
-    "_comment": "Bounded, low-criticality writable setpoint. Writes within [0, 100] succeed; writes outside are denied by the limits layer. verification:none = fastest write mode.",
+    "_comment": "Bounded, low-criticality writable setpoint. Writes within [0, 100] succeed; writes outside are denied by the limits layer. confirm:false = fastest write mode.",
     "min_value": 0.0,
     "max_value": 100.0,
-    "verification": {
-      "level": "none"
-    }
+    "confirm": false
   },
   "SR:MAG:QF:01:CURRENT:RB": {
     "_comment": "Read-only readback: any write must be blocked with READ_ONLY_CHANNEL.",

@@ -59,10 +59,9 @@ control_system:
     database_path: null
     allow_unlisted_channels: true
     on_violation: "skip"
-  write_verification:
-    default_level: "callback"
-    default_tolerance_percent: 0.1
   connector:
+    mock:
+      noise_level: 0.01
     epics:
       timeout: 5.0
 
@@ -198,15 +197,15 @@ class TestNumericUpdates:
         data = config_read(config_file)
         assert data["control_system"]["connector"]["epics"]["timeout"] == 10.0
 
-    def test_float_tolerance(self, config_file):
+    def test_float_in_a_sibling_block(self, config_file):
         config_update_fields(
             config_file,
             {
-                "control_system.write_verification.default_tolerance_percent": 0.5,
+                "control_system.connector.mock.noise_level": 0.5,
             },
         )
         data = config_read(config_file)
-        assert data["control_system"]["write_verification"]["default_tolerance_percent"] == 0.5
+        assert data["control_system"]["connector"]["mock"]["noise_level"] == 0.5
 
     def test_deeply_nested_integer(self, config_file):
         config_update_fields(

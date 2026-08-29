@@ -40,7 +40,7 @@ const { initCommandPalette } = await import(
 
 /** A sections fixture: three leaf dot-keys under two sections. */
 const SECTIONS = {
-  control_system: { type: 'epics', write_verification: true },
+  control_system: { type: 'epics', writes_enabled: true },
   ui: { theme: 'dark' },
 };
 

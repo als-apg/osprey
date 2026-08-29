@@ -182,29 +182,25 @@ describe('form mode: enum fields', () => {
 
   // ENUM_FIELDS is keyed by the full dotted path of a LEAF field, so a key naming
   // a nested block never matches anything and its enum silently falls through to
-  // a free-text input -- the exact way the write-verification level shipped
-  // unenforced. Pin the rendered control to a <select>.
-  test('the write-verification level renders as a select over the connector levels', async () => {
+  // a free-text input. Pin the rendered control to a <select>.
+  test('an ENUM_FIELDS leaf renders as a select over its declared options', async () => {
     stubConfig({
-      control_system: {
-        write_verification: { default_level: 'callback', default_tolerance_percent: 0.1 },
-      },
+      claude_code: { effort: 'medium', default_model: 'sonnet' },
     });
 
     /** @type {HTMLElement} */ (
       document.getElementById('tab-config')
     ).dispatchEvent(new Event('drawer:tab-activate'));
 
-    const selector = 'select[data-key="control_system.write_verification.default_level"]';
+    const selector = 'select[data-key="claude_code.effort"]';
     await vi.waitFor(() => expect(document.querySelector(selector)).not.toBeNull());
     const select = /** @type {HTMLSelectElement} */ (document.querySelector(selector));
 
-    expect([...select.options].map((o) => o.value)).toEqual(['none', 'callback', 'readback']);
-    expect(select.value).toBe('callback');
-    // The sibling numeric leaf is not an enum, and the block itself is not a field.
+    expect([...select.options].map((o) => o.value)).toEqual(['low', 'medium', 'high', 'max']);
+    expect(select.value).toBe('medium');
+    // The sibling string leaf is not an enum, and the block itself is not a field.
     expect(
-      document.querySelector('[data-key="control_system.write_verification.default_tolerance_percent"]')
-        ?.tagName,
+      document.querySelector('[data-key="claude_code.default_model"]')?.tagName,
     ).toBe('INPUT');
   });
 });
