@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Aug 28, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 29, 2026"/>
   </head>
   
   
@@ -741,10 +741,16 @@ archive, sub-agents, and operator skills — on the same safety model.</p></li>
 <li><p><strong>How it works</strong>: <a class="reference internal" href="conceptual-tutorial.html"><span class="doc">Conceptual Tutorial</span></a> explains the MCP server
 architecture, the connector system, and the safety mechanisms in depth.</p></li>
 <li><p><strong>The profile format</strong>: <a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a> documents every key
-those 13 commented blocks can hold.</p></li>
+those 12 commented blocks can hold.</p></li>
 <li><p><strong>CLI reference</strong>: <a class="reference internal" href="../reference/cli.html"><span class="doc">CLI Reference</span></a> covers all <code class="docutils literal notranslate"><span class="pre">osprey</span></code>
 commands.</p></li>
 </ul>
+<p>The deployment repo that <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> created also contains
+<code class="docutils literal notranslate"><span class="pre">mcp_servers/example_server/</span></code>, a small working MCP server; its
+<code class="docutils literal notranslate"><span class="pre">example_status</span></code> tool is one the agent already has. Copying that directory
+is the quickest way to start your own. The repo’s <code class="docutils literal notranslate"><span class="pre">README.md</span></code> has a
+“Common questions” section that explains how to add your own server, panel,
+or volume.</p>
 </section>
 </section>
 </section>

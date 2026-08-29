@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Aug 28, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 29, 2026"/>
   </head>
   
   
@@ -697,7 +697,7 @@ name <em>is</em> the declaration, and where each one lands is fixed.</p>
 <td><p>a directory per compose service</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">project/</span></code></p></td>
-<td><p>the project root</p></td>
+<td><p>the build root (<code class="docutils literal notranslate"><span class="pre">build/</span></code>)</p></td>
 <td><p>any file, mirrored verbatim</p></td>
 </tr>
 </tbody>
@@ -1294,7 +1294,7 @@ profile at runtime.</p>
 </section>
 <section id="what-gets-generated">
 <h2>What gets generated<a class="headerlink" href="#what-gets-generated" title="Link to this heading">#</a></h2>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-project/
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-project/build/
 ├── .claude/
 │   ├── agents/           # built-ins, plus anything from the profile&#39;s agents/
 │   ├── rules/            # built-ins, plus the profile&#39;s rules/

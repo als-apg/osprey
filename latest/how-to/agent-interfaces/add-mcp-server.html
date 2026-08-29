@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Aug 28, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 29, 2026"/>
   </head>
   
   
@@ -537,17 +537,23 @@ hooks, and permissions system.</p></li>
 <span class="w">      </span><span class="nt">MY_API_KEY</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;${MY_API_KEY}&quot;</span>
 
 <span class="w">  </span><span class="nt">my-python-server</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;python&quot;</span>
+<span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{current_python_env}&quot;</span>
 <span class="w">    </span><span class="nt">args</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;-m&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;my_package.server&quot;</span><span class="p p-Indicator">]</span>
 <span class="w">    </span><span class="nt">env</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">OSPREY_CONFIG</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{project_root}/config.yml&quot;</span>
+<span class="w">      </span><span class="nt">OSPREY_CONFIG</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{project_root}/build/config.yml&quot;</span>
 </pre></div>
 </div>
 <p>Each entry needs a <code class="docutils literal notranslate"><span class="pre">command</span></code> — or, for a server that is already running
 somewhere, a <code class="docutils literal notranslate"><span class="pre">url</span></code> instead; the two are mutually exclusive. <code class="docutils literal notranslate"><span class="pre">args</span></code> and
 <code class="docutils literal notranslate"><span class="pre">env</span></code> are optional. <code class="docutils literal notranslate"><span class="pre">{project_root}</span></code> is expanded to the project directory
-at build time; <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> is left alone for the shell or the container to
-resolve at run time.</p>
+at build time, and <code class="docutils literal notranslate"><span class="pre">{current_python_env}</span></code> to the project’s own Python
+interpreter — the one the framework’s servers run under. <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> is left
+alone for the shell or the container to resolve at run time. A Python module
+launched with <code class="docutils literal notranslate"><span class="pre">-m</span></code> has to be importable by that interpreter: either declare
+its package under the profile’s <code class="docutils literal notranslate"><span class="pre">dependencies:</span></code> so it is installed into the
+project venv, or ship it in the profile’s <code class="docutils literal notranslate"><span class="pre">mcp_servers/</span></code> directory and reach
+it with <code class="docutils literal notranslate"><span class="pre">PYTHONPATH:</span> <span class="pre">&quot;{project_root}/build/_mcp_servers&quot;</span></code> (see
+<a class="reference internal" href="../../reference/configuration/profile.html#profile-mcp-servers"><span class="std std-ref">MCP server injection</span></a>).</p>
 <p>To set permissions on a server, name its tools:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">mcp_servers</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">my-server</span><span class="p">:</span>

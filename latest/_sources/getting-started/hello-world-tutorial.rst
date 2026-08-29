@@ -349,6 +349,13 @@ commented blocks map everything it can become.
 - **How it works**: :doc:`conceptual-tutorial` explains the MCP server
   architecture, the connector system, and the safety mechanisms in depth.
 - **The profile format**: :doc:`../how-to/build-profiles` documents every key
-  those 13 commented blocks can hold.
+  those 12 commented blocks can hold.
 - **CLI reference**: :doc:`/reference/cli` covers all ``osprey``
   commands.
+
+The deployment repo that ``osprey init`` created also contains
+``mcp_servers/example_server/``, a small working MCP server; its
+``example_status`` tool is one the agent already has. Copying that directory
+is the quickest way to start your own. The repo's ``README.md`` has a
+"Common questions" section that explains how to add your own server, panel,
+or volume.

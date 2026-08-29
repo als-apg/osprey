@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Aug 28, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 29, 2026"/>
   </head>
   
   
@@ -691,10 +691,10 @@ configuration) and <code class="docutils literal notranslate"><span class="pre">
 <a class="reference internal" href="../../how-to/agent-interfaces/add-mcp-server.html"><span class="doc">Add an MCP Server</span></a>.</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">mcp_servers</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">my_server</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">python</span>
+<span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{current_python_env}&quot;</span>
 <span class="w">    </span><span class="nt">args</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;-m&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;my_server&quot;</span><span class="p p-Indicator">]</span>
 <span class="w">    </span><span class="nt">env</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">CONFIG</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{project_root}/config.yml&quot;</span>
+<span class="w">      </span><span class="nt">CONFIG</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{project_root}/build/config.yml&quot;</span>
 <span class="w">      </span><span class="nt">API_KEY</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;${MY_API_KEY}&quot;</span>
 <span class="w">    </span><span class="nt">permissions</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">allow</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;safe_tool&quot;</span><span class="p p-Indicator">]</span>
@@ -724,16 +724,19 @@ build records alongside a <code class="docutils literal notranslate"><span class
 own key — so name the compose service after the <code class="docutils literal notranslate"><span class="pre">mcp_servers:</span></code> key or that
 URL points at no host.</p>
 <p><strong>Placeholders:</strong> <code class="docutils literal notranslate"><span class="pre">{project_root}</span></code> resolves at build time to the absolute
-project path; <code class="docutils literal notranslate"><span class="pre">${ENV_VAR}</span></code> is preserved for the container or shell to resolve
-at runtime.</p>
+project path, and <code class="docutils literal notranslate"><span class="pre">{current_python_env}</span></code> to the interpreter the framework’s
+own MCP servers run under (the project venv under the default
+<code class="docutils literal notranslate"><span class="pre">python_env:</span> <span class="pre">project</span></code>; see the key table above), which is what a Python
+server shipped with the profile should launch under too. <code class="docutils literal notranslate"><span class="pre">${ENV_VAR}</span></code> is
+preserved for the container or shell to resolve at runtime.</p>
 <p><strong>Permission wiring:</strong> for a server named <code class="docutils literal notranslate"><span class="pre">my_server</span></code> with
 <code class="docutils literal notranslate"><span class="pre">allow:</span> <span class="pre">[&quot;safe_tool&quot;]</span></code>, the build adds <code class="docutils literal notranslate"><span class="pre">mcp__my_server__safe_tool</span></code> to the
 allow list.</p>
 <section id="shipping-the-server-s-code">
 <h3>Shipping the server’s code<a class="headerlink" href="#shipping-the-server-s-code" title="Link to this heading">#</a></h3>
 <p>Put the package in the profile’s <code class="docutils literal notranslate"><span class="pre">mcp_servers/</span></code> directory — one directory per
-server. The build copies it to <code class="docutils literal notranslate"><span class="pre">_mcp_servers/</span></code> in the project, so the launch
-command finds it:</p>
+server. The build copies it to <code class="docutils literal notranslate"><span class="pre">build/_mcp_servers/</span></code> in the project, so the
+launch command finds it:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-facility/
   mcp_servers/
     phoebus/
@@ -744,11 +747,11 @@ command finds it:</p>
 </div>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">mcp_servers</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">phoebus</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">python</span>
+<span class="w">    </span><span class="nt">command</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{current_python_env}&quot;</span>
 <span class="w">    </span><span class="nt">args</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;-m&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;phoebus&quot;</span><span class="p p-Indicator">]</span>
 <span class="w">    </span><span class="nt">env</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">OSPREY_CONFIG</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{project_root}/config.yml&quot;</span>
-<span class="w">      </span><span class="nt">PYTHONPATH</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{project_root}/_mcp_servers&quot;</span>
+<span class="w">      </span><span class="nt">OSPREY_CONFIG</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{project_root}/build/config.yml&quot;</span>
+<span class="w">      </span><span class="nt">PYTHONPATH</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{project_root}/build/_mcp_servers&quot;</span>
 <span class="w">    </span><span class="nt">permissions</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">allow</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;phoebus_launch&quot;</span><span class="p p-Indicator">]</span>
 </pre></div>
