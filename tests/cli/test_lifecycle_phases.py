@@ -385,8 +385,10 @@ class TestBuildPhases:
             # Named once, from the deployment's render — the other five passes
             # inject the same set and say nothing about it.
             "· services injected: event dispatch",
-            "· compose files",
+            # Personas before the compose files: the services render reads the
+            # personas' rendered configs for its per-persona grants.
             "· 1 persona render(s)",
+            "· compose files",
             "· 1 image build context(s)",
         ]
 
