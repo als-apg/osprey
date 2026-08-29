@@ -39,10 +39,20 @@ def _point_at_safety_limits_db(repo: Path) -> None:
     than baked into settings.json, so no re-render is needed. The value written
     is absolute, so it bypasses the relative-path resolution against
     ``CONFIG_FILE``'s directory entirely.
+
+    ``allow_unlisted_channels`` is pinned permissive alongside it. The preset
+    ships strict (an unlisted channel is refused), because the stand-in it
+    baselines on carries a real machine's posture; the safety scenarios here
+    were written against the permissive posture and one of them (scenario 5)
+    exists to prove an unlisted channel goes through under it. The pin selects
+    the posture the scenarios describe rather than inheriting whichever one the
+    preset ships.
     """
     config_path = render_dir(repo) / "config.yml"
     config = yaml.safe_load(config_path.read_text())
-    config["control_system"]["limits_checking"]["database_path"] = str(SAFETY_LIMITS_DB)
+    limits = config["control_system"]["limits_checking"]
+    limits["database_path"] = str(SAFETY_LIMITS_DB)
+    limits["allow_unlisted_channels"] = True
     config_path.write_text(yaml.dump(config, default_flow_style=False))
 
 

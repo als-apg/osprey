@@ -216,8 +216,10 @@ async def test_write_to_readonly_denied(safety_project):
 async def test_write_to_unlisted_channel_succeeds(safety_project):
     """Scenario 5: Writing to an unlisted channel should succeed in permissive mode.
 
-    SR:RANDOM:UNLISTED is not in the limits DB. In permissive mode (default),
-    unlisted channels are allowed through without limits validation.
+    SR:RANDOM:UNLISTED is not in the limits DB. In permissive mode — which the
+    ``safety_project`` fixture pins via ``allow_unlisted_channels: true``; the
+    preset itself ships strict — unlisted channels are allowed through without
+    limits validation.
 
     Cost budget: $0.50
     """
