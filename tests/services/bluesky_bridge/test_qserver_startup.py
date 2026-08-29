@@ -392,7 +392,7 @@ def test_control_system_type_falls_back_to_mock_when_config_is_unreadable(
     assert qserver_startup.resolve_control_system_type() == "mock"
 
 
-@pytest.mark.parametrize("control_system_type", ["virtual_accelerator", "epics"])
+@pytest.mark.parametrize("control_system_type", ["virtual_accelerator", "epics", "live_standin"])
 def test_epics_like_types_get_a_gateway_less_type_config(control_system_type: str) -> None:
     config = qserver_startup.build_connector_config(control_system_type)
 

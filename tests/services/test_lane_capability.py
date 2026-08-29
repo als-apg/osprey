@@ -164,7 +164,12 @@ async def test_an_unset_lane_env_is_the_historical_service_key(deployment) -> No
 
 @pytest.mark.parametrize(
     ("control_system_type", "expected"),
-    [("virtual_accelerator", "va"), ("epics", "live"), ("mock", "live")],
+    [
+        ("virtual_accelerator", "va"),
+        ("live_standin", "standin"),
+        ("epics", "live"),
+        ("mock", "live"),
+    ],
 )
 async def test_a_legacy_lane_derives_the_deployment_baseline(
     deployment, control_system_type, expected
@@ -180,7 +185,9 @@ async def test_a_legacy_lane_derives_the_deployment_baseline(
     assert (await _capability()).lane_target == expected
 
 
-@pytest.mark.parametrize("control_system_type", ["virtual_accelerator", "epics", "mock", "doocs"])
+@pytest.mark.parametrize(
+    "control_system_type", ["virtual_accelerator", "live_standin", "epics", "mock", "doocs"]
+)
 async def test_the_legacy_fallback_agrees_with_the_host_side_baseline(
     deployment, control_system_type
 ) -> None:

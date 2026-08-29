@@ -100,11 +100,14 @@ ZMQ_CURVE_SERVER_PUBLIC_KEY_ENV = "BLUESKY_ZMQ_CURVE_SERVER_PUBLIC_KEY"
 :data:`ZMQ_CURVE_SECRET_KEY_ENV`; setting exactly one of the two is a
 misconfiguration and is refused rather than silently publishing unencrypted."""
 
-_EPICS_LIKE_CONNECTOR_TYPES = ("virtual_accelerator", "epics")
+_EPICS_LIKE_CONNECTOR_TYPES = ("virtual_accelerator", "epics", "live_standin")
 """Connector types that get a gateway-less ``type_config`` — real Channel
-Access, whether a virtual-accelerator soft-IOC or live hardware. A gateway-less
-config makes ``connect()`` skip the block that sets process-wide ``EPICS_CA_*``
-env, so the compose-inherited ``EPICS_CA_NAME_SERVERS`` survives untouched."""
+Access, whether a virtual-accelerator soft-IOC, the live stand-in soft-IOC or
+live hardware. A gateway-less config makes ``connect()`` skip the block that
+sets process-wide ``EPICS_CA_*`` env, so the compose-inherited
+``EPICS_CA_NAME_SERVERS`` survives untouched. Kept in step with
+``queue_backend._EPICS_LIKE_CONNECTOR_TYPES``, which lives in the bridge
+process and cannot be imported from here."""
 
 CONNECT_TIMEOUT = 30.0
 """Seconds :func:`build_namespace` waits for the async device build to finish
