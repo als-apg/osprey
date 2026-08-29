@@ -887,7 +887,7 @@ def _persona_profile_texts(
     return texts
 
 
-def _cleanup(target: Path) -> str:
+def _cleanup(target: Path, seeded: tuple[str, ...] = ()) -> str:
     """Remove what a failed materialization wrote, and say what is left.
 
     Only the entries a materialization owns (:data:`MATERIALIZED_SOURCE_ENTRIES`)
@@ -895,19 +895,29 @@ def _cleanup(target: Path) -> str:
     operator's own files — a ``.git``, an ``.env``, a clone's README — and a
     failed run must never cost one of those.
 
+    Args:
+        target: The repo root the failed materialization was writing into.
+        seeded: Write-once directories THIS run created (the ``seed_dirs`` it
+            actually copied — never one it found already there). They are not
+            in :data:`MATERIALIZED_SOURCE_ENTRIES`, because a later ``--force``
+            must leave an operator's own edits inside them alone; but a run that
+            just created one and then failed owns it, so a first init that fails
+            leaves nothing behind.
+
     Returns:
         A sentence for the refusal it is appended to, naming anything that could
         not be removed so the operator knows a retry will refuse too.
     """
     import shutil
 
-    for name in MATERIALIZED_SOURCE_ENTRIES:
+    owned = (*MATERIALIZED_SOURCE_ENTRIES, *seeded)
+    for name in owned:
         entry = target / name
         if entry.is_dir():
             shutil.rmtree(entry, ignore_errors=True)
         else:
             entry.unlink(missing_ok=True)
-    remaining = [name for name in MATERIALIZED_SOURCE_ENTRIES if (target / name).exists()]
+    remaining = [name for name in owned if (target / name).exists()]
     if remaining:
         return (
             f"Partly-written files remain in {target}: {', '.join(remaining)} — "
@@ -994,6 +1004,13 @@ class _MaterializedProfile(NamedTuple):
     profile that emits none. The per-persona facts a summary needs (each tier's
     panels and its write posture) live in these, not in the host profile."""
 
+    seeded: tuple[str, ...]
+    """The write-once directories this materialization seeded — empty on every
+    re-run, because a name already present in the target is left as the operator
+    left it. Returned because only this run knows which of them it created, and
+    that is the difference between a directory the caller may still clear and
+    one that is now the operator's."""
+
 
 def _materialize_profile_directory(
     target_dir: Path,
@@ -1002,6 +1019,7 @@ def _materialize_profile_directory(
     set_pairs: tuple[str, ...] = (),
     *,
     profile_name: str | None = None,
+    seed_dirs: Mapping[str, str] | None = None,
 ) -> _MaterializedProfile:
     """Materialize an editable, standalone profile directory from ``preset_name``.
 
@@ -1029,6 +1047,14 @@ def _materialize_profile_directory(
         profile_name: Display name for the emitted profile. Defaults to one
             derived from the repo directory's own name. ``--set name=`` wins
             over both.
+        seed_dirs: Write-once directories to copy out of the bundle, mapping a
+            profile-root directory name to the bundle-relative tree it comes
+            from (e.g. ``{"mcp_servers": "mcp_servers"}``). Each is copied only
+            when the bundle ships it and the target does not already have it, so
+            the copy happens on a repo's first init and never again — which is
+            why these are NOT in :data:`MATERIALIZED_SOURCE_ENTRIES`: a later
+            ``--force`` re-materialization must not delete servers an operator
+            has since written.
 
     Returns:
         What was written, for the caller's summary (:class:`_MaterializedProfile`).
@@ -1135,6 +1161,10 @@ def _materialize_profile_directory(
     # settled by the caller, which also owns what to clear if this fails.
     target.mkdir(parents=True, exist_ok=True)
 
+    # Bound before the try so both failure arms can hand it to `_cleanup`: the
+    # seeds this run created are the only ones it is allowed to remove.
+    seeded: list[str] = []
+
     try:
         # Verbatim copy (D1/FR2): staging subdirectories and any stray `.j2`
         # come across byte-identical — a profile data tree is content, never
@@ -1212,6 +1242,27 @@ def _materialize_profile_directory(
                 "  Persona deltas: %s",
                 ", ".join(f"{_PERSONA_PROFILE_DIRNAME}/{name}.yml" for name in persona_texts),
             )
+        # Write-once seeds, outside the web-tier branch because they
+        # are not a web-tier fact: a directory the deployment OWNS from its first
+        # init — an operator's MCP servers, say — copied out of the bundle once
+        # and never replaced. An existing one is left exactly as the operator
+        # left it, and nothing is written when the bundle ships no such tree, so
+        # a bundle gaining or losing one changes only what a fresh init seeds.
+        # `__pycache__` and its byte-code are dropped so the seed from a source
+        # checkout is byte-identical to the seed from a wheel.
+        for name, src_rel in (seed_dirs or {}).items():
+            src = Path(manager.template_root) / "apps" / resolved.data_bundle / src_rel
+            if src.is_dir() and not (target / name).exists():
+                # Recorded BEFORE the copy starts, so a copy that dies half-way
+                # still leaves `_cleanup` a name to remove.
+                seeded.append(name)
+                shutil.copytree(
+                    src,
+                    target / name,
+                    ignore=shutil.ignore_patterns("__pycache__", "*.py[co]"),
+                )
+        if seeded:
+            logger.debug("  Seeded: %s", ", ".join(f"{name}/" for name in seeded))
 
         # The round-trip runs last because it validates `data:` against the tree
         # that must already be on disk. Only the host profile is resolved: a
@@ -1232,11 +1283,11 @@ def _materialize_profile_directory(
             if (overrides or set_pairs)
             else "The materialized profile does not validate"
         )
-        raise click.UsageError(f"{blame}: {e}\n{_cleanup(target)}") from e
+        raise click.UsageError(f"{blame}: {e}\n{_cleanup(target, seeded=tuple(seeded))}") from e
     except Exception:
         # Any other failure (a copy error, a full disk) must not leave a
         # half-materialized directory that looks buildable.
-        _cleanup(target)
+        _cleanup(target, seeded=tuple(seeded))
         raise
 
     logger.debug("Wrote profile directory: %s", target)
@@ -1247,4 +1298,5 @@ def _materialize_profile_directory(
         written.deploy is not None,
         written,
         persona_deltas,
+        tuple(seeded),
     )

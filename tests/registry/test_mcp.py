@@ -97,6 +97,29 @@ class TestResolveServers:
         assert s["permissions_ask"] == ["write_data"]
         assert s["is_custom"] is True
 
+    def test_resolve_external_command_resolves_current_python_env(self):
+        """An external server's ``command`` resolves {current_python_env}
+        the same way ``args`` and ``env`` already do."""
+        ctx = _base_ctx()
+        cfg = {"servers": {"my-server": {"command": "{current_python_env}"}}}
+        s = _resolve_one(cfg, "my-server", ctx)
+        assert s["command"] == "/usr/bin/python3"
+
+    def test_resolve_external_command_resolves_project_root(self):
+        """An external server's ``command`` resolves {project_root}."""
+        ctx = _base_ctx()
+        cfg = {"servers": {"my-server": {"command": "{project_root}/bin/x"}}}
+        s = _resolve_one(cfg, "my-server", ctx)
+        assert s["command"] == "/tmp/test-project/bin/x"
+
+    def test_resolve_external_command_leaves_dollar_var_untouched(self):
+        """``${VAR}`` in an external server's ``command`` survives verbatim,
+        matching the existing behavior for ``args`` and ``env``."""
+        ctx = _base_ctx()
+        cfg = {"servers": {"my-server": {"command": "${TOOL_HOME}/bin/x"}}}
+        s = _resolve_one(cfg, "my-server", ctx)
+        assert s["command"] == "${TOOL_HOME}/bin/x"
+
     def test_resolve_custom_server_url_defaults_to_http_transport(self):
         """A URL server without a transport key resolves as streamable-HTTP."""
         ctx = _base_ctx()

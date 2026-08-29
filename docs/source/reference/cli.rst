@@ -110,7 +110,7 @@ profile (repeatable). RHS is parsed as YAML. Top-level shorthands: ``provider``,
 repository, discarding edits to ``profile.yml``, ``data/``, ``personas/``,
 ``triggers.yml``, ``web-terminal-context/``, and ``.env.example``. Never touches
 ``.env``, ``.git``, ``var/``, ``build/``, ``.gitignore``, ``README.md``,
-``ci-extra.yml``, the CI file, or ``scripts/verify.sh``.
+``ci-extra.yml``, the CI file, ``scripts/verify.sh``, or ``mcp_servers/``.
 
 ``--no-git`` — Skip ``git init`` and the initial commit.
 

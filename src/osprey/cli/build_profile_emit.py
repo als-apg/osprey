@@ -41,6 +41,7 @@ from .build_profile_load import _PROFILE_SCHEMA_MIN_OSPREY
 from .build_profile_merge import _deep_merge, _resolve_extends, compute_preset_hash
 from .build_profile_presets import _load_preset_raw
 from .build_profile_resolve import merge_cli_overrides
+from .profile_conventions import BUILD_OUTPUT_DIR
 
 # YAML-surface spellings that differ from the canonical resolved-content field
 # name (D2: the rename is confined to the profile-YAML surface, so the
@@ -167,6 +168,41 @@ _SYNTHESIS_RATIONALE: dict[str, str] = {
     "web_panels": "Panels offered by the web terminal.",
 }
 
+# Two keys need more than a one-line rationale: their shape is not obvious from
+# the empty default the emitter writes, and guessing it wrong is a build error
+# rather than a quiet no-op. Each entry replaces that key's rationale line with
+# a block written above the key. Every line is already '#'-prefixed (like
+# _PROVENANCE_COMMENT below), so an annotated key's value is left exactly as the
+# profile resolved it.
+_ANNOTATIONS: dict[str, tuple[str, ...]] = {
+    "web_panels": (
+        "# Tabs the web workspace offers beside the terminal. To turn on a panel",
+        "# the framework already ships, uncomment one listed under this key.",
+        "# A panel of your own is a list entry plus its address under `config:`:",
+        "#",
+        "#   web_panels:",
+        "#     - elog",
+        "#",
+        "# and, under `config:`, web.panels.elog.url alongside web.panels.elog.label,",
+        "# web.panels.elog.path and — optional — web.panels.elog.health_endpoint.",
+    ),
+    "env": (
+        "# Environment variables the deployment needs. Replace `env: {}` with any",
+        "# of `required` (the variable must be set somewhere), `pinned` (this",
+        "# repo's own env chain owns it outright, and nowhere else), `defaults`",
+        "# (name to value) and `file` (a profile-relative path copied in as .env):",
+        "#",
+        "#   env:",
+        "#     required: [EPICS_CA_ADDR_LIST]",
+        "#     pinned: [ARIEL_DB_PASSWORD]",
+        "#     defaults:",
+        "#       EPICS_CA_ADDR_LIST: 127.0.0.1",
+        "#     file: env/facility.env",
+        "#",
+        "# If `env:` already has children, add yours under it.",
+    ),
+}
+
 # The stamp is always written, so it carries its explanation rather than a
 # synthesis rationale: it is a floor for readers, not a preset choice.
 _REQUIRES_VERSION_COMMENT = (
@@ -201,8 +237,18 @@ _MCP_SERVERS_APPENDIX = """
 # "http"; "sse" is the legacy event-stream wire and needs an explicit url.
 # Tool names under permissions are bare — `allow` runs them unprompted, `ask`
 # prompts the operator on every call.
+# A Python server's package lives at mcp_servers/<package>/ beside this file;
+# the build copies it to __BUILD__/_mcp_servers/<package>/ for `-m <package>`.
 #
 # mcp_servers:
+#   my_server:
+#     command: "{current_python_env}"
+#     args: [-m, my_server]
+#     env:
+#       OSPREY_CONFIG: "{project_root}/__BUILD__/config.yml"
+#       PYTHONPATH: "{project_root}/__BUILD__/_mcp_servers"
+#     permissions:
+#       allow: [my_tool]
 #   matlab:
 #     command: /opt/matlab/bin/mcp-matlab
 #     args: [--workspace, /opt/matlab/scripts]
@@ -216,7 +262,7 @@ _MCP_SERVERS_APPENDIX = """
 #     transport: http
 #     permissions:
 #       allow: [get_twiss]
-"""
+""".replace("__BUILD__", BUILD_OUTPUT_DIR)
 
 # Appended when the resolved profile has no ``artifact_server:`` block.
 _CATEGORIES_APPENDIX = """
@@ -1192,8 +1238,19 @@ def emit_standalone_profile_yaml(
     for field in synthesized:
         rationale = _SYNTHESIS_RATIONALE.get(field)
         key = _FIELD_TO_YAML.get(field, field)
-        if rationale and key in doc:
+        if rationale and key in doc and field not in _ANNOTATIONS:
             _set_pre_comment(doc, key, [f"# {rationale}"], 0)
+
+    # Annotated keys carry a worked example instead of a rationale line, and get
+    # it whether or not the preset left them unset: the shape of a custom panel
+    # or an env block is what a facility has to be told, not the fact that the
+    # key is present. Appending keeps any preset's own header above the key
+    # first, and column 0 keeps the block out of the artifact menus, which are
+    # inserted into the dumped text further down.
+    for field, annotation in _ANNOTATIONS.items():
+        key = _FIELD_TO_YAML.get(field, field)
+        if key in doc:
+            _set_pre_comment(doc, key, list(annotation), 0)
     if "requires_osprey_version" in doc:
         _set_pre_comment(doc, "requires_osprey_version", [_REQUIRES_VERSION_COMMENT], 0)
     if "provenance" in doc:

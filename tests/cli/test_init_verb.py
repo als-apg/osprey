@@ -36,10 +36,13 @@ from click.testing import CliRunner
 from rich.console import Console
 
 from osprey.cli.init_cmd import (
+    _PRESERVED_PROSE,
     CI_EMITTED_PATHS,
     PRESERVED_BY_FORCE,
     REPO_VERIFY_PATH,
+    WRITE_ONCE_DIRS,
     WRITE_ONCE_FILES,
+    _source_zone_prose,
     init,
 )
 from osprey.cli.main import cli
@@ -159,6 +162,34 @@ def test_authored_files_match_the_exemplar_byte_for_byte(exemplar_repo: Path, na
         exemplar_repo.joinpath(name).read_text(encoding="utf-8")
         == (exemplar_source_files(with_ci=False)[name])
     )
+
+
+#: The questions the README's last section answers, one heading each.
+COMMON_QUESTION_HEADINGS = (
+    "### Adding an MCP server of your own",
+    "### Adding a panel of your own",
+    "### Mounting an extra directory into a web terminal",
+)
+
+#: Placeholder syntax the answers QUOTE rather than fill in. Every one of these
+#: is a literal brace inside the README's own f-string, and the f-string is the
+#: reason they are worth an assertion: an undoubled brace is not a typo that
+#: renders oddly, it is a ``KeyError`` on the operator's first ``init``.
+QUOTED_PLACEHOLDERS = ("{label", "{current_python_env}", "{project_root}")
+
+
+def test_the_readme_answers_the_common_questions(exemplar_repo: Path) -> None:
+    """The three things an operator goes looking for after their first build.
+
+    Asserted on the emitted file rather than on the builder's source, because
+    what is under test is what the operator reads: the section survives the
+    f-string, braces and all.
+    """
+    readme = exemplar_repo.joinpath("README.md").read_text(encoding="utf-8")
+
+    assert "## Common questions" in readme
+    assert [heading for heading in COMMON_QUESTION_HEADINGS if heading not in readme] == []
+    assert [literal for literal in QUOTED_PLACEHOLDERS if literal not in readme] == []
 
 
 def test_every_source_path_the_exemplar_names_is_emitted(exemplar_repo: Path) -> None:
@@ -535,10 +566,18 @@ def _seed_survivor(repo: Path, entry: str) -> Path:
     agent's memory surviving, not the empty directory being re-created. ``.git``
     is a directory too, and its own contents are git's, so it gets the same
     treatment rather than being special-cased into a weaker assertion.
+
+    A seeded directory (:data:`~osprey.cli.init_cmd.WRITE_ONCE_DIRS`) is a
+    profile convention directory, holding one directory per server, so its
+    sentinel goes a level deeper: a bare file directly inside it is not merely
+    an unrealistic survivor but an invalid repo, and the re-materialization
+    under test would refuse it before it ever got to preserving anything.
     """
     relative = f"{entry.rstrip('/')}/sentinel.txt" if entry.endswith("/") else entry
     if entry == ".git":
         relative = ".git/sentinel.txt"
+    if entry.rstrip("/") in WRITE_ONCE_DIRS:
+        relative = f"{entry.rstrip('/')}/sentinel/sentinel.txt"
     survivor = repo / relative
     survivor.parent.mkdir(parents=True, exist_ok=True)
     survivor.write_text(SENTINEL, encoding="utf-8")
@@ -567,7 +606,7 @@ def test_every_file_a_rendered_repo_ships_is_in_a_named_category(
         run_init(runner, str(target), "--preset", "hello-world", "-O", str(override)).exit_code == 0
     )
 
-    top_level = {*MATERIALIZED_SOURCE_ENTRIES, *WRITE_ONCE_FILES, ".env"}
+    top_level = {*MATERIALIZED_SOURCE_ENTRIES, *WRITE_ONCE_FILES, *WRITE_ONCE_DIRS, ".env"}
     uncategorised = []
     for path in sorted(target.rglob("*")):
         if not path.is_file():
@@ -637,6 +676,50 @@ def test_force_replaces_the_source_zone_and_nothing_else(
     # by the command having done nothing at all.
     assert not (exemplar_repo / "data" / "stale.json").exists()
     assert replaced_marker not in (exemplar_repo / "profile.yml").read_text(encoding="utf-8")
+
+
+def test_the_preserve_promise_an_operator_reads_names_the_seeded_directory(
+    runner: CliRunner,
+) -> None:
+    """`mcp_servers/` is only write-once if every promise about it says so.
+
+    The survival test above proves the behaviour; this proves the operator is
+    told. Both derive from :data:`~osprey.cli.init_cmd.PRESERVED_BY_FORCE`, so
+    the point being pinned is that the seeded directory really did reach it and
+    therefore reaches the two help strings and the already-a-repo refusal —
+    which is the whole reason it is splatted in rather than listed by hand.
+    """
+    assert "mcp_servers/" in _PRESERVED_PROSE
+
+    option_help = {
+        param.name: param.help for param in init.params if isinstance(param, click.Option)
+    }
+    assert "mcp_servers/" in option_help["force"]
+    assert "mcp_servers/" in option_help["reset"]
+
+    # …and survives Click's own rendering, where the prose is rewrapped to the
+    # terminal: an operator who runs `--help` is told, not just a param object.
+    rendered = runner.invoke(init, ["--help"])
+    assert rendered.exit_code == 0, rendered.output
+    assert "mcp_servers/" in rendered.output
+
+
+def test_the_zone_row_names_a_seeded_directory_only_when_one_was_seeded() -> None:
+    """The README's SOURCE row describes THIS repo, not the seeding table.
+
+    A repo that received ``mcp_servers/`` names it, between the materialized
+    entries it follows on disk and the repo shell that follows it. One that
+    received nothing — every app template that ships no server package — must
+    read exactly as it did before the category existed, or the README sends an
+    operator looking for a directory that was never written.
+    """
+    from osprey.cli.profile_cmd import MATERIALIZED_SOURCE_ENTRIES
+
+    entries = [item.strip("`") for item in _source_zone_prose(("mcp_servers",)).split(", ")]
+
+    assert entries.index("mcp_servers/") == len(MATERIALIZED_SOURCE_ENTRIES)
+    assert entries.index("mcp_servers/") < entries.index(next(iter(WRITE_ONCE_FILES)))
+    assert "mcp_servers" not in _source_zone_prose()
 
 
 def test_force_never_regenerates_a_hand_written_pipeline(runner: CliRunner, tmp_path: Path) -> None:

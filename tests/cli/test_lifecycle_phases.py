@@ -488,9 +488,14 @@ def init_stubs(monkeypatch, seen):
     from osprey.cli import build_cmd, deploy_cmd, init_cmd, profile_cmd
     from osprey.deployment import container_lifecycle
 
+    class _Resolved:
+        mcp_servers: dict = {}
+
     class _Materialized:
         profile_name = "probe"
         deploy_declared = False
+        seeded = ()
+        resolved = _Resolved()
 
     def materialize(target, *args, **kwargs):
         Path(target).mkdir(parents=True, exist_ok=True)
