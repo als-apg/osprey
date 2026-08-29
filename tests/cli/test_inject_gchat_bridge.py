@@ -36,7 +36,7 @@ from osprey.deployment.compose_generator import _inject_project_metadata
 
 _TRIGGERS_YAML = """\
 dispatcher:
-  dispatch_target: http://dispatch-worker-1:9901
+  dispatch_target: http://dispatch-worker-1:10011
 triggers:
   - name: gchat-question
     source: webhook
@@ -378,8 +378,8 @@ def test_full_build_compose_renders_with_no_unrendered_jinja(
     # required-variable guard (unlike the external-dispatcher branch): there is no
     # host env var to demand, so a guard here would break a co-deployed stack that
     # correctly sets nothing.
-    assert env["DISPATCHER_URL"] == "http://event-dispatcher:9900"
-    assert env["WORKER_URL"] == "http://dispatch-worker-1:9901"
+    assert env["DISPATCHER_URL"] == "http://event-dispatcher:10010"
+    assert env["WORKER_URL"] == "http://dispatch-worker-1:10011"
     assert ":?" not in env["DISPATCHER_URL"] and ":?" not in env["WORKER_URL"]
     assert svc["depends_on"] == {"event-dispatcher": {"condition": "service_healthy"}}
     # Google credentials stay BARE — deliberately, and for a different reason than

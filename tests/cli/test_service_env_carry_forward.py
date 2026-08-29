@@ -57,6 +57,7 @@ from osprey.cli.build_profile_schema import (
     ServiceDef,
     VAConfig,
 )
+from osprey.port_layout import default_port
 
 _DECLARED = ["SITE_HTTP_PROXY", "FACILITY_TZ"]
 
@@ -65,8 +66,16 @@ _DECLARED = ["SITE_HTTP_PROXY", "FACILITY_TZ"]
 #: asserted alongside the carried one so a fix that stopped rewriting the block
 #: at all would not read as a pass.
 _INJECTORS: tuple[tuple[str, Any, str], ...] = (
-    ("bluesky", lambda path: _inject_bluesky(BlueskyConfig(port=8090), path), "port"),
-    ("bluesky_web", lambda path: _inject_bluesky_web(BlueskyWebConfig(port=8095), path), "port"),
+    (
+        "bluesky",
+        lambda path: _inject_bluesky(BlueskyConfig(port=default_port("bluesky")), path),
+        "port",
+    ),
+    (
+        "bluesky_web",
+        lambda path: _inject_bluesky_web(BlueskyWebConfig(port=default_port("bluesky_web")), path),
+        "port",
+    ),
     ("virtual_accelerator", lambda path: _inject_va(VAConfig(port=5064), path), "port"),
     (
         "gchat_bridge",
@@ -168,9 +177,9 @@ def test_a_non_mapping_block_is_replaced_rather_than_read(tmp_path):
     """A hand-edited config.yml must not turn a build into a crash."""
     project = _project(tmp_path, {"bluesky": "not-a-mapping"})
 
-    _inject_bluesky(BlueskyConfig(port=8090), project)
+    _inject_bluesky(BlueskyConfig(port=default_port("bluesky")), project)
 
-    assert _services(project)["bluesky"]["port"] == 8090
+    assert _services(project)["bluesky"]["port"] == default_port("bluesky")
 
 
 # ---------------------------------------------------------------------------

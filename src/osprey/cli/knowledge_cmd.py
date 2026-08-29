@@ -324,6 +324,25 @@ def _graphdb_block() -> Mapping[str, Any] | None:
     return block if isinstance(block, Mapping) else None
 
 
+def _graphdb_port_base() -> int:
+    """Return the port base this project resolved.
+
+    Handed to :func:`resolve_graphdb_connection` so a store with no explicit
+    ``port_host`` is dialed on the ``graphdb_bolt`` slot of *this* deployment's
+    block -- the number the compose service publishes it on. Without it the dial
+    would go to the layout's default base and, on a host running two
+    deployments, reach the other one's graph store.
+
+    Returns:
+        ``deployment.port_base``, or the layout default when the project sets
+        none.
+    """
+    from osprey.port_layout import resolve_port_base
+    from osprey.utils.config import get_config_value
+
+    return resolve_port_base({"deployment": get_config_value("deployment", {})})
+
+
 def _connection_failure(exc: Exception, uri: str) -> click.ClickException:
     """Turn a driver exception into a CLI error with a remedy on it.
 
@@ -519,7 +538,7 @@ def seed_graph(ttl: Path | None, force: bool) -> None:
     direction_source = graph_seeder.parse_direction_source(text)
 
     try:
-        connection = resolve_graphdb_connection(_graphdb_block())
+        connection = resolve_graphdb_connection(_graphdb_block(), base=_graphdb_port_base())
     except ValueError as exc:
         raise click.ClickException(f"Cannot work out which graph store to dial: {exc}") from exc
 

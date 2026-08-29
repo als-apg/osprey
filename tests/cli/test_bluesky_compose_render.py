@@ -24,6 +24,8 @@ import pytest
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
+from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
+
 # Rooted at the templates/ PROJECT root, not services/, because service
 # templates import the shared axis macros as "services/_*.j2" — the spelling
 # compose_generator's own loader resolves. Template names below stay relative
@@ -111,7 +113,7 @@ def _render(
     # The generator precomputes each lane's posture onto its service entry
     # (the template cannot resolve a target itself); a direct render supplies it.
     bluesky: dict[str, Any] = {
-        "port": 8090,
+        "port": default_port("bluesky"),
         "tiled_enabled": tiled_enabled,
         "writes_enabled": writes_enabled,
     }
@@ -140,6 +142,11 @@ def _render(
         "control_system": {"writes_enabled": writes_enabled},
         "services": {"bluesky": bluesky, "virtual_accelerator": {"port": 5064}},
         "bluesky_devices": devices_present,
+        # The layout at this context's base — empty ``deployment`` means the
+        # default one. Every framework port in the template reads as
+        # ``<key> | default(osprey_ports.<slot>, true)``, so a context without
+        # this table is not a render any deploy produces.
+        "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
     }
     if limits_mount is not None:
         context["limits_mount"] = limits_mount
@@ -795,6 +802,7 @@ def test_redis_image_honours_a_config_override() -> None:
                 "deployment": {},
                 "deployed_services": ["bluesky"],
                 "services": {"bluesky": {"redis_image": context_image}},
+                "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
             }
         )
     )
@@ -941,6 +949,7 @@ def test_dev_guard_keys_on_the_build_arg_the_compose_template_passes() -> None:
                 "deployment": {},
                 "deployed_services": ["bluesky"],
                 "services": {"bluesky": {}},
+                "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
                 "dev_mode": True,
             }
         )
@@ -965,6 +974,7 @@ def test_dev_guard_keys_on_the_build_arg_the_compose_template_passes() -> None:
                 "deployment": {},
                 "deployed_services": ["bluesky"],
                 "services": {"bluesky": {}},
+                "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
             }
         )
     )
@@ -983,7 +993,8 @@ def test_bridge_port_bind_stays_loopback_and_token_stays_fail_closed(
     rendered: dict[str, Any],
 ) -> None:
     bridge = rendered["services"]["bluesky-bridge"]
-    assert bridge["ports"] == ["127.0.0.1:8090:8090"]
+    port = default_port("bluesky")
+    assert bridge["ports"] == [f"127.0.0.1:{port}:{port}"]
     assert bridge["environment"]["BLUESKY_LAUNCH_TOKEN"] == "${BLUESKY_LAUNCH_TOKEN}"
 
 
@@ -1066,7 +1077,7 @@ def _lane_config(config_dir: Path, *, writes_enabled: bool) -> dict:
         "services": {
             "bluesky": {
                 "path": "./services/bluesky",
-                "port": 8090,
+                "port": default_port("bluesky"),
                 "devices_file": _DEVICES_RELPATH,
             }
         },

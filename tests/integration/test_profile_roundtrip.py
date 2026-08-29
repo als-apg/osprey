@@ -272,7 +272,7 @@ def _apply_profile_edits(profile_dir: Path) -> None:
     # (`<prefix>-web-<user>`) and the per-user web port family's base, which has
     # no registry default because it is facility-chosen.
     config["facility.prefix"] = "fac"
-    config["modules.web_terminals.web_base_port"] = 9091
+    config["modules.web_terminals.web_base_port"] = 20100
     (profile_dir / "profile.yml").write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
 
     # Written as an operator would: the profile `.env` is a file they own.

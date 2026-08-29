@@ -26,6 +26,7 @@ from click.testing import CliRunner
 from osprey.cli.config_cmd import config
 from osprey.cli.main import cli
 from osprey.cli.validate_cmd import validate
+from osprey.port_layout import DEFAULT_PORT_BASE, default_port
 
 #: The frozen reference deployment — the shape `osprey init` is being built to
 #: emit. Used here so the zero-argument path is exercised against a real
@@ -37,8 +38,6 @@ EXEMPLAR = Path(__file__).resolve().parents[1] / "deployment" / "goldens" / "exe
 #: ``registry.url``.
 WEB_TERMINALS: dict[str, Any] = {
     "enabled": True,
-    "nginx_port": 9080,
-    "web_base_port": 9091,
     "users": [{"name": "operator", "index": 0, "persona": "readwrite"}],
     "default_persona": "readwrite",
     "personas": {"readwrite": {"build_profile": "hello-world", "project": "demo-readwrite"}},
@@ -377,6 +376,22 @@ def test_config_defaults_renders_parseable_yaml(
     assert isinstance(loaded, dict), result.output
     assert loaded["project_name"] == "example_project"
     assert "control_system" in loaded
+
+
+def test_config_defaults_shows_the_layout_at_the_default_base(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """This view has no deployment to resolve a port base from, so it is the
+    one place the layout's own default is the right answer — and the ports it
+    prints have to BE that default, not an empty value or some other base."""
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(config, ["--defaults"])
+    loaded = yaml.safe_load(result.output)
+
+    assert loaded["services"]["openobserve"]["port"] == default_port(
+        "openobserve", base=DEFAULT_PORT_BASE
+    )
 
 
 def test_config_refuses_rendered_and_defaults_together(

@@ -97,7 +97,7 @@ from tests.e2e._volumes import remove_project_volumes
 BRIDGE_PORT = 18106
 BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
 
-# The bluesky-web sidecar's default host port (8095) is shared with the
+# The bluesky-web sidecar's slot in the deployment's port block is shared with the
 # tutorial's own default -- pin a distinct one so this e2e never collides
 # with a locally-running tutorial deploy on the same host.
 BLUESKY_WEB_PORT = 18095

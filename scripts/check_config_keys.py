@@ -261,9 +261,19 @@ class ConfigKeyGuard:
     # ── rendering ───────────────────────────────────────────────────────
 
     def contexts(self) -> list[dict[str, Any]]:
-        """The full render matrix: base context × every matrix cell."""
+        """The full render matrix: base context × every matrix cell.
+
+        ``osprey_ports`` is computed rather than spelled in the manifest: the
+        five templates read their default host ports from it, and the layout is
+        the one place those numbers live. The default base is the right one
+        here because these renders carry no ``deployment.port_base`` — a real
+        build derives the mapping from the base it resolved.
+        """
+        from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
+
         rc = self.manifest["render_contexts"]
         base = dict(rc.get("base") or {})
+        base.setdefault("osprey_ports", layout_ports(DEFAULT_PORT_BASE))
         matrix = rc.get("matrix") or {}
         out = []
         for cell in matrix.get("channel_finder_mode", [{}]):

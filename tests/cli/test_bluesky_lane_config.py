@@ -45,6 +45,20 @@ from osprey.cli.build_profile_schema import (
     VAConfig,
 )
 from osprey.errors import BuildProfileError
+from osprey.port_layout import DEFAULT_PORT_BASE, default_port
+
+#: Lane 1's bridge port at the layout's own base — what a profile that names no
+#: ``deployment.port_base`` and no ``bluesky.port`` gets. Derived rather than
+#: written out so this file pins the RELATIONSHIP between the lanes and the
+#: block, not a number that moves whenever the block does.
+LANE_ONE_PORT = default_port("bluesky")
+
+#: Lane 2's bridge port at the same base — the slot the block reserves for it,
+#: one above lane 1.
+LANE_TWO_PORT = default_port("bluesky_second_lane")
+
+#: The tiled catalog's port, which stays on lane 1.
+TILED_PORT = default_port("tiled")
 
 CONFIG_TEMPLATE = """\
 control_system:
@@ -126,9 +140,9 @@ def test_single_lane_block_is_unchanged(tmp_path: Path, cs_type: str) -> None:
     config = _read_config(project)
     assert config["services"]["bluesky"] == {
         "path": "./services/bluesky",
-        "port": 8090,
+        "port": LANE_ONE_PORT,
         "tiled_enabled": False,
-        "tiled_port": 8091,
+        "tiled_port": TILED_PORT,
         "devices_file": "data/bluesky_devices.yml",
     }
     assert config["deployed_services"] == ["postgresql", "bluesky"]
@@ -173,10 +187,10 @@ def test_va_baseline_renders_a_live_second_lane(tmp_path: Path) -> None:
     lane2 = config["services"]["bluesky_live"]
 
     assert lane1["target"] == "va"
-    assert lane1["port"] == 8090
+    assert lane1["port"] == LANE_ONE_PORT
     assert lane2["target"] == "live"
     assert lane2["path"] == "./services/bluesky"
-    assert lane2["port"] == 8090 + SECOND_LANE_PORT_STRIDE
+    assert lane2["port"] == LANE_ONE_PORT + SECOND_LANE_PORT_STRIDE
 
     # The live lane refuses to come up on an unset gateway; the VA lane's
     # gateway is co-deployed, so it carries no such requirement.
@@ -186,7 +200,7 @@ def test_va_baseline_renders_a_live_second_lane(tmp_path: Path) -> None:
 
     # tiled is the one shared component: lane 1 only.
     assert lane1["tiled_enabled"] is False
-    assert lane1["tiled_port"] == 8091
+    assert lane1["tiled_port"] == TILED_PORT
     assert "tiled_enabled" not in lane2
     assert "tiled_port" not in lane2
 
@@ -216,7 +230,11 @@ def test_live_baseline_renders_a_va_second_lane(tmp_path: Path) -> None:
     assert "ca_name_servers" not in lane2
 
     assert lane1["port"] != lane2["port"]
-    assert lane2["port"] == 8090 + SECOND_LANE_PORT_STRIDE
+    # Pinned against the layout rather than against lane 1 + the stride: the
+    # point of the one-port stride is that lane 2 lands on the slot the block
+    # already reserves for it, and only this spelling would notice the two
+    # drifting apart.
+    assert lane2["port"] == LANE_TWO_PORT
     assert "tiled_port" not in lane2
 
     assert config["deployed_services"] == ["postgresql", "bluesky", "bluesky_va"]
@@ -394,23 +412,88 @@ def test_va_baseline_second_lane_needs_no_va_block(tmp_path: Path) -> None:
     assert services["bluesky_live"]["ca_name_servers"] == _LIVE_LANE_CA_NAME_SERVERS
 
 
+def test_the_stride_is_the_distance_between_the_two_lane_slots() -> None:
+    """The stride is not a number of its own — it is the block's own spacing.
+
+    ``bluesky`` and ``bluesky_second_lane`` are adjacent slots, so a stride that
+    stopped agreeing with them would derive a lane-2 port the block had reserved
+    for nobody while leaving its own slot empty.
+    """
+    assert SECOND_LANE_PORT_STRIDE == LANE_TWO_PORT - LANE_ONE_PORT
+    assert BlueskyConfig(second_lane=True).second_lane_port() == LANE_TWO_PORT
+
+
+def test_derived_lane_port_lands_on_the_reserved_slot_of_the_configured_block() -> None:
+    """A deployment that moved its whole block gets the pair inside that block.
+
+    The base is the caller's to resolve, so this is the path a build takes on a
+    project with a ``deployment.port_base``: hand the base in, and the check
+    that follows is run against that deployment's slots, not the layout's own.
+    """
+    base = DEFAULT_PORT_BASE + 5000
+    config = BlueskyConfig(second_lane=True, port=default_port("bluesky", base=base))
+
+    assert config.second_lane_port(base=base) == default_port("bluesky_second_lane", base=base)
+
+
 def test_derived_lane_port_refuses_to_collide_with_tiled() -> None:
     """The derivation is re-checked against the ports the author may have moved."""
-    config = BlueskyConfig(second_lane=True, tiled_enabled=True, tiled_port=8190)
+    config = BlueskyConfig(second_lane=True, tiled_enabled=True, tiled_port=LANE_TWO_PORT)
     with pytest.raises(ValueError, match="tiled_port"):
         config.second_lane_port()
 
 
 def test_derived_lane_port_refuses_to_leave_the_port_range() -> None:
-    config = BlueskyConfig(second_lane=True, port=65500)
+    config = BlueskyConfig(second_lane=True, port=65535)
     with pytest.raises(ValueError, match="1\\.\\.65535"):
         config.second_lane_port()
 
 
 def test_derived_lane_port_ignores_a_disabled_tiled_port() -> None:
     """A tiled port nothing publishes cannot collide with anything."""
-    config = BlueskyConfig(second_lane=True, tiled_enabled=False, tiled_port=8190)
-    assert config.second_lane_port() == 8190
+    config = BlueskyConfig(second_lane=True, tiled_enabled=False, tiled_port=LANE_TWO_PORT)
+    assert config.second_lane_port() == LANE_TWO_PORT
+
+
+def test_an_absolute_lane_one_port_that_lands_lane_two_on_a_slot_is_refused() -> None:
+    """The cost of deriving lane 2: an absolute ``bluesky.port`` moves both.
+
+    One below the tiled slot is the case a reader would not see coming — lane 1
+    looks free, and it is lane 2 that lands on a published port. The refusal has
+    to name the slot in the way, because the number alone says nothing about
+    which service the author has to move.
+    """
+    config = BlueskyConfig(second_lane=True, port=default_port("tiled") - 1)
+
+    with pytest.raises(ValueError) as excinfo:
+        config.second_lane_port()
+
+    message = str(excinfo.value)
+    assert "'tiled'" in message
+    assert str(default_port("tiled")) in message
+    # The way out is named by the config key that moves the slot in the way.
+    assert "services.bluesky.tiled_port" in message
+
+
+def test_a_lane_two_port_on_a_facility_slot_is_refused_without_a_config_key() -> None:
+    """The facility band has no framework key to move it, so the remedy is the
+    other one — take the block's own pair back."""
+    config = BlueskyConfig(second_lane=True, port=default_port("facility") - 1)
+
+    with pytest.raises(ValueError) as excinfo:
+        config.second_lane_port()
+
+    message = str(excinfo.value)
+    assert "'facility'" in message
+    assert "drop the bluesky.port override" in message
+
+
+def test_a_lane_two_port_clear_of_every_slot_is_allowed() -> None:
+    """Only an exact slot hit refuses. A facility that deliberately parks the
+    pair between slots is making a choice, not a mistake."""
+    config = BlueskyConfig(second_lane=True, port=default_port("facility") + 40)
+
+    assert config.second_lane_port() == default_port("facility") + 41
 
 
 # ---------------------------------------------------------------------------
@@ -418,8 +501,10 @@ def test_derived_lane_port_ignores_a_disabled_tiled_port() -> None:
 # ---------------------------------------------------------------------------
 
 #: The stand-in port the preset ships, reused here so the rendered dial in
-#: these assertions is the one an operator actually gets.
-STANDIN_PORT = 5074
+#: these assertions is the one an operator actually gets. The preset writes
+#: ``live_standin: true`` and the loader places it on the layout's stand-in
+#: slot, so that is what this reads.
+STANDIN_PORT = default_port("va_standin")
 STANDIN_DIAL = f"live-standin:{STANDIN_PORT}"
 
 
@@ -551,7 +636,7 @@ def test_the_stand_in_moves_the_gateway_and_nothing_else(tmp_path: Path) -> None
 
 
 def test_a_stand_in_dial_survives_a_rebuild_unquoted(tmp_path: Path) -> None:
-    """`live-standin:5074` is a plain YAML scalar, and stays one on re-injection.
+    """`live-standin:<port>` is a plain YAML scalar, and stays one on re-injection.
 
     The dial carries a colon, which is the character that decides whether the
     emitter wrote a scalar or something the next build reads back as a mapping.
@@ -600,7 +685,7 @@ def test_profile_round_trip() -> None:
     assert profile.bluesky is not None
     assert profile.bluesky.second_lane is True
 
-    profile = _parse_profile(pyyaml.safe_load("name: lanes\nbluesky:\n  port: 8090\n"))
+    profile = _parse_profile(pyyaml.safe_load(f"name: lanes\nbluesky:\n  port: {LANE_ONE_PORT}\n"))
     assert profile.bluesky is not None
     assert profile.bluesky.second_lane is False
 

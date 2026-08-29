@@ -36,6 +36,7 @@ from ruamel.yaml.tokens import CommentToken
 
 from osprey import __version__
 from osprey.errors import BuildProfileError
+from osprey.port_layout import CA_DEFAULT_PORT, default_port
 
 from .build_profile_load import _PROFILE_SCHEMA_MIN_OSPREY
 from .build_profile_merge import _deep_merge, _resolve_extends, compute_preset_hash
@@ -316,29 +317,34 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #   workspace_mode: isolated
 #   facility_name: ALS
 """,
-    "bluesky": """
+    "bluesky": f"""
 # --- Bluesky bridge -----------------------------------------------------
 # Exposes Bluesky plans to the agent. tiled_enabled adds the data-access
-# service; excluded_plans removes shipped plans from the catalog.
+# service; excluded_plans removes shipped plans from the catalog. The bridge
+# and the Tiled catalog publish inside this deployment's port block, so the
+# port below is an override rather than a number you have to write.
 #
 # bluesky:
-#   port: 8090
+#   port: {default_port("bluesky")}
 #   tiled_enabled: false
 #   excluded_plans: []
 """,
-    "virtual_accelerator": """
+    "virtual_accelerator": f"""
 # --- Virtual accelerator -----------------------------------------------------
 # Containerized soft-IOC serving simulated channels, so the deployment can be
 # exercised without touching the machine. live_standin runs a second copy of it
 # as the deployment's live target, so operators rehearse switching lanes before
 # any of it reaches the machine; delete the key to go live for real, or to save
-# the second container.
+# the second container. Write `true` and the stand-in takes this deployment's
+# own stand-in port, so two deployments on one host never collide over it; a
+# number pins it somewhere specific instead. The first instance stays on the
+# Channel Access port below, the one port the port block cannot move.
 #
 # virtual_accelerator:
-#   port: 5064
-#   live_standin: 5074
+#   port: {CA_DEFAULT_PORT}
+#   live_standin: true
 """,
-    "va_archiver": """
+    "va_archiver": f"""
 # --- Stored archive ----------------------------------------------------------
 # Where a simulated deployment keeps its history: a MongoDB store the build
 # seeds with a deterministic base series, a recorder samples the running
@@ -366,7 +372,7 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #   recorder_cadence_sec: 10    # how often the live machine is sampled
 #   recorder_tail_cadence_sec: 60
 #   recorder_poll_sec: 30       # how often the recorder re-reads config.yml
-#   port_host: 27017
+#   port_host: {default_port("mongo")}
 #   database: osprey_archiver
 #   collection: pv_history
 #   compression: zstd           # zstd | snappy | zlib | none
@@ -376,12 +382,14 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #   timeout_sec: 5
 #   host: archive.example.org   # only for an attached project
 """,
-    "bluesky_web": """
+    "bluesky_web": f"""
 # --- Bluesky web panels ------------------------------------------------------
-# Scan-monitoring panels for the web terminal (requires the bluesky block).
+# Scan-monitoring panels for the web terminal (requires the bluesky block). The
+# sidecar publishes inside this deployment's port block; the port below is an
+# override.
 #
 # bluesky_web:
-#   port: 8095
+#   port: {default_port("bluesky_web")}
 """,
     "nextcloud_bridge": """
 # --- Nextcloud bridge --------------------------------------------------------

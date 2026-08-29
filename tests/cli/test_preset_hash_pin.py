@@ -126,12 +126,23 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # in the base preset changed value, so every control-assistant entry moved
     # together, as the note above predicts. Deploy-visible: a rebuilt project's
     # terminals and companion panels bind the new numbers.
-    "control-assistant": "sha256:fd767ae0e5ff0d9f7174080a156b9e1b3359b0df88772a504713b07f6ca84115",
+    # Moved once more — all six control-assistant entries together — when host
+    # ports became `deployment.port_base` plus a fixed offset. The base
+    # preset's `bluesky.port`/`tiled_port`, `bluesky_web.port` and the
+    # web-terminals' `nginx_port`/`web_base_port`/`artifact_base_port`/
+    # `ariel_base_port`/`lattice_base_port`/`channel_finder_base_port`
+    # literals all dropped — the build now derives them from the port block —
+    # and `virtual_accelerator.live_standin` went from a hardcoded
+    # second-simulator port to `true`, letting the loader place it in the same
+    # block. Deploy-visible: a rebuilt project's landing page, terminals,
+    # companion panels, bluesky sidecar and live-standin simulator all bind to
+    # the port-block addresses instead of the retired literals.
+    "control-assistant": "sha256:f36109de1c97d693fd65417dee3a10aa8a0cba41a1e2c2957c7fabc821d77c7d",
     "control-assistant-admin": (
-        "sha256:465c94b6784cce0198483f0a854930af939ee1a731c140ae3b99234a10c1dfca"
+        "sha256:14ff56c3fababd916d9d97c0fa0f7893b698a2902bb7b1bb0ed97b2c1fdec4f7"
     ),
     "control-assistant-ariel": (
-        "sha256:7f9f9b2bab08fc48b854f37f4dfee3d80f3461b715196d39a41cb7e7986fbcaf"
+        "sha256:2ed55879966cdf8de7fb9313ed266971e4d1db7c19e41eb25feda06a40b94770"
     ),
     # The two operator tiers below moved together, and alone, when each gained
     # the single dotted key `services.graphdb.port_host: 7687` in its `config:`
@@ -189,10 +200,10 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # same commit contributed nothing, which is the digest being comment-blind
     # exactly as the note at the top of this table says.
     "control-assistant-readonly": (
-        "sha256:2253255dcf73b05faceb35eea7d3bdae4fdefc3810d8cb9a5dc315c742403b21"
+        "sha256:0fe65a84b4e54b76a78a7a81dc53e6a128f445578a040f55c8a886205ac2934d"
     ),
     "control-assistant-readwrite": (
-        "sha256:59143a5343c5d0830ae1a3ee8db540f05cd6f5a8ed05fadd0881618763c6563e"
+        "sha256:54114c2ce82ba97e987b382f05752be0a7d43c1fbeed4102a67a5deaebeb3a12"
     ),
     # New with per-target write posture, not a moved entry: the rung between
     # the two flat tiers, armed on the virtual accelerator alone. It pins the
@@ -201,7 +212,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # it, so which machine the session is pointed at decides whether its writes
     # land.
     "control-assistant-va-readwrite": (
-        "sha256:f9aa58dd3f9204a974a3026f95e37ca94120495bafede968bbc886e42d01855c"
+        "sha256:d606f68d20f18105132c5864ffa282e70d0b15d6a61050a860ce26b1581627cf"
     ),
     # Moved when the onboarding rewrite dropped the `facility` rule. The
     # wholesale comment rewrite that shipped alongside it contributed nothing:

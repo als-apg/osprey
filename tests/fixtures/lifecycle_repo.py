@@ -242,9 +242,10 @@ web_panels:
 # EPICS, and the web panels for both. Delete this section (and the bluesky
 # panel above) if you do not want it.
 bluesky:
-  port: 8090
+  # The bridge and its Tiled catalog publish inside this deployment's port
+  # block, so neither needs a number here. Add `port:` or `tiled_port:` only to
+  # pin one somewhere outside the block.
   tiled_enabled: true      # also runs the Tiled data catalog
-  tiled_port: 8091
 
 virtual_accelerator:
   # EPICS port the simulator serves on. The agent follows this value, so
@@ -267,10 +268,14 @@ virtual_accelerator:
   # `osprey sim apply` moves both machines — a scenario changes the world, not
   # one lane. The archiver records the stand-in, and its seeded history carries
   # the same offsets: the archive belongs to the machine.
-  live_standin: 5074
+  # `true` serves the stand-in on this deployment's own stand-in port, so two
+  # deployments on one host never collide over it. Write a Channel Access port
+  # number instead only to pin it somewhere specific.
+  live_standin: true
 
-bluesky_web:
-  port: 8095
+# The block's presence is the switch, and its only key — `port:` — comes from
+# this deployment's port block, so there is nothing to write inside it.
+bluesky_web: {}
 
 # ── Stored archive (MongoDB) ─────────────────────────────────────────────────
 # With this block, `osprey up` runs a real archive: a MongoDB store that is
@@ -363,24 +368,24 @@ config:
   modules.web_terminals:
     enabled: true
 @WEB_TERMINALS_IMAGE_SOURCE@
-    nginx_port: 9080            # the landing page everyone opens first
-    # Browsers reach this nginx directly here, so the address they open is
-    # derived from deploy.fqdn and the port above — and that is the address
-    # every terminal checks an action against. Put something in front of this
-    # nginx (a load balancer terminating TLS, a reverse proxy, a DNS alias) and
-    # add `external_origin: https://<what browsers open>` beside this line, or
-    # every action inside a terminal is refused while every page still loads.
-    # User number i gets base + i in each family below, so removing a user
-    # never shifts anyone else's ports. One hundred per family, base ending in
-    # 00 (91 terminal, 92 artifact, 93 ariel, 94 lattice, 95 channel finder;
-    # okf 96 and health 97 come from the registry defaults), clear of the
-    # singleton services in 98xx/99xx (qmd, dispatcher + workers) and of the
-    # bluesky lanes and Channel Access below 9000 (8090/8190/8095, 5064).
-    web_base_port: 9100           # first per-user web-terminal port
-    artifact_base_port: 9200      # first per-user artifact-gallery port
-    ariel_base_port: 9300         # first per-user ARIEL search port
-    lattice_base_port: 9400       # first per-user lattice-dashboard port
-    channel_finder_base_port: 9500  # first per-user channel-finder panel port
+    # No port keys here on purpose. Every host port this deployment publishes
+    # is `deployment.port_base` (10000 unless you set it) plus a fixed offset:
+    # the landing page at the base itself, the shared services just above it,
+    # one hundred ports per per-user family from base + 100 up, and the stores
+    # at base + 800. User number i gets its family's first port + i, so
+    # removing a user never shifts anyone else's ports. Give a second
+    # deployment its own `port_base` and its whole block moves with it; the
+    # virtual accelerator's Channel Access port (5064) is the one exception.
+    # The reference guide's ports page prints the table.
+    # Browsers reach the landing page's nginx directly here, so the address
+    # they open is deploy.fqdn plus that port — and that is the address every
+    # terminal checks an action against. Put something in front of this nginx
+    # (a load balancer terminating TLS, a reverse proxy, a DNS alias) and add
+    # `external_origin: https://<what browsers open>` here, or every action
+    # inside a terminal is refused while every page still loads.
+    # To override one port rather than move the block, name it here:
+    #   nginx_port: 18000         # the landing page everyone opens first
+    #   web_base_port: 18100      # first per-user web-terminal port
     default_persona: readonly   # used for any user below with no persona
     # Every terminal below asks for a login (user alice: password alice, and
     # so on — set in this repo's .env; rotate with `osprey users passwd`).
@@ -980,13 +985,16 @@ TRIGGERS_YML = """\
 #   3. save-report       — tool use, a short multi-turn loop, and persistence
 #   4. denied-tool-demo  — the worker's server-side tool denylist (safety)
 #
-# Fire one with (`osprey up` mints EVENT_DISPATCHER_TOKEN into this repo's
-# .env; load it first: export $(grep -E '^EVENT_DISPATCHER_TOKEN=' .env | xargs)):
-#   curl -X POST http://localhost:9900/webhook/hello-dispatch \\
+# The dispatcher answers on this deployment's dispatcher port:
+# `deployment.port_base` + 10, which is 10010 unless the deployment moved its
+# port block. Fire one with (`osprey up` mints EVENT_DISPATCHER_TOKEN into this
+# repo's .env; load it first:
+# export $(grep -E '^EVENT_DISPATCHER_TOKEN=' .env | xargs)):
+#   curl -X POST http://localhost:10010/webhook/hello-dispatch \\
 #     -H "Authorization: Bearer $EVENT_DISPATCHER_TOKEN" \\
 #     -H "Content-Type: application/json" -d '{}'
 #
-# Watch progress stream in the dashboard at http://localhost:9900/dashboard
+# Watch progress stream in the dashboard at http://localhost:10010/dashboard
 #
 # (Retries fire on *dispatch failure* — i.e. when the dispatcher cannot reach
 # the worker — via the per-trigger `on_error: retry` policy. That path is not
@@ -995,9 +1003,12 @@ TRIGGERS_YML = """\
 
 dispatcher:
   # The dispatcher forwards each fired trigger to this worker. The compose
-  # template names the single worker "dispatch-worker-1" on port 9901.
+  # template names the single worker "dispatch-worker-1", one port above the
+  # dispatcher itself — `deployment.port_base` + 11, so 10011 at the default
+  # base. Moving the block moves both. Under `dispatch.network: host` the build
+  # rewrites this line to the worker's host address instead.
   # (Multi-worker load distribution is not yet implemented — see docs.)
-  dispatch_target: http://dispatch-worker-1:9901
+  dispatch_target: http://dispatch-worker-1:10011
   max_concurrent_runs: 2
   max_queue_depth: 50
 
@@ -1014,7 +1025,7 @@ triggers:
   # 2. The webhook JSON body arrives as the agent's context. Zero tools keeps
   #    this cheap and focused on the payload lesson. Try it with a realistic
   #    event body, e.g.:
-  #      curl -X POST http://localhost:9900/webhook/triage-event \\
+  #      curl -X POST http://localhost:10010/webhook/triage-event \\
   #        -H "Authorization: Bearer $EVENT_DISPATCHER_TOKEN" \\
   #        -H "Content-Type: application/json" \\
   #        -d '{"signal":"demo:vacuum:pressure","value":4.2,"threshold":3.0}'
@@ -1551,17 +1562,17 @@ fi
 # /health, the route its auth gate lets through.
 if wants web; then
   printf '\\n%s── Web terminal ──%s\\n\\n' "$BOLD" "$RESET"
-  probe_http 'landing page'      http://localhost:9080/
-  probe_http 'terminal (alice)'  http://localhost:9100/health
-  probe_http 'terminal (bob)'    http://localhost:9101/health
-  probe_http 'terminal (ariel)'  http://localhost:9102/health
-  probe_http 'terminal (carol)'  http://localhost:9103/health
+  probe_http 'landing page'      http://localhost:10000/
+  probe_http 'terminal (alice)'  http://localhost:10100/health
+  probe_http 'terminal (bob)'    http://localhost:10101/health
+  probe_http 'terminal (ariel)'  http://localhost:10102/health
+  probe_http 'terminal (carol)'  http://localhost:10103/health
 fi
 
 # ── Event dispatch ───────────────────────────────────────────────────────────
 if wants dispatch; then
   printf '\\n%s── Event dispatch ──%s\\n\\n' "$BOLD" "$RESET"
-  probe_http 'dispatcher health' http://localhost:9900/health
+  probe_http 'dispatcher health' http://localhost:10010/health
 fi
 
 printf '\\n%sProbes are advisory — a failure here does not mean the deploy failed.%s\\n\\n' \\

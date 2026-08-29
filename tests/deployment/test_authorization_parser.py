@@ -74,7 +74,7 @@ _AUTHORIZATION: dict[str, Any] = {
 
 def _web(authorization: Any = None, **extra: Any) -> dict[str, Any]:
     """A bare ``modules.web_terminals`` dict, as the parser is handed one."""
-    web_terminals: dict[str, Any] = {"enabled": True, "nginx_port": 9080, **extra}
+    web_terminals: dict[str, Any] = {"enabled": True, **extra}
     if authorization is not None:
         web_terminals["authorization"] = authorization
     return web_terminals
@@ -483,11 +483,6 @@ _LINT_CONFIG: dict[str, Any] = {
     "modules": {
         "web_terminals": {
             "enabled": True,
-            "nginx_port": 9080,
-            "web_base_port": 9091,
-            "artifact_base_port": 9291,
-            "ariel_base_port": 9391,
-            "lattice_base_port": 9491,
             "users": ["alice", "bob"],
         }
     },

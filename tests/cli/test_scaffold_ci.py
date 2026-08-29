@@ -368,11 +368,15 @@ def test_an_edit_only_the_health_check_reads_re_emits_only_it(
     """Each file is compared on its own content, not on "the profile changed"."""
     assert emit(runner, repo).exit_code == 0
     pipeline_before = (repo / CI_PATH).read_bytes()
-    edit_profile(repo, "nginx_port: 9080", "nginx_port: 9081")
+    # The virtual accelerator's Channel Access port: read by the health check's
+    # probe line and by nothing the CI pipeline emits. A framework host port
+    # would not do — those come from the deployment's port block now, so the
+    # profile no longer spells one for an edit to catch.
+    edit_profile(repo, "port: 5064", "port: 5065")
 
     assert emit(runner, repo).exit_code == 0
 
-    assert "9081" in (repo / VERIFY_PATH).read_text(encoding="utf-8")
+    assert "5065" in (repo / VERIFY_PATH).read_text(encoding="utf-8")
     assert (repo / CI_PATH).read_bytes() == pipeline_before
 
 

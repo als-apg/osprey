@@ -22,11 +22,17 @@ import pytest
 import yaml
 
 from osprey.cli.templates.manager import TemplateManager
+from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 
 # Context sufficient to render every template below; extra keys are harmless and
 # missing keys leave the `{% if enable_* %}` blocks off. Mirrors
 # tests/mcp_server/test_channel_read_config_keys.py.
 _CTX = {
+    # The port table the real render builds in
+    # TemplateManager._project_context; these tests reach the template
+    # environment directly, so they carry it themselves.
+    "port_base": DEFAULT_PORT_BASE,
+    "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
     "project_name": "demo",
     "facility_name": "Demo",
     "default_provider": "anthropic",

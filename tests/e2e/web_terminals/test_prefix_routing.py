@@ -69,6 +69,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.interfaces.web_terminal.app import UNIVERSAL_PANELS, create_app
+from osprey.port_layout import default_port
 
 pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke]
 
@@ -449,11 +450,6 @@ def _single_user_facility_config() -> dict:
         "modules": {
             "web_terminals": {
                 "enabled": True,
-                "nginx_port": 9080,
-                "web_base_port": 9091,
-                "artifact_base_port": 9291,
-                "ariel_base_port": 9391,
-                "lattice_base_port": 9491,
                 "users": [_ALICE],
             }
         },
@@ -478,4 +474,5 @@ class TestTrailingSlashRedirectRenderedByNginx:
         # And the reverse-proxy route itself strips the prefix before it
         # reaches the upstream (trailing slash on both sides of proxy_pass).
         assert f"location {_PREFIX}/ {{" in nginx_conf
-        assert "proxy_pass http://127.0.0.1:9091/;" in nginx_conf
+        upstream = default_port("web")
+        assert f"proxy_pass http://127.0.0.1:{upstream}/;" in nginx_conf

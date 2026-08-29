@@ -45,8 +45,6 @@ DEPLOY_BLOCK: dict[str, Any] = {
 #: the pre-catalog path and is never asked about ``registry.url``).
 WEB_TERMINALS: dict[str, Any] = {
     "enabled": True,
-    "nginx_port": 9080,
-    "web_base_port": 9091,
     "users": [{"name": "operator", "index": 0, "persona": "readwrite"}],
     "default_persona": "readwrite",
     "personas": {"readwrite": {"build_profile": "hello-world", "project": "demo-readwrite"}},

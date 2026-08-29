@@ -38,6 +38,7 @@ from typing import Any
 from osprey.connectors.honesty import VA_MOCK_ARCHIVER_WHY, pairing_in_profile
 from osprey.connectors.types import MONGODB_ARCHIVER, VIRTUAL_ACCELERATOR
 from osprey.errors import BuildProfileError
+from osprey.port_layout import default_port
 
 from .build_profile_schema import _ENV_VAR_RE
 
@@ -167,10 +168,13 @@ class VAArchiverConfig:
     system, and that setting is a documented post-build flip — polling is what
     lets the flip take effect without restarting the service."""
 
-    port_host: int = 27017
-    """Host port the store publishes on. Only meaningful for a project that
-    deploys its own store; an attached project is reaching someone else's
-    published port, which is the same key seen from the other side."""
+    port_host: int = default_port("mongo")
+    """Host port the store publishes on, at the layout's ``mongo`` slot — that
+    slot at the layout's own base here, and at the profile's resolved base once
+    :func:`parse_va_archiver_block` fills an unspelled key. Only
+    meaningful for a project that deploys its own store; an attached project is
+    reaching someone else's published port, which is the same key seen from the
+    other side — and one on the other host's base, not this deployment's."""
 
     database: str = "osprey_archiver"
     """Database holding the collection."""
@@ -250,7 +254,9 @@ _STRING_KEYS: tuple[str, ...] = (
 )
 
 
-def parse_va_archiver_block(raw: dict[str, Any]) -> VAArchiverConfig | None:
+def parse_va_archiver_block(
+    raw: dict[str, Any], *, base: int | None = None
+) -> VAArchiverConfig | None:
     """Parse a profile's ``va_archiver:`` block into its typed shape.
 
     Structural problems are reported together rather than one per run: the
@@ -259,6 +265,12 @@ def parse_va_archiver_block(raw: dict[str, Any]) -> VAArchiverConfig | None:
 
     Args:
         raw: The resolved raw profile dict.
+        base: The base the deployment resolved from ``deployment.port_base``.
+            An unspelled ``port_host`` is filled from it, so a store the profile
+            does not place by hand lands in this deployment's own block rather
+            than at the layout's default base. ``None`` keeps the dataclass
+            default, which is that same slot at the default base — right only
+            for a caller with no config to resolve.
 
     Returns:
         The parsed config, or ``None`` when the profile declares no
@@ -298,6 +310,8 @@ def parse_va_archiver_block(raw: dict[str, Any]) -> VAArchiverConfig | None:
             "Profile 'va_archiver' block is invalid:\n  - " + "\n  - ".join(problems)
         )
 
+    if base is not None:
+        values.setdefault("port_host", default_port("mongo", base=base))
     return VAArchiverConfig(**values)
 
 

@@ -170,6 +170,7 @@ import pytest
 import yaml
 
 from osprey.audit.protected import SURFACE_HTTP_CONFIG
+from osprey.port_layout import default_port
 from osprey.services.auth_sidecar.identity_headers import (
     ROLE_HEADER,
     ROLE_SOURCE_HEADER,
@@ -180,6 +181,12 @@ from tests.e2e._volumes import remove_project_volumes
 
 # See "CI HONESTY" in the module docstring: this marker is what keeps the build
 # out of the shared fast e2e glob and what the wiring guard scans for.
+#: The port the project image serves on INSIDE the container: the ``web`` slot
+#: of the layout, which ``Dockerfile.j2`` renders into its ``EXPOSE`` line. The
+#: image is built from a config that never moves ``deployment.port_base``, so
+#: the layout's default base is the right one to derive it at.
+_WEB_SLOT = default_port("web")
+
 pytestmark = [pytest.mark.e2e, pytest.mark.dockerbuild]
 
 _SUPPORTED_RUNTIMES = ("docker", "podman")
@@ -535,7 +542,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 MARKER = {PROBE_MARKER!r}
 USER = os.environ.get("OSPREY_TERMINAL_USER", "")
 HOST = os.environ.get("OSPREY_TERMINAL_BIND_HOST", "127.0.0.1")
-PORT = int(os.environ.get("OSPREY_TERMINAL_WEB_PORT", "8087"))
+PORT = int(os.environ.get("OSPREY_TERMINAL_WEB_PORT", "{_WEB_SLOT}"))
 
 
 class Handler(BaseHTTPRequestHandler):

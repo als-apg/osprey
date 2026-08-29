@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+from osprey.port_layout import DEFAULT_PORT_BASE, SLOTS_BY_NAME, default_port, layout_ports
+
 _ENV_VAR_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 
 NetworkMode = Literal["bridge", "host"]
@@ -329,8 +331,36 @@ class DispatchConfig:
     workspace_mode: Literal["isolated", "shared"] = "isolated"
     max_concurrent_runs: int = 2
     max_queue_depth: int = 50
-    dispatcher_port: int = 9900
-    worker_port_base: int = 9901
+    dispatcher_port: int = default_port("dispatcher")
+    """Host port the event dispatcher publishes, at the layout's ``dispatcher``
+    slot.
+
+    The default here is that slot at the layout's OWN base, which is right only
+    where there is no config to resolve — a hand-built ``DispatchConfig`` that
+    never went through the profile loader. A profile that leaves the key
+    unspelled does NOT get this number: ``_parse_profile`` fills it from the
+    base the profile resolved, so the rendered config and the compose
+    templates' ``osprey_ports`` defaults name the same port."""
+
+    worker_port_base: int = default_port("worker", 1)
+    """Host port dispatch worker 1 publishes, at the first index of the layout's
+    ``worker`` band. Worker *i* is at ``worker_port_base + (i - 1) *
+    worker_port_stride``, and only in host-network mode: bridge-mode workers
+    each own a namespace and publish nothing on the host.
+
+    Same rule as :attr:`dispatcher_port` for where this default applies: the
+    loader fills an unspelled key from the profile's own resolved base."""
+
+    worker_port_stride: int = 1
+    """Host-port spacing between consecutive dispatch workers.
+
+    One is the layout's own spacing — the ``worker`` band gives each worker the
+    next port up — and a facility widens it only to leave room for something
+    else of its own between them. The build records the value in the worker's
+    service config (host mode only) so the compose render and the host-port
+    preflight derive the same ports from one declared rule instead of each
+    hardcoding the step."""
+
     timeout_sec: int = 300
     inactivity_sec: int = 120
     facility_name: str = ""
@@ -351,16 +381,53 @@ class DispatchConfig:
 
 #: Host-port distance between a two-lane deploy's first and second bluesky lane.
 #:
-#: Lane 2's bridge port is DERIVED (``port + SECOND_LANE_PORT_STRIDE``) rather
+#: ONE, because the two lanes are ADJACENT SLOTS of the port layout: ``bluesky``
+#: at ``port_base + 80`` and ``bluesky_second_lane`` at ``port_base + 81``. The
+#: block reserves lane 2's port up front, so the derivation has nothing to step
+#: over — the neighbours the stride once had to clear sit BELOW the pair now
+#: (``tiled`` at ``+70``, the ``bluesky_web`` sidecar at ``+71``).
+#:
+#: Lane 2's bridge port stays DERIVED (``port + SECOND_LANE_PORT_STRIDE``) rather
 #: than configured, so the lane axis adds one boolean knob and not a second port
-#: an author has to keep clear of the first. The stride is wide enough to clear
-#: the ports that already sit immediately above ``bluesky.port`` — ``tiled_port``
-#: (default 8091) and the ``bluesky_web`` sidecar (default 8095) — because a
-#: derivation that lands on a neighbouring service's port would look like a
-#: working build right up to the point compose refuses to publish it.
-#: :meth:`BlueskyConfig.second_lane_port` re-checks the derived value against the
-#: profile's own ports anyway, since an author may move any of them.
-SECOND_LANE_PORT_STRIDE = 100
+#: an author has to keep clear of the first. The cost of deriving is that an
+#: absolute ``services.bluesky.port`` carries lane 2 with it, off the slot the
+#: block reserved and possibly onto one it already spends — which is why
+#: :meth:`BlueskyConfig.second_lane_port` re-checks the result against the layout
+#: rather than trusting the offset.
+SECOND_LANE_PORT_STRIDE = 1
+
+#: Layout slots the lane pair itself owns, and so the ports a derived lane-2 port
+#: may legitimately equal. ``bluesky_second_lane`` is where the derivation is
+#: meant to land; ``bluesky`` is listed too because a profile that parks lane 1
+#: on the block's own bluesky slot has collided with nothing by doing so.
+_LANE_SLOTS = frozenset({"bluesky", "bluesky_second_lane"})
+
+
+def _off_slot_refusal(slot_name: str, derived: int, lane_one_port: int) -> str:
+    """Compose the refusal for a lane-2 port that landed on another layout slot.
+
+    Args:
+        slot_name: Name of the layout slot the derived port collides with.
+        derived: The derived lane-2 bridge port.
+        lane_one_port: ``bluesky.port`` — the override that carried the pair off
+            the slots the block reserves for it.
+
+    Returns:
+        A message naming the slot in the way and both ways out: drop the
+        override and take the block's reserved pair, or move that slot, named by
+        its own config key where it has one.
+    """
+    remedy = "drop the bluesky.port override and take the block's own lane pair"
+    config_key = SLOTS_BY_NAME[slot_name].config_key
+    if config_key:
+        remedy += f", or move {config_key} off {derived}"
+    return (
+        f"bluesky.second_lane derives lane 2's bridge port from lane 1's "
+        f"(bluesky.port + {SECOND_LANE_PORT_STRIDE} = {derived}), and {derived} is the port "
+        f"layout's {slot_name!r} slot on this deployment's block. The lanes belong on the "
+        f"adjacent slots the block reserves for them; setting bluesky.port to "
+        f"{lane_one_port} moved the pair onto a neighbour. To fix it, {remedy}."
+    )
 
 
 @dataclass
@@ -375,9 +442,19 @@ class BlueskyConfig:
     is derived and validated by :meth:`second_lane_port`.
     """
 
-    port: int = 8090
+    port: int = default_port("bluesky")
+    """Host port lane 1's bridge publishes, at the layout's ``bluesky`` slot.
+
+    The default is that slot at the layout's own base; a profile that leaves the
+    key unspelled is filled by the loader from the base it resolved."""
+
     tiled_enabled: bool = False
-    tiled_port: int = 8091
+
+    tiled_port: int = default_port("tiled")
+    """Host port the tiled data server publishes, at the layout's ``tiled``
+    slot, filled from the profile's resolved base when left unspelled. Tiled is
+    shared, so it stays on lane 1 even in a two-lane deploy."""
+
     second_lane: bool = False
     """Render a SECOND plan lane — one full bluesky stack per control-system
     target — instead of the single stack every build rendered before this field.
@@ -430,23 +507,42 @@ class BlueskyConfig:
     key would leave the staging step re-deriving this default for itself.
     """
 
-    def second_lane_port(self) -> int:
+    def second_lane_port(self, base: int | None = None) -> int:
         """Host port lane 2's bridge publishes, derived from lane 1's.
 
         Derived rather than configured (see :data:`SECOND_LANE_PORT_STRIDE`) —
-        but derived is not the same as unchecked: :attr:`port` and
-        :attr:`tiled_port` are the author's to move, so the derivation is
-        re-tested against them here rather than trusted. Raising is the point:
-        the alternative is a rendered compose file whose two lanes fight over a
-        port, which surfaces as a container that will not start long after the
-        build reported success.
+        but derived is not the same as unchecked. Left alone, the derivation
+        lands exactly on the ``bluesky_second_lane`` slot the block reserves for
+        it. What can move it is an ABSOLUTE ``services.bluesky.port``: lane 2
+        rides along, off its reserved slot and possibly onto a port the block
+        already spends. So the result is re-tested against the whole layout at
+        the base this deployment resolved, and against :attr:`tiled_port`, the
+        one neighbour an author may move on its own.
+
+        Raising is the point: the alternative is a rendered compose file whose
+        services fight over a port, which surfaces as a container that will not
+        start long after the build reported success.
+
+        Only the LAYOUT's slots are checked here — one port per slot, at the
+        first index of a band. A collision with a port this particular profile
+        spends is :meth:`BuildProfile.validate`'s sweep to report, which knows
+        which services the profile actually deploys.
+
+        Args:
+            base: The base the deployment resolved from ``deployment.port_base``
+                — for a caller holding a raw profile, what
+                ``build_profile_load._profile_port_base`` returns. ``None``
+                means :data:`~osprey.port_layout.DEFAULT_PORT_BASE`, which is
+                right only when there is no config to resolve.
 
         Returns:
             The derived lane-2 bridge port.
 
         Raises:
-            ValueError: If the derived port leaves the valid range, or collides
-                with a port this profile already spends.
+            ValueError: If the derived port leaves the valid range, collides
+                with the tiled port this profile publishes, or lands on another
+                slot of the deployment's block; or if ``base`` is outside the
+                range a block can start at.
         """
         derived = self.port + SECOND_LANE_PORT_STRIDE
         if not 1 <= derived <= 65535:
@@ -461,6 +557,11 @@ class BlueskyConfig:
                 f"bluesky.port + {SECOND_LANE_PORT_STRIDE} = {derived}, which is already "
                 f"bluesky.tiled_port; move bluesky.tiled_port or bluesky.port"
             )
+        ports = layout_ports(DEFAULT_PORT_BASE if base is None else base)
+        for slot_name, slot_port in ports.items():
+            if slot_port != derived or slot_name in _LANE_SLOTS:
+                continue
+            raise ValueError(_off_slot_refusal(slot_name, derived, self.port))
         return derived
 
 
@@ -485,7 +586,12 @@ class VAConfig:
     deployment's ``live`` target so operators rehearse the go-live ritual against
     something safe. Absent (the default) means the deployment has no ``live``
     stand-in and its ``live`` target is whatever the ``epics:`` block names, so
-    going live is deleting this key and setting the real gateways."""
+    going live is deleting this key and setting the real gateways.
+
+    A profile normally writes ``live_standin: true`` and lets the loader place
+    the stand-in at the layout's ``va_standin`` slot on the deployment's own
+    base; the field stays an ``int | None`` because a facility may still name an
+    absolute port, and every consumer downstream reads one number either way."""
 
 
 @dataclass
@@ -501,9 +607,11 @@ class BlueskyWebConfig:
     by :meth:`BuildProfile.validate`.
     """
 
-    port: int = 8095
+    port: int = default_port("bluesky_web")
     """Host/container port the sidecar's uvicorn process binds and publishes
-    (see ``templates/services/bluesky_web/docker-compose.yml.j2``)."""
+    (see ``templates/services/bluesky_web/docker-compose.yml.j2``), at the
+    layout's ``bluesky_web`` slot — filled from the profile's resolved base when
+    the key is left unspelled."""
 
 
 @dataclass
