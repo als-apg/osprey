@@ -359,8 +359,18 @@ class _FakeConnector:
         self.reads.append(address)
         return _FakeChannelValue(0.0)
 
-    async def write_channel_checked(self, address: str, value: Any, **_: Any) -> None:
+    async def write_channel_checked(self, address: str, value: Any, **_: Any) -> Any:
         self.writes.append((address, value))
+        # The real result type, not a stand-in, so this double cannot drift from
+        # the contract. ``unrequested`` (nothing confirmed) is what leaves the
+        # settle poll above as the only check, which is what this fake wants.
+        # Imported in-function: the module level here stays dependency-light so
+        # the parsing tests run in a slimmed install.
+        from osprey.connectors.control_system.base import ChannelWriteResult, WriteOutcome
+
+        return ChannelWriteResult(
+            channel_address=address, value_written=value, outcome=WriteOutcome.UNREQUESTED
+        )
 
 
 class _FakeChannelValue:

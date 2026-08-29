@@ -57,6 +57,20 @@ from osprey.services.bluesky_bridge.devices.connector import (  # noqa: E402
 )
 
 
+class _FakeWriteResult:
+    """Stand-in for ``ChannelWriteResult``: only the owned ``outcome`` word.
+
+    A write that returns rather than raises is a write the connector
+    confirmed (or was not asked to confirm).
+    """
+
+    def __init__(self, channel_address: str, value: Any) -> None:
+        self.channel_address = channel_address
+        self.value_written = value
+        self.outcome = "confirmed"
+        self.observed_value = value
+
+
 class FakeConnector:
     """A minimal async double exposing both the checked and unchecked write paths.
 
@@ -78,10 +92,12 @@ class FakeConnector:
 
     async def write_channel_checked(self, channel_address: str, value: Any, **kwargs: Any):
         self.checked_calls.append((channel_address, value))
+        return _FakeWriteResult(channel_address, value)
 
     async def write_channel(self, channel_address: str, value: Any, **kwargs: Any):
         """The unchecked write path — never called by the device layer itself."""
         self.unchecked_calls.append((channel_address, value))
+        return _FakeWriteResult(channel_address, value)
 
 
 def _public_attrs(obj: Any) -> list[str]:
