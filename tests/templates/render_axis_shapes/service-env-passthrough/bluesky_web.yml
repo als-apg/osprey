@@ -35,7 +35,7 @@ services:
         "--host",
         "0.0.0.0",
         "--port",
-        "8095",
+        "10071",
       ]
     labels:
       osprey.project.name: "golden-project"
@@ -52,7 +52,7 @@ services:
       osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8095:8095"
+      - "127.0.0.1:10071:10071"
     environment:
       # The connector-backed sidecar reads config.yml at runtime. CWD is the
       # image WORKDIR (/app), not the project dir, so without CONFIG_FILE this
@@ -62,7 +62,7 @@ services:
       TZ: UTC
       # Reach the co-deployed bluesky bridge by its in-network compose service
       # key `bluesky-bridge` — never the host-published port.
-      BLUESKY_BRIDGE_URL: http://bluesky-bridge:8090
+      BLUESKY_BRIDGE_URL: http://bluesky-bridge:10080
       # No :-default — an unset token must stay EMPTY rather than booting with
       # a guessable secret (mirrors the bridge's own launch-token convention).
       # The sidecar attaches this token to every queue WRITE it relays (add,
@@ -139,7 +139,7 @@ services:
     healthcheck:
       # curl isn't in the python:3.11-slim image — probe in-image with
       # python, matching the bridge's own healthcheck idiom.
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8095/health').status==200 else 1)\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:10071/health').status==200 else 1)\""]
       interval: 10s
       timeout: 5s
       retries: 5

@@ -6,7 +6,7 @@
 # this file sits in:
 #   cd build/.image/{{ project_name }} && docker build -t {{ project_name }} -f build/Dockerfile .
 # Run (secrets at runtime — no .env ever enters the image):
-#   docker run --rm -p 8087:8087 --env-file .env {{ project_name }}
+#   docker run --rm -p {{ osprey_ports.web }}:{{ osprey_ports.web }} --env-file .env {{ project_name }}
 #
 # The container starts as ROOT and does not stay there. `build/entrypoint.sh`
 # re-renders any drifted Claude Code artifact and restores the operator's owned
@@ -273,7 +273,7 @@ ENV OSPREY_RUNTIME_UID=1000:1000
 # reads this and skips them, saying so once at startup.
 ENV OSPREY_RENDER_ZONE_READONLY=1
 WORKDIR /app/{{ project_name }}
-EXPOSE 8087
+EXPOSE {{ osprey_ports.web }}
 # The entrypoint ships inside the render (`osprey build` emits it beside
 # config.yml) and the COPY above carries it in with its exec bit, so it is
 # named at its rendered path rather than installed somewhere else. It runs the
@@ -283,4 +283,4 @@ EXPOSE 8087
 ENTRYPOINT ["/app/{{ project_name }}/build/entrypoint.sh"]
 # No location flag: `osprey web` discovers its deployment by walking up from the
 # working directory, and WORKDIR above is already that directory.
-CMD ["osprey", "web", "--host", "0.0.0.0", "--port", "8087"]
+CMD ["osprey", "web", "--host", "0.0.0.0", "--port", "{{ osprey_ports.web }}"]

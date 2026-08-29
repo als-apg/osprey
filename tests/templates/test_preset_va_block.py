@@ -15,6 +15,7 @@ values are unchanged from its pre-change (ALS production) rendering.
 import yaml
 
 from osprey.cli.templates.manager import TemplateManager
+from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 
 TEMPLATE_PATH = "apps/control_assistant/config.yml.j2"
 
@@ -48,7 +49,13 @@ ORIGINAL_EPICS_BLOCK = {
 def _render_connector_config():
     manager = TemplateManager()
     template = manager.jinja_env.get_template(TEMPLATE_PATH)
-    rendered = template.render()
+    # The gateway commentary derives its example ports from `osprey_ports`,
+    # which the real render builds in TemplateManager._project_context. This
+    # helper reaches the environment directly, so it supplies the table itself.
+    rendered = template.render(
+        port_base=DEFAULT_PORT_BASE,
+        osprey_ports=layout_ports(DEFAULT_PORT_BASE),
+    )
     return yaml.safe_load(rendered)["control_system"]
 
 

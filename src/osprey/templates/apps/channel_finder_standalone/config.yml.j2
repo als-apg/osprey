@@ -171,15 +171,16 @@ channel_finder:
   # CHANNELS tab: the channel-finder UI is a web server of its own, configured
   # under this section. It launches when `channel-finder` is in the panel list
   # under `web:` below AND this `channel_finder:` section exists — it does, so
-  # 8092 is bound by default. Resolution order: OSPREY_CHANNEL_FINDER_PORT wins
-  # (multi-user deployments export it per user), then `port` here, then the
-  # built-in 8092; `host` has no env override. The launcher resolves host/port
+  # {{ osprey_ports.channel_finder }} is bound by default. Resolution order:
+  # OSPREY_CHANNEL_FINDER_PORT wins (multi-user deployments export it per
+  # user), then `port` here, then this deployment's layout slot
+  # ({{ osprey_ports.channel_finder }}); `host` has no env override. The launcher resolves host/port
   # through one shared function; the web terminal computes this panel's URL
   # separately and is kept in step by hand, so an env override must be set
   # consistently. Uncomment to move or disable it.
   # web:
   #   host: "127.0.0.1"
-  #   port: 8092
+  #   port: {{ osprey_ports.channel_finder }}
   #   auto_launch: true
 
   # Descriptive names for channels that belong to no device family, generated
@@ -280,11 +281,11 @@ file_paths:
 # stops it — and when it does, the tab is reported unavailable rather than
 # serving a dead iframe. Port resolution is the one shared function every launcher and URL
 # builder uses: OSPREY_ARTIFACT_SERVER_PORT wins (multi-user deployments export
-# it per user), then `port` here, then the built-in 8086. `host` has no env
-# override.
+# it per user), then `port` here, then this deployment's layout slot
+# ({{ osprey_ports.artifact }}). `host` has no env override.
 artifact_server:
   host: "127.0.0.1"
-  port: 8086
+  port: {{ osprey_ports.artifact }}
   auto_launch: true
 
 # ============================================================

@@ -140,7 +140,7 @@ def test_no_command_contains_a_destructive_token(monkeypatch, tmp_path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 2. Readiness ordering: wait_for_port(5432) BEFORE sim apply
+# 2. Readiness ordering: wait_for_port(postgres host port) BEFORE sim apply
 # ---------------------------------------------------------------------------
 
 
@@ -154,7 +154,9 @@ def test_waits_for_postgres_before_seeding(monkeypatch, tmp_path) -> None:
     # Locate the global-order indices of the readiness wait and the seed call.
     names = list(parent.mock_calls)
     wait_idx = next(
-        i for i, c in enumerate(names) if c[0] == "wait" and c.args and c.args[0] == 5432
+        i
+        for i, c in enumerate(names)
+        if c[0] == "wait" and c.args and c.args[0] == capture._POSTGRES_PORT
     )
     seed_idx = next(i for i, c in enumerate(names) if c[0] == "run" and "sim" in _cmd_of(c))
     assert wait_idx < seed_idx, "Postgres readiness must be awaited before seeding"

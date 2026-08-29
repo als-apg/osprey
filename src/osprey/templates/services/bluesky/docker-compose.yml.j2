@@ -128,7 +128,7 @@ services:
         "--host",
         "0.0.0.0",
         "--port",
-        "{{ svc.port | default(8090) }}",
+        "{{ svc.port | default(osprey_ports.bluesky, true) }}",
       ]
     labels:
       osprey.project.name: "{{ osprey_labels.project_name }}"
@@ -145,7 +145,7 @@ services:
       osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
     restart: unless-stopped
     ports:
-      - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ svc.port | default(8090) }}:{{ svc.port | default(8090) }}"
+      - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ svc.port | default(osprey_ports.bluesky, true) }}:{{ svc.port | default(osprey_ports.bluesky, true) }}"
     environment:
       # No :-default — an unset token must stay EMPTY so the bridge's
       # POST /runs/{id}/launch route fails closed (HTTP 503) rather than
@@ -365,7 +365,7 @@ services:
       - osprey-network
       - {{ lane }}-internal
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:{{ svc.port | default(8090) }}/health').status==200 else 1)\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:{{ svc.port | default(osprey_ports.bluesky, true) }}/health').status==200 else 1)\""]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -574,7 +574,9 @@ services:
 {% if svc.tiled_enabled | default(false) %}
       # The startup module owns the TiledWriter subscription — documents are
       # persisted from the process that produces them. The bridge keeps its
-      # own Tiled env for the READ path (results retrieval fallback).
+      # own Tiled env for the READ path (results retrieval fallback). Reached
+      # over osprey-network at Tiled's container port, never the host-published
+      # tiled_port, so 8000 here is fixed rather than layout-derived.
       BLUESKY_TILED_URI: "http://tiled:8000"
       BLUESKY_TILED_API_KEY: ${BLUESKY_TILED_API_KEY}
 {% endif %}
@@ -740,7 +742,11 @@ services:
     # rather than a vanished one.
     command: tiled serve catalog /storage/catalog.db --init --host 0.0.0.0 --port 8000 --api-key "${BLUESKY_TILED_API_KEY:?must be a non-empty alphanumeric key}" -w /storage/files -w duckdb:////storage/data.duckdb
     ports:
-      - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ services.bluesky.tiled_port | default(8091) }}:8000"
+      # The container half stays 8000 — Tiled's own port inside its namespace,
+      # the same number the `--port` above serves on and the one every
+      # in-network `http://tiled:8000` dial names. It does not move with the
+      # deployment's block; only the host half is layout-derived.
+      - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ services.bluesky.tiled_port | default(osprey_ports.tiled, true) }}:8000"
     environment:
       TZ: {{ system.timezone }}
 {#- Same one declaration again — see the bridge's call. Optional container:
@@ -754,6 +760,8 @@ services:
     healthcheck:
       # /healthz is unauthenticated and always 200 — curl isn't in the image,
       # so probe in-image with python, matching the bridge's own healthcheck.
+      # 8000 is Tiled's container port: the probe runs inside the namespace, so
+      # it does not move with the deployment's block.
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz').status==200 else 1)\""]
       interval: 10s
       timeout: 5s

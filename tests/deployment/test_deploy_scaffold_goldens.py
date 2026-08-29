@@ -281,12 +281,18 @@ def test_probe_group_filter_is_not_named_groups(rendered_verify: str) -> None:
 
 
 def test_health_check_probes_every_deployed_service(rendered_verify: str) -> None:
-    """The three services this facility runs each get a probe."""
+    """The three services this facility runs each get a probe.
+
+    The exemplar names no ``port_base``, so two of the three are probed at
+    their slots in the default block — the telemetry store at + 50, the
+    facility's own MCP server at the first port of the facility band — and
+    Channel Access at 5064 is the one port a block never moves.
+    """
     assert "probe_tcp  'virtual-accelerator: Channel Access on 5064'  localhost 5064" in (
         rendered_verify
     )
-    assert "'openobserve: telemetry store on 5080'" in rendered_verify
-    assert "'facility-mcp: machine status on 8200'" in rendered_verify
+    assert "'openobserve: telemetry store on 10050'" in rendered_verify
+    assert "'facility-mcp: machine status on 10900'" in rendered_verify
 
 
 def test_health_check_drops_the_web_group_when_there_are_no_terminals(
