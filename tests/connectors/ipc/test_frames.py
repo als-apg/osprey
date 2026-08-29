@@ -18,7 +18,7 @@ from osprey_connectors.control_system.base import (
     ChannelMetadata,
     ChannelValue,
     ChannelWriteResult,
-    WriteVerification,
+    WriteOutcome,
 )
 from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
 from osprey_connectors.ipc import frames
@@ -184,56 +184,115 @@ def test_batched_read_result_dict_round_trips():
     assert all(isinstance(v, ChannelValue) for v in frame.value.values())
 
 
-def test_write_result_round_trips_with_nested_verification():
+def test_write_result_round_trips_with_outcome_and_alarm():
     result = ChannelWriteResult(
         channel_address="SR:BEND:1:CUR",
         value_written=2.5,
-        success=True,
-        verification=WriteVerification(
-            level="readback",
-            verified=True,
-            readback_value=2.4999,
-            tolerance_used=0.001,
-            notes="within tolerance",
-            readback_alarm_status="NO_ALARM",
-            readback_alarm_severity=0,
-            failure_kind=None,
-        ),
-        error_message=None,
-        blocked=False,
+        outcome=WriteOutcome.CONFIRMED,
         refusal_reason=None,
+        error_message=None,
+        observed_value=2.5,
+        alarm_status="NO_ALARM",
+        alarm_severity=0,
+        notes="observed 2.5, sent 2.5",
     )
     frame = _round_trip(frames.encode_result("req-w", result))
 
     assert isinstance(frame.value, ChannelWriteResult)
     assert frame.value.channel_address == "SR:BEND:1:CUR"
     assert frame.value.value_written == 2.5
-    assert frame.value.success is True
-    assert frame.value.blocked is False
+    assert frame.value.outcome is WriteOutcome.CONFIRMED
     assert frame.value.refusal_reason is None
-    assert isinstance(frame.value.verification, WriteVerification)
-    assert frame.value.verification.level == "readback"
-    assert frame.value.verification.readback_value == 2.4999
-    assert frame.value.verification.readback_alarm_severity == 0
-    assert frame.value.verification.failure_kind is None
+    assert frame.value.error_message is None
+    assert frame.value.observed_value == 2.5
+    assert frame.value.alarm_status == "NO_ALARM"
+    assert frame.value.alarm_severity == 0
+    assert frame.value.notes == "observed 2.5, sent 2.5"
+
+
+def test_write_result_outcome_crosses_as_a_string_and_returns_an_enum():
+    """The outcome is a plain JSON string on the wire, an enum on both sides.
+
+    ``WriteOutcome`` is a ``StrEnum``, so it encodes as the bare word; the
+    decoder rebuilds the dataclass from the decoded fields and the dataclass's
+    ``__post_init__`` is what turns that word back into the member. Without
+    that coercion a parent-side ``outcome == WriteOutcome.MISMATCH`` would
+    still hold but ``outcome is WriteOutcome.MISMATCH`` would not, and the
+    enum would stop being the single owned verdict across the boundary.
+    """
+    payload = frames.encode_result(
+        "req-wm1",
+        ChannelWriteResult(
+            channel_address="SR:BEND:1:CUR",
+            value_written=2.5,
+            outcome=WriteOutcome.MISMATCH,
+            observed_value=2.0,
+            notes="observed 2.0, sent 2.5",
+        ),
+    )
+    assert b'"outcome": "mismatch"' in payload
+
+    frame = _round_trip(payload)
+
+    assert type(frame.value.outcome) is WriteOutcome
+    assert frame.value.outcome is WriteOutcome.MISMATCH
+    assert frame.value.value_written == 2.5
+    assert frame.value.observed_value == 2.0
+    assert frame.value.error_message is None
+    assert frame.value.notes == "observed 2.0, sent 2.5"
+
+
+def test_write_result_carries_an_array_observed_value():
+    result = ChannelWriteResult(
+        channel_address="SR:WF",
+        value_written=[1.0, 2.0, 3.0],
+        outcome=WriteOutcome.CONFIRMED,
+        observed_value=np.array([1.0, 2.0, 3.0], dtype=np.float32),
+    )
+    frame = _round_trip(frames.encode_result("req-wa", result))
+
+    assert frame.value.outcome is WriteOutcome.CONFIRMED
+    assert frame.value.value_written == [1.0, 2.0, 3.0]
+    assert isinstance(frame.value.observed_value, np.ndarray)
+    assert frame.value.observed_value.dtype == np.float32
+    assert frame.value.observed_value.tolist() == [1.0, 2.0, 3.0]
 
 
 def test_write_result_list_round_trips():
     results = [
-        ChannelWriteResult(channel_address="SR:A", value_written=1, success=True),
+        ChannelWriteResult(
+            channel_address="SR:A",
+            value_written=1,
+            outcome=WriteOutcome.CONFIRMED,
+            observed_value=1,
+        ),
         ChannelWriteResult(
             channel_address="SR:B",
             value_written=2,
-            success=False,
-            blocked=True,
+            outcome=WriteOutcome.REFUSED,
             refusal_reason="LIMITS",
+            error_message="Write to 'SR:B' blocked: outside the configured limits.",
+        ),
+        ChannelWriteResult(
+            channel_address="SR:C",
+            value_written=3,
+            outcome=WriteOutcome.UNREQUESTED,
         ),
     ]
     frame = _round_trip(frames.encode_result("req-wm", results))
 
-    assert [r.channel_address for r in frame.value] == ["SR:A", "SR:B"]
-    assert frame.value[1].blocked is True
+    assert all(isinstance(r, ChannelWriteResult) for r in frame.value)
+    assert [r.channel_address for r in frame.value] == ["SR:A", "SR:B", "SR:C"]
+    assert [r.outcome for r in frame.value] == [
+        WriteOutcome.CONFIRMED,
+        WriteOutcome.REFUSED,
+        WriteOutcome.UNREQUESTED,
+    ]
+    assert frame.value[0].observed_value == 1
     assert frame.value[1].refusal_reason == "LIMITS"
+    assert frame.value[1].error_message.startswith("Write to 'SR:B' blocked")
+    assert frame.value[2].refusal_reason is None
+    assert frame.value[2].observed_value is None
 
 
 def test_disconnect_result_carries_none():
