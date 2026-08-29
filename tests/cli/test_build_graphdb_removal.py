@@ -53,6 +53,9 @@ def _build_repo(tmp_path: Path, monkeypatch, override: str):
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / "profile.yml").write_text(PROFILE.format(override=override))
+    # The bundle's source zone `osprey init` lays down beside the profile; the
+    # Reach Contract refuses a render whose bind source is not there.
+    (repo / "data" / "facility_knowledge").mkdir(parents=True)
     monkeypatch.chdir(repo)
     result = CliRunner().invoke(build, CI_FLAGS)
     return repo, result

@@ -326,6 +326,23 @@ def test_every_live_consumer_in_every_persona_resolves(built_stack, entries):
     assert checked, "no persona switched any consumer on — the fixture lost its preconditions"
 
 
+def test_every_entitled_shared_path_in_every_persona_resolves(built_stack, entries):
+    """The preset ships its bundle and the build anchors every render on the
+    repo, so what each persona is entitled to is on the host it was built on."""
+    checked = 0
+    for entry in entries:
+        config = _persona_config(built_stack, entry)
+        for shared in SHARED_PATHS:
+            if not shared.gate(config):
+                continue
+            checked += 1
+            assert shared.unresolved(config, built_stack) is None, (
+                f"persona {entry['persona']!r} is entitled to {shared.describe} "
+                f"({shared.config_key}) but {shared.unresolved(config, built_stack)}"
+            )
+    assert checked
+
+
 def test_every_projected_fact_matches_the_hosts(built_stack, host_config, entries):
     """What a persona was told is what the host render says — value for value."""
     checked = 0
@@ -454,11 +471,12 @@ def test_a_consumer_switched_on_with_nothing_to_dial_is_refused():
     assert "services.qmd.port" in error
 
 
-def test_a_degrading_consumer_is_not_refused():
+def test_a_degrading_consumer_is_not_refused(tmp_path):
     """The OKF panel's ranked search falls back to substring matching without
     a sidecar, by design — its contract says ``refuse=False``, so the same
     unresolved state that refuses hybrid search builds cleanly here (the
     ``reach`` health category still reports it)."""
+    (tmp_path / "data" / "facility_knowledge").mkdir(parents=True)
     config = {
         "web": {"panels": {"okf": {"enabled": True}}},
         "facility_knowledge": {"bundle_path": "data/facility_knowledge"},
@@ -466,11 +484,113 @@ def test_a_degrading_consumer_is_not_refused():
 
     live = [consumer.name for _, consumer in live_consumers(config)]
     assert "OKF panel ranked search" in live
-    assert reach_errors(config) == []
+    assert reach_errors(config, repo_root=tmp_path) == []
 
 
 def test_a_render_with_no_live_consumer_is_refused_nothing():
     assert reach_errors({}) == []
+
+
+# A shared path is the directory-shaped half of the same contract: a render
+# entitled to a host directory whose bind source is not there would have the
+# container runtime create it (root-owned under a rootful daemon) or read an
+# empty one the deploy provisioned on the spot. Anchored on the repo root the
+# build passes, exactly as the bind source is.
+
+
+def _entitled_to_bundle(bundle_path: str) -> dict:
+    return {"facility_knowledge": {"bundle_path": bundle_path}}
+
+
+def _entitled_to_mirror(mirror_path: str) -> dict:
+    return {
+        "ariel": {
+            "enhancement_modules": {
+                "qmd_export": {"enabled": True, "settings": {"mirror_path": mirror_path}}
+            }
+        }
+    }
+
+
+def test_every_shared_path_says_where_it_binds():
+    """The registry is complete only while every entry can be resolved to a
+    host directory and says whether the deploy provisions it."""
+    for shared in SHARED_PATHS:
+        assert callable(shared.host_dir), shared.config_key
+        assert isinstance(shared.provisioned, bool), shared.config_key
+        assert shared.describe, shared.config_key
+
+
+def test_a_bundle_that_is_not_on_the_host_is_refused(tmp_path):
+    """Authored content: nothing in the deploy fills it, so a key naming a
+    directory that is not there is a typo or a bundle that was never put in
+    place — refused at build time, naming the key, rather than bound empty."""
+    (error,) = reach_errors(_entitled_to_bundle("data/facility_knowledge"), repo_root=tmp_path)
+
+    assert "facility_knowledge.bundle_path" in error
+    assert str(tmp_path / "data" / "facility_knowledge") in error
+
+
+def test_a_bundle_on_the_host_is_not_refused(tmp_path):
+    (tmp_path / "data" / "facility_knowledge").mkdir(parents=True)
+
+    assert reach_errors(_entitled_to_bundle("data/facility_knowledge"), repo_root=tmp_path) == []
+
+
+def test_a_bundle_path_naming_a_file_is_refused(tmp_path):
+    (tmp_path / "bundle.tar").write_text("")
+
+    (error,) = reach_errors(_entitled_to_bundle("bundle.tar"), repo_root=tmp_path)
+
+    assert "not a directory" in error
+    assert "facility_knowledge.bundle_path" in error
+
+
+def test_an_absolute_bundle_path_is_read_as_given(tmp_path):
+    """Operator-owned, outside the repo, not re-anchored — the same rule the
+    renderers apply to the mount source."""
+    elsewhere = tmp_path / "srv" / "okf"
+    elsewhere.mkdir(parents=True)
+
+    assert reach_errors(_entitled_to_bundle(str(elsewhere)), repo_root=tmp_path / "repo") == []
+    (error,) = reach_errors(
+        _entitled_to_bundle(str(tmp_path / "srv" / "okf-typo")), repo_root=tmp_path
+    )
+    assert str(tmp_path / "srv" / "okf-typo") in error
+
+
+def test_a_render_naming_no_bundle_is_entitled_to_none(tmp_path):
+    """No key, no entitlement, nothing to refuse — a dispatch worker mounts no
+    bundle and must not be refused over a directory it never binds."""
+    assert reach_errors({"facility_knowledge": {}}, repo_root=tmp_path) == []
+
+
+def test_a_mirror_the_deploy_will_provision_is_not_refused(tmp_path):
+    """A writer's output: the deploy creates it before the first bind
+    (``ensure_shared_corpus_dir``), so a mirror that is not there yet is the
+    ordinary first-deploy state."""
+    assert reach_errors(_entitled_to_mirror("var/ariel_mirror"), repo_root=tmp_path) == []
+
+
+def test_a_mirror_the_deploy_cannot_create_is_refused(tmp_path):
+    """The one mirror state that ends root-owned: a path the deploy's mkdir
+    would fail on, because what stands where its parent should be is not a
+    writable directory."""
+    (tmp_path / "blocker").write_text("")
+
+    (error,) = reach_errors(_entitled_to_mirror("blocker/ariel_mirror"), repo_root=tmp_path)
+
+    assert "ariel.enhancement_modules.qmd_export.mirror_path" in error
+    assert "cannot create" in error
+    assert str(tmp_path / "blocker") in error
+
+
+def test_a_disabled_export_is_entitled_to_no_mirror(tmp_path):
+    config = _entitled_to_mirror("blocker/ariel_mirror")
+    config["ariel"]["enhancement_modules"]["qmd_export"]["enabled"] = False
+    (tmp_path / "blocker").write_text("")
+
+    assert reach_errors(config, repo_root=tmp_path) == []
 
 
 # A deploying render — `deployed_services` non-empty — is the other side of the
