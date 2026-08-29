@@ -44,7 +44,7 @@ OTHER_ROOM = "roomB"
 BOT = "osprey-bot"
 TRIGGER = "nextcloud-question"
 
-DISPATCHER = "http://dispatcher.test:8010"
+DISPATCHER = "http://dispatcher.test:10010"
 WORKER = "http://worker.test:9190"
 
 TIMEOUT = 10.0

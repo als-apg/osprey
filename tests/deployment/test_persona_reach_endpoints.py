@@ -185,28 +185,28 @@ async def test_ariel_health_probes_the_port_the_panel_listens_on(monkeypatch) ->
     """The ``ariel`` health category must probe the address the ARIEL panel
     actually binds — ``resolve_web_server_address("ariel", cfg)``, which honours
     the ``OSPREY_ARIEL_PORT`` env override multi-user compose renders export —
-    not the ``ariel.web.port``/default-8085 config value alone.
+    not the ``ariel.web.port``/layout-default config value alone.
 
     Closest existing tests, and why they could not see this:
 
     * ``tests/health/core/test_ariel.py::test_status_url_defaults`` pins the
-      probe URL to ``http://127.0.0.1:8085/api/status`` with the env var unset —
+      probe URL to the ARIEL slot of the default block with the env var unset —
       it asserts the config-only derivation as CORRECT and never sets
       ``OSPREY_ARIEL_PORT``.
     * ``tests/health/core/test_web_panels.py::TestBuiltinAddressResolution::
       test_port_env_override_is_honoured`` proves exactly this env override —
-      with OSPREY_ARIEL_PORT=9391, even — but for the ``web_panels`` category,
+      with OSPREY_ARIEL_PORT set, even — but for the ``web_panels`` category,
       which was converted to the canonical resolver; the ``ariel`` category
       never was, and no test joins the two.
     """
-    monkeypatch.setenv("OSPREY_ARIEL_PORT", "9391")
+    monkeypatch.setenv("OSPREY_ARIEL_PORT", "10301")
 
     config = {"ariel": {"database": {"uri": "postgresql://ariel@localhost/ariel"}}}
     # The expectation is the resolver's answer, not a literal: this is the same
     # derivation the panel launcher is partial-bound to, so the test encodes
     # "the address the panel binds" rather than restating 9391.
     expected_host, expected_port = resolve_web_server_address("ariel", config)
-    assert expected_port == 9391  # sanity: the override reached the resolver
+    assert expected_port == 10301  # sanity: the override reached the resolver
 
     seen: list[str] = []
 
@@ -222,6 +222,6 @@ async def test_ariel_health_probes_the_port_the_panel_listens_on(monkeypatch) ->
         f"osprey health probed ARIEL at port {probed.port}, but the panel in this "
         f"environment binds {expected_host}:{expected_port} (OSPREY_ARIEL_PORT, "
         "per registry.web.resolve_web_server_address). The ariel category reads "
-        "ariel.web.port / the 8085 default only and ignores the multi-user env "
+        "ariel.web.port / the layout default only and ignores the multi-user env "
         "override — so every multi-user terminal reports ARIEL unreachable."
     )

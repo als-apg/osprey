@@ -16,6 +16,7 @@ import pytest
 
 from osprey.health.core.graphdb import graphdb
 from osprey.health.models import CheckResult, Status
+from osprey.port_layout import default_port
 
 # --------------------------------------------------------------------------- #
 # Fake driver
@@ -145,7 +146,9 @@ async def test_connection_row_ok_with_latency(monkeypatch: pytest.MonkeyPatch) -
     _install_driver(monkeypatch, _FakeDriver())
     row = (await _run(_cfg()))["graphdb_connection"]
     assert row.status is Status.OK
-    assert "bolt://localhost:7687" in row.message
+    # `services.graphdb` sets no port_host, so the store is on the deployment's
+    # `graphdb_bolt` layout slot.
+    assert f"bolt://localhost:{default_port('graphdb_bolt')}" in row.message
     assert row.latency_ms > 0.0
 
 

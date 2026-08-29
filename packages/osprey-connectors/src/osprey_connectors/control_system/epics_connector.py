@@ -278,7 +278,7 @@ class EPICSConnector(ControlSystemConnector):
         >>>     'gateways': {
         >>>         'read_only': {
         >>>             'address': 'localhost',
-        >>>             'port': 5074,
+        >>>             'port': 5064,  # local end of the SSH tunnel
         >>>             'use_name_server': True
         >>>         }
         >>>     }

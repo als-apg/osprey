@@ -21,7 +21,7 @@ def _cfg():
     # Structural stub of the CoreConfig fields pair_supports reads; guarded
     # against drift by test_pair_supports_reads_real_coreconfig_fields below.
     return SimpleNamespace(
-        dispatcher_url="http://disp:8010",
+        dispatcher_url="http://disp:10010",
         worker_url="http://work:9190",
         trust_env=False,
     )
@@ -198,5 +198,5 @@ def test_pair_supports_reads_real_coreconfig_fields():
     except and silently answer False forever — only a real instance catches it."""
     from osprey.bridges.core.config import CoreConfig
 
-    cfg = CoreConfig(dispatcher_url="http://disp:8010", worker_url="http://work:9190")
+    cfg = CoreConfig(dispatcher_url="http://disp:10010", worker_url="http://work:9190")
     assert pair_supports(cfg, CAP, _client()) is True

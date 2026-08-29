@@ -75,7 +75,7 @@ _CTX = "osprey.mcp_server.bluesky.server_context"
 # own published port — so the two lanes are distinguishable by URL alone, which
 # is what lets a test say which bridge answered.
 _LANE_ONE_URL = "http://lane-one.test"
-_VA_LANE_PORT = 8091
+_VA_LANE_PORT = 10081
 _VA_LANE_URL = f"http://127.0.0.1:{_VA_LANE_PORT}"
 
 _LANE_ONE_TOKEN = "lane-one-launch-token"
@@ -216,7 +216,7 @@ def deployment(tmp_path, monkeypatch):
         running: str | None = None,
         revisions: tuple[int, int] = (1, 7),
     ) -> _Bridges:
-        services: dict[str, Any] = {"bluesky": {"path": "./services/bluesky", "port": 8090}}
+        services: dict[str, Any] = {"bluesky": {"path": "./services/bluesky", "port": 10080}}
         if second is not None:
             # Both lanes carry `target:` on a two-lane deploy, which is what the
             # single-lane block has never had a reason to.

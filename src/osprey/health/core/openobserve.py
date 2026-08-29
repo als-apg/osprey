@@ -6,9 +6,10 @@ is not in the project's ``deployed_services`` it simply contributes no rows (a
 silent skip). When deployed it emits two rows:
 
 * ``openobserve_healthz`` — ``GET /healthz`` against
-  ``deployment.bind_address`` + ``services.openobserve.port``; ``ok`` on HTTP 200,
-  ``warning`` on any other status or when the store is unreachable (``running`` is
-  not ``ready``);
+  ``deployment.bind_address`` + ``services.openobserve.port`` (with no such key,
+  the layout's ``openobserve`` slot at this deployment's ``deployment.port_base``);
+  ``ok`` on HTTP 200, ``warning`` on any other status or when the store is
+  unreachable (``running`` is not ``ready``);
 * ``openobserve_retention`` — ``warning`` when ``services.openobserve.retention_days``
   is below OpenObserve's floor of 3 (a capless named volume is size-bounded only
   by retention), else ``ok``.
@@ -23,6 +24,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 from osprey.health.models import CheckResult, Status
+from osprey.port_layout import default_port, resolve_port_base
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -34,7 +36,6 @@ CATEGORY = "openobserve"
 
 _HEALTHZ_TIMEOUT_S = 5.0
 _RETENTION_FLOOR_DAYS = 3
-_DEFAULT_PORT = 5080
 _DEFAULT_BIND = "127.0.0.1"
 _DEFAULT_RETENTION_DAYS = 14  # mirror the compose default
 
@@ -49,8 +50,8 @@ def openobserve(
 
     Args:
         config: Parsed config mapping (``None`` when config is unavailable). Read
-            for ``deployed_services``, ``services.openobserve``, and
-            ``deployment.bind_address``.
+            for ``deployed_services``, ``services.openobserve``,
+            ``deployment.bind_address`` and ``deployment.port_base``.
         context: Health runtime. Unused — no control-system connector is needed.
         transport: Optional httpx transport for dependency injection in tests
             (e.g. :class:`httpx.MockTransport`); ``None`` uses httpx's default.
@@ -66,7 +67,11 @@ def openobserve(
             return []
 
         oo = (cfg.get("services", {}) or {}).get("openobserve", {}) or {}
-        port = oo.get("port", _DEFAULT_PORT)
+        # No key means the store sits where the layout puts it in THIS
+        # deployment's block. A fixed default would probe whatever holds that
+        # number on the host — on a two-deployment host, the other store — and
+        # report its health as this one's.
+        port = oo.get("port", default_port("openobserve", base=resolve_port_base(cfg)))
         bind = (cfg.get("deployment", {}) or {}).get("bind_address", _DEFAULT_BIND)
         retention = oo.get("retention_days", _DEFAULT_RETENTION_DAYS)
 

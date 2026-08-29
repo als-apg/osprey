@@ -267,10 +267,14 @@ class BenchmarkRunner:
                 reached or the query fails.
         """
         from osprey.deployment.graphdb_service import resolve_graphdb_connection
+        from osprey.port_layout import resolve_port_base
         from osprey.services.facility_knowledge.seeder import graph_seeder
 
-        services = self._read_config().get("services") or {}
-        connection = resolve_graphdb_connection(services.get("graphdb"))
+        config = self._read_config()
+        services = config.get("services") or {}
+        connection = resolve_graphdb_connection(
+            services.get("graphdb"), base=resolve_port_base(config)
+        )
         with graph_seeder.open_session(
             connection.uri, connection.username, connection.password
         ) as session:

@@ -23,20 +23,32 @@ from fastmcp.exceptions import ToolError
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.mcp_server.workspace.server import mcp
+from osprey.port_layout import default_port, resolve_port_base
 from osprey.utils.workspace import load_osprey_config
 
 logger = logging.getLogger("osprey.mcp_server.tools.lattice_tools")
 
 _DEFAULT_HOST = "127.0.0.1"
-_DEFAULT_PORT = 8097
 _TIMEOUT = 30.0
 
 
 def _get_dashboard_url() -> str:
+    """Return the base URL of this deployment's lattice dashboard.
+
+    The port is read from ``lattice_dashboard.port`` when set and otherwise
+    derived from the ``lattice`` layout slot at the base **this config**
+    resolved — never at the layout's default base, which on a host running two
+    deployments names the other one's dashboard. The environment override wins
+    over both: a container is told the address it can actually reach.
+
+    Returns:
+        ``http://<host>:<port>``, with no trailing slash.
+    """
     config = load_osprey_config()
     ld = config.get("lattice_dashboard", {})
     host = ld.get("host", _DEFAULT_HOST)
-    port = int(os.environ.get("OSPREY_LATTICE_DASHBOARD_PORT", ld.get("port", _DEFAULT_PORT)))
+    layout_port = default_port("lattice", 0, base=resolve_port_base(config))
+    port = int(os.environ.get("OSPREY_LATTICE_DASHBOARD_PORT", ld.get("port", layout_port)))
     return f"http://{host}:{port}"
 
 

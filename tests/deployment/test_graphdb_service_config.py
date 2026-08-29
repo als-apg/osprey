@@ -6,6 +6,8 @@ import pytest
 
 from osprey.deployment.errors import DeploymentPreconditionError
 from osprey.deployment.graphdb_service import (
+    CONTAINER_BOLT_PORT,
+    CONTAINER_HTTP_PORT,
     DEFAULT_BIND_ADDRESS,
     DEFAULT_HEAP_INITIAL_SIZE,
     DEFAULT_HEAP_MAX_SIZE,
@@ -26,6 +28,7 @@ from osprey.deployment.graphdb_service import (
     resolve_graphdb_connection,
     resolve_graphdb_service_config,
 )
+from osprey.port_layout import default_port, resolve_port_base
 
 
 @pytest.fixture(autouse=True)
@@ -153,8 +156,24 @@ class TestConstants:
         """A port-conflict remedy has to name which of the two ports to move."""
         assert GRAPHDB_PORT_CONFIG_KEY != GRAPHDB_HTTP_PORT_CONFIG_KEY
 
-    def test_default_ports_match_neo4j_container_ports(self) -> None:
-        assert (DEFAULT_PORT, DEFAULT_HTTP_PORT) == (7687, 7474)
+    def test_container_ports_are_the_ones_the_image_fixes(self) -> None:
+        """Image-fixed, so a binding or remedy keyed on them survives a port move."""
+        assert (CONTAINER_BOLT_PORT, CONTAINER_HTTP_PORT) == (7687, 7474)
+
+    def test_default_host_ports_are_the_layout_slots(self) -> None:
+        """The published ports are the block's, not the image's — see the layout."""
+        assert (DEFAULT_PORT, DEFAULT_HTTP_PORT) == (
+            default_port("graphdb_bolt"),
+            default_port("graphdb_http"),
+        )
+
+    def test_resolved_host_ports_follow_the_deployments_own_base(self) -> None:
+        """A second deployment publishes its store inside its own block."""
+        resolved = resolve_graphdb_service_config(
+            {"deployment": {"port_base": 20000}, "services": {"graphdb": {}}}
+        )
+        assert resolved is not None
+        assert (resolved.port_host, resolved.http_port_host) == (20802, 20803)
 
     #: Neo4j community lines the neosemantics plugin manifest actually covers —
     #: the entries in https://neo4j-labs.github.io/neosemantics/versions.json,
@@ -371,13 +390,45 @@ class TestConnectionPrecedence:
         ids=["none", "empty", "unrelated-keys", "port-null"],
     )
     def test_connection_derives_the_default_bolt_url(self, section: dict | None) -> None:
+        """With no base handed down, the layout's own default base is all there is."""
         resolved = resolve_graphdb_connection(section)
         assert resolved == GraphdbConnection(
             uri=f"bolt://localhost:{DEFAULT_PORT}",
             username=DEFAULT_USERNAME,
             password=DEFAULT_PASSWORD,
         )
-        assert resolved.uri == "bolt://localhost:7687"
+        assert resolved.uri == f"bolt://localhost:{default_port('graphdb_bolt')}"
+
+    @pytest.mark.parametrize(
+        "section",
+        [None, {}, {"path": "./services/graphdb"}, {"port_host": None}],
+        ids=["none", "empty", "unrelated-keys", "port-null"],
+    )
+    def test_the_derived_dial_follows_the_base_handed_down(self, section: dict | None) -> None:
+        """The base the caller resolved, never the layout's own default."""
+        base = resolve_port_base({"deployment": {"port_base": 20000}})
+        resolved = resolve_graphdb_connection(section, base=base)
+        assert resolved.uri == "bolt://localhost:20802"
+
+    def test_the_derived_dial_is_the_port_the_service_publishes(self) -> None:
+        """Dial == publish at any base. The regression this pins:
+
+        ``DEFAULT_PORT`` used to be the container port 7687, which was also the
+        published default, so the two agreed by coincidence. Once it became a
+        host slot at the layout's DEFAULT base, a deployment on its own base
+        published 20802 while every dial went to 10802 — the health tile called
+        the store unreachable, the seeder wrote nowhere, and the graph MCP
+        server reported no store configured.
+        """
+        config = {"deployment": {"port_base": 20000}, "services": {"graphdb": {}}}
+        base = resolve_port_base(config)
+
+        published = resolve_graphdb_service_config(config)
+        assert published is not None
+        dialed = resolve_graphdb_connection(config["services"]["graphdb"], base=base)
+
+        assert dialed.uri == f"bolt://localhost:{published.port_host}"
+        assert published.port_host == 20802
 
     def test_connection_derives_a_moved_port(self) -> None:
         """A project that moved ``port_host`` stays connectable without a second edit."""
@@ -480,6 +531,9 @@ class TestConnectionDataclass:
         assert "@" not in resolved.uri
 
     def test_connection_repr_does_not_leak_the_password(self) -> None:
-        resolved = resolve_graphdb_connection({}, env={GRAPHDB_PASSWORD_ENV: "minted-secret"})
+        base = resolve_port_base({"deployment": {"port_base": 20000}})
+        resolved = resolve_graphdb_connection(
+            {}, env={GRAPHDB_PASSWORD_ENV: "minted-secret"}, base=base
+        )
         assert "minted-secret" not in repr(resolved)
-        assert "bolt://localhost:7687" in repr(resolved)
+        assert "bolt://localhost:20802" in repr(resolved)

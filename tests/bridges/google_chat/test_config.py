@@ -7,6 +7,7 @@ import pytest
 
 from osprey.bridges.core import CoreConfig
 from osprey.bridges.google_chat import GoogleChatBridgeConfig, require_boot
+from osprey.port_layout import default_port
 
 CONFIG_LOGGER = "osprey.bridges.google_chat.config"
 
@@ -25,8 +26,8 @@ COMPLETE_ENV = {
 # What require_boot checks on top of require_startup. Bare in compose, so an
 # unset one arrives as "" and no code default ever replaces it.
 BOOT_URL_ENV = {
-    "DISPATCHER_URL": "http://dispatcher:8010",
-    "WORKER_URL": "http://worker:9901",
+    "DISPATCHER_URL": "http://dispatcher:10010",
+    "WORKER_URL": "http://worker:10011",
 }
 
 
@@ -101,15 +102,15 @@ def test_version_tag_comes_from_the_unprefixed_image_build_arg():
 def test_neutral_vars_are_delegated_to_core_config():
     cfg = GoogleChatBridgeConfig.from_env(
         complete(
-            DISPATCHER_URL="http://disp:8010/",
-            WORKER_URL="http://work:9901/",
+            DISPATCHER_URL="http://disp:10010/",
+            WORKER_URL="http://work:10011/",
             POLL_INTERVAL="0.5",
             DEDUP_PATH="/data/gchat_dedup.json",
             HISTORY_PATH="/data/gchat_history.json",
         )
     )
-    assert cfg.core.dispatcher_url == "http://disp:8010"
-    assert cfg.core.worker_url == "http://work:9901"
+    assert cfg.core.dispatcher_url == "http://disp:10010"
+    assert cfg.core.worker_url == "http://work:10011"
     assert cfg.core.event_dispatcher_token == "disp-token"
     assert cfg.core.dispatch_worker_token == "work-token"
     assert cfg.core.trigger == "gchat-question"
@@ -305,8 +306,8 @@ def test_absent_url_vars_still_fall_back_to_the_code_defaults():
     # require_boot must not break it.
     cfg = GoogleChatBridgeConfig.from_env(complete())
     assert (cfg.core.dispatcher_url, cfg.core.worker_url) == (
-        "http://localhost:8010",
-        "http://localhost:9901",
+        f"http://localhost:{default_port('dispatcher')}",
+        f"http://localhost:{default_port('worker', 1)}",
     )
     require_boot(cfg)  # no raise
 

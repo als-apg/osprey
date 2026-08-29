@@ -17,6 +17,7 @@ import httpx
 import pytest
 
 from osprey.mcp_server.workspace.tools import lattice_tools as lt
+from osprey.port_layout import default_port
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 
 _MOD = "osprey.mcp_server.workspace.tools.lattice_tools"
@@ -46,7 +47,7 @@ def _patch_request(return_value=None, side_effect=None) -> AsyncMock:
 def test_dashboard_url_defaults(monkeypatch):
     monkeypatch.delenv("OSPREY_LATTICE_DASHBOARD_PORT", raising=False)
     with patch(f"{_MOD}.load_osprey_config", return_value={}):
-        assert lt._get_dashboard_url() == "http://127.0.0.1:8097"
+        assert lt._get_dashboard_url() == f"http://127.0.0.1:{default_port('lattice')}"
 
 
 @pytest.mark.unit

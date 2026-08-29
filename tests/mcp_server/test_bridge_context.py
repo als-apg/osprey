@@ -21,6 +21,7 @@ from osprey.mcp_server.bluesky.server_context import (
     initialize_server_context,
     reset_server_context,
 )
+from osprey.port_layout import default_port
 
 pytestmark = pytest.mark.unit
 
@@ -71,7 +72,7 @@ def test_env_absent_no_config_uses_defaults(tmp_path, monkeypatch):
     context = BridgeContext()
     context.initialize()
 
-    assert context.bridge_url == "http://127.0.0.1:8090"
+    assert context.bridge_url == f"http://127.0.0.1:{default_port('bluesky')}"
     assert context.launch_token is None
 
 
@@ -84,12 +85,12 @@ def test_bridge_url_config_fallback(tmp_path, monkeypatch):
     """bluesky.bridge_url in config.yml is used when the env var is unset."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("BLUESKY_BRIDGE_URL", raising=False)
-    _write_config(tmp_path, {"bluesky": {"bridge_url": "http://192.168.1.10:8090/"}})
+    _write_config(tmp_path, {"bluesky": {"bridge_url": "http://192.168.1.10:8600/"}})
 
     context = BridgeContext()
     context.initialize()
 
-    assert context.bridge_url == "http://192.168.1.10:8090"
+    assert context.bridge_url == "http://192.168.1.10:8600"
 
 
 def test_launch_token_config_fallback(tmp_path, monkeypatch):
@@ -112,19 +113,19 @@ def test_launch_token_config_fallback(tmp_path, monkeypatch):
 def test_initialize_idempotent(tmp_path, monkeypatch):
     """Calling initialize() multiple times is a no-op after the first."""
     monkeypatch.chdir(tmp_path)
-    _write_config(tmp_path, {"bluesky": {"bridge_url": "http://127.0.0.1:8090"}})
+    _write_config(tmp_path, {"bluesky": {"bridge_url": "http://127.0.0.1:8600"}})
 
     context = BridgeContext()
     context.initialize()
     context.initialize()  # second call should be a no-op
 
-    assert context.bridge_url == "http://127.0.0.1:8090"
+    assert context.bridge_url == "http://127.0.0.1:8600"
 
 
 def test_singleton_access(tmp_path, monkeypatch):
     """get_server_context() returns the same instance after initialize."""
     monkeypatch.chdir(tmp_path)
-    _write_config(tmp_path, {"bluesky": {"bridge_url": "http://127.0.0.1:8090"}})
+    _write_config(tmp_path, {"bluesky": {"bridge_url": "http://127.0.0.1:8600"}})
 
     initialize_server_context()
     ctx1 = get_server_context()
@@ -145,7 +146,7 @@ def test_get_before_initialize_raises():
 def test_reset_clears_singleton(tmp_path, monkeypatch):
     """reset_server_context() clears the singleton so get raises again."""
     monkeypatch.chdir(tmp_path)
-    _write_config(tmp_path, {"bluesky": {"bridge_url": "http://127.0.0.1:8090"}})
+    _write_config(tmp_path, {"bluesky": {"bridge_url": "http://127.0.0.1:8600"}})
 
     initialize_server_context()
     reset_server_context()
@@ -162,7 +163,7 @@ def test_reset_clears_singleton(tmp_path, monkeypatch):
 def test_http_get_json_unreachable_raises_error_envelope(tmp_path, monkeypatch):
     """_http_get_json raises a bluesky_bridge_unreachable ToolError on connection failure."""
     monkeypatch.chdir(tmp_path)
-    _write_config(tmp_path, {"bluesky": {"bridge_url": "http://127.0.0.1:8090"}})
+    _write_config(tmp_path, {"bluesky": {"bridge_url": "http://127.0.0.1:8600"}})
     initialize_server_context()
 
     with patch("httpx.get", side_effect=httpx.ConnectError("connection refused")):
@@ -177,7 +178,7 @@ def test_http_get_json_unreachable_raises_error_envelope(tmp_path, monkeypatch):
 def test_http_post_json_unreachable_raises_error_envelope(tmp_path, monkeypatch):
     """_http_post_json raises a bluesky_bridge_unreachable ToolError on connection failure."""
     monkeypatch.chdir(tmp_path)
-    _write_config(tmp_path, {"bluesky": {"bridge_url": "http://127.0.0.1:8090"}})
+    _write_config(tmp_path, {"bluesky": {"bridge_url": "http://127.0.0.1:8600"}})
     initialize_server_context()
 
     with patch("httpx.post", side_effect=httpx.ConnectError("connection refused")):
@@ -197,7 +198,7 @@ def test_http_post_json_uses_the_shared_timeout_by_default(tmp_path, monkeypatch
     ``_TIMEOUT`` and slowed every tool's failure on a dead bridge to minutes.
     """
     monkeypatch.chdir(tmp_path)
-    _write_config(tmp_path, {"bluesky": {"bridge_url": "http://127.0.0.1:8090"}})
+    _write_config(tmp_path, {"bluesky": {"bridge_url": "http://127.0.0.1:8600"}})
     initialize_server_context()
 
     response = httpx.Response(200, json={}, request=httpx.Request("POST", "http://x"))
@@ -214,7 +215,7 @@ def test_http_post_json_accepts_a_per_call_timeout_override(tmp_path, monkeypatc
     than the shared default, and must be able to say so per request rather than
     by raising the default for everyone. ``stop_run``'s abort is that route."""
     monkeypatch.chdir(tmp_path)
-    _write_config(tmp_path, {"bluesky": {"bridge_url": "http://127.0.0.1:8090"}})
+    _write_config(tmp_path, {"bluesky": {"bridge_url": "http://127.0.0.1:8600"}})
     initialize_server_context()
 
     response = httpx.Response(200, json={}, request=httpx.Request("POST", "http://x"))
@@ -229,7 +230,7 @@ def test_http_post_json_accepts_a_per_call_timeout_override(tmp_path, monkeypatc
 def test_http_get_json_success_returns_status_and_body(tmp_path, monkeypatch):
     """_http_get_json returns (status_code, parsed_json) on a normal response."""
     monkeypatch.chdir(tmp_path)
-    _write_config(tmp_path, {"bluesky": {"bridge_url": "http://127.0.0.1:8090"}})
+    _write_config(tmp_path, {"bluesky": {"bridge_url": "http://127.0.0.1:8600"}})
     initialize_server_context()
 
     fake_response = httpx.Response(200, json={"runs": []}, request=httpx.Request("GET", "http://x"))

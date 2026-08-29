@@ -3,12 +3,13 @@
 import pytest
 
 from osprey.bridges.core.config import CoreConfig
+from osprey.port_layout import default_port
 
 
 def test_from_env_maps_all_neutral_fields():
     env = {
-        "DISPATCHER_URL": "http://disp:8010/",  # trailing slash must be stripped
-        "WORKER_URL": "http://work:9901/",
+        "DISPATCHER_URL": "http://disp:10010/",  # trailing slash must be stripped
+        "WORKER_URL": "http://work:10011/",
         "EVENT_DISPATCHER_TOKEN": "disp-token",
         "DISPATCH_WORKER_TOKEN": "work-token",
         "DISPATCH_TRIGGER": "email-question",
@@ -25,8 +26,8 @@ def test_from_env_maps_all_neutral_fields():
         "HISTORY_PATH": "/data/email_history.json",
     }
     cfg = CoreConfig.from_env(env)
-    assert cfg.dispatcher_url == "http://disp:8010"
-    assert cfg.worker_url == "http://work:9901"
+    assert cfg.dispatcher_url == "http://disp:10010"
+    assert cfg.worker_url == "http://work:10011"
     assert cfg.event_dispatcher_token == "disp-token"
     assert cfg.dispatch_worker_token == "work-token"
     assert cfg.trigger == "email-question"
@@ -45,8 +46,10 @@ def test_from_env_maps_all_neutral_fields():
 
 def test_from_env_defaults_when_unset():
     cfg = CoreConfig.from_env({})
-    assert cfg.dispatcher_url == "http://localhost:8010"
-    assert cfg.worker_url == "http://localhost:9901"
+    # Both dispatch endpoints come from the port layout at its DEFAULT base, not
+    # from literals — a set DISPATCHER_URL/WORKER_URL still wins over them (above).
+    assert cfg.dispatcher_url == f"http://localhost:{default_port('dispatcher')}"
+    assert cfg.worker_url == f"http://localhost:{default_port('worker', 1)}"
     assert cfg.trigger == ""
     assert cfg.poll_interval == 2.0
     assert cfg.poll_budget == 330.0
@@ -106,7 +109,7 @@ def test_poll_budget_below_worker_cap_is_rejected():
 
 
 def test_require_raises_on_missing_field():
-    cfg = CoreConfig(dispatcher_url="http://disp:8010", event_dispatcher_token="")
+    cfg = CoreConfig(dispatcher_url="http://disp:10010", event_dispatcher_token="")
     with pytest.raises(ValueError, match="event_dispatcher_token"):
         cfg.require("event_dispatcher_token")
 

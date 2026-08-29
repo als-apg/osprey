@@ -33,7 +33,7 @@ def _mock_web_terminal_url():
     ``GET /api/panels`` read to ``osprey.mcp_server.http.fetch_panels``, so the
     patch has to land there for tests that stub ``urllib.request.urlopen``.
     """
-    with patch("osprey.mcp_server.http.web_terminal_url", return_value="http://127.0.0.1:8087"):
+    with patch("osprey.mcp_server.http.web_terminal_url", return_value="http://127.0.0.1:10100"):
         yield
 
 
@@ -288,10 +288,10 @@ class TestOpenPanel:
         fn = _get_open_panel()
 
         with patch(f"{_MODULE}.notify_panel_focus") as mock_focus:
-            result = extract_response_dict(await fn("ariel", url="http://127.0.0.1:8085/#draft"))
+            result = extract_response_dict(await fn("ariel", url="http://127.0.0.1:10300/#draft"))
 
         assert result["status"] == "success"
-        mock_focus.assert_called_once_with("ariel", url="http://127.0.0.1:8085/#draft")
+        mock_focus.assert_called_once_with("ariel", url="http://127.0.0.1:10300/#draft")
 
     @pytest.mark.unit
     @pytest.mark.asyncio

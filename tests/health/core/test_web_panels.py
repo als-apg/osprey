@@ -14,6 +14,17 @@ import pytest
 
 from osprey.health.core.web_panels import CATEGORY, web_panels
 from osprey.health.models import CheckResult, Status
+from osprey.port_layout import default_port
+
+#: The URL a facility writes for a custom "plan" panel — the bluesky sidecar's
+#: own slot, so the sample is an address this deployment actually publishes.
+_PLAN_URL = f"http://localhost:{default_port('bluesky_web')}"
+
+#: A base OTHER than this deployment's, so an env override that must beat the
+#: config cannot pass by coinciding with the layout value the config carries.
+_OTHER_BASE = 20000
+_MOVED_ARIEL_PORT = default_port("ariel", base=_OTHER_BASE)
+_MOVED_OKF_PORT = default_port("okf", base=_OTHER_BASE)
 
 
 async def _run(config, *, handler=None) -> dict[str, CheckResult]:
@@ -56,9 +67,10 @@ class TestTargetResolution:
 
         await _run(_cfg({"ariel": {"enabled": True}, "okf": True}), handler=handler)
 
-        assert "http://127.0.0.1:8085/health" in seen  # ariel port_default
-        assert "http://127.0.0.1:8093/health" in seen  # okf port_default
-        assert "http://127.0.0.1:8086/health" in seen  # artifacts (universal)
+        # Each panel's layout slot at the default base — no config moves them.
+        assert f"http://127.0.0.1:{default_port('ariel')}/health" in seen
+        assert f"http://127.0.0.1:{default_port('okf')}/health" in seen
+        assert f"http://127.0.0.1:{default_port('artifact')}/health" in seen  # universal
 
     async def test_disabled_builtin_is_not_probed(self):
         rows = await _run(_cfg({"ariel": {"enabled": False}}))
@@ -108,10 +120,10 @@ class TestTargetResolution:
             return httpx.Response(200)
 
         rows = await _run(
-            _cfg({"plan": {"label": "PLAN", "url": "http://localhost:8095", "path": "/plan/"}}),
+            _cfg({"plan": {"label": "PLAN", "url": _PLAN_URL, "path": "/plan/"}}),
             handler=handler,
         )
-        assert "http://localhost:8095/plan/" in seen
+        assert f"{_PLAN_URL}/plan/" in seen
         assert rows["web_panels.plan"].status is Status.OK
         assert "no health endpoint configured" in rows["web_panels.plan"].message
 
@@ -154,7 +166,7 @@ class TestStatusMapping:
             _cfg(
                 {
                     "ariel": True,
-                    "plan": {"url": "http://localhost:8095", "path": "/plan/"},
+                    "plan": {"url": _PLAN_URL, "path": "/plan/"},
                 }
             ),
             handler=handler,
@@ -177,7 +189,7 @@ class TestStatusMapping:
             _cfg(
                 {
                     "ariel": True,
-                    "plan": {"url": "http://localhost:8095", "path": "/plan/"},
+                    "plan": {"url": _PLAN_URL, "path": "/plan/"},
                 }
             ),
             handler=handler,
@@ -196,31 +208,34 @@ class TestBuiltinAddressResolution:
     """
 
     async def test_port_env_override_is_honoured(self, monkeypatch):
-        monkeypatch.setenv("OSPREY_ARIEL_PORT", "9391")
+        monkeypatch.setenv("OSPREY_ARIEL_PORT", str(_MOVED_ARIEL_PORT))
         seen: list[str] = []
 
         def handler(request: httpx.Request) -> httpx.Response:
             seen.append(str(request.url))
             return httpx.Response(200)
 
-        cfg = _cfg({"ariel": True}, ariel={"web": {"port": 8085}})
+        cfg = _cfg({"ariel": True}, ariel={"web": {"port": default_port("ariel")}})
         await _run(cfg, handler=handler)
 
-        assert "http://127.0.0.1:9391/health" in seen
-        assert "http://127.0.0.1:8085/health" not in seen
+        assert f"http://127.0.0.1:{_MOVED_ARIEL_PORT}/health" in seen
+        assert f"http://127.0.0.1:{default_port('ariel')}/health" not in seen
 
     async def test_port_env_override_applies_to_flat_sections_too(self, monkeypatch):
         """`okf` reads its port straight off `facility_knowledge`, not a subkey."""
-        monkeypatch.setenv("OSPREY_FACILITY_KNOWLEDGE_PORT", "9691")
+        monkeypatch.setenv("OSPREY_FACILITY_KNOWLEDGE_PORT", str(_MOVED_OKF_PORT))
         seen: list[str] = []
 
         def handler(request: httpx.Request) -> httpx.Response:
             seen.append(str(request.url))
             return httpx.Response(200)
 
-        await _run(_cfg({"okf": True}, facility_knowledge={"port": 8093}), handler=handler)
+        await _run(
+            _cfg({"okf": True}, facility_knowledge={"port": default_port("okf")}),
+            handler=handler,
+        )
 
-        assert "http://127.0.0.1:9691/health" in seen
+        assert f"http://127.0.0.1:{_MOVED_OKF_PORT}/health" in seen
 
     async def test_panel_id_namespace_is_read_from_the_registry(self):
         """Every built-in panel id resolves to a registry entry — no local table.
@@ -239,7 +254,7 @@ class TestMisplacedConfigKeys:
     """A key at the wrong nesting depth is reported, never silently ignored."""
 
     async def test_wrong_depth_port_is_reported_not_silently_ignored(self):
-        """`ariel.port` (correct: `ariel.web.port`) must not read back as 8085."""
+        """`ariel.port` (correct: `ariel.web.port`) must not read back as the port."""
         rows = await _run(_cfg({"ariel": True}, ariel={"port": 9999}))
         row = rows["web_panels.ariel"]
         assert row.status is Status.WARNING

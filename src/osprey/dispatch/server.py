@@ -413,6 +413,23 @@ async def shared_font_asset(request: Request) -> FileResponse | JSONResponse:
 # ---------------------------------------------------------------------------
 
 
+def _default_worker_port() -> int:
+    """Return worker 1's host port for this deployment.
+
+    Read from the project config this process can see, so the number follows
+    ``deployment.port_base``. A dispatcher that cannot see a config falls back
+    to the layout's default base, which is the only base there is when no
+    config exists.
+
+    Returns:
+        The ``worker`` slot at index 1, at the resolved base.
+    """
+    from osprey.port_layout import default_port, resolve_port_base
+    from osprey.utils.workspace import load_osprey_config
+
+    return default_port("worker", 1, base=resolve_port_base(load_osprey_config()))
+
+
 def create_server() -> FastMCP:
     """Initialize the event dispatcher server (factory time, fully synchronous).
 
@@ -434,8 +451,14 @@ def create_server() -> FastMCP:
         dispatcher_cfg, trigger_list = load_triggers(triggers_path)
     except FileNotFoundError:
         logger.warning("triggers.yml not found at %s — starting with no triggers", triggers_path)
+        # No triggers.yml to read the target from. The fallback is worker 1 of
+        # THIS deployment's block, resolved from the project config this
+        # process can see — the worker the dispatcher would have been pointed
+        # at. Never the layout's default base: on a host running two
+        # deployments that address belongs to the other one's worker.
         dispatcher_cfg = DispatcherConfig(
-            dispatch_target=os.environ.get("DISPATCH_TARGET", "http://localhost:9088")
+            dispatch_target=os.environ.get("DISPATCH_TARGET")
+            or f"http://localhost:{_default_worker_port()}"
         )
         trigger_list = []
 
@@ -495,12 +518,13 @@ def create_server() -> FastMCP:
     # prompts, and run history. The dashboard reaches them two ways:
     #   • In-terminal EVENTS tab: the web-terminal proxy injects the bearer token
     #     server-side (the browser never holds it).
-    #   • Standalone (direct to :9900): the dashboard JS supplies the token from a
-    #     one-time ``#token=`` fragment handoff (kept out of server logs) as an
-    #     Authorization header on its fetch/poll calls. The live SSE stream is
-    #     header-gated too, so it is unavailable on the standalone path (EventSource
-    #     cannot set headers, and we deliberately do NOT accept a ``?token=`` query
-    #     that would leak the bearer into access logs); polled state still renders.
+    #   • Standalone (direct to the dispatcher's published port): the dashboard JS
+    #     supplies the token from a one-time ``#token=`` fragment handoff (kept
+    #     out of server logs) as an Authorization header on its fetch/poll calls.
+    #     The live SSE stream is header-gated too, so it is unavailable on the
+    #     standalone path (EventSource cannot set headers, and we deliberately do
+    #     NOT accept a ``?token=`` query that would leak the bearer into access
+    #     logs); polled state still renders.
     # WRITE endpoints (/retry, /dashboard/cancel, /dashboard/clear-history and
     # /trigger/.../status) are gated the same way. The /dashboard HTML SHELL itself
     # stays ungated on purpose: it carries no agent data, and the standalone token

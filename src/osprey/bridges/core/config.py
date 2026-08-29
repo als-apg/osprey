@@ -17,6 +17,8 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from osprey.port_layout import default_port
+
 # Statuses that mean an entry needs no further work. "completed"/"error" are
 # the worker's terminal run states; "post_failed" is bridge-local — the run
 # finished but delivering the reply failed permanently (do NOT retry on
@@ -31,6 +33,16 @@ TERMINAL_STATUSES = frozenset({"completed", "error", "post_failed", "superseded"
 # repo (``osprey.interfaces.vendor``, ``osprey.services.bluesky_bridge``).
 _TRUTHY = {"1", "true", "yes", "on"}
 
+#: Where a bridge reaches the dispatch pair when nothing tells it otherwise: the
+#: layout's ``dispatcher`` slot and worker 1 of its ``worker`` band, both at the
+#: layout's DEFAULT base — the one place that base is legitimate, because a
+#: bridge has no project config to resolve one from. Neither is what a deployed
+#: bridge uses: every bridge compose service sets ``DISPATCHER_URL``/``WORKER_URL``
+#: from its own deployment's block, so these are reached only by a bridge started
+#: by hand against a default-base project.
+_DEFAULT_DISPATCHER_URL = f"http://localhost:{default_port('dispatcher')}"
+_DEFAULT_WORKER_URL = f"http://localhost:{default_port('worker', 1)}"
+
 
 @dataclass
 class CoreConfig:
@@ -44,13 +56,13 @@ class CoreConfig:
     """
 
     # --- Dispatch pipeline endpoints ---------------------------------------
-    dispatcher_url: str = "http://localhost:8010"
-    worker_url: str = "http://localhost:9901"
+    dispatcher_url: str = _DEFAULT_DISPATCHER_URL
+    worker_url: str = _DEFAULT_WORKER_URL
     event_dispatcher_token: str = ""
-    """Bearer token for the dispatcher webhook (inbound to :8010)."""
+    """Bearer token for the dispatcher webhook (inbound to the dispatcher slot)."""
 
     dispatch_worker_token: str = ""
-    """Bearer token for the worker run-status/artifact endpoints (:9901)."""
+    """Bearer token for the worker run-status/artifact endpoints (the worker slot)."""
 
     trigger: str = ""
     """Dispatcher trigger to fire (``POST /webhook/{trigger}``). Channel-set —
@@ -158,8 +170,8 @@ class CoreConfig:
             return raw.strip().lower() in _TRUTHY
 
         return cls(
-            dispatcher_url=e.get("DISPATCHER_URL", "http://localhost:8010").rstrip("/"),
-            worker_url=e.get("WORKER_URL", "http://localhost:9901").rstrip("/"),
+            dispatcher_url=e.get("DISPATCHER_URL", _DEFAULT_DISPATCHER_URL).rstrip("/"),
+            worker_url=e.get("WORKER_URL", _DEFAULT_WORKER_URL).rstrip("/"),
             event_dispatcher_token=e.get("EVENT_DISPATCHER_TOKEN", ""),
             dispatch_worker_token=e.get("DISPATCH_WORKER_TOKEN", ""),
             trigger=e.get("DISPATCH_TRIGGER", ""),

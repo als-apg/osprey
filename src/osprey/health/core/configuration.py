@@ -23,6 +23,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from osprey.health.models import CheckResult, Status
+from osprey.port_layout import default_port, resolve_port_base
 
 _CATEGORY = "configuration"
 
@@ -379,10 +380,18 @@ def _check_ariel_dsn_port(config: dict[str, Any]) -> list[CheckResult]:
     legitimate override that ``port_host`` says nothing about, as is any config
     with no ``services.postgresql`` block at all.
 
+    A ``services.postgresql`` block that sets no ``port_host`` is still
+    comparable: the compose service then publishes the ``postgres`` slot of this
+    deployment's port block, which is a known number, so the check derives it
+    from ``deployment.port_base`` rather than skipping. That is the case a
+    default-everything project is in, and the one a stale hand-written DSN is
+    most likely to be wrong about.
+
     Returns:
         A single row when both ports are known and comparable; no rows at all
         when there is nothing to compare (derived DSN, external database, no
-        Postgres service, or a uri whose port cannot be read).
+        Postgres service, a malformed ``port_host``, or a uri whose port cannot
+        be read).
     """
     from osprey.utils.config import resolve_env_vars
 
@@ -399,14 +408,26 @@ def _check_ariel_dsn_port(config: dict[str, Any]) -> list[CheckResult]:
     if not isinstance(uri, str):
         return []
 
-    postgresql = (config.get("services") or {}).get("postgresql") or {}
-    if "port_host" not in postgresql:
+    services = config.get("services") or {}
+    if "postgresql" not in services:
         return []
+    postgresql = services.get("postgresql") or {}
 
-    try:
-        service_port = int(postgresql["port_host"])
-    except (TypeError, ValueError):
-        return []
+    if "port_host" in postgresql:
+        try:
+            service_port = int(postgresql["port_host"])
+        except (TypeError, ValueError):
+            return []
+        service_port_source = "services.postgresql.port_host"
+    else:
+        # An unset key is a KNOWN port, not an unknown one: the compose service
+        # publishes the ``postgres`` slot of this deployment's block, so the
+        # cross-check still has both numbers and a stale explicit DSN is still
+        # caught. Derived from the base THIS config resolved — on a host running
+        # two deployments the layout's own default base names the other one's
+        # database.
+        service_port = default_port("postgres", base=resolve_port_base(config))
+        service_port_source = "the postgres port deployment.port_base implies"
 
     uri_port = _loopback_dsn_port(resolve_env_vars(uri))
     if uri_port is None:
@@ -418,7 +439,7 @@ def _check_ariel_dsn_port(config: dict[str, Any]) -> list[CheckResult]:
                 name="ariel_dsn_port",
                 category=_CATEGORY,
                 status=Status.OK,
-                message=f"ARIEL DSN port {uri_port} matches services.postgresql.port_host",
+                message=f"ARIEL DSN port {uri_port} matches {service_port_source}",
             )
         ]
 
@@ -428,12 +449,11 @@ def _check_ariel_dsn_port(config: dict[str, Any]) -> list[CheckResult]:
             category=_CATEGORY,
             status=Status.WARNING,
             message=(
-                f"{key} points at port {uri_port}, but "
-                f"services.postgresql.port_host is {service_port}"
+                f"{key} points at port {uri_port}, but {service_port_source} is {service_port}"
             ),
             details=(
                 f"The explicit {key} is a second copy of the Postgres port and no longer "
-                f"matches services.postgresql.port_host ({service_port}), the port this "
+                f"matches {service_port_source} ({service_port}), the port this "
                 f"project actually publishes — so ARIEL connects to nothing. Either delete "
                 f"{key} from config.yml, which derives the DSN from services.postgresql "
                 f"(username, database_name, port_host) so it follows any future port move, "
