@@ -61,6 +61,7 @@ extensions = [
     "sphinx_design",  # Design components (cards, tabs, etc.)
     "sphinx_reredirects",  # Old-URL redirects for moved pages
     "workflow_autodoc",  # Custom: Auto-document workflow files
+    "port_table",  # Custom: Render the host-port layout as a table
 ]
 
 # Old page path -> new location. Keys are docnames (no suffix) of pages that no

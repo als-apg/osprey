@@ -142,10 +142,10 @@ Step 4: Launch the Web Terminal
 
    osprey web
 
-This starts the OSPREY Web Terminal on http://127.0.0.1:8087 — a browser
+This starts the OSPREY Web Terminal on http://127.0.0.1:10100 — a browser
 interface with the agent in a terminal pane on the left and a live workspace
 viewer on the right, where plots and other artifacts the agent produces appear.
-The command prints a login URL (``http://127.0.0.1:8087/?token=…``) once, at
+The command prints a login URL (``http://127.0.0.1:10100/?token=…``) once, at
 startup; opening it sets a session cookie and redirects to the clean address.
 The token is the server's own secret, so treat that URL like a password.
 No containers are involved; it is a local process serving your ``build/``.

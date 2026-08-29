@@ -71,15 +71,15 @@ Quickstart
    osprey build                            # renders the container repo too
    cd build/.image/my-project              # the context the build rendered
    docker build -t my-project -f build/Dockerfile .
-   docker run --rm -p 8087:8087 --env-file .env my-project
+   docker run --rm -p 10100:10100 --env-file .env my-project
 
-Then open http://localhost:8087. The container's ``osprey web`` prints a login
+Then open http://localhost:10100. The container's ``osprey web`` prints a login
 URL (``…/?token=…``) to its logs at startup; open that URL to set your session
 cookie, after which it redirects to the clean address. Anything that can read
 those logs can read the token, so treat both like a password. If your ``.env``
 sets ``OSPREY_TERMINAL_SECRET`` itself, the container uses that value and
 explains why it is printing no URL — browse to
-``http://localhost:8087/?token=<that value>`` instead. Secrets are
+``http://localhost:10100/?token=<that value>`` instead. Secrets are
 passed at runtime via ``--env-file`` — the ``.dockerignore`` guarantees
 ``.env`` itself never enters the image.
 
@@ -470,7 +470,7 @@ Two kinds of state are worth persisting across container restarts:
 
 .. code-block:: bash
 
-   docker run --rm -p 8087:8087 --env-file .env \
+   docker run --rm -p 10100:10100 --env-file .env \
      -v my-project-agent-data:/app/my-project/var/agent_data \
      -v my-project-home:/home/osprey \
      my-project
@@ -497,7 +497,7 @@ Kubernetes notes
   regen and restore, exactly as ``--user`` does. Let the entrypoint do the
   drop, or accept that the agent artifacts are whatever the image was built
   with.
-- Expose port ``8087`` (or override the ``CMD`` with ``--port``).
+- Expose port ``10100`` (or override the ``CMD`` with ``--port``).
 
 Troubleshooting
 ===============
@@ -511,7 +511,7 @@ matches the usual amd64 deployment target:
 .. code-block:: bash
 
    docker build --platform linux/amd64 -t my-project .
-   docker run --platform linux/amd64 --rm -p 8087:8087 --env-file .env my-project
+   docker run --platform linux/amd64 --rm -p 10100:10100 --env-file .env my-project
 
 Customizing
 ===========
@@ -522,7 +522,7 @@ The file is yours — common edits:
   ``FROM`` it in a small site Dockerfile that adds credentials helpers,
   enterprise settings, or extra processes.
 - **Change the entrypoint**: the default ``CMD`` runs
-  ``osprey web --host 0.0.0.0 --port 8087`` (the deployment is discovered
+  ``osprey web --host 0.0.0.0 --port 10100`` (the deployment is discovered
   from the working directory); override it to run a process supervisor if you
   add sidecars.
 - **Carry the edit in the profile**: put your Dockerfile in the profile's

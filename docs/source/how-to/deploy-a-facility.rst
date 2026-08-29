@@ -75,7 +75,7 @@ Three services run:
        on port 5064 and standing in for the real machine.
    * - ``facility-mcp``
      - this profile
-     - The facility's own MCP server on port 8200, built from a Dockerfile that
+     - The facility's own MCP server on port 10900, built from a Dockerfile that
        lives in the profile.
 
 The first two are packaged with OSPREY and come from their own upstreams. The
@@ -211,18 +211,21 @@ line and the commented ``mcp_servers:`` example with:
      facility-mcp:
        template: services/facility-mcp
        config:
-         port: 8200
+         port: 10900
 
    mcp_servers:
      facility:
-       port: 8200
+       port: 10900
        transport: http
        permissions:
          allow: [machine_status]
 
 ``template:`` is profile-relative, so the next thing to do is write that
 directory. The port appears twice because it is the same fact told to two
-parties: the container publishes it, and the agent dials it.
+parties: the container publishes it, and the agent dials it. ``10900`` is the
+first port of the facility band, the hundred ports the framework publishes
+nothing in so that a facility's own services can claim them without ever
+colliding — see :ref:`reference-ports-facility`.
 
 Now create ``services/facility-mcp/`` with four files.
 
@@ -250,7 +253,7 @@ be installed alongside it.
 
    STATUS_FILE = Path(os.environ.get("FACILITY_STATUS_FILE", "/data/machine-status.json"))
 
-   mcp = FastMCP("demo-facility", host="0.0.0.0", port=int(os.environ.get("PORT", "8200")))
+   mcp = FastMCP("demo-facility", host="0.0.0.0", port=int(os.environ.get("PORT", "10900")))
 
 
    @mcp.tool()
@@ -287,7 +290,7 @@ job in the pipeline:
    # Unbuffered so container logs appear as the server writes them rather than
    # when the process exits.
    ENV PYTHONUNBUFFERED=1
-   EXPOSE 8200
+   EXPOSE 10900
 
    CMD ["python", "server.py"]
 
@@ -310,6 +313,12 @@ compose template per service directory, rendered by the build.
        container_name: {{ osprey_labels.project_name }}-facility-mcp
        labels:
          osprey.project.name: "{{ osprey_labels.project_name }}"
+         # Which deployment repo this container belongs to. A facility service
+         # carries it for the same reason every packaged one does: the preflight
+         # reads it to tell "a port of ours, already up" from "somebody else's
+         # process on our port", and an unlabelled container can only be guessed
+         # at from the compose project name.
+         com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
          osprey.project.root: "{{ osprey_labels.project_root }}"
          # Content hashes of the env chain and the rendered config this service
          # reads. They are what makes an edit to either file restart this
@@ -318,9 +327,9 @@ compose template per service directory, rendered by the build.
          osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
        restart: unless-stopped
        ports:
-         - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ (services['facility-mcp'] | default({})).port | default(8200) }}:8200/tcp"
+         - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ (services['facility-mcp'] | default({})).port | default(10900) }}:10900/tcp"
        environment:
-         PORT: "8200"
+         PORT: "10900"
          FACILITY_STATUS_FILE: /data/machine-status.json
          TZ: {{ system.timezone }}
        volumes:
@@ -328,7 +337,7 @@ compose template per service directory, rendered by the build.
        networks:
          - osprey-network
        healthcheck:
-         test: ["CMD-SHELL", "python -c \"import socket,sys; s=socket.socket(); s.settimeout(3); sys.exit(0 if s.connect_ex(('localhost', 8200)) == 0 else 1)\""]
+         test: ["CMD-SHELL", "python -c \"import socket,sys; s=socket.socket(); s.settimeout(3); sys.exit(0 if s.connect_ex(('localhost', 10900)) == 0 else 1)\""]
          interval: 10s
          timeout: 5s
          retries: 5

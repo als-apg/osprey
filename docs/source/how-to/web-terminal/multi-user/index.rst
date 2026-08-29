@@ -58,7 +58,7 @@ The everyday workflow stands on its own. From any project directory,
    osprey web
 
 launches the single-user Web Terminal as one local process — no containers, no
-proxy, ready in seconds at ``http://127.0.0.1:8087``. It prints a login URL
+proxy, ready in seconds at ``http://127.0.0.1:10100``. It prints a login URL
 (``…/?token=…``, once, at startup) that sets a session cookie before
 redirecting to the clean address. The token is that server's operator secret
 rather than a one-shot code, so treat the URL like a password. It is the
@@ -138,12 +138,6 @@ The config block
               web_terminals:
                 enabled: true
                 image_source: local       # osprey up builds persona images itself
-                nginx_port: 9080          # the landing page
-                web_base_port: 9100       # per-user ports: base + user index
-                artifact_base_port: 9200
-                ariel_base_port: 9300
-                lattice_base_port: 9400
-                channel_finder_base_port: 9500
                 default_persona: readonly
                 landing:
                   groups:
@@ -204,15 +198,19 @@ The config block
          becomes that user's browser tab title. An entry may name a **role**
          instead of a persona — one mapping written once rather than a persona
          pinned per user, and the half a single sign-on provider's groups can
-         decide; see :ref:`multi-user-role-from-sso`. Each user's host ports are
-         ``base + index`` in every port family — one family per companion panel
-         (artifact gallery, ARIEL, channel finder, lattice dashboard, …) plus the
-         terminal itself — so alice (index 0) serves her terminal on ``9100``,
-         bob (index 1) on ``9101``, ariel (index 2) on ``9102`` and carol
-         (index 3) on ``9103``. A panel
-         whose ``*_base_port`` you don't set falls back to its built-in default,
-         so that ``modules.web_terminals`` block lists them only to make the
-         layout visible.
+         decide; see :ref:`multi-user-role-from-sso`. The roster sets no ports.
+         Each user's host ports come from the deployment's port layout — one
+         hundred-port family per companion panel (artifact gallery, ARIEL,
+         channel finder, lattice dashboard, …) plus the terminal itself, and
+         each user takes the family's first port plus their index. At the
+         default ``deployment.port_base`` that puts alice (index 0) on
+         ``10100``, bob (index 1) on ``10101``, ariel (index 2) on ``10102``
+         and carol (index 3) on ``10103``, with their artifact galleries on
+         ``10200``–``10203``. :ref:`reference-ports-panels` lists every family;
+         move the whole deployment with ``deployment.port_base`` rather than a
+         family at a time. A facility that must pin one family on its own can
+         still set that family's ``modules.web_terminals.<family>_base_port``
+         here — see :ref:`reference-ports-keys`.
 
          One optional key belongs beside these rather than in the roster:
          ``external_origin``, the address browsers actually reach this deployment
@@ -351,10 +349,10 @@ What ``osprey build`` and ``osprey up`` do for the web tier
    no registry, no CI.
 
 #. **Brings up the web tier.** An nginx reverse proxy (container ``ca-nginx``)
-   serves the landing page on ``http://127.0.0.1:9080``, and one Web Terminal
-   container comes up per user — ``ca-web-alice`` on host port ``9100``,
-   ``ca-web-bob`` on ``9101``, ``ca-web-ariel`` on ``9102`` and
-   ``ca-web-carol`` on ``9103`` — each reached
+   serves the landing page on ``http://127.0.0.1:10000``, and one Web Terminal
+   container comes up per user — ``ca-web-alice`` on host port ``10100``,
+   ``ca-web-bob`` on ``10101``, ``ca-web-ariel`` on ``10102`` and
+   ``ca-web-carol`` on ``10103`` — each reached
    through the landing page. (The
    ``ca-`` prefix is the preset's ``facility.prefix``; change it for your
    site.)
@@ -365,20 +363,20 @@ Stop the stack again with ``osprey down``; check on it with
 .. note::
 
    The web stack runs with host networking. On Linux,
-   ``http://127.0.0.1:9080`` is reachable as-is. On **macOS**, a container's
+   ``http://127.0.0.1:10000`` is reachable as-is. On **macOS**, a container's
    "host" is Docker Desktop's Linux VM — enable *host networking* in Docker
    Desktop (Settings → Resources → Network) so the stack's ports reach your
    browser.
 
-   If another OSPREY deployment already occupies a service port on this host,
-   change it in the profile and rebuild — for example
-   ``osprey set config.services.postgresql.port_host=5433 && osprey build`` —
-   before ``osprey up``.
+   If another OSPREY deployment already occupies these ports on this host, give
+   this one its own block rather than moving services one by one — for example
+   ``osprey set config.deployment.port_base=20000 && osprey build`` — before
+   ``osprey up``. See :ref:`reference-ports`.
 
 The landing page
 ----------------
 
-Open ``http://127.0.0.1:9080``. The landing page groups the users into cards,
+Open ``http://127.0.0.1:10000``. The landing page groups the users into cards,
 each labelled with the persona it resolves to:
 
 .. figure:: /_static/resources/multi_user_landing.png
@@ -427,7 +425,7 @@ about the text lives in ``config.yml``.
 project. It is yours: rewrite it for your facility, or drop it and list your own
 files instead. Sections appear in the order you list them, and each one gets an
 id from its filename, so you can point someone at
-``http://…:9080/#local-procedures`` rather than at the page.
+``http://…:10000/#local-procedures`` rather than at the page.
 
 Two edge cases are worth knowing:
 

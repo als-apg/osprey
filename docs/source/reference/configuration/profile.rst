@@ -566,7 +566,7 @@ by ``osprey up`` and served from the lattice the build renders (see
 
    virtual_accelerator:
      port: 5064
-     live_standin: 5074
+     live_standin: true
 
 .. list-table::
    :header-rows: 1
@@ -581,8 +581,10 @@ by ``osprey up`` and served from the lattice the build renders (see
        build writes follows this value, so changing it moves both.
    * - ``live_standin``
      - absent
-     - Port for a **second** copy of the simulator, deployed as this
-       deployment's ``live`` target. Absent means one machine, as before.
+     - Deploy a **second** copy of the simulator as this deployment's ``live``
+       target. ``true`` puts it on the port layout's ``va_standin`` slot
+       (``10090`` at the default base — see :ref:`reference-ports`); a number
+       pins it somewhere else. Absent means one machine, as before.
 
 The live stand-in
 -----------------
@@ -920,11 +922,13 @@ build** and prints the valid set:
    * - Key
      - What it does
    * - ``port``
-     - The bridge's port (default 8090).
+     - The bridge's port. Defaults to its slot in the port layout, ``10080``
+       at the default base (:ref:`reference-ports`); the second plan lane takes
+       the next slot up.
    * - ``tiled_enabled``
      - Deploy the Tiled data store alongside the stack.
    * - ``tiled_port``
-     - Tiled's port (default 8091).
+     - Tiled's port. Defaults to the layout's ``10070``.
    * - ``second_lane``
      - Run a second plan lane, so one deployment serves both its live
        machine and its virtual accelerator.

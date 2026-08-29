@@ -7,10 +7,10 @@ Start the Web Terminal from any OSPREY project directory:
 
    osprey web
 
-It boots a local server on ``http://127.0.0.1:8087`` and prints a login URL of
-the form ``http://127.0.0.1:8087/?token=…``. Opening that URL (your browser
+It boots a local server on ``http://127.0.0.1:10100`` and prints a login URL of
+the form ``http://127.0.0.1:10100/?token=…``. Opening that URL (your browser
 opens it for you) sets a session cookie and then redirects to the clean
-``http://127.0.0.1:8087`` address; every later request rides that cookie. The
+``http://127.0.0.1:10100`` address; every later request rides that cookie. The
 URL is printed once, but the token in it is the server's own secret and keeps
 working for as long as that server runs — treat it like a password rather than
 a one-shot code.

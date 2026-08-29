@@ -218,15 +218,16 @@ quirks worth knowing:
 
    A project built from the ``control-assistant`` preset brings the whole
    stack up with ``osprey up``: the **bridge** (the HTTP front door,
-   port 8090), the **queue server** with its own storage, the **bluesky-web**
-   sidecar serving the BLUESKY panel (port 8095), the **Virtual Accelerator** (the
+   port 10080), the **queue server** with its own storage, the **bluesky-web**
+   sidecar serving the BLUESKY panel (port 10071), the **Virtual Accelerator** (the
    preset's default control system), and — when enabled — **Tiled** (port
-   8091). The launch token is minted automatically at deploy time and stored
-   in the project's ``.env``.
+   10070). Those are the deployment's port layout at its default base
+   (:ref:`reference-ports`). The launch token is minted automatically at deploy
+   time and stored in the project's ``.env``.
 
-   The build profile's ``bluesky:`` block sets the ports, the Tiled store,
-   which plans the catalog carries, and the device file plans may drive or
-   record — see :doc:`/reference/configuration/profile`.
+   The build profile's ``bluesky:`` block can pin those ports, and sets the
+   Tiled store, which plans the catalog carries, and the device file plans may
+   drive or record — see :doc:`/reference/configuration/profile`.
 
    Whether a deployment can execute plans at all is decided by its control
    system: ``virtual_accelerator`` and ``epics`` can, ``mock`` is

@@ -319,7 +319,7 @@ a roster edit takes effect on the next start.
 
 Whether the deployment is reachable off-host is a property of the build, not of
 this command: the bind address is rendered into every published port. Change it
-with ``osprey set deployment.bind_address=0.0.0.0``, then rebuild.
+with ``osprey set config.deployment.bind_address=0.0.0.0``, then rebuild.
 
 ``-d, --detached`` — Run services in the background.
 
@@ -918,9 +918,9 @@ analysis sessions. Artifacts are written by the Osprey agent via ``save_artifact
 
 ``osprey artifacts web [OPTIONS]``
    Launch the Artifact Gallery web interface. Starts a FastAPI server on
-   ``http://127.0.0.1:8086`` by default.
+   ``http://127.0.0.1:10200`` by default.
 
-   ``-p, --port INTEGER`` — Port (default: from ``config.yml`` or ``8086``).
+   ``-p, --port INTEGER`` — Port (default: from ``config.yml``, else the port layout's ``10200``).
 
    ``-h, --host TEXT`` — Host to bind to (default: from ``config.yml`` or
    ``127.0.0.1``).
@@ -929,7 +929,7 @@ analysis sessions. Artifacts are written by the Osprey agent via ``save_artifact
 
 .. code-block:: bash
 
-   osprey artifacts web                    # Start on localhost:8086
+   osprey artifacts web                    # Start on localhost:10200
    osprey artifacts web --port 9000        # Custom port
    osprey artifacts web --host 0.0.0.0     # Bind to all interfaces
    osprey artifacts web --reload           # Development mode
@@ -940,13 +940,13 @@ osprey web
 Launch the Web Terminal interface. See :doc:`/how-to/web-terminal/operate`.
 
 ``osprey web [OPTIONS]``
-   Start the web terminal server (default: ``http://127.0.0.1:8087``). On
+   Start the web terminal server (default: ``http://127.0.0.1:10100``). On
    startup it prints a login URL (``…/?token=…``) that sets a session cookie
    and then redirects to the clean address. The URL is printed once, but its
    token is the server's own secret and stays valid for the life of the
    process — treat it like a password.
 
-   ``-p, --port INTEGER`` — Port (default: from config or 8087).
+   ``-p, --port INTEGER`` — Port (default: from config, else the port layout's ``10100``).
 
    ``--host TEXT`` — Host to bind to (default: ``127.0.0.1``).
 

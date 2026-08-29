@@ -5,7 +5,7 @@ Network Binding and Security
 Services bind to ``127.0.0.1`` by default. Reaching them from off-host is a
 property of the build, not of a start-time flag: the bind address is rendered
 into every published port. Change it with ``osprey set
-deployment.bind_address=0.0.0.0`` and rebuild, and only when you have
+config.deployment.bind_address=0.0.0.0`` and rebuild, and only when you have
 authentication and firewalling in place.
 
 Container networking uses service names as hostnames (e.g.,
@@ -89,9 +89,10 @@ Host-mode services are part of that check even though they publish no ports:
 their host bindings are worked out from the rendered configuration instead of
 read out of a ``ports:`` block. That covers the case most likely to catch you
 out — two projects whose dispatch pairs are both on the host network take the
-same default ports (``9900`` for the dispatcher, ``9901`` upward for the
+same default ports (``10010`` for the dispatcher, ``10011`` upward for the
 workers), and no ``ports:`` line anywhere would have shown it. Give the second
-project its own ``dispatch.dispatcher_port`` and ``dispatch.worker_port_base``.
+project its own ``deployment.port_base`` (:ref:`reference-ports`), which moves
+the pair along with everything else.
 A facility service you place on the host network is covered the same way,
 read from its ``services.<name>.port`` key; one without that key cannot be
 checked, and ``osprey up`` says so rather than skipping it silently.

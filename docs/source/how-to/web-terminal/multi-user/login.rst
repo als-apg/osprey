@@ -117,7 +117,8 @@ user's terminal:
 
 Under ``password`` or ``oidc`` a small authentication service joins the stack
 and nginx asks it about every request under ``/u/<name>/`` before proxying
-anything. Optional keys: ``auth.port`` (default ``9070``),
+anything. Optional keys: ``auth.port`` (the port layout's ``10001`` unless you
+set it — see :ref:`reference-ports`),
 ``auth.session_lifetime`` in whole seconds (default ``43200``), and
 ``auth.image``, required with ``image_source: registry``.
 
