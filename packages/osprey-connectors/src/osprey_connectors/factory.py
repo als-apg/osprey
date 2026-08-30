@@ -75,7 +75,7 @@ class ConnectorFactory:
 
     @classmethod
     async def create_control_system_connector(
-        cls, config: dict[str, Any] = None
+        cls, config: dict[str, Any] = None, *, control_target: str | None = None
     ) -> ControlSystemConnector:
         """
         Create and configure a control system connector.
@@ -87,6 +87,13 @@ class ConnectorFactory:
                   config never reaches live hardware.
                 - connector: Dict with connector-specific configs
                 If None, loads from global config
+            control_target: The session target this connector is being built
+                for — ``live``, ``va`` or ``standin``. Stamped on the instance
+                as ``_control_target`` and used to index the per-(session,
+                target) posture store, and nothing else: the deployment half of
+                the write posture stays keyed on the connector *type*. Callers
+                that have no target to name leave it ``None``, which is the
+                behaviour every caller had before the stamp existed.
 
         Returns:
             Initialized and connected ControlSystemConnector
@@ -157,6 +164,12 @@ class ConnectorFactory:
         # The one seam between construction and connect(): the write posture is
         # per connector type, and connect() itself may already consult it.
         connector._connector_type = connector_type
+        # Beside it, and for the same reason: the session half of the posture is
+        # per target, so the target has to be on the instance before connect()
+        # reads it. The two stamps answer different questions — the type selects
+        # the deployment's connector block, the target indexes the session
+        # posture store — so neither is derivable from the other.
+        connector._control_target = control_target
 
         # Get type-specific configuration
         connector_configs = config.get("connector", {})

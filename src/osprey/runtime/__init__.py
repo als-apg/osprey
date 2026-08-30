@@ -162,7 +162,10 @@ async def _get_connector():
     Creates the connector once and reuses it for all operations.
 
     When this sandbox carries a target stamp, the connector is built for that
-    target instead of for the config's baseline type. The connector is created
+    target instead of for the config's baseline type, and the same target is
+    stamped onto the instance so the reference monitor inside it reads the
+    session posture for the target this run was launched against. An unstamped
+    sandbox names no target, exactly as before. The connector is created
     once either way: a process holds one connector for its whole life and never
     re-points it, which is why the write path pins rather than reconnects.
 
@@ -185,7 +188,7 @@ async def _get_connector():
                     config["type"],
                 )
             _runtime_connector = await ConnectorFactory.create_control_system_connector(
-                config=config
+                config=config, control_target=_stamped_target()
             )
 
     return _runtime_connector

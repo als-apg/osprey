@@ -356,7 +356,13 @@ def test_posture_message_names_the_posture_not_writes_enabled(
     Mirror of ``test_readonly_refusal_message_does_not_blame_deployment`` on the
     connector side. A posture refusal that mentions ``writes_enabled`` sends the
     operator off to flip a config key that will not lift the refusal — the
-    session's own posture is the gate, and the terminal card is where it moves.
+    session's own posture is the gate, and the control-target chip in the header
+    is where it moves.
+
+    Stage 1 names no target: the session-wide posture is answered from the
+    environment ahead of any config I/O, so the scope half of the message is
+    empty here and pinned with a target by
+    ``test_writes_check_per_target.py``.
     """
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
     config = make_config({"control_system": {"writes_enabled": True}})
@@ -373,11 +379,12 @@ def test_posture_message_names_the_posture_not_writes_enabled(
     assert "SANDBOX POSTURE" in reason
     assert "writes_enabled" not in reason
     assert "WRITES DISABLED" not in reason
-    assert "terminal card" in reason
+    assert "control-target chip in the header" in reason
+    assert "terminal card" not in reason
     # The two sentences the operator needs, verbatim.
-    assert "this terminal session refuses control-system writes." in reason
+    assert "this session refuses control-system writes." in reason
     assert (
-        "Switch the session to writes posture from the terminal card; "
+        "Switch it back to writes on the control-target chip in the header; "
         "config.yml is not the gate here." in reason
     )
 
@@ -430,7 +437,7 @@ def test_no_posture_var_leaves_the_writes_enabled_allow_intact(
     """With no posture set, the hook behaves exactly as it did before.
 
     The unset case is the overwhelmingly common one — every CLI session and
-    every deployment that never touches the terminal card — so it is pinned
+    every deployment that never touches the header chip — so it is pinned
     rather than left to the other tests to imply.
     """
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
@@ -943,12 +950,15 @@ def test_a_render_without_the_state_reader_is_not_armed(tmp_path, hook_module, m
     monkeypatch.setattr(hook, "_target_state", None)
 
     # Act
-    armed, refusal_keys, target = hook._deployment_posture({})
+    armed, refusal_keys, target, refusal = hook._deployment_posture({})
 
     # Assert
     assert armed is False
     assert refusal_keys == ["control_system.writes_enabled"]
     assert target is None
+    # A missing reader is the deployment's problem, not the session's: the
+    # refusal has to keep naming a config key rather than the header chip.
+    assert refusal == hook._REFUSAL_DEPLOYMENT
 
 
 @pytest.mark.unit

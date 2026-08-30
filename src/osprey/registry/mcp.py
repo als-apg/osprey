@@ -15,11 +15,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from osprey import bluesky_tool_names as bsky
-from osprey.audit.posture import POSTURE_ENV_VAR
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT, POSTURE_ENV_VAR
 from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.utils.identity import AUDIT_IDENTITY_ENV as AUDIT_IDENTITY_ENV  # re-exported
 from osprey.utils.identity import IDENTITY_ENV_LADDER
 from osprey.utils.workspace import RENDERED_CONFIG_RELPATH
+from osprey_connectors.session_store import LAUNCH_POSTURE_ENV_VAR
 
 logger = logging.getLogger(__name__)
 
@@ -856,6 +857,13 @@ POSTURE_SOURCE_ENV = "OSPREY_POSTURE_SOURCE"
 #: ``operator_session.POSTURE_SESSION_ENV``.
 POSTURE_SESSION_ENV = "OSPREY_POSTURE_SESSION"
 
+#: The per-target posture a python-executor sandbox was LAUNCHED under.
+#: Imported rather than re-spelled: unlike the names above, its owner
+#: (:mod:`osprey_connectors.session_store`) is a package the registry may
+#: import without an import cycle, and it is both the stamp's format authority
+#: and its reader.
+LAUNCH_POSTURE_ENV = LAUNCH_POSTURE_ENV_VAR
+
 #: Names the maintenance writer for records made by the root maintenance
 #: heredoc. Assigned ONLY as a per-command env prefix on that invocation, and
 #: must stay absent everywhere else — an inherited value would misroute every
@@ -875,12 +883,27 @@ AUDIT_WRITER_ENV = "OSPREY_AUDIT_WRITER"
 #: container's ``environment:`` or a spawn site — never through a per-server
 #: ``.mcp.json`` env block, which the process environment the session set
 #: would otherwise be overridden by.
+#: ``OSPREY_AGENT_DATA_ROOT`` is here for the same reason as the posture value:
+#: it is stamped by the spawn sites as the pair-half of ``OSPREY_POSTURE_SESSION``
+#: and it decides which directory the session-posture store and the
+#: control-target state file are read out of. A server spec that could pin it
+#: would point the whole session at a directory of its own choosing — an empty
+#: store reads as "nothing narrowed", so the pin is a way to shed a sandbox
+#: without ever touching the posture value.
+#: ``OSPREY_LAUNCH_POSTURE`` is the executor's run-level pin: the per-target
+#: posture a sandbox was LAUNCHED under, which is what stops a widen from
+#: reaching a run that started narrow. It is assigned by exactly one site (the
+#: executor, into the sandbox child's environment) and inherited by nothing, so
+#: a spec is never a legitimate source — and a spec that could set it could
+#: spell ``writes`` for a run the operator had already narrowed.
 NON_PINNABLE_AUDIT_MARKERS: tuple[str, ...] = (
     *IDENTITY_ENV_LADDER,
     POSTURE_ENV_VAR,
     AUDIT_WRITER_ENV,
     POSTURE_SOURCE_ENV,
     POSTURE_SESSION_ENV,
+    OSPREY_AGENT_DATA_ROOT,
+    LAUNCH_POSTURE_ENV,
 )
 
 #: Env markers a server spec's ``env:`` may not set — the framework owns them.

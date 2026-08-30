@@ -24,6 +24,7 @@ actually used) belong to a connector that configures an EPICS environment,
 which the mock deliberately does not.
 """
 
+import json
 import os
 import queue
 import signal
@@ -33,16 +34,17 @@ import threading
 import time
 from collections import deque
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 import yaml
 
+from osprey_connectors import session_store
 from osprey_connectors.control_system.base import (
     ChannelValue,
     ChannelWriteResult,
     WriteOutcome,
 )
+from osprey_connectors.control_system.mock_connector import MockConnector
 from osprey_connectors.ipc import frames, host
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -560,6 +562,22 @@ def test_a_gateway_in_the_other_mode_is_not_a_match():
 # ------------------------------------------------ write posture (unit)
 
 
+def _posture_carrier(connector_type, control_target, *, epics_configured=False):
+    """A real connector carrying the two stamps the write posture is read from.
+
+    The report now reads the connector instance's own ``_writes_enabled``, so a
+    bare attribute bag would answer the question the test is asking. The mock is
+    used as the carrier because that property lives on the base class every
+    connector shares — nothing about the mock's own behaviour is exercised, only
+    the type and target the factory stamps on whatever it builds.
+    """
+    connector = MockConnector()
+    connector._connector_type = connector_type
+    connector._control_target = control_target
+    connector._epics_configured = epics_configured
+    return connector
+
+
 @pytest.fixture
 def mixed_deployment(tmp_path, monkeypatch):
     """Put :data:`MIXED_CONTROL_SYSTEM` on disk and in reach of this process.
@@ -576,7 +594,7 @@ def mixed_deployment(tmp_path, monkeypatch):
 
 def test_the_report_arms_the_target_whose_own_block_says_so(mixed_deployment):
     report = host._post_connect_report(
-        SimpleNamespace(_epics_configured=False), "virtual_accelerator", "va", mixed_deployment
+        _posture_carrier("virtual_accelerator", "va"), "virtual_accelerator", "va", mixed_deployment
     )
 
     assert report["target"] == "va"
@@ -589,7 +607,7 @@ def test_a_target_whose_block_says_nothing_inherits_the_disabled_deployment(mixe
     # the deployment-wide answer — which is off, whatever the simulator's block
     # says about the simulator.
     report = host._post_connect_report(
-        SimpleNamespace(_epics_configured=False), "epics", "live", mixed_deployment
+        _posture_carrier("epics", "live"), "epics", "live", mixed_deployment
     )
 
     assert report["target"] == "live"
@@ -604,7 +622,10 @@ def test_a_readonly_run_keeps_an_armed_target_off_the_write_gateway(mixed_deploy
     monkeypatch.setenv("EPICS_CA_SERVER_PORT", "5074")
 
     report = host._post_connect_report(
-        SimpleNamespace(_epics_configured=True), "virtual_accelerator", "va", mixed_deployment
+        _posture_carrier("virtual_accelerator", "va", epics_configured=True),
+        "virtual_accelerator",
+        "va",
+        mixed_deployment,
     )
 
     # The block arms this target and the report says so: that is the deployment
@@ -614,3 +635,195 @@ def test_a_readonly_run_keeps_an_armed_target_off_the_write_gateway(mixed_deploy
     assert report["writes_enabled"] is True
     assert report["readonly_run"] is True
     assert report["selected_role"] == "read_only"
+
+
+# ------------------------------- the posture the selection was made with
+
+
+#: The shipped virtual-accelerator gateway shape: both roles name the same
+#: address, the same mode and the same (unset, service-default-filled) port, so
+#: nothing installed in the environment tells them apart and the reported role
+#: falls through to the posture the report carries.
+IDENTICAL_VA_GATEWAYS = {
+    "read_only": {"address": "localhost", "use_name_server": True},
+    "write_access": {"address": "localhost", "use_name_server": True},
+}
+
+#: The same block with the two roles on separate endpoints, which is the shape
+#: the reported role can be read off the environment alone.
+DISTINCT_VA_GATEWAYS = {
+    "read_only": {"address": "va-ro.example.org", "port": 5074},
+    "write_access": {"address": "va-rw.example.org", "port": 5075},
+}
+
+#: The port an unset virtual-accelerator gateway follows.
+VA_SERVICE_PORT = 5064
+
+#: The posture-store key this session is stamped with.
+POSTURE_SESSION = "chip-session"
+
+
+def _va_config(gateways):
+    """A switch-capable deployment whose virtual accelerator is armed."""
+    return {
+        "services": {"virtual_accelerator": {"port": VA_SERVICE_PORT}},
+        "control_system": {
+            "type": "epics",
+            "writes_enabled": False,
+            "connector": {
+                "epics": {"gateways": {"read_only": {"address": "ro.example.org", "port": 5064}}},
+                "virtual_accelerator": {"writes_enabled": True, "gateways": gateways},
+            },
+        },
+    }
+
+
+@pytest.fixture
+def va_deployment(tmp_path, monkeypatch):
+    """Put an armed virtual accelerator on disk and in reach of this process."""
+
+    def _build(gateways):
+        config = _va_config(gateways)
+        config_file = tmp_path / "config.yml"
+        config_file.write_text(yaml.safe_dump(config))
+        monkeypatch.setenv("CONFIG_FILE", str(config_file))
+        monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
+        return config
+
+    return _build
+
+
+@pytest.fixture
+def narrowed_va(tmp_path, monkeypatch):
+    """An operator narrowing of ``va`` to read-only, in reach of this process.
+
+    The narrowing lives in the per-(session, target) posture store, keyed by
+    ``OSPREY_POSTURE_SESSION`` under ``OSPREY_AGENT_DATA_ROOT`` — the fixture
+    idiom of ``tests/connectors/test_session_store.py``.
+    """
+    root = tmp_path / "agent-data"
+    store = root / session_store.STATE_DIR_NAME / session_store.STORE_FILENAME
+    store.parent.mkdir(parents=True)
+    store.write_text(json.dumps({POSTURE_SESSION: {"va": session_store.POSTURE_SANDBOX}}))
+    monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv("OSPREY_POSTURE_SESSION", POSTURE_SESSION)
+    session_store.invalidate_cache()
+    yield root
+    session_store.invalidate_cache()
+
+
+def _install_name_server(monkeypatch, address, port):
+    """Stand in for what ``connect()`` installs for a name-server gateway."""
+    monkeypatch.delenv("EPICS_CA_ADDR_LIST", raising=False)
+    monkeypatch.delenv("EPICS_CA_SERVER_PORT", raising=False)
+    monkeypatch.setenv("EPICS_CA_NAME_SERVERS", f"{address}:{port}")
+
+
+def _install_addr_list(monkeypatch, address, port):
+    """Stand in for what ``connect()`` installs for an address-list gateway."""
+    monkeypatch.delenv("EPICS_CA_NAME_SERVERS", raising=False)
+    monkeypatch.setenv("EPICS_CA_ADDR_LIST", address)
+    monkeypatch.setenv("EPICS_CA_SERVER_PORT", str(port))
+
+
+def _verify(config, report, writes_enabled):
+    """Run the parent's own verification against a child's report."""
+    from osprey.mcp_server.control_system.target_eligibility import (
+        derive_endpoints,
+        verify_child_report,
+    )
+
+    derivation = derive_endpoints(config, "va", writes_enabled=writes_enabled)
+    return derivation, verify_child_report(derivation, report)
+
+
+def test_identical_gateways_report_the_role_the_narrowed_posture_selected(
+    va_deployment, narrowed_va, monkeypatch
+):
+    """The shipped VA shape, with the operator holding ``va`` read-only.
+
+    Both roles name the same endpoint, so there is no evidence in the
+    environment to tell them apart and the reported role is decided by the
+    posture the report carries. Re-derived from config that posture is armed —
+    the block arms the simulator — and the report would name ``write_access``
+    where the parent, which derives with the store-aware value, expects
+    ``read_only``: the one field ``verify_child_report`` compares, and an
+    aborted switch on the deployment's default configuration.
+    """
+    config = va_deployment(IDENTICAL_VA_GATEWAYS)
+    _install_name_server(monkeypatch, "localhost", VA_SERVICE_PORT)
+    connector = _posture_carrier("virtual_accelerator", "va", epics_configured=True)
+
+    report = host._post_connect_report(
+        connector, "virtual_accelerator", "va", config["control_system"]
+    )
+
+    # The deployment arms this target; only the operator's narrowing is holding
+    # it down, and the report is the connector's own answer rather than a
+    # second reading of the config.
+    assert connector._writes_enabled is False
+    assert report["selected_role"] == "read_only"
+
+    derivation, verification = _verify(config, report, connector._writes_enabled)
+    assert derivation.selected_role == "read_only"
+    assert verification.ok, verification.detail
+
+    assert report["writes_enabled"] is False
+    assert report["readonly_run"] is False
+
+
+def test_identical_gateways_still_report_write_access_when_nothing_narrows(
+    va_deployment, monkeypatch
+):
+    """The same deployment with no narrowing — the armed answer still stands.
+
+    The read-only report above is the store's doing, not a report that has been
+    pinned to the read gateway.
+    """
+    config = va_deployment(IDENTICAL_VA_GATEWAYS)
+    _install_name_server(monkeypatch, "localhost", VA_SERVICE_PORT)
+    connector = _posture_carrier("virtual_accelerator", "va", epics_configured=True)
+
+    report = host._post_connect_report(
+        connector, "virtual_accelerator", "va", config["control_system"]
+    )
+
+    assert connector._writes_enabled is True
+    assert report["writes_enabled"] is True
+    assert report["selected_role"] == "write_access"
+
+    derivation, verification = _verify(config, report, connector._writes_enabled)
+    assert derivation.selected_role == "write_access"
+    assert verification.ok, verification.detail
+
+
+async def test_a_narrowed_target_reports_the_posture_its_writes_are_refused_on(
+    va_deployment, narrowed_va, monkeypatch
+):
+    """Distinct gateways: the report's posture is the connector's, end to end.
+
+    Here the installed endpoint names the role on its own, so the role would
+    read ``read_only`` either way; what the config-derived report got wrong is
+    ``writes_enabled``, which claimed the child was armed on a target whose very
+    next write the same instance refuses.
+    """
+    config = va_deployment(DISTINCT_VA_GATEWAYS)
+    _install_addr_list(monkeypatch, "va-ro.example.org", 5074)
+    connector = _posture_carrier("virtual_accelerator", "va", epics_configured=True)
+
+    report = host._post_connect_report(
+        connector, "virtual_accelerator", "va", config["control_system"]
+    )
+
+    assert report["writes_enabled"] is False
+    assert report["readonly_run"] is False
+    assert report["selected_role"] == "read_only"
+
+    # Same instance, same rule: the deployment arms this target, so the refusal
+    # can only be the narrowing the report is now reporting.
+    result = await connector.write_channel("SR:CORR:1:SP", 0.5)
+    assert result.outcome is WriteOutcome.REFUSED
+
+    derivation, verification = _verify(config, report, connector._writes_enabled)
+    assert derivation.selected_role == "read_only"
+    assert verification.ok, verification.detail
