@@ -175,8 +175,11 @@ def session_posture_leak_guard(monkeypatch):
     yield
 
 
+_REAL_DEPLOYMENT_LANES = ("tests/e2e/", "tests/va/e2e/")
+
+
 @pytest.fixture(autouse=True, scope="session")
-def no_agent_data_in_the_repo():
+def no_agent_data_in_the_repo(request):
     """Fail the session if the suite created ``<repo>/var/agent_data``.
 
     The regression this exists for is silent by construction: ``var/`` is
@@ -194,10 +197,21 @@ def no_agent_data_in_the_repo():
     belongs to a real local deployment and is none of the suite's business —
     checking for creation rather than existence is what keeps this from firing
     on a developer who has actually run OSPREY in this checkout.
+
+    The real-deployment lanes (``tests/e2e/``, ``tests/va/e2e/``) are exempt:
+    they run agents and servers with this checkout as the project root, so the
+    executor's run folders land under ``var/agent_data`` by design, not by a
+    fixture's mistake. The guard is armed only in a session that collects none
+    of them — the unit lane it was written for.
     """
     marker = Path(__file__).resolve().parent.parent / "var" / "agent_data"
+    real_deployment_lane = any(
+        item.nodeid.startswith(_REAL_DEPLOYMENT_LANES) for item in request.session.items
+    )
     existed = marker.exists()
     yield
+    if real_deployment_lane:
+        return
     if not existed and marker.exists():
         raise AssertionError(
             f"the test run created {marker} — something resolved the agent-data root "
