@@ -751,11 +751,20 @@ def test_p2_full_manifest_liveness(deployed_stack: DeployedStack) -> None:
     # main-thread pyepics operation into a process that also drives CA off an
     # asyncio.to_thread() executor is a documented deadlock risk (see
     # tests/va/e2e/conftest.py's `_readiness_pv_served`).
+    # The sweep script defaults EPICS_CA_NAME_SERVERS to localhost:5064; this
+    # stack serves CA on the module's ephemeral VA_CA_PORT, so the subprocess
+    # must be told explicitly (the in-process connectors get it via
+    # _VA_GATEWAY instead).
     proc = subprocess.run(
         [sys.executable, str(SWEEP_SCRIPT)],
         capture_output=True,
         text=True,
         timeout=SWEEP_TIMEOUT_SEC,
+        env={
+            **os.environ,
+            "EPICS_CA_NAME_SERVERS": f"localhost:{VA_CA_PORT}",
+            "EPICS_CA_AUTO_ADDR_LIST": "NO",
+        },
     )
     assert proc.returncode == 0, (
         f"full-manifest CA sweep failed:\n--- stdout ---\n{proc.stdout}\n"
