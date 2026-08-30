@@ -892,3 +892,43 @@ def test_the_card_flags_dangerously_allow_bash(repo: Path):
     lines = format_summary_card(repo, "running")
     flagged = [line for line in lines if "dangerously_allow_bash" in line]
     assert flagged and "Bash" in flagged[0] and "launch token" in flagged[0]
+
+
+class TestStaleSeededLogins:
+    """A seeded default the deployed hash contradicts is never printed as a
+    working login — the card says what happened and which verb fixes it."""
+
+    def test_a_contradicted_default_is_dropped_and_named(
+        self, repo_with_logins: Path, recorder: Recorded
+    ) -> None:
+        from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
+        from osprey.services.auth_sidecar.passwords import hash_password
+
+        (repo_with_logins / AUTH_ENV_FILENAME).write_text(
+            f"OSPREY_AUTH_PW_HASH_ALICE={hash_password('alice')}\n"
+            f"OSPREY_AUTH_PW_HASH_BOB={hash_password('minted-by-an-older-deploy')}\n"
+        )
+
+        print_summary_card(repo_with_logins, "running")
+
+        printed = "\n".join(recorder.lines)
+        assert "alice / alice" in printed
+        assert "bob / bob" not in printed
+        assert "osprey users passwd bob" in printed
+
+    def test_no_stale_note_when_every_default_verifies(
+        self, repo_with_logins: Path, recorder: Recorded
+    ) -> None:
+        from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
+        from osprey.services.auth_sidecar.passwords import hash_password
+
+        (repo_with_logins / AUTH_ENV_FILENAME).write_text(
+            f"OSPREY_AUTH_PW_HASH_ALICE={hash_password('alice')}\n"
+            f"OSPREY_AUTH_PW_HASH_BOB={hash_password('bob')}\n"
+        )
+
+        print_summary_card(repo_with_logins, "running")
+
+        printed = "\n".join(recorder.lines)
+        assert "alice / alice · bob / bob" in printed
+        assert "passwd" not in printed

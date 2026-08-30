@@ -230,6 +230,16 @@ def print_call_to_action(repo_root: Path | str, state: str) -> None:
         pairs = " · ".join(f"{user} / {password}" for user, password in facts.logins)
         output.section("", [("sign in as", pairs)])
         output.note("these logins come from profile.yml; change them in .env")
+    if facts.stale_logins:
+        # A default the deployed hash contradicts is withheld above; saying
+        # nothing would leave the operator typing the profile's password at a
+        # wall that refuses it, with no clue which side is wrong.
+        users = ", ".join(facts.stale_logins)
+        verbs = " · ".join(f"osprey users passwd {user}" for user in facts.stale_logins)
+        output.note(
+            f"the seeded password in .env for {users} does not match the deployed "
+            f"login -- an earlier deploy set a different one. Reset with: {verbs}"
+        )
     if facts.token_login_users:
         output.section(
             "",
