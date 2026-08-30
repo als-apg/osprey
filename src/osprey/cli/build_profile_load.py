@@ -19,7 +19,12 @@ from pathlib import Path
 from typing import Any
 
 from osprey.errors import BuildProfileError
-from osprey.port_layout import DEFAULT_PORT_BASE, default_port, resolve_port_base
+from osprey.port_layout import (
+    DEFAULT_PORT_BASE,
+    PORT_BASE_CONFIG_KEY,
+    default_port,
+    resolve_port_base,
+)
 from osprey_connectors.types import SET_CONTROL_SYSTEM_TYPES
 
 from .build_profile_archiver import parse_va_archiver_block
@@ -153,6 +158,9 @@ _KNOWN_PROFILE_KEYS = frozenset(
         # because a materialized or hand-written profile may spell it, and
         # because this frozenset doubles as the "valid keys are:" list.
         "connector",
+        # Shorthand for config's `deployment.port_base`, consumed by
+        # _apply_port_base_shorthand — same contract as `connector` above.
+        "port_base",
         "provider",
         "model",
         "channel_finder_mode",
@@ -635,6 +643,12 @@ def _reject_mixed_claude_code_spellings(config: Any) -> None:
 CONNECTOR_PROFILE_KEY = "connector"
 CONNECTOR_CONFIG_KEY = "control_system.type"
 
+#: Top-level shorthand for ``config: {deployment.port_base: N}`` — the
+#: convenient spelling that moves a whole deployment off the default port
+#: block (``osprey init --set port_base=42000``), so a dev or CI stack never
+#: collides with a real deployment running on the defaults.
+PORT_BASE_PROFILE_KEY = "port_base"
+
 
 def _apply_connector_shorthand(raw: dict[str, Any]) -> dict[str, Any]:
     """Fold a top-level ``connector:`` shorthand into the ``config:`` block.
@@ -705,6 +719,54 @@ def _apply_connector_shorthand(raw: dict[str, Any]) -> dict[str, Any]:
     return raw
 
 
+def _apply_port_base_shorthand(raw: dict[str, Any]) -> dict[str, Any]:
+    """Fold a top-level ``port_base:`` shorthand into the ``config:`` block.
+
+    Applied beside :func:`_apply_connector_shorthand` on both entry paths
+    (CLI-layer merge and parse), for the same reason: no path a profile can
+    arrive by may carry the shorthand and have it silently ignored. Idempotent:
+    a mapping without the key is returned unchanged.
+
+    The value is range-checked through
+    :func:`~osprey.port_layout.resolve_port_base` — the resolver every runtime
+    consumer uses — so a base whose thousand-port block cannot exist fails the
+    parse with the layout's own refusal rather than surfacing at deploy.
+
+    Args:
+        raw: Raw profile mapping, mutated in place like the connector
+            shorthand it sits beside.
+
+    Returns:
+        The same mapping, with the shorthand consumed.
+
+    Raises:
+        BuildProfileError: If the value is not an in-range integer, or
+            ``config:`` is not a mapping to fold it into.
+    """
+    if PORT_BASE_PROFILE_KEY not in raw:
+        return raw
+
+    value = raw.pop(PORT_BASE_PROFILE_KEY)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise BuildProfileError(
+            f"Profile key 'port_base' must be an integer port base (got {value!r}) "
+            "— e.g. port_base: 42000."
+        )
+    try:
+        resolve_port_base({"deployment": {"port_base": value}})
+    except ValueError as exc:
+        raise BuildProfileError(f"Profile key 'port_base': {exc}") from exc
+
+    config = raw.setdefault("config", {})
+    if not isinstance(config, dict):
+        raise BuildProfileError(
+            f"Profile 'config' must be a mapping to carry the 'port_base' shorthand "
+            f"(got {type(config).__name__})"
+        )
+    config[PORT_BASE_CONFIG_KEY] = value
+    return raw
+
+
 def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     """Parse raw YAML dict into a BuildProfile.
 
@@ -716,6 +778,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     _normalize_profile_aliases(raw, "profile")
     _reject_unknown_keys(raw)
     _apply_connector_shorthand(raw)
+    _apply_port_base_shorthand(raw)
     mcp_servers: dict[str, McpServerDef] = {}
     for name, sdef in raw.get("mcp_servers", {}).items():
         if not isinstance(sdef, dict):

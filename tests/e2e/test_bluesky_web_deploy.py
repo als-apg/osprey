@@ -464,6 +464,10 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         output_dir=base,
         bridge_port=BRIDGE_PORT,
         va_port=VA_CA_PORT,
+        # This module's own thousand-port block (see test_dispatch_deploy.py's
+        # 20700 note): everything not pinned explicitly follows it instead of
+        # landing on a real deployment's default 10000 block.
+        port_base=21700,
     )
     args += ["--set", f"bluesky_web.port={BLUESKY_WEB_PORT}"]
 

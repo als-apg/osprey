@@ -42,6 +42,7 @@ import importlib.util
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -74,14 +75,36 @@ IMAGE = "osprey-va-full:latest"
 # container -- see the module docstring. Everything that creates, inspects or
 # removes the container uses this one name.
 CONTAINER_NAME = f"osprey-va-e2e-{os.getpid()}"
-# 5064 stays pinned, and deliberately so: the Control Assistant preset's
-# config.yml.j2 hardcodes ``control_system.connector.virtual_accelerator.
-# gateways.*.port: 5064`` rather than templating it, so this is the only
-# coverage of the port the shipped default actually serves on. (Contrast
-# test_serving_parity.py in this directory, which binds an ephemeral port
-# because it boots two containers of its own and asserts nothing about
-# preset-rendered configuration.)
-CA_PORT = 5064
+# The CONTAINER serves Channel Access on the protocol default, which the image
+# fixes; the HOST side of the publish is an ephemeral free port, because 5064
+# on this host belongs to whatever real deployment the operator is running
+# (`port_layout.CA_DEFAULT_PORT` keeps VA instance 1 there on purpose, so a
+# dev machine routinely holds it). Name-server mode (`use_name_server: true`,
+# EPICS_CA_NAME_SERVERS) carries the remap: the client dials the mapped host
+# port over TCP and never needs the container's own number. The shipped 5064
+# default itself is covered at render level — tests/cli/test_va_default_config.py
+# and tests/cli/test_rendered_va_block.py pin it — so nothing here has to
+# squat the live port to keep that contract tested.
+CONTAINER_CA_PORT = 5064
+
+
+def _reserve_free_port() -> int:
+    """A host port that was free at reservation time.
+
+    The bind is released before docker publishes the port, so a racing process
+    could take it in between; per-process module state keeps every user of
+    ``CA_PORT`` in this run on the one reserved number.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+# import-time required because CA_PORT is per-process module state: every
+# fixture and helper in this package must agree on the one reserved number,
+# and a fixture-scoped reservation would hand xdist workers different ports
+# for constants already bound at collection.
+CA_PORT = _reserve_free_port()
 # Generous on purpose. Boot-to-first-served-answer measured 9-15 s across six
 # container boots on this host -- the VA images are pinned ``linux/amd64`` and
 # the host is Apple Silicon, so every local boot is emulated. A 30 s ceiling is
@@ -350,7 +373,7 @@ def va_container(va_project: VaProject) -> Iterator[VaProject]:
             "--name",
             CONTAINER_NAME,
             "-p",
-            f"127.0.0.1:{CA_PORT}:{CA_PORT}/tcp",
+            f"127.0.0.1:{CA_PORT}:{CONTAINER_CA_PORT}/tcp",
             "-v",
             f"{va_project.data_dir}:/data/simulation:ro",
             # Scenario state is a SEPARATE mount: the host writes it at run

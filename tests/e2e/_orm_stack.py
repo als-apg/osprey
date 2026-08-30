@@ -49,6 +49,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -71,10 +72,22 @@ if TYPE_CHECKING:
 # `control_system.connector.virtual_accelerator.gateways.*.port` UNSET, so the
 # connector follows `services.virtual_accelerator.port` and moving the deployed
 # soft-IOC's port is a one-place edit that carries the connector with it.
-# Callers that must coexist with another VA deploy on the same host -- 5064 is
-# the tutorial's default and routinely held -- should pass an explicit
-# `va_port=` rather than assume this default is free.
-VA_CA_PORT = 5064
+# The default is an ephemeral free port rather than 5064: the tutorial default
+# is routinely held by a real deployment on a dev host (`port_layout.
+# CA_DEFAULT_PORT` keeps VA instance 1 there on purpose), and every caller of
+# this module already gets the one value plumbed through both the service port
+# and the connector. Pass an explicit `va_port=` to pin one.
+
+
+def _reserve_free_va_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+# import-time required because VA_CA_PORT binds into `va_port=` default
+# arguments across the importing e2e modules, which evaluate at import.
+VA_CA_PORT = _reserve_free_va_port()
 
 # Bluesky bridge HTTP port. Distinct from the other e2e modules' pinned
 # ports (test_bluesky_deploy.py's 18090, test_va_substrate_equivalence.py's
@@ -271,6 +284,7 @@ def init_args(
     output_dir: Path,
     bridge_port: int = BRIDGE_PORT,
     va_port: int = VA_CA_PORT,
+    port_base: int | None = None,
     provider: str | None = None,
     model: str | None = None,
     extra_config: dict[str, Any] | None = None,
@@ -325,6 +339,14 @@ def init_args(
         "--set",
         "bluesky.tiled_enabled=true",
     ]
+    if port_base is not None:
+        # Every framework port the caller does NOT pin explicitly follows this
+        # block (`deployment.port_base`); a caller that actually starts the
+        # stack passes its own thousand-port block so the deploy cannot land
+        # on a real deployment's default 10000 block (openobserve, tiled,
+        # live-standin, the stores). Build-only callers may leave it unset —
+        # a render binds nothing.
+        args += ["--set", f"port_base={port_base}"]
     if provider is not None:
         args += ["--set", f"provider={provider}"]
     if model is not None:
@@ -412,6 +434,7 @@ def build_project_subprocess(
     output_dir: Path,
     bridge_port: int = BRIDGE_PORT,
     va_port: int = VA_CA_PORT,
+    port_base: int | None = None,
     timeout: int = BUILD_TIMEOUT_SEC,
     provider: str | None = None,
     model: str | None = None,
@@ -455,6 +478,7 @@ def build_project_subprocess(
             output_dir=output_dir,
             bridge_port=bridge_port,
             va_port=va_port,
+            port_base=port_base,
             provider=provider,
             model=model,
             extra_config=extra_config,

@@ -57,6 +57,13 @@ modules:
     artifact_base_port: 19200
     ariel_base_port: 19300
     lattice_base_port: 19400
+    # The remaining panel families too, even though this roster does not enable
+    # them today: an omitted family defaults straight into the live default
+    # block (10500/10600/10700), so enabling one here later must not be the
+    # edit that starts squatting a real deployment's panels.
+    channel_finder_base_port: 19500
+    okf_base_port: 19600
+    system_health_base_port: 19700
     users:
       - alice
       - bob

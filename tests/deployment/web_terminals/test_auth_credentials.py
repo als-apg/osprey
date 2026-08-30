@@ -25,12 +25,14 @@ from osprey.deployment.web_terminals.auth_credentials import (
     purge_orphan_terminal_secrets,
     purge_terminal_secret,
     seeded_logins,
+    seeded_logins_report,
     set_auth_password,
 )
 from osprey.services.auth_sidecar.passwords import (
     FIELD_SEP,
     SCHEME,
     generation_tag,
+    hash_password,
     verify_password,
 )
 from osprey.utils.dotenv import (
@@ -1397,3 +1399,61 @@ def test_a_purge_holds_the_lock_a_concurrent_append_must_wait_for(tmp_path: Path
     assert stored["CONCURRENT_WRITER"] == "kept"
     assert f"{TERMINAL_SECRET_VAR_PREFIX}ALICE" not in stored
     assert stored[f"{TERMINAL_SECRET_VAR_PREFIX}BOB"]
+
+
+def test_a_default_password_confirmed_by_the_deployed_hash_is_named(tmp_path: Path) -> None:
+    """A stored hash minted from the seeded default keeps the login printable:
+    verification is a gate, not a blanket suppression."""
+    write_seeded_repo(tmp_path, "alice", "alice")
+    (tmp_path / AUTH_ENV_FILENAME).write_text(
+        f"{PW_HASH_VAR_PREFIX}ALICE={hash_password('alice')}\n"
+    )
+
+    assert seeded_logins(tmp_path, ["alice"]) == [("alice", "alice")]
+
+
+def test_a_default_password_contradicted_by_the_deployed_hash_is_not_named(tmp_path: Path) -> None:
+    """The 2026-08-30 field failure: `.env` still carries the profile default,
+    but `.env.auth` holds a hash minted from something else (an older deploy's
+    random mint). Printing "carol / carol" then is a lie the operator debugs at
+    the login wall."""
+    write_seeded_repo(tmp_path, "alice", "alice")
+    (tmp_path / AUTH_ENV_FILENAME).write_text(
+        f"{PW_HASH_VAR_PREFIX}ALICE={hash_password('minted-by-an-older-deploy')}\n"
+    )
+
+    assert seeded_logins(tmp_path, ["alice"]) == []
+
+
+def test_the_report_names_the_contradicted_user_as_stale(tmp_path: Path) -> None:
+    """The card needs to say WHY a seeded login is missing, so the report keeps
+    the contradicted names alongside the printable pairs."""
+    write_seeded_repo(tmp_path, "alice", "alice")
+    (tmp_path / AUTH_ENV_FILENAME).write_text(
+        f"{PW_HASH_VAR_PREFIX}ALICE={hash_password('minted-by-an-older-deploy')}\n"
+    )
+
+    report = seeded_logins_report(tmp_path, ["alice"])
+
+    assert report.printable == ()
+    assert report.stale == ("alice",)
+
+
+def test_a_user_with_no_stored_hash_is_still_named_and_not_stale(tmp_path: Path) -> None:
+    """Before the first deploy no hash exists and nothing contradicts the
+    seeded default — `ensure_auth_credentials` will hash exactly this value."""
+    write_seeded_repo(tmp_path, "alice", "alice")
+
+    report = seeded_logins_report(tmp_path, ["alice"])
+
+    assert report.printable == (("alice", "alice"),)
+    assert report.stale == ()
+
+
+def test_an_unreadable_env_auth_stays_advisory(tmp_path: Path) -> None:
+    """A malformed `.env.auth` must not fail the closing card; the login is
+    printed exactly as it was before verification existed."""
+    write_seeded_repo(tmp_path, "alice", "alice")
+    (tmp_path / AUTH_ENV_FILENAME).write_bytes(b"\xff\xfe not a dotenv file")
+
+    assert seeded_logins(tmp_path, ["alice"]) == [("alice", "alice")]

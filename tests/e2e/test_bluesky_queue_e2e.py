@@ -754,6 +754,12 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
             f"bluesky.tiled_port={TILED_PORT}",
             "--set",
             f"bluesky_web.port={PANELS_PORT}",
+            # This module's own thousand-port block (see
+            # test_dispatch_deploy.py's 20700 note): everything not pinned
+            # explicitly follows it instead of landing on a real deployment's
+            # default 10000 block.
+            "--set",
+            "port_base=22000",
         ],
         cwd=base,
         timeout=BUILD_TIMEOUT_SEC,

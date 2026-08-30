@@ -838,7 +838,6 @@ def _kept_section(repo: Path) -> str:
     ("filename", "phrase"),
     [
         (".env.users", "runtime secrets every web-terminal container reads"),
-        (".env.auth", "password hashes and cookie-signing secrets"),
     ],
 )
 def test_the_plan_discloses_a_web_credential_file_it_will_keep(repo, filename, phrase):
@@ -865,32 +864,34 @@ def test_a_web_credential_file_that_is_not_there_is_not_disclosed(repo, filename
     assert filename not in _kept_section(repo)
 
 
-def test_the_two_web_credential_files_disclose_different_refreshes(repo):
-    """One removal costs a registry deploy its secrets, the other everyone's password.
-
-    Mutually exclusive wording, pinned: a shared clause would be wrong for one
-    of them, and this is the section an operator reads before typing a
-    confirmation.
-    """
+def test_the_two_web_credential_files_land_on_opposite_sides_of_the_plan(repo):
+    """`.env.users` is kept and says so; `.env.auth` is removed and says what
+    that costs. A shared clause would be wrong for one of them, and this is
+    what an operator reads before typing a confirmation."""
     (repo / ".env.users").write_text("OSPREY_API_KEY=x\n", encoding="utf-8")
     (repo / ".env.auth").write_text("OSPREY_AUTH_PW_HASH_ALICE=x\n", encoding="utf-8")
 
+    plan = plan_reset(repo, probe=make_probe(FakeRuntime()))
+    rendered = "\n".join(plan.render())
     kept = _kept_section(repo)
 
     assert "registry-mode deploy expects it to be there already" in kept
-    assert "mints a NEW password for every user" in kept
-    assert "osprey users decommission" in kept
+    assert ".env.auth" not in kept
+    assert repo / ".env.auth" in plan.paths
+    assert "osprey users passwd" in rendered
 
 
-def test_reset_keeps_both_web_credential_files_on_disk(repo, no_down):
-    """The disclosure and the behaviour, asserted against each other."""
+def test_reset_keeps_users_env_and_removes_auth_env(repo, no_down):
+    """The disclosure and the behaviour, asserted against each other: the kept
+    file survives byte-identical, the removed one is gone — not truncated, not
+    recreated as anything."""
     (repo / ".env.users").write_text("OSPREY_API_KEY=x\n", encoding="utf-8")
     (repo / ".env.auth").write_text("OSPREY_AUTH_PW_HASH_ALICE=x\n", encoding="utf-8")
 
     run_reset(repo, FakeRuntime())
 
     assert (repo / ".env.users").read_text(encoding="utf-8") == "OSPREY_API_KEY=x\n"
-    assert (repo / ".env.auth").read_text(encoding="utf-8") == "OSPREY_AUTH_PW_HASH_ALICE=x\n"
+    assert not (repo / ".env.auth").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -1841,3 +1842,34 @@ def _unidentified_section(plan) -> str:
     """Just the "NOT REMOVED" block, without the network note that follows it."""
     rendered = "\n".join(plan.render())
     return rendered.split("NOT REMOVED", 1)[1].split("Networks are removed", 1)[0]
+
+
+# ---------------------------------------------------------------------------
+# .env.auth: reset means no stale login credentials survive
+# ---------------------------------------------------------------------------
+
+
+def test_the_plan_removes_env_auth_when_it_exists(repo):
+    """A reset deployment is a throwaway: keeping the previous generation's
+    password hashes while `osprey init` re-seeds the profile defaults is how a
+    banner comes to print a login the sidecar refuses (2026-08-30). The next
+    deploy re-mints every hash from `.env`."""
+    from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
+
+    env_auth = repo / AUTH_ENV_FILENAME
+    env_auth.write_text("OSPREY_AUTH_PW_HASH_ALICE=scrypt.16384.8.1.x.y\n", encoding="utf-8")
+
+    plan = plan_reset(repo, probe=make_probe(FakeRuntime()))
+
+    assert env_auth in plan.paths
+    assert any(AUTH_ENV_FILENAME in line for line in plan.render())
+
+
+def test_the_plan_skips_env_auth_when_it_is_absent(repo):
+    """Like every other planned path: never promise a removal that has nothing
+    to remove."""
+    from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
+
+    plan = plan_reset(repo, probe=make_probe(FakeRuntime()))
+
+    assert all(AUTH_ENV_FILENAME not in str(path) for path in plan.paths)

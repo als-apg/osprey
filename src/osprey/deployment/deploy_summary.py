@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from osprey.cli import output
 from osprey.deployment.compose_generator import resolve_project_name
@@ -52,6 +53,9 @@ from osprey.port_layout import (
     resolve_port_base,
 )
 from osprey.utils.logger import get_logger
+
+if TYPE_CHECKING:
+    from osprey.deployment.web_terminals.auth_credentials import SeededLoginsReport
 
 logger = get_logger("deployment.summary")
 
@@ -641,6 +645,12 @@ class ClosingFacts:
     logins: tuple[tuple[str, str], ...]
     token_login_users: tuple[str, ...] = ()
     landing_url_is_external_origin: bool = True
+    #: Roster users whose ``.env`` still carries the profile-declared password
+    #: while the deployed ``.env.auth`` hash was minted from something else.
+    #: Their login line would be a lie, so the card prints the rotate verb for
+    #: them instead. See
+    #: :func:`~osprey.deployment.web_terminals.auth_credentials.seeded_logins_report`.
+    stale_logins: tuple[str, ...] = ()
 
 
 def as_built_closing_facts(repo_root: Path | str) -> ClosingFacts:
@@ -660,11 +670,13 @@ def as_built_closing_facts(repo_root: Path | str) -> ClosingFacts:
         config = _as_built_config(root)
         if config is None:
             return ClosingFacts(landing_url=None, logins=())
+        seeded = _seeded_logins(root, config)
         return ClosingFacts(
             landing_url=landing_page_url(config),
-            logins=tuple(_seeded_logins(root, config)),
+            logins=seeded.printable,
             token_login_users=tuple(token_login_users(config)),
             landing_url_is_external_origin=_external_origin_is_derivable(config),
+            stale_logins=seeded.stale,
         )
     except Exception as exc:
         logger.debug(f"Closing facts skipped: {exc}")
@@ -688,7 +700,7 @@ def _external_origin_is_derivable(config: dict) -> bool:
         return False
 
 
-def _seeded_logins(root: Path, config: dict) -> list[tuple[str, str]]:
+def _seeded_logins(root: Path, config: dict) -> SeededLoginsReport:
     """The profile-seeded logins of this deployment's roster, in roster order.
 
     Gated on there being a login to have: with ``auth.method`` at anything but
@@ -699,21 +711,24 @@ def _seeded_logins(root: Path, config: dict) -> list[tuple[str, str]]:
     ``login: false`` sit outside the wall and are skipped for the same reason --
     the same predicate credential provisioning itself uses.
     """
-    from osprey.deployment.web_terminals.auth_credentials import seeded_logins
+    from osprey.deployment.web_terminals.auth_credentials import (
+        SeededLoginsReport,
+        seeded_logins_report,
+    )
     from osprey.deployment.web_terminals.personas import entry_requires_login, normalize_users
     from osprey.deployment.web_terminals.render import _auth_tls_context
 
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
     if not web_terminals.get("enabled"):
-        return []
+        return SeededLoginsReport()
     if _auth_tls_context(web_terminals).get("auth_method") != "password":
-        return []
+        return SeededLoginsReport()
     names = [
         entry["name"]
         for entry in normalize_users(web_terminals.get("users"))
         if entry_requires_login(entry)
     ]
-    return seeded_logins(root, names)
+    return seeded_logins_report(root, names)
 
 
 def token_login_users(config: dict) -> list[str]:

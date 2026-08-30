@@ -70,8 +70,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import requests
 
-from osprey.port_layout import default_port
-from tests.interfaces._panel_launch import publish_artifact_url
+from tests.interfaces._panel_launch import DEFAULT_ARTIFACT_URL, publish_artifact_url
 from tests.interfaces.conftest import _free_port, _run_app_server
 
 # ---------------------------------------------------------------------------
@@ -143,7 +142,9 @@ def _live_server(
     enabled_panels,
     custom_panels=None,
     allow_runtime: bool = False,
-    artifact_url: str | None = f"http://127.0.0.1:{default_port('artifact')}",
+    # The shared unserved address — never the artifact slot at the default
+    # base, which a real deployment on this host serves for real.
+    artifact_url: str | None = DEFAULT_ARTIFACT_URL,
     artifact_config_delay: float = 0.0,
     project_cwd: str | None = None,
     ui_mode: str | None = None,

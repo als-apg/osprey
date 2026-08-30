@@ -69,7 +69,7 @@ from osprey.deployment.web_terminals.personas import (
     env_var_suffix_collisions,
 )
 from osprey.interfaces.web_auth import ROSTER_SECRET_ENV_PREFIX
-from osprey.services.auth_sidecar.passwords import hash_password
+from osprey.services.auth_sidecar.passwords import hash_password, verify_password
 from osprey.utils.dotenv import (
     DEPLOY_MINTED_BANNER,
     ENV_AUTH_BANNER,
@@ -497,18 +497,64 @@ def seeded_logins(project_root: str | Path, usernames: Iterable[str]) -> list[tu
     :return: ``(username, password)`` pairs, in ``usernames`` order, holding
         only the users whose password is still the profile's declared default.
     """
+    return list(seeded_logins_report(project_root, usernames).printable)
+
+
+@dataclass(frozen=True)
+class SeededLoginsReport:
+    """What :func:`seeded_logins_report` found for a roster.
+
+    :param printable: ``(username, password)`` pairs safe to print — profile
+        defaults that nothing deployed contradicts.
+    :param stale: Usernames whose ``.env`` value still IS the profile default
+        but whose stored ``.env.auth`` hash was minted from something else, so
+        printing the default would name a password the login wall refuses.
+        These exist: a hash survives redeploys untouched by design
+        (:func:`ensure_auth_credentials` rule 1), so one minted before the
+        profile gained its default — or minted at random when ``.env`` lacked
+        the plaintext — contradicts the default forever after.
+    """
+
+    printable: tuple[tuple[str, str], ...] = ()
+    stale: tuple[str, ...] = ()
+
+
+def seeded_logins_report(project_root: str | Path, usernames: Iterable[str]) -> SeededLoginsReport:
+    """:func:`seeded_logins`, plus the defaults the deployed hash contradicts.
+
+    Verification is three-state per candidate, and only a contradiction
+    demotes:
+
+    * No stored hash — printable. Nothing deployed disagrees, and the next
+      deploy's :func:`ensure_auth_credentials` will hash exactly this value.
+    * The stored hash verifies against the default — printable.
+    * The stored hash exists and does NOT verify — ``stale``. The card must
+      not print a password the sidecar will refuse.
+
+    Advisory like :func:`seeded_logins` itself: an unreadable ``.env.auth``
+    verifies nothing and demotes nothing, so a closing card can never be the
+    thing that fails a deploy that already started.
+    """
     root = Path(project_root)
     try:
         declared = _profile_env_defaults(root)
         if not declared:
-            return []
-        env_path = root / ".env"
+            return SeededLoginsReport()
+        env_path = root / ENV_LOCAL_FILENAME
         project_env = parse_dotenv_file(env_path) if env_path.is_file() else {}
     except Exception as exc:  # pragma: no cover - advisory read
         logger.debug(f"Seeded logins skipped: {exc}")
-        return []
+        return SeededLoginsReport()
 
-    logins: list[tuple[str, str]] = []
+    try:
+        env_auth_path = root / AUTH_ENV_FILENAME
+        stored = parse_dotenv_file(env_auth_path) if env_auth_path.is_file() else {}
+    except Exception as exc:  # advisory read — verify nothing, demote nothing
+        logger.debug(f"Seeded-login verification skipped: {exc}")
+        stored = {}
+
+    printable: list[tuple[str, str]] = []
+    stale: list[str] = []
     for name in usernames:
         variable = f"{PW_PLAINTEXT_VAR_PREFIX}{env_var_suffix(name)}"
         # Trimmed on both sides, because that is what `ensure_auth_credentials`
@@ -516,9 +562,14 @@ def seeded_logins(project_root: str | Path, usernames: Iterable[str]) -> list[tu
         # an editor padded, even though the padded value produced exactly the
         # profile default's hash.
         current = project_env.get(variable, "").strip()
-        if current and current == str(declared.get(variable, "")).strip():
-            logins.append((name, current))
-    return logins
+        if not current or current != str(declared.get(variable, "")).strip():
+            continue
+        stored_hash = stored.get(f"{PW_HASH_VAR_PREFIX}{env_var_suffix(name)}", "").strip()
+        if stored_hash and not verify_password(current, stored_hash):
+            stale.append(name)
+        else:
+            printable.append((name, current))
+    return SeededLoginsReport(printable=tuple(printable), stale=tuple(stale))
 
 
 def _profile_env_defaults(root: Path) -> dict[str, Any]:

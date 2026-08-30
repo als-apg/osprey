@@ -65,7 +65,14 @@ from osprey.deployment.compose_generator import resolve_project_name
 from osprey.port_layout import default_port
 from tests.e2e._volumes import remove_project_volumes
 
-DISPATCHER_URL = f"http://localhost:{default_port('dispatcher')}"
+#: This deploy's own thousand-port block — same convention as
+#: test_dispatch_deploy.py (20700) and test_web_bind.py (21000): a real
+#: control-assistant stack owns the default 10000 block on a dev host, so a
+#: test deploy that landed there would crash-loop the live stack's terminals
+#: against its own dispatcher and panels.
+PORT_BASE = 21100
+
+DISPATCHER_URL = f"http://localhost:{default_port('dispatcher', base=PORT_BASE)}"
 TOKEN = "dev-token"  # matches the .env tokens written below
 
 # Container image build (Node + Claude CLI install) is slow on a cold cache.
@@ -306,6 +313,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             "provider=als-apg",
             "--set",
             "model=haiku",
+            "--set",
+            f"port_base={PORT_BASE}",
         ],
         cwd=base,
         timeout=300,

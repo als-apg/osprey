@@ -62,6 +62,7 @@ import asyncio
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -89,13 +90,23 @@ HOST_CA_OP_SCRIPT = Path(__file__).resolve().parent / "_va_host_ca_op.py"
 # imported -- tests/e2e is a package, so the helper is not on sys.path).
 HOST_CA_RESULT_MARKER = "__HOST_CA_RESULT__"
 
-# Channel Access port the Virtual Accelerator serves on. NOT freely
-# overridable here: the Control Assistant preset's config.yml.j2 hardcodes
-# `control_system.connector.virtual_accelerator.gateways.*.port: 5064` (it is
-# not templated from `services.virtual_accelerator.port`) — so the host-side
-# connector config below and the container's published port must both stay
-# at this value, or the two silently drift apart.
-VA_CA_PORT = 5064
+
+# Channel Access port the Virtual Accelerator serves on. An ephemeral free
+# port, not 5064: this module already plumbs the one value everywhere it
+# matters (`--set virtual_accelerator.port=` at init, and the name-server
+# gateway below), and 5064 on a dev host belongs to whatever real deployment
+# the operator is running — `port_layout.CA_DEFAULT_PORT` keeps VA instance 1
+# there on purpose. The shipped 5064 default is covered at render level by
+# tests/cli/test_va_default_config.py and tests/cli/test_rendered_va_block.py.
+def _reserve_free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+# import-time required because VA_CA_PORT seeds module-level constants
+# (_VA_GATEWAY, the fixture's --set args) built while the module imports.
+VA_CA_PORT = _reserve_free_port()
 # The deployment repo's directory name IS the deployment's name; the compose
 # templates render each service's container_name AND its locally-built image as
 # ``<project>-<service>`` (services/*/docker-compose.yml.j2), so derive both
@@ -393,6 +404,12 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             f"virtual_accelerator.port={VA_CA_PORT}",
             "--set",
             f"bluesky.port={BRIDGE_PORT}",
+            # This module's own thousand-port block (see
+            # test_dispatch_deploy.py's 20700 note): everything not pinned
+            # explicitly follows it instead of landing on a real deployment's
+            # default 10000 block.
+            "--set",
+            "port_base=21500",
         ],
         cwd=base,
         timeout=BUILD_TIMEOUT_SEC,
@@ -736,11 +753,20 @@ def test_p2_full_manifest_liveness(deployed_stack: DeployedStack) -> None:
     # main-thread pyepics operation into a process that also drives CA off an
     # asyncio.to_thread() executor is a documented deadlock risk (see
     # tests/va/e2e/conftest.py's `_readiness_pv_served`).
+    # The sweep script defaults EPICS_CA_NAME_SERVERS to localhost:5064; this
+    # stack serves CA on the module's ephemeral VA_CA_PORT, so the subprocess
+    # must be told explicitly (the in-process connectors get it via
+    # _VA_GATEWAY instead).
     proc = subprocess.run(
         [sys.executable, str(SWEEP_SCRIPT)],
         capture_output=True,
         text=True,
         timeout=SWEEP_TIMEOUT_SEC,
+        env={
+            **os.environ,
+            "EPICS_CA_NAME_SERVERS": f"localhost:{VA_CA_PORT}",
+            "EPICS_CA_AUTO_ADDR_LIST": "NO",
+        },
     )
     assert proc.returncode == 0, (
         f"full-manifest CA sweep failed:\n--- stdout ---\n{proc.stdout}\n"

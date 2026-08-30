@@ -1174,7 +1174,7 @@ def _point_at_set(ctx: click.Context, param: click.Parameter, value: str | None)
 #: prevent. The copy is held to the original by
 #: ``test_the_refused_flags_are_the_documented_shorthands``, so a shorthand
 #: added there and not here fails a test rather than going quietly uncaught.
-_SHORTHAND_FLAG_KEYS = ("provider", "model", "channel_finder_mode", "connector")
+_SHORTHAND_FLAG_KEYS = ("provider", "model", "channel_finder_mode", "connector", "port_base")
 
 
 def _reject_shorthand_flags(command: Callable) -> Callable:
@@ -1216,7 +1216,8 @@ def _reject_shorthand_flags(command: Callable) -> Callable:
     "RHS parsed as YAML. Top-level shorthands: provider, model, "
     "channel_finder_mode, connector (the control system to talk to — mock, "
     "epics, virtual_accelerator, doocs; a deployment being pointed at its "
-    "stand-in may also set live_standin).",
+    "stand-in may also set live_standin), port_base (move the whole "
+    "deployment off the default 10000 port block, e.g. --set port_base=42000).",
 )
 @click.option(
     "--list-presets",

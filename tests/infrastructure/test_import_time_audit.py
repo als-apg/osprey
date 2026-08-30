@@ -29,6 +29,12 @@ WHITELIST: dict[str, set[str]] = {
     # ones at the same moment for the same reason.
     "va/test_record_factory.py": {"os.environ", "socket"},
     "va/test_apply_fault.py": {"os.environ", "socket"},
+    # Deploying suites reserve their CA / gallery ports at import: the value
+    # binds into module-level constants and function default arguments (which
+    # evaluate at import), so a fixture would run after those bindings exist.
+    "e2e/_orm_stack.py": {"socket"},
+    "e2e/test_va_substrate_equivalence.py": {"socket"},
+    "interfaces/_panel_launch.py": {"socket"},
     # docs/source/_ext is not an installed package, and the extension under
     # test is imported at module top level.
     "documentation/test_workflow_autodoc.py": {"sys.path"},
@@ -40,7 +46,7 @@ WHITELIST: dict[str, set[str]] = {
     "scripts/test_config_key_guard.py": {"sys.modules"},
     "scripts/test_changelog_fragments.py": {"sys.modules"},
     "scripts/test_docs_publish.py": {"sys.modules"},
-    "va/e2e/conftest.py": {"sys.modules"},
+    "va/e2e/conftest.py": {"socket", "sys.modules"},
     # the root conftest scrubs FORCE_COLOR/CLICOLOR_FORCE before collection
     # imports any osprey module: osprey.cli.styles builds its Console at import
     # time, so a fixture would un-force a console that already exists.
