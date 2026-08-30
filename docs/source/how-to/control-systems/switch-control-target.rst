@@ -308,7 +308,7 @@ has actually measured it — whether its gateway answered.
        on and unlisted channels refused — which is what the ``limits_posture``
        gate above requires. Rows can disagree here too, but only from the
        deployment's config: a deployment can relax unlisted channels for its
-       simulator alone. Unlike ``writes_permitted``, no session narrowing
+       simulator alone. Unlike ``writes_permitted``, no chip toggle
        moves it. A target whose config states neither setting reads
        ``false``, because a deployment that has stated nothing has refused
        nothing.
