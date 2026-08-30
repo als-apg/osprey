@@ -3187,6 +3187,10 @@ def test_auth_sidecar_service_environment_is_exactly_the_non_secret_settings() -
         ENV_TLS_ENABLED,
         ENV_EXTERNAL_ORIGIN,
         ENV_USERS,
+        # The egress passthrough, non-secret in the same sense as the rest of
+        # this block and pinned in render order. Its own shape — values, case,
+        # and what deliberately does NOT join it — is asserted below.
+        *_PROXY_NAMES,
     ]
 
 
@@ -3399,6 +3403,144 @@ def test_auth_env_isolation_no_web_service_carries_an_auth_variable() -> None:
         assert service["env_file"] == ".env.users"
         assert AUTH_ENV_FILENAME not in str(service["env_file"])
         assert not [env for env in _env_names(service) if env.startswith("OSPREY_AUTH")]
+
+
+# ---------------------------------------------------------------------------
+# Task 1.2: the sidecar's egress passthrough — the proxy settings its OIDC
+# fetches need behind a corporate proxy, and the three shapes that ruling took
+# ---------------------------------------------------------------------------
+
+# Rendered verbatim, `${VAR:-}` and all: these are compose interpolation
+# directives, not values. Spelled out rather than imported because there is
+# nothing to import — the sidecar reads none of them itself, the HTTP client
+# libraries inside it do, so the template is their only definition.
+_PROXY_ENTRIES = [
+    "HTTP_PROXY=${HTTP_PROXY:-}",
+    "HTTPS_PROXY=${HTTPS_PROXY:-}",
+    "NO_PROXY=${NO_PROXY:-}",
+]
+_PROXY_NAMES = [entry.split("=", 1)[0] for entry in _PROXY_ENTRIES]
+_LOWERCASE_PROXY_NAMES = [name.lower() for name in _PROXY_NAMES]
+# The CA-bundle family that looks like it belongs beside the proxy trio and does
+# not: nothing mounts a CA into this image, so each of these can only ever name
+# a path that is not there.
+_CA_BUNDLE_NAMES = ["SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE"]
+
+
+def _oidc_auth_config() -> dict:
+    """`_auth_config()` in the posture the egress passthrough exists for."""
+    return _auth_config(method="oidc", oidc={"issuer": "https://sso.dls.example.org"})
+
+
+@pytest.mark.parametrize(
+    "config_factory", [_auth_config, _oidc_auth_config], ids=["password", "oidc"]
+)
+def test_auth_sidecar_egress_passes_the_proxy_settings_through_verbatim(config_factory) -> None:
+    """The sidecar's OIDC discovery, token and userinfo fetches are its only
+    outbound traffic, and behind a corporate proxy they fail unless the host's
+    proxy settings reach the container. They arrive as `${VAR:-}` passthrough,
+    which is asserted by VALUE and not merely by name: the whole mechanism is the
+    interpolation directive, and an entry rendered with a baked literal — or with
+    a default other than empty — would satisfy a name-only pin while pinning the
+    deploy host's proxy into the committed compose artifact.
+
+    Rendered in both postures, not gated on `oidc`. The gate would be wrong even
+    though OIDC is the motivating traffic: a `password` sidecar behind a proxy
+    that suddenly needed an outbound fetch would fail in a way no operator could
+    read off the compose file, and an empty passthrough on a host with no proxy
+    costs nothing.
+    """
+    # Act
+    auth = _compose(config_factory())["services"]["auth"]
+
+    # Assert
+    assert [entry for entry in auth["environment"] if entry.split("=", 1)[0] in _PROXY_NAMES] == (
+        _PROXY_ENTRIES
+    )
+
+
+def test_auth_sidecar_egress_is_uppercase_only() -> None:
+    """UPPERCASE only, and the lowercase pair is not an oversight to be tidied up
+    later — adding it would BREAK the no-proxy case. httpx (Authlib's transport
+    for every fetch above, `trust_env` at its default) and requests read the
+    uppercase names. CPython's own `urllib.request.getproxies_environment` reads
+    both, lowercase last and winning, and treats a present-but-EMPTY lowercase
+    `http_proxy` as "this scheme is configured, to nothing" — popping the scheme
+    the uppercase pass just set, while an empty uppercase variable is skipped.
+    Since `${VAR:-}` renders exactly that empty value on every host without a
+    proxy, a lowercase entry here would hand every stdlib caller a cancelled
+    proxy on the common case."""
+    # Act
+    auth = _compose(_auth_config())["services"]["auth"]
+
+    # Assert
+    names = _env_names(auth)
+    assert [name for name in names if name in _PROXY_NAMES] == _PROXY_NAMES
+    assert not [
+        name
+        for name in names
+        if name not in _PROXY_NAMES and name.lower() in _LOWERCASE_PROXY_NAMES
+    ]
+
+
+def test_auth_sidecar_egress_is_proxy_only_and_carries_no_ca_bundle_variable() -> None:
+    """The egress block stops at the proxy trio. A custom CA is the other half of
+    the corporate-network story and is deliberately NOT here: nothing mounts a CA
+    into this image, so `SSL_CERT_FILE` would name a path that does not exist —
+    which crashes httpx at client construction, turning a working plain-HTTP
+    deployment into a sidecar that cannot build a client at all — and nothing in
+    the sidecar reads `REQUESTS_CA_BUNDLE`. Custom-CA support is a mount plus a
+    variable, and its own change."""
+    # Act
+    auth = _compose(_oidc_auth_config())["services"]["auth"]
+
+    # Assert
+    names = _env_names(auth)
+    assert [name for name in names if name in _PROXY_NAMES] == _PROXY_NAMES
+    assert not [name for name in names if name in _CA_BUNDLE_NAMES]
+
+
+def test_auth_sidecar_egress_adds_no_second_env_file() -> None:
+    """The passthrough travels in `environment:` and leaves the sidecar's env_file
+    chain a scalar `.env.auth`. That is the isolation rule pinned above, restated
+    from the other direction: `.env.auth` is 0600 and sidecar-only, and a second
+    env_file for the proxy settings would both widen that surface and hand the
+    values a file whose content compose does NOT interpolate — so `${HTTP_PROXY}`
+    would reach httpx as a literal seven-character string."""
+    # Act
+    auth = _compose(_auth_config())["services"]["auth"]
+
+    # Assert
+    assert auth["env_file"] == AUTH_ENV_FILENAME
+    assert [entry for entry in auth["environment"] if entry.split("=", 1)[0] in _PROXY_NAMES] == (
+        _PROXY_ENTRIES
+    )
+
+
+def test_no_other_service_carries_a_proxy_passthrough() -> None:
+    """The passthrough is the sidecar's alone. The per-user containers reach the
+    outside through the settings their own image and `.env.users` already carry;
+    injecting a second, deploy-time proxy here would silently redirect every
+    agent's provider traffic on any host that sets one, which is a change to the
+    agent tier's egress and not to the login surface's.
+
+    Every service in the rendered project is checked, with `auth` the only
+    exemption, so nginx — and whatever service the module renders next — is
+    covered without anyone having to remember to widen this test.
+    """
+    # Act
+    services = _compose(_auth_config())["services"]
+
+    # Assert
+    assert [name for name in _env_names(services["auth"]) if name in _PROXY_NAMES] == _PROXY_NAMES
+    for name, service in services.items():
+        if name == "auth":
+            continue
+        assert not [
+            env
+            for env in _env_names(service)
+            if env in _PROXY_NAMES or env in _LOWERCASE_PROXY_NAMES
+        ], f"{name} carries a proxy passthrough that belongs to the login sidecar alone"
 
 
 def _session_lifetime_config(method: str, **auth: object) -> dict:

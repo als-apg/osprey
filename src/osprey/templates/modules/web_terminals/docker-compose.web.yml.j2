@@ -368,6 +368,16 @@
      mapping) come from the template variables above and stay in
      `environment:`.
 
+     The proxy settings the sidecar's OIDC fetches need (`HTTP_PROXY`,
+     `HTTPS_PROXY`, `NO_PROXY`) are non-secret in the same sense and reach it
+     the same way: `${VAR:-}` passthrough in `environment:`, interpolated from
+     the deploy env chain, NOT a second `env_file`. `.env.auth` therefore
+     remains the sidecar's only env file and rule 1 above is untouched. An
+     operator who puts credentials in a proxy URL is opting that value into
+     `docker inspect` like any other `environment:` value; see the EGRESS
+     comment on those three entries for the rest, including why they are
+     uppercase-only.
+
   ----------------------------------------------------------------------------
   OPERATOR SECRET (the per-user carrier, and why no VALUE is rendered here)
 
@@ -656,6 +666,31 @@ services:
          the per-user containers and nginx locations come from, so a user can
          never exist in one and be missing from the other. #}
       - OSPREY_AUTH_USERS={{ services | map(attribute="user") | join(",") }}
+      {#- EGRESS. The sidecar's only outbound traffic is the OIDC discovery,
+         token and userinfo fetches below, and on a site behind a corporate
+         proxy they fail unless the host's proxy settings reach this container.
+         They are not secrets, so they arrive as `${VAR:-}` passthrough
+         interpolated from the deploy env chain (`.env.shared`/`.env`, where
+         `osprey init` writes the commented-out block that documents them);
+         the `env_file` chain stays `.env.auth` and nothing else.
+
+         UPPERCASE ONLY, deliberately. httpx — Authlib's transport for every
+         fetch above, with `trust_env` left at its default — and requests read
+         the UPPERCASE names. CPython's own
+         `urllib.request.getproxies_environment` reads both, lowercase last and
+         winning: a present-but-EMPTY lowercase `http_proxy` reads as "this
+         scheme is configured, to nothing" and POPS the scheme the uppercase
+         pass just set, while an empty UPPERCASE variable is skipped. Adding
+         the lowercase pair here would therefore hand every stdlib caller a
+         cancelled proxy on any host that sets none — which is exactly what
+         `${VAR:-}` renders when the host has no proxy. No CA-bundle variable
+         joins them: nothing mounts a CA into this image, `SSL_CERT_FILE`
+         naming a path that does not exist crashes httpx at client
+         construction, and nothing in the sidecar reads `REQUESTS_CA_BUNDLE`.
+         Custom-CA support is a mount plus a variable, and its own change. #}
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - NO_PROXY=${NO_PROXY:-}
 {#- Everything OIDC — issuer, credential-variable names, claim, and the per-user
    subject mapping — is gated on the mode, so a `password` deployment carries no
    OIDC settings at all even if a roster entry still declares an `oidc_subject`
