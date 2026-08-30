@@ -12,12 +12,16 @@ this session is pointed at:
   exactly right: no target selection may survive the process that made it, and
   an orphaned child holding a gateway must not outlive the server that spawned
   it.
-* the server **lifespan** runs the background endpoint prober, because a task
-  needs a running loop and ``create_server()`` is called before ``run()``
-  starts one. The prober only produces the roster's reachability rows, so every
-  part of it is guarded: a server whose prober will not start is a server whose
-  roster reports fewer rows, and that is a far better outcome than a controls
-  server that will not start at all.
+* the server **lifespan** runs two background tasks, because a task needs a
+  running loop and ``create_server()`` is called before ``run()`` starts one:
+  the endpoint prober, which produces the roster's reachability rows, and the
+  session-control reconciler, which turns the desired state an operator writes
+  from the web terminal into something that has happened to this server's
+  connector. Both are guarded end to end and guarded *separately*: a server
+  whose prober will not start is a server whose roster reports fewer rows, and
+  one whose reconciler will not start is a server the header chip's buttons do
+  not reach — either is a far better outcome than a controls server that will
+  not start at all, and neither may cost the other.
 
 Usage:
     python -m osprey.mcp_server.control_system
@@ -38,6 +42,11 @@ logger = logging.getLogger("osprey.mcp_server.control_system")
 #: here rather than on the context because it is a property of this server
 #: process's lifespan, and shutdown reaches it through :func:`stop_background`.
 _prober: Any = None
+
+#: The running session-control reconciler, or ``None`` when one was never
+#: started. Held beside the prober, for the same reason and with the same
+#: lifetime: both belong to this server process's lifespan.
+_reconciler: Any = None
 
 
 def get_endpoint_prober() -> Any:
@@ -88,6 +97,56 @@ async def stop_background() -> None:
         logger.debug("Error stopping the endpoint prober (ignored)", exc_info=True)
 
 
+def get_session_reconciler() -> Any:
+    """The running session-control reconciler, or ``None``.
+
+    ``None`` means an operator's posture toggles and Switch button reach this
+    server's connector through nothing — the agent's own tool still works, and
+    the state file still says what is true.
+    """
+    return _reconciler
+
+
+async def start_session_control() -> Any:
+    """Start the reconciler. Returns it, or ``None`` when it could not start.
+
+    Guarded end to end and separately from the prober: reconciling the desired
+    state an operator wrote is a service this server offers, and serving the
+    control-system tools is the job it exists for. Neither may cost the other.
+    """
+    global _reconciler
+
+    if _reconciler is not None:
+        return _reconciler
+    try:
+        from osprey.mcp_server.control_system.session_control import SessionControlReconciler
+
+        reconciler = SessionControlReconciler()
+        await reconciler.start()
+    except Exception:
+        logger.warning(
+            "Could not start the session-control reconciler; the header chip's posture and "
+            "switch gestures will not reach this server",
+            exc_info=True,
+        )
+        return None
+    _reconciler = reconciler
+    return reconciler
+
+
+async def stop_session_control() -> None:
+    """Stop the reconciler, if one is running. Never raises."""
+    global _reconciler
+
+    reconciler, _reconciler = _reconciler, None
+    if reconciler is None:
+        return
+    try:
+        await reconciler.stop()
+    except Exception:  # pragma: no cover - defensive
+        logger.debug("Error stopping the session-control reconciler (ignored)", exc_info=True)
+
+
 @asynccontextmanager
 async def _lifespan(server: FastMCP) -> AsyncIterator[dict[str, Any]]:
     """Own the things that need a running event loop.
@@ -97,9 +156,11 @@ async def _lifespan(server: FastMCP) -> AsyncIterator[dict[str, Any]]:
     and spawns nothing, and the supervisor is created on first use.
     """
     await start_background()
+    await start_session_control()
     try:
         yield {}
     finally:
+        await stop_session_control()
         await stop_background()
         try:
             from osprey.mcp_server.control_system.server_context import get_server_context

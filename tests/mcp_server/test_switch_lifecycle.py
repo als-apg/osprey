@@ -36,6 +36,7 @@ import os
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -1019,6 +1020,120 @@ class TestRespawn:
         assert context._connectors["control_system"].instance is None
 
 
+# ------------------------------------------ the destination already answers
+
+
+class TestTheDestinationAlreadyAnswers:
+    """A switch whose destination is already served spawns nothing.
+
+    Every gate above this one — eligibility, the in-flight check, the
+    reconciler's own — is evaluated *before* the manager's lock is taken, so
+    two callers can both be told to go to the same place and both be right when
+    they were told. The loser of that race arrives at a manager that is already
+    there, and replacing a working child with an identical one would drop every
+    connection the session holds to change nothing.
+    """
+
+    async def test_a_switch_to_the_served_target_spawns_nothing(self, make_manager):
+        manager = await started_on(make_manager, "live")
+        spawns = len(manager.spawned)
+        pid = manager.status()["child_pid"]
+        generation = manager.active_generation()
+
+        result = await manager.switch("live")
+
+        assert len(manager.spawned) == spawns
+        assert manager.status()["child_pid"] == pid
+        assert manager.active_target() == "live"
+        assert manager.active_generation() == generation
+        assert result["target"] == "live"
+        assert result["previous_target"] == "live"
+        assert result["target_changed"] is False
+        assert result["previous_drained"] is True
+        assert result["generation"] == generation
+        assert result["child_pid"] == pid
+        # The child that was never touched is the one still answering.
+        assert isinstance(
+            await manager.active_proxy().read_channel(LIVE_PROBE, timeout=10.0), ChannelValue
+        )
+
+    async def test_the_no_op_answer_has_the_shape_a_real_switch_returns(self, make_manager):
+        """Callers read one result shape, whether or not the work was needed."""
+        manager = await started_on(make_manager, "live")
+        real = await manager.switch("va")
+
+        no_op = await manager.switch("va")
+
+        assert set(no_op) == set(real)
+        assert no_op["connector_type"] == real["connector_type"]
+        assert no_op["selected_role"] == real["selected_role"]
+        assert no_op["endpoint"] == real["endpoint"]
+        assert no_op["probe_channel"] == real["probe_channel"]
+        assert no_op["generation"] == real["generation"]
+        assert no_op["child_pid"] == real["child_pid"]
+
+    async def test_the_target_of_record_is_respawned_when_its_child_is_gone(self, make_manager):
+        """The guard is about a *served* destination, not a named one.
+
+        A child that died outside a switch leaves the session pointed at its
+        target with nothing serving it. Answering "already there" would strand
+        the session with no connector host and call it success.
+        """
+        manager = await started_on(make_manager, "va")
+        spawns = len(manager.spawned)
+        os.kill(manager.status()["child_pid"], signal.SIGKILL)
+        assert await wait_for(lambda: not manager.has_child()), (
+            "the manager kept reporting a child that had been killed"
+        )
+
+        result = await manager.switch("va")
+
+        assert len(manager.spawned) == spawns + 1
+        assert manager.has_child() is True
+        assert result["target_changed"] is False
+        assert result["child_pid"] == manager.status()["child_pid"]
+
+    async def test_a_deliberate_respawn_is_not_guarded(self, make_manager):
+        manager = await started_on(make_manager, "va")
+        spawns = len(manager.spawned)
+        pid = manager.status()["child_pid"]
+        generation = manager.active_generation()
+
+        result = await manager.respawn_same_target()
+
+        assert len(manager.spawned) == spawns + 1
+        assert manager.status()["child_pid"] != pid
+        assert result["child_pid"] != pid
+        assert result["target_changed"] is False
+        assert manager.active_generation() == generation
+
+    async def test_a_forced_switch_replaces_the_child_on_the_same_target(self, make_manager):
+        manager = await started_on(make_manager, "va")
+        pid = manager.status()["child_pid"]
+
+        result = await manager.switch("va", force=True)
+
+        assert result["child_pid"] != pid
+        assert manager.status()["child_pid"] == result["child_pid"]
+
+    async def test_ensure_started_still_brings_the_first_child_up(self, make_manager):
+        manager = make_manager()
+
+        assert await manager.ensure_started() is True
+
+        assert manager.has_child() is True
+        assert len(manager.spawned) == 1
+        assert manager.active_target() == baseline_target(raw_config())
+
+    async def test_ensure_started_on_a_named_target_still_starts(self, make_manager):
+        manager = make_manager()
+
+        assert await manager.ensure_started("va") is True
+
+        assert manager.has_child() is True
+        assert manager.active_target() == "va"
+
+
 # ------------------------------------------------------------ startup sweep
 
 
@@ -1031,19 +1146,36 @@ class TestStartupSweep:
         return finished.pid
 
     @staticmethod
-    def _orphan_host():
-        """A real connector-host child with nobody talking to it."""
+    def _orphan_host(root=None):
+        """A real connector-host child with nobody talking to it.
+
+        The agent-data root is STAMPED into its environment, not left to the
+        child. ``state_root`` redirects the root by patching
+        ``target_state.resolve_shared_data_root``, and a patch does not cross a
+        process boundary: this child would resolve it for itself, from a cwd
+        that is the repository, and create ``<repo>/var/agent_data``. It is a
+        detached process, so it does that on its own schedule — which is why
+        the leak showed up only under ``-n 8`` and never in a single-file run.
+
+        ``root`` is optional because two cases here only ever ask whether the
+        process *looks like* a connector host and never let it touch a state
+        directory; they still get a tmp root rather than none, so a future
+        change to the child cannot quietly reach the repository.
+        """
+        env = dict(os.environ)
+        env["OSPREY_AGENT_DATA_ROOT"] = str(root) if root is not None else tempfile.mkdtemp()
         return subprocess.Popen(
             [sys.executable, "-m", "osprey_connectors.ipc.host"],
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            env=env,
         )
 
     async def test_orphans_from_a_dead_server_are_killed_and_its_file_swept(
         self, make_manager, state_root
     ):
-        orphan = self._orphan_host()
+        orphan = self._orphan_host(state_root)
         dead_server = self._dead_pid()
         stale = state_root / target_state.STATE_DIR_NAME
         stale.mkdir(parents=True, exist_ok=True)
@@ -1150,6 +1282,32 @@ class TestConcurrentSwitches:
         assert ordered[1]["previous_target"] == ordered[0]["target"]
         assert manager.active_target() == ordered[1]["target"]
         assert manager.active_generation() == 2
+
+        def alive():
+            return [process for process in manager.spawned if process.returncode is None]
+
+        assert await wait_for(lambda: len(alive()) == 1), (
+            f"{len(alive())} connector-host children were left alive by two switches"
+        )
+
+    async def test_two_switches_to_the_same_target_spawn_exactly_one_child(self, make_manager):
+        """The race the reconciler and the agent can lose against each other.
+
+        Both gates passed before either took the lock, so both requests are
+        well-formed; only one of them still has work to do by the time it runs.
+        """
+        manager = await started_on(make_manager, "live")
+        spawns = len(manager.spawned)
+
+        first, second = await asyncio.gather(manager.switch("va"), manager.switch("va"))
+
+        assert len(manager.spawned) == spawns + 1
+        assert manager.active_target() == "va"
+        assert manager.active_generation() == 1
+        # One of the two did the work; the other found it already done.
+        assert sorted([first["target_changed"], second["target_changed"]]) == [False, True]
+        assert first["generation"] == second["generation"] == 1
+        assert first["child_pid"] == second["child_pid"] == manager.status()["child_pid"]
 
         def alive():
             return [process for process in manager.spawned if process.returncode is None]

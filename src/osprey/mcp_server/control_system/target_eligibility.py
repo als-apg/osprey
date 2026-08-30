@@ -78,6 +78,26 @@ The acknowledgment key is only ever tested for presence. The template ships a
 real-hostname-shaped example value, so no string comparison against any known
 default could distinguish an operator's answer from the shipped one; testing the
 value would invent a distinction the config cannot carry.
+
+The write posture a live session actually has
+---------------------------------------------
+Config is not the last word on whether writes are armed for a target. An
+operator narrows one target for one session from the header chip, and that
+narrowing lives in the per-(session, target) posture store
+(:mod:`osprey_connectors.session_store`), not in ``config.yml``. The connector
+child reads it on every write and on its own gateway selection, so a parent
+that derived the *configured* posture would derive ``write_access`` for a
+target the child has just connected to on ``read_only`` — and
+:func:`verify_child_report`, doing its job, would abort the switch on a
+disagreement that is nobody's misconfiguration.
+
+:func:`effective_writes_for_target` is therefore what every live-session caller
+in this stack passes as ``writes_enabled``: the deployment ceiling, this run's
+mode and the operator's narrowing, combined once by
+:func:`~osprey_connectors.session_store.effective_writes` and never restated
+here. :func:`derive_endpoints` itself keeps its config-only default, because it
+is also asked hypothetical questions — what would this target select under
+*that* posture — and a pure derivation is what makes those answerable.
 """
 
 from __future__ import annotations
@@ -85,6 +105,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from osprey.audit.posture import posture_session
+from osprey_connectors import session_store
 from osprey_connectors.control_system.base import is_readonly_run
 from osprey_connectors.control_system.va_connector import fill_gateway_ports
 from osprey_connectors.honesty import VA_MOCK_ARCHIVER_WHY, pairing_for_target
@@ -291,6 +313,53 @@ def _config_writes_enabled(config: Any, target: str) -> bool:
     return target_writes_enabled(_section(config, "control_system"), target)
 
 
+def effective_writes_for_target(section: Any, target: str) -> bool:
+    """Whether writes are armed for *target* on THIS session, right now.
+
+    The deployment ceiling for the target, ANDed with this run's mode and with
+    the operator's own narrowing from the header chip — the whole of rule 3 of
+    the posture-store contract, delegated to
+    :func:`~osprey_connectors.session_store.effective_writes` rather than
+    restated. What is added here is the session key: this process's
+    ``OSPREY_POSTURE_SESSION`` stamp is the store's index, and reading it in one
+    place is what stops the roster, the switch and the connector child from
+    each deciding for themselves whose narrowing they are answering.
+
+    Every live-session caller of :func:`derive_endpoints` in this stack passes
+    the result as ``writes_enabled``. That is not a convenience: the child
+    selects its gateway from exactly this value (through the same store), so a
+    parent deriving anything else would hand :func:`verify_child_report` a
+    ``selected_role`` mismatch and abort a switch that was configured
+    correctly.
+
+    Args:
+        section: The ``control_system:`` config section — the same unit
+            :func:`~osprey_connectors.types.target_writes_enabled` takes, so a
+            caller that already resolved it does not re-resolve it here.
+        target: The session control target the writes would land on.
+
+    Returns:
+        ``True`` only when the deployment arms this target, this is not a
+        read-only run, and the operator has not narrowed the target for this
+        session. The store can only narrow: nothing it holds widens *section*.
+    """
+    return session_store.effective_writes(section, posture_session(), target)
+
+
+def _resolved_writes(config: Any, target: str, writes_enabled: bool | None) -> bool:
+    """An explicit ``writes_enabled`` override, or this session's real posture.
+
+    ``None`` means "the caller did not say", and for a question asked *about a
+    live session* the truthful default is the session's own effective posture,
+    not the configured one. A caller that wants the hypothetical — the roster
+    asking what a target would select if it were narrowed, a test pinning a
+    posture — says so by passing the value, and is answered verbatim.
+    """
+    if writes_enabled is not None:
+        return bool(writes_enabled)
+    return effective_writes_for_target(_section(config, "control_system"), target)
+
+
 # ---------------------------------------------------------------------------
 # (a) Endpoint derivation
 # ---------------------------------------------------------------------------
@@ -483,6 +552,68 @@ def _strict_limits(config: Any) -> bool:
     )
 
 
+def _selected_role_missing(
+    config: Any, derivation: TargetDerivation, target: str
+) -> Eligibility | None:
+    """Check 3's verdict: the role selected here has no endpoint to select.
+
+    Factored out of :func:`evaluate_eligibility` because a second caller asks
+    the same question about a posture the session does not have yet:
+    :func:`narrowing_refusal`, which is what a surface offering the narrowing
+    consults before offering it. A refusal, or ``None`` when the selected role
+    is configured — the same "a verdict is a refusal" shape the switch gate
+    uses, so no caller can mistake a pass for a check it forgot to read.
+    """
+    selected_role = derivation.selected_role
+    if selected_role in derivation.endpoints:
+        return None
+    connector_type = derivation.connector_type
+    block_key = f"control_system.connector.{connector_type}"
+    raw_block = connector_block(config, connector_type)
+    gateways = _sub(raw_block if isinstance(raw_block, dict) else {}, "gateways")
+    return Eligibility(
+        False,
+        REASON_SELECTED_ROLE_MISSING,
+        f"This deployment would select the {selected_role!r} gateway for target "
+        f"{target!r}, but '{block_key}.gateways.{selected_role}' is missing or "
+        f"empty. Configured roles: {sorted(gateways) or 'none'}.",
+    )
+
+
+def narrowing_refusal(config: Any, target: str) -> Eligibility | None:
+    """What narrowing *target* to read-only would cost this session, if anything.
+
+    A narrowing moves the selected gateway role, and a deployment whose block
+    configures ``write_access`` alone has nothing to move *to*: the session
+    would select ``read_only``, find no such gateway, and the target would stop
+    being switchable at all. That is
+    :data:`REASON_SELECTED_ROLE_MISSING` arriving as a consequence of an
+    operator action rather than of a config edit, and a surface that offers the
+    narrowing owes the operator that sentence *before* they take it.
+
+    Read-only and hypothetical: it asks what the target would derive under the
+    narrowed posture, whatever this session's posture actually is. It reads no
+    store and changes nothing.
+
+    Args:
+        config: The full rendered config mapping.
+        target: The target the operator is considering narrowing.
+
+    Returns:
+        The refusal narrowing would earn, or ``None`` when the target stays
+        usable read-only — which is the ordinary case, since a deployment that
+        can be read from at all configures a ``read_only`` gateway.
+    """
+    try:
+        # ``readonly_run`` is pinned false rather than read: the question is
+        # what the *narrowing* costs, and a run that is already read-only would
+        # otherwise answer it for every target at once.
+        derivation = derive_endpoints(config, target, writes_enabled=False, readonly_run=False)
+    except ValueError as exc:
+        return Eligibility(False, REASON_TARGET_UNRESOLVABLE, str(exc))
+    return _selected_role_missing(config, derivation, target)
+
+
 def _acknowledged(config: Any) -> bool:
     """Whether the operator has acknowledged the live gateways.
 
@@ -544,17 +675,27 @@ def evaluate_eligibility(
             baseline a return exempts may be any of the three targets — a
             deployment whose own ``control_system.type`` is ``live_standin``
             comes home to ``standin``.
-        writes_enabled: See :func:`derive_endpoints`.
+        writes_enabled: Whether writes are armed for *target*. Unlike
+            :func:`derive_endpoints`, whose default is config alone, this
+            defaults to :func:`effective_writes_for_target` — the posture the
+            session asking actually has, operator narrowing included. This is
+            the answer a live session gets, so it has to be the answer the
+            child will select its gateway on. Pass the value to ask about a
+            posture other than this session's.
         readonly_run: See :func:`derive_endpoints`. It moves the *selected role*,
             which is what check 3 is asked about; it never makes a target
-            eligible or ineligible on its own.
+            eligible or ineligible on its own. The effective *writes_enabled*
+            above already folds it in, so overriding it alone changes nothing.
 
     Returns:
         The verdict, its machine-readable reason, and a sentence naming the fix.
     """
     try:
         derivation = derive_endpoints(
-            config, target, writes_enabled=writes_enabled, readonly_run=readonly_run
+            config,
+            target,
+            writes_enabled=_resolved_writes(config, target, writes_enabled),
+            readonly_run=readonly_run,
         )
     except ValueError as exc:
         # Fail-closed at the resolver becomes a reason here: eligibility is the
@@ -585,14 +726,9 @@ def evaluate_eligibility(
         )
 
     selected_role = derivation.selected_role
-    if selected_role not in derivation.endpoints:
-        return Eligibility(
-            False,
-            REASON_SELECTED_ROLE_MISSING,
-            f"This deployment would select the {selected_role!r} gateway for target "
-            f"{target!r}, but '{block_key}.gateways.{selected_role}' is missing or "
-            f"empty. Configured roles: {sorted(gateways) or 'none'}.",
-        )
+    role_missing = _selected_role_missing(config, derivation, target)
+    if role_missing is not None:
+        return role_missing
 
     if not _is_set(raw_block.get(PROBE_CHANNEL_KEY)):
         return Eligibility(
@@ -735,22 +871,26 @@ def target_availability(
         target: The prospective target being judged.
         session_target: The target this session is on right now.
         baseline_target: The target the deployment's own config selects.
-        writes_enabled: See :func:`derive_endpoints`.
+        writes_enabled: See :func:`evaluate_eligibility`. Resolved once here and
+            handed to both verdicts below: the two differ only in direction, and
+            a posture read twice could differ between them if the operator
+            narrowed the target in between.
         readonly_run: See :func:`derive_endpoints`.
     """
+    resolved_writes = _resolved_writes(config, target, writes_enabled)
     direction = switch_direction(target, session_target, baseline_target)
     verdict = evaluate_eligibility(
         config,
         target,
         direction=direction,
-        writes_enabled=writes_enabled,
+        writes_enabled=resolved_writes,
         readonly_run=readonly_run,
     )
     from_baseline = evaluate_eligibility(
         config,
         target,
         direction=switch_direction(target, baseline_target, baseline_target),
-        writes_enabled=writes_enabled,
+        writes_enabled=resolved_writes,
         readonly_run=readonly_run,
     )
 

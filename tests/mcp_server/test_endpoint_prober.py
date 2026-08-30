@@ -14,18 +14,27 @@ the exact dishonesty the mode distinction exists to prevent.
 
 Every interval and timeout here is tiny, and the clock is injected rather than
 slept through, so none of this costs the suite real time.
+
+The last section covers the other half of the prober's job: publishing what it
+measured to the state file every sweep, in the vocabulary the readers use.
 """
 
 from __future__ import annotations
 
 import asyncio
+import copy
 import socket
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.mcp_server.control_system import endpoint_prober as ep
+from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.endpoint_prober import (
+    STATE_DOWN,
+    STATE_REACHED,
     STATUS_NOT_APPLICABLE,
     STATUS_OK,
     STATUS_STALE,
@@ -383,3 +392,174 @@ async def test_snapshot_is_isolated_from_the_cache(listener):
     assert fresh[VA]["read_only"]["endpoint_tcp"] == STATUS_OK
     assert set(fresh) == {VA}
     assert set(fresh[VA]) == {"read_only"}
+
+
+# ---------------------------------------------------------------------------
+# Reachability publication (FR-19)
+# ---------------------------------------------------------------------------
+#
+# The prober is the only process that measures these endpoints and the chip that
+# renders them lives in another one, so the loop publishes every sweep to the
+# state file. Unconditionally: a reader ages the rows, and an unchanged row that
+# simply stops being republished is indistinguishable from a prober that died.
+#
+# What is published is what was MEASURED. ``stale`` is a read-time verdict drawn
+# from ``probed_at`` by whoever reads, never a state the prober writes down.
+
+
+@pytest.fixture
+def published_state(tmp_path, monkeypatch):
+    """A real state record under a tmp root, so a publish can be read back.
+
+    Stamping ``OSPREY_AGENT_DATA_ROOT`` is how a spawned session anchors the
+    directory, and it is the rule that wins in ``target_state.state_dir``, so a
+    test that stamps it exercises the path a deployed server actually takes.
+    """
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(tmp_path))
+    target_state.write_on_start(VA, {VA: {"label": "Virtual accelerator"}})
+    return tmp_path
+
+
+async def test_every_sweep_of_the_loop_publishes(listener, monkeypatch):
+    """Three sweeps, three publishes, each measured later than the last."""
+    published: list[dict[str, Any]] = []
+
+    def _record(rows: Any, **kwargs: Any) -> bool:
+        published.append(copy.deepcopy(rows))
+        return True
+
+    monkeypatch.setattr(ep.target_state, "publish_reachability", _record)
+
+    prober = _prober(_va_config(listener), targets=(VA,), interval_s=0.01)
+    await prober.start()
+    try:
+
+        async def _three() -> None:
+            while len(published) < 3:
+                await asyncio.sleep(0.01)
+
+        await asyncio.wait_for(_three(), timeout=5.0)
+    finally:
+        await prober.stop()
+
+    stamps = [
+        datetime.fromisoformat(sweep[VA]["read_only"]["probed_at"]) for sweep in published[:3]
+    ]
+    assert stamps[0] < stamps[1] < stamps[2]
+
+
+async def test_published_rows_speak_the_readers_vocabulary(listener):
+    """``ok``/``unreachable`` are the prober's words; the file carries FR-5's."""
+    closed = _closed_port()
+    prober = _prober(_both_targets_config(listener, closed), targets=(LIVE, VA))
+
+    await prober.sweep_once()
+    rows = prober.reachability_rows()
+
+    assert rows[VA]["read_only"]["state"] == STATE_REACHED
+    assert rows[LIVE]["read_only"]["state"] == STATE_DOWN
+
+
+async def test_not_applicable_is_published_as_itself(listener):
+    """A verdict from configuration travels intact; collapsing it invents a failure."""
+    prober = _prober(_va_config(listener, use_name_server=False), targets=(VA,))
+
+    await prober.sweep_once()
+    row = prober.reachability_rows()[VA]["read_only"]
+
+    assert row["state"] == STATUS_NOT_APPLICABLE
+    assert "UDP" in row["detail"]
+
+
+async def test_stale_is_never_published(listener):
+    """Age is the signal; the reader draws the conclusion from ``probed_at``."""
+    clock = FakeClock()
+    prober = _prober(_va_config(listener), targets=(VA,), interval_s=10.0, monotonic=clock)
+
+    await prober.sweep_once()
+    clock.advance(prober.staleness_threshold_s * 10)
+
+    assert prober.snapshot()[VA]["read_only"]["endpoint_tcp"] == STATUS_STALE
+    assert prober.reachability_rows()[VA]["read_only"]["state"] == STATE_REACHED
+
+
+async def test_published_rows_carry_the_gateway_they_were_measured_at(listener):
+    """A row that named no endpoint could be read as a claim about another one."""
+    prober = _prober(_va_config(listener), targets=(VA,))
+
+    await prober.sweep_once()
+    row = prober.reachability_rows()[VA]["read_only"]
+
+    assert row["gateway"] == f"127.0.0.1:{listener}"
+    datetime.fromisoformat(row["probed_at"])
+
+
+async def test_the_real_publisher_accepts_what_the_prober_produces(listener, published_state):
+    """End to end through ``target_state``: the file is read back, not mocked."""
+    prober = _prober(_va_config(listener), targets=(VA,), interval_s=1000.0)
+
+    await prober.start()
+    try:
+        await asyncio.wait_for(prober.first_sweep_done.wait(), timeout=5.0)
+    finally:
+        await prober.stop()
+
+    block = target_state.read()["reachability"]
+    row = block["targets"][VA]["read_only"]
+
+    assert row["state"] == STATE_REACHED
+    assert row["gateway"] == f"127.0.0.1:{listener}"
+    datetime.fromisoformat(block["published_at"])
+    age_s = (datetime.now(UTC) - datetime.fromisoformat(row["probed_at"])).total_seconds()
+    assert 0 <= age_s < 60
+
+
+async def test_a_failed_publish_does_not_stop_the_loop(listener, monkeypatch, caplog):
+    """An unwritable state directory costs a publish, never the measurements."""
+    calls: list[int] = []
+
+    def _boom(rows: Any, **kwargs: Any) -> bool:
+        calls.append(1)
+        raise OSError("state directory is read-only")
+
+    monkeypatch.setattr(ep.target_state, "publish_reachability", _boom)
+
+    prober = _prober(_va_config(listener), targets=(VA,), interval_s=0.01)
+
+    with caplog.at_level("WARNING", logger=ep.logger.name):
+        await prober.start()
+        try:
+
+            async def _twice() -> None:
+                while len(calls) < 2:
+                    await asyncio.sleep(0.01)
+
+            await asyncio.wait_for(_twice(), timeout=5.0)
+            assert prober.running is True
+            assert prober.snapshot()[VA]["read_only"]["endpoint_tcp"] == STATUS_OK
+        finally:
+            await prober.stop()
+
+    assert any("reachability" in record.getMessage().lower() for record in caplog.records)
+
+
+async def test_an_empty_sweep_publishes_an_empty_block(listener):
+    """A target that stops deriving must not leave its last row standing."""
+    config = _va_config(listener)
+    config["control_system"]["connector"]["virtual_accelerator"]["gateways"] = {}
+    prober = _prober(config, targets=(VA,))
+
+    await prober.sweep_once()
+
+    assert prober.reachability_rows() == {}
+
+
+async def test_reachability_rows_are_isolated_from_the_cache(listener):
+    """The publisher passes rows through verbatim, so they must not alias state."""
+    prober = _prober(_va_config(listener), targets=(VA,))
+    await prober.sweep_once()
+
+    rows = prober.reachability_rows()
+    rows[VA]["read_only"]["state"] = "tampered"
+
+    assert prober.reachability_rows()[VA]["read_only"]["state"] == STATE_REACHED

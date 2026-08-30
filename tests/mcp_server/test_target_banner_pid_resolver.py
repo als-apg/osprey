@@ -28,6 +28,7 @@ replaced by a synthetic parent map, exactly the seam
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -438,3 +439,286 @@ def test_a_pid_that_is_not_a_pid_yields_no_metadata(
     alive(monkeypatch, 5150)
 
     assert target_banner.session_target_meta_for_pid(pty_pid) is None
+
+
+# ── the whole record ────────────────────────────────────────────────────────
+#
+# The control-target surfaces read more than a name and a label: the outcome of
+# the last switch, the endpoint prober's reachability, a pending posture
+# realignment. Those are published into the SAME record on the writer's own
+# schedule, so a reader takes them off one match — facts from two resolutions
+# could straddle a switch and describe two different machines — and treats each
+# of them as optional, because a server that has not switched, probed or
+# realigned yet simply has not written them.
+
+PUBLISHED_EXTRAS = {
+    "last_switch": {"request_id": "r-1", "status": "applied", "at": "2026-08-30T00:00:00Z"},
+    "reachability": {"live": {"state": "reachable", "probed_at": "2026-08-30T00:00:01Z"}},
+    "last_posture_realign": {"status": "done", "at": "2026-08-30T00:00:02Z"},
+}
+
+
+def write_record(state_dir, *, server_pid, **fields):
+    """Write one state file from an explicit record body."""
+    state_dir.mkdir(parents=True, exist_ok=True)
+    path = state_dir / f"{target_state.STATE_FILE_PREFIX}{server_pid}.json"
+    record = {
+        "target": "live",
+        "generation": 1,
+        "server_pid": server_pid,
+        "owner_ppid": PTY_PID,
+        "targets": STANDIN_TARGETS,
+        "children": [],
+    }
+    record.update(fields)
+    path.write_text(json.dumps(record), encoding="utf-8")
+    return path
+
+
+def test_the_record_accessor_returns_everything_the_writer_published(
+    state_dir, synthetic_tree, monkeypatch
+):
+    """One match, one record: the identity facts and the published ones."""
+    write_record(state_dir, server_pid=5150, **PUBLISHED_EXTRAS)
+    alive(monkeypatch, 5150)
+
+    record = target_banner.session_record_for_pid(PTY_PID)
+
+    assert record["target"] == "live"
+    assert record["server_pid"] == 5150
+    assert record["owner_ppid"] == PTY_PID
+    assert record["targets"] == STANDIN_TARGETS
+    for key, value in PUBLISHED_EXTRAS.items():
+        assert record[key] == value
+
+
+def test_a_record_without_the_published_extras_still_resolves(
+    state_dir, synthetic_tree, monkeypatch
+):
+    """They arrive on the writer's schedule; absence is "not recorded", not "no"."""
+    write_record(state_dir, server_pid=5150)
+    alive(monkeypatch, 5150)
+
+    record = target_banner.session_record_for_pid(PTY_PID)
+
+    assert record["target"] == "live"
+    assert record.get("last_switch") is None
+    assert record.get("reachability") is None
+    assert record.get("last_posture_realign") is None
+
+
+def test_the_record_and_meta_accessors_answer_off_the_same_match(
+    state_dir, synthetic_tree, monkeypatch
+):
+    """The metadata twin is a narrowing of the record, never a second opinion."""
+    write_record(state_dir, server_pid=5150, owner_ppid=CLAUDE_PID, **PUBLISHED_EXTRAS)
+    alive(monkeypatch, 5150)
+
+    record = target_banner.session_record_for_pid(PTY_PID)
+    meta = target_banner.session_target_meta_for_pid(PTY_PID)
+
+    assert meta["target"] == record["target"]
+    assert meta == {**record["targets"][record["target"]], "target": record["target"]}
+
+
+def test_no_matching_record_yields_no_record(state_dir, synthetic_tree, monkeypatch):
+    """Another session's record does not answer for this PTY, here either."""
+    write_state(state_dir, target="va", owner_ppid=STRANGER_PID, server_pid=5150)
+    alive(monkeypatch, 5150)
+
+    assert target_banner.session_record_for_pid(PTY_PID) is None
+
+
+def test_two_matching_records_yield_no_record(state_dir, synthetic_tree, monkeypatch):
+    """Ambiguity is fail-closed on the widest accessor as well."""
+    write_state(state_dir, target="va", owner_ppid=PTY_PID, server_pid=5150)
+    write_state(state_dir, target="live", owner_ppid=CLAUDE_PID, server_pid=5151)
+    alive(monkeypatch, 5150, 5151)
+
+    assert target_banner.session_record_for_pid(PTY_PID) is None
+
+
+@pytest.mark.parametrize("pty_pid", [None, 0, -1, "nonsense"])
+def test_a_pid_that_is_not_a_pid_yields_no_record(state_dir, synthetic_tree, monkeypatch, pty_pid):
+    write_state(state_dir, target="va", owner_ppid=PTY_PID, server_pid=5150)
+    alive(monkeypatch, 5150)
+
+    assert target_banner.session_record_for_pid(pty_pid) is None
+
+
+# ── the web terminal's per-session memo ─────────────────────────────────────
+#
+# The chip polls, so the web terminal remembers WHICH file a session's record
+# lives in and stops re-walking the process table for an answer that has not
+# moved. What it must never do is serve a stale one: the file's contents change
+# on the writer's schedule, and the match itself stops holding the moment the
+# PTY is respawned, the file disappears, or a second record turns one answer
+# into none. These tests pin each of those.
+
+SESSION_KEY = "11111111-2222-3333-4444-555555555555"
+OTHER_PTY_PID = 7100
+
+
+class _FakeSession:
+    def __init__(self, pid):
+        self.pid = pid
+
+
+class _FakeRegistry:
+    """Only what the helper asks of a registry: a read-only session lookup."""
+
+    def __init__(self, sessions):
+        self.sessions = sessions
+
+    def get_session(self, key):
+        pid = self.sessions.get(key)
+        return _FakeSession(pid) if pid else None
+
+
+class _FakeApp:
+    def __init__(self, sessions):
+        self.state = SimpleNamespace(pty_registry=_FakeRegistry(sessions))
+
+
+@pytest.fixture
+def routes():
+    """The web-terminal router module, with an empty memo before and after."""
+    from osprey.interfaces.web_terminal.routes import websocket
+
+    websocket._reset_session_record_memo()
+    yield websocket
+    websocket._reset_session_record_memo()
+
+
+@pytest.fixture
+def resolutions(monkeypatch):
+    """Count full resolutions — the walk of the process table the memo saves."""
+    calls: list[object] = []
+    real = target_banner.session_record_for_pid
+
+    def counted(pty_pid):
+        calls.append(pty_pid)
+        return real(pty_pid)
+
+    monkeypatch.setattr(target_banner, "session_record_for_pid", counted)
+    return calls
+
+
+def test_the_memo_resolves_once_and_answers_from_the_match(
+    state_dir, synthetic_tree, monkeypatch, routes, resolutions
+):
+    write_record(state_dir, server_pid=5150, **PUBLISHED_EXTRAS)
+    alive(monkeypatch, 5150)
+    app = _FakeApp({SESSION_KEY: PTY_PID})
+
+    first = routes._session_record(app, SESSION_KEY)
+    second = routes._session_record(app, SESSION_KEY)
+
+    assert first == second
+    assert first["last_switch"] == PUBLISHED_EXTRAS["last_switch"]
+    assert resolutions == [PTY_PID], "the process table was walked more than once"
+
+
+def test_a_republished_file_is_re_read_without_a_second_walk(
+    state_dir, synthetic_tree, monkeypatch, routes, resolutions
+):
+    """Reachability lands every prober sweep; a memo hit must not go stale."""
+    write_record(state_dir, server_pid=5150)
+    alive(monkeypatch, 5150)
+    app = _FakeApp({SESSION_KEY: PTY_PID})
+
+    assert routes._session_record(app, SESSION_KEY).get("reachability") is None
+    write_record(state_dir, server_pid=5150, **PUBLISHED_EXTRAS)
+
+    refreshed = routes._session_record(app, SESSION_KEY)
+
+    assert refreshed["reachability"] == PUBLISHED_EXTRAS["reachability"]
+    assert resolutions == [PTY_PID], "a republish must cost a file read, not a walk"
+
+
+def test_the_memo_invalidates_when_the_state_file_disappears(
+    state_dir, synthetic_tree, monkeypatch, routes
+):
+    """The server shut down and removed its record; the answer goes with it."""
+    path = write_record(state_dir, server_pid=5150)
+    alive(monkeypatch, 5150)
+    app = _FakeApp({SESSION_KEY: PTY_PID})
+
+    assert routes._session_record(app, SESSION_KEY)["target"] == "live"
+    path.unlink()
+
+    assert routes._session_record(app, SESSION_KEY) is None
+
+
+def test_a_dead_writer_ends_the_memo_hit(state_dir, synthetic_tree, monkeypatch, routes):
+    """A killed server leaves its file behind; a memo must not keep it speaking."""
+    write_record(state_dir, server_pid=5150)
+    alive(monkeypatch, 5150)
+    app = _FakeApp({SESSION_KEY: PTY_PID})
+
+    assert routes._session_record(app, SESSION_KEY)["target"] == "live"
+    write_record(state_dir, server_pid=5150, **PUBLISHED_EXTRAS)
+    alive(monkeypatch)
+
+    assert routes._session_record(app, SESSION_KEY) is None
+
+
+def test_a_second_matching_record_makes_the_memo_re_resolve(
+    state_dir, synthetic_tree, monkeypatch, routes
+):
+    """Two matches is no answer, and a memo that watched one file would miss it."""
+    write_record(state_dir, server_pid=5150)
+    alive(monkeypatch, 5150)
+    app = _FakeApp({SESSION_KEY: PTY_PID})
+
+    assert routes._session_record(app, SESSION_KEY)["target"] == "live"
+    write_state(state_dir, target="va", owner_ppid=CLAUDE_PID, server_pid=5151)
+    alive(monkeypatch, 5150, 5151)
+
+    assert routes._session_record(app, SESSION_KEY) is None
+
+
+def test_a_respawned_pty_is_not_answered_from_the_old_match(
+    state_dir, synthetic_tree, monkeypatch, routes
+):
+    """A new PTY is a new question, even under the same session key."""
+    write_record(state_dir, server_pid=5150)
+    alive(monkeypatch, 5150)
+    app = _FakeApp({SESSION_KEY: PTY_PID})
+
+    assert routes._session_record(app, SESSION_KEY)["target"] == "live"
+    app.state.pty_registry.sessions[SESSION_KEY] = OTHER_PTY_PID
+
+    assert routes._session_record(app, SESSION_KEY) is None
+
+
+def test_a_session_with_no_pty_has_no_record(state_dir, synthetic_tree, monkeypatch, routes):
+    """A chat key, or a card whose session has not started: baseline, no error."""
+    write_record(state_dir, server_pid=5150)
+    alive(monkeypatch, 5150)
+
+    assert routes._session_record(_FakeApp({}), SESSION_KEY) is None
+
+
+def test_the_caller_gets_a_copy_it_may_keep(state_dir, synthetic_tree, monkeypatch, routes):
+    """A renderer that annotates its record must not poison the next request."""
+    write_record(state_dir, server_pid=5150, **PUBLISHED_EXTRAS)
+    alive(monkeypatch, 5150)
+    app = _FakeApp({SESSION_KEY: PTY_PID})
+
+    first = routes._session_record(app, SESSION_KEY)
+    first["target"] = "somewhere-else"
+    first["last_switch"]["status"] = "refused"
+
+    second = routes._session_record(app, SESSION_KEY)
+    assert second["target"] == "live"
+    assert second["last_switch"] == PUBLISHED_EXTRAS["last_switch"]
+
+
+def test_an_unfamiliar_registry_yields_no_record(state_dir, synthetic_tree, monkeypatch, routes):
+    """This surface grants nothing to a registry it cannot ask."""
+    write_record(state_dir, server_pid=5150)
+    alive(monkeypatch, 5150)
+    app = SimpleNamespace(state=SimpleNamespace())
+
+    assert routes._session_record(app, SESSION_KEY) is None
