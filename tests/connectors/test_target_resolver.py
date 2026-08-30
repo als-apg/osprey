@@ -21,6 +21,7 @@ from typing import Any
 import pytest
 
 from osprey_connectors.types import (
+    CHANNEL_ACCESS_TYPES,
     CONTROL_TARGETS,
     DOOCS,
     EPICS,
@@ -65,6 +66,14 @@ def test_the_stand_in_is_a_type_of_its_own_whose_history_is_invented():
     assert LIVE_STANDIN == "live_standin"
     assert STANDIN_TYPES == (LIVE_STANDIN,)
     assert INVENTED_HISTORY_TYPES == (VIRTUAL_ACCELERATOR, LIVE_STANDIN)
+
+
+@pytest.mark.unit
+def test_channel_access_is_spoken_by_epics_the_va_and_the_stand_in():
+    """The one class the queue worker executes plans against; the rest browse."""
+    assert CHANNEL_ACCESS_TYPES == (EPICS, VIRTUAL_ACCELERATOR, LIVE_STANDIN)
+    assert MOCK not in CHANNEL_ACCESS_TYPES
+    assert DOOCS not in CHANNEL_ACCESS_TYPES
 
 
 # ---------------------------------------------------------------------------

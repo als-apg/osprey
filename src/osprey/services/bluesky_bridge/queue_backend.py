@@ -54,12 +54,6 @@ from bluesky_queueserver_api.comm_base import RequestFailedError, RequestTimeout
 
 logger = logging.getLogger("osprey.services.bluesky_bridge.queue_backend")
 
-# Connector types that can drive real Channel Access — a virtual accelerator
-# soft-IOC, the live stand-in soft-IOC, or live hardware. Everything else
-# browses only. Kept in step with `qserver_startup._EPICS_LIKE_CONNECTOR_TYPES`,
-# which lives in the worker process and cannot be imported from here.
-_EPICS_LIKE_CONNECTOR_TYPES = ("virtual_accelerator", "epics", "live_standin")
-
 # Read by `bluesky_queueserver_api` itself when `REManagerAPI` is constructed
 # with no explicit address (see `comm_base`), so the compose spec is the only
 # place these are set. Named here because `from_env` gates on the control
@@ -1116,6 +1110,8 @@ class QueueBackend:
         connector than the one plans will actually run against would be a
         capability describing some other lane.
         """
+        from osprey_connectors.types import CHANNEL_ACCESS_TYPES
+
         lane, lane_target = resolve_lane_identity()
         if _resolve_connector_type() is None:
             return Capability(
@@ -1145,7 +1141,7 @@ class QueueBackend:
                 ),
             )
 
-        if connector_type not in _EPICS_LIKE_CONNECTOR_TYPES:
+        if connector_type not in CHANNEL_ACCESS_TYPES:
             return Capability(
                 can_execute=False,
                 reason=REASON_UNSUPPORTED_CONNECTOR,

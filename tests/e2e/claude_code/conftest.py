@@ -220,8 +220,8 @@ def safety_project_selective(tmp_path_factory):
         },
     }
     config["control_system"]["writes_enabled"] = True
-    config["control_system"]["limits_checking"]["database_path"] = str(SAFETY_LIMITS_DB)
     config_path.write_text(yaml.dump(config, default_flow_style=False))
+    _point_at_safety_limits_db(repo)
     return repo
 
 

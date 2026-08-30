@@ -108,6 +108,12 @@ STANDIN_TYPES = (LIVE_STANDIN,)
 #: an archive of its own — see :mod:`osprey_connectors.honesty`.
 INVENTED_HISTORY_TYPES = (VIRTUAL_ACCELERATOR, LIVE_STANDIN)
 
+#: Types that speak real Channel Access — the facility's own EPICS machine, a
+#: virtual-accelerator soft-IOC, or the live stand-in soft-IOC. The queue worker
+#: builds its devices over Channel Access and nothing else, so these are the
+#: only types plans can execute against; every other type browses.
+CHANNEL_ACCESS_TYPES = (EPICS, VIRTUAL_ACCELERATOR, LIVE_STANDIN)
+
 #: The target each self-standing machine's type is the baseline of. A type
 #: absent from this table describes the facility's own machine, hence ``live``.
 _BASELINE_TARGETS = {VIRTUAL_ACCELERATOR: TARGET_VA, LIVE_STANDIN: TARGET_STANDIN}
