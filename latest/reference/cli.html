@@ -547,7 +547,9 @@ already encloses the target or <code class="docutils literal notranslate"><span 
 (repeatable, in order).</p>
 <p><code class="docutils literal notranslate"><span class="pre">--set</span> <span class="pre">KEY.PATH=VALUE</span></code> — Inline scalar/list override baked into the emitted
 profile (repeatable). RHS is parsed as YAML. Top-level shorthands: <code class="docutils literal notranslate"><span class="pre">provider</span></code>,
-<code class="docutils literal notranslate"><span class="pre">model</span></code>, <code class="docutils literal notranslate"><span class="pre">channel_finder_mode</span></code>, <code class="docutils literal notranslate"><span class="pre">connector</span></code>.</p>
+<code class="docutils literal notranslate"><span class="pre">model</span></code>, <code class="docutils literal notranslate"><span class="pre">channel_finder_mode</span></code>, <code class="docutils literal notranslate"><span class="pre">connector</span></code>, <code class="docutils literal notranslate"><span class="pre">port_base</span></code> (move the whole
+deployment onto another thousand-port block, e.g. <code class="docutils literal notranslate"><span class="pre">--set</span> <span class="pre">port_base=42000</span></code> —
+handy for a second stack beside one already on the default 10000 block).</p>
 <p><code class="docutils literal notranslate"><span class="pre">--force</span></code> — Re-materialize the source zone of an existing deployment
 repository, discarding edits to <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">data/</span></code>, <code class="docutils literal notranslate"><span class="pre">personas/</span></code>,
 <code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">web-terminal-context/</span></code>, and <code class="docutils literal notranslate"><span class="pre">.env.example</span></code>. Never touches

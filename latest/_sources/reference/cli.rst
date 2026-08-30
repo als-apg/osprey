@@ -104,7 +104,9 @@ already encloses the target or ``--no-git`` is given.
 
 ``--set KEY.PATH=VALUE`` — Inline scalar/list override baked into the emitted
 profile (repeatable). RHS is parsed as YAML. Top-level shorthands: ``provider``,
-``model``, ``channel_finder_mode``, ``connector``.
+``model``, ``channel_finder_mode``, ``connector``, ``port_base`` (move the whole
+deployment onto another thousand-port block, e.g. ``--set port_base=42000`` —
+handy for a second stack beside one already on the default 10000 block).
 
 ``--force`` — Re-materialize the source zone of an existing deployment
 repository, discarding edits to ``profile.yml``, ``data/``, ``personas/``,
