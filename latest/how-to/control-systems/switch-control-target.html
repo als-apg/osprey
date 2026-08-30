@@ -596,6 +596,12 @@ you would be moving to.</p>
 <em>“switch to the virtual accelerator”</em>. A session on the simulator looks like a
 session on the machine: reads, writes and the python executor all follow the
 switch.</p>
+<p>In the Web Terminal you can also move the session yourself, without asking the
+agent: the <a class="reference internal" href="../web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">control-target chip</span></a> in the
+header lists every target and offers <strong>Switch</strong> on the ones this session could
+move to. The switch it asks for is the same one — the same gate, the same
+checks, the same refusal words — and a target the gate would refuse shows that
+word where the button would be.</p>
 <p>Whether writes are <em>allowed</em> follows it too. Write posture is per control
 target, so a deployment can be armed on the simulator and read-only on the
 machine — the same tool call that moved a setpoint before the switch is refused
@@ -952,13 +958,14 @@ line says so explicitly instead of disappearing.</p></li>
 target and the archiver that served them, so a saved plot still says what it
 is about a week later.</p></li>
 <li><p><strong>The session’s target is visible in the Web Terminal</strong> activity stream as
-work happens, and on the posture badge in the terminal card’s header, which
-names the current target beside the session’s posture and says whether writes
-are armed for <em>that</em> target — <code class="docutils literal notranslate"><span class="pre">va</span> <span class="pre">·</span> <span class="pre">armed</span></code>, <code class="docutils literal notranslate"><span class="pre">live</span> <span class="pre">·</span> <span class="pre">not</span> <span class="pre">armed</span></code>. Write
-posture is per target, so a deployment can arm its simulator and leave the
-live machine read-only; the badge is where that shows. It catches up with a
-switch a few seconds after you make one, and when no target can be resolved for
-the session it shows the deployment’s default, marked <code class="docutils literal notranslate"><span class="pre">(baseline)</span></code>.</p></li>
+work happens, and on the <a class="reference internal" href="../web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">control-target chip</span></a> in the header, which names the machine the
+session stands on and the write state on <em>that</em> machine —
+<code class="docutils literal notranslate"><span class="pre">●</span> <span class="pre">VIRTUAL</span> <span class="pre">·</span> <span class="pre">writes</span></code>, <code class="docutils literal notranslate"><span class="pre">●</span> <span class="pre">LIVE</span> <span class="pre">·</span> <span class="pre">read-only</span></code>. Write posture is per target, so
+a deployment can arm its simulator and leave the live machine read-only; the
+chip is where that shows. It catches up with a switch a few seconds after one
+is made, whoever made it. The popover tags the deployment’s default row
+<code class="docutils literal notranslate"><span class="pre">baseline</span></code>, and the chip falls back to that row when no target can be
+resolved for the session.</p></li>
 <li><p><strong>Nothing survives the session.</strong> Every controls-server start returns to the
 deployment baseline. There is no saved preference that could quietly point a
 later session at the real machine.</p></li>
@@ -1049,10 +1056,10 @@ osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span
 <code class="docutils literal notranslate"><span class="pre">virtual_accelerator.live_standin</span></code>: both would name a machine the deployment
 does not run.</p>
 <p><strong>The label stays honest.</strong> Nothing calls the stand-in the live machine. The
-banner and the posture badge read <code class="docutils literal notranslate"><span class="pre">LIVE</span> <span class="pre">MACHINE</span> <span class="pre">(stand-in)</span></code>, and the roster
-says the same. It carries a real machine’s posture — the same limits, the same
-approval prompts — because it is operated as one, not because a write reaches
-the facility. What the stand-in rehearses is the procedure, not the risk.</p>
+banner reads <code class="docutils literal notranslate"><span class="pre">LIVE</span> <span class="pre">MACHINE</span> <span class="pre">(stand-in)</span></code>, the roster says the same, and the
+header chip reads <code class="docutils literal notranslate"><span class="pre">STAND-IN</span></code>. It carries a real machine’s posture — the
+same limits, the same approval prompts — because it is operated as one, not
+because a write reaches the facility. What the stand-in rehearses is the procedure, not the risk.</p>
 <p><strong>Telling the two machines apart.</strong> Both run one image over one lattice, so the
 stand-in ships a small fixed offset on its BPM readouts: a read that comes back
 different is how you know which machine answered. That perturbation needs the

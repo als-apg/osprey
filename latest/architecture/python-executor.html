@@ -732,18 +732,31 @@ would change what plotting code is allowed to <em>read</em> today.</p>
 </section>
 <section id="session-posture">
 <span id="python-executor-session-posture"></span><h3>Session posture<a class="headerlink" href="#session-posture" title="Link to this heading">#</a></h3>
-<p>An operator can step a whole Web Terminal session into a <strong>sandbox posture</strong>
-from its session card (see <a class="reference internal" href="../how-to/web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">Sandbox one session</span></a>). Every process
-that session launches, this server included, then runs with
-<code class="docutils literal notranslate"><span class="pre">OSPREY_EXECUTION_MODE=readonly</span></code>, and a <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> <code class="docutils literal notranslate"><span class="pre">execute</span></code> is refused
-by the executor’s own posture gate, whatever the deployment itself permits:</p>
+<p>An operator can narrow a Web Terminal session’s write posture on one control
+target from the control-target chip in the header (see
+<a class="reference internal" href="../how-to/web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">The control-target chip</span></a>). This server reads that narrowing at the
+moment a run asks for writes — not from the environment it was started with,
+so a narrowing made mid-conversation applies to the next run — and a
+<code class="docutils literal notranslate"><span class="pre">readwrite</span></code> <code class="docutils literal notranslate"><span class="pre">execute</span></code> on a narrowed target is refused by the executor’s own
+posture gate, whatever the deployment itself permits:</p>
 <blockquote>
-<div><p>This terminal session is in the sandbox posture, which refuses
-control-system writes regardless of what the run asks for.</p>
+<div><p>This session’s write posture for the ‘&lt;target&gt;’ control target is read-only
+— set from the control-target chip in the header, and in force for this
+session only.</p>
 </div></blockquote>
+<p>Where the run’s target cannot be identified, the most restrictive posture
+recorded for the session decides, and the message says so — <em>“This session’s
+write posture is read-only for at least one control target (the run’s target
+could not be identified, so the most restrictive decides) — set from the
+control-target chip in the header.”</em> — rather than granting the run the most
+permissive answer.</p>
 <p>The agent is told to re-run as <code class="docutils literal notranslate"><span class="pre">readonly</span></code> — reads are untouched by the
-posture — or to ask the operator to switch the session back. The deployment’s
-<code class="docutils literal notranslate"><span class="pre">config.yml</span></code> is not the gate here and the message does not point at it.</p>
+posture — or to set that target back to writes from the chip. The deployment’s
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code> is not the gate here and the message says so.</p>
+<p>A run that has already started cannot be <em>widened</em>: it keeps the launch pin it
+started under, so a script cannot gain write access to a machine the operator
+took away from it while it was running. A narrowing that lands mid-run is
+honoured by the reference monitor inside the sandbox at the moment of the write.</p>
 </section>
 <section id="when-a-write-is-refused">
 <h3>When a write is refused<a class="headerlink" href="#when-a-write-is-refused" title="Link to this heading">#</a></h3>

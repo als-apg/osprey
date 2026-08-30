@@ -566,9 +566,11 @@ dockable tiles. See <a class="reference internal" href="panels.html"><span class
 <strong>Documentation</strong> link and a <strong>Feedback</strong> button that lets whoever is at the
 terminal report a problem without leaving it. See
 <a class="reference internal" href="send-feedback.html"><span class="doc">Send and Retrieve Feedback</span></a>.</p></li>
-<li><p><strong>Header</strong> — the display menu (a small dot holding the light/dark,
-Expert/Simple, and theme controls — see <a class="reference internal" href="theming.html"><span class="doc">Theming</span></a>), a settings drawer,
-and an optional name badge to tell one deployment from another.</p></li>
+<li><p><strong>Header</strong> — the <a class="reference internal" href="#web-terminal-session-posture"><span class="std std-ref">control-target chip</span></a>
+(which machine this session writes to, and whether it may), the display menu
+(a small dot holding the light/dark, Expert/Simple, and theme controls — see
+<a class="reference internal" href="theming.html"><span class="doc">Theming</span></a>), a settings drawer, and an optional name badge to tell one
+deployment from another.</p></li>
 </ul>
 <p>The settings drawer lets you read and edit the project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — and
 the agent’s own setup and memory files — from the browser, so you rarely need
@@ -582,58 +584,150 @@ plain Ctrl+C always interrupts the agent. Serve the terminal over HTTPS for
 this to work in every browser — on a plain <code class="docutils literal notranslate"><span class="pre">http://</span></code> page copying falls
 back to an older browser mechanism that Safari may refuse.</p>
 </section>
-<section id="sandbox-one-session">
-<span id="web-terminal-session-posture"></span><h2>Sandbox one session<a class="headerlink" href="#sandbox-one-session" title="Link to this heading">#</a></h2>
-<p>Every terminal session carries a <strong>posture</strong>, shown as a badge in the terminal
-card’s header:</p>
+<section id="the-control-target-chip">
+<span id="web-terminal-session-posture"></span><h2>The control-target chip<a class="headerlink" href="#the-control-target-chip" title="Link to this heading">#</a></h2>
+<p>The header carries a chip that answers, at a glance, the question every write
+depends on: <em>if the agent writes now, which machine does it land on, and will
+it be refused?</em> It reads like this:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>● STAND-IN · writes ▾
+</pre></div>
+</div>
+<p>The first word is the machine this session stands on — <code class="docutils literal notranslate"><span class="pre">LIVE</span></code> for the
+facility’s own machine, <code class="docutils literal notranslate"><span class="pre">STAND-IN</span></code> for a rehearsal machine that is operated
+like one, <code class="docutils literal notranslate"><span class="pre">VIRTUAL</span></code> for the virtual accelerator, <code class="docutils literal notranslate"><span class="pre">SIMULATED</span></code> for anything
+else simulated. The second is the write state <strong>on that machine</strong>:</p>
 <ul class="simple">
-<li><p><strong>Writes</strong> — the session runs whatever the deployment permits, under its
-usual approval and write-safety rules. This is the baseline.</p></li>
-<li><p><strong>Sandbox</strong> — the session refuses every control-system write, for as long as
-it stays sandboxed. Reads are untouched: the agent keeps its full view of the
-control system and of the project, and can still run analysis, plots and
-readonly Python.</p></li>
+<li><p><strong>writes</strong> — the agent may write there, under the deployment’s usual
+approval and write-safety rules. This is the baseline.</p></li>
+<li><p><strong>read-only</strong> — the deployment does not arm writes on that target, or the
+whole deployment is running read-only. Nothing in the browser lifts this.</p></li>
+<li><p><strong>sandbox</strong> — <em>you</em> narrowed that target for this session. Reads are
+untouched: the agent keeps its full view of the control system and of the
+project, and can still run analysis, plots and readonly Python.</p></li>
 </ul>
-<p>Click the badge to switch. Both directions ask you to confirm, every time and
-with nothing remembered between switches, because switching restarts the agent
-for that session: the turn it is running right now stops immediately. Your
-conversation history is preserved — the terminal reconnects to the same
-session and you pick up where you left off.</p>
+<p>Click the chip and a popover opens on <strong>every</strong> control target the deployment
+configures, not only the one you are standing on.</p>
+<section id="one-row-per-machine">
+<h3>One row per machine<a class="headerlink" href="#one-row-per-machine" title="Link to this heading">#</a></h3>
+<p>Each row names a machine and carries the two things you can do to it:</p>
+<ul class="simple">
+<li><p><strong>What it is</strong> — the name the deployment gave it, and a plain word for the
+kind of machine behind it: <em>live machine</em>, <em>stand-in</em>, <em>virtual accelerator</em>
+or <em>simulated</em>. That word comes from what the connector actually is, so a
+stand-in never renders as the facility’s own machine. The row you are on is
+tagged <code class="docutils literal notranslate"><span class="pre">current</span></code>.</p></li>
+<li><p><strong>Whether it is answering</strong> — <code class="docutils literal notranslate"><span class="pre">connected</span></code>, <code class="docutils literal notranslate"><span class="pre">unreachable</span></code> or <code class="docutils literal notranslate"><span class="pre">unknown</span></code>,
+with how long ago that was measured. <code class="docutils literal notranslate"><span class="pre">unknown</span></code> means nothing has vouched for
+it yet, not that it is down.</p></li>
+<li><p><strong>writes | read-only</strong> — the posture <em>this session</em> holds on that target, as
+a two-segment toggle. It is the readout as well as the control: where it
+cannot move it still shows which state holds, with the reason beside it.</p></li>
+<li><p><strong>Switch</strong> — moves this session onto that machine. Where a switch is not
+available the button is replaced by the reason word, so the gap is explained
+rather than merely empty.</p></li>
+</ul>
+<p>The foot of the popover has <strong>Sandbox everything</strong>, which narrows every target
+that can be narrowed in one gesture, and the sentence that bounds the whole
+surface: nothing here changes the deployment’s config.</p>
+</section>
+<section id="narrow-a-target-or-widen-it">
+<h3>Narrow a target, or widen it<a class="headerlink" href="#narrow-a-target-or-widen-it" title="Link to this heading">#</a></h3>
+<p>The posture is <strong>per target</strong>. Narrowing the live machine leaves a session
+working on the virtual accelerator alone, which is the point: you can put the
+machine you are worried about out of reach without giving up the one you are
+working on.</p>
+<p>Narrowing applies as you click it — taking reach away needs no ceremony.
+Widening a target back to writes asks you to confirm first, every time and with
+nothing remembered between clicks, and the confirmation names the machine and
+the endpoint the agent would then be able to write to.</p>
+<p><strong>Nothing is restarted.</strong> Every gate reads the posture at the moment of the
+write, so a narrowing lands on the conversation that is already running: the
+agent obeys it on its very next write, and the turn in flight is not
+interrupted. The one lag worth knowing about is a narrowing on the target the
+session is <em>on</em> — it reaches the agent when the connector is rebuilt, which
+waits for a running execution to finish, and the row says so rather than
+leaving a toggle that appears to have done nothing.</p>
+<p><strong>It narrows, and never widens.</strong> Only narrowings are recorded, so the chip can
+tighten what the deployment permits and never loosen it. Where the toggle
+cannot move it is locked and carries the reason:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 70.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Reason</p></th>
+<th class="head"><p>What it means</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">persona</span> <span class="pre">ceiling</span></code></p></td>
+<td><p>This deployment does not arm writes on that target at all. Only a
+rebuild changes that, not a click.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">readonly</span> <span class="pre">run</span></code></p></td>
+<td><p>The whole deployment is running read-only
+(<code class="docutils literal notranslate"><span class="pre">OSPREY_EXECUTION_MODE=readonly</span></code>), which sits above any one session.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">not</span> <span class="pre">enforceable</span></code></p></td>
+<td><p>This session’s control-system server is not one this web server can
+address, so a narrowing recorded here would be read by nobody. The
+roster still renders — it is worth reading — but the toggles govern
+nothing.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">store</span> <span class="pre">unavailable</span></code></p></td>
+<td><p>The deployment’s agent-data root does not resolve, so there is nowhere to
+record a posture the agent would read back. Nothing was changed.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">no</span> <span class="pre">read-only</span> <span class="pre">endpoint</span></code></p></td>
+<td><p>Narrowing this target would select a gateway role the deployment has not
+configured, leaving the target unusable. You are told before you act,
+not after.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Two more refusals arrive on the gesture rather than on the toggle. A session
+that has never been sent a prompt has nothing to record a posture against:
+<em>“This session has not started yet — send one prompt first, then set its
+posture.”</em> And widening while an execution is running is refused — a run is
+pinned to the posture it launched under, so a widening could not reach it
+anyway, and saying so beats a silent no-op.</p>
+</section>
+<section id="switch-this-session-to-another-machine">
+<h3>Switch this session to another machine<a class="headerlink" href="#switch-this-session-to-another-machine" title="Link to this heading">#</a></h3>
+<p><strong>Switch</strong> on a row moves the session onto that machine, after a confirmation
+that names it and its endpoint. The web server does not perform the switch: it
+records the request, and the control-system server that owns the connector
+picks it up, re-checks eligibility and reachability at that moment, and
+publishes the outcome back. The row then reads <code class="docutils literal notranslate"><span class="pre">✓</span> <span class="pre">switched</span></code>, or <code class="docutils literal notranslate"><span class="pre">✗</span></code> with the
+refusal word — the same word the agent is given for the same refusal. While a
+request is out the chip reads <code class="docutils literal notranslate"><span class="pre">switching…</span></code>, and one request is outstanding at
+a time. If nothing answers within 30 seconds the row reads <code class="docutils literal notranslate"><span class="pre">request_expired</span></code>:
+the request was written, and nothing that could act on it was alive.</p>
+<p>What the switch itself is gated on — the approval prompt, the limits posture,
+the archive — is <a class="reference internal" href="../control-systems/switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a>.</p>
+</section>
+<section id="simple-and-expert">
+<h3>Simple and Expert<a class="headerlink" href="#simple-and-expert" title="Link to this heading">#</a></h3>
+<p>The popover follows the session’s density setting (the Simple/Expert control in
+the display menu; see <a class="reference internal" href="theming.html"><span class="doc">Theming</span></a>). Simple mode shows the machine, the plain
+kind word, whether it is answering, the toggle and <strong>Switch</strong>. Expert mode adds
+the endpoint, the gateway role, the age of the last probe, and the notes under a
+locked toggle. The controls and the confirmations are the same in both: the
+density changes what is on screen, never what a click does.</p>
+</section>
+<section id="where-the-posture-lives">
+<h3>Where the posture lives<a class="headerlink" href="#where-the-posture-lives" title="Link to this heading">#</a></h3>
 <p>The posture belongs to <strong>one session</strong>, not to the deployment. Nothing is
-written to <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>; the session’s agent is respawned with the sandbox
-marker in its environment, and every process it launches inherits it. Two
-people working in two sessions of the same deployment can hold different
-postures, and one of them sandboxing theirs does not touch the other.</p>
-<p>It narrows, and never widens. On a deployment rendered so that <strong>no</strong> control
-target may be written to, no session can leave the sandbox: the request is
-refused with <em>“This deployment arms writes for no control target … No session
-can step out of the sandbox until one target is armed”</em>, and the badge on a
-sandboxed session there is shown disabled rather than offering a switch that is
-certain to fail.</p>
-<p>Write posture is per target, so a deployment armed on one target and not another
-is not that deployment: its sessions can leave the sandbox, and what they meet
-afterwards depends on where the session is pointed. Leaving the sandbox restores
-the deployment’s posture; it never adds to it.</p>
-<p>The badge therefore carries a second reading beside the posture word: the
-control target this session is on, and whether writes are armed <strong>for that
-target</strong> — <code class="docutils literal notranslate"><span class="pre">live</span> <span class="pre">·</span> <span class="pre">armed</span></code> or <code class="docutils literal notranslate"><span class="pre">live</span> <span class="pre">·</span> <span class="pre">not</span> <span class="pre">armed</span></code>. On a deployment that
-arms its virtual accelerator and leaves the live machine read-only, a session
-sitting on the live machine reads <code class="docutils literal notranslate"><span class="pre">live</span> <span class="pre">·</span> <span class="pre">not</span> <span class="pre">armed</span></code>: the session is out of
-the sandbox, and every write it attempts on that target is still refused, one
-call at a time. The reading updates a few seconds after you switch targets, so
-you do not have to reload the page to trust it. When no control target can be
-resolved for the session — before the controls tools have been used at all, or
-when the record cannot be read — it shows the deployment’s own default, marked
-<code class="docutils literal notranslate"><span class="pre">(baseline)</span></code>.</p>
-<p>A terminal session has to have started before it can be given a posture — it
-only exists on disk once it has been sent a prompt. Until then the request is
-refused with <em>“This session has not started yet — send one prompt first, then
-set its posture.”</em> (Chat sessions answer to a different rule; see the note at
-the end of this section.)</p>
-<p>Postures survive a restart. They are stored in
-<code class="docutils literal notranslate"><span class="pre">var/agent_data/session-postures.json</span></code>, written as soon as you switch and
-read back when the server starts, so restarting the container never quietly
-returns a sandboxed session to writes.</p>
+written to <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. Two people working in two sessions of the same
+deployment hold their own postures, and one of them narrowing theirs does not
+touch the other.</p>
+<p>Narrowings are recorded in
+<code class="docutils literal notranslate"><span class="pre">var/agent_data/control_target/session-postures.json</span></code>, written as soon as you
+click and read back when the server starts, so restarting the container never
+quietly returns a narrowed session to writes.</p>
+</section>
 <section id="what-refuses-a-write-and-how-firmly">
 <h3>What refuses a write, and how firmly<a class="headerlink" href="#what-refuses-a-write-and-how-firmly" title="Link to this heading">#</a></h3>
 <p>Nothing about the posture is a single choke point — each write route is
@@ -675,46 +769,59 @@ refuse.</p></td>
 <p>Each layer says which gate refused, in its own words, so the message never
 sends you to the wrong control:</p>
 <ul class="simple">
-<li><p>The hook — <em>“SANDBOX POSTURE — this terminal session refuses
-control-system writes. Switch the session to writes posture from the terminal
-card; config.yml is not the gate here.”</em></p></li>
-<li><p>The connector — <em>“Write to ‘&lt;channel&gt;’ blocked: this terminal session is in
-the sandbox posture — readonly execution mode is in force for the whole
-session, not for a single script. Switch the session to the writes posture
-from the terminal card if the write is intended; config.yml is not the gate
+<li><p>The hook — <em>“SANDBOX POSTURE — this session refuses control-system writes
+to the &lt;target&gt; target. Switch it back to writes on the control-target chip in
+the header; config.yml is not the gate here.”</em></p></li>
+<li><p>The connector — <em>“Write to ‘&lt;channel&gt;’ blocked: this session’s posture for
+the ‘&lt;target&gt;’ control target is read-only — set from the control-target
+chip in the header, and in force for this session only. Set ‘&lt;target&gt;’ back to
+writes from the chip if the write is intended; config.yml is not the gate
 here.”</em></p></li>
-<li><p>The executor — <em>“This terminal session is in the sandbox posture, which
-refuses control-system writes regardless of what the run asks for.”</em></p></li>
+<li><p>The executor — <em>“This session’s write posture for the ‘&lt;target&gt;’ control
+target is read-only — set from the control-target chip in the header, and in
+force for this session only.”</em> — offering a re-run as <code class="docutils literal notranslate"><span class="pre">readonly</span></code>, and
+saying to set that target back to writes from the chip if the write is
+intended.</p></li>
 </ul>
-<p>None of them mentions the deployment’s write posture, deliberately: changing a
-<code class="docutils literal notranslate"><span class="pre">writes_enabled</span></code> key would not lift a posture refusal, and a message that
+<p>Those three are what a narrowing you made from the chip sounds like, and the
+chip is where you lift it. A <strong>deployment-wide read-only run</strong> is a different
+story and says so, because no click lifts that one:</p>
+<ul class="simple">
+<li><p>The connector — <em>“Write to ‘&lt;channel&gt;’ blocked: this deployment is running
+in readonly execution mode (OSPREY_EXECUTION_MODE=readonly), which refuses
+control-system writes for every session. The control-target chip in the
+header cannot lift it.”</em></p></li>
+<li><p>The executor — <em>“This deployment is running in readonly execution mode,
+which refuses control-system writes regardless of what the run asks for.”</em> —
+offering the same re-run as <code class="docutils literal notranslate"><span class="pre">readonly</span></code>, and saying that writes need the
+deployment started without the variable.</p></li>
+</ul>
+<p>The chip shows the same thing: every toggle locked, with <code class="docutils literal notranslate"><span class="pre">readonly</span> <span class="pre">run</span></code> as the
+reason.</p>
+<p>No posture refusal mentions the deployment’s <code class="docutils literal notranslate"><span class="pre">writes_enabled</span></code> keys,
+deliberately: changing one would not lift a posture refusal, and a message that
 pointed at one would send an operator to rebuild a deployment when a single
 click was the remedy. The reverse holds too — a write refused because this
 target is not armed says so in its own words, names the key that would arm it,
 and says nothing about postures.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p><strong>The other two surfaces.</strong> Simple mode’s chat and the operator websocket
-run their agent through the Agent SDK rather than a terminal, and both apply
-the posture at the moment they start that agent, exactly as the terminal
-does. Where they differ is in whether you can switch one while it runs.</p>
-<p>A <strong>chat session can be switched</strong>, and the flip restarts its agent the same
-way. The badge in the card header addresses terminal sessions; a chat is
-addressed by its chat id, through the same <code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/terminal/posture</span></code>
-route. The rule about having sent a prompt first does not apply to it —
-a chat is addressable from the moment its first prompt starts its agent,
-including while that agent is still starting up, and it stays addressable
-for as long as it is running or has a posture on record, so a chat you
-sandboxed can always be brought back out. One thing is worth knowing before
-relying on this: the chat page mints a new chat id every time it loads, so
-a chat’s posture lasts as long as that page does rather than following the
-conversation.</p>
-<p>An <strong>operator websocket session keeps the posture it was started with.</strong>
-There is no way to flip one while it runs, and its posture is not restored
-across a restart — its id is minted when the connection is accepted and
-names nothing afterwards, so there would be nothing to restore it to. That
-stays true until an operator client exists to define its reconnect protocol.
-Every audit record such a session emits is labelled
+<p><strong>The other two surfaces.</strong> Simple mode’s chat and the operator websocket run
+their agent through the Agent SDK rather than a terminal. Both read the same
+record at write time, so a narrowing reaches them exactly as it reaches a
+terminal session. Where they differ is in what the chip can do for them.</p>
+<p>A <strong>chat session’s toggles work</strong> — its writes meet the same ceiling and the
+same narrowing a terminal’s do — but it is offered no <strong>Switch</strong>: a chat has
+no control-system server of its own for a switch request to be addressed to,
+and every row says <code class="docutils literal notranslate"><span class="pre">chat_session</span></code> where the button would be. One thing is
+worth knowing before relying on a chat’s posture: the chat page mints a new
+chat id every time it loads, so a chat’s posture lasts as long as that page
+does rather than following the conversation.</p>
+<p>An <strong>operator websocket session cannot be addressed from the chip.</strong> Its id is
+minted when the connection is accepted and names nothing afterwards, so no
+narrowing can ever be recorded against it and there is nothing to restore
+across a restart. That stays true until an operator client exists to define
+its reconnect protocol. Every audit record such a session emits is labelled
 <code class="docutils literal notranslate"><span class="pre">posture_source=spawn</span></code>, which is the trail’s way of saying the posture was
 fixed when the session started rather than read from a live setting — see
 the record fields in <a class="reference internal" href="../../reference/contracts/audit-trail.html#audit-trail-record"><span class="std std-ref">the audit trail contract</span></a>.</p>
@@ -827,7 +934,12 @@ verbs that read the results back.</p>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-you-get">What you get</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#sandbox-one-session">Sandbox one session</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-control-target-chip">The control-target chip</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#one-row-per-machine">One row per machine</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#narrow-a-target-or-widen-it">Narrow a target, or widen it</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#switch-this-session-to-another-machine">Switch this session to another machine</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#simple-and-expert">Simple and Expert</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#where-the-posture-lives">Where the posture lives</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-refuses-a-write-and-how-firmly">What refuses a write, and how firmly</a></li>
 </ul>
 </li>

@@ -639,7 +639,10 @@ read from config and process-cached, so flipping it in <code class="docutils lit
 affect a running process. The enforced kill-switch lives at the harness layer
 (a renderer <code class="docutils literal notranslate"><span class="pre">permissions.deny</span></code> on the write tool, then regenerate and
 relaunch); in-flight control of an active plan is the RunEngine’s own
-<code class="docutils literal notranslate"><span class="pre">abort</span></code> / <code class="docutils literal notranslate"><span class="pre">pause</span></code>.</p>
+<code class="docutils literal notranslate"><span class="pre">abort</span></code> / <code class="docutils literal notranslate"><span class="pre">pause</span></code>. One live control does exist alongside it, and it only
+ever narrows: an operator can take one control target away from one session from
+<a class="reference internal" href="../../how-to/web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">the control-target chip</span></a>, and the
+connector re-reads that on every put.</p>
 <p>That rendered deny list is written once, before any session has chosen a
 target, so it exists only where <strong>no</strong> target may write. A deployment armed on
 one target and not another renders no deny at all, and the refusal arrives per

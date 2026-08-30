@@ -293,18 +293,33 @@ Two layers enforce the set:
 Session posture
 ---------------
 
-An operator can step a whole Web Terminal session into a **sandbox posture**
-from its session card (see :ref:`web-terminal-session-posture`). Every process
-that session launches, this server included, then runs with
-``OSPREY_EXECUTION_MODE=readonly``, and a ``readwrite`` ``execute`` is refused
-by the executor's own posture gate, whatever the deployment itself permits:
+An operator can narrow a Web Terminal session's write posture on one control
+target from the control-target chip in the header (see
+:ref:`web-terminal-session-posture`). This server reads that narrowing at the
+moment a run asks for writes --- not from the environment it was started with,
+so a narrowing made mid-conversation applies to the next run --- and a
+``readwrite`` ``execute`` on a narrowed target is refused by the executor's own
+posture gate, whatever the deployment itself permits:
 
-   This terminal session is in the sandbox posture, which refuses
-   control-system writes regardless of what the run asks for.
+   This session's write posture for the '<target>' control target is read-only
+   --- set from the control-target chip in the header, and in force for this
+   session only.
+
+Where the run's target cannot be identified, the most restrictive posture
+recorded for the session decides, and the message says so --- *"This session's
+write posture is read-only for at least one control target (the run's target
+could not be identified, so the most restrictive decides) --- set from the
+control-target chip in the header."* --- rather than granting the run the most
+permissive answer.
 
 The agent is told to re-run as ``readonly`` --- reads are untouched by the
-posture --- or to ask the operator to switch the session back. The deployment's
-``config.yml`` is not the gate here and the message does not point at it.
+posture --- or to set that target back to writes from the chip. The deployment's
+``config.yml`` is not the gate here and the message says so.
+
+A run that has already started cannot be *widened*: it keeps the launch pin it
+started under, so a script cannot gain write access to a machine the operator
+took away from it while it was running. A narrowing that lands mid-run is
+honoured by the reference monitor inside the sandbox at the moment of the write.
 
 When a write is refused
 -----------------------

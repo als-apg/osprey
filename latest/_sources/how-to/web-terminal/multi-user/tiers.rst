@@ -210,8 +210,8 @@ read-only tier.
         - 403 (read OK)
         - enabled
         - 403 (read OK)
-      * - Session posture toggle → *writes*
-        - refused
+      * - Control-target chip: a target's toggle → *writes*
+        - locked (``persona ceiling``)
         - confirm modal
         - confirm modal
         - confirm modal
@@ -499,7 +499,8 @@ Related pages
   container does with file ownership, and what a bare host does not.
 - :ref:`What executed code may not change <python-executor-protected-paths>`
   — the Python executor's zone boundary, enforced in both execution modes.
-- :ref:`Sandbox one session <web-terminal-session-posture>` — how an operator
-  narrows a write-capable session for a while, never widens it.
+- :ref:`The control-target chip <web-terminal-session-posture>` — how an
+  operator narrows one control target for a write-capable session, and never
+  widens past what the tier permits.
 - :doc:`../../build-profiles` — personas: what a delta file may contain, and how
   the floor is written so that one persona can lift it.
