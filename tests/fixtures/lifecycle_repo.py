@@ -341,6 +341,19 @@ config:
   # switch onto them, so a rehearsal runs the posture the real machine gets.
   control_system.limits_checking.enabled: true
   control_system.limits_checking.allow_unlisted_channels: false
+  # The sandbox simulator is the exception, and it states the exception as a
+  # whole block: a per-type posture REPLACES the pair above for that connector
+  # type rather than merging with it, so both leaves are written out here.
+  # Writes to the simulator are still checked against the same file; what
+  # changes is that a channel the file does not list is allowed through
+  # instead of refused, because on a scratch machine an unlisted channel is a
+  # gap in the file rather than a hazard. `live_standin` deliberately gets NO
+  # block of its own: it is hardware-shaped, so it keeps the strict pair the
+  # real machine gets, and a permissive block here would make
+  # `control_target_set standin` refuse the very switch this preset exists to
+  # rehearse.
+  control_system.connector.virtual_accelerator.limits_checking.enabled: true
+  control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels: true
   # Use the archive declared by `va_archiver:` above. Declaring the block does
   # not turn it on; without this line you would deploy a store and not read it.
   archiver.type: mongodb_archiver

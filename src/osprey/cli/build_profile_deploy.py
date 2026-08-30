@@ -21,11 +21,17 @@ consume it want exactly one import.
 from __future__ import annotations
 
 import difflib
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from osprey.errors import BuildProfileError
+from osprey_connectors.types import (
+    LIMITS_CHECKING_LEAF,
+    LIMITS_LEAVES,
+    SET_CONTROL_SYSTEM_TYPES,
+)
 
 from .build_profile_schema import _ENV_VAR_RE
 
@@ -57,6 +63,16 @@ _PROFILE_OWNED_KEYS: dict[str, str] = {
 #: Environment declarations have one channel for the whole profile, so the
 #: deploy block names variables but never declares them.
 _ENV_CHANNEL_KEYS: tuple[str, ...] = ("env", "environment")
+
+#: The rendered config section a per-type limits posture lives in, and the
+#: dotted spelling of the same path for a spelling-agnostic lookup. The block's
+#: own key and the leaves that make it complete come from
+#: :mod:`osprey_connectors.types`, which is where the resolvers read them: a
+#: build that refused a different pair than the runtime answers with would be
+#: refusing profiles the deployment can honour, or passing ones it cannot.
+_CONTROL_SYSTEM_KEY = "control_system"
+_CONNECTOR_SEGMENTS: tuple[str, ...] = (_CONTROL_SYSTEM_KEY, "connector")
+_CONNECTOR_PREFIX = ".".join(_CONNECTOR_SEGMENTS)
 
 #: The rendered-config subtree the multi-user web stack reads at deploy time.
 #: ``deploy.image_source`` is propagated into it at build time, which is what
@@ -317,6 +333,214 @@ def deploy_aware_config_warnings(
     return profile_config_warnings(
         {**config, **deploy_config_overrides(deploy, config)}, profile_root=profile_root
     )
+
+
+def limits_block_errors(config: Mapping[str, Any]) -> list[str]:
+    """Refuse a profile whose per-type ``limits_checking`` block will not render.
+
+    ``control_system.connector.<type>.limits_checking`` overrides the
+    deployment-wide ``enabled`` / ``allow_unlisted_channels`` pair as a WHOLE
+    block — there is no leaf inheritance — so a block stating one leaf has no
+    posture to answer with, and every reader falls back to the failsafe
+    validator. That is a deployment quietly stricter (or, for the operator who
+    meant to relax a simulator, quietly unchanged) than the profile says.
+
+    The other half of the check is about the render rather than the block. A
+    ``config:`` entry reaches ``config.yml`` through
+    :func:`osprey.utils.config_writer.config_update_fields`, which splits only
+    the TOP-LEVEL key of each entry on dots and assigns the value verbatim at
+    the leaf it lands on. Every dot below that key therefore stays inside a
+    literal key name. So the flat leaf a preset writes
+    (``control_system.connector.virtual_accelerator.limits_checking.enabled``)
+    renders where it reads, while the same block written for a dotted custom
+    type flattened into one key renders four levels too deep, and
+    ``control_system.connector.<type>: {"limits_checking.enabled": true}``
+    renders a key literally named ``limits_checking.enabled``. Both look right
+    in the profile and are invisible afterwards; a custom type spelled as its
+    own map key under a ``control_system.connector`` prefix is the spelling
+    that works.
+
+    Mixed spellings are otherwise legal and are not judged here: a profile is
+    free to write a leaf flat, as a dotted prefix over a mapping, or fully
+    nested (:func:`osprey.cli.build_profile_reach._spelled_values` reads all of
+    them), and two dotted keys at different depths below ``control_system``
+    merge at render. The one exception is a bare top-level ``control_system:``
+    mapping beside flat ``control_system.*`` keys, which does not merge and
+    leaves no way to attribute a limits leaf to one spelling or the other —
+    :func:`_mixed_depth_control_system_errors` has the mechanism.
+
+    Registry-free by construction: a per-type block is checked for every
+    built-in connector type and for every type the profile itself names,
+    whether or not the deployment selects it. A stray block is still a stated
+    posture, and a deployment pointed at that type later would inherit it.
+
+    Args:
+        config: The profile's ``config:`` block, as merged — presets, ``-O``
+            overlays, ``--set`` pairs and ``extends`` parents folded together.
+            A non-mapping has nothing to refuse.
+
+    Returns:
+        One message per problem, empty when the profile's limits blocks are
+        sound. Each message names the ``config:`` line(s) to fix:
+
+        * a per-type ``limits_checking`` path that does not render as
+          ``control_system.connector.<type>.limits_checking.<leaf>`` — the
+          message names the entry as the profile wrote it, and the path it
+          actually renders to;
+        * a ``config:`` block addressing ``control_system`` at two depths — the
+          message names the shallower key and every deeper key inside it;
+        * a per-type block stating one of its two leaves — the message names
+          the connector type, the leaf the profile did state, and the missing
+          leaf.
+    """
+    if not isinstance(config, dict):
+        return []
+
+    # Imported in-function: this module sits on `BuildProfile`'s import chain,
+    # and the reach registry behind `_spelled_values` pulls the whole
+    # service-resolution package in with it.
+    from .build_profile_reach import _spelled_values
+
+    errors: list[str] = []
+    named_types: set[str] = set()
+
+    for written, rendered, _value in _rendered_leaf_paths(config):
+        if tuple(rendered[: len(_CONNECTOR_SEGMENTS)]) != _CONNECTOR_SEGMENTS:
+            continue
+        below = rendered[len(_CONNECTOR_SEGMENTS) :]
+        if not any(LIMITS_CHECKING_LEAF in segment.split(".") for segment in below):
+            continue
+        # The one shape that renders where it reads: <type>, the block, a leaf.
+        if len(below) == 3 and below[1] == LIMITS_CHECKING_LEAF:
+            named_types.add(below[0])
+            continue
+        errors.append(
+            f"The profile's config: block writes `{written}`, which renders as "
+            f"`{'.'.join(rendered)}` — not a per-type limits block. A per-type posture is "
+            f"exactly `control_system.connector.<type>.limits_checking.<leaf>`, and the build "
+            f"splits only the top-level key of each config: entry on dots, so every dot below "
+            f"it becomes part of a literal key name. Write a built-in type's leaves flat, and "
+            f"a dotted custom type as its own map key:\n"
+            f"  config:\n"
+            f"    control_system.connector:\n"
+            f"      mypkg.TangoConnector:\n"
+            f"        limits_checking:\n"
+            f"          enabled: true\n"
+            f"          allow_unlisted_channels: false"
+        )
+
+    errors.extend(_mixed_depth_control_system_errors(config))
+
+    candidates = set(SET_CONTROL_SYSTEM_TYPES) | named_types
+    for _spelling, value in _spelled_values(config, _CONNECTOR_PREFIX):
+        if isinstance(value, dict):
+            candidates.update(key for key in value if isinstance(key, str))
+
+    for connector_type in sorted(candidates):
+        spelled = {
+            leaf: _spelled_values(
+                config, f"{_CONNECTOR_PREFIX}.{connector_type}.{LIMITS_CHECKING_LEAF}.{leaf}"
+            )
+            for leaf in LIMITS_LEAVES
+        }
+        stated = [leaf for leaf in LIMITS_LEAVES if spelled[leaf]]
+        if not stated or len(stated) == len(LIMITS_LEAVES):
+            continue
+        missing = [leaf for leaf in LIMITS_LEAVES if not spelled[leaf]]
+        stated_spelling, _stated_value = spelled[stated[0]][0]
+        errors.append(
+            f"The per-type limits block for connector type {connector_type!r} is incomplete: "
+            f"the profile's config: block writes `{stated_spelling}` but never "
+            f"{', '.join(repr(leaf) for leaf in missing)}. A per-type block overrides the "
+            f"deployment-wide `control_system.limits_checking` pair as a whole — no leaf is "
+            f"inherited — so a block missing one has no posture to answer with, and every "
+            f"reader falls back to refusing unlisted channels. State both "
+            f"{', '.join(repr(leaf) for leaf in LIMITS_LEAVES)}, or remove the block "
+            f"and let the deployment-wide pair answer for this type."
+        )
+
+    return errors
+
+
+def _rendered_leaf_paths(config: Mapping[str, Any]) -> list[tuple[str, list[str], Any]]:
+    """Every leaf a ``config:`` block writes, with where the render will put it.
+
+    Args:
+        config: The profile's ``config:`` block.
+
+    Returns:
+        One entry per non-mapping value reachable in the block:
+        ``(spelling, rendered path, value)``. The spelling is the chain of map
+        keys as written, joined ``key: key`` the way
+        :func:`osprey.cli.build_profile_reach._spelled_values` names a line.
+        The rendered path is the top-level key split on dots followed by every
+        deeper map key *unsplit* — which is what
+        :func:`osprey.utils.config_writer.config_update_fields` produces.
+    """
+    found: list[tuple[str, list[str], Any]] = []
+    for key, value in config.items():
+        if isinstance(key, str):
+            _collect_leaves([key], key.split("."), value, found)
+    return found
+
+
+def _collect_leaves(
+    written: list[str],
+    rendered: list[str],
+    value: Any,
+    found: list[tuple[str, list[str], Any]],
+) -> None:
+    """Descend *value*, appending one entry per leaf to *found*."""
+    if isinstance(value, dict):
+        for key, sub_value in value.items():
+            if isinstance(key, str):
+                _collect_leaves([*written, key], [*rendered, key], sub_value, found)
+        return
+    found.append((": ".join(written), rendered, value))
+
+
+def _mixed_depth_control_system_errors(config: Mapping[str, Any]) -> list[str]:
+    """Refuse a bare top-level ``control_system:`` key beside flat ``control_system.*`` ones.
+
+    Exactly that pair, and no deeper one. A deeper pair —
+    ``control_system.connector:`` holding one type's block beside
+    ``control_system.connector.epics.writes_enabled`` — renders correctly
+    today: :func:`~osprey.utils.config_writer._set_dotted_anchored` runs with
+    ``create_only=True``, so it walks INTO whatever an existing intermediate
+    key holds rather than replacing it, and the two entries merge. Refusing
+    those would refuse profiles the build already honours.
+
+    The bare key is the one that does not merge. It is a top-level ``config:``
+    entry with no dots to walk, so the render assigns its value verbatim at
+    ``control_system`` and replaces the whole rendered section — the flat
+    entries beside it land in a subtree that is then thrown away, or throw the
+    bare one away, depending on key order. The reach helpers read both
+    spellings and so cannot say which of the two a limits leaf belongs to,
+    which is exactly the attribution :func:`limits_block_errors` needs before
+    it can call a per-type block complete. ``claude_code`` is guarded against
+    the same shape by
+    :func:`osprey.cli.build_profile_load._reject_mixed_claude_code_spellings`.
+
+    The bare key's value is not inspected: a nested mapping is what a profile
+    writing this actually has, and a scalar there is no better.
+    """
+    if _CONTROL_SYSTEM_KEY not in config:
+        return []
+    flat = sorted(
+        key for key in config if isinstance(key, str) and key.startswith(f"{_CONTROL_SYSTEM_KEY}.")
+    )
+    if not flat:
+        return []
+    return [
+        f"The profile's config: block addresses {_CONTROL_SYSTEM_KEY!r} at two depths: the "
+        f"bare key {_CONTROL_SYSTEM_KEY!r} itself, and the flat key(s) "
+        f"{', '.join(repr(key) for key in flat)} beside it. Both survive the merge as "
+        f"separate keys, and the bare key's value is written verbatim over the whole "
+        f"rendered control_system section, so which of the two reaches config.yml depends "
+        f"on key order — a limits posture, a write posture or a gateway among them. Keep "
+        f"one spelling: fold the bare mapping's leaves into flat keys, or write every "
+        f"control_system fact inside the nested mapping."
+    ]
 
 
 def _reject_duplicate_image_source(config: Any, image_source: str, problems: list[str]) -> None:

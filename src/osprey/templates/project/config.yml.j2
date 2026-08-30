@@ -251,6 +251,12 @@ control_system:
       # the simulator while the deployment-wide `writes_enabled` above keeps the
       # real machine read-only. Left out, this type inherits that key.
       # writes_enabled: true
+      # Limits-checking posture for this connector type alone. A block here
+      # overrides the deployment-wide `limits_checking` block above as a whole
+      # (both leaves required) - database_path stays deployment-wide.
+      # limits_checking:
+      #   enabled: true
+      #   allow_unlisted_channels: true
       # Channel the target switch reads to prove this target is reachable
       # before making it active. A target with no probe_channel is never
       # switched to. Replace with a channel your VA's machine model serves.
@@ -286,6 +292,12 @@ control_system:
       # never falls back to the deployment-wide key, so `false` here holds even
       # if a profile or an overlay turns that key on.
       # writes_enabled: false
+      # Limits-checking posture for the live machine. A block here overrides
+      # the deployment-wide `limits_checking` block above as a whole (both
+      # leaves required) - database_path stays deployment-wide.
+      # limits_checking:
+      #   enabled: true
+      #   allow_unlisted_channels: false
       # Channel the target switch reads to prove the live machine is reachable
       # before making it active. Facility-specific, so nothing is shipped set:
       # while it is unset this target is never switched to (the deployment

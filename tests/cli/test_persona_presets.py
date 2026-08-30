@@ -662,12 +662,19 @@ class TestControlAssistantPersonas:
         # for its type instead and never fall back, so the tier that must
         # refuse everywhere pins each block off by name. What the two mean by
         # the axis is compared through the resolver, per target, in
-        # TestWritePostureMatrix.
+        # TestWritePostureMatrix. Only the WRITE leaf is tier-specific: the
+        # base's per-type limits block rides along on every tier by design,
+        # so the predicate names the leaf rather than the connector namespace.
         assert ro_cfg.pop(WRITES_KEY) is False
         assert ro_cfg.pop(EPICS_WRITES_KEY) is False
         assert ro_cfg.pop(VA_WRITES_KEY) is False
         assert rw_cfg.pop(WRITES_KEY) is True
-        assert not [key for key in rw_cfg if str(key).startswith("control_system.connector.")]
+        assert not [
+            key
+            for key in rw_cfg
+            if str(key).startswith("control_system.connector.")
+            and str(key).endswith(".writes_enabled")
+        ]
         # Axis 2 — surface: chat-first for the viewer, full dock for the operator.
         assert ro_cfg.pop(UI_MODE_KEY) == "simple"
         assert rw_cfg.pop(UI_MODE_KEY) == "expert"
@@ -1118,14 +1125,18 @@ class TestWritePostureMatrix:
         assert [key for key in profile.config if str(key).startswith("services.")] == []
 
     def test_the_flat_tiers_are_armed_on_every_target(self, tmp_path: Path) -> None:
-        """readwrite and admin write no per-type key at all, so both machines
-        read their flat ``true``. Asserted through the resolver so that the
-        claim survives the key stopping being the whole answer."""
+        """readwrite and admin write no per-type WRITE key at all, so both
+        machines read their flat ``true`` (the base's per-type limits block is
+        a separate concern and rides along). Asserted through the resolver so
+        that the claim survives the key stopping being the whole answer."""
         for preset in ("control-assistant-readwrite", "control-assistant-admin"):
             profile = resolve_preset(preset)
             assert profile.config.get(WRITES_KEY) is True
             assert [
-                key for key in profile.config if str(key).startswith("control_system.connector.")
+                key
+                for key in profile.config
+                if str(key).startswith("control_system.connector.")
+                and str(key).endswith(".writes_enabled")
             ] == []
 
             section = _rendered_control_system(tmp_path, preset)

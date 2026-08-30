@@ -45,6 +45,12 @@ STANDIN_TYPE = "live_standin"
 #: would let a block that simply never set a port pass the deployed check.
 STANDIN_PORT = 5094
 
+#: The deployment-wide limits keys, spelled out rather than imported from the
+#: module under test: the gate builds them off the resolved posture, so a
+#: refusal quoting them is the assertion, not a constant the two share.
+DEPLOYMENT_WIDE_ENABLED_KEY = "control_system.limits_checking.enabled"
+DEPLOYMENT_WIDE_ALLOW_UNLISTED_KEY = "control_system.limits_checking.allow_unlisted_channels"
+
 
 # ---------------------------------------------------------------------------
 # Config builders
@@ -338,8 +344,8 @@ def test_live_without_strict_limits_is_ineligible() -> None:
 
     assert verdict.eligible is False
     assert verdict.reason == te.REASON_LIMITS_POSTURE
-    assert te.LIMITS_ENABLED_KEY in verdict.detail
-    assert te.ALLOW_UNLISTED_KEY in verdict.detail
+    assert DEPLOYMENT_WIDE_ENABLED_KEY in verdict.detail
+    assert DEPLOYMENT_WIDE_ALLOW_UNLISTED_KEY in verdict.detail
 
 
 def test_live_failing_both_posture_checks_reports_the_limits_one_first() -> None:
@@ -367,6 +373,111 @@ def test_a_blank_acknowledgment_counts_as_unset(blank: Any) -> None:
     config = _config(ack=False, target_switch={te.ACK_LEAF: blank})
 
     assert _eligibility(config, LIVE).reason == te.REASON_OPERATOR_ACK_MISSING
+
+
+# ---------------------------------------------------------------------------
+# The limits posture is read per connector type
+# ---------------------------------------------------------------------------
+#
+# A deployment with a live machine beside a virtual accelerator holds one limits
+# posture per machine, so the gate must read the posture of the type the target
+# actually resolves to and quote the key that answered — the per-type line when a
+# per-type block spoke, the deployment-wide one otherwise. Quoting the wrong key
+# would send an operator to edit a line the per-type block overrides.
+
+
+def _limits_block(**leaves: Any) -> dict[str, Any]:
+    """A ``limits_checking`` block to hang under one connector block."""
+    return {"limits_checking": dict(leaves)}
+
+
+PER_TYPE_ENABLED_KEY = f"control_system.connector.{EPICS_TYPE}.limits_checking.enabled"
+PER_TYPE_ALLOW_UNLISTED_KEY = (
+    f"control_system.connector.{EPICS_TYPE}.limits_checking.allow_unlisted_channels"
+)
+
+
+def test_a_strict_per_type_block_makes_live_eligible_on_a_permissive_deployment() -> None:
+    """The live machine's own block answers, and the deployment-wide relaxation a
+    simulator was given does not reach it."""
+    config = _config(
+        limits="permissive",
+        ack=True,
+        connector={
+            EPICS_TYPE: _epics_block(**_limits_block(enabled=True, allow_unlisted_channels=False)),
+            VA_TYPE: _va_block(),
+        },
+    )
+
+    verdict = _eligibility(config, LIVE)
+
+    assert verdict.eligible is True
+    assert verdict.reason is None
+
+
+def test_a_permissive_per_type_block_refuses_live_and_names_the_per_type_key() -> None:
+    """The per-type block overrides whole, so a strict deployment-wide block does
+    not rescue it — and the refusal names the line that actually answered."""
+    config = _config(
+        limits="strict",
+        ack=True,
+        connector={
+            EPICS_TYPE: _epics_block(**_limits_block(enabled=False, allow_unlisted_channels=True)),
+            VA_TYPE: _va_block(),
+        },
+    )
+
+    verdict = _eligibility(config, LIVE)
+
+    assert verdict.eligible is False
+    assert verdict.reason == te.REASON_LIMITS_POSTURE
+    assert PER_TYPE_ENABLED_KEY in verdict.detail
+    assert PER_TYPE_ALLOW_UNLISTED_KEY in verdict.detail
+    assert DEPLOYMENT_WIDE_ENABLED_KEY not in verdict.detail
+
+
+def test_an_incomplete_per_type_block_is_not_strict() -> None:
+    """Half a block answers nothing — not the half it states, and not the
+    deployment-wide block it overrides. The refusal names the block an operator
+    has to finish."""
+    config = _config(
+        limits="strict",
+        ack=True,
+        connector={
+            EPICS_TYPE: _epics_block(**_limits_block(enabled=True)),
+            VA_TYPE: _va_block(),
+        },
+    )
+
+    verdict = _eligibility(config, LIVE)
+
+    assert verdict.eligible is False
+    assert verdict.reason == te.REASON_LIMITS_POSTURE
+    assert PER_TYPE_ENABLED_KEY in verdict.detail
+    assert PER_TYPE_ALLOW_UNLISTED_KEY in verdict.detail
+
+
+def test_the_standin_reads_its_own_types_block_not_the_live_machines() -> None:
+    """The stand-in is a connector type of its own, so the gate follows the type
+    the target resolves to rather than the deployment's live one."""
+    config = _standin_config(
+        limits="permissive",
+        ack=True,
+        connector={
+            EPICS_TYPE: _epics_block(),
+            VA_TYPE: _va_block(),
+            STANDIN_TYPE: _standin_block(
+                **_limits_block(enabled=True, allow_unlisted_channels=False)
+            ),
+        },
+    )
+
+    assert _eligibility(config, STANDIN).eligible is True
+
+    live = _eligibility(config, LIVE)
+    assert live.eligible is False
+    assert live.reason == te.REASON_LIMITS_POSTURE
+    assert DEPLOYMENT_WIDE_ENABLED_KEY in live.detail
 
 
 def test_returning_to_live_needs_neither_posture_nor_acknowledgment() -> None:
@@ -475,8 +586,8 @@ def test_switching_to_the_standin_requires_the_strict_limits_posture() -> None:
 
     assert verdict.eligible is False
     assert verdict.reason == te.REASON_LIMITS_POSTURE
-    assert te.LIMITS_ENABLED_KEY in verdict.detail
-    assert te.ALLOW_UNLISTED_KEY in verdict.detail
+    assert DEPLOYMENT_WIDE_ENABLED_KEY in verdict.detail
+    assert DEPLOYMENT_WIDE_ALLOW_UNLISTED_KEY in verdict.detail
 
 
 def test_switching_to_the_standin_needs_no_operator_acknowledgment() -> None:

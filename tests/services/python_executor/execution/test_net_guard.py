@@ -643,7 +643,6 @@ class TestEndToEndArmingPath:
                 execution_mode="readonly",
                 config={"timeout": 30, "python_env_path": None},
                 execution_folder=execution_folder,
-                limits_validator=None,
             )
         finally:
             denied_srv.close()

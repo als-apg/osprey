@@ -20,12 +20,14 @@ Note: writes_enabled check is handled by the PreToolUse hook, not the tool itsel
 The tool does its own limits validation via LimitsValidator.
 """
 
+import json
 from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from osprey.connectors.control_system.base import ChannelWriteResult, WriteOutcome
+from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.server_context import initialize_server_context
 from tests.mcp_server.conftest import (
     assert_raises_error,
@@ -1102,3 +1104,124 @@ async def test_emitted_key_is_the_constant_the_rules_name(tmp_path, monkeypatch)
 
     data, _ = await _run_single(_make_write_result(channel="TEST:PV", value=42.0))
     assert OUTCOME_KEY in data["summary"]["results"][0]
+
+
+# ---------------------------------------------------------------------------
+# the limits posture is the one the session's target runs under
+# ---------------------------------------------------------------------------
+
+#: A deployment that relaxed unlisted channels for its simulator alone: the
+#: deployment-wide block refuses them, and only the ``virtual_accelerator``
+#: block allows them. ``live`` resolves to ``epics``, which wrote no block, so
+#: the two targets genuinely read two different postures out of one config.
+_SPLIT_POSTURE_CONFIG = """\
+control_system:
+  type: epics
+  limits_checking:
+    enabled: true
+    allow_unlisted_channels: false
+    database_path: {db_path}
+  connector:
+    virtual_accelerator:
+      limits_checking:
+        enabled: true
+        allow_unlisted_channels: true
+"""
+
+#: Display metadata as the server's single writer records it — irrelevant to
+#: the posture, written anyway so the fixture record is the shape a reader meets.
+_SPLIT_POSTURE_TARGETS_META = {
+    "live": {"label": "LIVE MACHINE", "endpoint": "gateway.example.com:5064", "real_machine": True},
+    "va": {
+        "label": "virtual accelerator (simulation)",
+        "endpoint": "localhost:5074",
+        "real_machine": False,
+    },
+}
+
+
+def _prepare_split_posture(tmp_path, monkeypatch, target):
+    """A split-posture deployment serving *target*, with a real state file.
+
+    Nothing here is a stand-in for the thing under test: the config is loaded
+    off disk, the limits database is a real file, and the target arrives the way
+    the tool actually learns it — from the state file the controls server
+    publishes, read through ``target_state``. The one rebinding is the state
+    root, so these files land in a directory this test owns.
+    """
+    db_path = tmp_path / "limits.json"
+    db_path.write_text(
+        json.dumps({"LISTED:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}})
+    )
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text(_SPLIT_POSTURE_CONFIG.format(db_path=db_path))
+    root = tmp_path / "var" / "agent_data"
+    monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
+    target_state.write_on_start(target, _SPLIT_POSTURE_TARGETS_META, generation=0)
+    initialize_server_context()
+
+
+@contextmanager
+def _real_validator(connector):
+    """Serve *connector* while the tool builds its own validator from config.
+
+    The opposite of :func:`_patched`: here the validator is exactly the one the
+    tool constructs, because which posture it constructs it from is the whole
+    question.
+    """
+    with patch(
+        "osprey.connectors.factory.ConnectorFactory.create_control_system_connector",
+        new_callable=AsyncMock,
+        return_value=connector,
+    ):
+        yield
+
+
+@pytest.mark.unit
+async def test_unlisted_write_passes_on_a_target_whose_block_allows_it(tmp_path, monkeypatch):
+    """Serving ``va``, the tool reads the simulator's own permissive block.
+
+    The deployment-wide key still refuses unlisted channels; reading it here
+    would refuse a write the operator relaxed for the simulator on purpose.
+    """
+    _prepare_split_posture(tmp_path, monkeypatch, "va")
+
+    connector = AsyncMock()
+    connector.write_channel.return_value = _make_write_result(channel="UNLISTED:PV", value=1.0)
+
+    with _real_validator(connector):
+        fn = _get_channel_write()
+        raw = await fn(operations=[{"channel": "UNLISTED:PV", "value": 1.0}])
+
+    data = extract_response_dict(raw)
+    assert data["status"] == "success"
+    assert _outcomes(data) == {"UNLISTED:PV": "confirmed"}
+    assert connector.write_channel.await_count == 1
+
+
+@pytest.mark.unit
+async def test_unlisted_write_is_refused_on_a_target_the_deployment_block_governs(
+    tmp_path, monkeypatch
+):
+    """Serving ``live``, the same write is refused and the refusal names the key.
+
+    ``live`` resolves to ``epics``, which wrote no block, so the deployment-wide
+    key is the one that answered — and it is the line an operator would have to
+    edit, so it is the line the refusal quotes. The connector is never reached.
+    """
+    _prepare_split_posture(tmp_path, monkeypatch, "live")
+
+    connector = AsyncMock()
+    connector.write_channel.return_value = _make_write_result(channel="UNLISTED:PV", value=1.0)
+
+    with _real_validator(connector):
+        fn = _get_channel_write()
+        with assert_raises_error(error_type="limits_violation") as _exc_ctx:
+            await fn(operations=[{"channel": "UNLISTED:PV", "value": 1.0}])
+
+    data = _exc_ctx["envelope"]
+    assert data["details"][0]["violation_type"] == "UNLISTED_CHANNEL"
+    assert (
+        "control_system.limits_checking.allow_unlisted_channels" in data["details"][0]["reason"]
+    ), data["details"][0]["reason"]
+    assert connector.write_channel.await_count == 0

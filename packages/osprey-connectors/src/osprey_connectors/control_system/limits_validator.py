@@ -7,6 +7,12 @@ from pathlib import Path
 from typing import Any
 
 from osprey_connectors.logger import get_logger
+from osprey_connectors.types import (
+    LimitsPosture,
+    most_restrictive_limits_posture,
+    target_limits_posture,
+    type_limits_posture,
+)
 
 logger = get_logger("limits_validator")
 
@@ -41,7 +47,7 @@ class LimitsValidator:
         self,
         limits_database: dict[str, ChannelLimitsConfig],
         policy_config: dict,
-        raw_db: dict = None,
+        raw_db: dict | None = None,
         failsafe_reason: str | None = None,
     ):
         self.limits = limits_database
@@ -93,69 +99,233 @@ class LimitsValidator:
         return db_path
 
     @classmethod
-    def from_config(cls):
-        """Load validator from Osprey configuration.
+    def _load_configured_database(
+        cls,
+    ) -> tuple[tuple[dict[str, ChannelLimitsConfig], dict] | None, str | None]:
+        """Resolve and load the deployment-wide limits database.
 
-        Returns None if configuration is not available or limits checking is disabled.
-        This allows connectors to work in test environments without config files.
+        The database path is deployment-wide even where the posture is not: a
+        deployment mounts one limits file (``compose_generator.py`` binds a
+        single path), so a per-type block changes policy and never the data.
+        This is the half of validator construction that is the same for every
+        posture, kept in one place so that the deployment-wide and per-type
+        entry points cannot drift in how they resolve a relative path or in
+        which load failures they treat as fatal.
+
+        Failure is reported rather than raised because both entry points answer
+        it the same way — with a fail-safe validator that blocks every write.
+        Returning ``None`` instead would leave writes unchecked, and raising
+        would crash a connector on a deployment that never writes at all.
+
+        Returns:
+            A ``(loaded, failsafe_reason)`` pair with exactly one half set:
+            either the ``(limits_database, raw_database)`` tuple, or a reason
+            string naming what could not be read, ready to hand to
+            ``failsafe_reason``.
+        """
+        from osprey_connectors.config import default_config_path, get_config_value
+
+        db_path = get_config_value("control_system.limits_checking.database_path", None)
+        # Validate db_path is actually a string path (not None, False, or other types)
+        if not db_path or not isinstance(db_path, str):
+            logger.warning(
+                "Limits checking enabled but no database path configured - blocking all writes"
+            )
+            return None, (
+                "limits checking is enabled but "
+                "control_system.limits_checking.database_path is not configured"
+            )
+
+        project_root = get_config_value("project_root", None)
+        resolved_path = cls.resolve_database_path(
+            db_path, project_root, config_path=default_config_path()
+        )
+        if resolved_path != db_path:
+            logger.debug(f"Resolved limits database path: {resolved_path}")
+        db_path = resolved_path
+
+        try:
+            limits_db, raw_db = cls._load_limits_database(db_path)
+        except ValueError as e:
+            # Same failsafe as the missing-database-path case above: a
+            # missing/unparseable database must never crash the connector
+            # (a read-only deployment needs no limits) nor silently disable
+            # checking (returning None would leave writes unchecked) — an
+            # empty DB blocks every write with a clear refusal instead.
+            logger.warning(
+                f"Limits checking enabled but the database at {db_path} could not "
+                f"be read or parsed - blocking all writes. {e}"
+            )
+            return None, (f"the limits database at {db_path} could not be read or parsed: {e}")
+
+        logger.debug(f"Loaded limits database with {len(limits_db)} channels")
+        return (limits_db, raw_db), None
+
+    @classmethod
+    def from_config(
+        cls,
+        *,
+        connector_type: str | None = None,
+        target: str | None = None,
+    ) -> "LimitsValidator | None":
+        """Load a validator for the limits posture the caller acts under.
+
+        Three call shapes, one per identity a caller can hold:
+
+        - **Neither argument** asks the deployment-wide question,
+          ``control_system.limits_checking``, and never resolves a target. It is
+          what a caller holding no machine of its own asks — the connector
+          registry's log line, the executor's config helper — and it is the
+          shape every caller had before per-type blocks existed, so a deployment
+          that wrote none behaves as it did — except that a deployment-wide
+          leaf written as something other than a literal boolean now blocks
+          every write instead of being read as truthy.
+        - **connector_type** is what a connector, factory or IPC child asks:
+          they know which connector type they are and never which target
+          selected it.
+        - **target** is what a tool, hook, roster or the executor asks: they
+          follow the session's control target, which is resolved to its
+          connector type here so both shapes read one posture.
+
+        A present ``control_system.connector.<type>.limits_checking`` block
+        overrides the deployment-wide pair whole; absent, the deployment-wide
+        block answers. The key that answered travels into ``policy`` so a later
+        refusal names the config line an operator can edit.
+
+        Args:
+            connector_type: The connector type to resolve the posture for, as
+                the config's ``control_system.connector`` table keys it.
+            target: The session control target to resolve the posture for, one
+                of :data:`osprey_connectors.types.CONTROL_TARGETS`. A target
+                that does not resolve to a type gets the deployment-wide block,
+                as the write posture does.
+
+        Returns:
+            An enforcing validator; a fail-safe validator that blocks every
+            write when the resolved block is incomplete or the limits database
+            is unavailable; or ``None`` when limits checking is off for this
+            posture or the config could not be read at all.
+
+        Raises:
+            TypeError: If both *connector_type* and *target* are given. A target
+                already names a type, so stating both states the posture twice
+                and leaves it undefined which one the caller meant. Raised
+                before any config is read, so it surfaces as the caller bug it
+                is rather than as a missing-config ``None``.
+        """
+        if connector_type is not None and target is not None:
+            raise TypeError(
+                "LimitsValidator.from_config() takes connector_type or target, not both: "
+                "a target resolves to a connector type, so passing both states the "
+                "posture twice"
+            )
+        try:
+            from osprey_connectors.config import get_config_value
+
+            section = get_config_value("control_system", {})
+        except (FileNotFoundError, KeyError, RuntimeError) as e:
+            # Config not available (test environment, etc.) - limits checking disabled
+            logger.debug(f"Limits validator not initialized (config unavailable): {e}")
+            return None
+
+        if target is not None:
+            posture = target_limits_posture(section, target)
+        else:
+            posture = type_limits_posture(section, connector_type)
+        return cls._from_posture(posture)
+
+    @classmethod
+    def from_config_most_restrictive(cls) -> "LimitsValidator | None":
+        """Load a validator for the posture that holds across every reachable target.
+
+        What a caller with no target of its own has to assume. The stdlib limits
+        hook is the one that needs it: when the session's control target cannot
+        be read — none written yet, an unreadable state directory, a target that
+        resolves to nothing — it still has to decide about a write, and the
+        machine it is deciding about is any of the ones a session here can
+        select.
+
+        The fold is :func:`osprey_connectors.types.most_restrictive_limits_posture`'s:
+        limits checking is on when any reachable target has it on, and unlisted
+        channels are allowed only where every reachable target allows them. The
+        result names the deployment-wide keys, because no per-type line decides
+        a union and naming one would send an operator to edit a single machine
+        rather than the answer.
+
+        Returns:
+            An enforcing validator, a fail-safe one, or ``None`` — the same
+            envelope :meth:`from_config` returns, for the same reasons.
         """
         try:
-            from osprey_connectors.config import default_config_path, get_config_value
+            from osprey_connectors.config import get_config_value
 
-            enabled = get_config_value("control_system.limits_checking.enabled", False)
-            if not enabled:
+            section = get_config_value("control_system", {})
+        except (FileNotFoundError, KeyError, RuntimeError) as e:
+            # Config not available (test environment, etc.) - limits checking disabled
+            logger.debug(f"Limits validator not initialized (config unavailable): {e}")
+            return None
+
+        return cls._from_posture(most_restrictive_limits_posture(section))
+
+    @classmethod
+    def _from_posture(cls, posture: LimitsPosture) -> "LimitsValidator | None":
+        """Build a validator for an already-resolved limits posture.
+
+        The caller resolves the posture for the thing it is acting on — a
+        connector for its own type, a tool or hook for the session's target —
+        and this turns that answer into an enforcing validator. The posture's
+        answering key travels into ``policy`` so that a later refusal names the
+        config line an operator can edit: on a deployment that relaxed unlisted
+        channels for its simulator alone, quoting the deployment-wide key would
+        send them to flip a line the per-type block overrides.
+
+        An incomplete block is checked before ``enabled``, and on purpose. Such
+        a block answered neither leaf, so ``enabled`` is ``None`` and the
+        disabled branch would wave every write through on exactly the config
+        nobody has finished writing. Blocking instead is the same choice the
+        missing-database-path branch makes.
+
+        A block is incomplete two ways, and the second is why this branch comes
+        first. A per-type block may omit a leaf. Either block may write one as
+        something no reader can turn into a boolean — a quoted ``'true'``, a
+        ``1``, an unexpanded ``'${LIMITS_ON}'``, which is the shape environment
+        expansion leaves behind when nothing set the variable. That second one
+        is a deployment trying to switch limits checking *on*; reading it as an
+        unset ``enabled`` would take the disabled branch and check nothing.
+
+        Args:
+            posture: The resolved posture, from the ``types`` resolver family.
+
+        Returns:
+            An enforcing validator; a fail-safe validator that blocks every
+            write when the block is incomplete or the database is unavailable;
+            or ``None`` when limits checking is off for this posture or the
+            config could not be read at all.
+        """
+        try:
+            if posture.incomplete:
+                reason = (
+                    f"{posture.block_key} does not state "
+                    f"{', '.join(posture.incomplete)} as true/false"
+                )
+                logger.warning(f"Incomplete limits block - blocking all writes: {reason}")
+                return cls({}, {}, {}, failsafe_reason=reason)
+
+            if posture.enabled is not True:
                 return None
 
-            db_path = get_config_value("control_system.limits_checking.database_path", None)
-            # Validate db_path is actually a string path (not None, False, or other types)
-            if not db_path or not isinstance(db_path, str):
-                logger.warning(
-                    "Limits checking enabled but no database path configured - blocking all writes"
-                )
-                return cls(
-                    {},
-                    {},
-                    {},
-                    failsafe_reason=(
-                        "limits checking is enabled but "
-                        "control_system.limits_checking.database_path is not configured"
-                    ),
-                )  # Empty DB = blocks all (failsafe)
+            loaded, failsafe_reason = cls._load_configured_database()
+            if loaded is None:
+                # Empty DB = blocks all (failsafe)
+                return cls({}, {}, {}, failsafe_reason=failsafe_reason)
+            limits_db, raw_db = loaded
 
-            project_root = get_config_value("project_root", None)
-            resolved_path = cls.resolve_database_path(
-                db_path, project_root, config_path=default_config_path()
-            )
-            if resolved_path != db_path:
-                logger.debug(f"Resolved limits database path: {resolved_path}")
-            db_path = resolved_path
-
-            try:
-                limits_db, raw_db = cls._load_limits_database(db_path)
-            except ValueError as e:
-                # Same failsafe as the missing-database-path case above: a
-                # missing/unparseable database must never crash the connector
-                # (a read-only deployment needs no limits) nor silently disable
-                # checking (returning None would leave writes unchecked) — an
-                # empty DB blocks every write with a clear refusal instead.
-                logger.warning(
-                    f"Limits checking enabled but the database at {db_path} could not "
-                    f"be read or parsed - blocking all writes. {e}"
-                )
-                return cls(
-                    {},
-                    {},
-                    {},
-                    failsafe_reason=(
-                        f"the limits database at {db_path} could not be read or parsed: {e}"
-                    ),
-                )  # Empty DB = blocks all (failsafe)
-            logger.debug(f"Loaded limits database with {len(limits_db)} channels")
-
+            # Both entries are JSON-serialisable: the python executor embeds
+            # this dict verbatim into the sandbox (wrapper.py), so the
+            # tri-state rides as null rather than as anything richer.
             policy = {
-                "allow_unlisted_channels": get_config_value(
-                    "control_system.limits_checking.allow_unlisted_channels", False
-                ),
+                "allow_unlisted_channels": posture.allow_unlisted,
+                "allow_unlisted_key": posture.key("allow_unlisted_channels"),
             }
 
             return cls(limits_db, policy, raw_db)
@@ -427,17 +597,31 @@ class LimitsValidator:
                         f"about channel '{channel_address}'."
                     ),
                 )
-            # Unlisted channel - check policy
-            if self.policy.get("allow_unlisted_channels", False):
+            # Unlisted channel - check policy. Only an explicit `True` is
+            # permission: the policy carries the posture's tri-state verbatim
+            # so that `channel_limits` can report an unstated answer as `null`,
+            # and unstated is nobody's permission to write an unlisted channel.
+            if self.policy.get("allow_unlisted_channels") is True:
                 return  # Allow unlisted channel
             else:
-                # FAILSAFE: Block unlisted channels
+                # FAILSAFE: Block unlisted channels. Name the key that actually
+                # answered — a deployment may set this per connector type, and
+                # quoting the deployment-wide key there would send an operator
+                # to flip a line the per-type block overrides. A validator built
+                # from a bare policy dict carries no key; the deployment-wide
+                # one is the honest answer for it.
+                answering_key = self.policy.get(
+                    "allow_unlisted_key", "control_system.limits_checking.allow_unlisted_channels"
+                )
                 logger.warning(f"Blocked write to unlisted channel: {channel_address}={value}")
                 raise ChannelLimitsViolationError(
                     channel_address=channel_address,
                     value=value,
                     violation_type="UNLISTED_CHANNEL",
-                    violation_reason=f"Channel '{channel_address}' not in limits database",
+                    violation_reason=(
+                        f"Channel '{channel_address}' not in limits database "
+                        f"('{answering_key}' does not allow unlisted channels)"
+                    ),
                 )
 
         # Check 2: Channel is writable?

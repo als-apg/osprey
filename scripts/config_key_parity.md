@@ -105,6 +105,19 @@ absent inherits the global key, literally `true` arms writes for that connector
 type, and any other value leaves them unarmed. Arming writes is a per-facility
 decision, so no template may ship it live in any of the five.
 
+`control_system.connector.<type>.limits_checking` is the same story for the
+limits posture, and is likewise **not** parity-required. It overrides the
+deployment-wide `control_system.limits_checking` block whole -- a per-type
+block states both `enabled` and `allow_unlisted_channels` and then answers
+alone -- and is written commented in the templates that carry the matching
+connector block, so it is never rendered and never enters the union a parity
+guard would compare. Only `virtual_accelerator`, `epics` and `live_standin`
+carry entries; `mock` and `doocs` write no block. `database_path` has no
+per-type spelling: a deployment mounts one limits database, so that leaf stays
+deployment-wide, and a per-type block omitting it is complete rather than
+half-written. How relaxed a machine's limits checking may be is a per-facility
+decision, so no template may ship either leaf live in any of the five.
+
 ### `api.providers` membership
 
 Not a fixed set. `project`, `control_assistant` and `hello_world` ship the full

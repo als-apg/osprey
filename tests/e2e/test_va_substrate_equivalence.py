@@ -598,6 +598,11 @@ def _host_ca_op_spec(
     that is set and against ``project_root`` otherwise, and this subprocess sets
     neither anchor to the render.
 
+    The permissive half of the posture is spelled PER CONNECTOR TYPE, on
+    ``virtual_accelerator`` -- the type this proof drives -- so the
+    deployment-wide block keeps the strict posture a live machine deserves and
+    this lane exercises the per-type override rather than relaxing everything.
+
     ``CONNECTOR_CONFIG`` is passed verbatim so the subprocess builds a REAL
     production ``VirtualAcceleratorConnector`` via ``ConnectorFactory`` under
     test-supplied config. Config keys these proofs don't exercise fall to code
@@ -612,7 +617,15 @@ def _host_ca_op_spec(
         "control_system.limits_checking.database_path": str(
             repo / "build" / "data" / "channel_limits.json"
         ),
-        "control_system.limits_checking.allow_unlisted_channels": True,
+        # BOTH per-type leaves, deliberately: a per-type ``limits_checking``
+        # block overrides the deployment-wide pair as a WHOLE, so one leaf on
+        # its own is an incomplete block -- which resolves to the failsafe
+        # validator, refuses every write, and turns this lane red. Spelled flat
+        # and dotted like the rest of this map; the subprocess shim assembles
+        # the nested ``control_system`` section the resolver reads.
+        "control_system.connector.virtual_accelerator.limits_checking.enabled": True,
+        "control_system.connector.virtual_accelerator.limits_checking"
+        ".allow_unlisted_channels": True,
         "project_root": str(repo),
     }
     return {

@@ -175,7 +175,15 @@ sections in their own ``config.yml.j2``.
      # for the key to mean anything (see the "Use the Virtual Accelerator"
      # how-to).
      control_system.connector.virtual_accelerator.writes_enabled: true
+     # Limits checking works the same way. This pair is the deployment's, and
+     # every type inherits it ...
      control_system.limits_checking.enabled: true
+     control_system.limits_checking.allow_unlisted_channels: false
+     # ... while a per-type block replaces it whole for one type. Both settings
+     # have to be stated: one alone is refused by `osprey build` and
+     # `osprey validate`.
+     control_system.connector.virtual_accelerator.limits_checking.enabled: true
+     control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels: true
 
      # Archiver
      archiver.type: epics_archiver
@@ -191,6 +199,46 @@ sections in their own ``config.yml.j2``.
 
      # Approval policy
      approval.default_policy: always
+
+.. note::
+
+   **Connector types whose name contains a dot** are the one place the flat form
+   does not work. A custom connector is named by its module path, and the build
+   splits only the *first* key of each ``config:`` entry on dots — so
+   ``control_system.connector.mypkg.TangoConnector.limits_checking.enabled``
+   renders the type's module path as two nested keys, ``mypkg`` and
+   ``TangoConnector``, instead of the one key the connector is actually called.
+   ``osprey build`` and ``osprey validate`` refuse that entry by name rather
+   than letting it render somewhere nothing reads. Write such a type as its own
+   map key under a dotted prefix, which is the one spelling that puts the block
+   where the connector looks for it:
+
+   .. code-block:: yaml
+
+      config:
+        control_system.connector:
+          mypkg.TangoConnector:
+            limits_checking:
+              enabled: true
+              allow_unlisted_channels: false
+
+   **That entry replaces the whole rendered connector section.** ``connector``
+   is the last key of the dotted prefix, and a leaf is assigned verbatim — so
+   the mapping has to carry every connector block the deployment needs, not only
+   the custom type's. Copy the ``mock``, ``virtual_accelerator`` and ``epics``
+   blocks, with their gateways, ports and probe channels, from
+   ``templates/project/config.yml.j2`` or from a prior render's ``config.yml``.
+   Nothing outside ``connector`` is disturbed, and nothing refuses a mapping
+   that leaves a block out: the deployment simply comes up without the addresses
+   that block held.
+
+   What is never right is a bare ``control_system:`` mapping beside flat
+   ``control_system.*`` keys — the bare top-level key is the only spelling that
+   does not merge, since deeper dotted prefixes are walked into rather than
+   assigned over. It replaces the whole rendered section, so which of the two
+   reaches ``config.yml`` depends on key order. ``osprey build`` and ``osprey
+   validate`` refuse that pair by name too. Built-in types have no dots and take
+   the flat form.
 
 
 .. _profile-mcp-servers:
@@ -645,6 +693,13 @@ normally writes the pair itself:
    config:
      control_system.limits_checking.enabled: true
      control_system.limits_checking.allow_unlisted_channels: false
+
+That pair is the deployment's, and the stand-in inherits it: the build writes no
+``limits_checking`` block under ``control_system.connector.live_standin``, and a
+profile should not either, since a permissive block there would make
+``control_target_set standin`` refuse the very rehearsal the stand-in exists
+for. A simulator beside it is where a per-type block belongs — see
+:ref:`limits-checking-config`.
 
 ``control_system.target_switch.live_gateway_acknowledged`` stays the live
 machine's alone — the stand-in's equivalent is the ``live_standin`` line itself.

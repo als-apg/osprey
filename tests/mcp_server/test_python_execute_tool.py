@@ -846,7 +846,6 @@ async def test_save_artifact_no_name_error_in_subprocess(tmp_path):
         execution_mode="readonly",
         config=config,
         execution_folder=execution_folder,
-        limits_validator=None,
     )
 
     # The core assertion: execution must succeed, not crash with NameError
@@ -878,7 +877,6 @@ async def test_save_artifact_creates_manifest_in_subprocess(tmp_path):
         execution_mode="readonly",
         config=config,
         execution_folder=execution_folder,
-        limits_validator=None,
     )
 
     assert result.success, f"Execution failed: {result.stderr}"
@@ -921,7 +919,6 @@ async def test_save_artifact_collected_into_execution_result(tmp_path):
         execution_mode="readonly",
         config=config,
         execution_folder=execution_folder,
-        limits_validator=None,
     )
 
     assert result.success, f"Execution failed: {result.stderr}"
@@ -959,7 +956,6 @@ save_artifact("<h1>Third</h1></h1>", title="Third Artifact", description="html")
         execution_mode="readonly",
         config=config,
         execution_folder=execution_folder,
-        limits_validator=None,
     )
 
     assert result.success, f"Execution failed: {result.stderr}"
@@ -1006,7 +1002,6 @@ save_artifact([1, 2, 3], title="List Data")
         execution_mode="readonly",
         config=config,
         execution_folder=execution_folder,
-        limits_validator=None,
     )
 
     assert result.success, f"Execution failed: {result.stderr}"
@@ -1079,7 +1074,6 @@ print(f"Loaded: {data['channels']}")
             execution_mode="readonly",
             config=config,
             execution_folder=execution_folder,
-            limits_validator=None,
         )
 
     assert result.success, (
@@ -1116,7 +1110,6 @@ async def test_subprocess_outputs_still_written_to_execution_folder(tmp_path):
             execution_mode="readonly",
             config=config,
             execution_folder=execution_folder,
-            limits_validator=None,
         )
 
     assert result.success, f"Execution failed: {result.stderr}"

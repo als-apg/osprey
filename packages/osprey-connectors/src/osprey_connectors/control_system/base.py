@@ -663,9 +663,11 @@ class ControlSystemConnector(ABC):
 
     _limits_validator: Any = None  # Initialized by subclasses in connect()
     # The connector type this instance was built as. Stamped by
-    # ConnectorFactory.create_control_system_connector() between construction and
-    # connect(), so connect() can already read the posture. Stays None on an
-    # instance nobody built through the factory: no type, so no per-type block.
+    # ConnectorFactory.build_control_system_connector() between construction and
+    # connect(), so connect() can already read the posture
+    # (create_control_system_connector() is that build plus connect()). Stays
+    # None on an instance nobody built through the factory: no type, so no
+    # per-type block.
     _connector_type: str | None = None
     # The session target this instance was built for. Stamped by the same
     # factory seam as _connector_type, from the target the *caller* named — the

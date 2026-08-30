@@ -29,7 +29,14 @@ def _write_limits_db(tmp_path, limits_db):
 
 
 def _limits_config(limits_file, **extra):
-    """Config map that enables limits checking against ``limits_file``."""
+    """Config map that enables limits checking against ``limits_file``.
+
+    The connector resolves its posture from the nested ``control_system``
+    section while the database path is still read by its dotted key, so the map
+    answers both spellings of one deployment. The section is derived from the
+    dotted entries — including any an ``extra`` overrode — rather than written
+    twice, so the two spellings cannot drift apart.
+    """
     config_map = {
         "control_system.limits_checking.enabled": True,
         "control_system.limits_checking.database_path": str(limits_file),
@@ -38,6 +45,14 @@ def _limits_config(limits_file, **extra):
         "control_system.writes_enabled": True,
     }
     config_map.update(extra)
+    config_map["control_system"] = {
+        "writes_enabled": config_map["control_system.writes_enabled"],
+        "limits_checking": {
+            key.split(".")[-1]: value
+            for key, value in config_map.items()
+            if key.startswith("control_system.limits_checking.")
+        },
+    }
 
     def get_config_value(key, default=None):
         return config_map.get(key, default)

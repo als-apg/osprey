@@ -250,7 +250,7 @@ def test_limits_validator_loaded_and_passed(tmp_path, monkeypatch):
 
     get_config_builder(config_path=str(tmp_path / "config.yml"), set_as_default=True)
 
-    validator = _load_limits_validator()
+    validator = _load_limits_validator(target=None)
     assert validator is not None
     assert "TEST:PV" in validator.limits
 
@@ -260,7 +260,7 @@ def test_limits_validator_disabled_gracefully(tmp_path, monkeypatch):
     """When limits_checking.enabled=false, returns None."""
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path)
-    validator = _load_limits_validator()
+    validator = _load_limits_validator(target=None)
     assert validator is None
 
 
@@ -295,7 +295,7 @@ def test_wrapper_includes_monkeypatch_when_validator_present(tmp_path, monkeypat
 
     get_config_builder(config_path=str(tmp_path / "config.yml"), set_as_default=True)
 
-    validator = _load_limits_validator()
+    validator = _load_limits_validator(target=None)
     from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 
     wrapper = ExecutionWrapper(limits_validator=validator)

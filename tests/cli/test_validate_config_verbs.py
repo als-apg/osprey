@@ -246,6 +246,62 @@ def test_validate_still_runs_the_deploy_config_lint(
     assert "registry.url is not set" in result.output
 
 
+def test_validate_refuses_a_per_type_limits_block_missing_a_leaf(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A per-type ``limits_checking`` block overrides the deployment-wide pair
+    as a whole, so a block stating one leaf has no posture to answer with and
+    every reader falls back to refusing unlisted channels. The verb an operator
+    runs after a profile edit has to say so — by name — rather than report a
+    deployment valid that will quietly ignore what the profile stated."""
+    root = tmp_path / "half-a-block"
+    _write_profile(
+        root,
+        {
+            "name": "Demo Facility",
+            "data_bundle": "hello_world",
+            "config": {
+                "control_system.connector.virtual_accelerator.limits_checking.enabled": True
+            },
+        },
+    )
+    monkeypatch.chdir(root)
+
+    result = runner.invoke(validate, [])
+
+    assert result.exit_code == 2, result.output
+    assert "allow_unlisted_channels" in result.output
+    assert "virtual_accelerator" in result.output
+
+
+def test_validate_passes_a_complete_per_type_limits_block(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The other half of the same check: a block stating both leaves is the
+    supported way to relax a simulator without relaxing the machine, so it must
+    reach the verdict untouched. Pinned beside the refusal because a lint that
+    refuses everything passes the test above on its own."""
+    root = tmp_path / "whole-block"
+    _write_profile(
+        root,
+        {
+            "name": "Demo Facility",
+            "data_bundle": "hello_world",
+            "config": {
+                "control_system.connector.virtual_accelerator.limits_checking.enabled": True,
+                "control_system.connector.virtual_accelerator.limits_checking."
+                "allow_unlisted_channels": True,
+            },
+        },
+    )
+    monkeypatch.chdir(root)
+
+    result = runner.invoke(validate, [])
+
+    assert result.exit_code == 0, result.output
+    assert "Profile is valid" in result.output
+
+
 def test_validate_points_at_build_not_at_a_project_name(
     runner: CliRunner, repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

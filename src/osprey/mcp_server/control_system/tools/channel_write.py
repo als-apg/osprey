@@ -505,7 +505,14 @@ async def channel_write(
 
     validator = None
     if LimitsValidator is not None:
-        validator = LimitsValidator.from_config()
+        # The posture the session's target runs under, not the deployment's. A
+        # deployment may relax unlisted channels for its simulator alone, and
+        # the binding captured at entry is already the answer to "which machine
+        # is this write for" — reading the state file a second time here could
+        # only disagree with the binding every other check in this tool uses.
+        # No binding means no published target, which resolves the
+        # deployment-wide block, exactly as this call did before.
+        validator = LimitsValidator.from_config(target=entry_binding[0] if entry_binding else None)
 
     violations: list[dict] = []
     for op in operations:

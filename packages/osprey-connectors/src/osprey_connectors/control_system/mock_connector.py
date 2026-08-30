@@ -82,7 +82,7 @@ class MockConnector(ControlSystemConnector):
         # Initialize limits validator for automatic validation and confirm policy
         from osprey_connectors.control_system.limits_validator import LimitsValidator
 
-        self._limits_validator = LimitsValidator.from_config()
+        self._limits_validator = LimitsValidator.from_config(connector_type=self._connector_type)
         if self._limits_validator:
             logger.debug("Mock connector: limits validator initialized")
 

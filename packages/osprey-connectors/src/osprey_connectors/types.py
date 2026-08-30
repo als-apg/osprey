@@ -33,8 +33,22 @@ simulator alone; and the lint that reads the config, the persona that tells an
 operator what they hold, and the connector that would perform the write all have
 to agree about which types are armed. Two readings of one posture is one of them
 being wrong about a machine somebody can move.
+
+:class:`LimitsPosture` is the same story for limits checking, which is likewise
+per connector type: a deployment may relax unlisted channels on its simulator
+while its live machine refuses them. It carries the resolved posture together
+with the config key that answered it, so a refusal names the line an operator
+would have to edit rather than one some per-type block overrides.
+
+Where the write family reads an unusable value as "not armed" and is done, the
+limits family cannot: "no limits checking configured" is itself a permissive
+answer, so a leaf written as something no reader can turn into a boolean is
+reported as a block that failed to state it rather than as a block that stated
+nothing. Such a posture answers neither leaf, and a caller that must act blocks
+every write instead of waving them through unchecked.
 """
 
+from dataclasses import dataclass
 from typing import Any
 
 # -- Control system connector types (have implementations) --
@@ -525,6 +539,410 @@ def any_target_writes_enabled(section: Any) -> bool:
     return any(session_posture(section).values())
 
 
+# -- Limits posture --
+# Limits checking is per connector type for the same reason write posture is: a
+# deployment with a live machine beside a virtual accelerator has one posture
+# per machine, not one per deployment. The block overrides *whole* — a per-type
+# block states both leaves and then answers alone — so the value below carries
+# the two leaves together with the key that answered them.
+
+#: The limits block's own name, both deployment-wide
+#: (``control_system.limits_checking``) and inside one connector block
+#: (``control_system.connector.<type>.limits_checking``). One name because it is
+#: one block at two scopes, the per-type one overriding the other whole.
+LIMITS_CHECKING_LEAF = "limits_checking"
+
+#: The leaves a limits block has to state to answer at all. ``database_path`` is
+#: deliberately not among them: the deployment mounts one limits database, so a
+#: per-type block that omits the path is complete rather than incomplete.
+LIMITS_LEAVES = ("enabled", "allow_unlisted_channels")
+
+
+@dataclass(frozen=True)
+class LimitsPosture:
+    """A resolved limits posture, together with the config key that answered it.
+
+    The value and its key travel as one because a refusal has to send an
+    operator to the line they can actually edit. A deployment that relaxed
+    ``allow_unlisted_channels`` for its simulator alone has two keys in play,
+    and a refusal naming the deployment-wide one would have the operator flip a
+    line the per-type block overrides — a change that does nothing, on a
+    posture they did not mean to touch. Resolving the value without carrying
+    its key back is what makes that mistake available, so this type does not
+    offer the value on its own.
+
+    Both leaves are tri-state. ``None`` is "no block said", which is not the
+    same as a block saying ``false``: silence is what a deployment that never
+    configured limits checking has, and every write path treats it as no
+    permission rather than as a decision. Only :data:`LIMITS_LEAVES` are
+    carried; the limits database path stays deployment-wide.
+
+    Attributes:
+        enabled: Whether limits checking is on, or ``None`` when unstated.
+        allow_unlisted: Whether channels absent from the limits database may be
+            written, or ``None`` when unstated. Write paths allow only on
+            ``True``.
+        connector_type: The connector type whose block answered, or ``None``
+            when the deployment-wide block did. It selects the key spelling and
+            nothing else.
+        incomplete: The :data:`LIMITS_LEAVES` the answering block failed to
+            state, in :data:`LIMITS_LEAVES` order — a leaf a per-type block
+            omitted, or a leaf either block wrote as something other than a
+            literal boolean. Empty for a well-formed block. A non-empty value
+            means the posture answered nothing — both leaves are ``None`` —
+            and a reader that must act builds a failsafe rather than guessing
+            which half of the block was meant. The one posture not read from a
+            single block, :func:`most_restrictive_limits_posture`'s fold, may
+            carry definite leaves beside a non-empty tuple; readers check this
+            field first for exactly that reason.
+    """
+
+    enabled: bool | None
+    allow_unlisted: bool | None
+    connector_type: str | None
+    incomplete: tuple[str, ...] = ()
+
+    def key(self, leaf: str) -> str:
+        """The config key this posture's *leaf* was read from.
+
+        ``control_system.connector.<type>.limits_checking.<leaf>`` when a
+        connector block answered, and ``control_system.limits_checking.<leaf>``
+        when the deployment-wide block did. A custom connector's dotted module
+        path (``'mypackage.TangoConnector'``) is one key and is interpolated
+        whole, never split on its dots.
+
+        A posture holding no type at all — the deployment-wide answer, and the
+        fallback a target that resolves to no type gets — spells the
+        deployment-wide key, which is where such a posture was read from
+        anyway. Same reading :func:`writes_enabled_key` gives the same case.
+
+        Args:
+            leaf: One of :data:`LIMITS_LEAVES`.
+
+        Returns:
+            The dotted key, as a caller spells it for ``get_config_value`` and
+            as a refusal names it to an operator.
+        """
+        if not self.connector_type:
+            return f"control_system.{LIMITS_CHECKING_LEAF}.{leaf}"
+        return f"control_system.connector.{self.connector_type}.{LIMITS_CHECKING_LEAF}.{leaf}"
+
+    @property
+    def block_key(self) -> str:
+        """The dotted key of the whole ``limits_checking`` block, without a leaf.
+
+        What a refusal names when the block itself is the problem — it is not a
+        mapping, or it failed to state leaves an operator now has to go and
+        write. Spelled off :meth:`key` rather than rebuilt, so a refusal about a
+        block and a refusal about one of its leaves cannot disagree about where
+        the block is.
+        """
+        return self.key(LIMITS_LEAVES[0]).rsplit(".", 1)[0]
+
+    @property
+    def strict(self) -> bool:
+        """Whether this posture refuses everything the limits database does not list.
+
+        Limits checking on *and* unlisted channels explicitly refused — the only
+        definition of "strict" in the codebase, so the switch gate, the target
+        roster and the docs cannot drift into three readings of one word.
+
+        Explicit on both leaves: ``None`` is a deployment that never stated a
+        posture, and a deployment that stated nothing has refused nothing.
+        Counting silence as strict would advertise a guarantee no config line
+        backs, on exactly the deployments least likely to have checked.
+        """
+        return self.enabled is True and self.allow_unlisted is False
+
+
+def type_limits_posture(section: Any, connector_type: str | None) -> LimitsPosture:
+    """The limits posture one connector *type* runs under.
+
+    ``control_system.connector.<type>.limits_checking`` when that block is
+    there, and ``control_system.limits_checking`` when it is not, where
+    *connector_type* is one key. A custom connector's dotted module path
+    (``'mypackage.TangoConnector'``) names a single block, never a path through
+    several, so the type is looked up whole and never split on its dots.
+
+    The per-type block overrides **whole**, and that is the rule the rest of the
+    family is built on:
+
+    - **Absent** — no connector table, no block for this type, a connector
+      block that is not a mapping, or one carrying no ``limits_checking`` key
+      at all — inherits the deployment-wide block, both leaves tri-state. That
+      is the compatibility story: a deployment that says nothing per type keeps
+      the posture it had when the deployment-wide block was the only posture
+      there was.
+    - **Present but not a mapping** — ``limits_checking: 'true'``, a list, a
+      bare ``limits_checking:`` — is a block written and unreadable, not an
+      absent one, so it answers nothing with both leaves incomplete. Inheriting
+      there would hand the deployment-wide posture to a type whose own block
+      says something nobody can read, which is the one case where inheritance
+      would be a guess rather than compatibility.
+    - **Present and complete** answers alone. Not one leaf is borrowed from the
+      deployment-wide block, because a facility that wrote a block under its
+      live machine has described *that* machine, and a global relaxation meant
+      for a simulator must not complete it into permission on hardware.
+    - **Present and failing to state a leaf** answers *nothing*: both leaves
+      ``None``, and :attr:`LimitsPosture.incomplete` names what it failed to
+      state. Half a block is a config the build and ``osprey validate`` refuse
+      outright; a hand-edited or older render can still carry one, and then a
+      reader that must act builds a failsafe — blocking every write — rather
+      than guessing which half was meant.
+
+    A block fails to state a leaf in two ways, and only the first is particular
+    to per-type blocks. A per-type block may **omit** one, which the
+    deployment-wide block may do freely because it inherits nothing. Either
+    block may **write one unreadably** — the ``None`` YAML gives a bare
+    ``enabled:``, the quoted ``'true'``, a ``1``, an unexpanded
+    ``'${LIMITS_ON}'`` — and that is a failure in both scopes. It has to be:
+    an unreadable leaf read as merely unset would leave ``enabled`` meaning
+    "this deployment configured no limits checking", so a deployment that wrote
+    ``enabled: 'true'`` to switch checking *on* would have its writes go
+    unchecked. Reported as unstated, it costs a config edit; read as unset, it
+    would cost the guarantee the line was written to provide. Both readings are
+    the build refusal's too (:func:`incomplete_limits_blocks`), so a config the
+    build accepts and one the runtime enforces cannot come apart.
+
+    Keyed by type rather than by session target for the reason
+    :func:`type_writes_enabled` is: a connector, the factory that builds it, an
+    IPC child all know which connector type they are and never which target
+    selected it. :func:`target_limits_posture` is this same answer for the
+    holders that carry a target instead.
+
+    Args:
+        section: The ``control_system:`` config section, in the same shape
+            :func:`resolve_control_system_type` takes.
+        connector_type: A connector type name, as
+            :func:`resolve_control_system_type` and :func:`resolve_target`
+            return it — which is also its connector sub-block key. ``None``
+            (or an empty name) asks the deployment-wide question, which is what
+            a caller holding no type at all has always asked.
+
+    Returns:
+        The resolved :class:`LimitsPosture`, carrying the type whose block
+        answered — or ``None`` for the deployment-wide block, which is the key
+        such a posture was read from anyway. Never raises: a section or a
+        connector table that is not a mapping is a deployment that has said
+        nothing, and a deployment that has said nothing states no posture — a
+        ``limits_checking`` value that is present but not a mapping is instead
+        an unreadable block, incomplete on both leaves.
+    """
+    if connector_type:
+        connector = section.get("connector") if isinstance(section, dict) else None
+        block = connector.get(connector_type) if isinstance(connector, dict) else None
+        if isinstance(block, dict) and LIMITS_CHECKING_LEAF in block:
+            limits = block[LIMITS_CHECKING_LEAF]
+            if not isinstance(limits, dict):
+                return LimitsPosture(None, None, connector_type, LIMITS_LEAVES)
+            return _block_limits_posture(limits, connector_type, whole=True)
+    return _global_limits_posture(section)
+
+
+def target_limits_posture(section: Any, target: Any) -> LimitsPosture:
+    """The limits posture one session *target* runs under.
+
+    :func:`type_limits_posture` for the type that target resolves to, so a
+    holder following the session target and the connector that knows only its
+    own type read one posture and not two. The roster row, the stdlib hook, the
+    executor and the tool layer all arrive here; the connector, the factory and
+    the IPC child arrive at :func:`type_limits_posture` — and a deployment that
+    described one machine must not answer them differently.
+
+    A target that does not resolve answers the deployment-wide block instead.
+    Two shapes reach that branch and both mean the same thing: there is no
+    per-type block to consult because there is no type. An unknown target names
+    nothing. ``live`` on a mock or hello_world-style deployment names a machine
+    the config never described, which :func:`resolve_target` refuses to guess.
+    Such a deployment has only ever had the one deployment-wide block, and
+    keeping it is parity rather than a fallback — the same reading
+    :func:`target_writes_enabled` takes, so the two postures a refusal may quote
+    cannot disagree about which deployments have a second machine. Refusing here
+    would instead take the posture away from every deployment that never had a
+    second target.
+
+    Args:
+        section: The ``control_system:`` config section, in the same shape
+            :func:`resolve_control_system_type` takes.
+        target: The session target, one of :data:`CONTROL_TARGETS`.
+
+    Returns:
+        The resolved :class:`LimitsPosture` for that target, carrying the type
+        whose block answered — or ``None`` for the deployment-wide block, which
+        is both what an unresolvable target gets and what a resolvable one gets
+        when its type wrote no block. Never raises.
+    """
+    try:
+        connector_type = resolve_target(section, target)
+    except ValueError:
+        return _global_limits_posture(section)
+    return type_limits_posture(section, connector_type)
+
+
+def most_restrictive_limits_posture(section: Any) -> LimitsPosture:
+    """The limits posture that holds across every target a session here can select.
+
+    What a caller with no target of its own has to assume. The stdlib hook is
+    the one that needs it: when the session's control target cannot be read —
+    no state written yet, an unreadable state directory, a target that resolves
+    to nothing — it still has to decide about a write, and the machine it is
+    deciding about is any of the reachable ones.
+
+    The reachable set is exactly :func:`session_posture`'s: every
+    :func:`configured_targets` when the deployment renders the switch
+    (:func:`switch_capable`), and otherwise the single connector
+    ``control_system.type`` builds, read by *type* through
+    :func:`type_limits_posture`. Reading the baseline by type rather than by
+    target is what keeps a mock deployment that happens to carry an ``epics``
+    block from folding that block's relaxation into an answer no session here
+    could ever reach; and walking the configured targets rather than
+    :data:`CONTROL_TARGETS` keeps :func:`target_limits_posture`'s
+    unresolvable-target fallback from voting for a machine nobody stood up.
+
+    The two leaves fold in opposite directions, each toward the answer that
+    costs a config edit rather than a machine:
+
+    - ``enabled`` is ``True`` when *any* reachable posture has it ``True``.
+      Limits checking being on somewhere is a constraint that may apply to the
+      write in hand.
+    - ``allow_unlisted`` is ``True`` only when *every* reachable posture has it
+      ``True``. Permission to write a channel the limits database does not list
+      holds only where every machine grants it, so one strict target — or one
+      that states nothing, ``None`` and an incomplete block alike counting as
+      not-``True`` — makes the answer strict.
+
+    Incompleteness travels with them, as the union of every reachable
+    posture's :attr:`LimitsPosture.incomplete` in :data:`LIMITS_LEAVES` order.
+    One reachable machine whose block cannot be read makes the fold incomplete,
+    and a reader that must act therefore builds the blocking failsafe. Dropping
+    it would be the worst failure available here: both leaf folds send an
+    incomplete posture's ``None`` to ``False``, which reads as "checking off,
+    nothing permitted" — and a validator built from *that* is no validator at
+    all, so the caller with the least information about which machine it is
+    touching would be the one waved through. This is the fail-closed direction
+    :func:`LimitsValidator.from_config_most_restrictive`'s callers are promised.
+
+    The result is derived rather than read, which is why both leaves come back
+    definite where a single block's would be tri-state, and why the posture
+    carries no connector type: no per-type line answers for a union, and naming
+    one would send an operator to edit a machine rather than the answer. The
+    deployment-wide keys :meth:`LimitsPosture.key` then spells are the honest
+    ones — they are the lines that decide every target that wrote no block.
+
+    Args:
+        section: The ``control_system:`` config section, in the same shape
+            :func:`resolve_control_system_type` takes.
+
+    Returns:
+        The folded :class:`LimitsPosture`, always carrying ``None`` for its
+        connector type, and incomplete when any reachable posture is. Never
+        raises and never folds an empty set:
+        :func:`configured_targets` always holds the baseline, and a deployment
+        that says nothing still has one target.
+    """
+    if switch_capable(section):
+        postures = [
+            target_limits_posture(section, target) for target in configured_targets(section)
+        ]
+    else:
+        postures = [type_limits_posture(section, resolve_control_system_type(section))]
+    return LimitsPosture(
+        enabled=any(posture.enabled is True for posture in postures),
+        allow_unlisted=all(posture.allow_unlisted is True for posture in postures),
+        connector_type=None,
+        incomplete=tuple(
+            leaf
+            for leaf in LIMITS_LEAVES
+            if any(leaf in posture.incomplete for posture in postures)
+        ),
+    )
+
+
+def incomplete_limits_blocks(section: Any) -> list[str]:
+    """Every half-written per-type limits block in a rendered section, named.
+
+    A per-type ``limits_checking`` block overrides whole, so a block that states
+    one leaf states no posture at all: :func:`type_limits_posture` answers
+    ``None`` twice for it and a write path that must act builds a failsafe. The
+    build and ``osprey validate`` refuse such a config outright rather than ship
+    a deployment whose limits posture silently stopped working, and this is what
+    they read to do it — the rendered config itself, so a spelling the profile
+    layer could not classify is still caught before it reaches a machine.
+
+    A lint and not a posture: it answers about a section rather than about a
+    target, and each line it emits names the key an operator has to fix. It
+    reports exactly what :func:`type_limits_posture` reads as a block that
+    failed to state a leaf — the two share :func:`_unstated_limits_leaves`, so
+    a config the build accepts and one the runtime enforces cannot come apart —
+    which is the two failures a block can have:
+
+    - A **per-type** block that omits a leaf. The deployment-wide block is not
+      reported for an omission: it inherits nothing, so a leaf it never carried
+      is the tri-state's ``None`` and the shape every deployment predating
+      per-type blocks has.
+    - **Either** block writing a leaf as something no reader can turn into a
+      boolean — a quoted ``'true'``, a ``1``, a bare ``enabled:``, an
+      unexpanded ``'${LIMITS_ON}'``. Environment expansion yields strings, so
+      this is what a deployment gets when it wires a limits leaf to a variable
+      nothing set. It blocks every write at runtime, which is the safe
+      direction but a poor way to find out; refusing the build is where that
+      config is cheap to fix.
+    - **Either** ``limits_checking`` being present but not a mapping at all,
+      which gets one line naming the block and quoting what was found there
+      instead of a line per leaf: there are no leaves to name.
+
+    Args:
+        section: The ``control_system:`` config section, in the same shape
+            :func:`resolve_control_system_type` takes — the *rendered* one, as
+            the build produced it, since that is the config a deployment runs.
+
+    Returns:
+        One line per unstated leaf: the deployment-wide block first, then the
+        connector blocks in the order the section carries them, leaves in
+        :data:`LIMITS_LEAVES` order, so one refusal lists everything an operator
+        has to fix. Empty for a section whose blocks are complete, absent, or
+        not blocks at all. Never raises: a lint that crashed on a malformed
+        config would fail a build without saying what is wrong with it.
+    """
+    if not isinstance(section, dict):
+        return []
+    connector = section.get("connector")
+    blocks: list[tuple[Any, Any, bool]] = []
+    if LIMITS_CHECKING_LEAF in section:
+        blocks.append((None, section[LIMITS_CHECKING_LEAF], False))
+    if isinstance(connector, dict):
+        blocks.extend(
+            (connector_type, block[LIMITS_CHECKING_LEAF], True)
+            for connector_type, block in connector.items()
+            if isinstance(block, dict) and LIMITS_CHECKING_LEAF in block
+        )
+    errors: list[str] = []
+    for connector_type, block, whole in blocks:
+        # The posture this block would answer with, built for its keys alone —
+        # so the line naming the block and the lines naming its leaves are
+        # spelled by one thing.
+        posture = LimitsPosture(None, None, connector_type)
+        if not isinstance(block, dict):
+            errors.append(
+                f"{posture.block_key} is {block!r}, not a block; a limits "
+                f"block is a mapping stating {LIMITS_LEAVES[0]} and {LIMITS_LEAVES[1]}"
+            )
+            continue
+        for leaf, written in _unstated_limits_leaves(block, whole=whole):
+            if written:
+                errors.append(
+                    f"{posture.key(leaf)} is {block[leaf]!r}, not a literal true or false; "
+                    "a limits leaf that cannot be read states no posture and blocks "
+                    "every write as a failsafe"
+                )
+            else:
+                errors.append(
+                    f"{posture.key(leaf)} is missing; a per-type limits block must state "
+                    f"both {LIMITS_LEAVES[0]} and {LIMITS_LEAVES[1]}"
+                )
+    return errors
+
+
 def _global_writes_enabled(section: Any) -> bool:
     """The deployment-wide posture, ``control_system.writes_enabled``.
 
@@ -532,6 +950,116 @@ def _global_writes_enabled(section: Any) -> bool:
     gets, so a quoted ``'true'`` or a ``1`` arms nothing at either level.
     """
     return isinstance(section, dict) and section.get(TYPE_WRITES_ENABLED_LEAF) is True
+
+
+def _global_limits_posture(section: Any) -> LimitsPosture:
+    """The deployment-wide posture, ``control_system.limits_checking``.
+
+    A leaf this block does not carry is the tri-state and not a malformed
+    block: silence here is the shape every deployment predating per-type blocks
+    has, and only a per-type block, which overrides whole, has to state both
+    leaves to answer at all. A leaf it *does* carry but spells as something
+    other than a literal boolean is unreadable in either block alike — see
+    :func:`_unstated_limits_leaves` — and so is the whole block when
+    ``limits_checking`` is present but is not a mapping, which is incomplete on
+    both leaves rather than the silence of a deployment that wrote none.
+    """
+    if not isinstance(section, dict) or LIMITS_CHECKING_LEAF not in section:
+        return _block_limits_posture({}, None, whole=False)
+    block = section[LIMITS_CHECKING_LEAF]
+    if not isinstance(block, dict):
+        return LimitsPosture(None, None, None, LIMITS_LEAVES)
+    return _block_limits_posture(block, None, whole=False)
+
+
+def _unstated_limits_leaves(block: dict[str, Any], *, whole: bool) -> list[tuple[str, bool]]:
+    """The leaves a limits block fails to state, and whether each was written.
+
+    One classifier for both scopes and both readers — the posture resolvers and
+    the build's render check — because "which leaves did this block fail to
+    state" decided twice is a config the build accepts and the runtime refuses,
+    or worse the other way round.
+
+    Two ways a block fails to state a leaf, and they are told apart by the
+    boolean each entry carries:
+
+    - **Absent** (``False``), which is a failure only under *whole*: a per-type
+      block overrides the deployment-wide pair entire, so it has to state both
+      leaves to answer at all. The deployment-wide block is read with
+      ``whole=False``, where an absent leaf is simply the tri-state's ``None``.
+    - **Written but unreadable** (``True``) — a quoted ``'true'``, a ``1``, a
+      bare ``enabled:``, an unexpanded ``'${LIMITS_ON}'`` that no environment
+      resolved — which is a failure in *either* scope. This is the leaf that
+      cannot be allowed to read as a plain unset: unset ``enabled`` means "no
+      limits checking configured", so a deployment that wrote
+      ``enabled: 'true'`` meaning to switch checking *on* would have every
+      write waved through unchecked. Reporting it unstated instead makes the
+      posture incomplete, and an incomplete posture blocks. The config edit is
+      one line; the alternative is unchecked writes on a machine somebody
+      believed was guarded.
+
+    Args:
+        block: A ``limits_checking`` mapping, deployment-wide or per type.
+        whole: Whether an absent leaf is a failure, which it is exactly when
+            the block overrides another one entire.
+
+    Returns:
+        ``(leaf, was_written)`` in :data:`LIMITS_LEAVES` order, empty for a
+        block that states everything it has to.
+    """
+    unstated: list[tuple[str, bool]] = []
+    for leaf in LIMITS_LEAVES:
+        if leaf not in block:
+            if whole:
+                unstated.append((leaf, False))
+        elif _limits_leaf(block[leaf]) is None:
+            unstated.append((leaf, True))
+    return unstated
+
+
+def _block_limits_posture(
+    block: dict[str, Any], connector_type: str | None, *, whole: bool
+) -> LimitsPosture:
+    """One ``limits_checking`` mapping read into a posture.
+
+    A block that fails to state any leaf answers *nothing* — both leaves
+    ``None``, with :attr:`LimitsPosture.incomplete` naming what it failed to
+    state. Half an answer is not available: neither leaf of a block written
+    with the other one unreadable can be trusted to mean what a reader would do
+    with it, and a caller that must act builds a failsafe from ``incomplete``
+    rather than guessing.
+    """
+    unstated = _unstated_limits_leaves(block, whole=whole)
+    if unstated:
+        return LimitsPosture(None, None, connector_type, tuple(leaf for leaf, _ in unstated))
+    enabled_leaf, allow_unlisted_leaf = LIMITS_LEAVES
+    return LimitsPosture(
+        enabled=_limits_leaf(block.get(enabled_leaf)),
+        allow_unlisted=_limits_leaf(block.get(allow_unlisted_leaf)),
+        connector_type=connector_type,
+    )
+
+
+def _limits_leaf(value: Any) -> bool | None:
+    """One limits leaf as a literal boolean, or ``None`` for anything else.
+
+    The literal booleans and nothing else are readable. A quoted ``'true'``, a
+    ``1``, a bare ``enabled:`` — the same values :func:`type_writes_enabled`
+    refuses to read as an arming — are not.
+
+    Unlike write posture, ``None`` here is not itself the safe answer, which is
+    why no caller reads this directly: an unset ``enabled`` means "this
+    deployment configured no limits checking", so a leaf written unreadably and
+    reported as merely unset would turn an attempt to switch checking *on* into
+    writes that are never checked at all. :func:`_unstated_limits_leaves` is
+    what the resolvers use, and it separates a leaf nobody wrote from a leaf
+    nobody can read.
+    """
+    if value is True:
+        return True
+    if value is False:
+        return False
+    return None
 
 
 def _live_type(section: Any) -> str:

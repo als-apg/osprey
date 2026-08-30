@@ -19,8 +19,10 @@ the per-field branches those files leave untouched.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
+from click.testing import CliRunner, Result
 
 from osprey.cli.build_profile import (
     BlueskyConfig,
@@ -843,3 +845,174 @@ def test_an_app_template_without_ariel_needs_no_sidecar(tmp_path: Path) -> None:
     BuildProfile(name="x", data_bundle="channel_finder_standalone", deploy_services=False).validate(
         tmp_path
     )
+
+
+# ---------------------------------------------------------------------------
+# The build's render-side limits-block refusal
+# ---------------------------------------------------------------------------
+#
+# The profile-side lint reads what a `config:` block spelled; this one reads
+# the config a deployment actually runs, so a half-written per-type block that
+# no profile spelling explains — one an injector assembled, one an app template
+# shipped — is still refused before it reaches a machine.
+
+
+def _write_render(tmp_path: Path, control_system: object) -> Path:
+    """A render directory holding nothing but the ``control_system:`` section.
+
+    The build reads its own ``config.yml`` back after the injectors have run,
+    which is the only file this check touches.
+    """
+    import yaml
+
+    render_dir = tmp_path / "render"
+    render_dir.mkdir()
+    (render_dir / "config.yml").write_text(
+        yaml.safe_dump({"project_name": "demo", "control_system": control_system}),
+        encoding="utf-8",
+    )
+    return render_dir
+
+
+def _render_limits_errors(render_dir: Path) -> list[str]:
+    """The build's own render-side limits check, as ``_render_project`` runs it."""
+    from osprey.cli.build_cmd import _incomplete_limits_errors
+
+    return _incomplete_limits_errors(render_dir)
+
+
+def test_render_with_a_half_written_limits_block_is_unrunnable(tmp_path: Path) -> None:
+    """A per-type block stating only ``enabled`` answers no posture at all.
+
+    It overrides the deployment-wide pair whole, so the deployment silently
+    falls back to refusing unlisted channels — the refusal names the leaf an
+    operator has to add rather than letting a build ship that surprise.
+    """
+    render_dir = _write_render(
+        tmp_path, {"connector": {"virtual_accelerator": {"limits_checking": {"enabled": True}}}}
+    )
+
+    (error,) = _render_limits_errors(render_dir)
+
+    assert (
+        "control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels"
+        in error
+    )
+
+
+def test_render_with_a_complete_limits_block_is_runnable(tmp_path: Path) -> None:
+    """Both leaves stated is the supported way to relax a simulator alone."""
+    render_dir = _write_render(
+        tmp_path,
+        {
+            "connector": {
+                "virtual_accelerator": {
+                    "limits_checking": {"enabled": True, "allow_unlisted_channels": True}
+                }
+            }
+        },
+    )
+
+    assert _render_limits_errors(render_dir) == []
+
+
+def test_render_without_a_per_type_limits_block_is_runnable(tmp_path: Path) -> None:
+    """Silence is every deployment predating per-type blocks; only a half-written one is refused."""
+    render_dir = _write_render(
+        tmp_path,
+        {
+            "type": "virtual_accelerator",
+            "connector": {"virtual_accelerator": {"prefix": "SR:"}},
+            "limits_checking": {"enabled": True},
+        },
+    )
+
+    assert _render_limits_errors(render_dir) == []
+
+
+# ---------------------------------------------------------------------------
+# The build's profile-side limits-block refusal
+# ---------------------------------------------------------------------------
+#
+# `osprey validate` is the verb an operator runs by hand; `osprey build` is the
+# one that has to refuse, because a deployment reaches a machine through the
+# build and not through the verb somebody remembered to run. Both ask
+# `limits_block_errors` about the same `config:` block, so a profile refused by
+# one is refused by the other with the same words.
+#
+# Profile-side, not render-side: raising here means a build stops before the
+# render, so the one-leaf case is reported once — by the check that can name
+# the profile key an author has to fix — instead of twice.
+
+
+def _build_with_config(tmp_path: Path, config: dict[str, Any], name: str) -> Result:
+    """Run ``osprey build`` against a repo whose profile states *config*.
+
+    The profile names no provider, so a build that gets past the profile-side
+    lint stops at the next refusal instead of rendering — which is what makes
+    the passing case below cheap and what its assertion reads.
+    """
+    import yaml
+
+    from osprey.cli.build_cmd import build
+
+    repo = tmp_path / name
+    repo.mkdir()
+    (repo / "profile.yml").write_text(
+        yaml.safe_dump(
+            {"name": "Demo Facility", "data_bundle": "hello_world", "config": config},
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    return CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+
+
+def test_build_refuses_a_profile_writing_only_one_limits_leaf(tmp_path: Path) -> None:
+    """One leaf states a posture nothing answers: the per-type block overrides
+    the deployment-wide pair whole, so the missing leaf falls back to refusing
+    unlisted channels rather than to what the profile meant."""
+    result = _build_with_config(
+        tmp_path,
+        {"control_system.connector.virtual_accelerator.limits_checking.enabled": True},
+        "half-a-block",
+    )
+
+    assert result.exit_code != 0, result.output
+    assert "Profile validation failed" in result.output
+    assert "allow_unlisted_channels" in result.output
+    assert "virtual_accelerator" in result.output
+
+
+def test_build_refuses_a_flat_dotted_custom_type(tmp_path: Path) -> None:
+    """Flattened, the dots in ``mypkg.TangoConnector`` are indistinguishable
+    from path separators, so the emitter renders a key no connector reads. The
+    build names the offending key instead of rendering the dead spelling."""
+    key = "control_system.connector.mypkg.TangoConnector.limits_checking.enabled"
+
+    result = _build_with_config(tmp_path, {key: True}, "dotted-type")
+
+    assert result.exit_code != 0, result.output
+    assert "Profile validation failed" in result.output
+    assert key in result.output
+
+
+def test_build_passes_a_complete_per_type_limits_block(tmp_path: Path) -> None:
+    """The supported spelling reaches the checks past the lint untouched.
+
+    Pinned beside the two refusals because a lint that refuses every profile
+    passes both of those on its own. The provider refusal is the marker: it is
+    the next thing the build asks after the profile-side lint.
+    """
+    result = _build_with_config(
+        tmp_path,
+        {
+            "control_system.connector.virtual_accelerator.limits_checking.enabled": True,
+            "control_system.connector.virtual_accelerator.limits_checking."
+            "allow_unlisted_channels": True,
+        },
+        "whole-block",
+    )
+
+    assert "Profile validation failed" not in result.output
+    assert "names no provider" in result.output

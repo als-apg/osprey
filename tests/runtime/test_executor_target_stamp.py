@@ -394,7 +394,6 @@ class TestExecuteViaLocalStamping:
                 "readonly",
                 {"timeout": 5},
                 folder,
-                None,
             )
         )
         return captured["env"], result

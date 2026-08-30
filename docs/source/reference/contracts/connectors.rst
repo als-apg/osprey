@@ -175,8 +175,8 @@ connector type:
 
 A connector type that carries no ``writes_enabled`` of its own inherits
 ``control_system.writes_enabled``; one that carries it uses its own value and
-never falls back. Both default to blocked when omitted, and **only a literal
-``true`` arms writes** — the quoted string ``'true'`` and the number ``1`` do
+never falls back. Both default to blocked when omitted, and **only a literal**
+``true`` **arms writes** — the quoted string ``'true'`` and the number ``1`` do
 not. A custom connector's block is keyed by the same dotted module path that
 selects it, so ``mypackage.TangoConnector`` names one block and is never split
 on its dots.
@@ -218,10 +218,45 @@ Limits Checking
        enabled: true                     # Enable limits validation
        database_path: ./limits_db.json   # Path to the channel limits JSON
        allow_unlisted_channels: false    # Block writes to channels not in the database
+     connector:
+       virtual_accelerator:
+         limits_checking:                # This connector type's own posture,
+           enabled: true                 # replacing the pair above for it alone
+           allow_unlisted_channels: true
 
 When enabled, every ``write_channel()`` call is validated against the limits
 database before the write reaches hardware. The database format is the
 per-channel configuration above.
+
+The posture is per connector type. ``control_system.limits_checking`` is what a
+type inherits when it says nothing about itself, and
+``control_system.connector.<type>.limits_checking`` answers for that type
+instead — so one deployment can refuse unlisted channels on its live machine
+while letting them through on a simulator. Three rules govern the per-type
+block:
+
+- **It replaces, it does not merge.** A per-type block must state both
+  ``enabled`` and ``allow_unlisted_channels``; neither is inherited. A block
+  stating one alone is refused by ``osprey build`` and ``osprey validate``,
+  naming the missing setting — and a half-written block that reaches a running
+  deployment anyway, by a hand-edited ``config.yml`` or an older render, blocks
+  every write until it is completed.
+- **The database stays deployment-wide.** ``database_path`` is not a per-type
+  setting: the deployment mounts one limits file, and every target is checked
+  against it.
+- **Only explicit values decide.** ``allow_unlisted_channels`` is true, false,
+  or unstated. With limits checking enabled, an ``allow_unlisted_channels``
+  that no key states refuses unlisted channels — permission needs an explicit
+  ``true``. A deployment that states no limits posture at all runs no limits
+  checking, and nothing on that path refuses an unlisted channel.
+
+A refusal about an unlisted channel — and the target switch's
+``limits_posture`` refusal — names the key that answered, the per-type one where
+a block spoke and the deployment-wide one where none did, so an operator edits
+the line that decides rather than one it overrides. The ``channel_limits`` tool
+reports the same pair for the target the session is on, including ``null`` where
+nothing states an answer, alongside ``allow_unlisted_key`` naming the key it
+read.
 
 .. seealso::
 
@@ -302,11 +337,11 @@ The shared helpers in ``osprey.connectors.archiver._timerange`` (``to_utc``,
 ``aggregate_series``, ``reject_non_numeric``) implement all of the above --
 every in-tree connector builds on them rather than reimplementing binning.
 
-**The ``value`` dtype rule.** Enum/status channels carry string values, and
-``get_data`` never coerces them: a channel's own dtype flows through, and only
-mixing non-numeric with numeric channels in one query promotes the shared
-``value`` column. Forcing ``value`` to ``float64`` "for consistency" silently
-corrupts every enum/status channel. (This is deliberately not the live-read
+**The dtype rule for** ``value``\ **.** Enum/status channels carry string
+values, and ``get_data`` never coerces them: a channel's own dtype flows
+through, and only mixing non-numeric with numeric channels in one query promotes
+the shared ``value`` column. Forcing ``value`` to ``float64`` "for consistency"
+silently corrupts every enum/status channel. (This is deliberately not the live-read
 contract, where an enum reads as its index with the label in ``enum_label`` --
 an archiver reports what its backend recorded, and these backends recorded the
 string.)

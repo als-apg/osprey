@@ -59,7 +59,7 @@ class DOOCSConnector(ControlSystemConnector):
             raise ImportError("doocs4py is required for the DOOCS connector.") from None
 
         # Initialize limits validator for automatic validation and confirm policy
-        self._limits_validator = LimitsValidator.from_config()
+        self._limits_validator = LimitsValidator.from_config(connector_type=self._connector_type)
         if self._limits_validator:
             logger.debug("DOOCS connector: limits validator initialized")
 

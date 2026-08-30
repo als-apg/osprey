@@ -17,8 +17,19 @@ from osprey.errors import ChannelLimitsViolationError
 
 
 def _patch_config(monkeypatch, db_file, allow_unlisted: bool = False):
-    """Point from_config at a limits file on disk."""
+    """Point from_config at a limits file on disk.
+
+    ``from_config`` reads the nested ``control_system`` section to resolve the
+    posture and the dotted key for the database path, so the shim answers both
+    spellings of the one deployment these tests describe.
+    """
     values = {
+        "control_system": {
+            "limits_checking": {
+                "enabled": True,
+                "allow_unlisted_channels": allow_unlisted,
+            },
+        },
         "control_system.limits_checking.enabled": True,
         "control_system.limits_checking.database_path": str(db_file),
         "control_system.limits_checking.allow_unlisted_channels": allow_unlisted,

@@ -317,19 +317,39 @@ exactly that pair of keys.
 
 .. note::
 
-   The limits posture is a separate decision, and it is the profile's to make.
-   Shipped permissive (``limits_checking.allow_unlisted_channels: true``), the
-   limits checker does not block a channel *absent* from
-   ``channel_limits.json``: range enforcement covers the listed channels, and
-   it is not a closed allowlist.
+   The limits posture is a separate decision, and it is per connector type in
+   the same way. ``control_system.limits_checking`` is the pair a type inherits
+   when it says nothing about itself; a ``limits_checking`` block under a type's
+   ``connector:`` entry answers for that type instead.
 
-   A deployment that rehearses on a stand-in wants the strict posture instead —
-   limits checking on, unlisted channels refused — because that is what a switch
-   to either real-machine target requires, and rehearsing it is what the
-   stand-in is for. Write the pair in the build profile's ``config:`` block; the
-   ``control-assistant`` preset does. It applies to the whole deployment, so an
-   unlisted channel is refused on the simulator too. See `Rehearsing against a
-   live target`_.
+   .. code-block:: yaml
+
+      control_system:
+        limits_checking:
+          enabled: true                       # the posture the live machine runs
+          allow_unlisted_channels: false      # under, and every type inherits
+        connector:
+          virtual_accelerator:
+            limits_checking:
+              enabled: true                   # ... and the simulator alone lets
+              allow_unlisted_channels: true   # an unlisted channel through
+
+   That is the shape ``config.yml`` ends up in; write it in the build profile's
+   ``config:`` block as flat dotted keys, as the ``control-assistant`` preset
+   does. A per-type block replaces the inherited pair as a *whole*: nothing is
+   borrowed from the deployment-wide block, so both settings have to be written
+   out. A block stating one of them alone is refused by ``osprey build`` and
+   ``osprey validate``, naming the one that is missing. The limits database
+   itself stays deployment-wide — ``limits_checking.database_path`` is one file
+   for every target, and a per-type block does not take a path.
+
+   With the pair above, a write to the simulator is still checked against the
+   ranges ``channel_limits.json`` gives for the channels it lists; what changes
+   is that a channel the file does *not* list is allowed through on the
+   simulator and refused on the live machine and the stand-in. That strict
+   posture is what a switch to either real-machine target requires, and
+   rehearsing it is what the stand-in is for. See `Rehearsing against a live
+   target`_.
 
 The archive
 ===========

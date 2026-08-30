@@ -1267,6 +1267,38 @@ def _resolve_rendered_execution_method(render_dir: Path) -> list[str]:
     return []
 
 
+def _incomplete_limits_errors(render_dir: Path) -> list[str]:
+    """Every ``limits_checking`` block in a render that fails to state a leaf, named.
+
+    Both scopes are read: the deployment-wide block and every per-type block.
+    A per-type block overrides the deployment-wide pair whole, so a block that
+    states one leaf answers no posture at all; a leaf that is present but not
+    a literal ``true``/``false`` (``"true"``, ``1``, an unexpanded ``${VAR}``)
+    answers nothing either, in either scope; and a ``limits_checking`` value
+    that is not a mapping at all answers neither leaf. Each of those makes
+    every write path fall back to refusing unlisted channels — a deployment
+    whose limits posture quietly stopped doing what its author wrote.
+    ``osprey validate`` catches the ones a ``config:`` block spelled; this
+    reads the config a deployment actually runs, so a block an injector or an
+    app template assembled is caught too.
+
+    Args:
+        render_dir: The rendered project directory, read after the injectors.
+
+    Returns:
+        One line per missing or unreadable leaf, naming the key an operator
+        has to add or rewrite as a literal boolean; one line naming the block
+        and its value when ``limits_checking`` is not a mapping; nothing for a
+        render whose blocks are complete or absent.
+    """
+    from osprey_connectors.types import incomplete_limits_blocks
+
+    errors: list[str] = incomplete_limits_blocks(
+        _rendered_config(render_dir).get("control_system") or {}
+    )
+    return errors
+
+
 def _template_host_config(
     shared: _SharedRenderInputs,
     build_profile: Any,
@@ -1582,6 +1614,7 @@ def _render_project(
     unrunnable = [
         *_resolve_rendered_execution_method(render_dir),
         *reach_errors(_rendered_config(render_dir), repo_root=repo_root),
+        *_incomplete_limits_errors(render_dir),
     ]
     if unrunnable:
         raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(unrunnable))
@@ -2407,7 +2440,11 @@ def _build_repo(
     from osprey.deployment.subprocess_capture import diagnose_captured_failure
 
     from .build_profile import resolve_build_document
-    from .build_profile_deploy import deploy_aware_config_errors, deploy_aware_config_warnings
+    from .build_profile_deploy import (
+        deploy_aware_config_errors,
+        deploy_aware_config_warnings,
+        limits_block_errors,
+    )
     from .build_profile_va_faults import live_standin_lattice_errors
     from .phase_reporter import current_reporter
     from .variant_selection import VARIANT_DIRNAME, resolve_variant_selection
@@ -2464,6 +2501,11 @@ def _build_repo(
         web_errors = deploy_aware_config_errors(
             build_profile.deploy, build_profile.config, profile_root=repo_root
         )
+        # A sibling call, exactly as `osprey validate` makes it — see the note
+        # beside the same line in `validate_cmd.py`. Raising here, profile-side,
+        # is what keeps the render-side `_incomplete_limits_errors` from
+        # reporting the same half-written block a second time.
+        web_errors = [*web_errors, *limits_block_errors(build_profile.config)]
         if web_errors:
             raise click.UsageError("Profile validation failed:\n  - " + "\n  - ".join(web_errors))
         web_warnings = deploy_aware_config_warnings(

@@ -79,7 +79,11 @@ def check_profile_file(profile_file: Path) -> None:
         click.UsageError: With every accumulated problem, so the caller exits 2.
     """
     from .build_profile import resolve_build_profile
-    from .build_profile_deploy import deploy_aware_config_errors, deploy_aware_config_warnings
+    from .build_profile_deploy import (
+        deploy_aware_config_errors,
+        deploy_aware_config_warnings,
+        limits_block_errors,
+    )
     from .variant_selection import VARIANT_DIRNAME, VariantSelection, resolve_variant_selection
 
     variant = VariantSelection(name=None, path=None)
@@ -113,6 +117,14 @@ def check_profile_file(profile_file: Path) -> None:
     web_errors = deploy_aware_config_errors(
         build_profile.deploy, build_profile.config, profile_root=profile_root
     )
+    # A sibling call, not a line inside `deploy_aware_config_errors`: that
+    # function judges the multi-user web stack against the deploy block, and
+    # `osprey build` runs it over the RENDERED config as well. A per-type
+    # `limits_checking` block is neither web-stack business nor a render fact —
+    # it is a claim the `config:` block makes about a posture, checked once,
+    # here and in the build's own profile-side pass. Folded into the web lint it
+    # would be asked twice during a build and refuse the same profile twice.
+    web_errors = [*web_errors, *limits_block_errors(build_profile.config)]
     if web_errors:
         # "Profile validation failed", not "Build profile ...": the success line
         # below says "Profile is valid", and `BuildProfile.validate` already owns
