@@ -52,99 +52,106 @@ handle -- the machine did answer.
 occupy a slot. ``0`` keeps everything -- remembering that an unattended
 polling loop will then grow the gallery without bound.
 
-Write Verification
+Write Confirmation
 ------------------
 
-All ``write_channel()`` calls return :class:`~osprey.connectors.control_system.base.ChannelWriteResult`:
+A write is **confirmed** when the channel it wrote now holds the value that was
+sent. The connector establishes that itself: it re-reads the channel once the
+control system has accepted the put, and reports what it found as a single word
+on :class:`~osprey.connectors.control_system.ChannelWriteResult`, which every
+``write_channel()`` call returns.
 
 .. code-block:: python
 
+   from osprey.connectors.control_system import WriteOutcome
+
    result = await connector.write_channel("BEAM:CURRENT", 100.0)
 
-   if result.verification and result.verification.verified:
-       print(f"Write confirmed ({result.verification.level})")
+   if result.outcome is WriteOutcome.CONFIRMED:
+       print("the channel now holds the value that was sent")
 
-   # Override verification level
-   result = await connector.write_channel(
-       "MOTOR:POSITION", 50.0,
-       verification_level="readback",
-       tolerance=0.1
-   )
-
-**Verification levels:**
+Every write ends in exactly one of six outcomes:
 
 .. list-table::
    :header-rows: 1
-   :widths: 20 15 15 50
+   :widths: 20 80
 
-   * - Level
-     - Speed
-     - Confidence
-     - When to Use
-   * - ``none``
-     - Instant
-     - Low
-     - Development, non-critical writes
-   * - ``callback``
-     - Fast (~1-10ms)
-     - Medium
-     - Most production writes (default)
-   * - ``readback``
-     - Slow (~50-100ms)
-     - High
-     - Critical setpoints, safety-critical operations
+   * - Outcome
+     - What it means
+   * - ``refused``
+     - Nothing was written. A gate stopped the write before it left OSPREY --
+       write posture, a limit, a channel marked not writable -- and
+       ``refusal_reason`` names which one.
+   * - ``failed``
+     - The value was sent and the control system did not take it.
+   * - ``confirmed``
+     - The re-read holds the value that was sent.
+   * - ``mismatch``
+     - The re-read holds a different value. A setpoint the machine clamped or
+       rounded is reported here, not smoothed over.
+   * - ``unconfirmed``
+     - The value was sent, but the re-read itself failed, so what the channel
+       holds is unknown.
+   * - ``unrequested``
+     - Confirmation is switched off for this channel; nothing was checked.
 
-A ``callback``-level result also carries the post-write readback -- the
-connector reads the channel once after the callback confirms and fills
-``readback_value`` and the alarm fields -- but the callback alone decides
-``verified``; only ``readback`` level compares against a tolerance.
+Beside the outcome, the result carries ``observed_value`` (what the re-read
+returned), ``alarm_status`` and ``alarm_severity`` (the channel's alarm state,
+which is reported with the write and is never itself a reason to fail one), and
+``notes`` -- a short display line such as ``observed 2.4, sent 2.5`` that is
+there to be shown, not parsed.
 
-**Global default** (in ``config.yml``) and **per-channel configuration** (in
-the limits database):
+**In Python, anything short of a confirmation raises.**
+``osprey.runtime.write_channel`` raises ``ChannelWriteBlockedError`` on
+``refused`` and ``ChannelWriteFailedError`` on ``failed``, ``mismatch`` and
+``unconfirmed``; the mismatch message names both the value sent and the value
+observed. The ``channel_write`` MCP tool reports the outcome for every channel
+instead of raising, so the agent can describe a batch in which some channels
+took the value and others did not.
 
-.. code-block:: yaml
+Switching confirmation off
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-   control_system:
-     write_verification:
-       default_level: "callback"
-       default_tolerance_percent: 0.1   # interpreted as percent
+``confirm`` is a per-channel boolean in the limits database, sitting beside
+``writable``:
 
 .. code-block:: json
 
    {
      "defaults": {
        "writable": true,
-       "verification": { "level": "callback" }
+       "confirm": true
      },
-     "MOTOR:POSITION": {
-       "min_value": -100.0,
-       "max_value": 100.0,
-       "max_step": 2.0,
+     "SHUTTER:OPEN_CMD": {
        "writable": true,
-       "verification": {
-         "level": "readback",
-         "tolerance_absolute": 0.1
-       }
+       "confirm": false
      }
    }
 
-Each channel inherits any field it does not set from the ``defaults`` block,
-and its own value always overrides it. ``writable`` defaults to ``true``; set
-``"writable": false`` -- on a channel, or in ``defaults`` to lock everything
-down -- to block writes. ``tolerance_absolute`` takes priority over
-``tolerance_percent``.
-
-**Where the level comes from.** Passing no ``verification_level`` means "no
-opinion", not "no verification". The connector resolves the level through four
-layers, first value wins: the channel's own limits entry, the limits
-``defaults.verification`` block, ``control_system.write_verification``, then
-the built-in fallback ``callback`` with no tolerance. The tolerance resolves
-through the same four layers -- also when the level was passed explicitly --
-but a layer only supplies a tolerance when the level it resolves to is
-``readback``. ``write_multiple_channels()`` carries one optional level for the
-whole batch; when omitted, every channel resolves its own, which is why
-``osprey.runtime.write_channels`` verifies exactly like
+A channel's own entry wins; failing that the ``defaults`` block applies; failing
+that, confirmation is on. Switch it off for the channels a re-read cannot answer
+for -- a command channel that resets itself, a register that cannot be read back
+-- so those writes report ``unrequested`` rather than ``unconfirmed``. A call
+site may pass ``confirm=True`` or ``confirm=False`` to decide for one call;
+passing nothing means "no opinion" and leaves the choice to the configuration.
+``write_multiple_channels()`` confirms each channel exactly as a single write
+would, which is why ``osprey.runtime.write_channels`` behaves like
 ``osprey.runtime.write_channel``.
+
+How values are compared
+~~~~~~~~~~~~~~~~~~~~~~~
+
+One rule decides every outcome, on every connector, and there is nothing to
+configure. Two numbers agree when they are within a relative 1e-6 of each other
+-- enough to absorb the rounding of a float on its way through a control system,
+not enough to hide a clamped setpoint. A string written to an enum channel is
+compared against the label the connector resolved for the reading, since the
+channel itself reads back an index. A single-element array compares as the value
+it holds, because control systems disagree about whether such a channel reads
+back boxed. A scalar never matches a longer vector, and two vectors must be the
+same length and agree element by element. Everything else compares for equality.
+If the comparison cannot be made at all, the outcome is ``mismatch``: a write is
+confirmed only when the values are known to agree.
 
 .. _write-safety-config:
 
@@ -215,14 +222,14 @@ per-channel configuration above.
 
 .. seealso::
 
-   :class:`~osprey.connectors.control_system.base.ChannelValue`
+   :class:`~osprey.connectors.control_system.ChannelValue`
        Channel read result data model
 
-   :class:`~osprey.connectors.control_system.base.ChannelWriteResult`
+   :class:`~osprey.connectors.control_system.ChannelWriteResult`
        Complete write operation result
 
-   :class:`~osprey.connectors.control_system.base.WriteVerification`
-       Verification result data model
+   :class:`~osprey.connectors.control_system.WriteOutcome`
+       The six words a write can end in
 
 
 Archiver Connectors

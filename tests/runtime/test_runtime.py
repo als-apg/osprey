@@ -13,7 +13,7 @@ from osprey.connectors.control_system.base import (
     ChannelValue,
     ChannelWriteResult,
     ControlSystemConnector,
-    WriteVerification,
+    WriteOutcome,
 )
 from osprey.connectors.control_system.limits_validator import (
     ChannelLimitsConfig,
@@ -39,7 +39,7 @@ class MockConnector(ControlSystemConnector):
     A real ``ControlSystemConnector`` subclass so the runtime exercises the same
     denial contract (``write_channel_checked``) it uses against live connectors.
     Writes are forced enabled; ``write_channel`` returns ``self.canned_result``
-    when one is set, otherwise a verified success.
+    when one is set, otherwise a confirmed success.
     """
 
     def __init__(self, canned_result: ChannelWriteResult | None = None):
@@ -60,8 +60,8 @@ class MockConnector(ControlSystemConnector):
         return ChannelWriteResult(
             channel_address=channel_address,
             value_written=value,
-            success=True,
-            verification=WriteVerification(level="callback", verified=True),
+            outcome=WriteOutcome.CONFIRMED,
+            observed_value=value,
         )
 
     async def write_multiple_channels(self, operations, **kwargs):
@@ -135,7 +135,7 @@ def test_write_channel_failure(clear_runtime_state):
         canned_result=ChannelWriteResult(
             channel_address="TEST:PV",
             value_written=42.0,
-            success=False,
+            outcome=WriteOutcome.FAILED,
             error_message="Write failed",
         )
     )
@@ -148,31 +148,27 @@ def test_write_channel_failure(clear_runtime_state):
         with pytest.raises(ChannelWriteFailedError, match="Write failed") as excinfo:
             write_channel("TEST:PV", 42.0)
 
-        assert excinfo.value.reason == "WRITE_FAILED"
+        assert excinfo.value.reason == "FAILED"
 
 
-class TestRuntimeWriteVerification:
-    """The runtime must not report success for a write the hardware did not take.
+class TestRuntimeWriteConfirmation:
+    """The runtime must not report success for a write that did not come back confirmed.
 
-    ``write_channel`` returns ``success=True, verified=False`` when the readback
-    disagrees with the setpoint. Agent-authored Python calling the runtime has to
-    see that as a failure, not as a silent return.
+    ``write_channel_checked`` raises for every outcome except ``confirmed`` and
+    ``unrequested``; agent-authored Python calling the runtime has to see a
+    ``mismatch``, a ``failed`` write, or an ``unconfirmed`` re-read as a
+    failure, never as a silent return.
     """
 
-    def test_readback_mismatch_raises(self, clear_runtime_state):
-        """success=True with an unverified readback is a FAILED write, not a success."""
+    def test_mismatch_raises(self, clear_runtime_state):
+        """A MISMATCH outcome raises with both the sent and observed values."""
         mock_connector = MockConnector(
             canned_result=ChannelWriteResult(
                 channel_address="TEST:PV",
                 value_written=42.0,
-                success=True,
-                verification=WriteVerification(
-                    level="readback",
-                    verified=False,
-                    readback_value=0.0,
-                    tolerance_used=0.1,
-                    notes="Readback mismatch: 0.0 (expected 42.0)",
-                ),
+                outcome=WriteOutcome.MISMATCH,
+                observed_value=0.0,
+                error_message=None,
             )
         )
 
@@ -184,21 +180,21 @@ class TestRuntimeWriteVerification:
             with pytest.raises(ChannelWriteFailedError) as excinfo:
                 write_channel("TEST:PV", 42.0)
 
-            assert excinfo.value.reason == "READBACK_UNVERIFIED"
+            assert excinfo.value.reason == "MISMATCH"
             assert excinfo.value.channel_address == "TEST:PV"
+            assert excinfo.value.observed_value == 0.0
+            # Both numbers must be nameable from the exception alone.
+            assert "42.0" in str(excinfo.value)
+            assert "0.0" in str(excinfo.value)
 
-    def test_multi_channel_readback_mismatch_raises(self, clear_runtime_state):
+    def test_multi_channel_mismatch_raises(self, clear_runtime_state):
         """The multi-channel path enforces the same contract as the single path."""
         mock_connector = MockConnector(
             canned_result=ChannelWriteResult(
                 channel_address="TEST:PV1",
                 value_written=1.0,
-                success=True,
-                verification=WriteVerification(
-                    level="callback",
-                    verified=False,
-                    notes="IOC callback not confirmed",
-                ),
+                outcome=WriteOutcome.MISMATCH,
+                observed_value=9.0,
             )
         )
 
@@ -210,7 +206,28 @@ class TestRuntimeWriteVerification:
             with pytest.raises(ChannelWriteFailedError) as excinfo:
                 write_channels({"TEST:PV1": 1.0, "TEST:PV2": 2.0})
 
-            assert excinfo.value.reason == "READBACK_UNVERIFIED"
+            assert excinfo.value.reason == "MISMATCH"
+
+    def test_unconfirmed_raises(self, clear_runtime_state):
+        """A confirming re-read that itself failed (UNCONFIRMED) still raises."""
+        mock_connector = MockConnector(
+            canned_result=ChannelWriteResult(
+                channel_address="TEST:PV",
+                value_written=42.0,
+                outcome=WriteOutcome.UNCONFIRMED,
+                error_message="readback timed out",
+            )
+        )
+
+        with patch(
+            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+        ) as mock_factory:
+            mock_factory.return_value = mock_connector
+
+            with pytest.raises(ChannelWriteFailedError) as excinfo:
+                write_channel("TEST:PV", 42.0)
+
+            assert excinfo.value.reason == "UNCONFIRMED"
 
     def test_refused_write_raises_blocked(self, clear_runtime_state):
         """A refusal (never attempted) surfaces as ChannelWriteBlockedError."""
@@ -218,9 +235,8 @@ class TestRuntimeWriteVerification:
             canned_result=ChannelWriteResult(
                 channel_address="TEST:PV",
                 value_written=42.0,
-                success=False,
+                outcome=WriteOutcome.REFUSED,
                 error_message="writes are disabled",
-                blocked=True,
                 refusal_reason="WRITES_DISABLED",
             )
         )
@@ -235,14 +251,34 @@ class TestRuntimeWriteVerification:
 
             assert excinfo.value.reason == "WRITES_DISABLED"
 
-    def test_level_none_success_returns(self, clear_runtime_state):
-        """level="none" means no verification was asked for: success is accepted."""
+    def test_confirmed_with_alarm_returns(self, clear_runtime_state):
+        """CONFIRMED returns even in an alarm state -- alarm severity is reported,
+        never raised on."""
         mock_connector = MockConnector(
             canned_result=ChannelWriteResult(
                 channel_address="TEST:PV",
                 value_written=42.0,
-                success=True,
-                verification=WriteVerification(level="none", verified=False),
+                outcome=WriteOutcome.CONFIRMED,
+                observed_value=42.0,
+                alarm_severity=2,
+                alarm_status="HIHI",
+            )
+        )
+
+        with patch(
+            "osprey.connectors.factory.ConnectorFactory.create_control_system_connector"
+        ) as mock_factory:
+            mock_factory.return_value = mock_connector
+
+            write_channel("TEST:PV", 42.0)  # must not raise
+
+    def test_unrequested_returns(self, clear_runtime_state):
+        """confirm=False means nothing was checked (UNREQUESTED): the write returns."""
+        mock_connector = MockConnector(
+            canned_result=ChannelWriteResult(
+                channel_address="TEST:PV",
+                value_written=42.0,
+                outcome=WriteOutcome.UNREQUESTED,
             )
         )
 

@@ -80,6 +80,20 @@ class FakeChannelValue:
         self.timestamp = time.time()
 
 
+class FakeWriteResult:
+    """Stand-in for ``ChannelWriteResult``: only the owned ``outcome`` word.
+
+    ``write_channel_checked`` raises on every outcome but ``confirmed`` and
+    ``unrequested``, so a double that returns is a double that confirmed.
+    """
+
+    def __init__(self, address: str, value: Any) -> None:
+        self.channel_address = address
+        self.value_written = value
+        self.outcome = "confirmed"
+        self.observed_value = value
+
+
 class FakeConnector:
     """A minimal async double for ``ControlSystemConnector``."""
 
@@ -91,8 +105,9 @@ class FakeConnector:
         self.reads.append(address)
         return FakeChannelValue(0.0)
 
-    async def write_channel_checked(self, address: str, value: Any, **_: Any) -> None:
+    async def write_channel_checked(self, address: str, value: Any, **_: Any) -> FakeWriteResult:
         self.writes.append((address, value))
+        return FakeWriteResult(address, value)
 
 
 class FakeRunEngine:

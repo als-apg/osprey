@@ -31,6 +31,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import yaml
 
+from osprey.connectors.control_system.base import ChannelWriteResult, WriteOutcome
 from tests.mcp_server.conftest import (
     assert_raises_error,
     extract_response_dict,
@@ -65,20 +66,25 @@ def _free_port() -> int:
 def _make_write_result(
     channel="TEST:PV",
     value=1.0,
-    success=True,
+    outcome=WriteOutcome.CONFIRMED,
     error_message=None,
-    blocked=False,
     refusal_reason=None,
 ):
-    result = MagicMock()
-    result.channel_address = channel
-    result.value_written = value
-    result.success = success
-    result.error_message = error_message
-    result.blocked = blocked
-    result.refusal_reason = refusal_reason
-    result.verification = None
-    return result
+    """A real ``ChannelWriteResult``, because the emit reads the outcome word.
+
+    A ``MagicMock`` answers every attribute truthily, so ``str(result.outcome)``
+    would be a mock repr — which is in neither the executed nor the unexecuted
+    set, and every result would read as an executed write whatever the test
+    meant it to be.
+    """
+    return ChannelWriteResult(
+        channel_address=channel,
+        value_written=value,
+        outcome=outcome,
+        refusal_reason=refusal_reason,
+        error_message=error_message,
+        observed_value=value if outcome == WriteOutcome.CONFIRMED else None,
+    )
 
 
 def _get_channel_write():
@@ -141,13 +147,12 @@ async def test_channel_write_partial_success_emits_executed_only(tmp_path, monke
     initialize_server_context()
 
     results = [
-        _make_write_result(channel="SR01:HCM1:SP", value=1.0, success=True),
+        _make_write_result(channel="SR01:HCM1:SP", value=1.0),
         _make_write_result(
             channel="SR02:VCM3:SP",
             value=2.0,
-            success=False,
+            outcome=WriteOutcome.REFUSED,
             error_message="Write to 'SR02:VCM3:SP' blocked: writes are disabled.",
-            blocked=True,
             refusal_reason="WRITES_DISABLED",
         ),
     ]
@@ -190,17 +195,15 @@ async def test_channel_write_all_blocked_no_emit(tmp_path, monkeypatch):
         _make_write_result(
             channel="PV:A",
             value=1.0,
-            success=False,
+            outcome=WriteOutcome.REFUSED,
             error_message="Write to 'PV:A' blocked: writes are disabled.",
-            blocked=True,
             refusal_reason="WRITES_DISABLED",
         ),
         _make_write_result(
             channel="PV:B",
             value=2.0,
-            success=False,
+            outcome=WriteOutcome.REFUSED,
             error_message="Write to 'PV:B' blocked: writes are disabled.",
-            blocked=True,
             refusal_reason="WRITES_DISABLED",
         ),
     ]
@@ -1613,4 +1616,4 @@ async def test_channel_write_result_unchanged_when_terminal_down(tmp_path, monke
 
     data = extract_response_dict(result)
     assert data["status"] == "success"
-    assert data["summary"]["successful"] == 1
+    assert data["summary"]["outcomes"] == {"confirmed": 1}

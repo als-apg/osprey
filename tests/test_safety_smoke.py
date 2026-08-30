@@ -83,7 +83,7 @@ def smoke_env(tmp_path):
             "max_value": 10.0,
             "max_step": 2.0,
             "writable": True,
-            "verification": {"level": "readback", "tolerance_percent": 0.1},
+            "confirm": True,
         },
         "MAG:QF01:CURRENT:SP": {
             "writable": False,
@@ -102,10 +102,6 @@ def smoke_env(tmp_path):
         "control_system": {
             "type": "mock",
             "writes_enabled": True,
-            "write_verification": {
-                "default_level": "callback",
-                "default_tolerance_percent": 0.1,
-            },
             "limits_checking": {
                 "enabled": True,
                 "database_path": str(limits_path),
@@ -327,8 +323,8 @@ async def test_2_valid_write_tool_succeeds(smoke_env, monkeypatch):
     data = json.loads(result)
     assert data["status"] == "success"
     assert data["summary"]["total_writes"] == 1
-    assert data["summary"]["failed"] == 0
-    assert data["summary"]["results"][0]["success"] is True
+    assert data["summary"]["outcomes"] == {"confirmed": 1}
+    assert data["summary"]["results"][0]["outcome"] == "confirmed"
 
 
 # ===========================================================================
@@ -411,7 +407,7 @@ async def test_5_unlisted_channel_tool_succeeds(smoke_env, monkeypatch):
 
     data = json.loads(result)
     assert data["status"] == "success"
-    assert data["summary"]["results"][0]["success"] is True
+    assert data["summary"]["results"][0]["outcome"] == "confirmed"
 
 
 # ===========================================================================

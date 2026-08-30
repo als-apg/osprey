@@ -113,60 +113,49 @@ WINDOW_SERVING = "published_vs_serving"
 APPROVAL_STAMP_PREFIX = "write_approval_"
 APPROVAL_STAMP_SUFFIX = ".json"
 
-#: Severity at or above which a *verified* readback is still reported as an
-#: alarm state. EPICS grades MINOR=1, MAJOR=2, INVALID=3; a MINOR alarm on a
-#: channel that read back the value it was given is routine, MAJOR is not.
-VERIFIED_ALARM_SEVERITY = 2
+#: The key each result carries its outcome word under. The generated safety
+#: rules name this key, so the spelling here and the spelling there have to stay
+#: one string.
+OUTCOME_KEY = "outcome"
 
-#: The closed set of ``write_state`` words, in the order the predicates below
-#: test them. The generated safety rules name this key, so the spelling here and
-#: the spelling there have to stay one string.
-WRITE_STATE_KEY = "write_state"
+#: The outcomes on which no value reached the channel. Everything else did put a
+#: value on the wire, whether or not it was confirmed afterwards, and is
+#: reported as an executed write.
+UNEXECUTED_OUTCOMES = frozenset({"refused", "failed"})
 
 
-def _alarm_severity(verification: object) -> int | None:
-    """Readback alarm severity as an int, or None when it was not reported.
+def _project_observed_value(value: object) -> object:
+    """One observed reading, bounded by the same budget a read is bounded by.
 
-    Read through ``getattr`` and type-checked: a custom connector may return any
-    duck-typed verification object, and a missing or non-numeric severity must
-    degrade to "not reported" rather than raise inside the result projection.
+    A confirming re-read of a waveform channel returns the whole waveform, and
+    an agent that asked to set one number must not be handed ten thousand back.
+    Anything over ``control_system.read_inline_max_elements`` is described
+    instead of shown, in the key shape ``channel_read`` already uses for a
+    withheld value, so an agent meets one shape for "too big to show you".
+    ``str``/``bytes`` are one channel value however long they are, and are
+    always inline: summarising a string would lose the only thing it says.
     """
-    severity = getattr(verification, "readback_alarm_severity", None)
-    if isinstance(severity, bool) or not isinstance(severity, int):
-        return None
-    return severity
+    if value is None or isinstance(value, str | bytes):
+        return value
 
+    from osprey.mcp_server.control_system.tools.channel_read import (
+        ARTIFACT_REASON_PER_VALUE,
+        _array_summary,
+        _numpy,
+        get_read_inline_max_elements,
+    )
 
-def _derive_write_state(result: object) -> str:
-    """Classify one write result into a single closed-set word.
-
-    Derived only from structured fields — never from ``notes``, which is
-    display-only text — so the state an agent keys on cannot drift with wording.
-    The predicates are ordered: the first one that matches wins, which is what
-    keeps a refused write from also being reported as unverified.
-    """
-    if getattr(result, "blocked", None):
-        return "blocked"
-    if not getattr(result, "success", False):
-        return "write_failed"
-
-    verification = getattr(result, "verification", None)
-    if verification is None:
-        return "verification_not_reported"
-    if getattr(verification, "level", None) == "none":
-        return "verification_not_requested"
-
-    severity = _alarm_severity(verification)
-    if getattr(verification, "verified", False):
-        if severity is not None and severity >= VERIFIED_ALARM_SEVERITY:
-            return "verified_with_alarm"
-        return "verified"
-
-    if getattr(verification, "failure_kind", None) == "readback_failed":
-        return "readback_failed"
-    if severity is not None and severity > 0:
-        return "unverified_alarm"
-    return "verification_failed"
+    np = _numpy()
+    if np is None:
+        return value
+    try:
+        array = np.asarray(value)
+        if array.ndim == 0 or array.size <= get_read_inline_max_elements():
+            return array.tolist() if isinstance(value, np.ndarray) else value
+        return _array_summary(array, np, ARTIFACT_REASON_PER_VALUE)
+    except Exception:  # noqa: BLE001 - a reading that cannot be measured is reported as it came
+        logger.debug("Could not measure an observed value for projection", exc_info=True)
+        return value
 
 
 def _read_target_binding() -> tuple[str, int] | None:
@@ -206,11 +195,13 @@ def _binding_from_record(record: object) -> tuple[str, int] | None:
         return None
 
 
-def _approval_stamp_key(operations: list[dict], verification_level: str | None) -> str | None:
+def _approval_stamp_key(operations: list[dict], confirm: bool | None) -> str | None:
     """The name the approval hook filed this write's stamp under, or ``None``.
 
-    A SHA-256 over the canonical JSON of the write's own arguments. The hook and
-    this server share no call identifier — the hook is handed a tool-call
+    A SHA-256 over the canonical JSON of the write's own arguments —
+    ``operations`` and ``confirm``, which are every parameter the tool accepts
+    and exactly what the hook finds in the ``tool_input`` it is handed. The hook
+    and this server share no call identifier — the hook is handed a tool-call
     payload, the tool is handed its arguments — so the payload is the only thing
     that provably crosses the gap between them, and it is what both sides key
     on. The hook restates this derivation in stdlib-only Python (it runs outside
@@ -224,7 +215,7 @@ def _approval_stamp_key(operations: list[dict], verification_level: str | None) 
         return None
     try:
         payload = json.dumps(
-            {"operations": operations, "verification_level": verification_level},
+            {"operations": operations, "confirm": confirm},
             sort_keys=True,
             separators=(",", ":"),
             default=str,
@@ -234,8 +225,68 @@ def _approval_stamp_key(operations: list[dict], verification_level: str | None) 
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
 
 
+def _stamp_is_ours(record: object) -> bool:
+    """Whether *record* is an approval stamp this server's own prompt filed.
+
+    A missing or ``None`` ``server_pid`` counts as ours: a project rendered
+    before a target was published stamps without one, and there is nothing in
+    such a stamp to attribute it elsewhere. Both callers ask this one question,
+    so a stamp the lookup accepts as this server's cannot be invisible to the
+    warning that has to explain a miss — which is exactly the gap that would
+    let a never-published project's stale key go unreported.
+    """
+    if not isinstance(record, dict):
+        return False
+    server_pid = record.get("server_pid")
+    return server_pid is None or server_pid == os.getpid()
+
+
+def _warn_if_this_server_has_other_stamps() -> None:
+    """Warn once per miss when stamps this server rendered exist under other keys.
+
+    Both sides of the key derivation have to spell the payload the same way, and
+    a project rendered before the hashed arguments last changed files its stamps
+    under the old spelling. Every lookup then misses, and the approval-window
+    check goes quiet without a single failure — the one failure mode of a
+    two-party hash that nothing else would surface.
+
+    Stamps left by *this* process's prompts are the evidence that separates the
+    two explanations of a miss: if the hook is stamping for this server and none
+    of its stamps is the one this call asked for, the derivations disagree. A
+    stamp from another pid belongs to a second session sharing the state
+    directory and says nothing about this one, so :func:`_stamp_is_ours` filters
+    it out first — without that filter, an ordinary two-session checkout would
+    warn on every unstamped write.
+    """
+    try:
+        stamps = list(
+            target_state.state_dir().glob(f"{APPROVAL_STAMP_PREFIX}*{APPROVAL_STAMP_SUFFIX}")
+        )
+    except Exception:  # pragma: no cover - defensive: reading must not fail a write
+        logger.debug("Could not list the write-approval stamps", exc_info=True)
+        return
+    ours = []
+    for path in stamps:
+        try:
+            record = target_state.read_file(path)
+        except Exception:  # pragma: no cover - defensive
+            continue
+        if _stamp_is_ours(record):
+            ours.append(path.name)
+    if not ours:
+        return
+    logger.warning(
+        "No approval stamp matches this write, but this server has %d other stamp(s) (%s). "
+        "The approval hook and this server are deriving different keys — most likely the "
+        "project was rendered before the stamp key changed. Re-run 'osprey build' in the "
+        "project, or the target-binding check on the approval window is skipped.",
+        len(ours),
+        ", ".join(sorted(ours)[:3]),
+    )
+
+
 def _read_approval_stamp(
-    operations: list[dict], verification_level: str | None
+    operations: list[dict], confirm: bool | None
 ) -> tuple[bool, tuple[str, int] | None]:
     """``(found, binding)`` for the prompt that approved this write.
 
@@ -246,7 +297,7 @@ def _read_approval_stamp(
     else's prompt. ``found`` with a ``None`` binding is a real answer: the
     prompt was rendered while nothing published a target.
     """
-    key = _approval_stamp_key(operations, verification_level)
+    key = _approval_stamp_key(operations, confirm)
     if key is None:
         return False, None
     try:
@@ -256,10 +307,12 @@ def _read_approval_stamp(
         logger.debug("Could not read the write-approval stamp", exc_info=True)
         return False, None
     if not isinstance(stamp, dict):
+        _warn_if_this_server_has_other_stamps()
         return False, None
-    server_pid = stamp.get("server_pid")
-    if server_pid is not None and server_pid != os.getpid():
-        logger.debug("Ignoring a write-approval stamp written for server pid %s", server_pid)
+    if not _stamp_is_ours(stamp):
+        logger.debug(
+            "Ignoring a write-approval stamp written for server pid %s", stamp.get("server_pid")
+        )
         return False, None
     return True, _binding_from_record(stamp)
 
@@ -325,10 +378,10 @@ def _refuse_target_changed(
 
 
 def _check_approval_window(
-    operations: list[dict], verification_level: str | None, entry: tuple[str, int] | None
+    operations: list[dict], confirm: bool | None, entry: tuple[str, int] | None
 ) -> None:
     """Compare what the approval prompt showed against what the tool entered on."""
-    found, approved = _read_approval_stamp(operations, verification_level)
+    found, approved = _read_approval_stamp(operations, confirm)
     if not found or approved == entry:
         return
     _refuse_target_changed(
@@ -371,53 +424,56 @@ def _check_execution_window(entry: tuple[str, int] | None) -> None:
 @mcp.tool()
 async def channel_write(
     operations: list[dict],
-    verification_level: str | None = None,
+    confirm: bool | None = None,
 ) -> str:
     """Write values to one or more control-system channels.
 
     Each operation is a dict with keys: channel (str), value (any), notes (str, optional).
     PreToolUse hooks handle human approval BEFORE this code runs.
 
-    Every result carries one `write_state` word. Report the outcome its
-    `write_state` names and nothing stronger — an unverified write is not a
-    successful write, and you must not describe it as one. The states, in the
-    order they are decided:
+    Every result carries one `outcome` word, decided by the connector that
+    performed the write. Report the outcome that word names and nothing
+    stronger — a write that was not confirmed is not a confirmed write, and you
+    must not describe it as one. The six words:
 
-    - `blocked` — refused; no value was written. Either OSPREY refused it on
-      policy or limits grounds and never sent it to the machine, or the control
-      system itself denied the write (`refusal_reason` `CONTROL_SYSTEM_REFUSED`).
-    - `write_failed` — sent to the machine and failed.
-    - `verification_not_reported` — the connector reported no verification at all.
-    - `verification_not_requested` — level `none`: the write was sent, nothing
-      confirmed it took effect.
-    - `verified_with_alarm` — the readback matched, but the channel is in a MAJOR
-      or worse alarm.
-    - `verified` — the write was confirmed.
-    - `readback_failed` — the readback itself could not be read, so the write is
-      unconfirmed.
-    - `unverified_alarm` — unconfirmed, and the channel reports an alarm.
-    - `verification_failed` — unconfirmed: the readback disagreed with the setpoint.
+    - `refused` — nothing was written. Either OSPREY refused it on policy or
+      limits grounds and never sent it to the machine, or the control system
+      itself denied the write (`refusal_reason` `CONTROL_SYSTEM_REFUSED`).
+    - `failed` — sent to the machine, which did not take it.
+    - `confirmed` — a re-read of the channel holds the value sent. An alarm on
+      the channel does not change that: report `alarm_status` and
+      `alarm_severity` beside the confirmation, because a confirmed value in a
+      MAJOR alarm is worth telling the operator about.
+    - `mismatch` — the re-read holds a different value. `observed_value` is what
+      the channel actually holds; a clamped or rounded setpoint appears here.
+    - `unconfirmed` — sent, but the re-read itself failed, so what the channel
+      holds now is unknown.
+    - `unrequested` — confirmation is switched off for this channel; the value
+      was sent and nothing was checked.
 
-    `summary.verification_failed` counts executed writes that asked for
-    verification and did not get it — never a refused or unrequested one.
+    `summary.outcomes` counts the words this call produced.
 
-    Leave `verification_level` unset unless the operator names one. It is then
-    resolved by the deployment, per write: the channel's limits entry, then the
-    limits database `defaults.verification`, then the connector config, then
-    `callback`. This tool does not raise on an unverified write — it reports it in
-    `write_state`. (`osprey.runtime.write_channel`, on the Python path, raises.)
+    Leave `confirm` unset unless the operator asks for it: the deployment
+    resolves it per channel from the limits database, which confirms by default.
+    This tool does not raise on a write that was not confirmed — it reports the
+    word. (`osprey.runtime.write_channel`, on the Python path, raises.) It
+    raises only when every write in the call came back `refused` or `failed`,
+    which is the one case where no value reached any channel at all. A call
+    mixing those with any other word returns normally, and the per-channel
+    `outcome` is where you read what happened to each one.
 
     Args:
         operations: List of write operations, each with "channel", "value", and optional "notes".
-        verification_level: Optional override — "none", "callback", or "readback".
-            Omit it to let the deployment resolve the level per write.
+        confirm: Optional override — re-read each channel and compare (true), or
+            send without checking (false). Omit it to let the deployment decide.
 
     Returns:
         JSON with per-operation results. Each `summary.results[]` entry carries
-        `write_state`; its `verification` carries the readback value, the alarm
-        name and severity, and `failure_kind` when the connector reported them.
-        `summary.verification_failed` counts executed writes that asked for
-        verification and did not get it.
+        `outcome`, the `observed_value` the confirming re-read returned, the
+        alarm name and severity when the connector reported them, and
+        `refusal_reason` / `error` on the words that carry one. An
+        `observed_value` too large to inline is reported as a bounded summary
+        instead, exactly as `channel_read` reports one.
     """
     # The first statement of the tool, before anything that can yield: the
     # earliest instant the server itself exists in. It is compared against what
@@ -435,7 +491,11 @@ async def channel_write(
     # The render-to-click window: what the operator was shown against what this
     # call entered on. Checked before any other work, because a write approved
     # for a different session should cost nothing at all.
-    _check_approval_window(operations, verification_level, entry_binding)
+    # `confirm` is part of the stamp's identity because it is part of the write:
+    # the hook reads it out of the same `tool_input` the operator was shown, so
+    # both sides hash the same two arguments and a write approved with one
+    # confirmation setting cannot be vouched for by a prompt that showed another.
+    _check_approval_window(operations, confirm, entry_binding)
 
     # Limits validation (additional safety layer inside the tool)
     try:
@@ -512,154 +572,107 @@ async def channel_write(
         # — see the module docstring — and not papered over here.
         _check_execution_window(entry_binding)
 
-        # Determine per-channel verification level and tolerance
-        connector_results = []  # Raw connector results for bridge
-        results_serialised = []  # Serialised dicts for the data file
+        # Omission is a sentinel, not a value: forwarding None would override a
+        # deployment's own per-channel setting, and an `if confirm:` guard would
+        # swallow an explicit False and confirm a write nobody asked to confirm.
+        write_kwargs: dict = {}
+        if confirm is not None:
+            write_kwargs["confirm"] = confirm
 
         if len(operations) == 1:
             op = operations[0]
-            channel, value = op["channel"], op["value"]
-            # An explicit level is the caller's decision and is forwarded
-            # unchanged; the limits database only fills in a level the caller
-            # left out. The tolerance is independent of that: a per-channel
-            # tolerance applies whether or not the level was named, or an
-            # explicit "readback" would silently fall back to the connector's
-            # absolute default.
-            level = verification_level
-            tolerance = None
-            if validator:
-                cfg_level, cfg_tol = validator.get_verification_config(channel, value)
-                if level is None and cfg_level:
-                    level = cfg_level
-                if cfg_tol is not None:
-                    tolerance = cfg_tol
-            # Omission is a sentinel, not a value: forwarding None would override
-            # a legacy custom connector's own declared default.
-            write_kwargs: dict = {}
-            if level is not None:
-                write_kwargs["verification_level"] = level
-            if tolerance is not None:
-                write_kwargs["tolerance"] = tolerance
-            wr = await connector.write_channel(channel, value, **write_kwargs)
-            connector_results.append(wr)
+            wr = await connector.write_channel(op["channel"], op["value"], **write_kwargs)
+            connector_results = [wr]
         else:
-            # A batch carries one scalar level for every channel in it, so an
-            # omitted level is not resolved here: leaving the keyword off lets
-            # each channel resolve its own entry exactly as a single write does.
             write_ops = [(op["channel"], op["value"]) for op in operations]
-            batch_kwargs: dict = {}
-            if verification_level is not None:
-                batch_kwargs["verification_level"] = verification_level
-            connector_results = await connector.write_multiple_channels(write_ops, **batch_kwargs)
+            connector_results = await connector.write_multiple_channels(write_ops, **write_kwargs)
 
-        for op, wr in zip(operations, connector_results, strict=True):
-            result_entry = {
+        # One result per operation, checked before a single row is projected.
+        # The envelope reports exactly the rows the connector handed back, so a
+        # connector that dropped one would produce a complete-looking report in
+        # which a channel the operator approved simply is not mentioned — and on
+        # the hardware-write surface, a write whose fate goes unreported is the
+        # one thing worse than a write that failed. Fail loudly, naming the
+        # connector, instead of shipping a plausible envelope.
+        if len(connector_results) != len(operations):
+            raise RuntimeError(
+                f"{type(connector).__name__} returned {len(connector_results)} write result(s) "
+                f"for {len(operations)} operation(s): the fate of at least one write is "
+                f"unreported, so no outcome from this call can be trusted."
+            )
+
+        # One list, built once: what the agent reads is what this tool keeps, so
+        # a field cannot be present in the bookkeeping and missing from the
+        # response.
+        results = [
+            {
                 "channel": wr.channel_address,
-                "value_written": wr.value_written,
-                "success": wr.success,
-                "error_message": wr.error_message,
-                "blocked": wr.blocked,
+                "value": wr.value_written,
+                OUTCOME_KEY: str(wr.outcome),
                 "refusal_reason": wr.refusal_reason,
+                "error": wr.error_message,
+                "observed_value": _project_observed_value(wr.observed_value),
+                # Absent alarm fields stay null: "not reported" is deliberately
+                # distinct from a reported healthy severity of 0.
+                "alarm_status": wr.alarm_status,
+                "alarm_severity": wr.alarm_severity,
+                "notes": wr.notes,
             }
-            result_entry[WRITE_STATE_KEY] = _derive_write_state(wr)
-            # "is not None", matching _derive_write_state: absence of a
-            # verification object is what "verification_not_reported" means, and
-            # the two must not disagree about which results have one.
-            verification = getattr(wr, "verification", None)
-            if verification is not None:
-                result_entry["verification"] = {
-                    "level": getattr(verification, "level", None),
-                    "verified": getattr(verification, "verified", None),
-                    "readback_value": getattr(verification, "readback_value", None),
-                    "tolerance_used": getattr(verification, "tolerance_used", None),
-                    # Machine-readable half of the verification. Absent fields
-                    # stay null: "not reported" is deliberately distinct from a
-                    # reported healthy severity of 0.
-                    "readback_alarm_status": getattr(verification, "readback_alarm_status", None),
-                    "readback_alarm_severity": getattr(
-                        verification, "readback_alarm_severity", None
-                    ),
-                    "failure_kind": getattr(verification, "failure_kind", None),
-                    "notes": getattr(verification, "notes", None),
-                }
-            if op.get("notes"):
-                result_entry["notes"] = op["notes"]
-            results_serialised.append(result_entry)
+            for wr in connector_results
+        ]
 
-        # Build compact summary inline
-        successful = sum(1 for r in results_serialised if r["success"])
-        refused = sum(1 for r in results_serialised if r.get("blocked"))
-        # A write that never executed is not a verification failure: only count
-        # writes that succeeded, asked for verification, and did not get it.
-        verification_failed = sum(
-            1
-            for r in results_serialised
-            if r["success"]
-            and (r.get("verification") or {}).get("level") in ("callback", "readback")
-            and not (r.get("verification") or {}).get("verified")
-        )
+        outcomes: dict[str, int] = {}
+        for entry in results:
+            outcomes[entry[OUTCOME_KEY]] = outcomes.get(entry[OUTCOME_KEY], 0) + 1
+
         summary = {
-            "total_writes": len(results_serialised),
-            "successful": successful,
-            "failed": len(results_serialised) - successful,
-            "refused": refused,
-            "verification_failed": verification_failed,
-            "results": [
-                {
-                    "channel": r["channel"],
-                    "value": r["value_written"],
-                    "success": r["success"],
-                    WRITE_STATE_KEY: r[WRITE_STATE_KEY],
-                    "error": r.get("error_message"),
-                    "blocked": r.get("blocked"),
-                    "refusal_reason": r.get("refusal_reason"),
-                    "verification": r.get("verification"),
-                }
-                for r in results_serialised
-            ],
+            "total_writes": len(results),
+            "outcomes": outcomes,
+            "results": results,
         }
-        # The caller's value, or null when they left the level to the deployment.
-        access_details = {"verification_level": verification_level}
+        # The caller's value, or null when they left the decision to the deployment.
+        access_details = {"confirm": confirm}
 
-        if results_serialised and successful == 0:
-            failures = [wr for wr in connector_results if not wr.success]
-            if failures and all(wr.blocked for wr in failures):
-                # Every failed op was a refusal that put no value on a channel:
-                # surface a typed write-refusal envelope, not internal_error.
-                # Who refused decides the wording — a control-system denial was
-                # sent and turned down, so calling it a reference-monitor policy
-                # refusal would send the operator to the wrong place.
-                refused_channels = [wr.channel_address for wr in failures]
-                first = failures[0]
-                reason = first.refusal_reason or "WRITES_DISABLED"
+        if results and all(entry[OUTCOME_KEY] in UNEXECUTED_OUTCOMES for entry in results):
+            # Nothing reached a channel. Anything else — a value that landed
+            # without being confirmed, or one that came back different — is
+            # reported rather than raised: the agent needs it to tell the
+            # operator what the machine now holds.
+            failed = [entry for entry in results if entry[OUTCOME_KEY] == "failed"]
+            if not failed:
+                # Every op was a refusal that put no value on a channel: surface
+                # a typed write-refusal envelope, not internal_error. Who refused
+                # decides the wording — a control-system denial was sent and
+                # turned down, so calling it a reference-monitor policy refusal
+                # would send the operator to the wrong place.
+                first = results[0]
+                reason = first["refusal_reason"] or "WRITES_DISABLED"
                 refuser = (
                     "the control system"
                     if reason == "CONTROL_SYSTEM_REFUSED"
                     else "the reference monitor"
                 )
                 raise ChannelWriteBlockedError(
-                    first.channel_address,
+                    first["channel"],
                     reason,
                     message=(
-                        f"All {len(failures)} write(s) refused by {refuser}: "
-                        f"{', '.join(refused_channels)}"
+                        f"All {len(results)} write(s) refused by {refuser}: "
+                        f"{', '.join(entry['channel'] for entry in results)}"
                     ),
                 )
-            # At least one failure was an attempted caput that failed (I/O failure,
-            # not a policy refusal): preserve the internal_error classification.
-            errors = sorted(
-                {r["error_message"] for r in results_serialised if r.get("error_message")}
-            )
-            raise RuntimeError(
-                f"All {len(results_serialised)} write(s) rejected: {'; '.join(errors)}"
-            )
+            # At least one write was attempted and failed (an I/O failure, not a
+            # policy refusal): preserve the internal_error classification.
+            errors = sorted({entry["error"] for entry in results if entry["error"]})
+            raise RuntimeError(f"All {len(results)} write(s) rejected: {'; '.join(errors)}")
 
         # Agent-activity highlight (purely additive, after the fact): name only
-        # the channels whose writes actually executed. Every refusal path —
-        # limits_violation validation, all-blocked, all-failed — returns or
-        # raises before this point, so those emit nothing. notify_agent_activity
-        # never raises; the blocking call runs off the event loop.
-        executed_channels = [r["channel"] for r in results_serialised if r["success"]]
+        # the channels a value actually reached. Every refusal path — limits
+        # violation, all-refused, all-failed — returns or raises before this
+        # point, so those emit nothing. notify_agent_activity never raises; the
+        # blocking call runs off the event loop.
+        executed_channels = [
+            entry["channel"] for entry in results if entry[OUTCOME_KEY] not in UNEXECUTED_OUTCOMES
+        ]
         if executed_channels:
             await notify_agent_activity_async(
                 "channel_write", "channel", detail=", ".join(executed_channels)
@@ -669,7 +682,7 @@ async def channel_write(
         return json.dumps(
             {
                 "status": "success",
-                "description": f"Wrote {len(results_serialised)} channel(s)",
+                "description": f"Wrote {len(results)} channel(s)",
                 "summary": summary,
                 "access_details": access_details,
             },

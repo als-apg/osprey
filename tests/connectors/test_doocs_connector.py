@@ -10,7 +10,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from osprey.connectors.control_system.base import ChannelValue, ChannelWriteResult
+from osprey.connectors.control_system.base import (
+    ChannelValue,
+    ChannelWriteResult,
+    WriteOutcome,
+)
 
 # --------------------------------------------------------------------------------------
 # Helpers to build mock doocs4py objects
@@ -52,33 +56,34 @@ def _make_doocs4py(names_result=None, get_data_value=42.0):
 
 
 def _structured_write_facts(result):
-    """The machine-readable half of a write result — everything but ``notes``."""
-    v = result.verification
+    """The machine-readable half of a write result — the free text left out.
+
+    ``notes`` and the wording of ``error_message`` are display text. What a
+    consumer branches on is the outcome, what the property was seen to hold,
+    the alarm fields, and whether a message is carried at all — the
+    ``error_message`` iff-rule, not its sentence.
+    """
     return (
-        result.success,
-        v.level,
-        v.verified,
-        v.failure_kind,
-        v.readback_value,
-        v.tolerance_used,
-        v.readback_alarm_status,
-        v.readback_alarm_severity,
+        result.outcome,
+        result.observed_value,
+        result.refusal_reason,
+        result.error_message is not None,
+        result.alarm_status,
+        result.alarm_severity,
     )
 
 
-def _make_limits_validator(level="callback", tolerance=0.5):
-    """A limits validator that passes validation and reports a verification config."""
+def _make_limits_validator(confirm=True):
+    """A limits validator that passes validation and reports a confirm policy."""
     validator = MagicMock()
     validator.validate.return_value = None
-    validator.get_verification_config.return_value = (level, tolerance)
+    validator.resolve_confirm.return_value = confirm
     return validator
 
 
 def _writes_enabled(key, default=None):
     if key == "control_system.writes_enabled":
         return True
-    if key == "control_system.write_verification.default_level":
-        return "none"
     return default
 
 
@@ -198,73 +203,100 @@ class TestReadChannel:
 # --------------------------------------------------------------------------------------
 
 
+async def _write_with_validator(validator, value=10.0, readback=10.0, **kwargs):
+    """Run one write against a connector whose limits validator is ``validator``."""
+    mock_d4py = _make_doocs4py()
+    mock_d4py.get.return_value = _make_eq_data(value=readback)
+
+    with (
+        patch.dict(sys.modules, {"doocs4py": mock_d4py}),
+        patch(_LIMITS_PATCH, return_value=validator),
+        patch(_TZ_PATCH, return_value=UTC),
+        patch("osprey.utils.config.get_config_value", side_effect=_writes_enabled),
+    ):
+        from osprey.connectors.control_system.doocs_connector import DOOCSConnector
+
+        conn = DOOCSConnector()
+        await conn.connect({})
+        result = await conn.write_channel("FAC/DEV/LOC/PROP", value, **kwargs)
+        await conn.disconnect()
+
+    return result
+
+
 class TestWriteChannel:
-    async def test_write_none_verification_success(self, connector):
+    """One confirm flow: send the value, then re-read it unless asked not to."""
+
+    async def test_confirmed_write_reports_what_the_property_holds(self, connector):
         conn, mock_d4py = connector
-        result = await conn.write_channel("FAC/DEV/LOC/PROP", 10.0, verification_level="none")
+        mock_d4py.get.return_value = _make_eq_data(value=10.0)
+
+        result = await conn.write_channel("FAC/DEV/LOC/PROP", 10.0, confirm=True)
 
         assert isinstance(result, ChannelWriteResult)
-        assert result.success is True
+        assert result.outcome is WriteOutcome.CONFIRMED
         assert result.value_written == 10.0
-        assert result.verification.level == "none"
-        assert result.verification.verified is False
+        assert result.observed_value == pytest.approx(10.0)
+        assert result.error_message is None
         mock_d4py.set.assert_called_once_with("FAC/DEV/LOC/PROP", 10.0)
 
-    async def test_write_none_verification_set_failure(self, connector):
+    async def test_confirm_false_is_unrequested_and_reads_nothing(self, connector):
+        conn, mock_d4py = connector
+
+        result = await conn.write_channel("FAC/DEV/LOC/PROP", 10.0, confirm=False)
+
+        assert result.outcome is WriteOutcome.UNREQUESTED
+        assert result.observed_value is None
+        assert result.error_message is None
+        mock_d4py.set.assert_called_once_with("FAC/DEV/LOC/PROP", 10.0)
+        mock_d4py.get.assert_not_called()
+
+    async def test_failed_set_is_failed_and_never_reads_back(self, connector):
         conn, mock_d4py = connector
         mock_d4py.set.side_effect = RuntimeError("write failed")
 
-        result = await conn.write_channel("FAC/DEV/LOC/PROP", 5.0, verification_level="none")
+        result = await conn.write_channel("FAC/DEV/LOC/PROP", 5.0, confirm=True)
 
-        assert result.success is False
-        assert "write failed" in result.error_message or "FAC/DEV/LOC/PROP" in result.error_message
-        # The fast path performs no verification, so "none" is the honest level here.
-        assert result.verification.level == "none"
+        assert result.outcome is WriteOutcome.FAILED
+        assert "write failed" in result.error_message
+        assert "FAC/DEV/LOC/PROP" in result.error_message
+        assert result.observed_value is None
+        # Nothing was taken, so there is nothing to confirm.
+        mock_d4py.get.assert_not_called()
 
-    async def test_write_readback_verified(self, connector):
+    async def test_read_that_raises_is_unconfirmed(self, connector):
         conn, mock_d4py = connector
-        mock_d4py.set.return_value = None
-        mock_d4py.get.return_value = _make_eq_data(value=10.0)
+        mock_d4py.get.side_effect = RuntimeError("readback error")
 
-        result = await conn.write_channel(
-            "FAC/DEV/LOC/PROP", 10.0, verification_level="readback", tolerance=0.1
-        )
+        result = await conn.write_channel("FAC/DEV/LOC/PROP", 10.0, confirm=True)
 
-        assert result.success is True
-        assert result.verification.level == "readback"
-        assert result.verification.verified is True
-        assert result.verification.readback_value == pytest.approx(10.0)
-        assert result.verification.tolerance_used == 0.1
+        assert result.outcome is WriteOutcome.UNCONFIRMED
+        assert "readback error" in result.error_message
+        assert result.observed_value is None
 
-    async def test_write_readback_mismatch(self, connector):
+    async def test_mismatch_carries_both_values_and_no_message(self, connector):
         conn, mock_d4py = connector
-        mock_d4py.set.return_value = None
         mock_d4py.get.return_value = _make_eq_data(value=99.0)
 
-        result = await conn.write_channel(
-            "FAC/DEV/LOC/PROP", 10.0, verification_level="readback", tolerance=0.1
-        )
+        result = await conn.write_channel("FAC/DEV/LOC/PROP", 10.0, confirm=True)
 
-        assert result.success is True
-        assert result.verification.verified is False
+        assert result.outcome is WriteOutcome.MISMATCH
+        assert result.value_written == 10.0
+        assert result.observed_value == pytest.approx(99.0)
+        # Both numbers are on the result; there is nothing left to say.
+        assert result.error_message is None
 
-    async def test_write_callback_treated_as_readback(self, connector):
+    async def test_a_rounded_setpoint_is_a_mismatch_not_a_tolerated_write(self, connector):
+        """There is no configurable tolerance: a nudged setpoint is reported."""
         conn, mock_d4py = connector
-        mock_d4py.get.return_value = _make_eq_data(value=7.0)
+        mock_d4py.get.return_value = _make_eq_data(value=10.05)
 
-        result = await conn.write_channel(
-            "FAC/DEV/LOC/PROP", 7.0, verification_level="callback", tolerance=0.5
-        )
+        result = await conn.write_channel("FAC/DEV/LOC/PROP", 10.0, confirm=True)
 
-        assert result.success is True
-        assert result.verification.level == "readback"
+        assert result.outcome is WriteOutcome.MISMATCH
+        assert result.observed_value == pytest.approx(10.05)
 
-    async def test_write_invalid_verification_level_raises(self, connector):
-        conn, _ = connector
-        with pytest.raises(ValueError, match="Invalid verification_level"):
-            await conn.write_channel("FAC/DEV/LOC/PROP", 1.0, verification_level="bad")
-
-    async def test_write_blocked_when_writes_disabled(self):
+    async def test_write_refused_when_writes_disabled(self):
         mock_d4py = _make_doocs4py()
         with (
             patch.dict(sys.modules, {"doocs4py": mock_d4py}),
@@ -279,90 +311,67 @@ class TestWriteChannel:
             result = await conn.write_channel("FAC/DEV/LOC/PROP", 1.0)
             await conn.disconnect()
 
-        assert result.success is False
+        assert result.outcome is WriteOutcome.REFUSED
+        assert result.refusal_reason == "WRITES_DISABLED"
         assert "disabled" in result.error_message.lower()
+        mock_d4py.set.assert_not_called()
 
-    async def test_write_readback_failure_returns_success_with_unverified(self, connector):
-        """Write succeeds but readback throws — success=True, verified=False."""
-        conn, mock_d4py = connector
-        mock_d4py.set.return_value = None
-        mock_d4py.get.side_effect = RuntimeError("readback error")
-
-        result = await conn.write_channel(
-            "FAC/DEV/LOC/PROP", 10.0, verification_level="readback", tolerance=0.1
-        )
-
-        assert result.success is True
-        assert result.verification.verified is False
-        assert "Readback failed" in result.verification.notes
-
-
-class TestWriteFailureKind:
-    """``failure_kind`` classifies a write without anyone parsing ``notes``."""
-
-    async def test_readback_exception_sets_failure_kind(self, connector):
-        conn, mock_d4py = connector
-        mock_d4py.get.side_effect = RuntimeError("readback error")
-
-        result = await conn.write_channel(
-            "FAC/DEV/LOC/PROP", 10.0, verification_level="readback", tolerance=0.1
-        )
-
-        assert result.verification.failure_kind == "readback_failed"
-        # DOOCS has no alarm metadata to report.
-        assert result.verification.readback_alarm_status is None
-        assert result.verification.readback_alarm_severity is None
-
-    async def test_numeric_mismatch_leaves_failure_kind_null(self, connector):
-        conn, mock_d4py = connector
-        mock_d4py.get.return_value = _make_eq_data(value=99.0)
-
-        result = await conn.write_channel(
-            "FAC/DEV/LOC/PROP", 10.0, verification_level="readback", tolerance=0.1
-        )
-
-        assert result.verification.verified is False
-        assert result.verification.failure_kind is None
-
-    async def test_string_mismatch_leaves_failure_kind_null(self, connector):
-        conn, mock_d4py = connector
-        mock_d4py.get.return_value = _make_eq_data(value="OTHER")
-
-        result = await conn.write_channel(
-            "FAC/DEV/LOC/PROP", "DESIRED", verification_level="readback", tolerance=0.1
-        )
-
-        assert result.verification.verified is False
-        assert result.verification.failure_kind is None
-        assert result.verification.readback_value is None
-
-    async def test_successful_readback_leaves_failure_kind_null(self, connector):
+    async def test_doocs_never_reports_alarm_state(self, connector):
+        """DOOCS reads carry no alarm metadata, so the fields stay unset."""
         conn, mock_d4py = connector
         mock_d4py.get.return_value = _make_eq_data(value=10.0)
 
-        result = await conn.write_channel(
-            "FAC/DEV/LOC/PROP", 10.0, verification_level="readback", tolerance=0.1
-        )
+        result = await conn.write_channel("FAC/DEV/LOC/PROP", 10.0, confirm=True)
 
-        assert result.verification.verified is True
-        assert result.verification.failure_kind is None
+        assert result.alarm_status is None
+        assert result.alarm_severity is None
 
-    async def test_notes_text_does_not_change_structured_fields(self, connector):
-        """Two readback failures with different messages classify identically."""
+
+class TestConfirmResolution:
+    """An omitted ``confirm`` is policy; an explicit one is an answer."""
+
+    async def test_omitted_confirm_follows_the_channel_policy_when_true(self):
+        validator = _make_limits_validator(confirm=True)
+
+        result = await _write_with_validator(validator)
+
+        assert result.outcome is WriteOutcome.CONFIRMED
+        validator.resolve_confirm.assert_called_once_with("FAC/DEV/LOC/PROP")
+
+    async def test_omitted_confirm_follows_the_channel_policy_when_false(self):
+        validator = _make_limits_validator(confirm=False)
+
+        result = await _write_with_validator(validator)
+
+        assert result.outcome is WriteOutcome.UNREQUESTED
+        validator.resolve_confirm.assert_called_once_with("FAC/DEV/LOC/PROP")
+
+    async def test_explicit_confirm_false_is_not_resolved_away(self):
+        """``confirm=False`` is an answer — the policy must not overrule it."""
+        validator = _make_limits_validator(confirm=True)
+
+        result = await _write_with_validator(validator, confirm=False)
+
+        assert result.outcome is WriteOutcome.UNREQUESTED
+        validator.resolve_confirm.assert_not_called()
+
+    async def test_explicit_confirm_true_is_not_resolved_away(self):
+        validator = _make_limits_validator(confirm=False)
+
+        result = await _write_with_validator(validator, confirm=True)
+
+        assert result.outcome is WriteOutcome.CONFIRMED
+        validator.resolve_confirm.assert_not_called()
+
+    async def test_no_limits_validator_confirms_by_default(self, connector):
+        """Limits checking off means no policy to read — the fleet default confirms."""
         conn, mock_d4py = connector
+        mock_d4py.get.return_value = _make_eq_data(value=10.0)
 
-        results = []
-        for message in ("readback error", "an entirely different failure text"):
-            mock_d4py.get.side_effect = RuntimeError(message)
-            results.append(
-                await conn.write_channel(
-                    "FAC/DEV/LOC/PROP", 10.0, verification_level="readback", tolerance=0.1
-                )
-            )
+        result = await conn.write_channel("FAC/DEV/LOC/PROP", 10.0)
 
-        first, second = results
-        assert first.verification.notes != second.verification.notes
-        assert _structured_write_facts(first) == _structured_write_facts(second)
+        assert result.outcome is WriteOutcome.CONFIRMED
+        mock_d4py.get.assert_called_once_with("FAC/DEV/LOC/PROP")
 
 
 class _Incomparable:
@@ -375,217 +384,119 @@ class _Incomparable:
 
 
 class TestNonNumericReadback:
-    """``readback_value`` is numeric or absent — never a stand-in number.
+    """A non-numeric property confirms by equality, and never by fabrication.
 
-    A string readback used to report ``readback_value=0.0``: a fabricated
-    number in the machine-readable field. Non-numeric readbacks now compare by
-    equality where the types allow, carry no value, and say why in ``notes``.
+    ``observed_value`` holds whatever the property reads back — a string, a
+    sequence, an object — in the type the channel holds; ``observed_number``
+    narrows it to a float only where that means something.
     """
 
-    async def test_matching_string_readback_carries_no_fabricated_value(self, connector):
+    async def test_matching_string_readback_confirms(self, connector):
         conn, mock_d4py = connector
         mock_d4py.get.return_value = _make_eq_data(value="DESIRED")
 
-        result = await conn.write_channel(
-            "FAC/DEV/LOC/PROP", "DESIRED", verification_level="readback", tolerance=0.1
-        )
+        result = await conn.write_channel("FAC/DEV/LOC/PROP", "DESIRED", confirm=True)
 
-        assert result.success is True
-        assert result.verification.verified is True
-        assert result.verification.readback_value is None
-        assert result.verification.failure_kind is None
-        assert "DESIRED" in result.verification.notes
+        assert result.outcome is WriteOutcome.CONFIRMED
+        assert result.observed_value == "DESIRED"
+        assert result.observed_number is None
+        assert result.error_message is None
 
-    async def test_sequence_readback_compares_by_equality(self, connector):
+    async def test_differing_string_readback_is_a_mismatch(self, connector):
+        """The read worked and disagreed — that is a mismatch, not an unknown."""
+        conn, mock_d4py = connector
+        mock_d4py.get.return_value = _make_eq_data(value="OTHER")
+
+        result = await conn.write_channel("FAC/DEV/LOC/PROP", "DESIRED", confirm=True)
+
+        assert result.outcome is WriteOutcome.MISMATCH
+        assert result.observed_value == "OTHER"
+        assert result.error_message is None
+
+    async def test_sequence_readback_confirms_elementwise(self, connector):
         conn, mock_d4py = connector
         mock_d4py.get.return_value = _make_eq_data(value=[1, 2, 3])
 
-        result = await conn.write_channel(
-            "FAC/DEV/LOC/PROP", [1, 2, 3], verification_level="readback", tolerance=0.1
-        )
+        result = await conn.write_channel("FAC/DEV/LOC/PROP", [1, 2, 3], confirm=True)
 
-        assert result.verification.verified is True
-        assert result.verification.readback_value is None
-        assert result.verification.failure_kind is None
-        assert "equality" in result.verification.notes
+        assert result.outcome is WriteOutcome.CONFIRMED
+        assert result.observed_value == [1, 2, 3]
 
-    async def test_sequence_mismatch_is_unverified_without_a_value(self, connector):
+    async def test_sequence_mismatch_is_a_mismatch(self, connector):
         conn, mock_d4py = connector
         mock_d4py.get.return_value = _make_eq_data(value=[1, 2, 4])
 
-        result = await conn.write_channel(
-            "FAC/DEV/LOC/PROP", [1, 2, 3], verification_level="readback", tolerance=0.1
-        )
+        result = await conn.write_channel("FAC/DEV/LOC/PROP", [1, 2, 3], confirm=True)
 
-        assert result.success is True
-        assert result.verification.verified is False
-        assert result.verification.readback_value is None
-        assert result.verification.failure_kind is None
+        assert result.outcome is WriteOutcome.MISMATCH
+        assert result.observed_value == [1, 2, 4]
+        assert result.error_message is None
 
-    async def test_array_readback_compares_elementwise(self, connector):
+    async def test_array_readback_confirms_elementwise(self, connector):
         np = pytest.importorskip("numpy")
         conn, mock_d4py = connector
         mock_d4py.get.return_value = _make_eq_data(value=np.array([1.0, 2.0]))
 
-        result = await conn.write_channel(
-            "FAC/DEV/LOC/PROP", np.array([1.0, 2.0]), verification_level="readback", tolerance=0.1
-        )
+        result = await conn.write_channel("FAC/DEV/LOC/PROP", np.array([1.0, 2.0]), confirm=True)
 
-        assert result.verification.verified is True
-        assert result.verification.readback_value is None
+        assert result.outcome is WriteOutcome.CONFIRMED
 
-    async def test_incomparable_readback_is_unverified_and_says_why(self, connector):
+    async def test_incomparable_readback_is_a_mismatch(self, connector):
+        """A comparison that raises is not a match, and not a failed read."""
         conn, mock_d4py = connector
-        mock_d4py.get.return_value = _make_eq_data(value=_Incomparable())
+        observed = _Incomparable()
+        mock_d4py.get.return_value = _make_eq_data(value=observed)
 
-        result = await conn.write_channel(
-            "FAC/DEV/LOC/PROP", 10.0, verification_level="readback", tolerance=0.1
-        )
+        result = await conn.write_channel("FAC/DEV/LOC/PROP", 10.0, confirm=True)
 
-        assert result.success is True
-        assert result.verification.verified is False
-        assert result.verification.readback_value is None
-        # The readback itself worked; only the comparison has no meaning.
-        assert result.verification.failure_kind is None
-        assert "cannot be compared" in result.verification.notes
+        assert result.outcome is WriteOutcome.MISMATCH
+        assert result.observed_value is observed
+        # The read itself worked; only the comparison has no meaning.
+        assert result.error_message is None
 
-    async def test_numeric_readback_for_a_non_numeric_setpoint_is_not_a_readback_failure(
-        self, connector
-    ):
-        """``float("ON")`` raising must not masquerade as the read having failed."""
+    async def test_numeric_readback_for_a_non_numeric_setpoint_is_a_mismatch(self, connector):
+        """A string setpoint read back as a number disagrees — it is not unknown."""
         conn, mock_d4py = connector
         mock_d4py.get.return_value = _make_eq_data(value=1.0)
 
-        result = await conn.write_channel(
-            "FAC/DEV/LOC/PROP", "ON", verification_level="readback", tolerance=0.1
-        )
+        result = await conn.write_channel("FAC/DEV/LOC/PROP", "ON", confirm=True)
 
-        assert result.success is True
-        assert result.verification.verified is False
-        assert result.verification.failure_kind is None
-        assert result.verification.readback_value == pytest.approx(1.0)
+        assert result.outcome is WriteOutcome.MISMATCH
+        assert result.observed_value == pytest.approx(1.0)
+        assert result.error_message is None
 
 
-class TestWriteLevelReporting:
-    """DOOCS reports the verification level it actually performs."""
+class TestWriteTextIsDisplayOnly:
+    """``notes`` and the message wording never carry the classification."""
 
-    async def test_failed_set_at_callback_level_reports_readback(self, connector):
+    async def test_message_text_does_not_change_the_structured_facts(self, connector):
         conn, mock_d4py = connector
-        mock_d4py.set.side_effect = RuntimeError("write failed")
 
-        result = await conn.write_channel(
-            "FAC/DEV/LOC/PROP", 5.0, verification_level="callback", tolerance=0.1
-        )
+        results = []
+        for message in ("readback error", "an entirely different failure text"):
+            mock_d4py.get.side_effect = RuntimeError(message)
+            results.append(await conn.write_channel("FAC/DEV/LOC/PROP", 10.0, confirm=True))
 
-        assert result.success is False
-        # DOOCS downgrades callback to readback, so the failed set() must not
-        # claim "none" — that would read as "no verification was requested".
-        assert result.verification.level == "readback"
-        assert result.verification.verified is False
-        # The write, not the readback, is what failed.
-        assert result.verification.failure_kind is None
+        first, second = results
+        assert first.error_message != second.error_message
+        assert _structured_write_facts(first) == _structured_write_facts(second)
 
-    async def test_failed_set_at_readback_level_reports_readback(self, connector):
+    async def test_a_mismatch_says_both_values_without_an_error_message(self, connector):
         conn, mock_d4py = connector
-        mock_d4py.set.side_effect = RuntimeError("write failed")
+        mock_d4py.get.return_value = _make_eq_data(value=99.0)
 
-        result = await conn.write_channel(
-            "FAC/DEV/LOC/PROP", 5.0, verification_level="readback", tolerance=0.1
+        result = await conn.write_channel("FAC/DEV/LOC/PROP", 10.0, confirm=True)
+
+        assert "99.0" in result.notes
+        assert "10.0" in result.notes
+        assert _structured_write_facts(result) == (
+            WriteOutcome.MISMATCH,
+            99.0,
+            None,
+            False,
+            None,
+            None,
         )
-
-        assert result.success is False
-        assert result.verification.level == "readback"
-
-
-class TestWriteToleranceResolution:
-    """An explicit level must not silently drop the configured tolerance."""
-
-    async def _write(self, validator, **kwargs):
-        mock_d4py = _make_doocs4py()
-        mock_d4py.get.return_value = _make_eq_data(value=10.2)
-
-        with (
-            patch.dict(sys.modules, {"doocs4py": mock_d4py}),
-            patch(_LIMITS_PATCH, return_value=validator),
-            patch(_TZ_PATCH, return_value=UTC),
-            patch("osprey.utils.config.get_config_value", side_effect=_writes_enabled),
-        ):
-            from osprey.connectors.control_system.doocs_connector import DOOCSConnector
-
-            conn = DOOCSConnector()
-            await conn.connect({})
-            result = await conn.write_channel("FAC/DEV/LOC/PROP", 10.0, **kwargs)
-            await conn.disconnect()
-
-        return result
-
-    async def test_explicit_level_still_resolves_limits_db_tolerance(self):
-        validator = _make_limits_validator(level="callback", tolerance=0.5)
-
-        result = await self._write(validator, verification_level="readback")
-
-        # The caller's explicit level wins over the limits DB entry...
-        assert result.verification.level == "readback"
-        # ...but the channel's configured tolerance is still applied.
-        assert result.verification.tolerance_used == 0.5
-        assert result.verification.verified is True
-        validator.get_verification_config.assert_called_once_with("FAC/DEV/LOC/PROP", 10.0)
-
-    async def test_explicit_tolerance_beats_limits_db(self):
-        validator = _make_limits_validator(level="callback", tolerance=0.5)
-
-        result = await self._write(validator, verification_level="readback", tolerance=0.05)
-
-        assert result.verification.tolerance_used == 0.05
-        # Nothing left to resolve, so the limits DB is never consulted.
-        validator.get_verification_config.assert_not_called()
-
-    async def test_omitted_level_resolves_both_from_limits_db(self):
-        validator = _make_limits_validator(level="readback", tolerance=0.5)
-
-        result = await self._write(validator)
-
-        assert result.verification.level == "readback"
-        assert result.verification.tolerance_used == 0.5
-
-    async def test_string_write_with_explicit_level_resolves_without_raising(self, connector):
-        """A non-numeric value has no percentage scale — resolution must not raise."""
-        conn, mock_d4py = connector
-        mock_d4py.get.return_value = _make_eq_data(value="ON")
-
-        result = await conn.write_channel("FAC/DEV/LOC/PROP", "ON", verification_level="readback")
-
-        assert result.success is True
-        assert result.verification.verified is True
-
-    async def test_explicit_none_never_consults_limits_db(self):
-        """An explicit fast-path write has no tolerance to resolve.
-
-        The lookup only exists to supply a level and/or a tolerance; a
-        ``verification_level="none"`` write uses neither, so it must not reach
-        ``_get_verification_config`` at all — the guard shape Mock and EPICS
-        already use. Before the alignment, DOOCS ran the lookup for every write
-        with no explicit tolerance, teaching the opposite shape to whoever
-        copies this connector next.
-        """
-        validator = _make_limits_validator(level="readback", tolerance=0.5)
-
-        result = await self._write(validator, verification_level="none")
-
-        assert result.success is True
-        assert result.verification.level == "none"
-        validator.get_verification_config.assert_not_called()
-
-    async def test_explicit_callback_still_resolves_limits_db_tolerance(self):
-        """DOOCS performs readback verification for "callback" (the protocol has
-        no callback confirmation), so unlike Mock/EPICS an explicit "callback"
-        write still needs the channel's configured tolerance."""
-        validator = _make_limits_validator(level="none", tolerance=0.5)
-
-        result = await self._write(validator, verification_level="callback")
-
-        assert result.verification.tolerance_used == 0.5
-        validator.get_verification_config.assert_called_once_with("FAC/DEV/LOC/PROP", 10.0)
 
 
 # --------------------------------------------------------------------------------------

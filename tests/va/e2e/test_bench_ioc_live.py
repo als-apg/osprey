@@ -16,8 +16,8 @@ every claim below is settled by something only the bench IOC can produce:
 
 * a shared channel that reads ``7.25`` here and something else there;
 * a ``caput`` the *IOC* denies (its ASG withholds WRITE), arriving as
-  ``blocked=True`` with ``refusal_reason="CONTROL_SYSTEM_REFUSED"`` — which is a
-  different claim from the reference monitor's own limits refusal, and is
+  ``outcome == refused`` with ``refusal_reason="CONTROL_SYSTEM_REFUSED"`` — which
+  is a different claim from the reference monitor's own limits refusal, and is
   asserted to be distinguishable from it;
 * records that exist on one target and not the other, in both directions;
 * record textures a simulator does not have to reproduce: an ``mbbi`` reporting
@@ -72,6 +72,7 @@ from osprey.mcp_server.control_system.endpoint_prober import (
 from osprey.mcp_server.control_system.server_context import MCPServerConfig
 from osprey.mcp_server.control_system.tools import control_target
 from osprey.mcp_server.control_system.tools.channel_read import channel_read
+from osprey_connectors.control_system import WriteOutcome
 from osprey_connectors.control_system.base import ChannelValue, raise_for_write_result
 from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
 from tests.fixtures import bench_ioc as bench
@@ -732,8 +733,7 @@ class TestTheControlSystemsOwnWriteRefusal:
             PROTECTED_SP, PROTECTED_WRITE_VALUE, timeout=CALL_TIMEOUT_S
         )
 
-        assert result.blocked is True
-        assert result.success is False
+        assert result.outcome is WriteOutcome.REFUSED
         assert result.refusal_reason == "CONTROL_SYSTEM_REFUSED"
         # The vocabulary is the shared one, so a reason the error type would
         # reject can never reach an operator through this path.
@@ -798,7 +798,7 @@ class TestTheControlSystemsOwnWriteRefusal:
         on_the_bench = await manager.active_proxy().write_channel(
             PROTECTED_SP, VA_WRITE_VALUE, timeout=CALL_TIMEOUT_S
         )
-        assert on_the_bench.blocked is True
+        assert on_the_bench.outcome is WriteOutcome.REFUSED
 
         await manager.switch("va")
         try:
@@ -806,9 +806,9 @@ class TestTheControlSystemsOwnWriteRefusal:
                 PROTECTED_SP, VA_WRITE_VALUE, timeout=CALL_TIMEOUT_S
             )
 
-            assert on_the_simulator.blocked is False
+            assert on_the_simulator.outcome is not WriteOutcome.REFUSED
             assert on_the_simulator.refusal_reason is None
-            assert on_the_simulator.success is True
+            assert on_the_simulator.outcome is WriteOutcome.CONFIRMED
             await settled_reading(manager, PROTECTED_SP, expected=VA_WRITE_VALUE)
         finally:
             # Every other test in this module reads a machine at rest.
@@ -934,7 +934,9 @@ class TestTheBenchRecordsKeepTheirEpicsTextures:
             written = await manager.active_proxy().write_channel(
                 ALARM_CHANNEL, ALARM_DRIVE_VALUE, timeout=CALL_TIMEOUT_S
             )
-            assert written.blocked is False, written.error_message
+            assert written.outcome is not WriteOutcome.REFUSED, (
+                written.error_message or written.notes
+            )
             assert ALARM_DRIVE_VALUE > ALARM_HIHI_THRESHOLD
 
             alarming = await settled_reading(

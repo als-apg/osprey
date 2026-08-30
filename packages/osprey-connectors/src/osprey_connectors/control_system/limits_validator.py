@@ -46,7 +46,7 @@ class LimitsValidator:
     ):
         self.limits = limits_database
         self.policy = policy_config
-        self._raw_db = raw_db  # Keep raw database for verification config access
+        self._raw_db = raw_db  # Keep raw database for confirm-policy access
         # Set only by the empty-DB failsafe paths in from_config: the database
         # could not be loaded, so every write is blocked. validate() uses it to
         # refuse with a load-failure message instead of the unlisted-channel
@@ -147,7 +147,7 @@ class LimitsValidator:
                     {},
                     {},
                     failsafe_reason=(
-                        f"the limits database at {db_path} could not be read or parsed"
+                        f"the limits database at {db_path} could not be read or parsed: {e}"
                     ),
                 )  # Empty DB = blocks all (failsafe)
             logger.debug(f"Loaded limits database with {len(limits_db)} channels")
@@ -189,59 +189,33 @@ class LimitsValidator:
             "writable": channel_config.writable,
         }
 
-    def get_verification_config(
-        self, channel_address: str, value: float
-    ) -> tuple[str, float | None]:
-        """Get verification level and tolerance for a channel write.
+    def resolve_confirm(self, channel_address: str) -> bool:
+        """Whether a write to this channel must be confirmed by re-reading it.
 
-        Extracts verification configuration from the limits database if available.
-        Note: This requires access to the raw database before it's converted to dataclasses.
-
-        Priority:
-        1. Channel-specific config in limits database
-        2. Returns None if no per-channel config (caller should use global defaults)
+        Resolution: the channel's own ``confirm`` → the ``defaults`` block's
+        ``confirm`` → ``True``. Read off the raw database, which is where
+        ``confirm`` lives: it is write policy, not a limit, so it never enters
+        :class:`ChannelLimitsConfig`.
 
         Args:
             channel_address: Channel address being written
-            value: Value being written (used for percentage tolerance calculation)
 
         Returns:
-            Tuple of (verification_level, tolerance) or (None, None) if no per-channel config
-            - verification_level: "none", "callback", or "readback", or None for global default
-            - tolerance: Absolute tolerance for readback, or None if not applicable
+            True when the write must be confirmed (the fleet default).
         """
-        # Access the raw database to get verification config
-        # (This is stored in the raw DB but not in ChannelLimitsConfig dataclass)
-        if not hasattr(self, "_raw_db") or self._raw_db is None:
-            return None, None
+        raw_db = getattr(self, "_raw_db", None)
+        if not isinstance(raw_db, dict):
+            return True
 
-        # Get raw channel config; fall back to the 'defaults' block's
-        # verification when the channel does not declare its own.
-        raw_config = self._raw_db.get(channel_address) or {}
-        verif = raw_config.get("verification")
-        if verif is None:
-            defaults_config = self._raw_db.get(DEFAULTS_FIELD, {})
-            if isinstance(defaults_config, dict):
-                verif = defaults_config.get("verification")
-        if verif is None:
-            return None, None
+        channel_config = raw_db.get(channel_address)
+        if isinstance(channel_config, dict) and "confirm" in channel_config:
+            return bool(channel_config["confirm"])
 
-        level = verif.get("level", "callback")
+        defaults_config = raw_db.get(DEFAULTS_FIELD)
+        if isinstance(defaults_config, dict) and "confirm" in defaults_config:
+            return bool(defaults_config["confirm"])
 
-        # Calculate tolerance (only for readback level)
-        tolerance = None
-        if level == "readback":
-            # Absolute tolerance takes priority
-            if "tolerance_absolute" in verif:
-                tolerance = verif["tolerance_absolute"]
-            # Otherwise use percentage
-            elif "tolerance_percent" in verif:
-                tolerance = abs(value) * verif["tolerance_percent"] / 100.0
-            else:
-                # Default: 0.1% (one per mil)
-                tolerance = abs(value) * 0.1 / 100.0
-
-        return level, tolerance
+        return True
 
     @staticmethod
     def _validate_channel_config(channel_name: str, config_dict: dict) -> None:
@@ -254,14 +228,24 @@ class LimitsValidator:
         Raises:
             ValueError: If configuration is invalid with descriptive error message
         """
-        valid_fields = {"min_value", "max_value", "max_step", "writable", "verification"}
-        unknown_fields = set(config_dict.keys()) - valid_fields - METADATA_FIELDS
+        valid_fields = {"min_value", "max_value", "max_step", "writable", "confirm"}
+        # Any '_'-prefixed key is documentation metadata and stays legal, whatever
+        # it is called. Every other unrecognised key fails the load: a limits file
+        # is a safety artifact, and a key the loader does not understand is a key
+        # whose intent was never applied.
+        unknown_fields = {k for k in config_dict if not k.startswith("_")} - valid_fields
 
         if unknown_fields:
-            logger.warning(
-                f"Channel '{channel_name}' has unknown fields: {unknown_fields}. "
-                f"Valid fields are: {valid_fields}"
+            detail = (
+                f"Channel '{channel_name}' has unknown fields: {sorted(unknown_fields)}. "
+                f"Valid fields are: {sorted(valid_fields)}"
             )
+            if "verification" in unknown_fields:
+                raise ValueError(
+                    f"Channel '{channel_name}': 'verification' was replaced by "
+                    f"'confirm: true|false'. {detail}"
+                )
+            raise ValueError(detail)
 
         # Validate numeric fields
         for field in ["min_value", "max_value", "max_step"]:
@@ -273,34 +257,12 @@ class LimitsValidator:
                     )
 
         # Validate boolean fields
-        if "writable" in config_dict:
-            value = config_dict["writable"]
-            if not isinstance(value, bool):
-                raise ValueError(
-                    f"Field 'writable' must be boolean, got {type(value).__name__} = {value}"
-                )
-
-        # Validate nested verification config (if present)
-        if "verification" in config_dict:
-            verification = config_dict["verification"]
-            if not isinstance(verification, dict):
-                raise ValueError(
-                    f"Field 'verification' must be a dictionary, got {type(verification).__name__}"
-                )
-
-            # Validate verification fields
-            valid_verif_fields = {"level", "tolerance_absolute", "tolerance_percent"}
-            unknown_verif = set(verification.keys()) - valid_verif_fields - METADATA_FIELDS
-            if unknown_verif:
-                logger.warning(
-                    f"Channel '{channel_name}' verification has unknown fields: {unknown_verif}"
-                )
-
-            if "level" in verification:
-                level = verification["level"]
-                if level not in ("none", "callback", "readback"):
+        for field in ["writable", "confirm"]:
+            if field in config_dict:
+                value = config_dict[field]
+                if not isinstance(value, bool):
                     raise ValueError(
-                        f"verification.level must be 'none', 'callback', or 'readback', got '{level}'"
+                        f"Field '{field}' must be boolean, got {type(value).__name__} = {value}"
                     )
 
     @staticmethod
@@ -311,7 +273,7 @@ class LimitsValidator:
         - Channel-specific configurations
         - 'defaults' field for common settings (functional, not metadata)
         - Metadata fields with underscore prefix (_comment, _version, etc.)
-        - Per-channel verification config (stored in raw DB)
+        - Per-channel confirm policy (stored in raw DB)
 
         Args:
             db_path: Path to JSON database file
@@ -319,7 +281,7 @@ class LimitsValidator:
         Returns:
             Tuple of (parsed_limits_db, raw_db):
             - parsed_limits_db: Dict mapping channel addresses to ChannelLimitsConfig
-            - raw_db: Raw dict from JSON file (for verification config access)
+            - raw_db: Raw dict from JSON file (for confirm-policy access)
 
         Raises:
             ValueError: If database structure is invalid
@@ -367,11 +329,10 @@ class LimitsValidator:
 
                 # Validate it's a dict
                 if not isinstance(config_dict, dict):
-                    logger.error(
+                    raise ValueError(
                         f"Invalid config for channel '{channel_name}': "
-                        f"must be a dictionary, got {type(config_dict).__name__} - SKIPPING"
+                        f"must be a dictionary, got {type(config_dict).__name__}"
                     )
-                    continue
 
                 try:
                     # Validate configuration structure
@@ -380,7 +341,7 @@ class LimitsValidator:
                     # Merge the 'defaults' block under the channel's own config so
                     # the channel inherits any default field it does not override.
                     # Shallow merge: the channel's own keys take precedence, and a
-                    # channel that declares 'verification' replaces it wholesale.
+                    # channel that declares 'confirm' overrides the default.
                     merged = {**defaults_config, **config_dict}
 
                     # Create validated config object
@@ -402,7 +363,10 @@ class LimitsValidator:
                     limits_db[channel_name] = config
 
                 except (TypeError, ValueError, KeyError) as e:
-                    logger.error(f"Invalid config for channel '{channel_name}': {e} - SKIPPING")
+                    # One malformed entry fails the whole load. Skipping it used
+                    # to drop the channel from the database, which - with
+                    # allow_unlisted_channels - silently removed its limits.
+                    raise ValueError(f"Invalid config for channel '{channel_name}': {e}") from e
 
             logger.info(
                 f"Successfully loaded {len(limits_db)} channel configurations from {db_path}"

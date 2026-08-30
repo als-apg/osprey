@@ -1007,7 +1007,11 @@ def _render_compose_files(
 
     Compose files are rendered in the same pass as everything else, because they
     are derived from the same ``config.yml``: emitting them a verb later would
-    leave ``build/`` an incomplete description of the deployment.
+    leave ``build/`` an incomplete description of the deployment. After the
+    persona renders, because they read them: the bluesky_web sidecar's compose
+    lists the secret of every user whose persona's rendered ``config.yml``
+    shows the BLUESKY tab, and what this pass writes is what ``osprey up``
+    starts.
 
     The generator resolves its inputs relative to the working directory, which
     is what makes it stageable at all: run from the staged render, every service
@@ -1063,11 +1067,16 @@ def _render_compose_files(
         # from ``build/`` once the swap lands. Derived from the config path it
         # would come out empty, and every path spelled against it would resolve
         # one directory too high at deploy time.
+        # ``persona_root`` for the same reason again: the persona renders this
+        # build has already written sit in the staged tree, and the catalog's
+        # ``project_path`` (``build/<repo>-<persona>``) names where they will
+        # be once the swap lands — the previous build's personas until then.
         config, compose_files = prepare_compose_files(
             str(zones.stage / "config.yml"),
             dev_mode=dev_mode,
             output_root=".",
             deployed_config_dir=BUILD_DIR_NAME,
+            persona_root=str(zones.stage),
         )
         # Read back inside the chdir: every path involved — the rendered files,
         # the service directories the config names — is spelled relative to the
@@ -2576,12 +2585,16 @@ def _build_repo(
             if injected:
                 phase.step(f"services injected: {', '.join(injected)}")
 
-            config = _render_compose_files(zones, runtime_root, dev_mode=dev)
-            phase.step("compose files")
-
+            # Personas BEFORE the compose files: the services render reads the
+            # personas' rendered config.yml files for its per-persona grants
+            # (the bluesky_web sidecar's roster secrets), and the start verbs
+            # are as-built — a grant this pass misses reaches no container.
             persona_renders = _render_persona_projects(shared, zones)
             if persona_renders:
                 phase.step(f"{len(persona_renders)} persona render(s)")
+
+            config = _render_compose_files(zones, runtime_root, dev_mode=dev)
+            phase.step("compose files")
 
             # The copies the images are built from — the deployment's and one per
             # persona — each rendered against the path its container sees itself at

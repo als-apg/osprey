@@ -96,11 +96,20 @@ def write_state(directory, **kwargs):
     return path
 
 
-def write_payload(channel="TEST:PV", value=42.0, verification_level=None):
-    """The tool input Claude Code hands the hook for a one-channel write."""
+#: Distinguishes "the caller said nothing about confirmation" from an explicit
+#: ``confirm=False``, which is a different write and must key differently.
+_UNSET = object()
+
+
+def write_payload(channel="TEST:PV", value=42.0, confirm=_UNSET):
+    """The tool input Claude Code hands the hook for a one-channel write.
+
+    ``confirm`` is omitted by default, which is how the agent calls the tool
+    when it leaves the decision to the deployment.
+    """
     payload = {"operations": [{"channel": channel, "value": value}]}
-    if verification_level is not None:
-        payload["verification_level"] = verification_level
+    if confirm is not _UNSET:
+        payload["confirm"] = confirm
     return payload
 
 
@@ -147,8 +156,9 @@ def test_a_channel_write_ask_stamps_the_binding_it_rendered(
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("confirm", [_UNSET, True, False])
 def test_the_stamp_is_filed_under_the_key_the_server_looks_it_up_by(
-    approval, state_dir, resolvable_session
+    approval, state_dir, resolvable_session, confirm
 ):
     """One derivation, stated twice: the two spellings must produce one key.
 
@@ -156,18 +166,45 @@ def test_the_stamp_is_filed_under_the_key_the_server_looks_it_up_by(
     the key algorithm is written on both sides. Comparing them here is what
     keeps that duplication from silently drifting into two different keys, which
     would disable the cross-check without failing anything.
+
+    Every value of ``confirm`` is driven, including its omission: the hook reads
+    the field out of ``tool_input`` and the server is handed the tool's own
+    parameter default, so "absent" has to hash the same on both sides or the
+    ordinary write — the one that leaves confirmation to the deployment — is the
+    one whose approval window silently stops being checked.
     """
     from osprey.mcp_server.control_system.tools import channel_write as tool
 
     write_state(state_dir, target="va")
-    tool_input = write_payload(verification_level="readback")
+    tool_input = write_payload(confirm=confirm)
+    # What the tool's own signature hands `_approval_stamp_key` when the agent
+    # leaves `confirm` out of the call.
+    server_confirm = None if confirm is _UNSET else confirm
 
     approval.build_approval_output("Channel write", hook_input_for(tool_input))
 
-    server_key = tool._approval_stamp_key(tool_input["operations"], "readback")
+    server_key = tool._approval_stamp_key(tool_input["operations"], server_confirm)
     expected = state_dir / f"{tool.APPROVAL_STAMP_PREFIX}{server_key}{tool.APPROVAL_STAMP_SUFFIX}"
     assert expected.exists(), "the server would look this approval up under a name nothing wrote"
     assert approval.write_approval_key(tool_input) == server_key
+
+
+@pytest.mark.unit
+def test_the_confirmation_setting_is_part_of_the_approval_identity(approval):
+    """Three different writes, three different keys.
+
+    ``confirm`` decides whether the machine is read back after the value goes
+    out, so a prompt approved with one setting must not vouch for a call made
+    with another. If the field dropped out of the hash these three would
+    collide, and nothing else in the suite would notice.
+    """
+    keys = {
+        approval.write_approval_key(write_payload(confirm=confirm))
+        for confirm in (_UNSET, True, False)
+    }
+
+    assert len(keys) == 3
+    assert None not in keys
 
 
 @pytest.mark.unit

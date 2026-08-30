@@ -45,6 +45,7 @@ from p4p.nt import NTEnum, NTNDArray, NTScalar  # noqa: E402
 from p4p.server import Server  # noqa: E402
 from p4p.server.thread import SharedPV  # noqa: E402
 
+from osprey.connectors.control_system.base import WriteOutcome  # noqa: E402
 from osprey.connectors.control_system.epics_connector import EPICSConnector  # noqa: E402
 from tests.mcp_server.conftest import extract_response_dict, get_tool_fn  # noqa: E402
 
@@ -381,8 +382,7 @@ class TestWriteRefusal:
     async def test_write_is_refused_before_the_network(self, connector, value):
         result = await connector.write_channel(SCALAR, value)
 
-        assert result.success is False
-        assert result.blocked is True
+        assert result.outcome is WriteOutcome.REFUSED
         assert result.refusal_reason == "VALIDATION_ERROR"
         assert "PVAccess writes are not supported" in result.error_message
         assert "No write was attempted." in result.error_message

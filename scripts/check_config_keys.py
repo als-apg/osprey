@@ -515,26 +515,6 @@ class ConfigKeyGuard:
                             f"removed site for {key} matches {hits}x under {root}/: {pattern}",
                         )
 
-    def check_ui_literal_precision(self) -> None:
-        """The settings.js orphan regex must not match the live re-keyed leaf.
-
-        Its whole design is to require the closing quote right after
-        ``write_verification``; a regex that also matched
-        ``write_verification.default_level`` would go red against live code.
-        """
-        sites = self.manifest["orphan_sites"].get("control_system.write_verification__ui_literal")
-        if not sites:
-            return
-        live = (
-            "'control_system.write_verification.default_level': ['none', 'callback', 'readback'],"
-        )
-        for site in sites:
-            if self.has_match(site["regex"], live):
-                self.fail(
-                    "orphan-site",
-                    f"the UI orphan regex also matches the LIVE re-keyed leaf: {site['regex']}",
-                )
-
     # ── failure mode 5: all-templates parity ────────────────────────────
 
     def check_parity(self) -> None:
@@ -855,7 +835,6 @@ class ConfigKeyGuard:
         self.check_evidence_vacuity()
         self.check_deleted()
         self.check_orphan_sites()
-        self.check_ui_literal_precision()
         self.check_parity()
         self.check_panel_port_markers()
         self.check_branch_self_test()

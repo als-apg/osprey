@@ -48,10 +48,11 @@ ROUTING_CASES = (
     "**Python that must touch the control system** — use `execute`",
 )
 
-#: The one asymmetry the agent has to know: the two write paths report an
-#: unverified write in different shapes.
+#: The one asymmetry the agent has to know: a write the machine did not confirm
+#: reaches the two paths in different shapes.
 WRITE_PATH_SENTENCE = (
-    "`osprey.runtime.write_channel` raises, while `channel_write` reports it in `write_state`."
+    "`osprey.runtime.write_channel` raises, while `channel_write` reports it in "
+    "the result's `outcome`."
 )
 
 
@@ -242,11 +243,17 @@ def test_routing_section_is_protocol_neutral(tmp_path):
 
 def test_routing_section_states_the_write_path_asymmetry(tmp_path):
     """The Python path raises; the tool reports. An agent that does not know
-    the difference narrates an unverified write as if it had succeeded."""
+    the difference narrates a write the machine never confirmed as a success.
+
+    The key the sentence sends the agent to is the one the tool emits -- the
+    same parity ``safety.md``'s item 6 is pinned to."""
+    from osprey.mcp_server.control_system.tools.channel_write import OUTCOME_KEY
+
     content = _render_safety_rule(tmp_path, "route-asym", "epics")
 
     prose = " ".join(content.split())
     assert WRITE_PATH_SENTENCE in prose
+    assert f"`{OUTCOME_KEY}`" in WRITE_PATH_SENTENCE
 
 
 def test_routing_section_without_bluesky_refuses_the_write_loop(tmp_path):

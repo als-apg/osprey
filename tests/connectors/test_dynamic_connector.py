@@ -4,6 +4,7 @@ import logging
 
 import pytest
 
+from osprey.connectors.control_system.base import WriteOutcome
 from osprey.connectors.factory import ConnectorFactory, isolated_connector_registries
 
 
@@ -117,12 +118,12 @@ class TestControlSystemContextValidation:
         assert "Unknown archiver.type: custom_archiver" in caplog.text
 
 
-class TestCustomConnectorVerificationDefault:
-    """A custom connector keeps its own ``verification_level`` default.
+class TestCustomConnectorConfirmDefault:
+    """A custom connector keeps its own ``confirm`` default.
 
-    ``MockDynamicConnector`` predates the omission sentinel and declares
-    ``verification_level="callback"`` outright. The batch path must leave the
-    keyword off rather than forward ``None``, or that default would be lost.
+    ``MockDynamicConnector`` declares ``confirm=False`` outright rather than
+    taking the omission sentinel. The batch path must leave the keyword off
+    rather than forward ``None``, or that default would be lost.
     """
 
     @pytest.fixture
@@ -144,18 +145,17 @@ class TestCustomConnectorVerificationDefault:
         return await ConnectorFactory.create_control_system_connector(config)
 
     @pytest.mark.asyncio
-    async def test_omitted_level_leaves_connector_default_in_place(self, writes_enabled):
+    async def test_omitted_confirm_leaves_connector_default_in_place(self, writes_enabled):
         """Single write with the keyword omitted: the connector's default applies."""
         connector = await self._connector()
 
         result = await connector.write_channel("TEST:CH", 1.0)
 
-        assert result.success is True
-        assert result.verification.level == "callback"
+        assert result.outcome is WriteOutcome.UNREQUESTED
 
     @pytest.mark.asyncio
     async def test_batch_omits_keyword_for_custom_connector(self, writes_enabled):
-        """Batch write with the keyword omitted: no ``None`` reaches write_channel."""
+        """Batch write with ``confirm`` omitted: no ``None`` reaches write_channel."""
         connector = await self._connector()
 
         seen_kwargs = []
@@ -171,18 +171,18 @@ class TestCustomConnectorVerificationDefault:
 
         assert [r.channel_address for r in results] == ["TEST:CH1", "TEST:CH2"]
         for result in results:
-            assert result.verification.level == "callback"
+            assert result.outcome is WriteOutcome.UNREQUESTED
         # The keyword is absent, not None — forwarding None would override the default.
-        assert seen_kwargs and all("verification_level" not in kw for kw in seen_kwargs)
+        assert seen_kwargs and all("confirm" not in kw for kw in seen_kwargs)
 
     @pytest.mark.asyncio
-    async def test_batch_forwards_explicit_level(self, writes_enabled):
-        """An explicit level still reaches a custom connector unchanged."""
+    async def test_batch_forwards_an_explicit_confirm(self, writes_enabled):
+        """An explicit answer still reaches a custom connector unchanged."""
         connector = await self._connector()
 
         results = await connector.write_multiple_channels(
-            [("TEST:CH1", 1.0), ("TEST:CH2", 2.0)], verification_level="readback"
+            [("TEST:CH1", 1.0), ("TEST:CH2", 2.0)], confirm=True
         )
 
         for result in results:
-            assert result.verification.level == "readback"
+            assert result.outcome is WriteOutcome.CONFIRMED

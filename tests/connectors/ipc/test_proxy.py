@@ -28,6 +28,7 @@ from osprey_connectors.control_system.base import (
     ChannelValue,
     ChannelWriteResult,
     ControlSystemConnector,
+    WriteOutcome,
 )
 from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
 from osprey_connectors.ipc import frames
@@ -172,29 +173,60 @@ async def test_read_multiple_channels_issues_exactly_one_request(teardown):
 
 
 async def test_write_channel_round_trips_a_write_result(teardown):
-    written = ChannelWriteResult(channel_address="SR:BEND:1:SP", value_written=2.5, success=True)
+    written = ChannelWriteResult(
+        channel_address="SR:BEND:1:SP", value_written=2.5, outcome=WriteOutcome.CONFIRMED
+    )
     proxy, child = await _proxy_with_child(_echo_handler([written]))
     teardown.append((proxy, child))
 
-    result = await proxy.write_channel("SR:BEND:1:SP", 2.5, verification_level="readback")
+    result = await proxy.write_channel("SR:BEND:1:SP", 2.5, confirm=True)
 
     assert isinstance(result, ChannelWriteResult)
-    assert (result.channel_address, result.value_written, result.success) == (
+    # The outcome arrives as the plain string JSON encodes a StrEnum to, and is
+    # a WriteOutcome member again by the time the caller sees the result.
+    assert (result.channel_address, result.value_written, result.outcome) == (
         "SR:BEND:1:SP",
         2.5,
-        True,
+        WriteOutcome.CONFIRMED,
     )
     assert child.requests[0].method == "write_channel"
     assert child.requests[0].kwargs == {
         "channel_address": "SR:BEND:1:SP",
         "value": 2.5,
         "timeout": None,
-        "verification_level": "readback",
+        "confirm": True,
     }
 
 
-async def test_omitted_verification_keywords_never_reach_the_wire(teardown):
-    written = ChannelWriteResult(channel_address="SR:X:SP", value_written=1, success=True)
+async def test_a_declined_confirmation_crosses_the_wire(teardown):
+    """``confirm=False`` is an answer, not an omission, on both write paths.
+
+    A truth test in place of the ``is not None`` guard would strip it here and
+    leave the child confirming a write the caller declined to have confirmed.
+    """
+    single = ChannelWriteResult(
+        channel_address="SR:X:SP", value_written=1, outcome=WriteOutcome.UNREQUESTED
+    )
+    batch = [
+        ChannelWriteResult(
+            channel_address="SR:A:SP", value_written=1, outcome=WriteOutcome.UNREQUESTED
+        )
+    ]
+    proxy, child = await _proxy_with_child(_echo_handler([single, batch]))
+    teardown.append((proxy, child))
+
+    result = await proxy.write_channel("SR:X:SP", 1, confirm=False)
+    await proxy.write_multiple_channels([("SR:A:SP", 1)], confirm=False)
+
+    assert result.outcome is WriteOutcome.UNREQUESTED
+    assert child.requests[0].kwargs["confirm"] is False
+    assert child.requests[1].kwargs["confirm"] is False
+
+
+async def test_an_omitted_confirm_never_reaches_the_wire(teardown):
+    written = ChannelWriteResult(
+        channel_address="SR:X:SP", value_written=1, outcome=WriteOutcome.CONFIRMED
+    )
     proxy, child = await _proxy_with_child(_echo_handler([written]))
     teardown.append((proxy, child))
 
@@ -202,14 +234,17 @@ async def test_omitted_verification_keywords_never_reach_the_wire(teardown):
 
     # Omission is a sentinel, not a value: forwarding None would override the
     # child connector's own per-channel resolution.
-    assert "verification_level" not in child.requests[0].kwargs
-    assert "tolerance" not in child.requests[0].kwargs
+    assert "confirm" not in child.requests[0].kwargs
 
 
 async def test_write_multiple_channels_issues_one_batched_request(teardown):
     results = [
-        ChannelWriteResult(channel_address="SR:A:SP", value_written=1, success=True),
-        ChannelWriteResult(channel_address="SR:B:SP", value_written=2, success=True),
+        ChannelWriteResult(
+            channel_address="SR:A:SP", value_written=1, outcome=WriteOutcome.CONFIRMED
+        ),
+        ChannelWriteResult(
+            channel_address="SR:B:SP", value_written=2, outcome=WriteOutcome.CONFIRMED
+        ),
     ]
     proxy, child = await _proxy_with_child(_echo_handler([results]))
     teardown.append((proxy, child))
@@ -220,6 +255,7 @@ async def test_write_multiple_channels_issues_one_batched_request(teardown):
     assert child.requests[0].method == "write_multiple_channels"
     # Tuples cross the wire as lists; the pairing is what matters.
     assert child.requests[0].kwargs["operations"] == [["SR:A:SP", 1], ["SR:B:SP", 2]]
+    assert "confirm" not in child.requests[0].kwargs
     assert [item.channel_address for item in returned] == ["SR:A:SP", "SR:B:SP"]
 
 

@@ -6,7 +6,7 @@ When an IOC's access security refuses a put, the client library raises
 answer that told the operator nothing and misattributed the denial.
 
 The invariant this file pins: such a denial comes back as
-``ChannelWriteResult(success=False, blocked=True,
+``ChannelWriteResult(outcome=WriteOutcome.REFUSED,
 refusal_reason="CONTROL_SYSTEM_REFUSED")``, its message names the CONTROL
 SYSTEM rather than OSPREY's reference monitor, and every rendering path that
 sees it says the same thing. The narrowing matters as much as the catch: any
@@ -25,6 +25,7 @@ import pytest
 
 from osprey.connectors.control_system.base import (
     ChannelWriteResult,
+    WriteOutcome,
     raise_for_write_result,
 )
 from osprey.connectors.control_system.epics_connector import EPICSConnector
@@ -79,9 +80,9 @@ def _make_connector(caput_side_effect=None, expose_exception_class=True):
     return connector
 
 
-async def _write(connector, value=42.0, level="none"):
+async def _write(connector, value=42.0, confirm=False):
     with patch("osprey.utils.config.get_config_value", side_effect=_writes_enabled_config):
-        return await connector.write_channel(CHANNEL, value, verification_level=level)
+        return await connector.write_channel(CHANNEL, value, confirm=confirm)
 
 
 class TestConnectorRefusal:
@@ -93,8 +94,7 @@ class TestConnectorRefusal:
         result = await _write(connector)
 
         assert isinstance(result, ChannelWriteResult)
-        assert result.success is False
-        assert result.blocked is True
+        assert result.outcome is WriteOutcome.REFUSED
         assert result.refusal_reason == "CONTROL_SYSTEM_REFUSED"
         # The caput WAS attempted — that is what distinguishes this refusal.
         connector._epics.caput.assert_called_once()
@@ -142,9 +142,9 @@ class TestConnectorRefusal:
         """The denial is answered before verification, at every level."""
         connector = _make_connector(caput_side_effect=CASeverityException())
 
-        result = await _write(connector, level="callback")
+        result = await _write(connector, confirm=True)
 
-        assert result.blocked is True
+        assert result.outcome is WriteOutcome.REFUSED
         assert result.refusal_reason == "CONTROL_SYSTEM_REFUSED"
 
     @pytest.mark.asyncio
@@ -245,15 +245,13 @@ class TestEnvelopeRendering:
 
 def _write_result_stub(channel, reason):
     """A minimal connector result the channel_write tool serialises unchanged."""
-    stub = MagicMock()
-    stub.channel_address = channel
-    stub.value_written = 1.0
-    stub.success = False
-    stub.error_message = f"Write to '{channel}' refused"
-    stub.blocked = True
-    stub.refusal_reason = reason
-    stub.verification = None
-    return stub
+    return ChannelWriteResult(
+        channel_address=channel,
+        value_written=1.0,
+        outcome=WriteOutcome.REFUSED,
+        refusal_reason=reason,
+        error_message=f"Write to '{channel}' refused",
+    )
 
 
 async def _run_all_blocked_batch(tmp_path, monkeypatch, reason):

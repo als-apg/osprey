@@ -6,11 +6,12 @@ primitive — not p4p's ``put``, and not pyepics' ``caput`` either (the CA clien
 would happily write a same-named record over a different transport).
 
 The refusal is the FIRST statement of ``write_channel`` for a concrete reason,
-and that ordering is what most of this file protects: the very next step,
-``_get_verification_config``, calls ``float(value)``. PVA channels carry arrays,
-and ``float(ndarray)`` raises TypeError — so a refusal placed after that call
-would blow up with an unrelated type error for exactly the values PVA channels
-are used for. The array cases below are the regression, not a formality.
+and that ordering is what most of this file protects: the very next step is
+limits validation, which reads the channel's current value with a blocking
+``caget`` to check ``max_step``. A refusal placed after it would put the CA
+client on an address routed over PVAccess — the one thing this refusal exists
+to prevent — and would do it while comparing an image array against a scalar
+limit. The array cases below are the regression, not a formality.
 
 Convention (matching ``test_epics_connector.py``): the base class wraps
 ``write_channel`` with a ``_writes_enabled`` pre-check that is False in a
@@ -24,6 +25,7 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
+from osprey.connectors.control_system.base import WriteOutcome
 from osprey.connectors.control_system.epics_connector import EPICSConnector
 
 PVA_GLOB = "SR:CAM*:IMAGE"
@@ -54,6 +56,9 @@ class _LoudValidator:
     def validate(self, channel_address, value):  # pragma: no cover - must not run
         raise AssertionError(f"limits validation ran for a refused write: {channel_address}")
 
+    def resolve_confirm(self, channel_address):  # pragma: no cover - must not run
+        raise AssertionError(f"confirm policy resolved for a refused write: {channel_address}")
+
 
 def _connector(*, globs=(PVA_GLOB,), limits_validator=None):
     """A connector wired for both transports without touching ``connect()``."""
@@ -81,11 +86,10 @@ def _assert_no_network_operation(connector):
 
 
 def _assert_refusal(result, address, value):
-    assert result.blocked is True
-    assert result.success is False
+    assert result.outcome is WriteOutcome.REFUSED
     assert result.refusal_reason == "VALIDATION_ERROR"
     assert result.channel_address == address
-    assert result.verification is None
+    assert result.observed_value is None
     message = result.error_message
     assert message is not None
     assert address in message
@@ -124,57 +128,31 @@ class TestPvaWriteRefusal:
         _assert_no_network_operation(connector)
 
     @pytest.mark.asyncio
-    async def test_array_write_raises_no_typeerror(self):
-        """float(ndarray) would raise; the refusal must run before it can.
+    @pytest.mark.parametrize(
+        "value",
+        [2.0, np.arange(1024, dtype=np.float64)],
+        ids=["scalar", "array"],
+    )
+    async def test_refusal_precedes_limits_validation(self, value):
+        """Nothing downstream of the check may run — validation least of all.
 
-        The sanity assertion first: if numpy ever started coercing a
-        multi-element array to float, this test would silently stop testing the
-        thing it was written for.
+        The validator's ``max_step`` check does a blocking ``caget`` on the
+        address, and a camera image has no scalar limit to be compared against.
+        Both are reached only by a write that was not refused first.
         """
-        value = np.arange(1024, dtype=np.float64)
-        with pytest.raises(TypeError):
-            float(value)
-
-        connector = _connector()
+        connector = _connector(limits_validator=_LoudValidator())
 
         result = await connector.write_channel(PVA_ADDRESS, value)
 
-        assert result.blocked is True
-        assert result.refusal_reason == "VALIDATION_ERROR"
-
-    @pytest.mark.asyncio
-    async def test_refusal_precedes_the_verification_config_lookup(self, monkeypatch):
-        """Ordering assertion: nothing downstream of the check may run."""
-
-        def exploding_verification_config(self, channel_address, value):
-            raise AssertionError("_get_verification_config ran before the PVA refusal")
-
-        monkeypatch.setattr(
-            EPICSConnector, "_get_verification_config", exploding_verification_config
-        )
-        connector = _connector()
-
-        result = await connector.write_channel(PVA_ADDRESS, np.ones(8))
-
-        assert result.blocked is True
+        assert result.outcome is WriteOutcome.REFUSED
         _assert_no_network_operation(connector)
 
     @pytest.mark.asyncio
-    async def test_refusal_skips_limits_validation(self):
-        """A refused write never reaches the validator (which does a blocking read)."""
-        connector = _connector(limits_validator=_LoudValidator())
-
-        result = await connector.write_channel(PVA_ADDRESS, 2.0)
-
-        assert result.blocked is True
-        _assert_no_network_operation(connector)
-
-    @pytest.mark.asyncio
-    async def test_explicit_verification_level_does_not_bypass_the_refusal(self):
-        """An operator-supplied level must not open a side door around the check."""
+    async def test_explicit_confirm_does_not_bypass_the_refusal(self):
+        """A caller-supplied confirm must not open a side door around the check."""
         connector = _connector()
 
-        result = await connector.write_channel(PVA_ADDRESS, 1.0, verification_level="none")
+        result = await connector.write_channel(PVA_ADDRESS, 1.0, confirm=False)
 
         _assert_refusal(result, PVA_ADDRESS, 1.0)
         _assert_no_network_operation(connector)
@@ -202,10 +180,9 @@ class TestChannelAccessWritesUnchanged:
     async def test_non_matching_address_still_writes_over_ca(self):
         connector = _connector()
 
-        result = await connector.write_channel(CA_ADDRESS, 4.2, verification_level="none")
+        result = await connector.write_channel(CA_ADDRESS, 4.2, confirm=False)
 
-        assert result.blocked is False
-        assert result.success is True
+        assert result.outcome is WriteOutcome.UNREQUESTED
         assert result.refusal_reason is None
         connector._epics.caput.assert_called_once()
         assert connector._epics.caput.call_args.args[0] == CA_ADDRESS
@@ -216,8 +193,7 @@ class TestChannelAccessWritesUnchanged:
         """The default (no pva_channels configured) is zero behavior change."""
         connector = _connector(globs=())
 
-        result = await connector.write_channel(PVA_ADDRESS, 4.2, verification_level="none")
+        result = await connector.write_channel(PVA_ADDRESS, 4.2, confirm=False)
 
-        assert result.blocked is False
-        assert result.success is True
+        assert result.outcome is WriteOutcome.UNREQUESTED
         connector._epics.caput.assert_called_once()

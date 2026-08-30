@@ -564,13 +564,14 @@ def write_approval_key(tool_input) -> str | None:
     """Correlate a prompt with the tool call it will authorize, or ``None``.
 
     The key is a SHA-256 over the canonical JSON of the two fields of the write
-    that both sides see — ``operations`` and ``verification_level`` — because
-    the hook and the server share no identifier at all: Claude Code gives the
-    hook a session id and a tool-call payload, and the MCP tool receives only
-    its arguments. The payload is the one thing that provably crosses the gap,
-    and the tool's own parameter names are the spelling of it, so the legacy
-    single-channel shape (``channel``/``value``, which the tool does not accept)
-    is deliberately not stamped.
+    that both sides see — ``operations`` and ``confirm``, which are every
+    parameter the tool accepts — because the hook and the server share no
+    identifier at all: Claude Code gives the hook a session id and a tool-call
+    payload, and the MCP tool receives only its arguments. The payload is the
+    one thing that provably crosses the gap, and the tool's own parameter names
+    are the spelling of it, so the legacy single-channel shape
+    (``channel``/``value``, which the tool does not accept) is deliberately not
+    stamped.
 
     ``None`` whenever no key can be formed, which the caller renders as "do not
     stamp": no comparison is a far better failure than a wrong comparison.
@@ -589,7 +590,7 @@ def write_approval_key(tool_input) -> str | None:
         payload = json.dumps(
             {
                 "operations": operations,
-                "verification_level": tool_input.get("verification_level"),
+                "confirm": tool_input.get("confirm"),
             },
             sort_keys=True,
             separators=(",", ":"),

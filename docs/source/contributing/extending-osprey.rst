@@ -28,8 +28,11 @@ A connector is Osprey's single interface to one control system. Subclass
 ``ControlSystemConnector`` from ``osprey.connectors.control_system.base``
 --- the source lives in
 ``packages/osprey-connectors/src/osprey_connectors/control_system/`` --- and
-return the ``ChannelValue``, ``ChannelMetadata``, ``ChannelWriteResult`` and
-``WriteVerification`` models it defines. Register it with
+return the ``ChannelValue``, ``ChannelMetadata`` and ``ChannelWriteResult``
+models it defines. A write's result carries the ``outcome`` your connector
+determined --- use the shared ``values_match`` helper from the same module to
+compare what you read back against what was sent, so your connector confirms a
+write exactly as every other one does. Register it with
 ``ConnectorFactory.register_control_system``, or ship it as an
 ``osprey.registry.base.ConnectorRegistration`` passed to
 ``osprey.registry.helpers.extend_framework_registry``. Pinning test:

@@ -19,7 +19,7 @@
 
 When writing Python code that interacts with the control system, you MUST use
 the `osprey.runtime` API. Direct use of {{ protocol_name }} libraries is **prohibited** because
-it bypasses safety layers (limits checking, write verification, approval).
+it bypasses safety layers (limits checking, write confirmation, approval).
 
 ### Allowed
 
@@ -99,7 +99,7 @@ labview.set_control("Current", 150)   # Bypasses limits + approval
 
 The `osprey.runtime` API enforces:
 1. **Channel limits** — prevents out-of-range writes (channel_limits.json)
-2. **Write verification** — confirms the control system accepted the value
+2. **Write confirmation** — re-reads the channel to confirm it holds the value sent
 3. **Human approval** — routes writes through the approval workflow
 4. **Audit logging** — records all operations for traceability
 
@@ -181,9 +181,9 @@ a sequence nobody approved.
   would require.
 {%- endif %}
 
-The two write paths report an unverified write differently:
-`osprey.runtime.write_channel` raises, while `channel_write` reports it in
-`write_state`.
+The two write paths handle a write the machine did not confirm differently:
+`osprey.runtime.write_channel` raises, while `channel_write` reports it in the
+result's `outcome`.
 {% if "bluesky" in enabled_servers | default([]) %}
 
 ## Measurements Go Through the Queue, Not Through Repeated Writes

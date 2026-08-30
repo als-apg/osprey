@@ -20,9 +20,9 @@ from osprey_connectors.control_system.base import (
     ChannelValue,
     ChannelWriteResult,
     ControlSystemConnector,
-    WriteVerification,
+    WriteOutcome,
     is_readonly_run,
-    readback_number,
+    values_match,
 )
 from osprey_connectors.logger import get_logger
 from osprey_connectors.types import writes_enabled_key
@@ -469,7 +469,7 @@ class EPICSConnector(ControlSystemConnector):
             self._pva_context = self._p4p.client.thread.Context("pva")
             logger.debug(f"PVA routing enabled for {len(self._pva_channel_globs)} glob pattern(s)")
 
-        # Initialize limits validator for automatic validation and verification config
+        # Initialize limits validator for automatic validation and confirm policy
         from osprey_connectors.control_system.limits_validator import LimitsValidator
 
         self._limits_validator = LimitsValidator.from_config()
@@ -569,12 +569,18 @@ class EPICSConnector(ControlSystemConnector):
 
         return pv_result
 
-    def _read_channel_sync(self, pv_address: str, timeout: float) -> ChannelValue:
+    def _read_channel_sync(
+        self, pv_address: str, timeout: float, use_monitor: bool = True
+    ) -> ChannelValue:
         """Synchronous PV read (runs in thread pool).
 
         Uses PV cache to reuse PV objects for the same channel address.
         This prevents subscription floods when reading the same channel rapidly,
         which can crash soft IOCs like caproto due to race conditions.
+
+        ``use_monitor=False`` bypasses that cache for this one call and asks the
+        IOC for the value now — what a write confirmation needs, and what an
+        ordinary read deliberately does not pay for.
         """
         # Get or create cached PV object (thread-safe)
         with self._pv_cache_lock:
@@ -593,7 +599,7 @@ class EPICSConnector(ControlSystemConnector):
         # pv.value uses a 1s default timeout for ca.get() which is too short
         # when running in asyncio.to_thread() worker threads where the CA
         # context needs extra time to receive the first value.
-        value = pv.get(timeout=timeout)
+        value = pv.get(timeout=timeout, use_monitor=use_monitor)
 
         # Get timestamp from EPICS (seconds since epoch), rendered in facility tz
         if pv.timestamp:
@@ -858,86 +864,65 @@ class EPICSConnector(ControlSystemConnector):
         channel_address: str,
         value: Any,
         timeout: float | None = None,
-        verification_level: str | None = None,
-        tolerance: float | None = None,
+        confirm: bool | None = None,
     ) -> ChannelWriteResult:
         """
-        Write value to EPICS channel with automatic limits validation and verification.
+        Write a value to an EPICS channel and confirm the channel took it.
 
         The connector automatically:
-        1. Validates limits (min/max/step/writable) if limits checking enabled
-        2. Determines verification level from per-channel or global config
-        3. Executes write with appropriate verification
+        1. Validates limits (min/max/step/writable) if limits checking is enabled
+        2. Puts the value, waiting for the IOC's put-callback when confirming
+        3. Re-reads the channel once and compares what it now holds with what
+           was sent, using the shared :func:`values_match` rule
 
         Args:
             channel_address: EPICS channel address
             value: Value to write
             timeout: Timeout in seconds
-            verification_level: Optional override for verification level (auto-determined if None)
-            tolerance: Optional override for tolerance (auto-calculated if None)
+            confirm: Whether to confirm the write by re-reading the channel.
+                ``None`` means "no opinion" and resolves this channel's own
+                policy from the limits database.
 
         Returns:
-            ChannelWriteResult with write status and verification details
+            ChannelWriteResult carrying the one outcome word, and — when the
+            write was confirmed — what the channel was seen to hold
 
         Raises:
             ConnectionError: If channel cannot be connected
             TimeoutError: If operation times out
             ChannelLimitsViolationError: If limits validation fails (when enabled)
         """
-        # Step 0: PVA-routed addresses are read-only. This check MUST stay the
-        # first statement of the method: _get_verification_config() below calls
-        # float(value), which raises TypeError on an array — the refusal would
-        # never be reached for exactly the values PVA channels carry.
+        # Step 0: PVA-routed addresses are read-only. This check MUST stay ahead
+        # of limits validation: validating max_step reads the channel's current
+        # value with a blocking `caget`, so a refusal placed after it would put
+        # the CA client on an address routed over PVAccess — the very thing this
+        # refusal exists to prevent — and would do it for the arrays PVA channels
+        # carry, which have no scalar limit to be compared against.
         if self._is_pva_channel(channel_address):
             return ChannelWriteResult(
                 channel_address=channel_address,
                 value_written=value,
-                success=False,
+                outcome=WriteOutcome.REFUSED,
+                refusal_reason="VALIDATION_ERROR",
                 error_message=(
                     f"Write to '{channel_address}' refused: PVAccess writes are not supported. "
                     "This address matches a configured 'pva_channels' pattern, so it is routed "
                     "over PVAccess and is read-only in this deployment. No write was attempted."
                 ),
-                blocked=True,
-                refusal_reason="VALIDATION_ERROR",
             )
 
         timeout = timeout or self._timeout
 
+        # Step 1: Resolve the channel's confirmation policy when the caller has
+        # no opinion (cheap, on-loop). An explicit False is an answer and is
+        # never re-resolved.
+        if confirm is None:
+            confirm = self._resolve_confirm(channel_address)
+
         # Import here to avoid circular dependency
         from osprey_connectors.errors import ChannelLimitsViolationError
 
-        # Step 1: Auto-determine verification config if not provided (cheap, on-loop)
-        if verification_level is None:
-            verification_level, auto_tolerance = self._get_verification_config(
-                channel_address, float(value)
-            )
-            if tolerance is None:
-                tolerance = auto_tolerance
-        elif verification_level == "readback" and tolerance is None:
-            # An explicit level must not silently drop the configured tolerance:
-            # resolve it from the same chain (channel limits entry -> limits
-            # defaults -> global config) and keep the caller's level. Without
-            # this, naming "readback" fell back to 0.001 absolute — far tighter
-            # than the percentage tolerances shipped for setpoint channels.
-            try:
-                _, tolerance = self._get_verification_config(channel_address, float(value))
-            except (TypeError, ValueError):
-                # Non-numeric value: no percentage tolerance is computable. The
-                # readback comparison below reports the failure in context.
-                tolerance = None
-
-        # Step 2: Validate the verification level up front — reject invalid levels
-        # BEFORE issuing any caput (preserves the no-caput-on-invalid-level behavior).
-        if verification_level not in ("none", "callback", "readback"):
-            raise ValueError(
-                f"Invalid verification_level: {verification_level}. Must be 'none', 'callback', or 'readback'"
-            )
-
-        # callback/readback wait for the IOC callback; none does not.
-        wait = verification_level != "none"
-
-        # Step 3: Validate limits (FAIL CLOSED) and issue the caput in ONE thread
+        # Step 2: Validate limits (FAIL CLOSED) and issue the caput in ONE thread
         # offload, so a caller on the event loop is never stalled by the blocking
         # caget that max_step validation performs.
 
@@ -970,7 +955,11 @@ class EPICSConnector(ControlSystemConnector):
                     )
                     return ("refused", e)  # sentinel: no caput issued
             try:
-                success = self._epics.caput(channel_address, value, wait=wait, timeout=timeout)
+                # The put-callback is Channel Access's acknowledgement that the
+                # IOC processed the put, so a confirming write waits for it: the
+                # read that follows would otherwise race the record's own
+                # processing. A write nobody asked to confirm does not wait.
+                success = self._epics.caput(channel_address, value, wait=confirm, timeout=timeout)
             except control_system_refusals as e:
                 # The control system was asked and said no. Every other caput
                 # error stays a raised failure: it leaves the outcome genuinely
@@ -978,178 +967,120 @@ class EPICSConnector(ControlSystemConnector):
                 return ("cs_refused", e)
             return ("ok", success)
 
-        outcome, payload = await asyncio.to_thread(_validate_and_put)
+        put_result, payload = await asyncio.to_thread(_validate_and_put)
 
-        if outcome == "cs_refused":
+        if put_result == "cs_refused":
             logger.warning(f"Control system refused write to {channel_address}: {payload}")
             return ChannelWriteResult(
                 channel_address=channel_address,
                 value_written=value,
-                success=False,
+                outcome=WriteOutcome.REFUSED,
+                refusal_reason="CONTROL_SYSTEM_REFUSED",
                 error_message=(
                     f"Write to '{channel_address}' refused by the control system "
                     f"(access security); no value was written: {payload}"
                 ),
-                blocked=True,
-                refusal_reason="CONTROL_SYSTEM_REFUSED",
             )
 
-        if outcome == "refused":
+        if put_result == "refused":
             return ChannelWriteResult(
                 channel_address=channel_address,
                 value_written=value,
-                success=False,
-                error_message=f"Write to '{channel_address}' refused: validation error: {payload}",
-                blocked=True,
+                outcome=WriteOutcome.REFUSED,
                 refusal_reason="VALIDATION_ERROR",
+                error_message=f"Write to '{channel_address}' refused: validation error: {payload}",
             )
 
-        success = payload
-
-        # Step 4: Build the per-level result
-        if verification_level == "none":
-            # Fast path: no wait for the IOC callback, and no read either. The
-            # level is documented as the one with no round trip after the put,
-            # and a read here would give it exactly the wait it promises not to
-            # have — the result stays value-less by design.
-            if not success:
-                return ChannelWriteResult(
-                    channel_address=channel_address,
-                    value_written=value,
-                    success=False,
-                    verification=WriteVerification(
-                        level="none", verified=False, notes="Write command failed"
-                    ),
-                    error_message=f"Failed to write to channel '{channel_address}'",
-                )
-
-            logger.debug(f"EPICS write (no verification): {channel_address} = {value}")
+        if not payload:
             return ChannelWriteResult(
                 channel_address=channel_address,
                 value_written=value,
-                success=True,
-                verification=WriteVerification(
-                    level="none", verified=False, notes="No verification requested"
+                outcome=WriteOutcome.FAILED,
+                error_message=f"Failed to write to channel '{channel_address}'",
+            )
+
+        if not confirm:
+            # Nothing was checked, and nothing may be claimed: the result stays
+            # value-less by design.
+            logger.debug(f"EPICS write (unconfirmed by request): {channel_address} = {value}")
+            return ChannelWriteResult(
+                channel_address=channel_address,
+                value_written=value,
+                outcome=WriteOutcome.UNREQUESTED,
+            )
+
+        # Step 3: One fresh read of the channel that was just written.
+        try:
+            observed = await self._confirming_read(channel_address, timeout)
+        except Exception as e:
+            logger.warning(f"EPICS confirming read failed for {channel_address}: {e}")
+            return ChannelWriteResult(
+                channel_address=channel_address,
+                value_written=value,
+                outcome=WriteOutcome.UNCONFIRMED,
+                error_message=(
+                    f"Write to '{channel_address}' could not be confirmed — "
+                    f"the read that followed it failed: {e}"
                 ),
             )
 
-        elif verification_level == "callback":
-            # EPICS callback - the caput above waited for the IOC to confirm processing
-            if not success:
-                return ChannelWriteResult(
-                    channel_address=channel_address,
-                    value_written=value,
-                    success=False,
-                    verification=WriteVerification(
-                        level="callback", verified=False, notes="IOC callback failed or timeout"
-                    ),
-                    error_message=f"Failed to write to channel '{channel_address}'",
-                )
+        alarm_status, alarm_severity = _readback_alarm_fields(observed)
+        metadata = getattr(observed, "metadata", None)
+        enum_label = getattr(metadata, "enum_label", None) if metadata is not None else None
 
-            logger.debug(f"EPICS write (callback verified): {channel_address} = {value}")
+        if values_match(value, observed.value, enum_label=enum_label):
+            logger.debug(f"EPICS write confirmed: {channel_address} = {observed.value}")
             return ChannelWriteResult(
                 channel_address=channel_address,
                 value_written=value,
-                success=True,
-                verification=await self._callback_verification(channel_address, timeout),
+                outcome=WriteOutcome.CONFIRMED,
+                observed_value=observed.value,
+                alarm_status=alarm_status,
+                alarm_severity=alarm_severity,
             )
 
-        elif verification_level == "readback":
-            # Full verification - the caput above waited (callback); now read back
-            if not success:
-                return ChannelWriteResult(
-                    channel_address=channel_address,
-                    value_written=value,
-                    success=False,
-                    verification=WriteVerification(
-                        level="readback", verified=False, notes="Write command failed"
-                    ),
-                    error_message=f"Failed to write to channel '{channel_address}'",
-                )
-
-            # Read back to verify
-            try:
-                readback = await self.read_channel(channel_address, timeout=timeout)
-
-                # Check tolerance
-                diff = abs(float(readback.value) - float(value))
-                verified = diff <= (tolerance or 0.001)
-                alarm_status, alarm_severity = _readback_alarm_fields(readback)
-
-                logger.debug(
-                    f"EPICS write (readback verified={verified}): {channel_address} = {value}, "
-                    f"readback = {readback.value}, diff = {diff:.6f}, tolerance = {tolerance}"
-                )
-
-                return ChannelWriteResult(
-                    channel_address=channel_address,
-                    value_written=value,
-                    success=True,
-                    verification=WriteVerification(
-                        level="readback",
-                        verified=verified,
-                        readback_value=float(readback.value),
-                        tolerance_used=tolerance,
-                        notes=(
-                            f"Readback: {readback.value}, tolerance: ±{tolerance}, diff: {diff:.6f}"
-                            if verified
-                            else f"Readback mismatch: {readback.value} (expected {value}, diff: {diff:.6f} > tolerance {tolerance})"
-                        ),
-                        readback_alarm_status=alarm_status,
-                        readback_alarm_severity=alarm_severity,
-                        # A value mismatch is not a failure *kind*: the readback
-                        # itself worked. Only the except branch below classifies.
-                    ),
-                )
-
-            except Exception as e:
-                logger.warning(f"EPICS readback failed for {channel_address}: {e}")
-                return ChannelWriteResult(
-                    channel_address=channel_address,
-                    value_written=value,
-                    success=True,  # Write succeeded, but readback failed
-                    verification=WriteVerification(
-                        level="readback",
-                        verified=False,
-                        notes=f"Readback failed: {str(e)}",
-                        failure_kind="readback_failed",
-                    ),
-                    error_message=f"Readback verification failed: {str(e)}",
-                )
-
-    async def _callback_verification(
-        self, channel_address: str, timeout: float | None
-    ) -> WriteVerification:
-        """The callback-level result: the IOC's verdict plus one post-write read.
-
-        The callback already confirmed the write, so ``verified`` is settled
-        before the read starts and the read cannot change it. It only fills in
-        what the channel holds now — ``readback_value`` and the alarm fields —
-        so a consumer does not need a second round trip to describe the
-        machine. No tolerance is applied: comparing against the setpoint is
-        what ``readback`` level is for. A read that fails leaves the value
-        unset and says so in ``notes``; it is not a ``readback_failed``, which
-        names a readback-level verification that could not complete.
-        """
-        try:
-            readback = await self.read_channel(channel_address, timeout=timeout)
-        except Exception as e:
-            logger.warning(f"EPICS post-callback read failed for {channel_address}: {e}")
-            return WriteVerification(
-                level="callback",
-                verified=True,
-                notes=f"IOC callback confirmed; post-write read failed: {e}",
-            )
-
-        alarm_status, alarm_severity = _readback_alarm_fields(readback)
-        return WriteVerification(
-            level="callback",
-            verified=True,
-            readback_value=readback_number(readback.value),
-            notes=f"IOC callback confirmed; readback: {readback.value}",
-            readback_alarm_status=alarm_status,
-            readback_alarm_severity=alarm_severity,
+        logger.warning(
+            f"EPICS write mismatch on {channel_address}: sent {value}, "
+            f"channel holds {observed.value}"
         )
+        return ChannelWriteResult(
+            channel_address=channel_address,
+            value_written=value,
+            outcome=WriteOutcome.MISMATCH,
+            # No error_message: both values are on the result, and the raising
+            # path composes "sent X, channel holds Y" from them — a message set
+            # here would take that wording's place.
+            observed_value=observed.value,
+            alarm_status=alarm_status,
+            alarm_severity=alarm_severity,
+            notes=f"Channel holds {observed.value}, sent {value}",
+        )
+
+    async def _confirming_read(self, channel_address: str, timeout: float) -> ChannelValue:
+        """Read the channel a write just touched, straight off the wire.
+
+        An ordinary read is answered from pyepics' auto-monitor cache, which can
+        still hold the pre-write value: the put-callback says the IOC processed
+        the put, not that a cached subscription update has arrived. Confirming
+        against that stale reading would report a mismatch the machine never
+        had, so this read asks for the current value with ``use_monitor=False``.
+        Everything else — alarm state, enum labels, timestamp — is the ordinary
+        read path's construction, unchanged.
+
+        A ``pv.get()`` that times out answers ``None`` rather than raising, and
+        a ``None`` compared against the setpoint would not match — reporting a
+        mismatch, and an ``observed_value`` of ``None``, for an observation that
+        was never made. Confirmation is the one caller that cannot tolerate
+        that, so here (and only here) an unanswered read is raised as the
+        timeout it is, and the write is reported as unconfirmed: what the
+        channel holds is unknown, not different.
+        """
+        observed = await asyncio.to_thread(
+            self._read_channel_sync, channel_address, timeout, use_monitor=False
+        )
+        if observed.value is None:
+            raise TimeoutError(f"confirming read of '{channel_address}' timed out after {timeout}s")
+        return observed
 
     async def read_multiple_channels(
         self, channel_addresses: list[str], timeout: float | None = None

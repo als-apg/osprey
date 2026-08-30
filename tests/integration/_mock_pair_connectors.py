@@ -51,7 +51,7 @@ from osprey_connectors.control_system.base import (
     ChannelValue,
     ChannelWriteResult,
     ControlSystemConnector,
-    WriteVerification,
+    WriteOutcome,
 )
 from osprey_connectors.errors import ChannelLimitsViolationError
 
@@ -165,16 +165,14 @@ class _PairConnector(ControlSystemConnector):
         channel_address: str,
         value: Any,
         timeout: float | None = None,
-        verification_level: str | None = None,
-        tolerance: float | None = None,
+        confirm: bool | None = None,
     ) -> ChannelWriteResult:
         if channel_address == LIMITS_CHANNEL:
             raise make_limits_violation()
         return ChannelWriteResult(
             channel_address=channel_address,
             value_written=value,
-            success=True,
-            verification=WriteVerification(level="none", verified=True),
+            outcome=WriteOutcome.UNREQUESTED,
         )
 
     async def subscribe(self, channel_address: str, callback: Any) -> str:

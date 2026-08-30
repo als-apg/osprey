@@ -6,8 +6,8 @@
  * they carry no interface coupling) shared by the command palette and the
  * channel-catalog matcher. The query is tokenized on whitespace and EVERY
  * token must independently subsequence-match the candidate (case-insensitive,
- * in-order, gaps allowed) — an all-tokens-AND contract, so "wrt vrf" matches
- * "control_system.write_verification" via two separate tokens. Each token
+ * in-order, gaps allowed) — an all-tokens-AND contract, so "ctl lim" matches
+ * "control_system.limits_checking" via two separate tokens. Each token
  * scores boundary hits (start / after . _ - / camelCase) and consecutive
  * runs; all per-token scores sum. Matched character ranges from every token
  * are merged into sorted, non-overlapping [start, end) spans for the UI to

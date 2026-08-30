@@ -557,12 +557,6 @@ keys:
       hook reads it from there. Tools named here are refused per call and never
       enter `permissions.deny`, which is why a mixed-posture render can gate
       them at all.
-  control_system.write_verification:
-    evidence: 'get_config_value\("control_system\.write_verification", \{\}\)'
-  control_system.write_verification.default_level:
-    evidence: 'get_config_value\("control_system\.write_verification\.default_level", "callback"\)'
-  control_system.write_verification.default_tolerance_percent:
-    evidence: 'default_tolerance_percent'
   control_system.read_inline_max_elements:
     evidence: '"control_system\.read_inline_max_elements"'
   control_system.channel_read_artifact_retention:
@@ -1260,10 +1254,16 @@ keys:
 # in any preset `config:` dotted key, or in the loader's synthesized defaults.
 # ---------------------------------------------------------------------------
 deleted:
-  # Ledger 1 / 5 / — : the write_verification triple (ADDENDUM 1)
+  # Ledger 1 / 5 / — : the whole write_verification block. The three inert
+  # knobs went first; `default_level` and `default_tolerance_percent` followed
+  # when confirmation became a per-channel `confirm: true|false` in the limits
+  # database (channel entry, then the database defaults block) — there is no
+  # config.yml default layer and no tolerance at all.
   - control_system.write_verification.enabled
   - control_system.write_verification.fail_on_mismatch
   - control_system.write_verification.timeout
+  - control_system.write_verification.default_level
+  - control_system.write_verification.default_tolerance_percent
   # Ledger 33
   - approval.tools.channel_limits
   # Ledger 7 / 9 / 10 / 11 / 15
@@ -1336,26 +1336,6 @@ deleted:
 # regex here must match ZERO times under the listed root (failure mode 4).
 # ---------------------------------------------------------------------------
 orphan_sites:
-  # NOTE — the three deleted `control_system.write_verification` keys have NO
-  # orphan_sites entry ON PURPOSE. Each has a DELIBERATE surviving reader in
-  # src/osprey/connectors/control_system/base.py, so any regex on their names
-  # would make the guard permanently red against intended code. See
-  # kept_readers.write_verification_legacy_tolerance. They remain guarded by
-  # the `deleted` list (failure mode 3: must not reappear in the rendered
-  # union), which is the check that actually matters for them.
-
-  # ADDENDUM 1 — the settings-drawer literal. The OLD key was the bare
-  # 'control_system.write_verification'; the LIVE re-keyed leaf is
-  # 'control_system.write_verification.default_level'. This regex requires the
-  # closing quote immediately after `write_verification`, so it matches the old
-  # literal and NOT the live one.
-  control_system.write_verification__ui_literal:
-    - root: src/osprey/interfaces/web_terminal/static/js
-      regex: "'control_system\\.write_verification'"
-      why: >-
-        settings.js old bare key literal. Verified NOT to match the live
-        're-keyed leaf at settings.js:51
-        ('control_system.write_verification.default_level').
   approval.tools.channel_limits:
     - root: src/osprey/templates
       regex: '^\s+channel_limits:\s'
@@ -1625,19 +1605,6 @@ governed_sets:
 # names across src/ without this exclusion list goes red against intended code.
 # ---------------------------------------------------------------------------
 kept_readers:
-  write_verification_legacy_tolerance:
-    site: src/osprey/connectors/control_system/base.py
-    covers:
-      - control_system.write_verification.fail_on_mismatch
-      - control_system.write_verification.enabled
-      - control_system.write_verification.timeout
-    detail: >-
-      `_warn_once_if_fail_on_mismatch_set` deliberately still READS
-      `fail_on_mismatch` so a legacy project carrying it at true is told once,
-      at the first write, which path actually enforces verification. Its
-      docstring also names `enabled` and `timeout` to explain why those two stay
-      silent (they were inert at every value). All three names therefore appear
-      in src/ BY DESIGN. Guard them via the `deleted` list only.
   facility_name_reader:
     site: src/osprey/utils/facility.py
     covers: [facility_name]

@@ -19,16 +19,15 @@ class MockDynamicConnector(ControlSystemConnector):
 
         return ChannelValue(value=42, timestamp=datetime.now())
 
-    async def write_channel(
-        self, channel_address, value, timeout=None, verification_level="callback", tolerance=None
-    ):
-        from osprey.connectors.control_system.base import ChannelWriteResult, WriteVerification
+    async def write_channel(self, channel_address, value, timeout=None, confirm=False):
+        """Declares its own ``confirm`` default, so a forwarded ``None`` would show."""
+        from osprey.connectors.control_system.base import ChannelWriteResult, WriteOutcome
 
         return ChannelWriteResult(
             channel_address=channel_address,
             value_written=value,
-            success=True,
-            verification=WriteVerification(level=verification_level, verified=True),
+            outcome=WriteOutcome.CONFIRMED if confirm else WriteOutcome.UNREQUESTED,
+            observed_value=value if confirm else None,
         )
 
     async def read_multiple_channels(self, channel_addresses, timeout=None):

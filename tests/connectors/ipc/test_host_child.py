@@ -38,7 +38,11 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
-from osprey_connectors.control_system.base import ChannelValue, ChannelWriteResult
+from osprey_connectors.control_system.base import (
+    ChannelValue,
+    ChannelWriteResult,
+    WriteOutcome,
+)
 from osprey_connectors.ipc import frames, host
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -290,13 +294,14 @@ def test_a_batched_read_of_n_channels_is_one_round_trip(ready_child):
 # ------------------------------------------------------------------ writes
 
 
-def test_write_on_a_writes_disabled_deployment_returns_the_blocked_result(ready_child):
+def test_write_on_a_writes_disabled_deployment_returns_the_refused_result(ready_child):
     frame = ready_child.call("write_channel", channel_address="SR:CORR:1:SP", value=0.5)
 
     result = frame.value
     assert isinstance(result, ChannelWriteResult)
-    assert result.blocked is True
-    assert result.success is False
+    # A policy refusal crosses as a result frame, not an error frame, and the
+    # outcome is a WriteOutcome member on this side of the boundary.
+    assert result.outcome is WriteOutcome.REFUSED
     assert result.refusal_reason == "WRITES_DISABLED"
     assert "writes are disabled" in result.error_message
 
@@ -309,6 +314,7 @@ def test_write_multiple_channels_refuses_every_operation(ready_child):
 
     results = frame.value
     assert [result.channel_address for result in results] == ["SR:CORR:1:SP", "SR:CORR:2:SP"]
+    assert all(result.outcome is WriteOutcome.REFUSED for result in results)
     assert all(result.refusal_reason == "WRITES_DISABLED" for result in results)
 
 

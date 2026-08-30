@@ -39,6 +39,7 @@ from osprey.bluesky_bridge_connection import (
 )
 from osprey.deployment.graphdb_service import resolve_graphdb_service_config
 from osprey.registry.mcp import FRAMEWORK_SERVERS
+from osprey.utils.workspace import BUILD_DIR_NAME
 from osprey_connectors.types import (
     baseline_target,
     target_writes_enabled,
@@ -641,7 +642,9 @@ def _referenced_personas(config: Any) -> tuple[dict[str, Any], set[str]]:
     return catalog, referenced
 
 
-def _personas_whose_config(config: Any, project_root: Any, predicate) -> set[str]:
+def _personas_whose_config(
+    config: Any, project_root: Any, predicate, persona_root: Any = None
+) -> set[str]:
     """Referenced personas whose rendered ``config.yml`` satisfies ``predicate``.
 
     The one walk behind every per-persona credential grant, so two credentials
@@ -653,20 +656,49 @@ def _personas_whose_config(config: Any, project_root: Any, predicate) -> set[str
     :func:`osprey.deployment.web_terminals.env_production._claude_code_auth_secret_vars`:
     a persona whose ``project_path`` is unset, unrendered, or unreadable
     contributes nothing, because a credential is never granted on a guess.
+    ``persona_root`` is :func:`_persona_configs`'s.
     """
     return {
         persona_name
-        for persona_name, persona_config in _persona_configs(config, project_root)
+        for persona_name, persona_config in _persona_configs(config, project_root, persona_root)
         if predicate(persona_config)
     }
 
 
-def _persona_configs(config: Any, project_root: Any) -> Iterable[tuple[str, Any]]:
+def _persona_render_dir(project_root: Any, project_path: str, persona_root: Any) -> Path:
+    """Where a catalog entry's rendered project is read from.
+
+    ``project_path`` is spelled against the repo root and, for every persona
+    ``osprey init`` catalogs, names the build zone (``build/<repo>-<persona>``).
+    A render in flight has not published that zone yet: ``osprey build`` writes
+    every persona into a staging tree that becomes ``build/`` only at the final
+    swap, so a grant computed during the build must read the personas from
+    THAT tree, or it reads the previous build's — or nothing. ``persona_root``
+    is that tree; a ``project_path`` under the build zone is re-rooted beneath
+    it, one outside the zone (an absolute pin, say) is read where it points.
+    """
+    rendered = Path(project_root, project_path)
+    if persona_root is None:
+        return rendered
+    try:
+        within_build_zone = rendered.relative_to(Path(project_root, BUILD_DIR_NAME))
+    except ValueError:
+        return rendered
+    return Path(persona_root, within_build_zone)
+
+
+def _persona_configs(
+    config: Any, project_root: Any, persona_root: Any = None
+) -> Iterable[tuple[str, Any]]:
     """Yield ``(persona_name, parsed config.yml)`` for every readable referenced persona.
 
     The one disk walk behind :func:`_personas_whose_config` and
     :func:`personas_needing_archiver_password`; see the former for why a
     persona that cannot be read is skipped rather than guessed at.
+
+    :param persona_root: The directory standing in for ``<project_root>/build``
+        — the staging tree a build in flight renders its personas into. ``None``
+        reads the published build zone (see :func:`_persona_render_dir`).
     """
     import yaml
 
@@ -677,7 +709,7 @@ def _persona_configs(config: Any, project_root: Any) -> Iterable[tuple[str, Any]
         project_path = entry.get("project_path")
         if not isinstance(project_path, str) or not project_path:
             continue
-        config_yml = Path(project_root, project_path) / "config.yml"
+        config_yml = _persona_render_dir(project_root, project_path, persona_root) / "config.yml"
         if not config_yml.is_file():
             continue
         try:
@@ -730,20 +762,26 @@ def config_declares_bluesky_panel(config: Any) -> bool:
     return config_declares_panel(config, BLUESKY_PANEL_ID)
 
 
-def personas_declaring_bluesky_panel(config: Any, project_root: Any) -> set[str]:
+def personas_declaring_bluesky_panel(
+    config: Any, project_root: Any, persona_root: Any = None
+) -> set[str]:
     """Names of catalog personas whose rendered project declares the BLUESKY tab.
 
     :param config: The parsed deploy config.
     :param project_root: Deploy project root; relative ``project_path`` values
         resolve against it.
+    :param persona_root: Where a build in flight has rendered its personas;
+        see :func:`_persona_configs`.
     :return: The subset of referenced persona names whose users' operator
         secrets the bluesky-web sidecar is handed (see
         :func:`config_declares_bluesky_panel`).
     """
-    return _personas_whose_config(config, project_root, config_declares_bluesky_panel)
+    return _personas_whose_config(config, project_root, config_declares_bluesky_panel, persona_root)
 
 
-def bluesky_panel_secret_env_vars(config: Any, project_root: Any) -> list[str]:
+def bluesky_panel_secret_env_vars(
+    config: Any, project_root: Any, persona_root: Any = None
+) -> list[str]:
     """The per-user secret variables the bluesky-web sidecar is handed.
 
     One name per roster user whose terminal shows the BLUESKY tab — and so
@@ -761,15 +799,18 @@ def bluesky_panel_secret_env_vars(config: Any, project_root: Any) -> list[str]:
     order, so the rendered compose is stable across runs.
 
     Read off the personas' rendered ``config.yml`` files, like every other
-    per-persona grant — so the render that carries it is the deploy's:
-    ``osprey up`` re-renders every services compose file from the repo root
-    with the persona projects in place, while ``osprey build`` renders the
-    services compose before its persona renders and so lists nothing (or what
-    the previous build's personas declared).
+    per-persona grant. The render that carries it is ``osprey build``'s — the
+    start verbs are as-built and re-render nothing — so the build renders its
+    personas before the services compose and passes ``persona_root``, the
+    staging tree those renders sit in until the swap publishes it as
+    ``build/``. Without it the walk reads the published zone: the previous
+    build's personas, or none.
 
     :param config: The parsed deploy config.
     :param project_root: Deploy project root; relative ``project_path`` values
         resolve against it.
+    :param persona_root: Where a build in flight has rendered its personas;
+        see :func:`_persona_configs`.
     :return: Variable names (``OSPREY_TERMINAL_SECRET_<SUFFIX>``), one per
         entitled user; empty when no user shows the tab.
     """
@@ -789,7 +830,7 @@ def bluesky_panel_secret_env_vars(config: Any, project_root: Any) -> list[str]:
     default_persona = web_terminals.get("default_persona")
     if not isinstance(default_persona, str) or not default_persona:
         default_persona = None
-    entitled_personas = personas_declaring_bluesky_panel(config, project_root)
+    entitled_personas = personas_declaring_bluesky_panel(config, project_root, persona_root)
     deploy_declares = config_declares_bluesky_panel(config)
 
     names: list[str] = []

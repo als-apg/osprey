@@ -295,12 +295,16 @@ shipped file looks like this (comments abridged):
    {
      "defaults": {
        "writable": true,
-       "verification": {"level": "callback"}
+       "confirm": true
      },
      "SR:MAG:QF:01:CURRENT:SP": {"min_value": 0.0, "max_value": 300.0},
      "SR:MAG:QD:01:CURRENT:SP": {"min_value": 0.0, "max_value": 250.0},
      "SR:BEAM:CURRENT": {"writable": false}
    }
+
+``confirm: true`` means every write is checked: the connector reads the
+channel back once and compares what it finds with the value that was sent, so a
+write that did not land is reported rather than assumed.
 
 Channels not listed here are still writable — the preset sets
 ``allow_unlisted_channels: true`` so the mock's invented channels stay usable;

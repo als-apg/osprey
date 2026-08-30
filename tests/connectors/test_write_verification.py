@@ -1,393 +1,136 @@
 """
-Unit tests for channel write verification system.
+Unit tests for the shared write-result type and the protocol-agnostic core.
 
-Tests the three-tier verification approach:
-- none: Fast write, no verification
-- callback: Control system confirms processing
-- readback: Full verification with readback comparison
+The outcome vocabulary itself is pinned in ``test_write_outcome.py`` and the
+comparison rule in ``test_values_match.py``; what is left here is the shape of
+:class:`ChannelWriteResult` — its defaults, its declared types and its survival
+through a dataclass round trip — plus the guard that keeps the shared core free
+of any control-system client library.
 """
 
 import ast
 from dataclasses import asdict, fields
 from pathlib import Path
-from typing import get_type_hints
-from unittest.mock import patch
-
-import pytest
+from typing import Any, get_type_hints
 
 from osprey.connectors.control_system import base as base_module
 from osprey.connectors.control_system.base import (
     ChannelMetadata,
     ChannelWriteResult,
-    WriteVerification,
+    WriteOutcome,
 )
-from osprey.connectors.control_system.mock_connector import MockConnector
 
 
-def _config_with_writes_enabled(key, default=None):
-    if key == "control_system.writes_enabled":
-        return True
-    return default
+class TestChannelWriteResultShape:
+    """The result type every connector returns, pinned at the dataclass."""
 
+    def test_only_address_value_and_outcome_are_required(self):
+        """A connector states what became of the write and nothing more.
 
-class TestMockConnectorVerification:
-    """Test verification levels in MockConnector."""
-
-    @pytest.fixture
-    async def connector(self):
-        """Create and connect MockConnector."""
-        conn = MockConnector()
-        with patch(
-            "osprey.utils.config.get_config_value",
-            side_effect=_config_with_writes_enabled,
-        ):
-            await conn.connect(
-                {
-                    "response_delay_ms": 1,  # Fast for testing
-                    "noise_level": 0.001,  # Low noise
-                }
-            )
-            yield conn
-            await conn.disconnect()
-
-    @pytest.mark.asyncio
-    async def test_verification_none(self, connector):
-        """Test 'none' verification level - no verification performed."""
-        result = await connector.write_channel("TEST:CHANNEL", 100.0, verification_level="none")
-
-        assert isinstance(result, ChannelWriteResult)
-        assert result.success is True
-        assert result.channel_address == "TEST:CHANNEL"
-        assert result.value_written == 100.0
-        assert result.verification is not None
-        assert result.verification.level == "none"
-        assert result.verification.verified is False  # No verification performed
-        assert result.verification.readback_value is None
-
-    @pytest.mark.asyncio
-    async def test_verification_callback(self, connector):
-        """Test 'callback' verification level - simulated callback confirmation."""
-        result = await connector.write_channel("TEST:CHANNEL", 100.0, verification_level="callback")
-
-        assert isinstance(result, ChannelWriteResult)
-        assert result.success is True
-        assert result.verification is not None
-        assert result.verification.level == "callback"
-        assert result.verification.verified is True  # Mock always succeeds
-        assert "callback" in result.verification.notes.lower()
-        # The result carries the post-write readback, noise and all; no tolerance
-        # is applied at this level, so none is reported.
-        assert result.verification.readback_value is not None
-        assert abs(result.verification.readback_value - 100.0) <= 1.0
-        assert result.verification.tolerance_used is None
-
-    @pytest.mark.asyncio
-    async def test_verification_readback_success(self, connector):
-        """Test 'readback' verification level - successful verification."""
-        result = await connector.write_channel(
-            "TEST:CHANNEL",
-            100.0,
-            verification_level="readback",
-            tolerance=1.0,  # Larger tolerance to account for mock noise (0.1% noise on 100 = ~0.1, but can be larger)
-        )
-
-        assert isinstance(result, ChannelWriteResult)
-        assert result.success is True
-        assert result.verification is not None
-        assert result.verification.level == "readback"
-        assert result.verification.verified is True  # Within tolerance
-        assert result.verification.readback_value is not None
-        assert result.verification.tolerance_used == 1.0
-
-        # Check readback value is close to written value
-        diff = abs(result.verification.readback_value - 100.0)
-        assert diff <= 1.0  # Within tolerance
-
-    @pytest.mark.asyncio
-    async def test_verification_readback_with_percentage_tolerance(self, connector):
-        """Test readback verification with percentage-based tolerance."""
-        # Write a value
-        written_value = 1000.0
-        # noise_level=0.001 → sigma = 1000 * 0.001 = 1.0
-        # Use 1% tolerance (= 10 sigma) to avoid flaky failures
-        tolerance_percent = 1.0
-        absolute_tolerance = written_value * tolerance_percent / 100.0  # = 10.0
-
-        result = await connector.write_channel(
-            "TEST:CHANNEL",
-            written_value,
-            verification_level="readback",
-            tolerance=absolute_tolerance,
-        )
-
-        assert result.success is True
-        assert result.verification.verified is True
-        # Mock adds small noise, should be within 10.0
-        diff = abs(result.verification.readback_value - written_value)
-        assert diff <= absolute_tolerance
-
-    @pytest.mark.asyncio
-    async def test_writes_disabled_returns_failure(self):
-        """Test that writes fail when writes_enabled=false (via base class wrapper)."""
-        conn = MockConnector()
-        with patch("osprey.utils.config.get_config_value", return_value=False):
-            await conn.connect({"response_delay_ms": 1})
-            result = await conn.write_channel("TEST:CHANNEL", 100.0, verification_level="callback")
-            await conn.disconnect()
-
-        assert result.success is False
-        assert result.error_message is not None
-        assert "disabled" in result.error_message.lower()
-
-    @pytest.mark.asyncio
-    async def test_invalid_verification_level_raises_error(self, connector):
-        """Test that invalid verification level raises ValueError."""
-        with pytest.raises(ValueError, match="Invalid verification_level"):
-            await connector.write_channel("TEST:CHANNEL", 100.0, verification_level="invalid_level")
-
-
-class TestVerificationDataModels:
-    """Test verification data model structures."""
-
-    def test_write_verification_model(self):
-        """Test WriteVerification dataclass structure."""
-        verif = WriteVerification(
-            level="readback",
-            verified=True,
-            readback_value=100.5,
-            tolerance_used=0.1,
-            notes="Readback confirmed",
-        )
-
-        assert verif.level == "readback"
-        assert verif.verified is True
-        assert verif.readback_value == 100.5
-        assert verif.tolerance_used == 0.1
-        assert verif.notes == "Readback confirmed"
-
-    def test_channel_write_result_model(self):
-        """Test ChannelWriteResult dataclass structure."""
+        Everything else is optional, so a ``refused`` result carries no observed
+        value and a ``confirmed`` one carries no message.
+        """
         result = ChannelWriteResult(
             channel_address="TEST:CHANNEL",
             value_written=100.0,
-            success=True,
-            verification=WriteVerification(
-                level="callback", verified=True, notes="IOC callback confirmed"
-            ),
+            outcome=WriteOutcome.CONFIRMED,
         )
 
-        assert result.channel_address == "TEST:CHANNEL"
-        assert result.value_written == 100.0
-        assert result.success is True
-        assert result.verification is not None
-        assert result.verification.level == "callback"
-        assert result.verification.verified is True
+        assert result.outcome is WriteOutcome.CONFIRMED
+        assert result.refusal_reason is None
+        assert result.error_message is None
+        assert result.observed_value is None
+        assert result.alarm_status is None
+        assert result.alarm_severity is None
+        assert result.notes is None
 
-    def test_channel_write_result_without_verification(self):
-        """Test ChannelWriteResult can be created without verification."""
-        result = ChannelWriteResult(
-            channel_address="TEST:CHANNEL", value_written=100.0, success=True, verification=None
-        )
+    def test_optional_fields_default_to_none_on_the_dataclass(self):
+        """Pinned on the dataclass, not just via one constructor call."""
+        defaults = {f.name: f.default for f in fields(ChannelWriteResult)}
 
-        assert result.success is True
-        assert result.verification is None
+        assert defaults["refusal_reason"] is None
+        assert defaults["error_message"] is None
+        assert defaults["observed_value"] is None
+        assert defaults["alarm_status"] is None
+        assert defaults["alarm_severity"] is None
+        assert defaults["notes"] is None
 
+    def test_field_annotations_are_pinned(self):
+        """The declared types are the contract.
 
-class TestVerificationTolerance:
-    """Test tolerance calculation strategies."""
-
-    def test_absolute_tolerance(self):
-        """Test absolute tolerance comparison."""
-        written_value = 100.0
-        readback_value = 100.05
-        tolerance = 0.1  # Absolute
-
-        diff = abs(readback_value - written_value)
-        verified = diff <= tolerance
-
-        assert verified is True
-        assert diff == pytest.approx(0.05, rel=1e-9)
-
-    def test_percentage_tolerance(self):
-        """Test percentage-based tolerance calculation."""
-        written_value = 1000.0
-        tolerance_percent = 0.1  # 0.1%
-        absolute_tolerance = written_value * tolerance_percent / 100.0
-
-        assert absolute_tolerance == 1.0
-
-        # Test cases
-        assert abs(1000.5 - written_value) <= absolute_tolerance  # Pass
-        assert abs(1001.0 - written_value) <= absolute_tolerance  # Pass
-        assert abs(1001.5 - written_value) > absolute_tolerance  # Fail
-
-    def test_scale_adaptive_tolerance(self):
-        """Test that percentage tolerance adapts to value scale."""
-        tolerance_percent = 0.1  # 0.1% (one per mil)
-
-        # Large value (MHz scale)
-        large_value = 500.5  # MHz
-        large_tolerance = large_value * tolerance_percent / 100.0
-        assert large_tolerance == pytest.approx(0.5005, rel=1e-6)
-
-        # Small value (mA scale)
-        small_value = 5.0  # mA
-        small_tolerance = small_value * tolerance_percent / 100.0
-        assert small_tolerance == pytest.approx(0.005, rel=1e-6)
-
-        # Both are 0.1% of their respective values
-        assert (large_tolerance / large_value) * 100 == pytest.approx(0.1, rel=1e-6)
-        assert (small_tolerance / small_value) * 100 == pytest.approx(0.1, rel=1e-6)
-
-
-class TestWriteVerificationAlarmAndFailureFields:
-    """Round-trip the optional alarm / failure-kind fields on WriteVerification.
-
-    These are the machine-readable half of the write contract (issue #465):
-    consumers classify a write from them instead of parsing ``notes``. They are
-    optional, so every pre-existing construction — Mock, DOOCS, EPICS, virtual
-    accelerator, and out-of-tree custom connectors — must stay valid untouched.
-    """
-
-    def test_new_fields_default_to_none(self):
-        """A construction that predates the new fields still works, all null.
-
-        ``None`` means "not reported" and is deliberately distinct from a
-        reported-healthy severity of 0.
+        Pinned with ``get_type_hints`` rather than ``isinstance`` on a
+        constructed instance: asserting the type of a literal the test itself
+        passed in only re-checks the literal, and would keep passing if a field
+        were widened. ``field.type`` is no good either — it degrades to a raw
+        string the moment the module adopts postponed annotations.
         """
-        verif = WriteVerification(level="callback", verified=True)
+        hints = get_type_hints(ChannelWriteResult)
 
-        assert verif.readback_alarm_status is None
-        assert verif.readback_alarm_severity is None
-        assert verif.failure_kind is None
-
-    def test_legacy_positional_construction_still_valid(self):
-        """The new fields are appended, so positional callers are unaffected."""
-        verif = WriteVerification("readback", True, 100.5, 0.1, "Readback confirmed")
-
-        assert verif.level == "readback"
-        assert verif.verified is True
-        assert verif.readback_value == 100.5
-        assert verif.tolerance_used == 0.1
-        assert verif.notes == "Readback confirmed"
-        assert verif.readback_alarm_status is None
-        assert verif.readback_alarm_severity is None
-        assert verif.failure_kind is None
-
-    def test_alarm_status_round_trips_as_a_name_string(self):
-        """Alarm status carries the protocol's alarm *name*, not a raw code."""
-        verif = WriteVerification(
-            level="readback",
-            verified=True,
-            readback_value=100.5,
-            readback_alarm_status="NO_ALARM",
-            readback_alarm_severity=0,
-        )
-
-        assert verif.readback_alarm_status == "NO_ALARM"
-
-    def test_alarm_severity_round_trips_as_an_int(self):
-        """Severity is an integer: 0 healthy, 1 MINOR, 2 MAJOR, 3 INVALID."""
-        verif = WriteVerification(
-            level="readback",
-            verified=True,
-            readback_value=100.5,
-            readback_alarm_status="HIHI",
-            readback_alarm_severity=2,
-        )
-
-        assert verif.readback_alarm_severity == 2
+        assert hints["outcome"] == WriteOutcome
+        assert hints["refusal_reason"] == (str | None)
+        assert hints["error_message"] == (str | None)
+        assert hints["alarm_status"] == (str | None)
+        assert hints["alarm_severity"] == (int | None)
+        assert hints["notes"] == (str | None)
+        # Whatever the channel holds — a number, a string, an enum label, a
+        # waveform — reaches consumers untouched.
+        assert hints["observed_value"] == Any
 
     def test_healthy_severity_zero_is_distinct_from_not_reported(self):
         """Severity 0 is a reported fact; ``None`` is the absence of one."""
-        reported = WriteVerification(level="readback", verified=True, readback_alarm_severity=0)
-        absent = WriteVerification(level="readback", verified=True)
-
-        assert reported.readback_alarm_severity == 0
-        assert reported.readback_alarm_severity is not None
-        assert absent.readback_alarm_severity is None
-
-    def test_failure_kind_readback_failed(self):
-        """A readback that raised is classified structurally, not via notes."""
-        verif = WriteVerification(
-            level="readback",
-            verified=False,
-            failure_kind="readback_failed",
-            notes="Readback read raised TimeoutError",
+        reported = ChannelWriteResult(
+            channel_address="TEST:CHANNEL",
+            value_written=100.0,
+            outcome=WriteOutcome.CONFIRMED,
+            alarm_severity=0,
+        )
+        absent = ChannelWriteResult(
+            channel_address="TEST:CHANNEL",
+            value_written=100.0,
+            outcome=WriteOutcome.CONFIRMED,
         )
 
-        assert verif.failure_kind == "readback_failed"
-        assert verif.verified is False
-
-    def test_plain_mismatch_leaves_failure_kind_none(self):
-        """An ordinary value mismatch is not a readback failure."""
-        verif = WriteVerification(
-            level="readback",
-            verified=False,
-            readback_value=95.0,
-            tolerance_used=0.1,
-            notes="Readback 95.0 outside tolerance of 100.0",
-        )
-
-        assert verif.failure_kind is None
+        assert reported.alarm_severity == 0
+        assert reported.alarm_severity is not None
+        assert absent.alarm_severity is None
 
     def test_full_field_set_round_trips_through_asdict(self):
         """Every field survives a dataclass -> dict -> dataclass round trip."""
-        original = WriteVerification(
-            level="readback",
-            verified=False,
-            readback_value=95.0,
-            tolerance_used=0.1,
-            notes="mismatch with active alarm",
-            readback_alarm_status="HIHI",
-            readback_alarm_severity=2,
-            failure_kind=None,
+        original = ChannelWriteResult(
+            channel_address="TEST:CHANNEL",
+            value_written=100.0,
+            outcome=WriteOutcome.MISMATCH,
+            refusal_reason=None,
+            error_message=None,
+            observed_value=95.0,
+            alarm_status="HIHI",
+            alarm_severity=2,
+            notes="observed 95.0, sent 100.0",
         )
 
-        restored = WriteVerification(**asdict(original))
+        restored = ChannelWriteResult(**asdict(original))
 
         assert restored == original
         assert asdict(restored) == asdict(original)
+        assert restored.outcome is WriteOutcome.MISMATCH
 
-    def test_new_fields_are_optional_on_the_dataclass(self):
-        """Pin the defaults at the dataclass level, not just via a constructor."""
-        defaults = {f.name: f.default for f in fields(WriteVerification)}
-
-        assert defaults["readback_alarm_status"] is None
-        assert defaults["readback_alarm_severity"] is None
-        assert defaults["failure_kind"] is None
-
-    def test_new_field_annotations_are_pinned(self):
-        """The declared types are the contract.
-
-        Pinned on the dataclass, not with ``isinstance`` on a constructed
-        instance: asserting the type of a literal the test itself passed in only
-        re-checks the literal, and would keep passing if a field were widened.
-        """
-        hints = get_type_hints(WriteVerification)
-
-        assert hints["readback_alarm_status"] == (str | None)
-        assert hints["readback_alarm_severity"] == (int | None)
-        assert hints["failure_kind"] == (str | None)
-
-    def test_write_verification_nests_in_channel_write_result(self):
-        """The new fields reach consumers through the shipped result type."""
-        result = ChannelWriteResult(
+    def test_observed_number_narrows_only_what_is_a_number(self):
+        """A reading with no numeric form is reported as such, never coerced."""
+        numeric = ChannelWriteResult(
             channel_address="TEST:CHANNEL",
             value_written=100.0,
-            success=True,
-            verification=WriteVerification(
-                level="readback",
-                verified=True,
-                readback_value=100.0,
-                readback_alarm_status="MINOR",
-                readback_alarm_severity=1,
-            ),
+            outcome=WriteOutcome.CONFIRMED,
+            observed_value=100.0,
+        )
+        textual = ChannelWriteResult(
+            channel_address="TEST:CHANNEL",
+            value_written="Open",
+            outcome=WriteOutcome.CONFIRMED,
+            observed_value="Open",
         )
 
-        assert result.verification.readback_alarm_status == "MINOR"
-        assert result.verification.readback_alarm_severity == 1
-        assert result.verification.failure_kind is None
+        assert numeric.observed_number == 100.0
+        assert textual.observed_number is None
 
 
 class TestChannelMetadataAlarmStatusNotWidened:

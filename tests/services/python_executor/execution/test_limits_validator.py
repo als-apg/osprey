@@ -312,25 +312,25 @@ class TestLimitsValidator:
         error_msg = str(exc_info.value)
         assert "Failed to load channel limits database" in error_msg
 
-    def test_load_database_skips_invalid_entries(self, tmp_path):
-        """Test that database loader skips entries with invalid config."""
+    def test_load_database_fails_closed_on_an_invalid_entry(self, tmp_path):
+        """One bad entry fails the whole load, naming the channel.
+
+        Skipping the entry used to drop the channel from the database, which
+        with ``allow_unlisted_channels`` then waved its writes through with no
+        limits at all. The load now raises instead.
+        """
         db_file = tmp_path / "test_boundaries.json"
         db_content = {
             "VALID:PV": {"min_value": 0.0, "max_value": 100.0},
             "INVALID:PV1": {"min_value": "not_a_number"},  # Invalid type
-            "INVALID:PV2": {"max_step": "also_invalid"},  # Invalid type
             "VALID:PV2": {"writable": False},
         }
         db_file.write_text(json.dumps(db_content))
 
-        db, raw_db = LimitsValidator._load_limits_database(str(db_file))
+        with pytest.raises(ValueError) as exc_info:
+            LimitsValidator._load_limits_database(str(db_file))
 
-        # Should load only valid entries
-        assert len(db) == 2
-        assert "VALID:PV" in db
-        assert "VALID:PV2" in db
-        assert "INVALID:PV1" not in db
-        assert "INVALID:PV2" not in db
+        assert "INVALID:PV1" in str(exc_info.value)
 
     # =========================================================================
     # Configuration Loading Tests

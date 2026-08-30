@@ -5,7 +5,8 @@ Two families sit behind one abstraction: control-system connectors speak
 ``pv_list``/``pv_name`` — an EPICS word that a DOOCS or MongoDB backend has no
 use for. The same leak reached the public reason codes (``CAPUT_FAILED`` named a
 Channel Access primitive that a DOOCS write never runs) and the simulation
-helpers.
+helpers. The write reason codes are now the ``WriteOutcome`` words themselves,
+which describe what became of the write rather than how it was sent.
 
 These are signature-level assertions on purpose: a rename that misses one
 implementation leaves the abstraction split, and only the contract shows it.
@@ -77,7 +78,7 @@ def test_simulation_engine_and_taxonomy_speak_channels():
 @pytest.mark.unit
 def test_write_failure_reasons_are_protocol_neutral():
     """A DOOCS write failure must not be reported as a Channel Access failure."""
-    assert ChannelWriteFailedError._VALID_REASONS == ("WRITE_FAILED", "READBACK_UNVERIFIED")
+    assert ChannelWriteFailedError._VALID_REASONS == ("FAILED", "MISMATCH", "UNCONFIRMED")
 
 
 @pytest.mark.unit
