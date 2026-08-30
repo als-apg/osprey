@@ -85,6 +85,8 @@ def _reserve_free_va_port() -> int:
         return sock.getsockname()[1]
 
 
+# import-time required because VA_CA_PORT binds into `va_port=` default
+# arguments across the importing e2e modules, which evaluate at import.
 VA_CA_PORT = _reserve_free_va_port()
 
 # Bluesky bridge HTTP port. Distinct from the other e2e modules' pinned

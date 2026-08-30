@@ -33,6 +33,8 @@ def _reserve_unserved_port() -> int:
 
 #: The address the faked gallery launch publishes in these tests — deliberately
 #: an address nothing serves on; see :func:`_reserve_unserved_port`.
+# import-time required because DEFAULT_ARTIFACT_URL is a default argument of
+# publish_artifact_url below, and defaults evaluate when the module imports.
 DEFAULT_ARTIFACT_URL = f"http://127.0.0.1:{_reserve_unserved_port()}"
 
 

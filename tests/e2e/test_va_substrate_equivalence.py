@@ -104,6 +104,8 @@ def _reserve_free_port() -> int:
         return sock.getsockname()[1]
 
 
+# import-time required because VA_CA_PORT seeds module-level constants
+# (_VA_GATEWAY, the fixture's --set args) built while the module imports.
 VA_CA_PORT = _reserve_free_port()
 # The deployment repo's directory name IS the deployment's name; the compose
 # templates render each service's container_name AND its locally-built image as

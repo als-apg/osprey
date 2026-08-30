@@ -100,6 +100,10 @@ def _reserve_free_port() -> int:
         return sock.getsockname()[1]
 
 
+# import-time required because CA_PORT is per-process module state: every
+# fixture and helper in this package must agree on the one reserved number,
+# and a fixture-scoped reservation would hand xdist workers different ports
+# for constants already bound at collection.
 CA_PORT = _reserve_free_port()
 # Generous on purpose. Boot-to-first-served-answer measured 9-15 s across six
 # container boots on this host -- the VA images are pinned ``linux/amd64`` and
