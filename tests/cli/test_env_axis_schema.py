@@ -88,18 +88,30 @@ def test_checker_names_the_yaml_resolver_for_a_boolean_list() -> None:
     assert "parses as a boolean" in message
 
 
-@pytest.mark.parametrize("name", ["lowercase", "2LEADING", "WITH-DASH", "WITH SPACE", ""])
+@pytest.mark.parametrize("name", ["2LEADING", "WITH-DASH", "WITH SPACE", "", "no-proxy"])
 def test_checker_rejects_names_outside_the_pattern(name: str) -> None:
     """The same pattern ``env.required`` and ``env.pinned`` are held to."""
     assert env_names_errors([name], "services.x.env") == [
         f"services.x.env[0] must be an environment variable name matching "
-        f"[A-Z_][A-Z0-9_]* (got {name!r})"
+        f"[A-Za-z_][A-Za-z0-9_]* (got {name!r})"
     ]
+
+
+@pytest.mark.parametrize("name", ["no_proxy", "http_proxy", "https_proxy", "mixedCase_1"])
+def test_checker_admits_lowercase_names(name: str) -> None:
+    """The proxy family is conventionally lowercase and must be passable and pinnable (#783).
+
+    ``urllib``'s ``getproxies()`` takes whichever spelling comes LAST in the
+    environment, and a container runtime that injects the host's lowercase
+    ``no_proxy`` after the compose ``environment:`` block silently overrules an
+    uppercase-only passthrough — so a deployment has to be able to spell both.
+    """
+    assert env_names_errors([name], "services.x.env") == []
 
 
 def test_checker_reports_every_bad_entry_with_its_index() -> None:
     """Per-item messages, so a whole list is fixed in one pass."""
-    messages = env_names_errors(["GOOD", "bad", "ALSO_GOOD", 7], "services.x.env")
+    messages = env_names_errors(["GOOD", "b-ad", "ALSO_GOOD", 7], "services.x.env")
     assert len(messages) == 2
     assert messages[0].startswith("services.x.env[1] must be an environment variable name")
     assert messages[1].startswith("services.x.env[3] must be an environment variable name")
@@ -150,13 +162,15 @@ def test_service_block_accepts_a_name_list(tmp_path: Path) -> None:
 
 
 def test_service_block_rejects_an_invalid_name(tmp_path: Path) -> None:
-    """A lowercase name fails naming the key, the index, and the pattern."""
+    """A dashed name fails naming the key, the index, and the pattern."""
     profile = _profile(
-        services={"gchat_bridge": {"template": "osprey.gchat_bridge", "config": {"env": ["epics"]}}}
+        services={
+            "gchat_bridge": {"template": "osprey.gchat_bridge", "config": {"env": ["ep-ics"]}}
+        }
     )
     assert _env_errors(profile, tmp_path) == [
         "services.gchat_bridge.env[0] must be an environment variable name matching "
-        "[A-Z_][A-Z0-9_]* (got 'epics')"
+        "[A-Za-z_][A-Za-z0-9_]* (got 'ep-ics')"
     ]
 
 
@@ -173,10 +187,10 @@ def test_service_block_rejects_a_non_list(tmp_path: Path) -> None:
 
 def test_config_override_surface_rejects_an_invalid_name(tmp_path: Path) -> None:
     """The dotted `config:` spelling is checked the same way as the block."""
-    profile = _profile(config={"services.gchat_bridge.env": ["epics"]})
+    profile = _profile(config={"services.gchat_bridge.env": ["ep-ics"]})
     assert _env_errors(profile, tmp_path) == [
         "services.gchat_bridge.env[0] must be an environment variable name matching "
-        "[A-Z_][A-Z0-9_]* (got 'epics')"
+        "[A-Za-z_][A-Za-z0-9_]* (got 'ep-ics')"
     ]
 
 
@@ -337,7 +351,7 @@ def test_env_failures_accumulate_with_the_network_axis_and_unrelated_ones(
         services={
             "gchat_bridge": ServiceDef(
                 template="osprey.gchat_bridge",
-                config={"network": "hostnet", "env": ["epics"]},
+                config={"network": "hostnet", "env": ["ep-ics"]},
             )
         },
     )
@@ -347,7 +361,7 @@ def test_env_failures_accumulate_with_the_network_axis_and_unrelated_ones(
     assert "services.gchat_bridge.network must be one of bridge, host (got 'hostnet')" in messages
     assert (
         "services.gchat_bridge.env[0] must be an environment variable name matching "
-        "[A-Z_][A-Z0-9_]* (got 'epics')" in messages
+        "[A-Za-z_][A-Za-z0-9_]* (got 'ep-ics')" in messages
     )
 
 

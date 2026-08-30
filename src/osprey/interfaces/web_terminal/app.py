@@ -433,6 +433,41 @@ def resolve_rail_position(configured: str | None, theme_family: str | None = Non
     return family_rail_default(theme_family)
 
 
+#: Placeholders a config-declared panel's ``path`` may carry, resolved once per
+#: container from :func:`compute_url_prefix` (``/u/<user>`` behind the
+#: multi-user front door, ``""`` in the single-origin shape):
+#:
+#: * ``{url_prefix}`` — the mount as the proxy spells it, ``/u/<user>`` or
+#:   empty. For a value that is itself a root-absolute path.
+#: * ``{url_prefix_dir}`` — the same mount spelled as a directory with no
+#:   leading and a trailing slash, ``u/<user>/`` or empty. For a value the
+#:   backend roots at the origin itself and to which it prepends its own ``/``
+#:   — noVNC's ``?path=`` is the canonical case: ``vnc.html?path=
+#:   {url_prefix_dir}panel/<id>/websockify`` reaches
+#:   ``/u/<user>/panel/<id>/websockify`` behind the front door and
+#:   ``/panel/<id>/websockify`` without it, never a doubled slash.
+#:
+#: The proxy's content rewrite (:mod:`routes.proxy`) covers root-absolute
+#: string literals in what a backend *serves*; a URL the browser assembles at
+#: runtime from a query parameter is invisible to it, and the correct value is
+#: per user, so the profile cannot spell it (#784). Nothing else in ``path`` is
+#: touched.
+_URL_PREFIX_PLACEHOLDERS = ("{url_prefix}", "{url_prefix_dir}")
+
+
+def _substitute_url_prefix(path: str) -> str:
+    """Resolve :data:`_URL_PREFIX_PLACEHOLDERS` in a custom panel's ``path``.
+
+    A path without a placeholder is returned byte-identical, so every existing
+    profile renders exactly as before.
+    """
+    if not isinstance(path, str) or not any(p in path for p in _URL_PREFIX_PLACEHOLDERS):
+        return path
+    prefix = compute_url_prefix()
+    prefix_dir = f"{prefix.lstrip('/')}/" if prefix else ""
+    return path.replace("{url_prefix}", prefix).replace("{url_prefix_dir}", prefix_dir)
+
+
 def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
     """Read web.panels and web.default_panel from config.yml.
 
@@ -481,7 +516,7 @@ def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
                     "label": spec.get("label", panel_id.upper()),
                     "url": spec.get("url", ""),
                     "healthEndpoint": spec.get("health_endpoint"),
-                    "path": spec.get("path", "/"),
+                    "path": _substitute_url_prefix(spec.get("path", "/")),
                     # Trust marker: this panel was declared in config (a trusted
                     # input), not registered at runtime via POST /api/panels/register.
                     # Only the config loader stamps it, so credential injection

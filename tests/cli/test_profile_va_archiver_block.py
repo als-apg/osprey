@@ -229,7 +229,7 @@ def test_an_empty_name_is_refused() -> None:
 
 
 def test_password_env_must_name_a_variable_not_hold_one() -> None:
-    errors = _errors(password_env="hunter2")
+    errors = _errors(password_env="hunter 2")
 
     assert any("must be an environment variable NAME" in error for error in errors)
     assert any("never in the profile" in error for error in errors)

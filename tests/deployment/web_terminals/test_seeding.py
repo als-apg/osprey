@@ -208,6 +208,33 @@ def test_claude_md_exec_content_and_target(tmp_path, monkeypatch, fake_runtime):
     assert inputs[idx] == b"BASE\nEXTRA\n"
 
 
+def test_claude_md_seed_hands_the_whole_volume_to_the_runtime_user(
+    tmp_path, monkeypatch, fake_runtime
+):
+    """The volume chown is recursive and precedes the write (#785).
+
+    A claude-config volume that outlived a root-running image keeps root-owned
+    ``projects/`` / ``session-env/`` / ``sessions/`` under an osprey-owned top
+    directory; a non-recursive chown leaves every SessionStart hook failing
+    with EACCES and no transcript persisting. The seed must hand back the whole
+    tree, owned by the uid:gid it queried, before it writes CLAUDE.md.
+    """
+    calls, inputs, ready = fake_runtime
+    monkeypatch.chdir(tmp_path)
+    _write_base_md(tmp_path, "BASE\n")
+    container = f"{_FACILITY_PREFIX}-web-alice"
+    ready.add(container)
+
+    seeding.seed_user_containers(_config(["alice"]))
+
+    (argv,) = _claude_md_calls(calls)
+    script = argv[8]
+    assert 'chown -R "$owner" /data/claude-config\n' in script
+    assert script.index('chown -R "$owner" /data/claude-config') < script.index("cat > ")
+    # $0, then $1 = the queried owner the recursive chown applies.
+    assert argv[9:11] == ["sh", "1000:1000"]
+
+
 def test_legacy_flat_extra_md_fallback(tmp_path, monkeypatch, fake_runtime):
     calls, inputs, ready = fake_runtime
     monkeypatch.chdir(tmp_path)
