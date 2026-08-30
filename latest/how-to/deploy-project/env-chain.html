@@ -697,6 +697,58 @@ the minted password, remove the <code class="docutils literal notranslate"><span
 (this deletes the stored logbook data — re-ingest afterwards).</p>
 </div>
 </section>
+<section id="egress-through-a-site-proxy">
+<h2>Egress through a site proxy<a class="headerlink" href="#egress-through-a-site-proxy" title="Link to this heading">#</a></h2>
+<p>A site that reaches the outside world only through a proxy sets the three
+standard names in the chain — in <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> when every host goes through
+the same proxy, in <code class="docutils literal notranslate"><span class="pre">.env</span></code> when this one differs:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">HTTP_PROXY</span><span class="o">=</span>http://proxy.example.com:8080
+<span class="nv">HTTPS_PROXY</span><span class="o">=</span>http://proxy.example.com:8080
+<span class="nv">NO_PROXY</span><span class="o">=</span>localhost,127.0.0.1
+</pre></div>
+</div>
+<p><strong>Spell them in uppercase.</strong> The login service is handed exactly these three
+names and nothing else from the chain, so a lowercase <code class="docutils literal notranslate"><span class="pre">https_proxy</span></code> never
+reaches it. (Inside a container that does receive the whole chain, an empty
+lowercase name is worse than absent — it turns the proxy off for that scheme —
+which is why only the uppercase spelling is passed through.)</p>
+<p>On a multi-user deployment the login service reads this set from the chain as
+well, and it is the one worth remembering, because it makes a call of its own:
+at the first login it fetches the identity provider’s discovery document. On a
+proxied host without these names that call goes out directly, so the stack
+comes up, the health check is green, and every login fails. Nothing
+proxy-related belongs in <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code>. That file is the login service’s
+credential store; proxy settings are configuration rather than secrets, and the
+chain already delivers them (see <a class="reference internal" href="../web-terminal/multi-user/login.html#multi-user-require-a-login"><span class="std std-ref">Require a Login</span></a>).</p>
+<p><strong>The trust store is not carried across.</strong> A proxy that re-signs TLS with a
+site certificate authority needs that authority’s certificate inside the
+container, and nothing puts it there yet. <code class="docutils literal notranslate"><span class="pre">SSL_CERT_FILE</span></code> and
+<code class="docutils literal notranslate"><span class="pre">REQUESTS_CA_BUNDLE</span></code> in the chain do not reach the login service at all — it
+receives only the three proxy names. Uncommenting the site-CA block
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes into <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> therefore changes nothing for
+logins; the stack still starts and the identity-provider fetch still fails at
+TLS. (Routing a CA variable into the sidecar is not a fix either: one naming a
+path the image does not carry stops httpx from constructing a client at all.)
+Delivering a custom CA is a mount plus a variable, and separate work.</p>
+<p><strong>A changed value lands at the next start.</strong> These values are filled in when a
+container is created, so editing the chain does not reach a running stack:
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> is what puts a new proxy into force. Because the value is
+interpolated into the sidecar’s <code class="docutils literal notranslate"><span class="pre">environment:</span></code>, a changed value is a
+service-definition change, so Docker Compose recreates the login service and
+leaves the running terminals alone; podman-compose bounces the whole project.
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">restart</span></code> also works, but it is a full stop-and-start on either
+provider, so every live web-terminal session drops. Pick the moment for it.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>No value in the chain may contain a <code class="docutils literal notranslate"><span class="pre">$</span></code>, and a proxy URL carrying a
+password is the usual way to meet that rule. Container stacks substitute
+<code class="docutils literal notranslate"><span class="pre">$</span></code> sequences on the way through, so what reaches the container is
+silently not what you wrote. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> scans <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> and
+<code class="docutils literal notranslate"><span class="pre">.env</span></code> before it starts anything, refuses, and names the variable. The
+remedy is a value without the character — ask for a credential that has
+none.</p>
+</div>
+</section>
 <section id="pinning-a-variable-to-the-chain">
 <span id="deployment-pinned-env"></span><h2>Pinning a variable to the chain<a class="headerlink" href="#pinning-a-variable-to-the-chain" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">.env</span></code> winning is the right default, and for a few variables it is the wrong
@@ -811,6 +863,7 @@ It is unrelated to <code class="docutils literal notranslate"><span class="pre">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-env-family">The <code class="docutils literal notranslate"><span class="pre">.env*</span></code> family</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-a-deploy-writes-back">What a deploy writes back</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-a-deploy-tells-you-about-the-chain">What a deploy tells you about the chain</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#egress-through-a-site-proxy">Egress through a site proxy</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pinning-a-variable-to-the-chain">Pinning a variable to the chain</a></li>
 </ul>
   </nav></div>
