@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
 import os
 import time
 from collections.abc import Iterator
@@ -421,6 +422,114 @@ def test_other_types_are_forwarded_through_untouched() -> None:
         "type": "mock",
         "connector": {"mock": {}},
     }
+
+
+# ---------------------------------------------------------------------------
+# Degraded-lane posture
+# ---------------------------------------------------------------------------
+
+_DEPLOYMENT_WIDE_UNLISTED_KEY = "control_system.limits_checking.allow_unlisted_channels"
+"""The deployment-wide limits key a degraded lane must be answered by."""
+
+_PER_TYPE_UNLISTED_KEY = "control_system.connector.mock.limits_checking.allow_unlisted_channels"
+"""The per-type key a lane that resolved its own target is answered by."""
+
+
+def _posture_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Config whose ``mock`` block relaxes what the deployment-wide keys refuse.
+
+    The two postures disagree on purpose: the connector block arms writes and
+    allows unlisted channels, the deployment-wide keys do neither. Which pair a
+    built connector ends up reading is then observable on the connector itself,
+    which is what the degraded lane turns on.
+    """
+    database = tmp_path / "limits.json"
+    database.write_text(
+        json.dumps({"SR:MAG:HCM:01:CUR:SP": {"min_value": -1.0, "max_value": 1.0}}),
+        encoding="utf-8",
+    )
+    section: dict[str, Any] = {
+        "type": "mock",
+        "writes_enabled": False,
+        "limits_checking": {
+            "enabled": True,
+            "allow_unlisted_channels": False,
+            "database_path": str(database),
+        },
+        "connector": {
+            "mock": {
+                "writes_enabled": True,
+                "limits_checking": {"enabled": True, "allow_unlisted_channels": True},
+            }
+        },
+    }
+    values: dict[str, Any] = {
+        "control_system": section,
+        "control_system.writes_enabled": False,
+        "control_system.limits_checking.database_path": str(database),
+    }
+
+    monkeypatch.setattr(
+        "osprey.utils.config.get_config_value",
+        lambda key, default=None: values.get(key, default),
+    )
+    monkeypatch.setattr("osprey.utils.config.default_config_path", lambda: None)
+    # The write posture is refused outright in a readonly run, which would make
+    # both lanes agree for a reason that has nothing to do with the stamp.
+    monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
+
+
+def _pin_lane(monkeypatch: pytest.MonkeyPatch, lane_degraded: str | None) -> None:
+    """Pin the lane resolver to a ``mock`` worker, degraded or not."""
+    from osprey.services.bluesky_bridge import queue_backend
+
+    monkeypatch.setattr(
+        queue_backend, "resolve_lane_connector_type", lambda: ("mock", lane_degraded)
+    )
+
+
+def test_a_degraded_lane_is_built_unstamped_before_its_validator_is_loaded(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The stamp has to be gone BEFORE ``connect()``, not after it.
+
+    A connector loads its limits validator inside ``connect()``, keyed on the
+    stamp the factory left. Clearing the stamp afterwards therefore fixes the
+    write posture (read live off the attribute) while leaving the validator
+    already built against the baseline type's block — a lane addressing a
+    machine that block never described, running with that machine's limits
+    policy. Both halves have to land on the deployment-wide pair.
+    """
+    _posture_config(monkeypatch, tmp_path)
+    _pin_lane(
+        monkeypatch, "Lane 'live' declares the 'live' target, which this deployment cannot resolve"
+    )
+
+    connector = asyncio.run(qserver_startup.create_connector())
+
+    assert connector._connector_type is None
+    assert connector._limits_validator.policy["allow_unlisted_key"] == (
+        _DEPLOYMENT_WIDE_UNLISTED_KEY
+    )
+    assert connector._limits_validator.policy["allow_unlisted_channels"] is False
+    assert connector._writes_enabled is False
+    assert qserver_startup.worker_writes_enabled() is False
+
+
+def test_a_resolved_lane_keeps_its_own_types_posture(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The non-degraded lane is the control: it reads the block for its type."""
+    _posture_config(monkeypatch, tmp_path)
+    _pin_lane(monkeypatch, None)
+
+    connector = asyncio.run(qserver_startup.create_connector())
+
+    assert connector._connector_type == "mock"
+    assert connector._limits_validator.policy["allow_unlisted_key"] == _PER_TYPE_UNLISTED_KEY
+    assert connector._limits_validator.policy["allow_unlisted_channels"] is True
+    assert connector._writes_enabled is True
+    assert qserver_startup.worker_writes_enabled() is True
 
 
 # ---------------------------------------------------------------------------

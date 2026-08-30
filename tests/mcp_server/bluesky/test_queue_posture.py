@@ -372,7 +372,22 @@ def _patch_bridge_config(monkeypatch, *, section, lane_targets, limits_enabled, 
     The guard does its lookups through a function-body import of
     ``osprey.utils.config``, so patching the module attribute is what takes
     effect — the same convention ``test_startup_assertion.py`` uses.
+
+    Limits checking is per connector type and the guard resolves it out of the
+    ``control_system`` SECTION, so ``limits_enabled`` is folded into the
+    section's deployment-wide ``limits_checking`` block (on a copy, so the
+    module-level section never carries one test's posture into the next)
+    rather than answered behind a dotted key the guard no longer asks for.
+    Only ``database_path`` stays a dotted lookup: it is deployment-wide.
     """
+    section = {
+        **section,
+        "limits_checking": {
+            **section.get("limits_checking", {}),
+            "enabled": limits_enabled,
+            "allow_unlisted_channels": False,
+        },
+    }
 
     def fake_get_config_value(key: str, default=None):
         if key == "control_system":

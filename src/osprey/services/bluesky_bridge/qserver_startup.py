@@ -208,22 +208,30 @@ async def create_connector() -> Any:
     if lane_degraded:
         logger.warning("qserver_startup: %s", lane_degraded)
     register_builtin_connectors()  # idempotent; must run before create
-    connector = await ConnectorFactory.create_control_system_connector(
+    # Built in two steps rather than through `create_control_system_connector`
+    # so the TYPE stamp can be cleared BEFORE `connect()`: a connector loads its
+    # limits validator inside connect(), keyed on the stamp, so a clear that
+    # came afterwards would leave the validator built against the wrong block.
+    connector, type_config = ConnectorFactory.build_control_system_connector(
+        build_connector_config(control_system_type),
         # This lane's OWN target, not the deployment baseline: a two-lane
         # deployment is exactly where the two differ, and the machine this
         # worker drives is the one its lane declares.
-        build_connector_config(control_system_type),
         control_target=resolve_lane_identity()[1],
     )
     if lane_degraded:
         # The factory stamps the type it built, and the reference monitor keys
-        # this deployment's per-type write posture on that stamp. A degraded
-        # lane was built as the baseline type while addressing a machine this
-        # config never tied to that type, so the type's block does not describe
-        # it: clearing the stamp is what makes the monitor read
-        # `control_system.writes_enabled` — the only posture the config has
-        # ever stated about this lane — which is also what
-        # `worker_writes_enabled` reports.
+        # this deployment's per-type write and limits postures on that stamp. A
+        # degraded lane was built as the baseline type while addressing a
+        # machine this config never tied to that type, so the type's block does
+        # not describe it: clearing the stamp is what makes the monitor read
+        # `control_system.writes_enabled` and the deployment-wide
+        # `limits_checking` block — the only postures the config has ever
+        # stated about this lane — which is also what `worker_writes_enabled`
+        # reports. EPICS gateway selection inside connect() is the stamp's third
+        # reader, so clearing it first moves that to the deployment-wide posture
+        # too; a no-op for this worker, whose type_config is gateway-less by
+        # construction, but it keeps all three readers on one answer.
         #
         # The TARGET stamp is left alone. Degradation is a statement about the
         # config's type table, not about the lane: rung 3 is reached precisely
@@ -232,6 +240,7 @@ async def create_connector() -> Any:
         # this worker address", and it indexes the session store rather than any
         # config block.
         connector._connector_type = None
+    await connector.connect(type_config)
     logger.info(
         "qserver_startup: connected the worker's OSPREY connector (type=%s, %s, writes %s)",
         control_system_type,

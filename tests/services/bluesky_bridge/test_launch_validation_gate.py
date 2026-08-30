@@ -196,3 +196,169 @@ def test_gate_ignores_a_plan_name_with_no_session_file_and_no_registration() -> 
 
 def test_gate_ignores_a_request_with_no_plan_name() -> None:
     assert _validate_launchable_request({}) is None
+
+
+# =========================================================================
+# The startup guard's limits posture is THIS LANE's, not the deployment's
+# =========================================================================
+#
+# `_assert_limits_readable_if_writable` already resolves its WRITE posture per
+# connector type (`test_startup_assertion.py` pins that). Limits checking is
+# per type for the same reason: a deployment may leave its virtual accelerator
+# unchecked while its live machine enforces limits, and a lane that reads the
+# deployment-wide key instead would refuse — or, the direction that matters,
+# start — on a posture belonging to some other lane's machine.
+
+
+#: A live-baseline deployment whose virtual accelerator alone arms writes AND
+#: turns limits checking on, while the deployment-wide limits block says off.
+#: A bridge lane serving `va` must therefore demand a readable limits database
+#: that `control_system.limits_checking.enabled` alone would have excused.
+_VA_LIMITS_SECTION: dict = {
+    "type": "epics",
+    "writes_enabled": False,
+    "limits_checking": {"enabled": False, "allow_unlisted_channels": True},
+    "connector": {
+        "epics": {"gateway_address": "epics-gateway.example"},
+        "virtual_accelerator": {
+            "writes_enabled": True,
+            "limits_checking": {"enabled": True, "allow_unlisted_channels": False},
+        },
+    },
+}
+
+#: The mirror image: the deployment-wide block turns limits checking on, and
+#: the armed lane's own block turns it off. Reading the deployment-wide key
+#: would demand a database this lane's config says it does not need.
+_VA_UNCHECKED_SECTION: dict = {
+    "type": "epics",
+    "writes_enabled": False,
+    "limits_checking": {"enabled": True, "allow_unlisted_channels": False},
+    "connector": {
+        "epics": {"gateway_address": "epics-gateway.example"},
+        "virtual_accelerator": {
+            "writes_enabled": True,
+            "limits_checking": {"enabled": False, "allow_unlisted_channels": True},
+        },
+    },
+}
+
+_VA_LANE = "bluesky_va"
+_LANE_TARGETS = {_VA_LANE: "va", "bluesky_live": "live"}
+_VA_LIMITS_KEY = "control_system.connector.virtual_accelerator.limits_checking.enabled"
+
+
+@pytest.fixture
+def _no_execution_mode(monkeypatch: pytest.MonkeyPatch):
+    """A read-only run short-circuits the guard before any posture is read."""
+    monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
+
+
+def _patch_lane_config(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    section: dict,
+    db_path: str | None = None,
+) -> None:
+    """Patch the config keys the startup guard reads, nested as it reads them.
+
+    The limits posture now comes out of the ``control_system`` SECTION — the
+    same mapping the write posture is resolved from — so the per-type block
+    lives inside `section` rather than behind a dotted key. Only
+    ``database_path`` stays deployment-wide, since the deployment mounts one
+    limits database.
+
+    The guard imports `get_config_value` inside its own body, so patching the
+    `osprey.utils.config` attribute takes effect on the next call.
+    """
+
+    def fake_get_config_value(key: str, default=None):
+        if key == "control_system":
+            return section
+        if key == "control_system.type":
+            return section.get("type", default)
+        if key == "control_system.limits_checking.database_path":
+            return db_path if db_path is not None else default
+        if key == "project_root":
+            return default
+        if key.startswith("services.") and key.endswith(".target"):
+            return _LANE_TARGETS.get(key.split(".")[1], default)
+        return default
+
+    monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
+
+
+def _spy_on_limits_probe(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Record every `LimitsValidator._load_limits_database` call, still doing it."""
+    from osprey.connectors.control_system.limits_validator import LimitsValidator
+
+    probe_calls: list[str] = []
+    original_load = LimitsValidator._load_limits_database
+
+    def spy(db_path: str):
+        probe_calls.append(db_path)
+        return original_load(db_path)
+
+    monkeypatch.setattr(LimitsValidator, "_load_limits_database", staticmethod(spy))
+    return probe_calls
+
+
+def test_guard_reads_limits_enabled_from_the_lane_targets_own_block(
+    monkeypatch: pytest.MonkeyPatch, _no_execution_mode: None
+) -> None:
+    """Per-type `enabled: true` arms the guard though the deployment-wide key is false."""
+    # Arrange
+    from osprey.services.bluesky_bridge.validation import _assert_limits_readable_if_writable
+
+    monkeypatch.setenv("OSPREY_BLUESKY_LANE", _VA_LANE)
+    _patch_lane_config(monkeypatch, section=_VA_LIMITS_SECTION, db_path=None)
+
+    # Act
+    with pytest.raises(RuntimeError) as excinfo:
+        _assert_limits_readable_if_writable()
+
+    # Assert
+    message = str(excinfo.value)
+    assert _VA_LIMITS_KEY in message
+    assert "control_system.connector.virtual_accelerator.writes_enabled" in message
+    assert f"lane {_VA_LANE} serves target va" in message
+
+
+def test_unreadable_database_refusal_names_the_per_type_limits_key(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, _no_execution_mode: None
+) -> None:
+    """The second refusal names the answering key too, not the deployment-wide one."""
+    # Arrange
+    from osprey.services.bluesky_bridge.validation import _assert_limits_readable_if_writable
+
+    monkeypatch.setenv("OSPREY_BLUESKY_LANE", _VA_LANE)
+    missing = tmp_path / "does_not_exist.json"
+    _patch_lane_config(monkeypatch, section=_VA_LIMITS_SECTION, db_path=str(missing))
+
+    # Act
+    with pytest.raises(RuntimeError) as excinfo:
+        _assert_limits_readable_if_writable()
+
+    # Assert
+    message = str(excinfo.value)
+    assert _VA_LIMITS_KEY in message
+    assert "could not be read or parsed" in message
+
+
+def test_guard_ignores_the_deployment_wide_key_when_the_lanes_block_disables_limits(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, _no_execution_mode: None
+) -> None:
+    """An armed lane whose own block turns limits checking off needs no database."""
+    # Arrange
+    from osprey.services.bluesky_bridge.validation import _assert_limits_readable_if_writable
+
+    monkeypatch.setenv("OSPREY_BLUESKY_LANE", _VA_LANE)
+    missing = tmp_path / "does_not_exist.json"
+    _patch_lane_config(monkeypatch, section=_VA_UNCHECKED_SECTION, db_path=str(missing))
+    probe_calls = _spy_on_limits_probe(monkeypatch)
+
+    # Act
+    assert _assert_limits_readable_if_writable() is None
+
+    # Assert
+    assert probe_calls == []

@@ -1,7 +1,8 @@
 """Every connector carries the session target it was built for.
 
-``ConnectorFactory.create_control_system_connector`` stamps two things on the
-instance it returns: the connector *type*, which selects the deployment's
+``ConnectorFactory.build_control_system_connector`` — and
+``create_control_system_connector``, which is that build plus ``connect()`` —
+stamps two things on the instance it returns: the connector *type*, which selects the deployment's
 connector block and the per-type write posture, and the control *target*, which
 indexes the per-(session, target) posture store. They answer different questions
 and neither is derivable from the other — a two-lane deployment's VA lane and
@@ -44,25 +45,42 @@ class _RecordingFactory:
 
     Stamps the instance the way the real factory does, so a site that clears or
     rewrites a stamp afterwards (the degraded bridge lane) is observed doing it.
+    Both entry points are recorded: the one-call ``create`` and the two-step
+    ``build`` a site uses when it has to reach the instance before ``connect()``.
     """
 
     def __init__(self) -> None:
         self.calls: list[tuple[Any, str | None]] = []
 
-    async def __call__(self, config: Any = None, *, control_target: str | None = None) -> Any:
-        self.calls.append((config, control_target))
-        connector = SimpleNamespace(
+    def _stamped(self, config: Any, control_target: str | None) -> Any:
+        return SimpleNamespace(
             _connector_type=(config or {}).get("type"),
             _control_target=control_target,
+            connect=_noop_connect,
             disconnect=_noop_disconnect,
         )
-        return connector
+
+    async def __call__(self, config: Any = None, *, control_target: str | None = None) -> Any:
+        self.calls.append((config, control_target))
+        return self._stamped(config, control_target)
+
+    def build(
+        self, config: Any = None, *, control_target: str | None = None
+    ) -> tuple[Any, dict[str, Any]]:
+        self.calls.append((config, control_target))
+        connector = self._stamped(config, control_target)
+        type_config = (config or {}).get("connector", {}).get((config or {}).get("type"), {})
+        return connector, type_config
 
     @property
     def target(self) -> str | None:
         """The target named by the one call this factory was asked to make."""
         assert len(self.calls) == 1, f"expected exactly one construction, got {self.calls}"
         return self.calls[0][1]
+
+
+async def _noop_connect(type_config: Any = None) -> None:
+    return None
 
 
 async def _noop_disconnect() -> None:
@@ -75,6 +93,9 @@ def recording_factory(monkeypatch: pytest.MonkeyPatch) -> _RecordingFactory:
     spy = _RecordingFactory()
     monkeypatch.setattr(
         factory_module.ConnectorFactory, "create_control_system_connector", spy, raising=True
+    )
+    monkeypatch.setattr(
+        factory_module.ConnectorFactory, "build_control_system_connector", spy.build, raising=True
     )
     monkeypatch.setattr(factory_module, "register_builtin_connectors", lambda: None)
     return spy

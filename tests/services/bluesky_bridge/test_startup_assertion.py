@@ -114,6 +114,13 @@ def _patch_config(
     (and `lane_targets`) for a config that arms one connector type and not
     another.
 
+    Limits checking is per connector type too, and the guard reads it out of
+    the same SECTION, so `limits_enabled` is folded into the section's
+    `limits_checking` block rather than answered behind a dotted key. The copy
+    is what keeps a module-level section constant (`_MIXED_SECTION`) from
+    carrying one test's posture into the next. Only `database_path` stays
+    deployment-wide, since the deployment mounts one limits database.
+
     `_assert_limits_readable_if_writable` does its own
     `from osprey.utils.config import get_config_value` inside the function
     body (never at module import time), so patching the underlying
@@ -122,8 +129,13 @@ def _patch_config(
     takes effect on the next call.
     """
     control_system: dict[str, Any] = (
-        {"writes_enabled": writes_enabled} if section is None else section
+        {"writes_enabled": writes_enabled} if section is None else dict(section)
     )
+    if limits_enabled is not None:
+        control_system["limits_checking"] = {
+            **control_system.get("limits_checking", {}),
+            "enabled": limits_enabled,
+        }
     targets = lane_targets or {}
 
     def fake_get_config_value(key: str, default=None):
@@ -131,8 +143,6 @@ def _patch_config(
             return control_system
         if key == "control_system.type":
             return control_system.get("type", default)
-        if key == "control_system.limits_checking.enabled":
-            return limits_enabled if limits_enabled is not None else default
         if key == "control_system.limits_checking.database_path":
             return db_path if db_path is not None else default
         if key == "project_root":
@@ -276,6 +286,37 @@ def test_writable_with_relative_db_path_resolves_via_config_file_dir(
     with TestClient(app) as client:
         resp = client.get("/health")
         assert resp.status_code == 200
+
+
+def test_writable_with_an_unreadable_limits_leaf_refuses_startup(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A leaf that is present but not a literal boolean is a startup refusal.
+
+    The connector and the hook would refuse every write from the same posture;
+    the gate turns that into a refusal at startup naming the line to fix,
+    rather than a lane that starts writable and then denies everything.
+    """
+    # Arrange
+    _patch_config(
+        monkeypatch,
+        section={"type": "epics", "writes_enabled": True, "limits_checking": {"enabled": "true"}},
+        db_path=str(_valid_limits_db(tmp_path)),
+    )
+    probe_calls = _spy_on_limits_probe(monkeypatch)
+
+    # Act
+    with pytest.raises(RuntimeError) as excinfo:
+        with TestClient(app):
+            pass
+
+    # Assert
+    message = str(excinfo.value)
+    assert "control_system.limits_checking.enabled" in message
+    # An ABSENT deployment-wide leaf is unset, not unreadable, so it is not named.
+    assert "control_system.limits_checking.allow_unlisted_channels" not in message
+    assert "literal true or false" in message
+    assert probe_calls == []
 
 
 def test_writable_with_limits_checking_disabled_starts_without_db(
