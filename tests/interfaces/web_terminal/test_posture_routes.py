@@ -563,6 +563,34 @@ class TestCeiling:
             "control_system.connector.epics.writes_enabled" in unarmed.json()["detail"]["message"]
         )
 
+    def test_a_va_plus_standin_render_arms_its_standin(self, client, tmp_path):
+        """Two configured targets are switch-capable with no live machine at all.
+
+        ``session_posture`` answers per target on any switch-capable render, so
+        a deployment rehearsing on its stand-in beside the simulator gets the
+        stand-in's own ceiling — not a 403 for want of an ``epics`` block it
+        never claimed to have.
+        """
+        section = {
+            "type": "virtual_accelerator",
+            "writes_enabled": False,
+            "connector": {
+                "virtual_accelerator": {
+                    "simulation_file": "data/sim.json",
+                    "gateways": _gateways(5064),
+                    "writes_enabled": True,
+                },
+                "live_standin": {
+                    "gateways": _gateways(STANDIN_PORT),
+                    "writes_enabled": True,
+                },
+            },
+        }
+        client.app.state.config_path = write_config(tmp_path, section)
+        with known_sessions(SESSION_A):
+            resp = post_posture(client, target="standin", posture="writes")
+        assert resp.status_code == 200
+
     def test_narrowing_needs_no_ceiling(self, client, tmp_path):
         """A target nothing arms can still be narrowed; narrowing grants nothing."""
         client.app.state.config_path = write_config(tmp_path, control_system_section())

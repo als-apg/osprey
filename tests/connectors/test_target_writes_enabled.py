@@ -506,14 +506,98 @@ def test_a_standin_baseline_is_switch_capable_and_does_not_raise():
 
 
 @pytest.mark.unit
-def test_a_standin_baseline_with_no_live_block_is_not_switch_capable():
-    """``live`` is underivable from a stand-in and a simulator, so there is no switch."""
+def test_a_standin_beside_a_simulator_is_switch_capable_without_a_live_block():
+    """Two configured targets are the switching world, whichever two they are.
+
+    A facility rehearsing on its stand-in beside the simulator, with no live
+    machine authored yet, has exactly the multi-target world the switch — and
+    the popover's per-target posture toggles behind it — exist for. ``live``
+    stays underivable and simply is not on the roster.
+    """
     # Arrange
     section = _section(
         LIVE_STANDIN,
         connector={
             "virtual_accelerator": {"writes_enabled": True},
             LIVE_STANDIN: {"port": 5074},
+        },
+    )
+
+    # Act / Assert
+    assert switch_capable(section) is True
+    assert configured_targets(section) == [TARGET_VA, TARGET_STANDIN]
+
+
+@pytest.mark.unit
+def test_a_va_baseline_beside_a_standin_is_switch_capable():
+    """The same two-machine world, baselined on the simulator."""
+    # Arrange
+    section = _section(
+        VIRTUAL_ACCELERATOR,
+        connector={
+            "virtual_accelerator": {"writes_enabled": True},
+            LIVE_STANDIN: {"port": 5074},
+        },
+    )
+
+    # Act / Assert
+    assert switch_capable(section) is True
+    assert configured_targets(section) == [TARGET_VA, TARGET_STANDIN]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "section",
+    [
+        pytest.param(_section(EPICS, connector={"epics": {"gateways": {}}}), id="live-only"),
+        pytest.param(
+            _section(VIRTUAL_ACCELERATOR, connector={"virtual_accelerator": {"port": 5064}}),
+            id="va-only",
+        ),
+        pytest.param(
+            _section(LIVE_STANDIN, connector={LIVE_STANDIN: {"port": 5074}}), id="standin-only"
+        ),
+        pytest.param(_section(MOCK), id="bare-mock"),
+    ],
+)
+def test_a_single_target_render_is_not_switch_capable(section):
+    """One configured target is nowhere to switch to."""
+    assert switch_capable(section) is False
+
+
+@pytest.mark.unit
+def test_the_live_and_va_pair_is_still_switch_capable():
+    """The original two-target shape answers as it always did."""
+    # Arrange
+    section = _section(
+        EPICS,
+        connector={
+            "epics": {"gateways": {"read_only": {"address": "gw"}}},
+            "virtual_accelerator": {"port": 5064},
+        },
+    )
+
+    # Act / Assert
+    assert switch_capable(section) is True
+
+
+@pytest.mark.unit
+def test_a_mock_carrying_other_blocks_is_still_not_switch_capable():
+    """The baseline-consistency guard survives the target count.
+
+    A ``mock`` deployment that happens to carry an ``epics`` and a
+    ``virtual_accelerator`` block enumerates two targets, but its baseline
+    resolves to a machine its own type never selected — treating it as
+    switchable would point a session at a real machine on the strength of a
+    stray block.
+    """
+    # Arrange
+    section = _section(
+        MOCK,
+        connector={
+            "mock": {},
+            "epics": {"gateways": {"read_only": {"address": "gw"}}},
+            "virtual_accelerator": {"port": 5064},
         },
     )
 

@@ -92,7 +92,7 @@ def test_each_user_row_carries_rights_auth_and_port(exemplar_lines: list[str]) -
     band rather than at whatever the profile happened to spell.
     """
     alice = line_with(exemplar_lines, "alice")
-    assert "readwrite · rights approval-gated" in alice
+    assert "readwrite · va rights approval-gated · standin rights approval-gated" in alice
     assert "password" in alice
     assert alice.rstrip().endswith(f":{_PORTS['web']}")
 
@@ -120,14 +120,21 @@ def test_the_card_shows_every_family_the_deployment_publishes(exemplar_lines: li
     assert numbers == sorted(numbers)
 
 
-def test_a_single_target_render_keeps_one_unqualified_write_right(
-    exemplar_lines: list[str],
-) -> None:
-    # The readwrite tier's render builds the simulator and nothing else, so a
-    # session on it reaches one machine. Naming that machine on the row would
-    # describe a target-by-target posture the render has no second half of.
-    alice = line_with(exemplar_lines, "alice")
-    assert "readwrite · rights approval-gated" in alice
+def test_a_single_target_render_keeps_one_unqualified_write_right() -> None:
+    # A render that reaches one machine names no target on the rights item —
+    # a target-by-target posture needs a second half the render does not have.
+    # Every one of the exemplar's write tiers now reaches two machines, so the
+    # one-target reading is pinned at the renderer's own seam instead.
+    from types import SimpleNamespace
+
+    from osprey.cli.profile_card import _write_rights
+
+    armed = SimpleNamespace(
+        config={"control_system.type": "mock", "control_system.writes_enabled": True}
+    )
+    cold = SimpleNamespace(config={"control_system.type": "mock"})
+    assert _write_rights(armed, {}, "readwrite") == ["rights approval-gated"]
+    assert _write_rights(cold, {}, "readonly") == []
 
 
 def test_a_switch_capable_render_answers_per_target(exemplar_lines: list[str]) -> None:

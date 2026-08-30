@@ -941,34 +941,24 @@ def _baseline_target(section):
 
 
 def _switch_capable(section):
-    """Whether a session on this deployment can be pointed at either target.
+    """Whether this deployment gives a session more than one target to point at.
 
     The stdlib restatement of ``osprey_connectors.types.switch_capable``, whose
-    three conditions are mirrored here in order: both targets resolve to a type
-    at all; the deployment's OWN type is what its baseline target resolves back
-    to, which is what keeps a mock that happens to carry an ``epics`` block out
-    of the two-target world; and both types carry a non-empty connector block,
-    since that block is what a connector is configured from.
+    two conditions are mirrored here in order: the deployment's OWN type is
+    what its baseline target resolves back to, which is what keeps a mock that
+    happens to carry an ``epics`` block out of the multi-target world; and at
+    least two targets are configured (:func:`_configured_targets`, the same
+    enumeration every roster walks).
 
-    The pair it asks about is ``live`` and ``va``, deliberately and in step with
-    the framework: the question is whether this deployment is in the switching
-    world at all, and the stand-in is a target a switching deployment may or may
-    not also carry. Which targets it then HAS is :func:`_configured_targets`.
+    Which two is deliberately not asked, in step with the framework: a
+    stand-in beside a simulator with no live machine authored is exactly the
+    switching world, and demanding the ``live``/``va`` pair would deny it.
     """
     if not isinstance(section, dict):
         return False
-    types_by_target = {target: target_type(section, target) for target in (TARGET_LIVE, TARGET_VA)}
-    if any(name is None for name in types_by_target.values()):
+    if target_type(section, _baseline_target(section)) != _resolved_type(section):
         return False
-    if types_by_target[_baseline_target(section)] != _resolved_type(section):
-        return False
-    connector = section.get("connector")
-    if not isinstance(connector, dict):
-        return False
-    return all(
-        isinstance(connector.get(name), dict) and bool(connector.get(name))
-        for name in types_by_target.values()
-    )
+    return len(_configured_targets(section)) >= 2
 
 
 def _configured_targets(section):

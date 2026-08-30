@@ -1080,6 +1080,30 @@ def test_both_targets_are_reachable_only_on_a_switch_capable_render(reader):
 
 
 @pytest.mark.unit
+def test_a_standin_beside_a_simulator_reaches_both_without_a_live_block(reader):
+    """Two configured targets are the switching world, whichever two they are.
+
+    Mirrors ``osprey_connectors.types.switch_capable``: a deployment rehearsing
+    on its stand-in beside the simulator has two machines a session can be
+    pointed at, and ``live`` — underivable here — is simply not among them.
+    """
+    section = {
+        "type": "live_standin",
+        "writes_enabled": False,
+        "connector": {
+            "virtual_accelerator": {"writes_enabled": True},
+            "live_standin": {"writes_enabled": True, "port": 5074},
+        },
+    }
+
+    assert reader.session_types(section) == {
+        "standin": "live_standin",
+        "va": "virtual_accelerator",
+    }
+    assert reader.most_restrictive_posture(section) is True
+
+
+@pytest.mark.unit
 def test_the_target_to_type_mapping_is_public(reader):
     """`osprey_writes_check` spells its refusal keys from this mapping.
 

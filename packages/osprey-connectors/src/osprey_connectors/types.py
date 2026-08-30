@@ -240,7 +240,7 @@ def baseline_target(section: Any) -> str:
 
 
 def switch_capable(section: Any) -> bool:
-    """Whether a deployment can be pointed at either target.
+    """Whether a deployment gives a session more than one target to be pointed at.
 
     The predicate itself, in the module that already owns "which connector type
     does a target mean here". Two layers ask the question and must never answer
@@ -250,28 +250,29 @@ def switch_capable(section: Any) -> bool:
     that promises a switch the runtime will not perform is worse than one that
     never mentions it.
 
-    Three conditions, none of which is sufficient alone:
+    Two conditions, neither sufficient alone:
 
-    1. **Both targets resolve** to a connector type at all
-       (:func:`resolve_target`, which raises rather than guess a live machine).
-    2. **The deployment's baseline target resolves back to its own control
+    1. **The deployment's baseline target resolves back to its own control
        system.** ``resolve_target`` answers ``live`` for configs with no
        business switching: a ``mock`` deployment that happens to carry an
        ``epics`` block resolves ``live`` to ``epics``, and treating that as
        switchable would point a session at a real machine the config never
        selected. Requiring :func:`baseline_target` to resolve back to
        ``control_system.type`` rules it out. The baseline is *resolved*, never
-       looked up among the two above: a deployment may be baselined on a third
-       target — a ``live_standin`` one is baselined on ``standin`` — and is no
-       less switchable for it.
-    3. **Both types have a non-empty connector block**, since that block is what
-       a connector is configured from. Conditions 1 and 3 are one question and
-       are asked as one, by :func:`target_configured`.
+       assumed to be ``live`` or ``va``: a ``live_standin`` deployment is
+       baselined on ``standin`` and is no less switchable for it.
+    2. **At least two targets are configured** (:func:`configured_targets`,
+       the same resolve-and-read-the-block enumeration every roster walks).
+       Which two is not this predicate's business: a facility rehearsing on a
+       stand-in beside its simulator, with no live machine authored yet, has
+       exactly the two-machine world the switch exists for — demanding the
+       ``live``/``va`` pair specifically would lock that deployment's posture
+       toggles for want of a machine it never claimed to have.
 
     Deliberately *not* checked: ``probe_channel``, the gateways table, the
     operator acknowledgment. Those decide whether a target may be switched *to*
     — a per-switch question answered with a reason the operator is told. This is
-    the coarser question of whether the deployment is in the two-target world.
+    the coarser question of whether the deployment is in the multi-target world.
 
     Args:
         section: The ``control_system:`` config section, in the same shape
@@ -279,8 +280,9 @@ def switch_capable(section: Any) -> bool:
             rendered config pass ``config.get("control_system")``.
 
     Returns:
-        ``True`` when both targets are configured and consistent. Never raises:
-        every malformed, partial or contradictory config is simply not capable.
+        ``True`` when the section is consistent and configures at least two
+        targets. Never raises: every malformed, partial or contradictory config
+        is simply not capable.
     """
     if not isinstance(section, dict):
         return False
@@ -291,7 +293,7 @@ def switch_capable(section: Any) -> bool:
             return False
     except ValueError:
         return False
-    return all(target_configured(section, target) for target in (TARGET_LIVE, TARGET_VA))
+    return len(configured_targets(section)) >= 2
 
 
 def target_configured(section: Any, target: Any) -> bool:
@@ -305,11 +307,12 @@ def target_configured(section: Any, target: Any) -> bool:
     configured from. A target that does not resolve is not one this deployment
     has, and an empty block is not a configured one.
 
-    The one spelling of a question every enumerator asks: :func:`switch_capable`
-    of the two switchable machines, :func:`configured_targets` of each machine
-    that is not the baseline, and the deployment layer's Reach Contracts of the
-    target a projected port would serve. Three predicates over one pair of keys
-    is three chances to disagree about which machines a deployment has.
+    The one spelling of a question every enumerator asks:
+    :func:`configured_targets` of each machine that is not the baseline —
+    which is also what :func:`switch_capable` counts — and the deployment
+    layer's Reach Contracts of the target a projected port would serve. Two
+    predicates over one pair of keys would already be two chances to disagree
+    about which machines a deployment has.
 
     Args:
         section: The ``control_system:`` config section, in the same shape
