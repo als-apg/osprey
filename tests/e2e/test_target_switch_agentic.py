@@ -158,10 +158,13 @@ VA_PROBE_CHANNEL = BENCH_PROBE_CHANNEL
 
 #: The one setpoint this module writes. Listed in the render's shipped
 #: ``data/channel_limits.json`` with a ±12 A band — which matters, because the
-#: overlay sets ``allow_unlisted_channels: false``: the limits hook sits AHEAD
-#: of the approval hook in the PreToolUse chain, so a write to an unlisted
-#: channel is denied before approval ever runs, and this module would then
-#: observe no hook event at all.
+#: overlay's deployment-wide ``allow_unlisted_channels: false`` answers the
+#: ``live`` target (no per-type block of its own), while the ``va`` baseline
+#: runs the preset's permissive ``virtual_accelerator`` block: the limits hook
+#: sits AHEAD of the approval hook in the PreToolUse chain, so on ``live`` a
+#: write to an unlisted channel is denied before approval ever runs, and this
+#: module would then observe no hook event at all. Every channel this lane
+#: writes is listed either way.
 CORRECTOR_SP = "SR:MAG:HCM:01:CURRENT:SP"
 SMOKE_WRITE_VALUE = 0.5
 
@@ -402,11 +405,18 @@ def _overlay_text(*, bench_port: int, va_port: int) -> str:
     ``target_switch.live_gateway_acknowledged``
         The operator acknowledgment naming this run's bench endpoint.
     ``limits_checking.allow_unlisted_channels``
-        The ONLY limits key set. The render already ships its own 2908-channel
-        ``data/channel_limits.json`` as ``database_path``; the template
-        hardcodes ``allow_unlisted_channels: true``, and the strict-limits gate
-        requires it falsy — so omitting this one line leaves the live target
-        blocked on a limits-posture reason and no switch is ever reachable.
+        The only DEPLOYMENT-WIDE limits key this overlay sets. The preset
+        already ships it ``false``, and the render keeps its own 2908-channel
+        ``data/channel_limits.json`` as ``database_path``; the line is restated
+        here so the lane pins the posture it needs rather than silently
+        inheriting whatever the preset's posture later becomes. The
+        strict-limits gate requires it falsy — true or absent leaves the live
+        target blocked on a limits-posture reason and no switch is ever
+        reachable. The overlay writes no per-type
+        ``connector.<type>.limits_checking`` block of its own: the preset's
+        permissive ``virtual_accelerator`` block rides along and answers for the
+        simulator, while ``live`` — an ``epics`` target with no block of its own
+        — is answered by this deployment-wide key.
 
     And the trims, which remove backends AND every surface that names them:
 
@@ -492,7 +502,10 @@ def _overlay_text(*, bench_port: int, va_port: int) -> str:
         ".use_name_server: true",
         "  # The operator acknowledgment, naming this run's live endpoint.",
         f"  control_system.target_switch.live_gateway_acknowledged: localhost:{bench_port}",
-        "  # The only limits key: the render's own 2908-channel database stays.",
+        "  # The only DEPLOYMENT-WIDE limits key. The preset already ships it",
+        "  # false; restated so the lane pins the posture rather than inheriting",
+        "  # it. No per-type epics block, so this is what answers for live. The",
+        "  # render's own 2908-channel database stays.",
         "  control_system.limits_checking.allow_unlisted_channels: false",
         "  claude_code.servers.bluesky.enabled: false",
         "  modules.web_terminals.enabled: false",
@@ -963,7 +976,9 @@ def test_the_roster_makes_va_the_baseline_and_live_reachable(
         f"the live target is not switchable: reason={rows['live']['reason']!r} "
         f"detail={rows['live']['detail']!r}. The overlay's acknowledgment "
         f"({switch_deployment.live_endpoint}) or its "
-        "limits_checking.allow_unlisted_channels: false line is no longer reaching the render."
+        "limits_checking.allow_unlisted_channels: false line — the only DEPLOYMENT-WIDE "
+        "limits key this lane sets, and with no per-type epics block the one that answers "
+        "for live — is no longer reaching the render."
     )
     assert rows["live"].get("probe_channel") == BENCH_PROBE_CHANNEL, (
         "the live target has no destination probe channel, so every switch toward it would "

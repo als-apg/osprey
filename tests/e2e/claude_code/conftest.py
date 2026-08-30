@@ -47,6 +47,13 @@ def _point_at_safety_limits_db(repo: Path) -> None:
     exists to prove an unlisted channel goes through under it. The pin selects
     the posture the scenarios describe rather than inheriting whichever one the
     preset ships.
+
+    The pin stays DEPLOYMENT-WIDE on purpose, not spelled per connector type:
+    this lane baselines on the live stand-in and its scenarios reach whichever
+    target the deployment happens to hold, so pinning
+    ``control_system.limits_checking`` covers all of them without enumerating
+    types. The per-type ``connector.<type>.limits_checking`` override is
+    exercised by the VA-substrate lane instead.
     """
     config_path = render_dir(repo) / "config.yml"
     config = yaml.safe_load(config_path.read_text())

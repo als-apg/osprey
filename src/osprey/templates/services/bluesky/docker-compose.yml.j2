@@ -542,8 +542,9 @@ services:
     environment:
       # Same CONFIG_FILE convention as the bridge: the per-put reference
       # monitor now runs in THIS container (the RunEngine lives here), so it
-      # reads control_system.type / writes_enabled / limits_checking from the
-      # mounted config.yml, not from the image's WORKDIR.
+      # reads control_system.type / writes_enabled / limits_checking /
+      # connector.<type>.limits_checking from the mounted config.yml, not
+      # from the image's WORKDIR.
       CONFIG_FILE: /app/project/config.yml
       TZ: {{ system.timezone }}
 {%- if svc.target %}

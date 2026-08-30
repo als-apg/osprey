@@ -165,14 +165,30 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # branch's recorded value but the one the merged preset actually hashes to:
     # a `live_standin` baseline with the strict limits pair, placed on the port
     # block. Deploy-visible for both reasons at once.
-    "control-assistant": "sha256:ea77ab02508d4b12f1c0dd1002770fde1070f0cdf0d182785535fcc4f175d8c6",
+    #
+    # Moved once more, and all six control-assistant entries together again,
+    # when the base preset gave the sandbox simulator a limits posture of its
+    # own: `control_system.connector.virtual_accelerator.limits_checking.
+    # enabled: true` and `...allow_unlisted_channels: true`. A per-type block
+    # replaces the deployment-wide pair for that connector type as a whole, so
+    # both leaves are stated. The strict pair itself is unchanged and still
+    # governs the two hardware-shaped targets, and `live_standin` deliberately
+    # gained no block of its own — a permissive one there would make
+    # `control_target_set standin` refuse the switch this preset exists to
+    # rehearse. Deploy-visible on the simulator: a write to a channel
+    # `data/channel_limits.json` does not list is now allowed on the `va`
+    # target where it was refused, so the staleness advisory firing on
+    # already-deployed control-assistant projects is the correct signal.
+    "control-assistant": "sha256:c8d4f280789d363bc418002b27e229c7fc80cedf6bac469cae42ace2318d2098",
     # Moved with the base above: `live_standin` baseline + strict limits pair.
+    # Moved again with the base: permissive `virtual_accelerator` limits block.
     "control-assistant-admin": (
-        "sha256:873fdd1f43c65c15d2021a7f4869704fb943a1be2a022c0e78cdc34b48449c2b"
+        "sha256:3f111428abad719585dfa50fc86f5f93fc1dd776ff648f1d99e16cdb8a10b84e"
     ),
     # Moved with the base above: `live_standin` baseline + strict limits pair.
+    # Moved again with the base: permissive `virtual_accelerator` limits block.
     "control-assistant-ariel": (
-        "sha256:0f91798146907adef25fd6cce8429488eb58af3d9f5eb6bc93cddb55c2aaaee7"
+        "sha256:25df29b2f388287941c9ce4a1a05531f2fffca06ea8e4229f66b40c9c820a85d"
     ),
     # The two operator tiers below moved together, and alone, when each gained
     # the single dotted key `services.graphdb.port_host: 7687` in its `config:`
@@ -230,12 +246,14 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # same commit contributed nothing, which is the digest being comment-blind
     # exactly as the note at the top of this table says.
     # Moved with the base above: `live_standin` baseline + strict limits pair.
+    # Moved again with the base: permissive `virtual_accelerator` limits block.
     "control-assistant-readonly": (
-        "sha256:f0c1eec4c586057778871c2b071b9ada0f8520c919b4e79567dfb0d8e5abf082"
+        "sha256:d6680f9c8c1e37d249cd3852f293ea9b81ae2ddaa56d5779c76fb350358221ef"
     ),
     # Moved with the base above: `live_standin` baseline + strict limits pair.
+    # Moved again with the base: permissive `virtual_accelerator` limits block.
     "control-assistant-readwrite": (
-        "sha256:89f05aa008a36ca39dbba53af6f07490d2e64e961f999b3933fc5b44e7491f65"
+        "sha256:7c2c8c4ed559f160a225ad7c42078585592b7fece43927454526ac8c9782ef97"
     ),
     # New with per-target write posture, not a moved entry: the rung between
     # the two flat tiers, armed on the virtual accelerator alone. It pins the
@@ -244,8 +262,9 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # it, so which machine the session is pointed at decides whether its writes
     # land.
     # Moved with the base above: `live_standin` baseline + strict limits pair.
+    # Moved again with the base: permissive `virtual_accelerator` limits block.
     "control-assistant-va-readwrite": (
-        "sha256:f95e419a917e20c9272bcb1431e33c8330988c7a9349d8ae261af8b8924b9cb7"
+        "sha256:30aac62fd5b81dfaaaf3ac75c3358278aadd33e35de1cad74d3ecd37262d2704"
     ),
     # Moved when the onboarding rewrite dropped the `facility` rule. The
     # wholesale comment rewrite that shipped alongside it contributed nothing:

@@ -541,11 +541,39 @@ keys:
       Escaped, so the vacuity cap does not apply.
   control_system.limits_checking: {evidence: 'limits_checking'}
   control_system.limits_checking.enabled:
-    evidence: 'get_config_value\("control_system\.limits_checking\.enabled", False\)'
+    evidence: '_limits_leaf\(block\.get\(enabled_leaf\)\)'
+    note: >-
+      Deployment-wide limits posture, and no longer read by a dotted
+      `get_config_value` call: every reader now goes through the per-type
+      resolver family in `osprey_connectors.types`, whose inherit branch falls
+      back to this deployment-wide block when the acting connector type wrote
+      no block of its own. Both scopes read their leaves through the one
+      shared helper `_block_limits_posture`, so this anchor is shared with the
+      per-type entries below; the per-type branch stays covered by the parent
+      entries' `limits = block[LIMITS_CHECKING_LEAF]` anchor. A leaf
+      absent here is unset; one PRESENT but not literally `true`/`false` makes
+      the block incomplete in either scope, so the posture answers neither
+      leaf, `_from_posture` returns the blocking failsafe and `osprey build`
+      refuses it via `incomplete_limits_blocks`.
   control_system.limits_checking.database_path:
     evidence: 'get_config_value\("control_system\.limits_checking\.database_path", None\)'
+    note: >-
+      Deliberately NOT per connector type: a deployment mounts one limits
+      database (`compose_generator.py`), so the path stays deployment-wide and
+      a per-type block that omits it is complete rather than half-written. The
+      one reader is `LimitsValidator._load_configured_database`, which is where
+      this call now lives; the dotted spelling is the anchor because it is the
+      only place the key is named.
   control_system.limits_checking.allow_unlisted_channels:
-    evidence: 'allow_unlisted_channels'
+    evidence: '_limits_leaf\(block\.get\(allow_unlisted_leaf\)\)'
+    note: >-
+      Anchored on the leaf read in `_block_limits_posture` rather than on the
+      bare word: `allow_unlisted_channels` now travels as a policy field and as
+      an answering key through the validator, the tool layer and the roster, so
+      a bare match no longer proves a config reader exists. That one reader
+      serves the per-type entries below too. Same absent/unreadable reading as
+      `enabled` above, and only literal `true` lets a write reach a channel the
+      limits database does not list.
   control_system.write_tools:
     rendered: false
     evidence: 'control_system\.get\("write_tools", \[\]\)'
@@ -685,6 +713,109 @@ keys:
       decision that cannot ship pre-made, so no shipped preset ever sets this
       one true; `control-assistant-readonly` writes it false into an applied
       project's config.yml, which is the one way a build produces it.
+  control_system.connector.virtual_accelerator.limits_checking:
+    rendered: false
+    evidence: 'limits = block\[LIMITS_CHECKING_LEAF\]'
+    note: >-
+      Per-connector-type override of the deployment-wide
+      `control_system.limits_checking` block above, and the reason that block
+      grew a per-type shape at all: a deployment running a live machine beside
+      a virtual accelerator holds one limits posture per machine, not one per
+      deployment. It overrides WHOLE -- a block that is present states both
+      leaves below and then answers alone, inheriting nothing -- so a global
+      relaxation meant for a simulator can never complete a half-written block
+      into permission on hardware. Only the two leaves below: `database_path`
+      stays deployment-wide because a deployment mounts one limits database.
+      Written commented in the templates that carry a virtual_accelerator
+      block, so no template render carries it and `rendered` stays false; the
+      shipped `control-assistant` preset DOES write both leaves into a
+      project's real config.yml, so an audit of a built deployment finds them.
+      The reader is `type_limits_posture` in `osprey_connectors.types`, and the
+      evidence is the line in it that takes this block out of the resolved
+      connector block -- disjoint from the deployment-wide read in
+      `_global_limits_posture` (`section[...]`), so each entry dies with exactly
+      its own reader. The epics and live_standin entries below cite the same
+      site on purpose: one type-keyed resolver serves every connector type, a
+      custom connector's dotted module path included. No `mock` or `doocs`
+      entry, because no template or preset writes either block.
+  control_system.connector.virtual_accelerator.limits_checking.enabled:
+    rendered: false
+    evidence: '_limits_leaf\(block\.get\(enabled_leaf\)\)'
+    note: >-
+      Whether limits checking runs for this connector type. Literal `true` or
+      `false` states a posture. A leaf PRESENT but spelled otherwise (a quoted
+      `'true'`, a `1`, the `None` a bare `enabled:` gives, an unexpanded
+      `${VAR}`) is unreadable, and a per-type block missing this leaf is
+      half-written: either way the block is incomplete, the posture answers
+      neither leaf, `_from_posture` returns the blocking failsafe and `osprey
+      build` refuses it by name via `incomplete_limits_blocks`. Reading an
+      unreadable leaf as merely unset would instead mean "no limits checking
+      configured" and wave every write through. The evidence is the shared leaf
+      read in `_block_limits_posture`, which answers for the deployment-wide
+      entry above too; the per-type branch is pinned by the parent entry's
+      block lookup.
+  control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels:
+    rendered: false
+    evidence: '_limits_leaf\(block\.get\(allow_unlisted_leaf\)\)'
+    note: >-
+      Whether channels the limits database does not list may be written for
+      this connector type. Same reading and the same shared reader as
+      `enabled` above, and write paths allow only on literal `true`.
+      This is the leaf the per-type block was added for: a facility running a
+      live machine beside a simulator could not hold `false` for the machine
+      and `true` for the simulator, and carried the relaxation deployment-wide
+      as a marked deviation instead.
+  control_system.connector.epics.limits_checking:
+    rendered: false
+    evidence: 'limits = block\[LIMITS_CHECKING_LEAF\]'
+    note: >-
+      Same block, same whole-block override semantics and the same single
+      type-keyed reader for the epics block, likewise written commented in the
+      templates that carry an epics block so no template render carries it.
+      Relaxing limits against a live machine is a facility decision that cannot
+      ship pre-made, so no shipped preset writes this one.
+  control_system.connector.epics.limits_checking.enabled:
+    rendered: false
+    evidence: '_limits_leaf\(block\.get\(enabled_leaf\)\)'
+    note: >-
+      Same leaf, same absent/unreadable reading and the same shared reader
+      for the epics block.
+  control_system.connector.epics.limits_checking.allow_unlisted_channels:
+    rendered: false
+    evidence: '_limits_leaf\(block\.get\(allow_unlisted_leaf\)\)'
+    note: >-
+      Same leaf, same absent/unreadable reading and the same shared reader
+      for the epics block. Setting it `true` is what makes a live target stop
+      counting
+      as strict, which the target-switch gate refuses by naming this key.
+  control_system.connector.live_standin.limits_checking:
+    rendered: false
+    evidence: 'limits = block\[LIMITS_CHECKING_LEAF\]'
+    note: >-
+      The live stand-in's own limits block. Never authored and never rendered
+      by a template: the build derives the stand-in's connector block from
+      `virtual_accelerator.live_standin` (see the parent entry above), and the
+      resolver reads a `limits_checking` block inside it exactly as it reads
+      one inside any other `control_system.connector.<type>` block. The
+      stand-in is a connector type of its own, so it does NOT inherit the
+      virtual_accelerator block a deployment wrote -- a rehearsal target that
+      silently took the simulator's relaxation would be the one deployment
+      where the posture an operator reads is not the posture that runs.
+  control_system.connector.live_standin.limits_checking.enabled:
+    rendered: false
+    evidence: '_limits_leaf\(block\.get\(enabled_leaf\)\)'
+    note: >-
+      One of the two leaves of the derived block a profile is free to write.
+      Same absent/unreadable reading and the same shared reader as the other
+      types.
+  control_system.connector.live_standin.limits_checking.allow_unlisted_channels:
+    rendered: false
+    evidence: '_limits_leaf\(block\.get\(allow_unlisted_leaf\)\)'
+    note: >-
+      The other leaf of the derived block. Same absent/unreadable reading and
+      the same shared reader; the shipped `control-assistant` preset writes no
+      live_standin block, so a stand-in target there answers the
+      deployment-wide posture and stays strict where the deployment is.
 
   # ── Control-system target switch ────────────────────────────────────
   control_system.target_switch:

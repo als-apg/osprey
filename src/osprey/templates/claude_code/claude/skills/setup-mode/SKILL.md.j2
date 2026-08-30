@@ -129,6 +129,7 @@ Expected subdirectories in `{{ agent_data_root }}/`:
 | `control_system.connector.<type>.writes_enabled` | Cold | Write posture for one connector type, which answers instead of the key above for that type — same rebuild and restart, and `permissions.deny` changes shape when the two targets stop agreeing |
 | `control_system.limits_checking.enabled` | Hot | Hooks re-read on each call |
 | `control_system.limits_checking.allow_unlisted_channels` | Hot | Hooks re-read on each call |
+| `control_system.connector.<type>.limits_checking.*` | Hot | Per-connector-type limits-checking posture, which answers instead of the keys above for that type — hooks re-read on each call |
 | `approval.mode` | Hot | Hooks re-read on each call |
 | `control_system.type` | Cold | Requires MCP server restart. To change target for this session, use `control_target_set` (run-time switch, asks for approval) — do not rebuild to switch target |
 | `control_system.target_switch.drain_timeout_s` | Cold | Read when a switch drains in-flight work, from the config the server cached at launch — requires MCP server restart |
