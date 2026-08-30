@@ -2,13 +2,18 @@
 #
 # OSPREY container entrypoint.
 #
-# Five steps, in this order and no other:
+# Six steps, in this order and no other:
 #
 #   1. Regen      Re-render the Claude Code artifacts that config.yml drives,
 #                 and only those that have actually drifted.
 #   2. Restore    Put volume-owned scaffold bodies back into the render, so the
 #                 agent runs the operator's claimed artifacts rather than the
 #                 framework's originals.
+#   2b. Seed      Write Claude Code's missing first-run state (onboarding,
+#                 workspace trust, key approval) so the first session opens on
+#                 the control-room prompt instead of the CLI's own setup — and
+#                 so the render's permissions.allow list, which Claude Code
+#                 holds until the folder is trusted, applies from the start.
 #   3. Join       Give this image an /etc/group entry for the group that owns
 #                 each bind-mounted directory the render named, and add
 #                 `osprey` to it — because `gosu` re-derives the dropped
@@ -145,6 +150,28 @@ try:
         log("no user-owned artifact bodies to restore")
 except Exception as exc:  # noqa: BLE001 — never block the container on restore
     log(f"WARNING: scaffold restore failed ({exc!r}); the image's own artifacts stay in place")
+
+# 2b. First-run state seed. A fresh claude-config volume is a brand-new
+#     machine to Claude Code, and its interactive first session would open on
+#     the CLI's own onboarding, the workspace-trust dialog, and (under a
+#     raw-key provider) a key-approval prompt — questions the render already
+#     answered. Trust is the load-bearing one: the rendered permissions.allow
+#     list is held until the folder is trusted. Merge-only: a returning
+#     operator's volume keeps every choice they made, and a file that does not
+#     parse is left alone. Ownership goes to `osprey` — this phase runs as
+#     root, and the volume is the dropped user's to rewrite (the state-zone
+#     hand-back below covers var/, not $CLAUDE_CONFIG_DIR, so the seed hands
+#     back its own writes).
+try:
+    from osprey.deployment.claude_state_seed import seed_claude_state
+
+    seeded = seed_claude_state(render_dir, owner_user="osprey")
+    if seeded:
+        log(f"seeded Claude Code first-run state: {'; '.join(seeded)}")
+    else:
+        log("Claude Code first-run state already in place")
+except Exception as exc:  # noqa: BLE001 — never block the container on the seed
+    log(f"WARNING: first-run state seed failed ({exc!r}); the first session will show the setup prompts")
 PY
 }
 
