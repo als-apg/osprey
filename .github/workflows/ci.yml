@@ -4380,7 +4380,7 @@ jobs:
       # losing half its tests reds the step rather than passing on what is left.
       run: |
         uv run pytest tests/va/e2e/test_target_switch.py tests/va/e2e/test_bench_ioc_live.py \
-          tests/va/e2e/test_live_standin.py \
+          tests/va/e2e/test_live_standin.py tests/va/e2e/test_per_target_posture.py \
           -v --tb=short --junitxml=junit-target-switch-e2e.xml
 
     - name: Fail the lane on any skipped test
