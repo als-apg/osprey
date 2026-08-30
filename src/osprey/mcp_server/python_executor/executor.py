@@ -347,13 +347,50 @@ def _create_execution_folder() -> Path:
     return folder
 
 
-def _load_limits_validator():
-    """Load LimitsValidator from config.  Returns None if disabled or unavailable."""
+def _load_limits_validator(target: str | None):
+    """Load the LimitsValidator for the target this run is stamped against.
+
+    The limits posture is per control target, so the policy embedded in the
+    sandbox has to be the posture of the machine the sandbox will reach —
+    resolved from the same target the stamp carries, not from a second look at
+    the config.
+
+    Args:
+        target: The session's control target, as
+            :func:`_apply_target_stamp` resolved it. A target that names no
+            machine on this deployment gets the deployment-wide block, which is
+            what the baseline is.
+
+    Returns:
+        An enforcing validator, a fail-safe one that blocks every write, or
+        ``None`` when limits checking is off for this posture or the
+        configuration could not be read at all.
+
+        A configuration broken beyond that documented-unavailable set — a
+        ``ValueError``, ``yaml.YAMLError`` or ``IsADirectoryError`` out of the
+        config loader — is deliberately left to propagate and fail the
+        execution (``execute_code`` turns it into a ``FAILURE_KIND_SETUP``
+        result) rather than running agent code unchecked against a deployment
+        that asked for checking. That is the opposite of
+        :func:`_target_is_resolvable`, which swallows everything on purpose:
+        an unstampable target costs the run only its target, while an
+        unreadable limits posture would cost it the guard.
+
+    Raises:
+        TypeError: Propagated from ``from_config`` — a call that states the
+            posture twice is a bug in this module, and answering it with a
+            ``None`` validator would run the sandbox unchecked on a deployment
+            that asked for checking.
+    """
     try:
         from osprey.connectors.control_system.limits_validator import LimitsValidator
 
-        return LimitsValidator.from_config()
-    except Exception:
+        return LimitsValidator.from_config(target=target)
+    except (ImportError, FileNotFoundError, KeyError, RuntimeError):
+        # Exactly the errors `from_config` documents as "configuration is not
+        # available", plus the import itself failing. A blanket `except` here
+        # would also swallow the TypeError it raises for a caller that states
+        # the posture twice, turning that bug into a silently unvalidated run.
         logger.debug("Limits validator not available", exc_info=True)
         return None
 
@@ -629,8 +666,10 @@ def _perimeter_denied_ports(env: Mapping[str, str]) -> tuple[int, ...]:
     list.
 
     Args:
-        env: The parent process's environment (``os.environ``), read BEFORE the
-            sandbox scrub — the child never receives either name.
+        env: The parent process's UNSCRUBBED environment (``os.environ``) — not
+            the scrubbed sandbox environment, which drops both names, so
+            reading from there would always yield an empty deny-list. The child
+            never receives either name.
 
     Returns:
         The denied ports, de-duplicated and ascending. Empty when the marker is
@@ -669,7 +708,6 @@ async def _execute_via_local(
     execution_mode: str,
     config: dict,
     execution_folder: Path,
-    limits_validator,
 ) -> ExecutionResult:
     """Execute code in a host subprocess with the ExecutionWrapper."""
     from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
@@ -682,6 +720,28 @@ async def _execute_via_local(
     # never re-derives the layout for itself.
     project_root = _resolve_project_root()
     osprey_config = load_osprey_config()
+
+    # Credential scrub plus the sandbox-only narrowing, in one shared helper, so
+    # this path and the visualization sandbox cannot drop different sets.
+    sandbox_env = scrub_sandbox_child_env(os.environ)
+    # The declared mode becomes a runtime property of the subprocess: the
+    # connector base class refuses writes and the EPICS connector stays on
+    # the read_only gateway when this says readonly, so a readonly run cannot
+    # write however the call is spelled — the pre-execution regex only ever
+    # saw the standard spellings.
+    sandbox_env["OSPREY_EXECUTION_MODE"] = execution_mode
+    # Which machine those writes and reads reach is the second runtime property
+    # of the subprocess, and it is stamped for the same reason as the mode: the
+    # sandbox is a fresh process that builds its own connector, so the target
+    # has to travel with it rather than being re-derived there.
+    #
+    # Resolved before the wrapper is built because the limits posture is per
+    # target: one read of the session's target record answers both what the
+    # sandbox is stamped with and which posture is compiled into it. Reading it
+    # twice would let a switch landing in between hand the sandbox one
+    # machine's policy and another machine's stamp.
+    control_target = _apply_target_stamp(sandbox_env)
+    limits_validator = _load_limits_validator(target=control_target)
 
     wrapper = ExecutionWrapper(
         limits_validator=limits_validator,
@@ -712,21 +772,6 @@ async def _execute_via_local(
     start_time = time.time()
 
     python_bin = str(resolve_agent_interpreter(project_root))
-
-    # Credential scrub plus the sandbox-only narrowing, in one shared helper, so
-    # this path and the visualization sandbox cannot drop different sets.
-    sandbox_env = scrub_sandbox_child_env(os.environ)
-    # The declared mode becomes a runtime property of the subprocess: the
-    # connector base class refuses writes and the EPICS connector stays on
-    # the read_only gateway when this says readonly, so a readonly run cannot
-    # write however the call is spelled — the pre-execution regex only ever
-    # saw the standard spellings.
-    sandbox_env["OSPREY_EXECUTION_MODE"] = execution_mode
-    # Which machine those writes and reads reach is the second runtime property
-    # of the subprocess, and it is stamped for the same reason as the mode: the
-    # sandbox is a fresh process that builds its own connector, so the target
-    # has to travel with it rather than being re-derived there.
-    control_target = _apply_target_stamp(sandbox_env)
 
     # A switch of the session target retires the connector host this run was
     # stamped against, so the switch tool has to be able to see that a run is
@@ -826,8 +871,11 @@ async def execute_code(
     """Execute Python code in a host subprocess.
 
     Reads ``config.yml`` for the execution timeout, creates an isolated
-    execution folder, loads the limits validator, and runs the wrapped code in
-    a subprocess. The subprocess backend is the only backend OSPREY ships.
+    execution folder, and runs the wrapped code in a subprocess. The limits
+    validator is loaded further in, where the session's control target is
+    resolved, so that one read answers both which machine the sandbox reaches
+    and which posture it enforces. The subprocess backend is the only backend
+    OSPREY ships.
 
     Args:
         code: Python source code to execute.
@@ -841,11 +889,8 @@ async def execute_code(
     try:
         config = _read_config()
         execution_folder = _create_execution_folder()
-        limits_validator = _load_limits_validator()
 
-        return await _execute_via_local(
-            code, execution_mode, config, execution_folder, limits_validator
-        )
+        return await _execute_via_local(code, execution_mode, config, execution_folder)
     except Exception as exc:
         logger.error(
             "Execution setup failed (%s: %s)",

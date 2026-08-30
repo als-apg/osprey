@@ -917,3 +917,90 @@ class TestLiveStandinLabel:
         assert metadata["live"]["real_machine"] is True
         assert metadata["standin"]["real_machine"] is True
         assert metadata["va"]["real_machine"] is False
+
+
+# ------------------------------------------------------ the limits posture
+
+
+class TestLimitsPostureRows:
+    """``limits_strict``: per target, for the same reason ``writes_permitted`` is.
+
+    Limits checking is per connector type, so a deployment can relax unlisted
+    channels on its simulator while its live machine refuses them. A single
+    flag for the deployment would tell an operator standing on hardware what is
+    true of the sandbox next to it.
+    """
+
+    async def test_each_row_carries_its_own_targets_limits_posture(
+        self, make_manager, monkeypatch, no_prober
+    ):
+        """A permissive simulator beside two strict machines: three answers, not one.
+
+        The deployment-wide block is strict and only the simulator's own block
+        relaxes it, so ``live`` and ``standin`` — neither of which wrote a block
+        — inherit the strict deployment-wide posture and the simulator answers
+        from its own.
+        """
+        raw = standin_config(
+            baseline_type="live_standin",
+            va_gateways=True,
+            strict_limits=True,
+            acknowledged=True,
+        )
+        raw["control_system"]["connector"]["virtual_accelerator"]["limits_checking"] = {
+            "enabled": True,
+            "allow_unlisted_channels": True,
+        }
+        manager = make_manager(raw=raw)
+        install_context(manager, monkeypatch)
+
+        rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
+
+        assert rows["live"]["limits_strict"] is True
+        assert rows["standin"]["limits_strict"] is True
+        assert rows["va"]["limits_strict"] is False
+
+    async def test_a_deployment_that_states_no_posture_is_not_strict(
+        self, make_manager, monkeypatch, no_prober
+    ):
+        """Silence is not a guarantee: no block anywhere means no row is strict.
+
+        A deployment that never configured limits checking has refused nothing,
+        and a row saying otherwise would advertise a promise no config line
+        backs.
+        """
+        manager = make_manager(raw=config_with_gateways())
+        install_context(manager, monkeypatch)
+
+        rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
+
+        assert [row["limits_strict"] for row in rows.values()] == [False, False]
+
+    def test_an_underivable_row_carries_the_deployment_wide_posture(self):
+        """``live`` on a mock deployment resolves to no type, so no block can answer.
+
+        The row is still there — the baseline always gets one — and the posture
+        it carries is the deployment-wide block, which is the only one such a
+        deployment has ever had. The simulator's own permissive block sits
+        beside it and does not answer for it.
+        """
+        raw = {
+            "control_system": {
+                "type": "mock",
+                "limits_checking": {"enabled": True, "allow_unlisted_channels": False},
+                "connector": {
+                    "mock": {"probe_channel": LIVE_PROBE},
+                    "virtual_accelerator": {
+                        "probe_channel": VA_PROBE,
+                        "limits_checking": {"enabled": True, "allow_unlisted_channels": True},
+                    },
+                },
+            },
+            "archiver": {"type": REAL_ARCHIVER},
+        }
+
+        rows = control_target.target_rows(raw, session_target="live", baseline="live")
+
+        assert rows["live"]["endpoints"] == {}
+        assert rows["live"]["limits_strict"] is True
+        assert rows["va"]["limits_strict"] is False

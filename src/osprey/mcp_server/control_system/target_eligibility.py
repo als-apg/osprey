@@ -121,8 +121,10 @@ from osprey_connectors.types import (
     TARGET_LIVE,
     TARGET_STANDIN,
     VIRTUAL_ACCELERATOR,
+    LimitsPosture,
     resolve_target,
     target_writes_enabled,
+    type_limits_posture,
 )
 
 # -- Config keys, spelled once ---------------------------------------------
@@ -132,8 +134,6 @@ from osprey_connectors.types import (
 ACK_KEY = "control_system.target_switch.live_gateway_acknowledged"
 #: The same key's leaf, derived from it so the two cannot drift apart.
 ACK_LEAF = ACK_KEY.rsplit(".", 1)[1]
-LIMITS_ENABLED_KEY = "control_system.limits_checking.enabled"
-ALLOW_UNLISTED_KEY = "control_system.limits_checking.allow_unlisted_channels"
 #: The build-profile key that stands the stand-in up. Named in a refusal so the
 #: operator is told the one line to delete, not merely which fact is true.
 STANDIN_PROFILE_KEY = "virtual_accelerator.live_standin"
@@ -544,12 +544,18 @@ def _is_set(value: Any) -> bool:
     return bool(value)
 
 
-def _strict_limits(config: Any) -> bool:
-    """The FR-8 limits posture: checking on, and unlisted channels refused."""
-    limits = _sub(_section(config, "control_system"), "limits_checking")
-    return bool(limits.get("enabled", False)) and not bool(
-        limits.get("allow_unlisted_channels", True)
-    )
+def _limits_posture(config: Any, connector_type: str) -> LimitsPosture:
+    """The limits posture *connector_type* runs under, with its answering key.
+
+    Per connector type rather than per deployment, for the reason the write
+    posture is: a deployment with a live machine beside a virtual accelerator
+    holds one posture per machine, and a relaxation written for the simulator
+    must not decide what the live gate sees. The resolved value travels with the
+    key that answered so a refusal sends the operator to the line they can
+    actually edit — the per-type one when a per-type block spoke, the
+    deployment-wide one when none did.
+    """
+    return type_limits_posture(_section(config, "control_system"), connector_type)
 
 
 def _selected_role_missing(
@@ -783,12 +789,18 @@ def evaluate_eligibility(
         # hardware behaviour on. The stand-in really is dialled, really refuses
         # out-of-limit writes and really carries `real_machine` — a rehearsal on
         # a permissive posture would rehearse the wrong facility.
-        if not _strict_limits(config):
+        posture = _limits_posture(config, connector_type)
+        if not posture.strict:
+            # Both keys off the posture, so a per-type block that answered is
+            # the line the operator is sent to and the deployment-wide one it
+            # overrides is not mentioned at all.
+            enabled_key = posture.key("enabled")
+            allow_unlisted_key = posture.key("allow_unlisted_channels")
             return Eligibility(
                 False,
                 REASON_LIMITS_POSTURE,
                 f"Switching to target {target!r} requires the strict limits posture: "
-                f"'{LIMITS_ENABLED_KEY}' true and '{ALLOW_UNLISTED_KEY}' false.",
+                f"'{enabled_key}' true and '{allow_unlisted_key}' false.",
             )
 
     if target == TARGET_LIVE and switching_away:

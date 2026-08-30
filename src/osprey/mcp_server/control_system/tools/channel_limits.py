@@ -7,12 +7,63 @@ import json
 import logging
 import re
 
+from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.server import mcp
 from osprey.mcp_server.errors import make_error
 
 logger = logging.getLogger("osprey.mcp_server.tools.channel_limits")
 
 VALID_FILTERS = frozenset({"writable", "read_only", "has_step_limit", "has_range"})
+
+#: The key a posture that names no connector type was read from. A validator
+#: built from a bare policy dict carries no key of its own; this is the honest
+#: answer for it, and it is the same fallback ``LimitsValidator.validate``
+#: quotes when it refuses such a write.
+DEPLOYMENT_WIDE_UNLISTED_KEY = "control_system.limits_checking.allow_unlisted_channels"
+
+
+def _session_target() -> str | None:
+    """The control target this server is on, or ``None`` if there is no record.
+
+    ``None`` is the single answer for every "there is no usable target" case —
+    no state file, an unreadable state directory, a record whose target is not
+    a non-empty string. Every one of them means the same thing to the caller:
+    ask :meth:`LimitsValidator.from_config` without a target and get the
+    deployment-wide block, which is the posture a target that resolves to
+    nothing gets anyway.
+
+    Reading is wrapped because :func:`target_state.state_dir` resolves a shared
+    data root and can raise, and a read-only metadata lookup must not fail on
+    the way to reporting what the deployment allows.
+    """
+    try:
+        record = target_state.read()
+    except Exception:  # noqa: BLE001 - a target that cannot be read is simply absent
+        logger.debug("Could not read the control-system target state", exc_info=True)
+        return None
+    if not isinstance(record, dict):
+        return None
+    target = record.get("target")
+    if not isinstance(target, str) or not target.strip():
+        return None
+    return target.strip()
+
+
+def _unlisted_policy(validator) -> tuple[bool | None, str]:
+    """The unlisted-channel posture as reported, plus the key that answered.
+
+    The value is the validator's own tri-state, verbatim and with no default:
+    ``True`` allows an unlisted channel, ``False`` refuses it, and ``None``
+    means no key states an answer — which also refuses. Defaulting an unstated
+    answer to ``True`` here would tell an operator their deployment permits
+    writes that every write path in fact blocks.
+
+    Returns:
+        An ``(allow_unlisted, answering_key)`` pair.
+    """
+    allow_unlisted = validator.policy.get("allow_unlisted_channels")
+    answering_key = validator.policy.get("allow_unlisted_key") or DEPLOYMENT_WIDE_UNLISTED_KEY
+    return allow_unlisted, answering_key
 
 
 def _build_summary(validator) -> dict:
@@ -28,6 +79,8 @@ def _build_summary(validator) -> dict:
     # How many channels resolve to confirmed writes
     confirmed = sum(1 for addr in validator.limits if validator.resolve_confirm(addr))
 
+    allow_unlisted, answering_key = _unlisted_policy(validator)
+
     return {
         "status": "success",
         "description": f"Limits database: {total} channels configured",
@@ -41,7 +94,14 @@ def _build_summary(validator) -> dict:
             "version": validator._raw_db.get("_version"),
         },
         "access_details": {
-            "policy": validator.policy,
+            # The posture's own fields are restated so that the two the caller
+            # reasons about are always present and always the tri-state, even
+            # for a validator whose policy dict was hand-built.
+            "policy": {
+                **validator.policy,
+                "allow_unlisted_channels": allow_unlisted,
+                "allow_unlisted_key": answering_key,
+            },
             "defaults": validator._raw_db.get("defaults"),
         },
     }
@@ -139,7 +199,11 @@ async def channel_limits(
                    has_step_limit, has_range.
 
     Returns:
-        JSON with channel limits configuration or database summary.
+        JSON with channel limits configuration or database summary. The
+        reported ``allow_unlisted_channels`` is the posture of the control
+        target this session is on and may be ``null`` — no config key states
+        an answer, and unlisted channels are refused; ``allow_unlisted_key``
+        names the key that answered.
     """
     # Validate parameter combinations
     if channels is not None and (pattern is not None or name_contains is not None):
@@ -185,7 +249,11 @@ async def channel_limits(
 
     validator = None
     if LimitsValidator is not None:
-        validator = LimitsValidator.from_config()
+        # The posture reported is the one this session writes under: a
+        # deployment may relax unlisted channels for its virtual accelerator
+        # alone, and reporting the deployment-wide answer on a VA session would
+        # describe a machine the caller is not on.
+        validator = LimitsValidator.from_config(target=_session_target())
 
     if validator is None:
         return json.dumps(
@@ -206,23 +274,26 @@ async def channel_limits(
 
     if channels is not None:
         # Lookup mode
+        allow_unlisted, answering_key = _unlisted_policy(validator)
         results = {}
         for addr in channels:
             if addr in validator.limits:
                 results[addr] = _build_channel_entry(validator, addr)
             else:
-                # Channel not in database — show what the policy would do
-                allow_unlisted = validator.policy.get("allow_unlisted_channels", True)
-                if allow_unlisted:
-                    results[addr] = {
-                        "in_database": False,
-                        "policy_action": "allowed (no limits enforced)",
-                    }
-                else:
-                    results[addr] = {
-                        "in_database": False,
-                        "policy_action": "BLOCKED (unlisted channels not allowed)",
-                    }
+                # Channel not in database — show what the policy would do.
+                # Only an explicit True is permission, exactly as the validator
+                # decides it: an unstated answer refuses, and says which key is
+                # unstated rather than reporting a write that would be blocked.
+                results[addr] = {
+                    "in_database": False,
+                    "allow_unlisted_channels": allow_unlisted,
+                    "allow_unlisted_key": answering_key,
+                    "policy_action": (
+                        "allowed (no limits enforced)"
+                        if allow_unlisted is True
+                        else f"BLOCKED ('{answering_key}' does not allow unlisted channels)"
+                    ),
+                }
 
         return json.dumps(
             {

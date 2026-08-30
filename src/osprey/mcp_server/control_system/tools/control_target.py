@@ -127,7 +127,7 @@ from osprey.mcp_server.http import (
     notify_target_switch_async,
 )
 from osprey_connectors.control_system.base import is_readonly_run
-from osprey_connectors.types import configured_targets
+from osprey_connectors.types import configured_targets, target_limits_posture
 
 logger = logging.getLogger("osprey.mcp_server.tools.control_target")
 
@@ -353,6 +353,16 @@ def target_rows(
             # simulator can be armed beside a live machine that is not. The
             # gateway those writes would leave by is `selected_role`.
             "writes_permitted": writes_permitted,
+            # This target's own limits posture, per connector type for the same
+            # reason the write posture is: a deployment may relax unlisted
+            # channels on its simulator while its live machine refuses them.
+            # Strict means limits checking on and unlisted channels explicitly
+            # refused; a target whose config states neither is not strict,
+            # because a deployment that stated nothing has refused nothing.
+            # Unlike `writes_permitted`, this is a deployment fact, not a
+            # session one: the store narrows what a session may write, never
+            # which channels a target's limits database governs.
+            "limits_strict": target_limits_posture(section, target).strict,
         }
         probe_channel = display.get("probe_channel") or ""
         if probe_channel:
@@ -407,8 +417,11 @@ async def control_target() -> str:
     reachability observation where it has one (``endpoint_tcp``, ``probed_at``,
     and ``stale`` once an observation is too old to stand); whether writes are
     permitted on that target, which is a per-target answer and not one flag for
-    the deployment; whether the target is the real machine; and the channel a
-    switch would read to prove the target is reachable.
+    the deployment; whether that target's limits posture is strict
+    (``limits_strict`` — limits checking on and channels the limits database
+    does not list refused), which is per-target for the same reason; whether
+    the target is the real machine; and the channel a switch would read to
+    prove the target is reachable.
 
     A target nobody has activated yet is described from configuration alone —
     that is what makes this answer correct before any switch has happened.
