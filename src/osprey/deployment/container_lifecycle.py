@@ -22,6 +22,7 @@ from typing import Any, NamedTuple
 
 import yaml
 
+from osprey.bluesky_bridge_connection import LANE_ONE, SECOND_LANE_KEYS, lane_env_prefix
 from osprey.cli import output
 from osprey.cli.phase_reporter import current_reporter
 from osprey.cli.phase_reporter import report_group as _report_group
@@ -185,8 +186,11 @@ _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
     # would let a launch armed for one machine be replayed against the other,
     # which is exactly the confusion the lane axis exists to remove. No Tiled
     # key: Tiled is the one shared component and lives on lane 1.
-    "bluesky_va": ("BLUESKY_VA_LAUNCH_TOKEN",),
-    "bluesky_live": ("BLUESKY_LIVE_LAUNCH_TOKEN",),
+    #
+    # Enumerated from the lane registry rather than listed, so a lane key added
+    # there mints its own token instead of silently sharing lane 1's — the
+    # entry every one-per-lane rule below is keyed on.
+    **{lane: (f"{lane_env_prefix(lane)}_LAUNCH_TOKEN",) for lane in SECOND_LANE_KEYS.values()},
     # The operator credential for the sidecar's WebAuthMiddleware gate. The
     # sidecar container declares OSPREY_TERMINAL_BIND_HOST, so an empty secret
     # refuses startup instead of minting a value nothing outside the container
@@ -434,14 +438,18 @@ _STORE_ISSUED_VARS: dict[str, StoreIssuedCredential] = {
 }
 
 # Service key of the Bluesky plan lane every project has had since the bridge
-# shipped, and the two keys the OPT-IN second lane can take. A lane is named
-# for the control-system target it serves, never for its index, so which of the
-# two exists depends on which target the deployment baseline is (see
-# ``_inject_bluesky``). Lane 1 keeps the historical key, which is what lets
-# every per-lane name below collapse to its pre-lane spelling on the
-# single-lane deployment every existing project is.
-_BLUESKY_LANE_ONE = "bluesky"
-_BLUESKY_SECOND_LANE_KEYS = ("bluesky_va", "bluesky_live")
+# shipped, and the keys the OPT-IN second lane can take. A lane is named for
+# the control-system target it serves, never for its index, so which one exists
+# depends on which target the deployment baseline is (see ``_inject_bluesky``).
+# Lane 1 keeps the historical key, which is what lets every per-lane name below
+# collapse to its pre-lane spelling on the single-lane deployment every
+# existing project is.
+#
+# Both come from ``osprey.bluesky_bridge_connection``, the one registry of lane
+# service keys. Provisioning a lane the build can render but this module cannot
+# name would deploy a bridge with no launch token minted for it.
+_BLUESKY_LANE_ONE = LANE_ONE
+_BLUESKY_SECOND_LANE_KEYS = tuple(SECOND_LANE_KEYS.values())
 
 
 def _bluesky_lane_keys(config: dict) -> list[str]:
@@ -1303,26 +1311,40 @@ def _refuse_invented_history(config: dict) -> None:
     Keyed on ``control_system.type`` alone, exactly as the other two sites are,
     rather than on ``deployed_services``: a step that provisions a service only
     cares whether the service is here, while this one is asking what the
-    deployment claims about itself. An attached project deploying no VA
+    deployment claims about itself. An attached project deploying no simulator
     container of its own still points its agent at one.
 
     Both keys are resolved through nested sections only, the way ``ConfigBuilder``
     reads a rendered ``config.yml`` — see
     :func:`~osprey.connectors.honesty.pairing_in_rendered_config`.
 
+    The refused machine is *named* in the message rather than assumed: the
+    pairing covers every type in
+    :data:`~osprey.connectors.types.INVENTED_HISTORY_TYPES`, so a deployment
+    baselined on the live stand-in must be told about the stand-in and not about
+    a virtual accelerator it does not run.
+
     :param config: Raw deploy config (the rendered project's ``config.yml``).
-    :raises RuntimeError: if the config pairs a virtual accelerator with the
-        mock archiver, an unset ``archiver.type`` included.
+    :raises RuntimeError: if the config pairs a machine this deployment stands up
+        for itself — a virtual accelerator or the live stand-in — with the mock
+        archiver, an unset ``archiver.type`` included.
     """
     from osprey.connectors.honesty import VA_MOCK_ARCHIVER_WHY, pairing_in_rendered_config
-    from osprey.connectors.types import VIRTUAL_ACCELERATOR
+    from osprey.connectors.types import resolve_control_system_type
 
     pairing = pairing_in_rendered_config(config)
     if not pairing.is_invented_history:
         return
 
+    # The same section, read by the same resolver ``pairing_in_rendered_config``
+    # just judged it with, so the message cannot name a machine other than the
+    # one that was refused.
+    control_system_type = resolve_control_system_type(
+        config.get("control_system") if isinstance(config, dict) else None
+    )
+
     raise RuntimeError(
-        f"This deployment's control_system.type is {VIRTUAL_ACCELERATOR!r} and its "
+        f"This deployment's control_system.type is {control_system_type!r} and its "
         f"archiver.type is {pairing.archiver_phrase} — {VA_MOCK_ARCHIVER_WHY}\n"
         f"Fix config.yml before deploying: under its `archiver:` section set `type:` "
         f"to a connector reading a store this stack writes, or set the `type:` under "
@@ -1330,7 +1352,7 @@ def _refuse_invented_history(config: dict) -> None:
         f"the stack deploy its own store, rebuild from a profile carrying a "
         f"`va_archiver:` block — the control-assistant preset ships one, and "
         f"`osprey up` then brings up the store and its recorder beside the "
-        f"virtual accelerator."
+        f"machine this deployment stands up."
     )
 
 
@@ -4098,37 +4120,55 @@ def _standin_bpm_error_spec(project_dir: Path) -> str:
     """The ``VA_BPM_ERRORS`` value the stand-in container will actually run.
 
     The compose template renders the stand-in's variable as
-    ``"${VA_STANDIN_BPM_ERRORS:-<shipped default>}"``, so this mirrors that
-    interpolation exactly: an override that is unset *or empty* leaves the
-    shipped default in force, because that is what the container gets. Reading
-    it any other way would seed a past for a perturbation the live half is not
-    serving.
+    ``"${VA_STANDIN_BPM_ERRORS-<default>}"``, so this mirrors that
+    interpolation exactly, in both of its halves.
+
+    **Presence, not truthiness.** ``-`` substitutes only for an UNSET variable,
+    so a chain that names the key with an EMPTY value gets the empty fault set
+    — an unperturbed stand-in, which is the documented way to run one. Rounding
+    that back up to the shipped default (as ``x or default`` did, mirroring the
+    older ``:-``) would seed a displaced past under a machine the live half is
+    serving clean.
+
+    **The fallback is lattice-conditional**, and the seed reaches it through
+    :func:`~osprey.cli.build_profile_va_faults.effective_standin_bpm_errors`,
+    which resolves the env chain and then asks the rule's one owner,
+    :func:`~osprey.services.virtual_accelerator.manifest.standin_defaults.default_bpm_errors_for_lattice`
+    — the same function the render writes the compose interpolation from. The
+    shipped offsets displace the builtin PyAT model, so a deployment whose chain
+    resolves ``VA_LATTICE`` elsewhere is handed the empty set by the render and
+    must be seeded as the unperturbed machine it is.
 
     The project's own ``.env`` is consulted first and the ambient environment
     second, the same order and for the same reason
     :func:`_archiver_seed_inputs` resolves ``VA_CHANNELS_FILE``: the build wrote
     the project's value there, and an exported one is the fallback for a deploy
-    whose environment carries it instead.
+    whose environment carries it instead. Only then does the rest of the env
+    chain and the lattice-conditional default get a say.
     """
-    from osprey.cli.build_profile_va_faults import STANDIN_BPM_ERRORS_ENV
-    from osprey.services.virtual_accelerator.manifest.standin_defaults import (
-        STANDIN_BPM_ERRORS_DEFAULT,
+    from osprey.cli.build_profile_va_faults import (
+        STANDIN_BPM_ERRORS_ENV,
+        effective_standin_bpm_errors,
     )
 
     env = parse_dotenv_file(project_dir / ".env") if (project_dir / ".env").is_file() else {}
-    override = env.get(STANDIN_BPM_ERRORS_ENV, os.environ.get(STANDIN_BPM_ERRORS_ENV, "")).strip()
-    return override or STANDIN_BPM_ERRORS_DEFAULT
+    for source in (env, os.environ):
+        if STANDIN_BPM_ERRORS_ENV in source:
+            return source[STANDIN_BPM_ERRORS_ENV].strip()
+    return effective_standin_bpm_errors(project_dir, project_dir / BUILD_DIRNAME)
 
 
 def _standin_seed_transform(config: dict, project_dir: Path, addresses: Sequence[str]):
     """The transform that makes the seeded past belong to the *stand-in*.
 
-    The archive belongs to the machine, and a model has no past. Where a
-    deployment's ``live`` target is a stand-in, the recorder samples the
-    stand-in — so the deploy-time seed has to carry the stand-in's systematic
-    BPM offsets too, or the store would hold a clean machine's history under a
-    displaced machine's present and every trend across the seam would show a
-    step no operator caused.
+    The archive belongs to the machine it records, and a model has no past. A
+    deployment that records its own store beside a stand-in records the
+    stand-in — the ``standin`` target, dialled through its own
+    ``control_system.connector.live_standin`` block, never the facility's
+    authored ``epics`` block — so the deploy-time seed has to carry the
+    stand-in's systematic BPM offsets too, or the store would hold a clean
+    machine's history under a displaced machine's present and every trend
+    across the seam would show a step no operator caused.
 
     **Offset level, not sample level.** The seeded past carries the same
     systematic offsets as the stand-in's readout, not the same samples: the
@@ -4143,23 +4183,28 @@ def _standin_seed_transform(config: dict, project_dir: Path, addresses: Sequence
     is applied by the container and skipped here, with a warning that names it.
 
     :param config: The rendered deploy config, read only through
-        :func:`~osprey_connectors.standin.live_standin_port` so the seed and the
-        roster's label answer "is there a stand-in" from one place.
+        :func:`~osprey_connectors.standin.archive_belongs_to_standin` — the one
+        predicate the recorder's compose entry and its enablement gate bind to,
+        so the seeded half and the recorded half of one collection cannot answer
+        "whose past is this" differently. Its two conjuncts are both needed
+        here: a deployment that stood a stand-in up but runs no recorder never
+        samples it, and seeding that store with a displaced machine's past would
+        describe a machine nothing in this deployment records.
     :param addresses: The channel set being seeded. Offsets are kept only for
         addresses in it, so the recorded fingerprint describes what the store
         actually holds rather than what the spec asked for.
     :returns: ``(value_transform, transform_fingerprint)`` for
         :func:`~osprey_connectors.simulation.archiver_seed.seed_base`, both
-        ``None`` when the deployment has no stand-in or the stand-in perturbs
+        ``None`` when the archive is not the stand-in's or the stand-in perturbs
         none of the seeded channels — in which case the seed and its fingerprint
         are byte-identical to a deployment without one.
     """
     from osprey.services.virtual_accelerator.manifest.standin_defaults import (
         parse_bpm_error_spec,
     )
-    from osprey_connectors.standin import live_standin_port
+    from osprey_connectors.standin import archive_belongs_to_standin
 
-    if live_standin_port(config) is None:
+    if not archive_belongs_to_standin(config):
         return None, None
 
     served = set(addresses)
@@ -4223,7 +4268,7 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
         transform_fingerprint)``. ``engine`` is ``None`` and ``boot_values``
         empty for a project with no machine model — every channel is then
         procedural, which is a valid configuration, not a fault. The last two
-        are ``None`` unless the deployment's ``live`` target is a stand-in.
+        are ``None`` unless this deployment's archive is its stand-in's.
     """
     from osprey.services.virtual_accelerator.manifest.build import build_manifest
     from osprey.services.virtual_accelerator.manifest.loaders import (

@@ -41,6 +41,17 @@ BASELINE_LINE = "Target: deployment baseline (state unavailable)"
 
 LIVE_ENDPOINT = "pva://live-gw.example.org:5075"
 VA_ENDPOINT = "pva://127.0.0.1:5074"
+STANDIN_ENDPOINT = "pva://127.0.0.1:5077"
+
+#: The metadata a writer records for the stand-in slot. Written into the record
+#: by the tests that need it rather than into :func:`state_record`, because a
+#: deployment without a ``live_standin`` block records no such slot at all.
+STANDIN_META = {
+    "label": "LIVE MACHINE (stand-in)",
+    "endpoint": STANDIN_ENDPOINT,
+    "real_machine": False,
+    "probe_channel": "SR:BEAM:CURRENT",
+}
 
 HOOK_CONFIG = {
     "server_prefixes": ["mcp__controls__", "mcp__workspace__"],
@@ -566,6 +577,73 @@ def test_switch_to_the_simulation_carries_no_live_machine_warning(
     assert f"Destination: Virtual accelerator ({VA_ENDPOINT})" in lines
     assert "Destination probe channel: VA:BEAM:CURRENT" in lines
     assert not any("LIVE MACHINE" in line for line in lines)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("real_machine", [False, True], ids=["not-the-machine", "the-machine"])
+def test_switch_to_the_standin_names_the_label_the_writer_recorded(
+    approval, state_dir, synthetic_chain, alive_everything, real_machine
+):
+    """A third target needs no third branch: the describer reads the record.
+
+    ``standin`` is its own destination now, and this hook has no map from a
+    target name to a label — it prints the one the state file's single writer
+    minted, exactly as it does for ``live`` and ``va``. That is what lets a new
+    machine reach the prompt with the render that introduced it, rather than
+    waiting for a hook to learn its name.
+
+    The warning is driven by the record for the same reason, so it is checked
+    both ways round: whether a stand-in counts as the real machine is the
+    writer's ruling, and a describer that decided it here would be a second
+    opinion about a machine somebody can move.
+    """
+    targets = state_record()["targets"]
+    targets["standin"] = dict(STANDIN_META, real_machine=real_machine)
+    write_state(state_dir, target="va", targets=targets)
+
+    lines = approval._describe_control_target_set({"target": "standin"}, {})
+
+    assert f"Destination: LIVE MACHINE (stand-in) ({STANDIN_ENDPOINT})" in lines
+    assert "Destination probe channel: SR:BEAM:CURRENT" in lines
+    warned = any("THIS SWITCH POINTS THE SESSION AT THE LIVE MACHINE" in line for line in lines)
+    assert warned is real_machine
+    assert not any("does not record whether this destination" in line for line in lines)
+
+
+@pytest.mark.unit
+def test_a_standin_destination_on_a_record_that_has_no_such_slot_is_reported(
+    approval, state_dir, synthetic_chain, alive_everything
+):
+    """A deployment that stood up no stand-in records no slot for one.
+
+    The switch would be refused by the tool itself; the prompt's job is to say
+    it cannot show an endpoint rather than to invent one from the target name.
+    """
+    write_state(state_dir, target="va")
+
+    lines = approval._describe_control_target_set({"target": "standin"}, {})
+
+    assert lines == [
+        "Destination: standin — the state file records no metadata for it. "
+        "Approval is not blocked; the endpoint cannot be shown."
+    ]
+
+
+@pytest.mark.unit
+def test_a_standin_baseline_deployment_names_its_lanes_for_the_standin(approval):
+    """The lane baseline follows the deployment's own connector type.
+
+    A lane block that declares no ``target`` serves the deployment baseline, and
+    a ``live_standin`` deployment's baseline is ``standin``. Answering ``live``
+    here would name the facility's own machine over a deployment that is not
+    wired to it — the one direction a wrong answer must never go.
+    """
+    standin = {"control_system": {"type": "live_standin"}}
+    facility = {"control_system": {"type": "epics"}}
+
+    assert approval._baseline_target(standin) == "standin"
+    assert approval._baseline_target(facility) == "live"
+    assert approval._rendered_lanes(standin) == [("bluesky", "standin")]
 
 
 @pytest.mark.unit

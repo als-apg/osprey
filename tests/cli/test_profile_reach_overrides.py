@@ -60,13 +60,24 @@ HOST = {
 }
 
 #: An attached render that switches every consumer on.
+#:
+#: The virtual accelerator's consumer is keyed on the ``va`` target RESOLVING
+#: and its connector block being configured, not on ``control_system.type`` —
+#: a render is a client of the simulator because it carries the block a VA
+#: connector is built from, whichever target the deployment boots on. So the
+#: block is spelled here the way the build writes it (``address``, the
+#: connector's own leaf), and a fixture that named only the type would switch
+#: the consumer off and quietly drop the port from the projection.
 ALL_ON = {
     "ariel": {"database": {}, "search_modules": {"hybrid": {"enabled": True}}},
     "claude_code": {
         "servers": {"bluesky": {"enabled": True}},
         "telemetry": {"enabled": True, "backend": "openobserve"},
     },
-    "control_system": {"type": "virtual_accelerator"},
+    "control_system": {
+        "type": "virtual_accelerator",
+        "connector": {"virtual_accelerator": {"gateways": {"read_only": {"address": "localhost"}}}},
+    },
 }
 
 

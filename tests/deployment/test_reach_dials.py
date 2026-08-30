@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import pytest
 
+from osprey.bluesky_bridge_connection import SECOND_LANE_KEYS, lane_env_prefix
 from osprey.deployment.reach import REACH_CONTRACTS, reach_dials
 
 
@@ -108,13 +109,19 @@ class TestBluesky:
 
 
 @pytest.mark.parametrize(
-    ("lane", "prefix"), [("bluesky_va", "BLUESKY_VA"), ("bluesky_live", "BLUESKY_LIVE")]
+    ("lane", "prefix"),
+    [(lane, lane_env_prefix(lane)) for lane in sorted(SECOND_LANE_KEYS.values())],
 )
 class TestSecondLane:
     """A second plan lane resolves like ``resolve_bridge_url(lane)``: its own
     ``<PREFIX>_BRIDGE_URL`` outright, else its published port on loopback —
     and, having no ``bluesky.bridge_url`` and no default of its own, nothing
-    at all without a port."""
+    at all without a port.
+
+    Parametrized from :data:`SECOND_LANE_KEYS`, the one registry of lane keys,
+    so a lane added there for a new control target — the stand-in's — is dialed
+    here without this file naming it.
+    """
 
     def test_follows_the_lanes_published_port(self, lane, prefix, monkeypatch):
         monkeypatch.delenv(f"{prefix}_BRIDGE_URL", raising=False)
@@ -183,6 +190,54 @@ class TestVirtualAccelerator:
         from osprey_connectors.control_system.va_connector import DEFAULT_VA_PORT
 
         assert _dial("virtual_accelerator", {}) == ("localhost", DEFAULT_VA_PORT)
+
+
+class TestLiveStandin:
+    """The ``standin`` target's own block, dialed the EPICS connector's way.
+
+    ``control_system.connector.live_standin`` is what the ``live_standin`` type
+    is configured from, and the facility's ``epics`` block — the ``live``
+    target — is never read here: the stand-in is a third machine, not a mode of
+    the first.
+    """
+
+    @staticmethod
+    def _config(standin: dict, epics: dict | None = None) -> dict:
+        connector: dict = {"live_standin": standin}
+        if epics is not None:
+            connector["epics"] = epics
+        return {"control_system": {"connector": connector}}
+
+    def test_follows_the_read_only_gateway(self):
+        config = self._config(
+            {"gateways": {"read_only": {"address": "localhost", "port": 5074}}},
+            epics={"gateways": {"read_only": {"address": "gateway.facility.org", "port": 5064}}},
+        )
+        assert _dial("live_standin", config) == ("localhost", 5074)
+
+    def test_a_gateway_naming_no_port_falls_back_to_the_ca_default(self):
+        """The connector's own fallback (``_configure_epics_env``), so the dial
+        is the endpoint it would really use rather than a guess."""
+        from osprey.deployment.reach import _EPICS_DEFAULT_CA_PORT
+
+        config = self._config({"gateways": {"read_only": {"address": "localhost"}}})
+        assert _dial("live_standin", config) == ("localhost", _EPICS_DEFAULT_CA_PORT)
+
+    def test_no_gateways_is_nothing_to_dial(self):
+        assert _dial("live_standin", self._config({"probe_channel": "X:Y"})) is None
+        assert _dial("live_standin", {}) is None
+
+    def test_the_facility_block_is_not_the_standins(self):
+        """An ``epics`` block alone is a deployment with a live machine and no
+        stand-in connector — nothing for this dial to answer with."""
+        epics_only = {
+            "control_system": {
+                "connector": {
+                    "epics": {"gateways": {"read_only": {"address": "localhost", "port": 5074}}}
+                }
+            }
+        }
+        assert _dial("live_standin", epics_only) is None
 
 
 def test_every_consumer_declares_a_dial():

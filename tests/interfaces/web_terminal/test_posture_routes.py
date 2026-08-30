@@ -188,20 +188,25 @@ def _write_shaped_config(tmp_path, section):
 
 
 #: The Channel Access port a stand-in serves, and the port the build points the
-#: ``epics`` gateways at when it stands one up.
+#: ``live_standin`` connector block's gateways at when it stands one up.
 STANDIN_PORT = 5074
 
 
 def _write_standin_config(tmp_path, *, control_type):
     """Write the config.yml shape a deployment running a stand-in renders.
 
-    The sandbox simulator is the deployment's own ``type``, and the ``epics``
-    block — the one non-simulated entry, which is what makes ``live`` resolve to
-    it — carries gateways pointed at ``localhost:<stand-in port>``. Whether the
-    BASELINE is ``live`` or ``va`` is exactly what *control_type* moves, which
-    is what lets one shape cover both baseline labels.
+    The stand-in is its own control target, so it is its own connector block:
+    ``live_standin``, with gateways on ``localhost:<stand-in port>``. ``epics``
+    beside it is the FACILITY's machine, dialled off-host — the two are separate
+    targets here, and ``live`` never means the stand-in.
+
+    Which target the deployment is BASELINED on is exactly what *control_type*
+    moves (``live_standin`` → ``standin``, ``virtual_accelerator`` → ``va``,
+    ``epics`` → ``live``), which is what lets one shape cover every baseline
+    label.
     """
-    gateway = {"address": "localhost", "port": STANDIN_PORT, "use_name_server": True}
+    standin_gateway = {"address": "localhost", "port": STANDIN_PORT, "use_name_server": True}
+    facility_gateway = {"address": "gw", "port": 5064, "use_name_server": True}
     path = tmp_path / "config.yml"
     path.write_text(
         yaml.safe_dump(
@@ -212,8 +217,14 @@ def _write_standin_config(tmp_path, *, control_type):
                     "connector": {
                         "epics": {
                             "gateways": {
-                                "read_only": dict(gateway),
-                                "write_access": dict(gateway),
+                                "read_only": dict(facility_gateway),
+                                "write_access": dict(facility_gateway),
+                            }
+                        },
+                        "live_standin": {
+                            "gateways": {
+                                "read_only": dict(standin_gateway),
+                                "write_access": dict(standin_gateway),
                             }
                         },
                         "virtual_accelerator": {"simulation_file": "data/sim.json"},
@@ -261,21 +272,32 @@ def only_alive(*pids):
         yield
 
 
-#: The per-target display metadata a plain deployment's controls server mints.
+#: Representative per-target display metadata, in the shape a plain
+#: deployment's controls server mints. Exact only in its SLOT STRUCTURE: one
+#: entry per target name, and the ``standin`` slot of a deployment that built no
+#: stand-in is present and empty (no endpoint) rather than absent. The values
+#: inside are deliberately not the real mint's wording — the route under test
+#: echoes whatever its writer published and derives nothing, so a fixture that
+#: reads differently from the production label is the point rather than drift.
 DEFAULT_TARGET_META = {
     "live": {"label": "live machine", "endpoint": "gw:5064", "real_machine": True},
     "va": {"label": "virtual accelerator", "endpoint": "localhost:5074"},
+    "standin": {"label": "LIVE MACHINE", "endpoint": "", "real_machine": True},
 }
 
-#: What that server mints instead where the deployment's live target is the
-#: stand-in: a live target in every respect but the name on the label.
+#: What that server mints instead where the deployment did stand a stand-in up:
+#: a third target beside the other two, real-machine posture like ``live`` and
+#: differing from it only in the name on the label. ``live`` keeps its plain
+#: label here — it names the facility's own machine and never carries the
+#: parenthesis, whatever else the deployment runs.
 STANDIN_TARGET_META = {
-    "live": {
+    "live": {"label": "LIVE MACHINE", "endpoint": "gw:5064", "real_machine": True},
+    "va": {"label": "virtual accelerator (simulation)", "endpoint": "localhost:5064"},
+    "standin": {
         "label": "LIVE MACHINE (stand-in)",
-        "endpoint": "localhost:5074",
+        "endpoint": f"localhost:{STANDIN_PORT}",
         "real_machine": True,
     },
-    "va": {"label": "virtual accelerator (simulation)", "endpoint": "localhost:5064"},
 }
 
 
@@ -1273,11 +1295,11 @@ class TestSessionTargetPosture:
 class TestSessionTargetLabel:
     """``session_target_label`` — what the badge CALLS the target it names.
 
-    ``session_target`` is a key: ``live`` and ``va``, the words the rest of the
-    system switches on. It is not an identity. A deployment whose ``live``
-    target is a stand-in — a second virtual accelerator the ``epics`` gateways
-    really dial — is still on ``live`` in every respect that matters for safety,
-    and telling an operator only "live" there would be true but not honest.
+    ``session_target`` is a key: ``live``, ``va`` and ``standin``, the words the
+    rest of the system switches on. It is not an identity. ``standin`` — the
+    soft IOC a deployment stands up for itself — is a real machine in every
+    respect that matters for safety, and telling an operator only "standin"
+    there would be true but not honest.
 
     So the label travels separately, and it is never derived twice. Where a
     controls server has published a record, the badge shows the label THAT
@@ -1294,7 +1316,7 @@ class TestSessionTargetLabel:
         client.app.state.config_path = _write_shaped_config(tmp_path, MIXED_RENDER)
         write_target_state(
             shared_root,
-            target="live",
+            target="standin",
             owner_ppid=CLAUDE_PID,
             server_pid=5150,
             targets=STANDIN_TARGET_META,
@@ -1306,7 +1328,36 @@ class TestSessionTargetLabel:
         assert body["session_target_label"] == "LIVE MACHINE (stand-in)"
         assert body["target_source"] == "session"
         # The key the rest of the system switches on is untouched by the label.
-        assert body["session_target"] == "live"
+        assert body["session_target"] == "standin"
+
+    def test_a_standin_record_names_the_standin_slot_not_the_live_one(
+        self, client, tmp_path, shared_root
+    ):
+        """The badge's ``data-target`` is ``standin``, and the label is its own.
+
+        The record carries all three slots, and ``live`` in it is the facility's
+        own machine under its plain label. A session on the stand-in must read
+        its own slot: the pair the badge paints is (``data-target="standin"``,
+        ``LIVE MACHINE (stand-in)``), which is what makes the CSS give it the
+        real-machine dot colours rather than the simulator's grey.
+        """
+        client.app.state.config_path = _write_shaped_config(tmp_path, MIXED_RENDER)
+        write_target_state(
+            shared_root,
+            target="standin",
+            owner_ppid=CLAUDE_PID,
+            server_pid=5150,
+            targets=STANDIN_TARGET_META,
+        )
+
+        with attached_pty(client, SESSION_A), synthetic_process_tree(), only_alive(5150):
+            body = client.get("/api/terminal/posture", params={"session_id": SESSION_A}).json()
+
+        assert body["session_target"] == "standin"
+        assert body["session_target_label"] == "LIVE MACHINE (stand-in)"
+        assert body["target_source"] == "session"
+        # Not the neighbouring live slot, which the same record also carries.
+        assert body["session_target_label"] != STANDIN_TARGET_META["live"]["label"]
 
     def test_a_record_without_metadata_falls_back_to_the_target_name(
         self, client, tmp_path, shared_root
@@ -1342,12 +1393,31 @@ class TestSessionTargetLabel:
         assert body["target_source"] == "baseline"
         assert body["session_target_label"] == "virtual accelerator (simulation)"
 
-    def test_a_live_baseline_on_a_standin_render_says_so(self, client, tmp_path, shared_root):
+    def test_a_standin_baseline_says_so(self, client, tmp_path, shared_root):
         """The case the whole label exists for, reached without any record.
 
-        The gateways dial ``localhost:<stand-in port>``, so the target an
-        operator would be on at spawn is the stand-in — and the fresh badge says
-        ``LIVE MACHINE (stand-in)`` before a single prompt has been sent.
+        A deployment baselined on its stand-in spawns sessions there, so the
+        target an operator is on before a single prompt has been sent is
+        ``standin`` — and the fresh badge says ``LIVE MACHINE (stand-in)``.
+        """
+        client.app.state.config_path = _write_standin_config(tmp_path, control_type="live_standin")
+
+        with attached_pty(client, SESSION_A), synthetic_process_tree(), only_alive():
+            body = client.get("/api/terminal/posture", params={"session_id": SESSION_A}).json()
+
+        assert body["session_target"] == "standin"
+        assert body["target_source"] == "baseline"
+        assert body["session_target_label"] == "LIVE MACHINE (stand-in)"
+
+    def test_a_live_baseline_beside_a_standin_is_the_facility_machine(
+        self, client, tmp_path, shared_root
+    ):
+        """``live`` never borrows the stand-in's parenthesis.
+
+        The same render, baselined on ``epics`` instead: the deployment does run
+        a stand-in, but this session is on the facility's own machine and is
+        told so plainly. The direction this must never fail in is the other one
+        — an operator on hardware told they are on a stand-in.
         """
         client.app.state.config_path = _write_standin_config(tmp_path, control_type="epics")
 
@@ -1356,7 +1426,7 @@ class TestSessionTargetLabel:
 
         assert body["session_target"] == "live"
         assert body["target_source"] == "baseline"
-        assert body["session_target_label"] == "LIVE MACHINE (stand-in)"
+        assert body["session_target_label"] == "LIVE MACHINE"
 
     def test_a_render_that_is_not_a_mapping_falls_back_to_the_target_name(self, client, tmp_path):
         """A malformed config still renders a badge, naming what it can."""
@@ -1393,10 +1463,10 @@ class TestSessionTargetLabel:
         """One parse of config.yml per request, label included.
 
         The badge polls this route every few seconds per open card, and the
-        label is derived from the WHOLE render (the stand-in lives under
+        label is derived from the WHOLE render (the stand-in's port lives under
         ``services:``) — which is exactly the shape that invites a second read.
         """
-        config_path = _write_standin_config(tmp_path, control_type="epics")
+        config_path = _write_standin_config(tmp_path, control_type="live_standin")
         client.app.state.config_path = config_path
         reads = []
         real_read_text = Path.read_text
@@ -1429,7 +1499,7 @@ class TestSessionTargetLabel:
         client.app.state.config_path = _write_shaped_config(tmp_path, MIXED_RENDER)
         write_target_state(
             shared_root,
-            target="live",
+            target="standin",
             owner_ppid=CLAUDE_PID,
             server_pid=5150,
             targets=STANDIN_TARGET_META,
@@ -1449,7 +1519,7 @@ class TestSessionTargetLabel:
         ):
             body = client.get("/api/terminal/posture", params={"session_id": SESSION_A}).json()
 
-        assert body["session_target"] == "live"
+        assert body["session_target"] == "standin"
         assert body["session_target_label"] == "LIVE MACHINE (stand-in)"
         assert len(scans) == 1, f"the target was resolved {len(scans)} times"
 

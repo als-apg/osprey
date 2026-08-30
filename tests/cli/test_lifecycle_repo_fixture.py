@@ -233,7 +233,9 @@ def test_profile_resolves_and_validates(lifecycle_repo: Path) -> None:
 
     assert profile.name == "Als Exemplar"
     assert profile_dir == lifecycle_repo
-    assert profile.config["control_system.type"] == "virtual_accelerator"
+    # The preset starts a session on the live stand-in: `standin` is a control
+    # target of its own, and the deployment's baseline.
+    assert profile.config["control_system.type"] == "live_standin"
 
 
 def test_ci_variant_resolves_and_validates(lifecycle_repo_factory, tmp_path: Path) -> None:

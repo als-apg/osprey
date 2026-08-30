@@ -21,11 +21,12 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS
 from osprey.errors import BuildProfileError
 from osprey.utils.config_writer import anchored_append, anchored_put
 from osprey.utils.logger import get_logger
 from osprey_connectors import types as connector_types
-from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY, LOOPBACK_HOSTNAME
+from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY
 
 if TYPE_CHECKING:
     from osprey.cli.build_profile import (
@@ -727,22 +728,49 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
     )
 
 
-#: The two control-system targets a bluesky plan lane can serve, keyed by the
+#: The control-system targets a bluesky plan lane can serve, keyed by the
 #: ``control_system.type`` each is spelled with in a rendered config.yml — taken
 #: from the connector package's constants rather than respelled here, so a
 #: renamed type cannot leave this mapping silently matching nothing.
 #: ``MOCK`` and ``DOOCS`` are deliberately absent: they are not switch targets,
 #: so a deployment on one of them has no second lane to render.
+#:
+#: ``LIVE_STANDIN`` is here because the stand-in is a control target in its own
+#: right — a soft IOC this deployment runs for itself, with its own connector
+#: block — and not a way of spelling ``live``. A deployment baselined on it
+#: gets a lane that says ``standin``, which is what keeps ``live`` meaning the
+#: facility's own machine on the very deployments that run both.
 _LANE_TARGET_BY_CONTROL_SYSTEM_TYPE = {
-    connector_types.EPICS: "live",
-    connector_types.VIRTUAL_ACCELERATOR: "va",
+    connector_types.EPICS: connector_types.TARGET_LIVE,
+    connector_types.VIRTUAL_ACCELERATOR: connector_types.TARGET_VA,
+    connector_types.LIVE_STANDIN: connector_types.TARGET_STANDIN,
 }
 
 #: Lane 1 always keeps the historical service key. Lane 2 is named for the
 #: TARGET it serves, never for its index — a lane's identity is fixed at render
 #: time, and ``bluesky_2`` would leave every reader (compose, host-port map,
 #: approval prompt) to look up which machine it talks to.
-_SECOND_LANE_SERVICE_KEY = {"live": "bluesky_live", "va": "bluesky_va"}
+#:
+#: Imported, never respelled: :mod:`osprey.bluesky_bridge_connection` is the one
+#: registry of lane service keys, and a build that wrote a key the bridge and
+#: the lifecycle do not know is a lane nothing else can find.
+_SECOND_LANE_SERVICE_KEY = SECOND_LANE_KEYS
+
+#: The target the SECOND lane serves, by the target the baseline lane serves.
+#:
+#: A deployment renders two lanes, not three, so this is a choice rather than a
+#: complement: whichever of the deployment's targets the baseline is not, the
+#: second lane covers. ``standin`` pairs with ``va`` for the same reason
+#: ``live`` does — a stand-in project is a simulator project whose other
+#: interesting machine is the virtual accelerator, and pairing it with ``live``
+#: would render a lane whose facility gateway the operator has to supply on a
+#: deployment that was handed a stand-in precisely so they would not have to.
+#: A project that wants the third lane declares it; the build never derives it.
+_SECOND_LANE_TARGET = {
+    connector_types.TARGET_LIVE: connector_types.TARGET_VA,
+    connector_types.TARGET_STANDIN: connector_types.TARGET_VA,
+    connector_types.TARGET_VA: connector_types.TARGET_LIVE,
+}
 
 #: Address of the live lane's control-system gateway, as a REQUIRED compose
 #: variable rather than a bare ``${EPICS_CA_NAME_SERVERS}`` passthrough.
@@ -759,36 +787,30 @@ _SECOND_LANE_SERVICE_KEY = {"live": "bluesky_live", "va": "bluesky_va"}
 #: ``virtual-accelerator`` service at a port the build already knows, so there
 #: is nothing for an operator to supply and nothing to refuse over.
 #:
-#: ``virtual_accelerator.live_standin`` puts the LIVE lane in exactly that
-#: position. The stand-in is a second soft-IOC this same build deploys as the
-#: deployment's ``live`` target, so that lane's gateway is also a co-deployed
-#: container at a port the build already knows, and there is again nothing to
-#: supply and nothing to refuse over. :func:`_live_lane_ca_name_servers` is
-#: where that fork lives; this constant stays the answer for every deployment
-#: whose ``live`` target is a real facility.
+#: The stand-in does NOT change this. It used to: while the stand-in was
+#: deployed *as* the ``live`` target, a lane serving ``live`` on such a project
+#: dialed the co-deployed container and this constant applied only to the rest.
+#: The stand-in is now its own control target with its own lane, so ``live``
+#: means the facility's own machine on every deployment without exception —
+#: which is what makes this value unconditional, and why an operator who moves
+#: a project onto a real facility gateway has nothing to un-special-case. The
+#: stand-in lane's own addressing is :func:`_standin_lane_ca_name_servers`.
 _LIVE_LANE_CA_NAME_SERVERS = (
     "${EPICS_CA_NAME_SERVERS:?set EPICS_CA_NAME_SERVERS to <host>:<port> of the live "
     "control-system gateway the bluesky live lane queues plans against}"
 )
 
 
-def _live_lane_ca_name_servers(virtual_accelerator: VAConfig | None) -> str:
-    """Channel Access addressing for the lane that serves the ``live`` target.
+def _standin_lane_ca_name_servers(virtual_accelerator: VAConfig | None) -> str:
+    """Channel Access addressing for the lane that serves the ``standin`` target.
 
-    One question decides it: is this deployment's ``live`` target a facility or
-    a stand-in?
-
-    Without a stand-in the gateway is a facility address no build can know, so
-    the lane gets :data:`_LIVE_LANE_CA_NAME_SERVERS` — the required compose
-    variable that refuses to start rather than let the lane search at nowhere.
-
-    With ``virtual_accelerator.live_standin`` set, the gateway is the second
-    soft-IOC container this build deploys, reachable in-network by its compose
-    service key on the port the profile just named. Dialing it directly is what
-    keeps ``osprey build && osprey up`` a no-edit story on a profile that sets
-    both the stand-in and ``bluesky.second_lane``: an operator handed a stand-in
-    precisely so they would not need a facility gateway must not then be
-    refused at ``osprey up`` for not supplying one.
+    The mirror of the VA lane, for the same reason: the stand-in soft IOC is a
+    container THIS build deploys, reachable in-network by its compose service
+    key on the port the profile just named. There is nothing for an operator to
+    supply, so — unlike :data:`_LIVE_LANE_CA_NAME_SERVERS` — there is nothing
+    for ``osprey up`` to refuse over, and ``osprey build && osprey up`` stays a
+    no-edit story on a profile that sets both the stand-in and
+    ``bluesky.second_lane``.
 
     Read from the PROFILE rather than from ``services.live_standin`` in the
     rendered config, because ``_inject_bluesky`` runs BEFORE ``_inject_va``
@@ -796,11 +818,10 @@ def _live_lane_ca_name_servers(virtual_accelerator: VAConfig | None) -> str:
     ``build_cmd._inject_services``) — the same reason the VA block is handed to
     this injector at all.
 
-    The container-side semantics are the same either way: the compose template
-    interpolates whichever value this returns into ``EPICS_CA_NAME_SERVERS``
-    and pairs it with ``EPICS_CA_AUTO_ADDR_LIST: "NO"``, which is exactly how
-    the VA lane reaches ``virtual-accelerator`` — name-server TCP transport,
-    because UDP broadcast discovery does not cross the container boundary.
+    The container-side semantics match the VA lane's exactly: the compose
+    template interpolates this into ``EPICS_CA_NAME_SERVERS`` and pairs it with
+    ``EPICS_CA_AUTO_ADDR_LIST: "NO"`` — name-server TCP transport, because UDP
+    broadcast discovery does not cross the container boundary.
 
     Args:
         virtual_accelerator: The profile's ``virtual_accelerator:`` block, or
@@ -808,30 +829,48 @@ def _live_lane_ca_name_servers(virtual_accelerator: VAConfig | None) -> str:
 
     Returns:
         The value to write at ``services.<lane>.ca_name_servers``.
+
+    Raises:
+        BuildProfileError: The profile names no stand-in port, so the lane has
+            no container to address. Refused here rather than written as a
+            dangling dial, which would deploy and connect to nothing.
     """
     if virtual_accelerator is None or virtual_accelerator.live_standin is None:
-        return _LIVE_LANE_CA_NAME_SERVERS
+        raise BuildProfileError(
+            f"A bluesky {_SECOND_LANE_SERVICE_KEY[connector_types.TARGET_STANDIN]!r} lane "
+            f"queues plans against the co-deployed {_LIVE_STANDIN_COMPOSE_SERVICE} soft "
+            f"IOC, and this profile deploys none. Set "
+            f"'virtual_accelerator.live_standin' to the port it should listen on, or "
+            f"baseline the deployment on a control system it has."
+        )
     return f"{_LIVE_STANDIN_COMPOSE_SERVICE}:{virtual_accelerator.live_standin}"
+
+
+def _rendered_control_system_type(config: Any) -> str:
+    """The ``control_system.type`` the rendered config carries, ``mock`` if none.
+
+    Read from the rendered ``config.yml`` rather than from the profile, because
+    that is the value every other holder resolves the deployment baseline from
+    — injectors run after ``_apply_config_overrides``, so the key is already
+    final by the time this is called.
+    """
+    control_system = config.get("control_system") or {}
+    if not hasattr(control_system, "get"):
+        return "mock"
+    return str(control_system.get("type") or "mock")
 
 
 def _baseline_lane_target(config: Any, virtual_accelerator: VAConfig | None) -> str:
     """Resolve which target the deployment baseline lane serves.
 
-    Read from the rendered ``control_system.type`` rather than from the profile,
-    because that is the value every other holder resolves the deployment
-    baseline from — injectors run after ``_apply_config_overrides``, so the key
-    is already final by the time this is called.
-
     The VA service is checked here too, because the two questions have one
-    answer: on a LIVE baseline the second lane is the VA lane, and a VA lane
-    addresses a soft-IOC that has to actually be part of the deployment. There
-    is no mirror check on a VA baseline — the second lane is then the LIVE lane,
-    whose gateway is either a facility address no build can verify (addressed
-    by the ``${EPICS_CA_NAME_SERVERS:?}`` requirement that fails loudly at
-    ``osprey up`` instead) or, on a deployment that sets
-    ``virtual_accelerator.live_standin``, the stand-in container this same
-    build deploys — which the VA block passed in here already guarantees. See
-    :func:`_live_lane_ca_name_servers`.
+    answer: on a ``live`` or ``standin`` baseline the second lane is the VA lane
+    (:data:`_SECOND_LANE_TARGET`), and a VA lane addresses a soft-IOC that has
+    to actually be part of the deployment. There is no mirror check on a VA
+    baseline — the second lane is then the LIVE lane, whose gateway is a
+    facility address no build can verify, addressed by the
+    ``${EPICS_CA_NAME_SERVERS:?}`` requirement that fails loudly at
+    ``osprey up`` instead.
 
     Args:
         config: The loaded config.yml mapping.
@@ -839,17 +878,14 @@ def _baseline_lane_target(config: Any, virtual_accelerator: VAConfig | None) -> 
             ``None`` when the profile deploys no VA service.
 
     Returns:
-        ``"live"`` or ``"va"``.
+        One of :data:`~osprey_connectors.types.CONTROL_TARGETS`.
 
     Raises:
         BuildProfileError: If the baseline is a control-system type that is not
-            a switch target, or if a live baseline's VA lane would have no VA
+            a switch target, or if the VA lane it pairs with would have no VA
             service to address.
     """
-    control_system = config.get("control_system") or {}
-    cs_type = (
-        str(control_system.get("type") or "mock") if hasattr(control_system, "get") else "mock"
-    )
+    cs_type = _rendered_control_system_type(config)
     target = _LANE_TARGET_BY_CONTROL_SYSTEM_TYPE.get(cs_type)
     if target is None:
         raise BuildProfileError(
@@ -859,23 +895,26 @@ def _baseline_lane_target(config: Any, virtual_accelerator: VAConfig | None) -> 
             f"{', '.join(repr(t) for t in sorted(_LANE_TARGET_BY_CONTROL_SYSTEM_TYPE))}, "
             f"or drop bluesky.second_lane and deploy the single lane."
         )
-    if target == "live" and virtual_accelerator is None:
+    va_target = connector_types.TARGET_VA
+    if _SECOND_LANE_TARGET[target] == va_target and virtual_accelerator is None:
         raise BuildProfileError(
             f"bluesky.second_lane on a {cs_type!r} baseline renders a "
-            f"{_SECOND_LANE_SERVICE_KEY['va']} lane that queues plans against the "
+            f"{_SECOND_LANE_SERVICE_KEY[va_target]} lane that queues plans against the "
             f"co-deployed virtual accelerator, and this profile deploys none. Add a "
             f"'virtual_accelerator:' block to the profile, or drop "
-            f"bluesky.second_lane and deploy the single live lane."
+            f"bluesky.second_lane and deploy the single {target} lane."
         )
     return target
 
 
 #: Every service key a bluesky plan lane can occupy — lane 1's historical key
-#: plus the two target-named siblings. The set a declared-target check has to
+#: plus every target-named sibling. The set a declared-target check has to
 #: sweep: a block this build does not render (a leftover from a profile that
 #: once set ``second_lane``) keeps whatever target it was written with, and the
 #: bridge reads that block at run time whether or not this build wrote it.
-_LANE_SERVICE_KEYS = ("bluesky", *sorted(_SECOND_LANE_SERVICE_KEY.values()))
+#: Imported from the lane registry, so a key added there is swept here without
+#: a second edit.
+_LANE_SERVICE_KEYS = LANE_KEYS
 
 
 def _refuse_unknown_lane_targets(config: Any) -> None:
@@ -1017,7 +1056,8 @@ def _inject_bluesky(
     control-system target, so a session switched away from the deployment
     baseline still has a lane to queue plans on. Lane 1 keeps the ``bluesky``
     service key and serves the baseline target; lane 2 is a sibling block named
-    for the target it serves (``bluesky_live`` / ``bluesky_va``), on its own
+    for the target it serves (a key from
+    :data:`~osprey.bluesky_bridge_connection.SECOND_LANE_KEYS`), on its own
     derived port. Tiled is the one shared component and stays on lane 1.
 
     Still simpler than ``_inject_dispatch``: no triggers file to resolve, and
@@ -1030,15 +1070,15 @@ def _inject_bluesky(
         bluesky: Validated bluesky configuration from the build profile.
         project_path: Root of the built project.
         virtual_accelerator: The profile's ``virtual_accelerator:`` block, read
-            for the two lane questions it settles: whether a live baseline's VA
-            lane has a soft-IOC to address, and whether this deployment's
-            ``live`` target is a stand-in the build can dial rather than a
-            facility gateway an operator must supply (see
-            :func:`_live_lane_ca_name_servers`). Passed rather than read back
+            for the two lane questions it settles: whether a VA lane has a
+            soft-IOC to address, and which port a ``standin`` lane dials its
+            co-deployed stand-in container on (see
+            :func:`_standin_lane_ca_name_servers`). Passed rather than read back
             from ``config.yml`` because ``_inject_va`` writes that block AFTER
             this injector runs, so the rendered config cannot answer either
             question yet. Defaults to ``None`` — the right answer for every
-            single-lane caller, which reaches neither.
+            single-lane caller except one baselined on the stand-in, whose
+            single lane dials it too.
         base: The base the deployment resolved from ``deployment.port_base``.
             Lane 2's port is derived from lane 1's, and the derivation is
             re-checked against the layout AT THIS BASE, so a caller that can
@@ -1048,9 +1088,11 @@ def _inject_bluesky(
 
     Raises:
         BuildProfileError: If a lane block declares a ``target`` that is not a
-            control target at all, or if ``second_lane`` is set on a deployment
-            whose baseline control-system type is not a switch target, or on a
-            live baseline that deploys no virtual accelerator.
+            control target at all, if ``second_lane`` is set on a deployment
+            whose baseline control-system type is not a switch target, if the
+            VA lane it would render has no virtual accelerator to address, or
+            if a ``standin`` lane has no ``virtual_accelerator.live_standin``
+            port to dial.
     """
     from ruamel.yaml import YAML
 
@@ -1097,18 +1139,28 @@ def _inject_bluesky(
     svc_config.update(_facility_plan_keys(bluesky))
 
     lanes: list[tuple[str, dict[str, Any]]] = [("bluesky", svc_config)]
+    # Addressing is by TARGET, not by lane index — which lane serves which
+    # machine differs by baseline, but what a target IS on this deployment does
+    # not. `va` is the one target with nothing to write: its gateway is the
+    # `virtual-accelerator` container, which the compose template already
+    # addresses without being told.
+    lane_addressing = {
+        connector_types.TARGET_LIVE: lambda: _LIVE_LANE_CA_NAME_SERVERS,
+        connector_types.TARGET_STANDIN: lambda: _standin_lane_ca_name_servers(virtual_accelerator),
+    }
     if bluesky.second_lane:
-        # Two lanes: lane 1 serves the deployment baseline, lane 2 the other
-        # target. Both carry `target` — a lane's identity is fixed here, at
-        # render time, and the bridge reads it rather than inferring a session
-        # target it is never told about. `target` and the live lane's
-        # `ca_name_servers` are the LANE-SCOPED keys: they are written ONLY on a
-        # two-lane deploy, so a single-lane block still carries neither. That is
-        # a narrower claim than it used to be — the facility plan keys are NOT
+        # Two lanes: lane 1 serves the deployment baseline, lane 2 the target
+        # `_SECOND_LANE_TARGET` pairs it with. Both carry `target` — a lane's
+        # identity is fixed here, at render time, and the bridge reads it rather
+        # than inferring a session target it is never told about. `target` and
+        # the addressing keys are the LANE-SCOPED ones: a single-lane block on
+        # any other baseline still carries neither (the stand-in case below is
+        # the one exception, and the comment there says why). That is a
+        # narrower claim than it used to be — the facility plan keys are NOT
         # lane-scoped, and `_facility_plan_keys` now writes `devices_file` on
         # every lane of every deploy, single-lane deploys included.
         baseline = _baseline_lane_target(config, virtual_accelerator)
-        second = "va" if baseline == "live" else "live"
+        second = _SECOND_LANE_TARGET[baseline]
         second_config: dict[str, Any] = {
             "path": "./services/bluesky",
             "port": bluesky.second_lane_port(base),
@@ -1117,16 +1169,24 @@ def _inject_bluesky(
         # load the same plan directory and hide the same exclusions.
         second_config.update(_facility_plan_keys(bluesky))
         # No tiled keys: tiled is shared, and lane 1 is where it lives.
-        #
-        # The live lane's addressing is resolved ONCE, outside the loop: which
-        # lane serves `live` differs by baseline, but what that target IS on
-        # this deployment does not.
-        live_ca_name_servers = _live_lane_ca_name_servers(virtual_accelerator)
         for lane_config, lane_target in ((svc_config, baseline), (second_config, second)):
             lane_config["target"] = lane_target
-            if lane_target == "live":
-                lane_config["ca_name_servers"] = live_ca_name_servers
+            addressing = lane_addressing.get(lane_target)
+            if addressing is not None:
+                lane_config["ca_name_servers"] = addressing()
         lanes.append((_SECOND_LANE_SERVICE_KEY[second], second_config))
+    elif _rendered_control_system_type(config) == connector_types.LIVE_STANDIN:
+        # The one single-lane deploy that DOES declare its target. A lane with no
+        # `target` is addressed by the compose template's fallback, and that
+        # fallback is the co-deployed virtual accelerator — the right machine on
+        # every baseline that has served a single lane so far, and the wrong one
+        # here: a stand-in deployment runs TWO soft IOCs, and its single lane
+        # would quietly queue plans against the simulator while the bridge
+        # reported the stand-in. Writing the target and the dial is what points
+        # the lane at the machine the baseline names; every other baseline's
+        # single lane still renders byte-for-byte what it always has.
+        svc_config["target"] = connector_types.TARGET_STANDIN
+        svc_config["ca_name_servers"] = lane_addressing[connector_types.TARGET_STANDIN]()
 
     _warn_underivable_lane_targets(config, lanes)
 
@@ -1155,22 +1215,20 @@ def _inject_bluesky(
             second_block["target"],
             second_block["port"],
         )
-        if any("ca_name_servers" in block for _, block in lanes):
-            if virtual_accelerator is not None and virtual_accelerator.live_standin is not None:
-                logger.debug(
-                    "    Live lane:  dials the co-deployed %s container on port %d — "
-                    "this deployment's `live` target is the stand-in, so there is no "
-                    "EPICS_CA_NAME_SERVERS to supply. Deleting "
-                    "`virtual_accelerator.live_standin` puts the lane back on a "
-                    "facility gateway, which `osprey up` then requires.",
-                    _LIVE_STANDIN_COMPOSE_SERVICE,
-                    virtual_accelerator.live_standin,
-                )
-            else:
-                logger.debug(
-                    "    Live lane:  set EPICS_CA_NAME_SERVERS to <host>:<port> of the "
-                    "live control-system gateway; `osprey up` refuses without it."
-                )
+    lane_targets = {block.get("target") for _, block in lanes}
+    if connector_types.TARGET_STANDIN in lane_targets:
+        logger.debug(
+            "    Standin:    dials the co-deployed %s container on port %d — the "
+            "stand-in is this deployment's own soft IOC, so there is nothing to "
+            "supply and nothing for `osprey up` to refuse over.",
+            _LIVE_STANDIN_COMPOSE_SERVICE,
+            virtual_accelerator.live_standin if virtual_accelerator else None,
+        )
+    if connector_types.TARGET_LIVE in lane_targets:
+        logger.debug(
+            "    Live lane:  set EPICS_CA_NAME_SERVERS to <host>:<port> of the "
+            "live control-system gateway; `osprey up` refuses without it."
+        )
     logger.debug(
         "    Token:      `osprey up` writes BLUESKY_LAUNCH_TOKEN to .env; "
         "a host-run agent's queue tools read it automatically. Deployed web "
@@ -1203,37 +1261,6 @@ _VA_GATEWAY_ROW: dict[str, Any] = {"address": "localhost", "use_name_server": Tr
 #: rendered ``config.yml`` is read in. Its last element is also the connector
 #: type, which is what makes it the block the factory reads.
 _VA_CONNECTOR_PATH = ("control_system", "connector", connector_types.VIRTUAL_ACCELERATOR)
-
-#: Path of the target-switch block the operator acknowledgment lives under.
-_TARGET_SWITCH_PATH = ("control_system", "target_switch")
-
-#: The note the build hangs above the acknowledgment it wrote, so the rendered
-#: file says who put the value there and what going live costs. Kept as one
-#: constant because :func:`~osprey.utils.config_writer.anchored_put` recognises
-#: its own earlier rendering only by an exact text match — a build that reworded
-#: this in two places would stack two notes instead of replacing one.
-_STANDIN_ACK_NOTE = (
-    "Written by `osprey build` for the live stand-in: the `epics` gateways\n"
-    "above dial the second virtual-accelerator container on this loopback\n"
-    "port, so the acknowledgment names it. When you go live, delete\n"
-    "`virtual_accelerator.live_standin` from the build profile, set your\n"
-    "gateways, and replace this value by hand with your own live gateway's\n"
-    "hostname."
-)
-
-#: Leaf key of the operator acknowledgment, read back as
-#: ``control_system.target_switch.live_gateway_acknowledged`` by
-#: :data:`osprey.mcp_server.control_system.target_eligibility.ACK_KEY`. Spelled
-#: here rather than imported: the CLI does not import the MCP server, and a
-#: config key that has shipped in both config templates cannot be renamed
-#: without a migration that would visit this line anyway.
-_ACK_LEAF = "live_gateway_acknowledged"
-
-#: A whole comment line that spells the acknowledgment key commented out — the
-#: example both config templates ship at ``target_switch``'s tail. Anchored at
-#: the start of a comment line so the templates' PROSE mention of the key
-#: (``# The `live_gateway_acknowledged` key below ...``) can never match.
-_COMMENTED_ACK_EXAMPLE = re.compile(rf"^#\s*{_ACK_LEAF}\s*:")
 
 
 def _ensure_va_connector_gateways(config: Any) -> bool:
@@ -1304,136 +1331,6 @@ def _va_gateways() -> dict[str, Any]:
     return {"read_only": dict(_VA_GATEWAY_ROW), "write_access": dict(_VA_GATEWAY_ROW)}
 
 
-def _target_switch_node(config: Any) -> Any | None:
-    """The ``control_system.target_switch`` mapping, created if it is absent.
-
-    Both shipped config templates render the block, so the creation path covers
-    the configs that predate it and the hand-maintained ones — the same
-    population :func:`_ensure_va_connector_gateways` exists for. Levels are
-    created one at a time rather than as a single nested value, because the
-    acknowledgment's explanatory comment belongs above the acknowledgment, not
-    above whichever ancestor happened to be the one that was missing.
-
-    Returns:
-        The mapping, or None when something that is not a section already
-        occupies one of the levels — whatever the author meant by it, replacing
-        it is not this step's business.
-    """
-    from ruamel.yaml import CommentedMap
-
-    if not isinstance(config, Mapping):
-        return None
-
-    node: Any = config
-    for depth, key in enumerate(_TARGET_SWITCH_PATH):
-        if key not in node:
-            anchored_put(node, key, CommentedMap())
-        child = node[key]
-        if not isinstance(child, Mapping):
-            logger.warning(
-                "'%s' in config.yml is not a mapping; leaving the live-target "
-                "acknowledgment to whoever wrote it.",
-                ".".join(_TARGET_SWITCH_PATH[: depth + 1]),
-            )
-            return None
-        node = child
-    return node
-
-
-def _drop_commented_ack_example(node: Any) -> None:
-    """Remove the template's commented-out ``live_gateway_acknowledged`` example.
-
-    Both config templates ship the key commented out beside a
-    real-hostname-shaped example, which is right for a deployment whose operator
-    fills it in by hand. Once the build has WRITTEN the key, that line is a
-    second, contradictory spelling of the same setting sitting directly beside
-    the live one, and reading a rendered config should never require knowing
-    which of two lines the loader ignores.
-
-    ruamel gives a standalone comment block no storage of its own: this one is
-    read back as the tail of the preceding key's end-of-line comment token,
-    whose FIRST line is that key's own inline comment. So the scan skips each
-    token's first line and removes only whole lines that spell the key commented
-    out — the surrounding prose, and the continuation lines a wrapped inline
-    comment parks on the same token, are left exactly as the template wrote
-    them. A second run finds nothing to remove.
-    """
-
-    def _scrub(token: Any) -> Any:
-        lines = token.value.splitlines(keepends=True)
-        kept = [line for i, line in enumerate(lines) if i == 0 or not _is_ack_example(line)]
-        if len(kept) == len(lines):
-            return token
-        token.value = "".join(kept)
-        return token if token.value.strip() else None
-
-    for entry in node.ca.items.values():
-        for slot, held in enumerate(entry):
-            if isinstance(held, list):
-                # A "before this key" block: whole tokens, one comment line each.
-                entry[slot] = [token for token in held if not _is_ack_example(token.value)]
-            elif held is not None:
-                entry[slot] = _scrub(held)
-
-    comment = node.ca.comment
-    if comment and comment[1]:
-        # The block above the mapping's FIRST key — the one place ruamel does
-        # keep a leading block on the mapping itself.
-        comment[1] = [token for token in comment[1] if not _is_ack_example(token.value)]
-
-
-def _is_ack_example(line: str) -> bool:
-    """Whether *line* is a whole comment line spelling the acknowledgment key."""
-    return bool(_COMMENTED_ACK_EXAMPLE.match(line.strip()))
-
-
-def _acknowledge_standin_as_live(config: Any, port: int) -> bool:
-    """Acknowledge the stand-in as the live gateway this deployment dials.
-
-    A session may not switch TO ``live`` until
-    ``control_system.target_switch.live_gateway_acknowledged`` names a gateway
-    hostname, so that nobody reaches hardware on a template default nobody read.
-    When the build itself pointed the ``epics`` gateways at a loopback container
-    there is no hardware behind them and nothing left for an operator to confirm
-    that they did not already say by writing ``live_standin:`` in the profile —
-    leaving the key unset would ship a rehearsal deployment whose whole point,
-    the ``live`` target, refuses itself. So the build writes the endpoint it
-    wrote the gateways to, and the note above it says what going live costs.
-
-    Never clobbers. An acknowledgment naming anything other than this stand-in
-    was written by an operator about their own machine; it stays, comments and
-    all, and the build says which key it left alone rather than silently
-    downgrading a live acknowledgment to a loopback one.
-
-    Args:
-        config: The round-trip-loaded ``config.yml`` document, mutated in place.
-        port: The stand-in's Channel Access port.
-
-    Returns:
-        Whether the acknowledgment was written.
-    """
-    node = _target_switch_node(config)
-    if node is None:
-        return False
-
-    value = f"{LOOPBACK_HOSTNAME}:{port}"
-    existing = node.get(_ACK_LEAF)
-    if existing is not None and str(existing) != value:
-        logger.warning(
-            "    control_system.target_switch.%s already names %r, so the live "
-            "stand-in on port %d was not acknowledged. Clear that value to let "
-            "the build point the acknowledgment at the stand-in it deployed.",
-            _ACK_LEAF,
-            str(existing),
-            port,
-        )
-        return False
-
-    _drop_commented_ack_example(node)
-    anchored_put(node, _ACK_LEAF, value, comment=_STANDIN_ACK_NOTE)
-    return True
-
-
 def _inject_va(va: VAConfig, project_path: Path) -> None:
     """Wire the Virtual Accelerator soft-IOC into a built project.
 
@@ -1446,9 +1343,10 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
     3. Make sure the deployed soft-IOC has a target block pointing at it —
        ``control_system.connector.virtual_accelerator.gateways`` — when the
        config carries none (see :func:`_ensure_va_connector_gateways`, which
-       never touches an existing one); and, with a stand-in deployed,
-       acknowledge it as the live gateway (see
-       :func:`_acknowledge_standin_as_live`).
+       never touches an existing one). The stand-in's own target block,
+       ``control_system.connector.live_standin``, is derived earlier on the
+       override path (:mod:`osprey.cli.build_profile_standin`); the facility's
+       ``epics`` block is the ``live`` target and is never written here.
     4. Print a post-build hint (data/simulation prerequisite + image note).
 
     Thin mirror of :func:`_inject_bluesky`: one config block per container — no
@@ -1505,9 +1403,9 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
     config.setdefault("services", {})
     # ``live_standin`` is a second INSTANCE of this one service, not a service
     # of its own: same ``path``, same template directory, same image — a second
-    # soft-IOC container on its own Channel Access port, wired in as the
-    # deployment's ``live`` target. The compose template reads the instance list
-    # off ``deployed_services``, so both keys have to land in both places.
+    # soft-IOC container on its own Channel Access port, reached as the
+    # deployment's ``standin`` target. The compose template reads the instance
+    # list off ``deployed_services``, so both keys have to land in both places.
     instances: list[tuple[str, dict[str, Any]]] = [
         ("virtual_accelerator", {"path": "./services/virtual_accelerator", "port": va.port})
     ]
@@ -1535,14 +1433,6 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
     # able to point at it is what would otherwise need a hand edit.
     wrote_gateways = _ensure_va_connector_gateways(config)
 
-    # 3b. With a stand-in deployed, the `live` target is a loopback container
-    # this build addressed itself, so the build supplies the acknowledgment that
-    # gate asks an operator for. The `epics` gateways it acknowledges are
-    # written earlier, on the derived-override path, not here.
-    wrote_ack = va.live_standin is not None and _acknowledge_standin_as_live(
-        config, va.live_standin
-    )
-
     with open(config_path, "w") as fh:
         yaml.dump(config, fh)
 
@@ -1556,19 +1446,19 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
 
         logger.debug(
             "    Stand-in:   a second soft-IOC runs as container %s-live-standin "
-            "on 127.0.0.1:%d and is this deployment's `live` target, so the "
-            "go-live ritual can be rehearsed without touching the machine.",
+            "on 127.0.0.1:%d and is this deployment's `standin` target — a third "
+            "target beside the sandbox VA and `live`, so the rehearsal costs the "
+            "machine nothing.",
             resolve_project_name(config),
             va.live_standin,
         )
-        if wrote_ack:
-            logger.debug(
-                "    Going live: delete `virtual_accelerator.live_standin` from the "
-                "build profile, point the `epics` gateways at your facility, and "
-                "replace control_system.target_switch.%s with your own live "
-                "gateway's hostname.",
-                _ACK_LEAF,
-            )
+        logger.debug(
+            "    Targets:    rehearse on it with `control_target_set standin`; "
+            "`control_target_set live` reaches the `epics` gateways your facility "
+            "authored, and still asks for this profile's own operator "
+            "acknowledgment and strict limits. A deployment may start on the "
+            "stand-in with `osprey set connector=live_standin`."
+        )
     if wrote_gateways:
         logger.debug(
             "    Target:     wrote control_system.connector.virtual_accelerator."

@@ -39,10 +39,20 @@ def _point_at_safety_limits_db(repo: Path) -> None:
     than baked into settings.json, so no re-render is needed. The value written
     is absolute, so it bypasses the relative-path resolution against
     ``CONFIG_FILE``'s directory entirely.
+
+    ``allow_unlisted_channels`` is pinned permissive alongside it. The preset
+    ships strict (an unlisted channel is refused), because the stand-in it
+    baselines on carries a real machine's posture; the safety scenarios here
+    were written against the permissive posture and one of them (scenario 5)
+    exists to prove an unlisted channel goes through under it. The pin selects
+    the posture the scenarios describe rather than inheriting whichever one the
+    preset ships.
     """
     config_path = render_dir(repo) / "config.yml"
     config = yaml.safe_load(config_path.read_text())
-    config["control_system"]["limits_checking"]["database_path"] = str(SAFETY_LIMITS_DB)
+    limits = config["control_system"]["limits_checking"]
+    limits["database_path"] = str(SAFETY_LIMITS_DB)
+    limits["allow_unlisted_channels"] = True
     config_path.write_text(yaml.dump(config, default_flow_style=False))
 
 
@@ -161,6 +171,13 @@ def safety_project_mixed_render(tmp_path_factory):
     of ``permissions.ask`` instead, and the whole boundary rests on the
     PreToolUse hook chain — ``osprey_writes_check`` denying for the session's
     target and ``osprey_approval`` deferring.
+
+    The limits posture is pinned permissive like the other safety renders.
+    Scenario 11 asserts that the refusal it gets back is ``osprey_writes_check``'s
+    — the one naming the live target. Under the preset's strict posture the
+    limits hook refuses the same unlisted channel in the same PreToolUse chain,
+    and which of two denies surfaces as the reason is not something the test
+    controls; the pin leaves the writes gate as the only hook with a say.
     """
     tmp = tmp_path_factory.mktemp("safety-mixed-render")
     repo = init_project(tmp, "safety-mixed-render", provider="als-apg")
@@ -173,6 +190,7 @@ def safety_project_mixed_render(tmp_path_factory):
     connector[MIXED_RENDER_LIVE_TYPE] = dict(connector["mock"])
     connector["virtual_accelerator"]["writes_enabled"] = True
     config_path.write_text(yaml.dump(config, default_flow_style=False))
+    _point_at_safety_limits_db(repo)
     _rerender_claude_artifacts(repo)
     return repo
 
@@ -202,8 +220,8 @@ def safety_project_selective(tmp_path_factory):
         },
     }
     config["control_system"]["writes_enabled"] = True
-    config["control_system"]["limits_checking"]["database_path"] = str(SAFETY_LIMITS_DB)
     config_path.write_text(yaml.dump(config, default_flow_style=False))
+    _point_at_safety_limits_db(repo)
     return repo
 
 

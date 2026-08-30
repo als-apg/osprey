@@ -28,7 +28,12 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS
+from osprey.bluesky_bridge_connection import (
+    LANE_KEYS,
+    LANE_ONE,
+    SECOND_LANE_KEYS,
+    lane_env_prefix,
+)
 from osprey.deployment.reach import (
     REACH_CONTRACTS,
     SHARED_PATHS,
@@ -40,6 +45,7 @@ from osprey.deployment.reach import (
 from osprey.deployment.web_terminals.artifacts import resolve_render_inputs
 from osprey.deployment.web_terminals.personas import resolve_personas
 from osprey.deployment.web_terminals.render import render_web_terminals
+from osprey_connectors.standin import archive_belongs_to_standin
 from tests.cli.test_persona_presets import _build_persona_stack
 
 pytestmark = pytest.mark.slow
@@ -117,7 +123,10 @@ def test_every_contract_says_how_it_is_reached():
         assert contract.service == name
         assert contract.note, f"{name}: a contract needs a one-line note"
         if contract.no_client_reach:
-            assert not contract.consumers and not contract.projected, name
+            # No consumer, because nothing in a container dials it. A
+            # projection is still allowed: a fact a persona READS about its
+            # host is not an endpoint (see the recorder's block below).
+            assert not contract.consumers, name
         elif contract.derived_by:
             assert not contract.projected, f"{name}: derived elsewhere, projects nothing here"
         else:
@@ -139,20 +148,36 @@ def test_every_projected_key_lives_under_a_known_prefix():
 # ---------------------------------------------------------------------------
 
 _STANDIN_PORT = 5074
+_VA_PORT = 5064
+_FACILITY_GATEWAY = {"address": "gateway.facility.org", "port": 5066}
 
 
 def _standin_config(port: int = _STANDIN_PORT) -> dict:
     """A render shaped the way the build leaves one that stood a stand-in up.
 
-    The gateways are the overwrite the VA injector performs: the ``epics``
-    connector — the live target — dials the second virtual accelerator on
-    loopback instead of the facility's gateway.
+    The stand-in is a control target of its OWN: the build writes
+    ``control_system.connector.live_standin``, pointed at loopback on the port
+    the deployment publishes, and leaves the facility's ``epics`` block — the
+    ``live`` target — exactly as the facility authored it. All three blocks are
+    here because that is the shape of the deployment this feature exists for:
+    a machine to rehearse against, a sandbox to model in, and the facility's
+    own gateway still naming the real machine ``live`` means.
     """
-    config: dict = {
+    return {
         "control_system": {
-            "type": "epics",
+            "type": "live_standin",
             "connector": {
                 "epics": {
+                    "gateways": {
+                        "read_only": dict(_FACILITY_GATEWAY),
+                        "write_access": dict(_FACILITY_GATEWAY),
+                    }
+                },
+                "virtual_accelerator": {
+                    "gateways": {"read_only": {"address": "localhost"}},
+                },
+                "live_standin": {
+                    "probe_channel": "SR:VAC:GAUGE:SR01:PRESSURE:RB",
                     "gateways": {
                         "read_only": {
                             "address": "localhost",
@@ -164,15 +189,15 @@ def _standin_config(port: int = _STANDIN_PORT) -> dict:
                             "port": port,
                             "use_name_server": True,
                         },
-                    }
-                }
+                    },
+                },
             },
         },
         "services": {
             "live_standin": {"path": "./services/virtual_accelerator", "port": port},
+            "virtual_accelerator": {"port": _VA_PORT},
         },
     }
-    return config
 
 
 def _standin_contract():
@@ -180,13 +205,13 @@ def _standin_contract():
 
 
 def test_the_live_standin_port_is_projected_ungated():
-    """Every render is told the port, because the LABEL reads it.
+    """Every render is told the port, because the honesty predicate reads it.
 
     ``osprey_connectors.standin.live_standin_active`` decides from this one key
-    whether an operator is shown ``LIVE MACHINE`` or ``LIVE MACHINE (stand-in)``,
-    and a persona render carries no ``services:`` block of its own. A gate here
-    would label the same machine two different ways depending on whether it was
-    seen through a persona.
+    whether the endpoint a session is on is this deployment's own stand-in
+    container, and a persona render carries no ``services:`` block of its own.
+    A gate here would describe the same machine two different ways depending on
+    whether it was seen through a persona.
     """
     projected = _standin_contract().projected
     assert [key.key for key in projected] == ["services.live_standin.port"]
@@ -194,12 +219,12 @@ def test_the_live_standin_port_is_projected_ungated():
     assert projected[0].panel is None
 
 
-def test_the_standin_port_reaches_a_render_with_no_epics_connector():
+def test_the_standin_port_reaches_a_render_with_no_standin_connector():
     """The ungated projection, exercised through the build's own function.
 
-    An attached project built from a template with no ``epics`` connector
-    (hello_world, ariel_standalone) has no client for the stand-in and is still
-    told where it is: its roster labels the same machine as everyone else's.
+    An attached project built from a template that configures no stand-in
+    (hello_world, ariel_standalone) has no client for it and is still told
+    where it is: its roster describes the same machine as everyone else's.
     """
     attached = {"services": {}}
     overrides = project_attached_overrides(_standin_config(), attached)
@@ -215,14 +240,15 @@ def test_a_host_without_a_standin_projects_nothing():
     host = _standin_config()
     del host["services"]["live_standin"]
 
-    assert project_attached_overrides(host, {"services": {}}) == {}
+    assert "services.live_standin.port" not in project_attached_overrides(host, {"services": {}})
 
 
-def test_the_standin_consumer_dials_the_epics_read_only_gateway():
+def test_the_standin_consumer_dials_its_own_blocks_read_only_gateway():
     contract = _standin_contract()
     (consumer,) = contract.consumers
     config = _standin_config()
 
+    assert consumer.switch_key == "control_system.connector.live_standin.gateways"
     assert consumer.is_on(config)
     assert consumer.resolves(config)
     assert consumer.dial is not None
@@ -230,9 +256,30 @@ def test_the_standin_consumer_dials_the_epics_read_only_gateway():
     assert reach_errors(config) == []
 
 
+def test_the_standin_consumer_never_reads_the_facility_epics_block():
+    """``live`` is the machine the facility authored, and the stand-in is not
+    it. Moving the facility's gateway moves nothing here, and a deployment that
+    stood a stand-in up with no block of its own has no stand-in client at
+    all — the state that used to be spelled by rewriting ``epics``."""
+    config = _standin_config()
+    config["control_system"]["connector"]["epics"]["gateways"]["read_only"] = {
+        "address": "other.facility.org",
+        "port": 5099,
+    }
+    (consumer,) = _standin_contract().consumers
+
+    assert consumer.dial is not None
+    assert consumer.dial(config) == ("localhost", _STANDIN_PORT)
+
+    epics_only = _standin_config()
+    del epics_only["control_system"]["connector"]["live_standin"]
+    assert not consumer.is_on(epics_only)
+    assert consumer.dial(epics_only) is None
+
+
 def test_the_standin_consumer_has_nothing_to_dial_without_gateways():
     config = _standin_config()
-    del config["control_system"]["connector"]["epics"]["gateways"]
+    del config["control_system"]["connector"]["live_standin"]["gateways"]
     (consumer,) = _standin_contract().consumers
 
     assert consumer.dial is not None
@@ -250,6 +297,174 @@ def test_a_deployment_with_no_standin_switches_the_consumer_off():
 
     assert not consumer.is_on(config)
     assert reach_errors(config) == []
+
+
+def test_a_config_only_persona_render_has_the_port_and_no_consumer():
+    """The render the ungated projection creates: the port and nothing else.
+
+    A persona is told ``services.live_standin.port`` so it describes the
+    machine the way its host does, and carries no ``control_system.connector``
+    block of its own — so it switches no stand-in consumer on and is refused
+    nothing. Both conjuncts have to hold for a client to exist; the port alone
+    is a label, not a dial.
+    """
+    (consumer,) = _standin_contract().consumers
+    projected_only = {"services": {"live_standin": {"port": _STANDIN_PORT}}}
+
+    assert not consumer.is_on(projected_only)
+    assert not consumer.is_on({**projected_only, "control_system": {"connector": {}}})
+    assert not consumer.is_on(
+        {**projected_only, "control_system": {"connector": {"live_standin": {}}}}
+    )
+    assert reach_errors(projected_only) == []
+
+    # Both conjuncts: the port AND a block to dial it through.
+    assert consumer.is_on(_standin_config())
+
+
+# ---------------------------------------------------------------------------
+# The archive recorder: a fact projected for a reader, not for a client
+# ---------------------------------------------------------------------------
+
+
+def _recording_standin_host(port: int = _STANDIN_PORT) -> dict:
+    """A deploying render that records its own stand-in's history."""
+    host = _standin_config(port)
+    host["services"]["archiver_recorder"] = {"path": "./services/archiver_recorder"}
+    host["deployed_services"] = ["live_standin", "archiver_recorder", "mongodb"]
+    return host
+
+
+def test_the_recorder_projects_its_block_though_nothing_dials_it():
+    """The one contract reached by nobody that still projects a key.
+
+    ``osprey_connectors.standin.archive_belongs_to_standin`` reads whether the
+    deployment records its own store to decide whose history the archive holds
+    -- the fact the ``live`` target is refused on. The host spells it in
+    ``deployed_services``, which every attached render carries empty, so the
+    recorder's own block is projected instead, ungated like the stand-in port
+    beside it.
+    """
+    contract = REACH_CONTRACTS["archiver_recorder"]
+
+    assert contract.no_client_reach
+    assert contract.consumers == ()
+    assert [key.key for key in contract.projected] == ["services.archiver_recorder.path"]
+    assert contract.projected[0].gate is None
+    assert contract.projected[0].panel is None
+
+
+def test_a_persona_of_a_recording_host_is_told_the_archive_is_the_standins():
+    """Single-user and multi-user must answer this the same way.
+
+    The persona queries the host's store, so the gate on ``live`` has to hold
+    in its session too -- and it can only hold if the render carries the fact.
+    """
+    host = _recording_standin_host()
+    attached: dict = {"services": {}}
+
+    overrides = project_attached_overrides(host, attached)
+    assert overrides["services.archiver_recorder.path"] == "./services/archiver_recorder"
+    assert overrides["services.live_standin.port"] == _STANDIN_PORT
+
+    # The render those overrides make: no deployed_services, both facts, and
+    # the predicate answering exactly as it does on the host that told it.
+    persona = {
+        "services": {
+            "live_standin": {"port": _STANDIN_PORT},
+            "archiver_recorder": {"path": "./services/archiver_recorder"},
+        }
+    }
+    assert archive_belongs_to_standin(persona)
+    assert archive_belongs_to_standin(host)
+    # Told a fact, not handed a surface: the render is refused nothing for it.
+    assert reach_errors(persona) == []
+
+
+def test_a_host_that_does_not_record_projects_no_recorder():
+    """A deployment with a stand-in and no recorder tells its personas so, and
+    their ``live`` target stays open for the same reason its own does."""
+    host = _standin_config()
+    overrides = project_attached_overrides(host, {"services": {}})
+
+    assert "services.archiver_recorder.path" not in overrides
+    assert not archive_belongs_to_standin({"services": {"live_standin": {"port": _STANDIN_PORT}}})
+
+
+# ---------------------------------------------------------------------------
+# The virtual accelerator, switched on by its target rather than the baseline
+# ---------------------------------------------------------------------------
+
+
+def _va_contract():
+    return REACH_CONTRACTS["virtual_accelerator"]
+
+
+def test_the_va_consumer_follows_the_configured_target_not_the_baseline():
+    """A stand-in-baseline deployment still offers ``va`` to any session that
+    switches to it, so its renders carry a VA client — the fact
+    ``control_system.type`` cannot state, because it names the one target the
+    deployment BOOTS on."""
+    (consumer,) = _va_contract().consumers
+    config = _standin_config()
+
+    assert config["control_system"]["type"] == "live_standin"
+    assert consumer.is_on(config)
+    assert consumer.dial is not None
+    assert consumer.dial(config) == ("localhost", _VA_PORT)
+
+
+def test_the_va_consumer_is_off_without_a_va_block():
+    """The other half of the same rule: a render whose ``config:`` overlay
+    carries no ``virtual_accelerator`` block has nothing to configure a VA
+    connector from, whatever its baseline says."""
+    (consumer,) = _va_contract().consumers
+    config = _standin_config()
+    del config["control_system"]["connector"]["virtual_accelerator"]
+
+    assert not consumer.is_on(config)
+    assert not consumer.is_on({"control_system": {"type": "virtual_accelerator"}})
+    assert not consumer.is_on({})
+
+
+def test_the_va_port_is_projected_onto_a_standin_baseline_persona():
+    """SC-9: a persona render from the stand-in baseline is told the VA port
+    its host publishes, so a session switched to ``va`` dials the host's
+    simulator rather than the connector's compiled-in default."""
+    host = _standin_config()
+    persona = {
+        "control_system": {
+            "type": "live_standin",
+            "connector": {"virtual_accelerator": {"gateways": {"read_only": {}}}},
+        },
+        "services": {},
+    }
+
+    overrides = project_attached_overrides(host, persona)
+
+    assert overrides["services.virtual_accelerator.port"] == _VA_PORT
+    assert overrides["services.virtual_accelerator.port"] == dotted_get(
+        host, "services.virtual_accelerator.port"
+    )
+    assert reach_errors({**persona, "services": {"virtual_accelerator": {"port": _VA_PORT}}}) == []
+
+
+def test_a_target_that_does_not_resolve_carries_no_consumer():
+    """The refusing half of :func:`resolve_target`, read as a switch.
+
+    ``va`` and ``standin`` name one connector type on every deployment, so the
+    branch is reached through ``live``: a mock deployment with no real
+    connector block has no live machine this config ever described, and a
+    consumer of one is not switched on by a guess.
+    """
+    from osprey.deployment.reach import _target_configured
+
+    underivable = {"control_system": {"type": "mock", "connector": {"mock": {"x": 1}}}}
+    assert not _target_configured(underivable, "live")
+    assert not _target_configured(underivable, "not-a-target")
+
+    named = {"control_system": {"type": "mock", "connector": {"epics": {"timeout": 5.0}}}}
+    assert _target_configured(named, "live")
 
 
 # ---------------------------------------------------------------------------
@@ -626,7 +841,15 @@ def test_every_always_resolving_consumer_is_refused_the_same_way():
     cases = {
         "postgresql": {"ariel": {"search_modules": {}}},
         "openobserve": {"claude_code": {"telemetry": {"enabled": True, "backend": "openobserve"}}},
-        "virtual_accelerator": {"control_system": {"type": "virtual_accelerator"}},
+        # Switched on by the connector block a VA is configured from, and
+        # naming no gateway address of its own — the shape that has to be
+        # refused, since the fill would send the client to loopback.
+        "virtual_accelerator": {
+            "control_system": {
+                "type": "virtual_accelerator",
+                "connector": {"virtual_accelerator": {"timeout": 5.0}},
+            }
+        },
     }
     for service, switched_on in cases.items():
         errors = reach_errors({**switched_on, "deployed_services": ["qmd"]})
@@ -799,6 +1022,41 @@ def _launch_token_grants(config: dict) -> dict[str, bool]:
     return grants
 
 
+def _expected_grants(**armed: bool) -> dict[str, bool]:
+    """Every lane's token keyed by env var, withheld unless named armed.
+
+    Built from :data:`LANE_KEYS` rather than written out, so a lane added for a
+    new control target is asserted here — as withheld on a render that does not
+    carry it — instead of quietly widening the answer past a literal dict.
+    """
+    expected: dict[str, bool] = {}
+    for lane in LANE_KEYS:
+        for grant in REACH_CONTRACTS[lane].credentials:
+            expected[grant.env] = armed.get(lane, False)
+    return expected
+
+
+def test_every_lane_the_registry_knows_has_a_contract_of_its_own():
+    """One registry of lane keys, one contract per lane.
+
+    :data:`SECOND_LANE_KEYS` is where a lane for a new control target is
+    named — the stand-in's among them — and reach builds a contract for each
+    without spelling any of them. A lane with no contract would be a bridge
+    no persona is projected, no build refuses and no health probe knocks on.
+    """
+    assert set(LANE_KEYS) == {LANE_ONE} | set(SECOND_LANE_KEYS.values())
+    for lane in LANE_KEYS:
+        contract = REACH_CONTRACTS[lane]
+        assert contract.service == lane
+        assert {key.key for key in contract.projected} == {
+            f"services.{lane}.port",
+            f"services.{lane}.target",
+        }
+        assert [grant.env for grant in contract.credentials] == [
+            f"{lane_env_prefix(lane)}_LAUNCH_TOKEN"
+        ]
+
+
 def test_a_lanes_launch_token_follows_that_lanes_own_target():
     """The per-target boundary, lane by lane: a deployment built for a live
     machine, arming writes on its virtual-accelerator lane alone, hands out the
@@ -817,13 +1075,9 @@ def test_a_lanes_launch_token_follows_that_lanes_own_target():
         },
     }
 
-    assert _launch_token_grants(config) == {
-        "BLUESKY_LAUNCH_TOKEN": False,
-        "BLUESKY_VA_LAUNCH_TOKEN": True,
-        # Lane 1 serves this deployment's live target; there is no second live
-        # lane to arm.
-        "BLUESKY_LIVE_LAUNCH_TOKEN": False,
-    }
+    # Lane 1 serves this deployment's live target, and every lane this render
+    # does not carry — the second live lane, a stand-in lane — is withheld.
+    assert _launch_token_grants(config) == _expected_grants(bluesky_va=True)
 
 
 def test_a_global_true_does_not_arm_a_lane_whose_own_block_says_false():
@@ -844,11 +1098,7 @@ def test_a_global_true_does_not_arm_a_lane_whose_own_block_says_false():
         },
     }
 
-    assert _launch_token_grants(config) == {
-        "BLUESKY_LAUNCH_TOKEN": True,
-        "BLUESKY_LIVE_LAUNCH_TOKEN": False,
-        "BLUESKY_VA_LAUNCH_TOKEN": False,
-    }
+    assert _launch_token_grants(config) == _expected_grants(bluesky=True)
 
 
 def test_no_lane_is_armed_without_the_bluesky_server():

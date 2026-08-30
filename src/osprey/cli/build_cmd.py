@@ -1396,7 +1396,6 @@ def _render_project(
     from .build_profile_standin import (
         live_standin_config_overrides,
         live_standin_duplicate_key_errors,
-        rewrite_strict_limits_comment,
     )
     from .validate_claude_artifacts import validate_agent_tools_against_permissions
 
@@ -1497,14 +1496,6 @@ def _render_project(
         for block, entries in derived_by_block.items():
             for key, value in entries.items():
                 progress("      %s: %s (from the profile's %s block)", key, value, block)
-
-    # The template ships `allow_unlisted_channels: true` explained on the same
-    # line as a tutorial convenience. The stand-in's override turns it false and
-    # would leave that sentence standing beside its own contradiction, so the
-    # line is retruthed here — where the flip is known — rather than by hedging
-    # the template's text for every deployment that has no stand-in.
-    if derived_by_block["virtual_accelerator"]:
-        rewrite_strict_limits_comment(render_dir / "config.yml")
 
     # What an attached render is told about the services its host deploys —
     # the ports it publishes, the panel URLs its injectors derived — copied
@@ -2302,6 +2293,8 @@ def _wire_build_derived_env(repo_root: Path, build_dir: Path) -> None:
     from osprey.utils.dotenv import (
         BUILD_DERIVED_BANNER,
         BUILD_DERIVED_KEYS,
+        VA_LATTICE_DEFAULT,
+        VA_LATTICE_KEY,
         append_profile_env,
         parse_dotenv_file,
     )
@@ -2334,7 +2327,13 @@ def _wire_build_derived_env(repo_root: Path, build_dir: Path) -> None:
     # from a tree carrying the paradigm channel databases, whose machine is the
     # lattice-backed one, so defaulting here would drop the physics bridge on
     # exactly the projects that have a lattice to run.
-    entries = {"VA_CHANNELS_FILE": MANIFEST_FILENAME, "VA_LATTICE": "builtin"}
+    #
+    # Written from `VA_LATTICE_DEFAULT` rather than a literal: that constant is
+    # DEFINED as the value an unpinned chain resolves to, and this line is the
+    # only thing that makes it so. `resolved_va_lattice` answers every reader
+    # from it — the stand-in's lattice refusal, the render, the archive seed —
+    # so a literal here is the one place their shared answer could be wrong.
+    entries = {"VA_CHANNELS_FILE": MANIFEST_FILENAME, VA_LATTICE_KEY: VA_LATTICE_DEFAULT}
     result = append_profile_env(env_path, entries, BUILD_DERIVED_BANNER)
 
     if result.added:

@@ -24,6 +24,7 @@ from pathlib import Path, PurePosixPath
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
+from osprey.bluesky_bridge_connection import LANE_KEYS
 from osprey.cli import output
 from osprey.cli.phase_reporter import report_step
 from osprey.deployment.channel_snapshot import compute_channel_snapshot
@@ -1116,7 +1117,6 @@ def _bluesky_lane_write_posture(services, control_system):
     :return: Lane service key to armed flag, for the lanes declared in *services*
     :rtype: dict[str, bool]
     """
-    from osprey.bluesky_bridge_connection import LANE_KEYS
     from osprey_connectors.types import baseline_target, target_writes_enabled
 
     return {
@@ -1126,6 +1126,49 @@ def _bluesky_lane_write_posture(services, control_system):
         for key in LANE_KEYS
         if isinstance(services.get(key), dict)
     }
+
+
+def _standin_perturbation(config, repo_root):
+    """The lattice the stand-in will boot with, and the perturbation that follows.
+
+    Which perturbation follows from which lattice is
+    :func:`~osprey.services.virtual_accelerator.manifest.standin_defaults.default_bpm_errors_for_lattice`'s
+    to say, beside the shipped value it conditions: outside ``builtin`` there is
+    no PyAT model for those offsets to displace, so the stand-in serves that
+    facility manifest unperturbed rather than carrying faults nothing can apply.
+    Asked here rather than restated, because the build resolves the same rule to
+    decide what it can boot with
+    (:func:`osprey.cli.build_profile_va_faults.effective_standin_bpm_errors`).
+
+    Read through :func:`~osprey_connectors.dotenv.resolved_va_lattice`, the
+    resolver validation refuses on
+    (:func:`osprey.cli.build_profile_va_faults.live_standin_lattice_errors`),
+    from the same two roots — the deployment repo, then the render zone the
+    containers are actually handed — so a build that validated on one answer
+    cannot render on another.
+
+    The manifest package is imported inside the function, following
+    ``container_lifecycle``'s own use of it: it pulls in the channel-finder
+    database readers at import, and the deployment layer keeps that off the
+    module import path every ``osprey`` invocation pays for.
+
+    :param config: The config being rendered; read for its ``build_dir`` only.
+    :param repo_root: The deployment repo root, already resolved by the caller.
+    :return: ``(lattice, default)`` — the resolved ``VA_LATTICE``, and the value
+        the stand-in's ``${VA_STANDIN_BPM_ERRORS-...}`` interpolation falls back
+        to when the chain names no perturbation.
+    :rtype: tuple[str, str]
+    """
+    from osprey.services.virtual_accelerator.manifest.standin_defaults import (
+        default_bpm_errors_for_lattice,
+    )
+    from osprey.utils.workspace import BUILD_DIR_NAME
+
+    build_dir = Path(str(config.get("build_dir", f"./{BUILD_DIR_NAME}")))
+    if not build_dir.is_absolute():
+        build_dir = Path(repo_root) / build_dir
+    lattice = dotenv.resolved_va_lattice(Path(repo_root), build_dir)
+    return lattice, default_bpm_errors_for_lattice(lattice)
 
 
 def _inject_project_metadata(config):
@@ -1370,25 +1413,22 @@ def _inject_project_metadata(config):
 
     # The BPM readout perturbation the Virtual Accelerator's stand-in instance
     # ships with, rendered as the default inside its
-    # ``${VA_STANDIN_BPM_ERRORS:-...}`` interpolation. Derived here rather than
+    # ``${VA_STANDIN_BPM_ERRORS-...}`` interpolation. Derived here rather than
     # written into the template for the reason every constant here is: the same
     # value is consumed host-side by the archiver seed, and a template literal
     # would be a second copy of it that could drift into a stand-in whose
     # present and whose recorded past disagree about which machine it is.
     #
+    # Lattice-conditional (:func:`_standin_perturbation`): a deployment whose
+    # chain leaves ``VA_LATTICE`` off ``builtin`` renders the EMPTY set, because
+    # there is no PyAT model for those offsets to displace. That such a stand-in
+    # serves its manifest unperturbed is reported once per render, by
+    # :func:`prepare_compose_files` — not here, which runs per service template.
+    #
     # Injected unconditionally — a single-instance render never names the key
     # (the template gates it on the stand-in branch), so this is inert for every
     # project that has not asked for a second instance.
-    #
-    # Imported inside the function, following container_lifecycle's own use of
-    # this package: the VA manifest package pulls in the channel-finder database
-    # readers at import, and the deployment layer keeps that off the module
-    # import path that every `osprey` invocation pays for.
-    from osprey.services.virtual_accelerator.manifest.standin_defaults import (
-        STANDIN_BPM_ERRORS_DEFAULT,
-    )
-
-    config_with_labels["standin_bpm_errors_default"] = STANDIN_BPM_ERRORS_DEFAULT
+    _, config_with_labels["standin_bpm_errors_default"] = _standin_perturbation(config, repo_root)
 
     return config_with_labels
 
@@ -2147,7 +2187,11 @@ _BLUESKY_DEVICES_SERVICE = "bluesky"
 #: carries the same value (``_facility_plan_keys``), so reading it in one order
 #: makes the double render land on one answer even for a hand-edited config
 #: whose lanes disagree.
-_BLUESKY_LANE_KEYS = ("bluesky", "bluesky_live", "bluesky_va")
+#:
+#: Imported from :mod:`osprey.bluesky_bridge_connection`, the one registry of
+#: lane service keys, so a lane added there is looked up here without a second
+#: edit — a lane this table did not know would stage no device file at all.
+_BLUESKY_LANE_KEYS = LANE_KEYS
 
 #: Name the device file carries INSIDE the build context. The compose template
 #: mounts this literal source (``./build/services/bluesky/bluesky_devices.yml``),
@@ -3182,6 +3226,27 @@ def prepare_compose_files(
     record_env_chain_membership(
         config.get("build_dir", "./build"), env_chain_names(resolve_repo_root(config))
     )
+
+    # What a stand-in on a non-builtin lattice actually serves. The shipped
+    # readout perturbation displaces a PyAT model, and a chain that pins
+    # ``VA_LATTICE`` elsewhere has none — so the render hands the stand-in the
+    # EMPTY set (:func:`_standin_perturbation`) instead of refusing the build,
+    # and the operator is told which of the two they got. Reported here rather
+    # than beside the derivation because this function runs once per render
+    # while ``_inject_project_metadata`` runs once per service template.
+    #
+    # Gated on a stand-in existing at all: ``live_standin_port`` is the single
+    # piece of evidence that this deployment built one, and a project without
+    # one has no fact here to report.
+    from osprey_connectors.standin import live_standin_port
+
+    if live_standin_port(config) is not None:
+        standin_lattice, standin_default = _standin_perturbation(config, resolve_repo_root(config))
+        if not standin_default:
+            _report_fact(
+                "stand-in serves the facility manifest unperturbed "
+                f"(VA_LATTICE={standin_lattice}: no model to displace)"
+            )
 
     compose_files = []
 

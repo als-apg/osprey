@@ -62,7 +62,11 @@ from .build_profile_schema import (
     env_names_errors,
     network_mode_errors,
 )
-from .build_profile_va_faults import live_standin_errors
+from .build_profile_va_faults import (
+    live_standin_errors,
+    standin_archive_errors,
+    standin_baseline_errors,
+)
 from .profile_conventions import validate_convention_sources
 
 DISPATCH_PAIR_SERVICES = ("event_dispatcher", "dispatch_worker")
@@ -1653,8 +1657,8 @@ class BuildProfile:
             if not (1 <= va.port <= 65535):
                 errors.append(f"virtual_accelerator.port must be in 1..65535 (got {va.port})")
             # A live stand-in is a SECOND container claiming a second port and
-            # the deployment's `live` target, so it can collide with any port
-            # the profile already spends and with the going-live story itself.
+            # a THIRD control target, so it can collide with any port the
+            # profile already spends and with the simulation's own gateways.
             # Its rules live beside the block (see build_profile_va_faults) and
             # are reported from here, the way the archiver's are.
             if va.live_standin is not None:
@@ -1667,6 +1671,15 @@ class BuildProfile:
                         profile_dir,
                     )
                 )
+
+        # The stand-in as a TARGET rather than as a port, so both are asked
+        # whatever the `virtual_accelerator:` block says — a baseline naming
+        # the stand-in is a fault precisely when the block is absent, and the
+        # archive rule is about which machine's past this deployment records.
+        errors.extend(standin_baseline_errors(self.config, self.virtual_accelerator))
+        errors.extend(
+            standin_archive_errors(self.config, self.virtual_accelerator, self.va_archiver)
+        )
 
         # Validate bluesky_web configuration
         if self.bluesky_web is not None:

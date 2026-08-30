@@ -633,14 +633,20 @@ class TestControlAssistantPersonas:
 
     def test_personas_retain_base_config_overrides(self) -> None:
         """Toggling the write switch must not drop the base's own config
-        overrides — a representative base override survives both merges."""
+        overrides — a representative base override survives both merges.
+
+        The representative is the base's session baseline, which is the
+        stand-in: the hosting preset declares ``virtual_accelerator.
+        live_standin`` and baselines itself on the soft IOC that behaves like
+        hardware. No persona names ``control_system.type``, so every tier
+        inherits that baseline through ``extends``."""
         for name in (
             "control-assistant-readonly",
             "control-assistant-readwrite",
             "control-assistant-admin",
         ):
             profile = resolve_preset(name)
-            assert profile.config.get("control_system.type") == "virtual_accelerator"
+            assert profile.config.get("control_system.type") == "live_standin"
 
     def test_personas_differ_only_on_the_tier_contract(self) -> None:
         readonly = resolve_preset("control-assistant-readonly")
@@ -827,11 +833,20 @@ class TestControlAssistantPersonas:
 
         An attached persona scaffolds no services of its own — the app template
         gives it ``services: {}`` — so after the projection that map must hold
-        exactly the client-facing facts of the services this tier's consumers
-        dial, each equal to the hosting render's, and nothing more: not the
+        exactly the facts this tier needs about the hosting deployment's
+        services, each equal to the hosting render's, and nothing more: not the
         host's own service knobs (image, heap, retention), and no literal
         top-level ``"services.graphdb.port_host"`` string key beside the map,
         which would satisfy ``config.yml`` as YAML and be read by nobody.
+
+        Most entries are the address a consumer in this container dials.
+        ``archiver_recorder`` is the exception and is asserted here beside
+        them: nothing in a persona dials the recorder, but ``path`` is the
+        host's fact THAT it records, which is what
+        ``archive_belongs_to_standin`` reads to refuse the ``live`` target — a
+        gate that has to hold in a multi-user session exactly as it does in a
+        single-user one, and whose host-side spelling (``deployed_services``)
+        is empty in every attached render.
         """
         project = built_persona_stack / "build" / f"{built_persona_stack.name}-{persona}"
         config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
@@ -848,9 +863,16 @@ class TestControlAssistantPersonas:
                 "database_name": host["services"]["postgresql"]["database_name"],
             },
             "openobserve": {"port": host["services"]["openobserve"]["port"]},
-            "bluesky": {"port": host["services"]["bluesky"]["port"]},
+            # `target` rides along because the hosting render's single lane
+            # declares one: the preset baselines on the stand-in, and that lane
+            # is pointed at it explicitly rather than left to the VA fallback.
+            "bluesky": {
+                "port": host["services"]["bluesky"]["port"],
+                "target": host["services"]["bluesky"]["target"],
+            },
             "virtual_accelerator": {"port": host["services"]["virtual_accelerator"]["port"]},
             "live_standin": {"port": host["services"]["live_standin"]["port"]},
+            "archiver_recorder": {"path": host["services"]["archiver_recorder"]["path"]},
         }
         assert config["services"]["qmd"]["port"] == QMD_DEFAULT_PORT
         assert [key for key in config if "." in str(key)] == []
@@ -956,28 +978,40 @@ class TestControlAssistantPersonas:
 #:
 #: Every shipped preset appears, so a new one has to state its posture here
 #: before it ships rather than inheriting a silent one.
+#:
+#: All three targets in :data:`CONTROL_TARGETS`, ``standin`` included, even
+#: though no preset writes a ``control_system.connector.live_standin`` block:
+#: the block is DERIVED by the build from ``virtual_accelerator.live_standin``,
+#: and this matrix renders the ``config:`` layer alone. That is the point of
+#: the column rather than a gap in it — it pins that no preset arms the
+#: stand-in by name, so the hardware-shaped third machine holds whatever the
+#: tier's deployment-wide key holds and never a posture of its own.
 PINNED_TARGET_WRITE_POSTURE: dict[str, dict[str, bool]] = {
-    # The three presets with no ``control_system:`` section of their own. Both
-    # targets are unarmed, and neither has ever had a write path to lose.
-    "ariel-standalone": {"live": False, "va": False},
-    "channel-finder-standalone": {"live": False, "va": False},
+    # The three presets with no ``control_system:`` section of their own. Every
+    # target is unarmed, and none has ever had a write path to lose.
+    "ariel-standalone": {"live": False, "va": False, "standin": False},
+    "channel-finder-standalone": {"live": False, "va": False, "standin": False},
     # The hosting preset names its control system and says nothing about
     # writes, which is the shipped floor: a deployment is read-only until a
-    # profile arms it by name.
-    "control-assistant": {"live": False, "va": False},
-    "hello-world": {"live": False, "va": False},
-    # The write-armed tiers. Their flat ``true`` is what both types inherit, so
-    # the posture is the same on either machine.
-    "control-assistant-admin": {"live": True, "va": True},
-    "control-assistant-readwrite": {"live": True, "va": True},
+    # profile arms it by name. Its baseline is the stand-in, and the stand-in
+    # is unarmed like the rest.
+    "control-assistant": {"live": False, "va": False, "standin": False},
+    "hello-world": {"live": False, "va": False, "standin": False},
+    # The write-armed tiers. Their flat ``true`` is what every type inherits,
+    # so the posture is the same on all three machines — the stand-in
+    # included, which is what makes a rehearsal there the real thing.
+    "control-assistant-admin": {"live": True, "va": True, "standin": True},
+    "control-assistant-readwrite": {"live": True, "va": True, "standin": True},
     # The standalone logbook tier pins the flat key off and writes no per-type
-    # block, so both targets inherit the off.
-    "control-assistant-ariel": {"live": False, "va": False},
-    # The read-only tier: off on the flat key AND pinned off on both blocks, so
-    # no per-type ``true`` inherited from anywhere can arm a machine over it.
-    "control-assistant-readonly": {"live": False, "va": False},
-    # The rung this whole matrix exists for: one machine armed, one not.
-    "control-assistant-va-readwrite": {"live": False, "va": True},
+    # block, so every target inherits the off.
+    "control-assistant-ariel": {"live": False, "va": False, "standin": False},
+    # The read-only tier: off on the flat key AND pinned off on the epics and
+    # virtual_accelerator blocks, so no per-type ``true`` inherited from
+    # anywhere can arm those two over it. The stand-in has no block to pin and
+    # reaches ``False`` through the flat key.
+    "control-assistant-readonly": {"live": False, "va": False, "standin": False},
+    # The rung this whole matrix exists for: one machine armed, two not.
+    "control-assistant-va-readwrite": {"live": False, "va": True, "standin": False},
 }
 
 

@@ -22,14 +22,18 @@ import pytest
 
 from osprey_connectors.types import (
     EPICS,
+    LIVE_STANDIN,
     MOCK,
     TARGET_LIVE,
+    TARGET_STANDIN,
     TARGET_VA,
     TYPE_WRITES_ENABLED_LEAF,
     VIRTUAL_ACCELERATOR,
     WRITES_ENABLED_KEY,
     any_target_writes_enabled,
+    configured_targets,
     session_posture,
+    switch_capable,
     target_writes_enabled,
     target_writes_enabled_key,
     type_writes_enabled,
@@ -446,6 +450,238 @@ def test_session_posture_names_both_targets_only_where_the_switch_renders():
     assert session_posture(_section(VIRTUAL_ACCELERATOR)) == {TARGET_VA: False}
     assert session_posture(_section(MOCK, writes_enabled=True)) == {TARGET_LIVE: True}
     assert session_posture("not a mapping") == {TARGET_LIVE: False}
+
+
+@pytest.mark.unit
+def test_a_deployment_with_no_standin_block_gets_no_standin_posture():
+    """The vocabulary grew a third target; this deployment did not.
+
+    The posture is published to a permissions render, a roster and a lint. A
+    ``standin`` key here would be a machine nobody stood up, and armed or not
+    from the deployment-wide flag rather than from anything about a stand-in.
+    """
+    # Arrange
+    section = _section(
+        EPICS,
+        writes_enabled=True,
+        connector={
+            "epics": {"gateways": {"read_only": {"address": "gw"}}},
+            "virtual_accelerator": {"writes_enabled": False},
+        },
+    )
+
+    # Act
+    posture = session_posture(section)
+
+    # Assert
+    assert TARGET_STANDIN not in posture
+    assert posture == {TARGET_LIVE: True, TARGET_VA: False}
+
+
+@pytest.mark.unit
+def test_a_standin_baseline_is_switch_capable_and_does_not_raise():
+    """The baseline is resolved, not looked up among ``live`` and ``va``.
+
+    A ``live_standin`` deployment is baselined on a third target, and asking
+    whether it can switch must answer rather than raise — every caller of
+    :func:`session_posture` is downstream of this predicate.
+    """
+    # Arrange
+    section = _section(
+        LIVE_STANDIN,
+        connector={
+            "epics": {"gateways": {"read_only": {"address": "gw"}}},
+            "virtual_accelerator": {"writes_enabled": True},
+            LIVE_STANDIN: {"port": 5074},
+        },
+    )
+
+    # Act / Assert
+    assert switch_capable(section) is True
+
+
+@pytest.mark.unit
+def test_a_standin_baseline_with_no_live_block_is_not_switch_capable():
+    """``live`` is underivable from a stand-in and a simulator, so there is no switch."""
+    # Arrange
+    section = _section(
+        LIVE_STANDIN,
+        connector={
+            "virtual_accelerator": {"writes_enabled": True},
+            LIVE_STANDIN: {"port": 5074},
+        },
+    )
+
+    # Act / Assert
+    assert switch_capable(section) is False
+
+
+@pytest.mark.unit
+def test_a_standin_baseline_posture_names_three_targets_in_vocabulary_order():
+    """The baseline is among them, in the constant's order rather than first.
+
+    The order this dict is built in is the order the rendered ``settings.json``
+    lists the targets in, so it is the vocabulary's and never the baseline's:
+    a deployment that gained no target must gain no reordering either.
+    """
+    # Arrange
+    section = _section(
+        LIVE_STANDIN,
+        writes_enabled=False,
+        connector={
+            "epics": {"gateways": {"read_only": {"address": "gw"}}},
+            "virtual_accelerator": {"writes_enabled": True},
+            LIVE_STANDIN: {"writes_enabled": True},
+        },
+    )
+
+    # Act
+    posture = session_posture(section)
+
+    # Assert
+    assert list(posture) == [TARGET_LIVE, TARGET_VA, TARGET_STANDIN]
+    assert posture == {TARGET_LIVE: False, TARGET_VA: True, TARGET_STANDIN: True}
+
+
+@pytest.mark.unit
+def test_a_deployment_that_configured_all_three_gets_all_three():
+    """The stand-in is a machine of its own, with a posture of its own."""
+    # Arrange
+    section = _section(
+        EPICS,
+        writes_enabled=False,
+        connector={
+            "epics": {"gateways": {"read_only": {"address": "gw"}}},
+            "virtual_accelerator": {"writes_enabled": True},
+            LIVE_STANDIN: {"writes_enabled": True},
+        },
+    )
+
+    # Act / Assert
+    assert session_posture(section) == {
+        TARGET_LIVE: False,
+        TARGET_VA: True,
+        TARGET_STANDIN: True,
+    }
+
+
+# ---------------------------------------------------------------------------
+# configured_targets — what this deployment has, not what the vocabulary knows
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_the_configured_targets_are_the_baseline_and_every_block_behind_one():
+    # Arrange
+    section = _section(
+        EPICS,
+        connector={
+            "epics": {"gateways": {"read_only": {"address": "gw"}}},
+            "virtual_accelerator": {"writes_enabled": True},
+            LIVE_STANDIN: {"port": 5074},
+        },
+    )
+
+    # Act / Assert
+    assert configured_targets(section) == [TARGET_LIVE, TARGET_VA, TARGET_STANDIN]
+
+
+@pytest.mark.unit
+def test_a_standin_baseline_keeps_the_vocabulary_order():
+    """Its own target is in the list, where :data:`CONTROL_TARGETS` puts it."""
+    # Arrange
+    section = _section(
+        LIVE_STANDIN,
+        connector={
+            "epics": {"gateways": {"read_only": {"address": "gw"}}},
+            "virtual_accelerator": {"writes_enabled": True},
+            LIVE_STANDIN: {"port": 5074},
+        },
+    )
+
+    # Act / Assert
+    assert configured_targets(section) == [TARGET_LIVE, TARGET_VA, TARGET_STANDIN]
+
+
+@pytest.mark.unit
+def test_a_va_baseline_enumerates_exactly_as_it_did_before_the_third_target():
+    """The shape SC-5 pins: no stand-in block, so nothing about it may change."""
+    # Arrange
+    section = _section(
+        VIRTUAL_ACCELERATOR,
+        connector={
+            "epics": {"gateways": {"read_only": {"address": "gw"}}},
+            "virtual_accelerator": {"writes_enabled": True},
+        },
+    )
+
+    # Act / Assert
+    assert configured_targets(section) == [TARGET_LIVE, TARGET_VA]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "standin_block",
+    [{}, None, "not-a-mapping", 0, [], ...],
+    ids=["empty-mapping", "none", "not-a-mapping", "zero", "empty-list", "no-block"],
+)
+def test_a_target_without_a_usable_block_is_not_configured(standin_block: Any):
+    """That block is what a connector is configured from; an empty one is nothing."""
+    # Arrange
+    connector: dict[str, Any] = {"epics": {"gateways": {"read_only": {"address": "gw"}}}}
+    if standin_block is not ...:
+        connector[LIVE_STANDIN] = standin_block
+    section = _section(EPICS, connector=connector)
+
+    # Act / Assert
+    assert configured_targets(section) == [TARGET_LIVE]
+
+
+@pytest.mark.unit
+def test_a_live_that_does_not_resolve_is_not_a_configured_target():
+    """``resolve_target`` refuses to guess a real machine, and a refusal is no slot."""
+    # Arrange
+    section = _section(
+        VIRTUAL_ACCELERATOR,
+        writes_enabled=True,
+        connector={"virtual_accelerator": {"writes_enabled": False}},
+    )
+
+    # Act / Assert
+    assert configured_targets(section) == [TARGET_VA]
+
+
+@pytest.mark.unit
+def test_the_baseline_is_configured_even_with_no_block_of_its_own():
+    """A session is on the connector ``control_system.type`` builds regardless."""
+    # Act / Assert
+    assert configured_targets(_section(MOCK)) == [TARGET_LIVE]
+    assert configured_targets(_section(MOCK, connector={})) == [TARGET_LIVE]
+    assert configured_targets(_section(VIRTUAL_ACCELERATOR)) == [TARGET_VA]
+    assert configured_targets(_section(LIVE_STANDIN)) == [TARGET_STANDIN]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "section", [None, "not-a-mapping", 0, [], {}], ids=["none", "string", "zero", "list", "empty"]
+)
+def test_a_section_that_is_not_a_mapping_still_has_its_baseline(section: Any):
+    """Never raises and never empty: the one target such a deployment is on."""
+    # Act / Assert
+    assert configured_targets(section) == [TARGET_LIVE]
+
+
+@pytest.mark.unit
+def test_asking_which_targets_are_configured_does_not_mutate_the_section():
+    # Arrange
+    section = _section(EPICS, connector={"epics": {"port": 5064}})
+    before = {"type": EPICS, "connector": {"epics": {"port": 5064}}}
+
+    # Act
+    configured_targets(section)
+
+    # Assert
+    assert section == before
 
 
 @pytest.mark.unit

@@ -15,10 +15,16 @@ the answer, and the disagreement is a bypass rather than a discrepancy — see
 this session pointed at". It is the same shape of answer for the same reason:
 several holders follow a session target — the connector-host process, its child,
 an executor sandbox — and a holder that translates ``live`` into a connector type
-privately can route a tool call somewhere the roster never claimed. The target is
-an *argument* here, never something this module reads from the environment: an
-environment-reading override would make the honesty predicate describe a
-deployment the process is no longer running.
+privately can route a tool call somewhere the roster never claimed. A target
+names a *machine*, and there are three of them: the facility's own control
+system (``live``), the virtual accelerator (``va``), and the live stand-in
+(``standin``) — a soft IOC a deployment runs for itself, which is a third
+machine with a connector block of its own rather than a mode of the first. That
+is what keeps ``live`` meaning the machine the facility authored on a deployment
+that runs the stand-in beside it. The target is an *argument* here, never
+something this module reads from the environment: an environment-reading
+override would make the honesty predicate describe a deployment the process is
+no longer running.
 
 :func:`type_writes_enabled` and :func:`target_writes_enabled` answer "may this
 deployment write" the same way and for the same reason. Write posture is per
@@ -37,6 +43,13 @@ EPICS = "epics"
 VIRTUAL_ACCELERATOR = "virtual_accelerator"
 DOOCS = "doocs"
 
+#: The live stand-in: a facility-shaped soft IOC a deployment runs for itself.
+#: A connector type of its own — served by the EPICS connector, but keyed apart
+#: from ``epics`` so that the facility's authored ``epics`` block stays the one
+#: thing ``live`` can mean, and the stand-in gets its own
+#: ``control_system.connector.live_standin`` block to be configured from.
+LIVE_STANDIN = "live_standin"
+
 # -- Archiver connector types --
 MOCK_ARCHIVER = "mock_archiver"
 EPICS_ARCHIVER = "epics_archiver"
@@ -47,14 +60,24 @@ DOOCS_ARCHIVER = "doocs_archiver"
 CLI_CONTROL_SYSTEM_TYPES = [MOCK, EPICS, VIRTUAL_ACCELERATOR, DOOCS]
 CLI_ARCHIVER_TYPES = [MOCK_ARCHIVER, EPICS_ARCHIVER, MONGODB_ARCHIVER, DOOCS_ARCHIVER]
 
+#: Settable, not initable. A deployment may be pointed at its stand-in once it
+#: has one — ``osprey set connector=live_standin`` is how a session starts on
+#: the soft IOC — but ``osprey init`` never offers it: a fresh project has no
+#: stand-in to point at, so a project that began on one would name a machine
+#: that does not exist. Hence one list for what the ``connector:`` shorthand
+#: accepts and another, narrower one for what ``init`` will materialize.
+SET_CONTROL_SYSTEM_TYPES = [*CLI_CONTROL_SYSTEM_TYPES, LIVE_STANDIN]
+
 # -- Session targets --
 # What a *session* can be pointed at, as opposed to what a *config* selects.
-# Deliberately two names and not one per connector type: a target names a
-# machine ("the real one" / "the simulated one"), and which connector type
-# reaches that machine is this module's job to answer, not the caller's.
+# Deliberately three names and not one per connector type: a target names a
+# machine (the facility's own, the virtual accelerator, the stand-in soft IOC),
+# and which connector type reaches that machine is this module's job to answer,
+# not the caller's.
 TARGET_LIVE = "live"
 TARGET_VA = "va"
-CONTROL_TARGETS = [TARGET_LIVE, TARGET_VA]
+TARGET_STANDIN = "standin"
+CONTROL_TARGETS = [TARGET_LIVE, TARGET_VA, TARGET_STANDIN]
 
 # -- Write posture --
 #: The deployment-wide write posture, dotted as a caller spells it for
@@ -71,6 +94,29 @@ TYPE_WRITES_ENABLED_LEAF = "writes_enabled"
 #: reason ``live`` cannot simply be "whatever the config selects": a deployment
 #: whose baseline is one of these has not yet said what its real machine is.
 _SIMULATED_TYPES = (MOCK, VIRTUAL_ACCELERATOR)
+
+#: Types that serve the live stand-in. Reachable only through the ``standin``
+#: target: a stand-in is a machine in its own right, so it is never a candidate
+#: for a deployment's ``live`` one — not as the baseline the derivation starts
+#: from, and not as a block it falls back to. A deployment running the stand-in
+#: beside its facility's own block still has exactly one real machine.
+STANDIN_TYPES = (LIVE_STANDIN,)
+
+#: Types whose history is invented rather than recorded, so pairing one with a
+#: synthesizing archiver leaves nothing that ever tells a reader the data is
+#: made up. Both are machines a deployment stands up for itself, and neither has
+#: an archive of its own — see :mod:`osprey_connectors.honesty`.
+INVENTED_HISTORY_TYPES = (VIRTUAL_ACCELERATOR, LIVE_STANDIN)
+
+#: Types that speak real Channel Access — the facility's own EPICS machine, a
+#: virtual-accelerator soft-IOC, or the live stand-in soft-IOC. The queue worker
+#: builds its devices over Channel Access and nothing else, so these are the
+#: only types plans can execute against; every other type browses.
+CHANNEL_ACCESS_TYPES = (EPICS, VIRTUAL_ACCELERATOR, LIVE_STANDIN)
+
+#: The target each self-standing machine's type is the baseline of. A type
+#: absent from this table describes the facility's own machine, hence ``live``.
+_BASELINE_TARGETS = {VIRTUAL_ACCELERATOR: TARGET_VA, LIVE_STANDIN: TARGET_STANDIN}
 
 
 def _resolve_type(section: Any, fallback: str) -> str:
@@ -109,19 +155,24 @@ def resolve_target(section: Any, target: Any) -> str:
     settings from — ``control_system.connector.<type>`` — so one string answers
     both "what do I build" and "where are its gateways".
 
-    ``va`` is the same answer everywhere: a virtual accelerator is a virtual
-    accelerator regardless of what the deployment was built for. ``live`` is
-    deployment-specific and is the half that can refuse:
+    ``va`` and ``standin`` are the same answer everywhere: a virtual accelerator
+    is a virtual accelerator regardless of what the deployment was built for,
+    and the stand-in is the soft IOC the deployment runs for itself, configured
+    from the block that carries its name. ``live`` is deployment-specific and is
+    the half that can refuse:
 
     - When the section's own type is a real control system, that is the live
       machine, and it is returned as written — including a value this module
       does not recognize, which reaches the factory's "Unknown … type" error
       exactly as :func:`resolve_control_system_type` already lets it.
-    - When the section's own type is simulated (or absent, which resolves to the
-      mock), the deployment has not named its real machine there, so the live
-      type is taken from the connector table: exactly one non-simulated block
-      configured means the deployment has said which machine it means. None, or
-      more than one, raises.
+    - When the section's own type is simulated or is a stand-in (or absent,
+      which resolves to the mock), the deployment has not named its real machine
+      there, so the live type is taken from the connector table: exactly one
+      block that is neither simulated nor a stand-in means the deployment has
+      said which machine it means. None, or more than one, raises. The stand-in
+      is skipped on both sides of that derivation, so standing it up beside a
+      facility's ``epics`` block never makes ``live`` ambiguous and never
+      answers it with the stand-in.
 
     Nothing is inferred from the absence of evidence. A deployment that has
     never been told about its real machine gets an error naming what it would
@@ -145,30 +196,33 @@ def resolve_target(section: Any, target: Any) -> str:
     """
     if target == TARGET_VA:
         return VIRTUAL_ACCELERATOR
+    if target == TARGET_STANDIN:
+        return LIVE_STANDIN
     if target == TARGET_LIVE:
         return _live_type(section)
     raise ValueError(
         f"Unknown control target {target!r}. Valid targets are "
-        f"{TARGET_LIVE!r} and {TARGET_VA!r}, spelled exactly. A session target "
-        "is always stated, never defaulted — there is no target a caller gets "
-        "by saying nothing, because the one it would get could be the real "
-        "machine."
+        f"{TARGET_LIVE!r}, {TARGET_VA!r} and {TARGET_STANDIN!r}, spelled "
+        "exactly. A session target is always stated, never defaulted — there is "
+        "no target a caller gets by saying nothing, because the one it would "
+        "get could be the real machine."
     )
 
 
 def baseline_target(section: Any) -> str:
     """The target a deployment's own ``control_system:`` section selects.
 
-    ``va`` for a virtual accelerator, ``live`` for everything else — including a
-    mock deployment, whose ``live`` may well be underivable, because ``live`` is
-    still the target its section describes.
+    ``va`` for a virtual accelerator, ``standin`` for the live stand-in, and
+    ``live`` for everything else — including a mock deployment, whose ``live``
+    may well be underivable, because ``live`` is still the target its section
+    describes.
 
     Beside :func:`resolve_control_system_type` rather than restated by each
     holder, because "which target am I on when nobody has switched" is asked by
     the supervisor, the switch predicate below, and every baseline-pinned reader
     — and three answers to it is three ways for one deployment to be described.
     """
-    return TARGET_VA if resolve_control_system_type(section) == VIRTUAL_ACCELERATOR else TARGET_LIVE
+    return _BASELINE_TARGETS.get(resolve_control_system_type(section), TARGET_LIVE)
 
 
 def switch_capable(section: Any) -> bool:
@@ -186,15 +240,19 @@ def switch_capable(section: Any) -> bool:
 
     1. **Both targets resolve** to a connector type at all
        (:func:`resolve_target`, which raises rather than guess a live machine).
-    2. **The deployment's own control system is one of the two targets.**
-       ``resolve_target`` answers ``live`` for configs with no business
-       switching: a ``mock`` deployment that happens to carry an ``epics`` block
-       resolves ``live`` to ``epics``, and treating that as switchable would
-       point a session at a real machine the config never selected. Requiring
-       the baseline target to resolve back to ``control_system.type`` rules it
-       out.
+    2. **The deployment's baseline target resolves back to its own control
+       system.** ``resolve_target`` answers ``live`` for configs with no
+       business switching: a ``mock`` deployment that happens to carry an
+       ``epics`` block resolves ``live`` to ``epics``, and treating that as
+       switchable would point a session at a real machine the config never
+       selected. Requiring :func:`baseline_target` to resolve back to
+       ``control_system.type`` rules it out. The baseline is *resolved*, never
+       looked up among the two above: a deployment may be baselined on a third
+       target — a ``live_standin`` one is baselined on ``standin`` — and is no
+       less switchable for it.
     3. **Both types have a non-empty connector block**, since that block is what
-       a connector is configured from.
+       a connector is configured from. Conditions 1 and 3 are one question and
+       are asked as one, by :func:`target_configured`.
 
     Deliberately *not* checked: ``probe_channel``, the gateways table, the
     operator acknowledgment. Those decide whether a target may be switched *to*
@@ -213,23 +271,92 @@ def switch_capable(section: Any) -> bool:
     if not isinstance(section, dict):
         return False
     try:
-        types_by_target = {
-            target: resolve_target(section, target) for target in (TARGET_LIVE, TARGET_VA)
-        }
+        if resolve_target(section, baseline_target(section)) != resolve_control_system_type(
+            section
+        ):
+            return False
     except ValueError:
         return False
+    return all(target_configured(section, target) for target in (TARGET_LIVE, TARGET_VA))
 
-    declared = resolve_control_system_type(section)
-    if types_by_target[baseline_target(section)] != declared:
-        return False
 
-    connector = section.get("connector")
-    if not isinstance(connector, dict):
+def target_configured(section: Any, target: Any) -> bool:
+    """Whether *section* carries the connector block *target* is served by.
+
+    Both halves of "does this deployment have that machine", asked the way the
+    runtime asks them: :func:`resolve_target` names the connector type the
+    target selects HERE — refusing rather than guessing a live machine the
+    config never described — and that type's own
+    ``control_system.connector.<type>`` block is what such a connector is
+    configured from. A target that does not resolve is not one this deployment
+    has, and an empty block is not a configured one.
+
+    The one spelling of a question every enumerator asks: :func:`switch_capable`
+    of the two switchable machines, :func:`configured_targets` of each machine
+    that is not the baseline, and the deployment layer's Reach Contracts of the
+    target a projected port would serve. Three predicates over one pair of keys
+    is three chances to disagree about which machines a deployment has.
+
+    Args:
+        section: The ``control_system:`` config section, in the same shape
+            :func:`resolve_control_system_type` takes.
+        target: The session target being asked about.
+
+    Returns:
+        Whether the target resolves and its block is a non-empty mapping. Never
+        raises: an unresolvable target is simply not configured.
+    """
+    try:
+        connector_type = resolve_target(section, target)
+    except ValueError:
         return False
-    return all(
-        isinstance(connector.get(name), dict) and bool(connector.get(name))
-        for name in types_by_target.values()
-    )
+    connector = section.get("connector") if isinstance(section, dict) else None
+    block = connector.get(connector_type) if isinstance(connector, dict) else None
+    return isinstance(block, dict) and bool(block)
+
+
+def configured_targets(section: Any) -> list[str]:
+    """The targets a session on this deployment can actually be pointed at.
+
+    In :data:`CONTROL_TARGETS` order, which is the order every render, roster
+    and state file reads them in. The deployment's :func:`baseline_target` is
+    always one of them — a session sits on it whether or not the config wrote a
+    block for the connector ``control_system.type`` builds — and each of the
+    others is here when :func:`target_configured` says so, which is the same
+    resolve-and-read-the-block pair :func:`switch_capable` and the deployment
+    layer's Reach Contracts decide it by.
+
+    The order is the constant's and not the baseline's, so a deployment that
+    gained no target gains no reordering: the two-target deployments that have
+    no stand-in enumerate exactly as they did before ``standin`` existed, down
+    to the order their rendered ``settings.json`` lists them in.
+
+    This list, and never the constant, is what an enumerator walks — a roster,
+    a prober, a posture render, a state file. :data:`CONTROL_TARGETS` is the
+    *vocabulary*: it grows when a new kind of machine exists, and a holder that
+    loops it hands every deployment a slot for every machine anybody could run.
+    Widening it to three would otherwise grow a ``standin`` row, probe and
+    posture on deployments with no ``control_system.connector.live_standin``
+    block at all — a machine that is not there, described as if it were.
+    Which targets are configured is a property of the rendered config, so it is
+    read from the config.
+
+    Args:
+        section: The ``control_system:`` config section, in the same shape
+            :func:`resolve_control_system_type` takes.
+
+    Returns:
+        The configured targets in :data:`CONTROL_TARGETS` order, the baseline
+        among them. Never raises and never empty: a section that is missing or
+        malformed still has a baseline, and that one target is what such a
+        deployment is on.
+    """
+    baseline = baseline_target(section)
+    return [
+        target
+        for target in CONTROL_TARGETS
+        if target == baseline or target_configured(section, target)
+    ]
 
 
 def type_writes_enabled(section: Any, connector_type: str) -> bool:
@@ -352,8 +479,17 @@ def target_writes_enabled_key(section: Any, target: Any) -> str:
 def session_posture(section: Any) -> dict[str, bool]:
     """Write posture per target a *session* on this deployment can be pointed at.
 
-    Both of :data:`CONTROL_TARGETS` when the deployment renders the switch
-    (:func:`switch_capable`), each through :func:`target_writes_enabled`.
+    Every one of :func:`configured_targets` when the deployment renders the
+    switch (:func:`switch_capable`), each through :func:`target_writes_enabled`
+    — the configured targets and never :data:`CONTROL_TARGETS`, which is the
+    vocabulary of machines that can exist rather than the ones this deployment
+    has. Looping the constant would give a deployment with no
+    ``control_system.connector.live_standin`` block a ``standin`` key anyway,
+    armed or not from the deployment-wide flag through
+    :func:`target_writes_enabled`'s unresolvable-target fallback: a posture
+    published for a stand-in nobody stood up. Widening the vocabulary must not
+    grow a slot on a deployment the widening did not change.
+
     Without the switch a session sits on the one connector
     ``control_system.type`` builds, so the answer is that type's own posture
     under its :func:`baseline_target` — read by type on purpose. ``live`` is the
@@ -371,7 +507,8 @@ def session_posture(section: Any) -> dict[str, bool]:
     a machine the config never described.
     """
     if switch_capable(section):
-        return {target: target_writes_enabled(section, target) for target in CONTROL_TARGETS}
+        targets = configured_targets(section)
+        return {target: target_writes_enabled(section, target) for target in targets}
     built = resolve_control_system_type(section)
     return {baseline_target(section): type_writes_enabled(section, built)}
 
@@ -398,16 +535,25 @@ def _global_writes_enabled(section: Any) -> bool:
 
 
 def _live_type(section: Any) -> str:
-    """The control system type that reaches this deployment's real machine."""
+    """The control system type that reaches this deployment's real machine.
+
+    Neither a simulated type nor a stand-in one can be that machine, and the
+    exclusion holds on both sides of the derivation — the baseline it starts
+    from, and the candidate blocks it falls back to. A stand-in is a machine the
+    deployment stands up itself; counting it would either answer ``live`` with
+    the stand-in, or make ``live`` ambiguous on exactly the deployments that run
+    the stand-in beside the block naming their facility's own machine.
+    """
+    never_live = _SIMULATED_TYPES + STANDIN_TYPES
     baseline = resolve_control_system_type(section)
-    if baseline not in _SIMULATED_TYPES:
+    if baseline not in never_live:
         return baseline
 
     connector = section.get("connector") if isinstance(section, dict) else None
     candidates: list[str] = []
     if isinstance(connector, dict):
         candidates = sorted(
-            key for key in connector if isinstance(key, str) and key not in _SIMULATED_TYPES
+            key for key in connector if isinstance(key, str) and key not in never_live
         )
     if len(candidates) == 1:
         return candidates[0]

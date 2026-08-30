@@ -258,3 +258,106 @@ class TestBuiltinArchiverRegistration:
             if reg.connector_type == "archiver"
         }
         assert set(_BUILTIN_ARCHIVERS) == registry_archivers
+
+
+class TestLiveStandinRegistration:
+    """The live stand-in is a control target of its own, not a mode of ``epics``.
+
+    It is served by ``EPICSConnector`` — a stand-in is a soft IOC, so Channel
+    Access is what reaches it — but it registers under its own key. That key is
+    what the factory stamps onto the instance as ``_connector_type``, and the
+    stamp is what selects both the connector block the instance is configured
+    from and the write posture read out of it. Sharing the ``epics`` key would
+    hand the stand-in the facility's authored block and the facility's arming.
+    """
+
+    @pytest.mark.asyncio
+    async def test_live_standin_builds_an_epics_connector_stamped_with_its_own_type(self):
+        """Building ``live_standin`` yields an EPICS connector stamped ``live_standin``.
+
+        The stamp is the assertion that matters: ``_connector_type`` comes from
+        the config's type key and never from the class, so per-type posture
+        resolves to ``control_system.connector.live_standin.writes_enabled``
+        rather than to the ``epics`` block's.
+        """
+        from osprey.connectors import types
+        from osprey.connectors.control_system.epics_connector import EPICSConnector
+        from osprey.connectors.factory import register_builtin_connectors
+
+        register_builtin_connectors()
+
+        # No gateways: connect() then touches no EPICS_* environment variable
+        # and opens no CA context, so nothing here reaches a network.
+        config = {
+            "type": types.LIVE_STANDIN,
+            "connector": {types.LIVE_STANDIN: {"timeout": 1.0}},
+        }
+
+        connector = await ConnectorFactory.create_control_system_connector(config)
+
+        assert isinstance(connector, EPICSConnector)
+        assert connector._connector_type == types.LIVE_STANDIN
+        assert connector._timeout == 1.0
+
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_epics_target_is_still_stamped_epics(self):
+        """The shared class does not blur the two keys together.
+
+        Both types build the same class, so a stamp derived from the class
+        instead of the key would look right on one of them and be wrong on the
+        other. Pinning the sibling keeps that failure visible.
+        """
+        from osprey.connectors import types
+        from osprey.connectors.factory import register_builtin_connectors
+
+        register_builtin_connectors()
+
+        connector = await ConnectorFactory.create_control_system_connector(
+            {"type": types.EPICS, "connector": {types.EPICS: {"timeout": 1.0}}}
+        )
+
+        assert connector._connector_type == types.EPICS
+
+        await connector.disconnect()
+
+    def test_live_standin_is_registered_from_a_partial_registry(self):
+        """A registry holding the other control systems still gains live_standin.
+
+        ``register_builtin_connectors()`` short-circuits once every name in
+        ``_BUILTIN_CONTROL_SYSTEMS`` is present. A connector registered outside
+        that tuple is invisible to the check, so the tuple has to list the
+        stand-in or a partially-populated registry never heals.
+        """
+        from osprey.connectors import types
+        from osprey.connectors.control_system.doocs_connector import DOOCSConnector
+        from osprey.connectors.control_system.epics_connector import EPICSConnector
+        from osprey.connectors.control_system.va_connector import VirtualAcceleratorConnector
+        from osprey.connectors.factory import register_builtin_connectors
+
+        # Every built-in control system except the stand-in; the autouse fixture
+        # already registered mock.
+        ConnectorFactory.register_control_system(types.EPICS, EPICSConnector)
+        ConnectorFactory.register_control_system(
+            types.VIRTUAL_ACCELERATOR, VirtualAcceleratorConnector
+        )
+        ConnectorFactory.register_control_system(types.DOOCS, DOOCSConnector)
+        assert types.LIVE_STANDIN not in ConnectorFactory._control_system_connectors
+
+        register_builtin_connectors()
+
+        assert ConnectorFactory._control_system_connectors[types.LIVE_STANDIN] is EPICSConnector
+
+    def test_registering_twice_converges(self):
+        """Registration is idempotent: a second call replaces nothing."""
+        from osprey.connectors import types
+        from osprey.connectors.factory import register_builtin_connectors
+
+        register_builtin_connectors()
+        first = ConnectorFactory._control_system_connectors[types.LIVE_STANDIN]
+
+        register_builtin_connectors()
+
+        assert ConnectorFactory._control_system_connectors[types.LIVE_STANDIN] is first
+        assert types.LIVE_STANDIN in ConnectorFactory.list_control_systems()

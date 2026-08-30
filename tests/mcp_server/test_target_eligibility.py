@@ -9,6 +9,13 @@ enumerated with their expected outcome **written out per cell**, not computed:
 a test that re-derives the expectation from the same rule the code applies
 agrees with the code by construction and proves nothing about either.
 
+The stand-in is a third target with the same shape of gate and a deliberately
+different split, so it gets its own enumerated section rather than a widened
+matrix: the strict limits posture applies to a switch toward ``live`` *and*
+toward ``standin`` (both behave like hardware), while the operator
+acknowledgment applies to ``live`` alone, and ``live`` carries one gate the
+other two never do — the archive must not already be the stand-in's.
+
 Every case injects ``readonly_run`` rather than letting it default, so no test
 depends on the execution mode of the machine running it. ``writes_enabled`` is
 injected too, except in the per-target posture matrix below, where the value the
@@ -26,9 +33,17 @@ from osprey_connectors.honesty import VA_MOCK_ARCHIVER_WHY
 
 LIVE = "live"
 VA = "va"
+STANDIN = "standin"
 
 EPICS_TYPE = "epics"
 VA_TYPE = "virtual_accelerator"
+STANDIN_TYPE = "live_standin"
+
+#: The port this deployment's stand-in soft IOC serves, as
+#: ``services.live_standin.port`` projects it and as the stand-in's own gateways
+#: dial it. Deliberately not 5064: a stand-in on the Channel Access default
+#: would let a block that simply never set a port pass the deployed check.
+STANDIN_PORT = 5094
 
 
 # ---------------------------------------------------------------------------
@@ -64,6 +79,28 @@ def _va_block(**overrides: Any) -> dict[str, Any]:
         "gateways": {
             "read_only": {"address": "localhost", "port": 5074, "use_name_server": True},
             "write_access": {"address": "localhost", "port": 5074, "use_name_server": True},
+        },
+    }
+    block.update(overrides)
+    return block
+
+
+def _standin_block(**overrides: Any) -> dict[str, Any]:
+    """The stand-in's own connector block, dialling the co-deployed soft IOC."""
+    block = {
+        "timeout": 5.0,
+        "probe_channel": "STANDIN:PROBE:CHANNEL",
+        "gateways": {
+            "read_only": {
+                "address": "127.0.0.1",
+                "port": STANDIN_PORT,
+                "use_name_server": False,
+            },
+            "write_access": {
+                "address": "127.0.0.1",
+                "port": STANDIN_PORT,
+                "use_name_server": False,
+            },
         },
     }
     block.update(overrides)
@@ -106,6 +143,34 @@ def _config(
     }
     if archiver_type is not None:
         config["archiver"] = {"type": archiver_type}
+    return config
+
+
+def _standin_config(
+    *,
+    standin_block: dict[str, Any] | None = None,
+    standin_port: int | None = STANDIN_PORT,
+    recorder: bool = False,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """A rendered config for a deployment that co-deploys the stand-in.
+
+    Three top-level facts beyond :func:`_config`: the stand-in's own connector
+    block, the ``services.live_standin.port`` the build projects when a profile
+    asked for a stand-in, and the ``deployed_services`` list whose
+    ``archiver_recorder`` entry is what makes the store this deployment's own.
+    """
+    connector = kwargs.pop("connector", None)
+    if connector is None:
+        connector = {
+            EPICS_TYPE: _epics_block(),
+            VA_TYPE: _va_block(),
+            STANDIN_TYPE: _standin_block() if standin_block is None else standin_block,
+        }
+    config = _config(connector=connector, **kwargs)
+    if standin_port is not None:
+        config["services"] = {"live_standin": {"port": standin_port}}
+    config["deployed_services"] = ["mcp_server"] + (["archiver_recorder"] if recorder else [])
     return config
 
 
@@ -326,6 +391,262 @@ def test_va_is_never_gated_on_posture_or_acknowledgment() -> None:
     config = _config(control_system_type=VA_TYPE, limits="permissive", ack=False)
 
     assert _eligibility(config, VA, direction=te.DIRECTION_AWAY).eligible is True
+
+
+# ---------------------------------------------------------------------------
+# The stand-in as a third target
+# ---------------------------------------------------------------------------
+
+
+def test_the_standin_target_is_eligible_when_it_selects_the_co_deployed_standin() -> None:
+    """Stand-in built, block dialling that port, over loopback: all three."""
+    verdict = _eligibility(_standin_config(), STANDIN)
+
+    assert verdict.eligible is True
+    assert verdict.reason is None
+
+
+def test_a_standin_block_pointed_at_a_gateway_is_not_this_deployments_standin() -> None:
+    """The port is right and the host is a real gateway — off the loopback
+    interface is off this host, so it is a machine, not the container."""
+    block = _standin_block(
+        gateways={"read_only": {"address": "gw.example.org", "port": STANDIN_PORT}}
+    )
+    verdict = _eligibility(_standin_config(standin_block=block), STANDIN)
+
+    assert verdict.eligible is False
+    assert verdict.reason == te.REASON_STANDIN_NOT_DEPLOYED
+    assert "services.live_standin.port" in verdict.detail
+    assert "gw.example.org" in verdict.detail
+
+
+def test_a_standin_block_moved_to_another_port_is_not_this_deployments_standin() -> None:
+    """Loopback, but not the port the deployment stood its stand-in up on."""
+    block = _standin_block(gateways={"read_only": {"address": "127.0.0.1", "port": 5064}})
+    verdict = _eligibility(_standin_config(standin_block=block), STANDIN)
+
+    assert verdict.eligible is False
+    assert verdict.reason == te.REASON_STANDIN_NOT_DEPLOYED
+
+
+def test_without_a_services_block_there_is_no_standin_to_switch_to() -> None:
+    """The SSH-tunnel case: a real gateway forwarded to loopback satisfies the
+    host and the port and nothing else, because the deployment built no
+    stand-in at all."""
+    verdict = _eligibility(_standin_config(standin_port=None), STANDIN)
+
+    assert verdict.eligible is False
+    assert verdict.reason == te.REASON_STANDIN_NOT_DEPLOYED
+
+
+def test_the_standin_deployed_check_runs_after_the_probe_channel_check() -> None:
+    """Check order is part of the contract: the nearest fix is the one reported."""
+    block = _standin_block(gateways={"read_only": {"address": "gw.example.org", "port": 5064}})
+    block.pop("probe_channel")
+
+    assert _eligibility(_standin_config(standin_block=block), STANDIN).reason == (
+        te.REASON_PROBE_CHANNEL_MISSING
+    )
+
+
+def test_the_standin_deployed_check_runs_before_the_honesty_precondition() -> None:
+    """A block that reaches no stand-in is reported as that, not as an archive
+    pairing it would only create if it reached one."""
+    block = _standin_block(gateways={"read_only": {"address": "gw.example.org", "port": 5064}})
+    config = _standin_config(standin_block=block, archiver_type=None)
+
+    assert _eligibility(config, STANDIN).reason == te.REASON_STANDIN_NOT_DEPLOYED
+
+
+def test_the_standin_beside_a_mock_archiver_invents_history_too() -> None:
+    """The stand-in has no more recorded past than the virtual accelerator has."""
+    verdict = _eligibility(_standin_config(archiver_type=None), STANDIN)
+
+    assert verdict.eligible is False
+    assert verdict.reason == te.REASON_INVENTED_HISTORY
+    assert VA_MOCK_ARCHIVER_WHY in verdict.detail
+    assert "mock_archiver" in verdict.detail
+
+
+def test_switching_to_the_standin_requires_the_strict_limits_posture() -> None:
+    """It is dialled, it refuses out-of-limit writes and it carries
+    ``real_machine`` — a rehearsal on a permissive posture rehearses nothing."""
+    verdict = _eligibility(_standin_config(limits="permissive", ack=True), STANDIN)
+
+    assert verdict.eligible is False
+    assert verdict.reason == te.REASON_LIMITS_POSTURE
+    assert te.LIMITS_ENABLED_KEY in verdict.detail
+    assert te.ALLOW_UNLISTED_KEY in verdict.detail
+
+
+def test_switching_to_the_standin_needs_no_operator_acknowledgment() -> None:
+    """``virtual_accelerator.live_standin`` is the stand-in's acknowledgment: the
+    operator already said which machine this is, at build time."""
+    verdict = _eligibility(_standin_config(limits="strict", ack=False), STANDIN)
+
+    assert verdict.eligible is True
+    assert verdict.reason is None
+
+
+def test_live_is_refused_while_the_archive_belongs_to_the_standin() -> None:
+    """Recording your own store beside a stand-in records the stand-in, and a
+    real machine's readings must not land in that store."""
+    config = _standin_config(control_system_type=STANDIN_TYPE, recorder=True, ack=True)
+
+    verdict = _eligibility(config, LIVE)
+
+    assert verdict.eligible is False
+    assert verdict.reason == te.REASON_ARCHIVE_BELONGS_TO_STANDIN
+    assert "archiver_recorder" in verdict.detail
+    assert "virtual_accelerator.live_standin" in verdict.detail
+
+
+def test_live_beside_a_standin_nobody_records_is_eligible() -> None:
+    """No recorder, so this deployment writes no store, so no past is its own."""
+    config = _standin_config(control_system_type=STANDIN_TYPE, recorder=False, ack=True)
+
+    assert _eligibility(config, LIVE).eligible is True
+
+
+def test_a_persona_session_is_refused_live_on_the_projected_recorder_fact() -> None:
+    """The multi-user half of the same gate, and it has to answer identically.
+
+    A web-terminal persona is an attached render: it lists no services, so the
+    host's `deployed_services` spelling of "we record" never reaches it. The
+    build projects the recorder's own block instead (the `archiver_recorder`
+    Reach Contract), and the persona reads the very store the fact is about —
+    so a session behind a persona is refused the live machine exactly as a
+    single-user session on the same deployment is.
+    """
+    config = _standin_config(control_system_type=STANDIN_TYPE, recorder=False, ack=True)
+    config["deployed_services"] = []
+    config["services"]["archiver_recorder"] = {"path": "./services/archiver_recorder"}
+
+    verdict = _eligibility(config, LIVE)
+
+    assert verdict.eligible is False
+    assert verdict.reason == te.REASON_ARCHIVE_BELONGS_TO_STANDIN
+    assert "archiver_recorder" in verdict.detail
+    # ... and the same render with nothing projected keeps `live` open, so it is
+    # the fact that decides and not the persona shape.
+    del config["services"]["archiver_recorder"]
+    assert _eligibility(config, LIVE).eligible is True
+
+
+def test_the_missing_acknowledgment_is_reported_before_the_archive_ownership() -> None:
+    """Both are true; the operator is told the one that is theirs to answer."""
+    config = _standin_config(control_system_type=STANDIN_TYPE, recorder=True, ack=False)
+
+    assert _eligibility(config, LIVE).reason == te.REASON_OPERATOR_ACK_MISSING
+
+
+def test_the_archive_ownership_gate_is_the_live_machines_alone() -> None:
+    """The store holding the stand-in's history is no reason to refuse the
+    stand-in — it is exactly the machine that history belongs to."""
+    config = _standin_config(control_system_type=STANDIN_TYPE, recorder=True, ack=True)
+
+    assert _eligibility(config, STANDIN, direction=te.DIRECTION_AWAY).eligible is True
+
+
+def test_va_is_ungated_on_a_standin_baseline() -> None:
+    config = _standin_config(
+        control_system_type=STANDIN_TYPE, recorder=True, limits="permissive", ack=False
+    )
+
+    assert _eligibility(config, VA).eligible is True
+
+
+def test_returning_to_a_standin_baseline_is_exempt_from_the_limits_posture() -> None:
+    """The baseline a deployment comes home to may be the stand-in, and coming
+    home is never gated: a session stranded on the simulator is the worse
+    outcome of the two this gate can produce."""
+    config = _standin_config(control_system_type=STANDIN_TYPE, limits="permissive", ack=False)
+
+    assert _eligibility(config, STANDIN, direction=te.DIRECTION_BACK).eligible is True
+    assert _eligibility(config, STANDIN, direction=te.DIRECTION_AWAY).reason == (
+        te.REASON_LIMITS_POSTURE
+    )
+
+
+def test_the_return_exemption_does_not_excuse_the_standins_deployed_check() -> None:
+    """It waives FR-8's posture, not the evidence that the target is the
+    stand-in — a block repointed at hardware is refused coming home too."""
+    block = _standin_block(gateways={"read_only": {"address": "gw.example.org", "port": 5064}})
+    config = _standin_config(
+        control_system_type=STANDIN_TYPE, standin_block=block, limits="permissive"
+    )
+
+    verdict = _eligibility(config, STANDIN, direction=te.DIRECTION_BACK)
+
+    assert verdict.eligible is False
+    assert verdict.reason == te.REASON_STANDIN_NOT_DEPLOYED
+
+
+# The roster on a live_standin baseline, written out per row rather than
+# computed: session on the stand-in it was built for, and the two other machines
+# judged from there. The ``live`` row is the one that moves, and it moves for a
+# different reason in each cell.
+STANDIN_BASELINE_ROSTER = [
+    # ack, recorder, live_available, live_reason
+    (False, False, False, te.REASON_OPERATOR_ACK_MISSING),
+    (False, True, False, te.REASON_OPERATOR_ACK_MISSING),
+    (True, False, True, None),
+    (True, True, False, te.REASON_ARCHIVE_BELONGS_TO_STANDIN),
+]
+
+
+@pytest.mark.parametrize(
+    ("ack", "recorder", "live_available", "live_reason"),
+    STANDIN_BASELINE_ROSTER,
+    ids=[
+        f"{'ack' if cell[0] else 'noack'}-{'recorder' if cell[1] else 'norecorder'}"
+        for cell in STANDIN_BASELINE_ROSTER
+    ],
+)
+def test_the_roster_on_a_standin_baseline(
+    ack: bool, recorder: bool, live_available: bool, live_reason: str | None
+) -> None:
+    config = _standin_config(control_system_type=STANDIN_TYPE, ack=ack, recorder=recorder)
+
+    rows = {
+        target: te.target_availability(
+            config,
+            target,
+            session_target=STANDIN,
+            baseline_target=STANDIN,
+            writes_enabled=False,
+            readonly_run=False,
+        )
+        for target in (LIVE, VA, STANDIN)
+    }
+
+    # The stand-in is the session's own target and the deployment's baseline.
+    assert rows[STANDIN].eligible is True
+    assert rows[STANDIN].reason == te.REASON_ALREADY_ACTIVE
+    assert rows[VA].available_now is True
+    assert (rows[LIVE].available_now, rows[LIVE].reason) == (live_available, live_reason)
+
+
+def test_the_roster_reports_a_repointed_standin_block_as_not_deployed() -> None:
+    """The gateway a persona or an operator moved is the roster's answer, not a
+    silently absent row."""
+    block = _standin_block(
+        gateways={"read_only": {"address": "gw.example.org", "port": STANDIN_PORT}}
+    )
+    config = _standin_config(control_system_type=STANDIN_TYPE, standin_block=block)
+
+    row = te.target_availability(
+        config,
+        STANDIN,
+        session_target=VA,
+        baseline_target=STANDIN,
+        writes_enabled=False,
+        readonly_run=False,
+    )
+
+    assert row.available_now is False
+    assert row.reason == te.REASON_STANDIN_NOT_DEPLOYED
+    assert row.eligible_from_baseline is False
 
 
 # ---------------------------------------------------------------------------
@@ -809,6 +1130,13 @@ def test_eligible_from_baseline_is_the_static_view_of_a_live_baseline() -> None:
         (LIVE, VA, VA, te.DIRECTION_AWAY),
         (VA, LIVE, LIVE, te.DIRECTION_AWAY),
         (VA, VA, VA, te.DIRECTION_AWAY),
+        # A live_standin baseline is a baseline like any other: coming home to
+        # it from either of the other two machines is a return.
+        (STANDIN, LIVE, STANDIN, te.DIRECTION_BACK),
+        (STANDIN, VA, STANDIN, te.DIRECTION_BACK),
+        (STANDIN, STANDIN, STANDIN, te.DIRECTION_AWAY),
+        (STANDIN, VA, LIVE, te.DIRECTION_AWAY),
+        (LIVE, STANDIN, STANDIN, te.DIRECTION_AWAY),
     ],
 )
 def test_switch_direction(

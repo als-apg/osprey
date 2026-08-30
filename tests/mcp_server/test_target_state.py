@@ -30,6 +30,12 @@ TARGETS_META = {
         "real_machine": False,
         "probe_channel": "VA:BeamCurrent",
     },
+    "standin": {
+        "label": "Live stand-in",
+        "endpoint": "localhost:5084",
+        "real_machine": False,
+        "probe_channel": "STANDIN:BeamCurrent",
+    },
 }
 
 
@@ -122,13 +128,27 @@ class TestWriteOnStart:
         assert record["target"] == "live"
         assert record["generation"] == 0
 
-    def test_both_target_slots_always_present(self, state_root):
+    def test_every_target_slot_always_present(self, state_root):
         target_state.write_on_start("live", {"live": {"label": "Live"}}, server_pid=1234)
 
         targets = target_state.read(1234)["targets"]
-        assert set(targets) == {"live", "va"}
+        assert set(targets) == set(target_state.TARGET_NAMES)
         assert targets["live"] == {"label": "Live", "endpoint": "", "real_machine": False}
         assert targets["va"] == {"label": "", "endpoint": "", "real_machine": False}
+        assert targets["standin"] == {"label": "", "endpoint": "", "real_machine": False}
+
+    def test_target_names_has_three_slots(self):
+        assert target_state.TARGET_NAMES == ("live", "va", "standin")
+        assert target_state.TARGET_STANDIN == "standin"
+
+    def test_unconfigured_standin_is_absent_as_empty_like_va(self, state_root):
+        """A deployment with no stand-in still carries the slot, empty."""
+        meta = {"live": {"label": "Live", "endpoint": "gw:5064", "real_machine": True}}
+        target_state.write_on_start("live", meta, server_pid=1234)
+
+        targets = target_state.read(1234)["targets"]
+        assert targets["standin"] == targets["va"]
+        assert targets["standin"] == {"label": "", "endpoint": "", "real_machine": False}
 
     def test_creates_the_state_directory(self, state_root):
         assert not (state_root / "control_target").exists()
@@ -150,17 +170,20 @@ class TestProbeChannel:
         targets = target_state.read(1234)["targets"]
         assert targets["live"]["probe_channel"] == "SR:BeamCurrent"
         assert targets["va"]["probe_channel"] == "VA:BeamCurrent"
+        assert targets["standin"]["probe_channel"] == "STANDIN:BeamCurrent"
 
     def test_absent_probe_channel_stays_absent(self, state_root):
         meta = {
             "live": {"label": "Live", "endpoint": "gw:5064", "real_machine": True},
             "va": {"label": "VA", "endpoint": "localhost:5074", "real_machine": False},
+            "standin": {"label": "Stand-in", "endpoint": "localhost:5084", "real_machine": False},
         }
         target_state.write_on_start("live", meta, server_pid=1234)
 
         targets = target_state.read(1234)["targets"]
         assert "probe_channel" not in targets["live"]
         assert "probe_channel" not in targets["va"]
+        assert "probe_channel" not in targets["standin"]
 
     @pytest.mark.parametrize("bogus", ["", None, 5064, ["SR:BeamCurrent"]])
     def test_unusable_probe_channel_is_dropped_never_stringified(self, state_root, bogus):
@@ -199,6 +222,38 @@ class TestPublish:
         assert record["targets"] == TARGETS_META
         assert record["server_pid"] == 1234
         assert record["owner_ppid"] == 99
+
+    def test_standin_round_trips_as_a_baseline(self, state_root):
+        """``standin`` is a target like any other: it survives write_on_start."""
+        target_state.write_on_start(
+            target_state.TARGET_STANDIN, TARGETS_META, server_pid=1234, owner_ppid=99
+        )
+
+        record = target_state.read(1234)
+        assert record["target"] == "standin"
+        assert record["generation"] == 0
+        assert record["targets"] == TARGETS_META
+
+    def test_standin_round_trips_through_a_switch(self, state_root):
+        target_state.write_on_start("live", TARGETS_META, server_pid=1234, owner_ppid=99)
+
+        assert target_state.publish_switch(target_state.TARGET_STANDIN, 2, server_pid=1234) is True
+
+        record = target_state.read(1234)
+        assert record["target"] == "standin"
+        assert record["generation"] == 2
+        assert record["targets"]["standin"]["endpoint"] == "localhost:5084"
+        assert record["targets"] == TARGETS_META
+
+    def test_switching_away_from_standin_back_to_live(self, state_root):
+        target_state.write_on_start(
+            target_state.TARGET_STANDIN, TARGETS_META, server_pid=1234, owner_ppid=99
+        )
+        target_state.publish_switch("live", 1, server_pid=1234)
+
+        record = target_state.read(1234)
+        assert record["target"] == "live"
+        assert record["targets"] == TARGETS_META
 
     def test_publish_can_carry_child_pids(self, state_root):
         target_state.write_on_start("live", TARGETS_META, server_pid=1234)

@@ -58,15 +58,18 @@ import { getCurrentSessionId, onSessionChange, startTerminal, stopTerminal } fro
  *   means no target is armed, which makes the `writes` direction unavailable
  *   rather than merely refused (see renderBadge).
  * @property {string|null} [session_target]  the control target this session is
- *   pointed at ('live' / 'va'), or the deployment baseline when none has been
- *   published yet. Absent from an older server — the line then renders nothing.
- *   This is the STATE KEY, not display text: it stays on the badge as a data
- *   attribute so styling and tests can key off it, whatever the label says.
+ *   pointed at ('live' / 'va' / 'standin'), or the deployment baseline when
+ *   none has been published yet. Absent from an older server — the line then
+ *   renders nothing. This is the STATE KEY, not display text: it stays on the
+ *   badge as a data attribute so styling and tests can key off it, whatever the
+ *   label says. 'standin' is a real machine like 'live' and the stylesheet
+ *   colours it identically; only the label tells the two apart.
  * @property {string} [session_target_label]  what to call that target — the
  *   label the controls server published for it, or the one the render derives
- *   on the baseline. A deployment whose live target is a stand-in for the real
- *   machine says so here, and 'live' alone would not. Absent from an older
- *   server, which reads as "no label": the line then shows the bare name.
+ *   on the baseline. The name is not the identity: the soft IOC a deployment
+ *   stands up for itself is 'standin', and 'standin' alone would not say what
+ *   it is. Absent from an older server, which reads as "no label": the line
+ *   then shows the bare name.
  * @property {boolean} [target_writes_enabled]  whether writes are armed for
  *   THAT target specifically, which is the fact `rendered_writes_enabled` is
  *   unable to carry.

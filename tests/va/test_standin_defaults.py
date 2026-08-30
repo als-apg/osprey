@@ -15,9 +15,10 @@ three separate contracts at once, none of which its own module can check:
    :func:`parse_standin_default`, which is the host side's copy of the same
    split.
 3. **The compose render.** The stand-in's env line is where the constant is
-   actually delivered, inside a ``${VA_STANDIN_BPM_ERRORS:-...}`` fallback so
-   an operator keeps the override; and a single-instance render must not so
-   much as mention it.
+   actually delivered, inside a ``${VA_STANDIN_BPM_ERRORS-...}`` fallback so
+   an operator keeps the override -- ``-`` and not ``:-``, so an explicitly
+   EMPTY override is an unperturbed stand-in rather than a fall back to this
+   constant; and a single-instance render must not so much as mention it.
 
 The offset-only rule earns its own test because it is the load-bearing one:
 with everything else in ``bpm_read``'s keyword set at identity, a reading is
@@ -35,7 +36,9 @@ import pytest
 from osprey.services.virtual_accelerator import entrypoint
 from osprey.services.virtual_accelerator.manifest.paths import MANIFEST_OUTPUT
 from osprey.services.virtual_accelerator.manifest.standin_defaults import (
+    LATTICE_BUILTIN,
     STANDIN_BPM_ERRORS_DEFAULT,
+    default_bpm_errors_for_lattice,
     parse_standin_default,
 )
 
@@ -142,11 +145,40 @@ class TestStandinDefaultErrorsRoundTripThroughTheGrammar:
         assert parsed, "the shipped default perturbs nothing"
 
 
+class TestLatticeConditionalDefault:
+    """The one rule the build and the render both resolve the fallback from."""
+
+    def test_lattice_builtin_is_the_entrypoints_own_spelling(self) -> None:
+        """The host-side respelling, pinned against the container's constant.
+
+        ``entrypoint`` owns the value and cannot be imported by the build or the
+        render, so it is respelled beside the default it conditions. A rename
+        there without one here would leave every stand-in rendered unperturbed.
+        """
+        assert LATTICE_BUILTIN == entrypoint.LATTICE_BUILTIN
+
+    def test_the_builtin_lattice_gets_the_shipped_perturbation(self) -> None:
+        """Case- and whitespace-insensitively: a chain value is written by hand."""
+        assert default_bpm_errors_for_lattice(LATTICE_BUILTIN) == STANDIN_BPM_ERRORS_DEFAULT
+        assert default_bpm_errors_for_lattice("  BuiltIn ") == STANDIN_BPM_ERRORS_DEFAULT
+
+    @pytest.mark.parametrize("lattice", ["none", "", "channels.json"])
+    def test_every_other_lattice_gets_the_empty_set(self, lattice: str) -> None:
+        """No PyAT model to displace, so the stand-in serves its manifest clean."""
+        assert default_bpm_errors_for_lattice(lattice) == ""
+
+
 class TestStandinDefaultErrorsReachTheComposeRender:
     """Where the constant is actually delivered: the stand-in's env line."""
 
     def test_standin_default_errors_render_as_the_standin_fallback(self) -> None:
-        """Rendered as the ``:-`` fallback, so the host override still wins."""
+        """Rendered as the ``-`` fallback, so the host override still wins.
+
+        ``-``, not ``:-``: the default is substituted only for an UNSET
+        variable, so ``VA_STANDIN_BPM_ERRORS=`` reaches the container as the
+        empty fault set an operator asked for instead of being rounded back up
+        to this constant.
+        """
         text = _render_text(
             _context(
                 instances={
@@ -157,7 +189,8 @@ class TestStandinDefaultErrorsReachTheComposeRender:
                 standin_bpm_errors_default=STANDIN_BPM_ERRORS_DEFAULT,
             )
         )
-        assert f"${{VA_STANDIN_BPM_ERRORS:-{STANDIN_BPM_ERRORS_DEFAULT}}}" in text
+        assert f"${{VA_STANDIN_BPM_ERRORS-{STANDIN_BPM_ERRORS_DEFAULT}}}" in text
+        assert "${VA_STANDIN_BPM_ERRORS:-" not in text
 
     def test_standin_default_errors_land_on_the_standin_instance_alone(self) -> None:
         """The baseline instance keeps its own clean ``VA_BPM_ERRORS``.

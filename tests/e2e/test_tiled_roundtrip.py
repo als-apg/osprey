@@ -7,12 +7,13 @@ through the queue (``PATCH /draft`` -> ``POST /queue/items`` -> token-gated
 ``POST /queue/start``), restarts ONLY the bridge container, and reads the same
 run back through the same agent-facing endpoint (``GET /runs/{run_id}/data``).
 
-The Virtual Accelerator is not incidental here. Plans execute in the
-queueserver worker against real devices, so the ONLY connector that can produce
-a run with data is one that can actually move something -- which is also why the
-shipped ``control-assistant`` preset now defaults ``control_system.type`` to
-``virtual_accelerator``. The mock connector would give a browse-only deployment
-that refuses the enqueue outright, and there would be nothing to round-trip.
+The soft IOC is not incidental here. Plans execute in the queueserver worker
+against real devices, so the ONLY connector that can produce a run with data is
+one that can actually move something -- which is also why the shipped
+``control-assistant`` preset baselines ``control_system.type`` on its live
+stand-in, a soft IOC the deployment runs for itself. The mock connector would
+give a browse-only deployment that refuses the enqueue outright, and there
+would be nothing to round-trip.
 
 The live-row buffer is in-process: it dies with the bridge. So after the restart
 the only thing that can make this read return anything is the durable Tiled
@@ -199,8 +200,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # convention as tests/e2e/_orm_stack.py).
     #
     # control_system.type is deliberately NOT set: the shipped preset already
-    # defaults to virtual_accelerator, which is the connector this proof needs,
-    # and pinning it here would hide a regression in that default.
+    # baselines on the live stand-in, an executable connector this proof can
+    # run on, and pinning it here would hide a regression in that baseline.
     override_path = base / "override.yml"
     override_path.write_text(
         "dispatch: null\n"

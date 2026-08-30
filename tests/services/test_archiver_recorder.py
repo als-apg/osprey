@@ -74,21 +74,32 @@ def _write_config(
     control_system_type: str = "virtual_accelerator",
     *,
     live_gateway: tuple[str, int | str] | None = None,
+    standin_gateway: tuple[str, int | str] | None = None,
     standin_port: int | None = None,
+    recorder_deployed: bool = True,
     **extra,
 ) -> Path:
     """A rendered config.yml, optionally shaped like a stand-in deployment.
 
-    ``live_gateway`` writes the ``epics`` connector block whose ``read_only``
-    gateway is what a live session dials — the block a stand-in build
-    overwrites with the stand-in's loopback port, and the block an SSH tunnel
-    also lands on. ``standin_port`` writes ``services.live_standin.port``, which
-    is the deployment saying it stood a second virtual accelerator up. The two
-    are independent arguments because the interesting cases are the ones where
-    they disagree.
+    ``live_gateway`` writes the ``epics`` connector block — the facility's
+    authored real machine, which is what ``live`` always means and what an SSH
+    tunnel also lands on. ``standin_gateway`` writes the
+    ``live_standin`` connector block the ``standin`` target resolves to, the
+    one the build fills with the stand-in's loopback address and port; it is the
+    only block the recorded endpoint is ever derived from.
+
+    ``standin_port`` writes ``services.live_standin.port``, the deployment
+    saying it stood a second virtual accelerator up, and ``recorder_deployed``
+    decides whether ``archiver_recorder`` is in ``deployed_services`` — the two
+    halves of "whose past is in this store". All four are independent arguments
+    because the interesting cases are the ones where they disagree.
     """
     config: dict = {
         "control_system": {"type": control_system_type},
+        # This service is the recorder, so the deploy that mounts this config
+        # ordinarily runs one. `recorder_deployed=False` is the render that
+        # merely stood a stand-in up without ever sampling it.
+        "deployed_services": ["mongodb", *(["archiver_recorder"] if recorder_deployed else [])],
         "archiver": {
             "mongodb_archiver": {
                 "host": "localhost",
@@ -111,13 +122,15 @@ def _write_config(
             "recorder_poll_sec": 30,
         },
     }
-    if live_gateway is not None:
-        address, port = live_gateway
-        config["control_system"]["connector"] = {
-            "epics": {"gateways": {"read_only": {"address": address, "port": port}}}
-        }
+    for block, gateway in (("epics", live_gateway), ("live_standin", standin_gateway)):
+        if gateway is None:
+            continue
+        address, port = gateway
+        connector = config["control_system"].setdefault("connector", {})
+        connector[block] = {"gateways": {"read_only": {"address": address, "port": port}}}
     if standin_port is not None:
         config["services"] = {"live_standin": {"port": standin_port}}
+        config["deployed_services"].append("live_standin")
     config.update(extra)
     path.write_text(yaml.safe_dump(config), encoding="utf-8")
     return path
@@ -445,9 +458,10 @@ async def test_the_control_system_flip_takes_effect_without_a_restart(tmp_path: 
 
 async def test_a_stand_in_is_recorded_though_the_type_no_longer_says_so(tmp_path: Path) -> None:
     """`osprey set connector=epics` rewrites the rendered control_system.type
-    without touching services.live_standin, and the machine on the other end of
-    the Channel Access connection has not changed at all. Recording follows the
-    machine, so the gate has to see the stand-in the type stopped naming."""
+    without touching the stand-in this deployment stood up and records, and the
+    machine on the other end of the Channel Access connection has not changed at
+    all. Recording follows the machine, so the gate has to see the stand-in the
+    type stopped naming."""
     writer = _FakeWriter()
     recorder = Recorder(
         settings=_settings(),
@@ -456,7 +470,7 @@ async def test_a_stand_in_is_recorded_though_the_type_no_longer_says_so(tmp_path
         config_path=_write_config(
             tmp_path / "config.yml",
             control_system_type="epics",
-            live_gateway=("127.0.0.1", 5074),
+            standin_gateway=("127.0.0.1", 5074),
             standin_port=5074,
         ),
         reader=_reader({"SR:BPM01:X": 1.5}),
@@ -469,10 +483,11 @@ async def test_a_stand_in_is_recorded_though_the_type_no_longer_says_so(tmp_path
 async def test_a_stand_in_block_does_not_record_a_gateway_pointed_off_the_host(
     tmp_path: Path,
 ) -> None:
-    """The label follows the endpoint, never a leftover `services:` block. Once
-    the gateways name a real facility's host the deployment has gone live,
-    whatever it still says it once stood up — and recording a real machine into
-    a synthesized archive is the failure this gate exists for."""
+    """The recorded endpoint follows the `standin` target's own gateways, never
+    a leftover `services:` block. Once those gateways name a real facility's
+    host the target dials a real machine, whatever the deployment still says it
+    once stood up — and recording a real machine into a synthesized archive is
+    the failure this gate exists for."""
     writer = _FakeWriter()
     recorder = Recorder(
         settings=_settings(),
@@ -481,8 +496,37 @@ async def test_a_stand_in_block_does_not_record_a_gateway_pointed_off_the_host(
         config_path=_write_config(
             tmp_path / "config.yml",
             control_system_type="epics",
-            live_gateway=("epics-gateway.example.org", 5074),
+            standin_gateway=("epics-gateway.example.org", 5074),
             standin_port=5074,
+        ),
+        reader=_reader({"SR:BPM01:X": 1.5}),
+    )
+
+    assert await recorder.tick(datetime(2026, 8, 10, 12, 0, 0, tzinfo=UTC)) is False
+    assert writer.samples == []
+
+
+async def test_a_stand_in_nothing_records_is_not_this_archives_machine(
+    tmp_path: Path,
+) -> None:
+    """The store's history belongs to the machine the store records.
+
+    A render that stood a stand-in up but runs no recorder samples nothing, so
+    the stand-in is not what its archive holds — and this service must not start
+    filing readings into it on the strength of the port alone. Both halves of
+    the predicate the compose entry and the archive seed bind to are needed
+    here too."""
+    writer = _FakeWriter()
+    recorder = Recorder(
+        settings=_settings(),
+        addresses=["SR:BPM01:X"],
+        writer=writer,
+        config_path=_write_config(
+            tmp_path / "config.yml",
+            control_system_type="epics",
+            standin_gateway=("127.0.0.1", 5074),
+            standin_port=5074,
+            recorder_deployed=False,
         ),
         reader=_reader({"SR:BPM01:X": 1.5}),
     )
@@ -540,7 +584,7 @@ async def test_a_torn_read_keeps_stand_in_recording_alive_too(tmp_path: Path) ->
     config_path = _write_config(
         tmp_path / "config.yml",
         control_system_type="epics",
-        live_gateway=("127.0.0.1", 5074),
+        standin_gateway=("127.0.0.1", 5074),
         standin_port=5074,
     )
     recorder = Recorder(
@@ -699,56 +743,124 @@ def test_control_system_type_reads_the_file_each_time(tmp_path: Path) -> None:
     assert read_control_system_type(config_path) == "virtual_accelerator"
 
 
+#: The stand-in this deployment stood up and records, as `_write_config` kwargs:
+#: the port it serves, the `standin` target's own gateways selecting it, and the
+#: recorder that samples it into the store (deployed by default).
+_RECORDS_ITS_STANDIN = {"standin_gateway": ("127.0.0.1", 5074), "standin_port": 5074}
+
+
 @pytest.mark.parametrize(
-    ("control_system_type", "live_gateway", "standin_port", "expected"),
+    ("config_kwargs", "expected"),
     [
-        # The baseline virtual accelerator: its own type answers, and there is
-        # no live machine named at all for a stand-in to be.
-        ("virtual_accelerator", None, None, RecordingFacts("virtual_accelerator", False)),
-        # A stand-in deployment before and after `osprey set connector=epics`:
-        # the rendered type moves, the stand-in does not.
-        (
-            "virtual_accelerator",
-            ("127.0.0.1", 5074),
-            5074,
-            RecordingFacts("virtual_accelerator", True),
+        pytest.param(
+            {"control_system_type": "virtual_accelerator"},
+            RecordingFacts("virtual_accelerator", False),
+            id="the-baseline-virtual-accelerator-stood-nothing-up",
         ),
-        ("epics", ("127.0.0.1", 5074), 5074, RecordingFacts("epics", True)),
+        # A stand-in deployment before and after `osprey set connector=epics`:
+        # the rendered type moves, the machine being recorded does not.
+        pytest.param(
+            {"control_system_type": "virtual_accelerator", **_RECORDS_ITS_STANDIN},
+            RecordingFacts("virtual_accelerator", True),
+            id="records-its-standin",
+        ),
+        pytest.param(
+            {"control_system_type": "epics", **_RECORDS_ITS_STANDIN},
+            RecordingFacts("epics", True),
+            id="records-its-standin-after-set-connector-epics",
+        ),
         # localhost and ::1 are loopback the same way an address is.
-        ("epics", ("localhost", 5074), 5074, RecordingFacts("epics", True)),
-        ("epics", ("::1", 5074), 5074, RecordingFacts("epics", True)),
-        # Gateways moved to the real machine: the leftover block loses.
-        ("epics", ("epics-gateway.example.org", 5074), 5074, RecordingFacts("epics", False)),
-        # The stand-in was built somewhere else than the gateways dial.
-        ("epics", ("127.0.0.1", 5064), 5074, RecordingFacts("epics", False)),
+        pytest.param(
+            {**_RECORDS_ITS_STANDIN, "standin_gateway": ("localhost", 5074)},
+            RecordingFacts("virtual_accelerator", True),
+            id="loopback-spelled-localhost",
+        ),
+        pytest.param(
+            {**_RECORDS_ITS_STANDIN, "standin_gateway": ("::1", 5074)},
+            RecordingFacts("virtual_accelerator", True),
+            id="loopback-spelled-v6",
+        ),
+        # The `standin` block's gateways moved to a real machine: the leftover
+        # `services:` block loses, and the endpoint is what answers.
+        pytest.param(
+            {**_RECORDS_ITS_STANDIN, "standin_gateway": ("epics-gateway.example.org", 5074)},
+            RecordingFacts("virtual_accelerator", False),
+            id="standin-gateways-moved-off-the-host",
+        ),
+        pytest.param(
+            {**_RECORDS_ITS_STANDIN, "standin_gateway": ("127.0.0.1", 5064)},
+            RecordingFacts("virtual_accelerator", False),
+            id="standin-built-elsewhere-than-the-gateways-dial",
+        ),
         # A quoted port in the gateway block, coerced the same way the roster's
         # own label derivation coerces it: one endpoint, never two answers.
-        ("epics", ("127.0.0.1", "5074"), 5074, RecordingFacts("epics", True)),
-        # A gateway port that names no port at all fails toward the real machine.
-        ("epics", ("127.0.0.1", "not-a-port"), 5074, RecordingFacts("epics", False)),
+        pytest.param(
+            {**_RECORDS_ITS_STANDIN, "standin_gateway": ("127.0.0.1", "5074")},
+            RecordingFacts("virtual_accelerator", True),
+            id="a-quoted-gateway-port-is-still-that-port",
+        ),
+        pytest.param(
+            {**_RECORDS_ITS_STANDIN, "standin_gateway": ("127.0.0.1", "not-a-port")},
+            RecordingFacts("virtual_accelerator", False),
+            id="a-gateway-port-that-names-no-port",
+        ),
+        # The two halves of "whose past is in this store", each without the
+        # other. Neither alone makes the archive the stand-in's.
+        pytest.param(
+            {**_RECORDS_ITS_STANDIN, "recorder_deployed": False},
+            RecordingFacts("virtual_accelerator", False),
+            id="a-standin-this-deployment-never-records",
+        ),
+        pytest.param(
+            {"standin_gateway": ("127.0.0.1", 5074)},
+            RecordingFacts("virtual_accelerator", False),
+            id="a-recorder-with-no-standin-stood-up",
+        ),
+        # `live` always means the facility's authored `epics` block, and the
+        # recorded endpoint is never read from it — in either direction.
+        pytest.param(
+            {
+                "control_system_type": "epics",
+                **_RECORDS_ITS_STANDIN,
+                "live_gateway": ("epics-gateway.example.org", 5064),
+            },
+            RecordingFacts("epics", True),
+            id="a-real-live-machine-beside-the-recorded-standin",
+        ),
+        pytest.param(
+            {
+                "control_system_type": "epics",
+                "live_gateway": ("127.0.0.1", 5074),
+                "standin_port": 5074,
+            },
+            RecordingFacts("epics", False),
+            id="an-epics-block-on-the-standins-port-is-not-the-standin",
+        ),
         # An SSH tunnel: loopback, and nothing else.
-        ("epics", ("localhost", 5064), None, RecordingFacts("epics", False)),
-        # No live machine ever named — the ordinary mock project.
-        ("mock", None, None, RecordingFacts("mock", False)),
+        pytest.param(
+            {"control_system_type": "epics", "live_gateway": ("localhost", 5064)},
+            RecordingFacts("epics", False),
+            id="an-ssh-tunnel-to-a-real-gateway",
+        ),
+        pytest.param(
+            {"control_system_type": "mock"},
+            RecordingFacts("mock", False),
+            id="the-ordinary-mock-project",
+        ),
     ],
 )
-def test_recording_facts_answer_for_the_endpoint_a_live_session_would_dial(
+def test_recording_facts_answer_for_the_machine_this_archive_records(
     tmp_path: Path,
-    control_system_type: str,
-    live_gateway: tuple[str, int | str] | None,
-    standin_port: int | None,
+    config_kwargs: dict,
     expected: RecordingFacts,
 ) -> None:
     """Both facts out of one parse, and the stand-in half decided by the shared
-    predicate against the derived live endpoint rather than by the presence of a
-    `services:` block. A guard that read the block directly would keep claiming
-    a stand-in after the gateways had been moved to hardware."""
-    config_path = _write_config(
-        tmp_path / "config.yml",
-        control_system_type=control_system_type,
-        live_gateway=live_gateway,
-        standin_port=standin_port,
-    )
+    predicate — whose past is in this store — and then by the `standin` target's
+    own derived endpoint, never by the presence of a `services:` block and never
+    from the `epics` block. A guard that read the block directly would keep
+    claiming a stand-in after the gateways had been moved to hardware; one that
+    read `epics` would answer for the facility's real machine instead."""
+    config_path = _write_config(tmp_path / "config.yml", **config_kwargs)
 
     assert read_recording_facts(config_path) == expected
 

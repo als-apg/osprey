@@ -212,7 +212,15 @@ def test_rule_heading_contract_intact(tmp_path):
 def test_routing_section_renders_for_every_control_system_type(tmp_path):
     """The routing cases are about tools, not protocols, so every render gets
     them -- a mock deployment routes requests the same way an EPICS one does."""
-    for cs_type in ("epics", "virtual_accelerator", "tango", "opcua", "labview", None):
+    for cs_type in (
+        "epics",
+        "virtual_accelerator",
+        "live_standin",
+        "tango",
+        "opcua",
+        "labview",
+        None,
+    ):
         label = cs_type or "mock"
         content = _render_safety_rule(tmp_path / label, f"route-{label}", cs_type)
 
@@ -227,7 +235,15 @@ def test_routing_section_is_protocol_neutral(tmp_path):
     because those are the only renders where the string ``EPICS`` exists
     elsewhere in the document -- they are where a leak into the routing
     section would actually be caught."""
-    for cs_type in ("epics", "virtual_accelerator", "tango", "opcua", "labview", None):
+    for cs_type in (
+        "epics",
+        "virtual_accelerator",
+        "live_standin",
+        "tango",
+        "opcua",
+        "labview",
+        None,
+    ):
         label = cs_type or "mock"
         content = _render_safety_rule(tmp_path / label, f"neutral-{label}", cs_type)
 

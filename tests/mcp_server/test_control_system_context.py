@@ -453,6 +453,57 @@ def test_a_virtual_accelerator_with_invented_history_refuses_to_start(
     assert "virtual_accelerator" in str(excinfo.value)
 
 
+_STANDIN_MOCK_NESTED = {
+    "control_system": {"type": "live_standin", "writes_enabled": False},
+    "archiver": {"type": "mock_archiver"},
+}
+_STANDIN_UNSET_ARCHIVER = {"control_system": {"type": "live_standin"}}
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param(_STANDIN_MOCK_NESTED, id="standin-nested-mock"),
+        pytest.param(_STANDIN_UNSET_ARCHIVER, id="standin-archiver-unset"),
+    ],
+)
+def test_a_stand_in_with_invented_history_is_refused_under_its_own_name(
+    tmp_path, monkeypatch, config
+):
+    """The stand-in is the other machine this deployment stands up for itself,
+    so it reaches the same refusal — and whoever reads it at a launcher's stderr
+    has no virtual accelerator to go looking for."""
+    monkeypatch.chdir(tmp_path)
+    _write_config(tmp_path, config)
+
+    with pytest.raises(ConfigurationError) as excinfo:
+        initialize_server_context()
+    message = str(excinfo.value)
+
+    assert "'live_standin'" in message
+    # The shared reason sentence names both machines in prose; the *type* named
+    # back must be the one this config carries.
+    assert "'virtual_accelerator'" not in message
+
+
+@pytest.mark.unit
+def test_the_virtual_accelerator_is_still_named_when_it_is_the_invented_machine(
+    tmp_path, monkeypatch
+):
+    """The type is read from the config rather than assumed, so the case that
+    motivated the rule keeps the message it had."""
+    monkeypatch.chdir(tmp_path)
+    _write_config(tmp_path, _VA_MOCK_NESTED)
+
+    with pytest.raises(ConfigurationError) as excinfo:
+        initialize_server_context()
+    message = str(excinfo.value)
+
+    assert "'virtual_accelerator'" in message
+    assert "'live_standin'" not in message
+
+
 @pytest.mark.unit
 def test_the_refusal_explains_an_inert_flat_line_rather_than_calling_it_unset(
     tmp_path, monkeypatch

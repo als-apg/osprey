@@ -135,6 +135,19 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # expire exactly as before — but the resolved content now names the
     # lifetime, so the staleness advisory firing on already-deployed
     # control-assistant projects is the correct signal.
+    # Moved once more, ALL SIX at once again, when the live stand-in became a
+    # control target of its own. The base preset's `control_system.type` is now
+    # `live_standin`: a session opens on the stand-in soft IOC rather than on
+    # the sandbox simulator, and `live` goes on meaning the machine a facility
+    # authors under `epics:`. The base also states the strict limits pair
+    # (`control_system.limits_checking.enabled: true` and
+    # `...allow_unlisted_channels: false`) that switching onto either
+    # hardware-shaped target requires. Deploy-visible twice over — a rebuilt
+    # project's sessions start on a different machine, and a write to a channel
+    # `data/channel_limits.json` does not list is refused rather than waved
+    # through — so the staleness advisory firing on already-deployed
+    # control-assistant projects is the correct signal.
+    # Moved with the base above: `live_standin` baseline + strict limits pair.
     #
     # Moved once more — all six control-assistant entries together — when host
     # ports became `deployment.port_base` plus a fixed offset. The base
@@ -147,12 +160,19 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # block. Deploy-visible: a rebuilt project's landing page, terminals,
     # companion panels, bluesky sidecar and live-standin simulator all bind to
     # the port-block addresses instead of the retired literals.
-    "control-assistant": "sha256:677af2f2e7f09828aba744be36cb8adf788e8970a113beae4defcdc88e302327",
+    #
+    # The two changes above met in one merge, so the digests below are neither
+    # branch's recorded value but the one the merged preset actually hashes to:
+    # a `live_standin` baseline with the strict limits pair, placed on the port
+    # block. Deploy-visible for both reasons at once.
+    "control-assistant": "sha256:ea77ab02508d4b12f1c0dd1002770fde1070f0cdf0d182785535fcc4f175d8c6",
+    # Moved with the base above: `live_standin` baseline + strict limits pair.
     "control-assistant-admin": (
-        "sha256:a428cb2187e76770aa9921832712532a5f45fa45d26e94d8ce236531c701649b"
+        "sha256:873fdd1f43c65c15d2021a7f4869704fb943a1be2a022c0e78cdc34b48449c2b"
     ),
+    # Moved with the base above: `live_standin` baseline + strict limits pair.
     "control-assistant-ariel": (
-        "sha256:7447f714e81382292a6cc1f45612251d698086f1e964f9d5da5e7d20946f1c15"
+        "sha256:0f91798146907adef25fd6cce8429488eb58af3d9f5eb6bc93cddb55c2aaaee7"
     ),
     # The two operator tiers below moved together, and alone, when each gained
     # the single dotted key `services.graphdb.port_host: 7687` in its `config:`
@@ -209,11 +229,13 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # and their resolved content is unchanged. Their comment rewrites in the
     # same commit contributed nothing, which is the digest being comment-blind
     # exactly as the note at the top of this table says.
+    # Moved with the base above: `live_standin` baseline + strict limits pair.
     "control-assistant-readonly": (
-        "sha256:539d67ccdf6ac02a8d5dfefccd74bc484061c7485a01a8bb6106650ce5515b8b"
+        "sha256:f0c1eec4c586057778871c2b071b9ada0f8520c919b4e79567dfb0d8e5abf082"
     ),
+    # Moved with the base above: `live_standin` baseline + strict limits pair.
     "control-assistant-readwrite": (
-        "sha256:72d2d257eacffb939c09e8fd0a1241e23b09b72906beaa66bccd27d826989ae7"
+        "sha256:89f05aa008a36ca39dbba53af6f07490d2e64e961f999b3933fc5b44e7491f65"
     ),
     # New with per-target write posture, not a moved entry: the rung between
     # the two flat tiers, armed on the virtual accelerator alone. It pins the
@@ -221,8 +243,9 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # `control_system.connector.virtual_accelerator.writes_enabled: true` over
     # it, so which machine the session is pointed at decides whether its writes
     # land.
+    # Moved with the base above: `live_standin` baseline + strict limits pair.
     "control-assistant-va-readwrite": (
-        "sha256:0b24b2acdf39954b8c6d86dba8f2e478b2b8cba39ccd6f142070120671cc4752"
+        "sha256:f95e419a917e20c9272bcb1431e33c8330988c7a9349d8ae261af8b8924b9cb7"
     ),
     # Moved when the onboarding rewrite dropped the `facility` rule. The
     # wholesale comment rewrite that shipped alongside it contributed nothing:

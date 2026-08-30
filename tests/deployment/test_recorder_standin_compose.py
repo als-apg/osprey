@@ -6,9 +6,11 @@ it could mean — the co-deployed ``virtual_accelerator`` — so the template na
 that service outright at both wiring sites.
 
 A deployment that stands a live stand-in up has two IOCs, and the choice between
-them is not arbitrary: **the archive belongs to the machine.** ``live-standin``
-is the machine such a deployment calls ``live``, so its readings are the history
-the store describes, and the sandbox VA beside it is not what gets recorded.
+them is not arbitrary: **the archive belongs to the machine it records.** A
+deployment that records its own store beside a stand-in records the stand-in —
+its present is what the store goes on holding and its past is what the deploy
+seeded — so ``live-standin``, and not the sandbox VA beside it, is what gets
+recorded.
 
 Two claims are tested here, and the first one is the anchor:
 
@@ -43,6 +45,7 @@ from jinja2 import UndefinedError
 # The same helpers the recorder's existing render tests use, rather than a
 # second hand-built context: a golden is only worth what the context behind it
 # is worth, and these pin the shape those tests already assert against.
+from osprey_connectors.standin import ARCHIVER_RECORDER_SERVICE
 from tests.deployment.test_compose_generator import (
     _render_recorder_template,
     _render_service_template,
@@ -52,9 +55,14 @@ RECORDER_TEMPLATE = "archiver_recorder/docker-compose.yml.j2"
 
 GOLDEN_DIR = Path(__file__).parent / "goldens" / "recorder_no_standin"
 
+#: The ``deployed_services`` entry naming the recorder, spelled once here and
+#: read from the connectors package rather than restated, so this render and the
+#: predicate the template mirrors cannot come to name it differently.
+RECORDER = ARCHIVER_RECORDER_SERVICE
+
 #: The deploy every render here starts from. ``mongodb`` is unconditional (the
 #: store is the recorder's other half) and the IOC keys are appended per case.
-BASE_DEPLOYED = ["mongodb", "archiver_recorder"]
+BASE_DEPLOYED = ["mongodb", RECORDER]
 
 
 def _render_with_standin(
@@ -62,16 +70,22 @@ def _render_with_standin(
     deployed: bool = True,
     has_block: bool = True,
     standin_port: int | None = 5074,
+    recorder_deployed: bool = True,
     project_name: str = "proj-a",
 ) -> str:
     """Render the recorder template for a deployment that has a stand-in block.
 
-    The three knobs move independently on purpose. ``deployed`` and
+    The four knobs move independently on purpose. ``deployed`` and
     ``has_block`` are separate because a config can carry a
     ``services.live_standin`` block that was never deployed, and membership in
     ``deployed_services`` — not the presence of the block — is what the template
     gates on, the same rule every other service here follows. ``standin_port``
     goes to ``None`` for the deployed-but-portless shape.
+    ``recorder_deployed`` drops ``archiver_recorder`` from the list, which is
+    the second half of the archive predicate; it is unreachable in production
+    (this template renders only for a deploy that runs the recorder) and is
+    exercised anyway, because the condition is written out here to match the
+    code and a copy that quietly answered differently would be invisible.
 
     Only the two IOC blocks are supplied. The recorder template reads no other
     service's block, so a narrower ``services`` dict than the shared helper's
@@ -80,7 +94,8 @@ def _render_with_standin(
     services: dict[str, Any] = {"virtual_accelerator": {"port": 5064}}
     if has_block:
         services["live_standin"] = {} if standin_port is None else {"port": standin_port}
-    deployed_services = [*BASE_DEPLOYED, "virtual_accelerator"]
+    deployed_services = [name for name in BASE_DEPLOYED if recorder_deployed or name != RECORDER]
+    deployed_services.append("virtual_accelerator")
     if deployed:
         deployed_services.append("live_standin")
     return _render_service_template(
@@ -221,6 +236,51 @@ def test_recorder_standin_block_that_was_never_deployed_changes_nothing() -> Non
     golden = (GOLDEN_DIR / "co_deployed.yml").read_text(encoding="utf-8")
     rendered = _render_with_standin(deployed=False)
     assert rendered.rstrip("\n") + "\n" == golden.rstrip("\n") + "\n"
+
+
+# --- begin: recorder-and-seed-bind-predicate -------------------------------
+# The template's condition is `archive_belongs_to_standin` written out in
+# Jinja: a stand-in was stood up AND this deployment runs the recorder. The
+# second conjunct cannot be false in production, and is pinned anyway — it is
+# the half a future edit could drop without any render moving.
+# ---------------------------------------------------------------------------
+
+
+def test_the_recorded_machine_is_the_standin_the_config_says_it_records() -> None:
+    """Both conjuncts of the archive predicate land in the rendered document.
+
+    The compose entry, the recorder's own enablement gate and the deploy-time
+    archive seed answer "whose past is in this store" from one predicate. Here
+    that predicate is Jinja rather than Python, so what is checked is that the
+    rendered file agrees with it: a deploy that stood a stand-in up and runs the
+    recorder samples ``live-standin``, at the port the config names.
+    """
+    env = _standin_service()["environment"]
+    assert env["EPICS_CA_NAME_SERVERS"] == "live-standin:5074"
+    assert "live-standin" in _standin_service()["depends_on"]
+
+
+def test_a_deployment_that_runs_no_recorder_records_nothing_of_the_standin() -> None:
+    """Without the recorder conjunct the stand-in is not the archive's machine.
+
+    A store nothing samples holds no machine's present, so there is nothing for
+    the stand-in to be the past of, and this render falls back to the shape a
+    deployment without a stand-in has always had — pinned against that golden
+    rather than by asserting an address, because "renders what it always did"
+    is the whole claim.
+
+    Unreachable in production: a service template renders only for a deploy
+    that runs the service. It is written out in the template so the condition
+    an operator reads is the condition the code applies, and pinned here so
+    that stays true.
+    """
+    golden = (GOLDEN_DIR / "co_deployed.yml").read_text(encoding="utf-8")
+    rendered = _render_with_standin(recorder_deployed=False)
+
+    assert rendered.rstrip("\n") + "\n" == golden.rstrip("\n") + "\n"
+
+
+# --- end: recorder-and-seed-bind-predicate ---------------------------------
 
 
 # ---------------------------------------------------------------------------

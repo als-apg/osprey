@@ -5,9 +5,11 @@
 literal dotted config key on every path a profile can arrive by — bundled
 preset, ``-O`` file, ``--set`` pair, ``extends`` parent, or a hand-written
 profile loaded directly — so it can never be accepted and then ignored. Its
-value is validated against the same connector list the rest of the CLI offers,
-so a misspelling fails the build instead of resolving to a control system the
-facility never asked for.
+value is validated against the settable connector types, so a misspelling
+fails the build instead of resolving to a control system the facility never
+asked for. That list is the initable one plus the live stand-in: a deployment
+may be pointed at the soft IOC it already runs, while ``osprey init`` — which
+has no stand-in to point a fresh project at — refuses the flag outright.
 """
 
 from __future__ import annotations
@@ -28,7 +30,12 @@ from osprey.cli.build_profile_resolve import (
     resolve_build_profile,
 )
 from osprey.cli.init_cmd import init
-from osprey.connectors.types import CLI_CONTROL_SYSTEM_TYPES
+from osprey.cli.set_cmd import set as set_command
+from osprey.connectors.types import (
+    CLI_CONTROL_SYSTEM_TYPES,
+    LIVE_STANDIN,
+    SET_CONTROL_SYSTEM_TYPES,
+)
 from osprey.errors import BuildProfileError
 
 
@@ -308,3 +315,100 @@ def test_init_bakes_the_literal_key(tmp_path: Path) -> None:
     baked = yaml.safe_load((target / "profile.yml").read_text(encoding="utf-8"))
     assert CONNECTOR_PROFILE_KEY not in baked
     assert baked["config"][CONNECTOR_CONFIG_KEY] == "doocs"
+
+
+# ── the stand-in is settable, not initable ───────────────────────────────────
+#
+# The live stand-in is a control target of its own, reached by pointing a
+# deployment at the soft IOC it already runs. That makes it a legal value for
+# the shorthand — `osprey set connector=live_standin` is the flip an operator
+# performs — and an illegal one for `osprey init`, which materializes a fresh
+# project that has no stand-in yet. Two lists, one shorthand: what the value is
+# validated against is the wider one, and `init` is narrowed by refusing the
+# flag outright rather than by a second spelling of the allowlist.
+
+
+def test_set_list_is_the_cli_list_plus_the_stand_in() -> None:
+    """The settable types are the initable ones and nothing but the stand-in."""
+    assert SET_CONTROL_SYSTEM_TYPES == [*CLI_CONTROL_SYSTEM_TYPES, LIVE_STANDIN]
+
+
+def test_the_stand_in_stays_out_of_the_init_list() -> None:
+    """A fresh project is never materialized onto a stand-in it does not have."""
+    assert LIVE_STANDIN not in CLI_CONTROL_SYSTEM_TYPES
+
+
+def test_parse_accepts_the_stand_in() -> None:
+    """``connector: live_standin`` folds to the literal key like any other type."""
+    profile = _parse_profile({"name": "x", "connector": LIVE_STANDIN})
+
+    assert profile.config[CONNECTOR_CONFIG_KEY] == LIVE_STANDIN
+
+
+def test_merge_cli_overrides_accepts_the_stand_in() -> None:
+    """``--set connector=live_standin`` survives the CLI layering step."""
+    merged = merge_cli_overrides({}, (), (f"connector={LIVE_STANDIN}",))
+
+    assert merged == {"config": {CONNECTOR_CONFIG_KEY: LIVE_STANDIN}}
+
+
+def test_misspelled_stand_in_suggests_the_stand_in() -> None:
+    """The suggestion draws from the settable list, so a stand-in typo lands."""
+    with pytest.raises(BuildProfileError) as excinfo:
+        _parse_profile({"name": "x", "connector": "live_standn"})
+
+    message = str(excinfo.value)
+    assert "Unknown connector 'live_standn'" in message
+    assert f"did you mean {LIVE_STANDIN!r}?" in message
+
+
+def test_invalid_connector_lists_the_stand_in_among_the_choices() -> None:
+    """The refusal names every settable type, the stand-in included."""
+    with pytest.raises(BuildProfileError) as excinfo:
+        _parse_profile({"name": "x", "connector": "tango"})
+
+    assert LIVE_STANDIN in str(excinfo.value)
+
+
+def test_set_points_a_deployment_at_its_stand_in(lifecycle_repo: Path) -> None:
+    """``osprey set connector=live_standin`` writes the profile's control key.
+
+    The verb is the flip an operator performs on a deployment that already runs
+    a stand-in; going back is the same command naming ``epics``.
+    """
+    repo = lifecycle_repo
+    runner = CliRunner()
+
+    result = runner.invoke(
+        set_command, ["--repo", str(repo), f"connector={LIVE_STANDIN}"], catch_exceptions=False
+    )
+
+    assert result.exit_code == 0, result.output
+    profile_text = (repo / "profile.yml").read_text(encoding="utf-8")
+    assert f"control_system.type: {LIVE_STANDIN}" in profile_text
+
+    back = runner.invoke(
+        set_command, ["--repo", str(repo), "connector=epics"], catch_exceptions=False
+    )
+
+    assert back.exit_code == 0, back.output
+    assert "control_system.type: epics" in (repo / "profile.yml").read_text(encoding="utf-8")
+
+
+def test_init_still_refuses_the_stand_in_as_a_flag(tmp_path: Path) -> None:
+    """``osprey init --connector live_standin`` materializes nothing.
+
+    ``init`` carries no ``--connector`` option at all — the shorthands are
+    registered as hidden, always-refusing flags that point at the ``--set``
+    spelling — so widening the shorthand's allowlist cannot open a path to a
+    project that begins on a stand-in it has not built yet.
+    """
+    target = tmp_path / "my-deployment"
+    result = CliRunner().invoke(
+        init,
+        [str(target), "--preset", "hello-world", "--no-git", "--connector", LIVE_STANDIN],
+    )
+
+    assert result.exit_code != 0
+    assert "There is no --connector option" in _flat(result.output)
+    assert not (target / "profile.yml").exists()

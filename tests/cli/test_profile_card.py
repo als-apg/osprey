@@ -32,7 +32,7 @@ from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from osprey.cli.profile_card import format_profile_card, print_profile_card
 from osprey.cli.profile_cmd import _parsed_persona_deltas, _persona_profile_texts
 from osprey.cli.styles import osprey_theme
-from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
+from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
 
 #: Every port the exemplar lands on, at the base a profile with no
 #: ``deployment.port_base`` resolves. Spelled through the layout rather than as
@@ -199,8 +199,13 @@ def test_the_machine_group_reads_connector_archiver_and_channels(
     exemplar_lines: list[str],
 ) -> None:
     control = line_with(exemplar_lines, "control ")
-    assert "virtual accelerator" in control
+    # The baseline connector type, spelled the way the card spells one
+    # (underscores to spaces), then the two simulator ports the preset
+    # declares: the sandbox on 5064 and the stand-in the baseline names, which
+    # `live_standin: true` places at the layout's stand-in slot.
+    assert "live standin" in control
     assert "EPICS :5064" in control
+    assert f"live stand-in :{default_port('va_standin')}" in control
     archiver = line_with(exemplar_lines, "archiver")
     assert "mongodb · 30 d retention" in archiver
     channels = line_with(exemplar_lines, "channels")

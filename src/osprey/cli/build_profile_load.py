@@ -18,9 +18,9 @@ from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
-from osprey.connectors.types import CLI_CONTROL_SYSTEM_TYPES
 from osprey.errors import BuildProfileError
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port, resolve_port_base
+from osprey_connectors.types import SET_CONTROL_SYSTEM_TYPES
 
 from .build_profile_archiver import parse_va_archiver_block
 from .build_profile_deploy import parse_deploy_block
@@ -217,8 +217,10 @@ _KNOWN_DISPATCH_KEYS = frozenset(f.name for f in fields(DispatchConfig))
 # Keys recognized inside the ``virtual_accelerator:`` block, derived from its
 # dataclass like the two sets above. What a dropped key costs here is a
 # deployment that quietly stays on simulated channels: a misspelled
-# `live_standin` leaves the stand-in unbuilt, and the rehearsal of going live
-# would run against the same lane the operator was already on.
+# `live_standin` leaves the stand-in unbuilt, so the deployment never gains its
+# `standin` target — `control_target_set standin` has no machine to point at,
+# and a session meant for the soft IOC runs against the same lane the operator
+# was already on.
 _KNOWN_VA_KEYS = frozenset(f.name for f in fields(VAConfig))
 
 
@@ -644,8 +646,16 @@ def _apply_connector_shorthand(raw: dict[str, Any]) -> dict[str, Any]:
     the shorthand and have it silently ignored. Idempotent: a mapping without
     the key is returned unchanged.
 
-    The value is validated against the built-in connector types the rest of the
-    CLI offers (:data:`~osprey.connectors.types.CLI_CONTROL_SYSTEM_TYPES`).
+    The value is validated against
+    :data:`~osprey_connectors.types.SET_CONTROL_SYSTEM_TYPES` — the built-in
+    connector types the CLI offers, plus ``live_standin``. That list rather
+    than :data:`~osprey_connectors.types.CLI_CONTROL_SYSTEM_TYPES` because the
+    two questions differ: a deployment that already runs a stand-in may be
+    pointed at it (``osprey set connector=live_standin``), while ``osprey
+    init`` never materializes a project onto one, having no stand-in to point
+    at. The nearest-type suggestion draws from the same list, so a typo for the
+    stand-in is corrected rather than told the type does not exist.
+
     A custom connector is addressed by its dotted module path, which the
     shorthand does not cover — write ``config: {control_system.type: ...}``
     for those.
@@ -665,14 +675,14 @@ def _apply_connector_shorthand(raw: dict[str, Any]) -> dict[str, Any]:
         return raw
 
     value = raw.pop(CONNECTOR_PROFILE_KEY)
-    known = sorted(CLI_CONTROL_SYSTEM_TYPES)
+    known = sorted(SET_CONTROL_SYSTEM_TYPES)
     if not isinstance(value, str) or not value.strip():
         raise BuildProfileError(
             f"Profile key 'connector' must name a connector type (got {value!r}) — "
             f"one of: {', '.join(known)}."
         )
     value = value.strip()
-    if value not in CLI_CONTROL_SYSTEM_TYPES:
+    if value not in SET_CONTROL_SYSTEM_TYPES:
         # Case-insensitive first: difflib scores 'EPICS' against 'epics' at
         # zero, so the likeliest mistake would otherwise get no suggestion.
         close = [name for name in known if name.lower() == value.lower()] or (

@@ -104,7 +104,7 @@ class TestCliSurface:
     """
 
     def test_the_shorthand_reads_the_registered_type_list(self):
-        """``CLI_CONTROL_SYSTEM_TYPES`` is what the shorthand validates against,
+        """``SET_CONTROL_SYSTEM_TYPES`` is what the shorthand validates against,
         so a connector missing from it cannot be selected however well it is
         registered underneath."""
         from osprey.connectors.types import CLI_CONTROL_SYSTEM_TYPES

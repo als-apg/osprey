@@ -23,10 +23,17 @@ import pytest
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.connector_host_manager import target_display_metadata
 from osprey.mcp_server.control_system.target_eligibility import (
+    ACK_LEAF,
     REASON_ALREADY_ACTIVE,
+    REASON_ARCHIVE_BELONGS_TO_STANDIN,
+    REASON_OPERATOR_ACK_MISSING,
     REASON_PROBE_CHANNEL_MISSING,
+    REASON_STANDIN_NOT_DEPLOYED,
+    REASON_TARGET_UNRESOLVABLE,
+    target_availability,
 )
 from osprey.mcp_server.control_system.tools import control_target
+from osprey_connectors.standin import ARCHIVER_RECORDER_SERVICE
 from tests.mcp_server import test_switch_lifecycle as switch_suite
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 from tests.mcp_server.test_control_target_set import config_with_gateways, install_context
@@ -80,7 +87,19 @@ def install_prober(monkeypatch, snapshot):
 STANDIN_PORT = 5074
 #: The port a tunnel forwards a *real* gateway to. Loopback, and nothing else.
 TUNNELLED_PORT = 5064
+#: The simulator's own gateway port, for the cases that need ``va`` to be a
+#: usable destination rather than merely a described one. Stated explicitly so
+#: no derivation ever reaches ``services.virtual_accelerator.port`` and reads
+#: the config file of whatever project the test happens to run in.
+VA_GATEWAY_PORT = 5065
 REAL_GATEWAY_HOST = "gw.example.org"
+STANDIN_PROBE = "STANDIN:BEAM:CURRENT"
+
+#: A real archiver, so the honesty rule has no invented past to object to. The
+#: stand-in's connector type is one of the two whose history is invented, so a
+#: fixture that said nothing about its archiver would refuse ``standin`` for a
+#: reason no case here is about.
+REAL_ARCHIVER = "mongodb_archiver"
 
 
 def standin_config(
@@ -88,42 +107,99 @@ def standin_config(
     standin_port=STANDIN_PORT,
     gateway_host="localhost",
     gateway_port=STANDIN_PORT,
+    live_host=REAL_GATEWAY_HOST,
+    live_port=TUNNELLED_PORT,
     deployed=True,
     writes_enabled=False,
+    baseline_type="virtual_accelerator",
+    va_gateways=False,
+    strict_limits=False,
+    acknowledged=False,
+    recorder=False,
+    archiver_type=REAL_ARCHIVER,
 ):
-    """A deployment whose ``live`` target routes through an ``epics`` block.
+    """A deployment that stood a stand-in up beside its facility's machine.
 
-    The shape the build renders for a stand-in: the sandbox simulator is the
-    deployment's own type, and the ``epics`` block — the single non-simulated
-    entry in the connector table, which is what makes ``live`` resolve to it —
-    carries the gateways the build pointed at ``localhost:<stand-in port>``.
+    Three targets, three connector blocks: ``virtual_accelerator`` (the sandbox,
+    and this deployment's own baseline type), ``epics`` (the facility's authored
+    machine — the only entry that is neither simulated nor the stand-in, which
+    is what makes ``live`` resolve to it), and ``live_standin`` (the second
+    virtual accelerator, dialled on loopback at the stand-in's port).
 
-    Each argument is one conjunct of the stand-in predicate, so a case can
-    fail exactly one of them: *standin_port* ``None`` omits the ``services:``
-    block entirely, *gateway_host* moves the endpoint off loopback, and
-    *gateway_port* moves it off the stand-in's port.
+    *standin_port*, *gateway_host* and *gateway_port* are the three conjuncts of
+    the stand-in predicate, so a case can fail exactly one of them:
+    ``standin_port=None`` omits the ``services:`` block entirely, *gateway_host*
+    moves the stand-in's endpoint off loopback, and *gateway_port* moves it off
+    the stand-in's port. *live_host* and *live_port* place the facility's own
+    gateway, which is how a case can ask what ``live`` is called when its
+    endpoint happens to look exactly like the stand-in's.
+
+    The display cases below need nothing more than that. The roster cases need
+    the rest of a deployment an operator could actually switch on, and take it
+    from the same builder rather than a second copy of these three blocks:
+    *baseline_type* is ``control_system.type`` — ``live_standin`` for a
+    deployment baselined on its own stand-in — *va_gateways* gives the simulator
+    a gateway pair so it is a destination and not merely a description, and
+    *strict_limits*, *acknowledged* and *recorder* set the three FR-8 facts the
+    live family is gated on (the limits posture, the operator acknowledgment,
+    and whether an ``archiver_recorder`` makes the store the stand-in's).
     """
     gateway = {"address": gateway_host, "port": gateway_port, "use_name_server": True}
-    raw = {
-        "control_system": {
-            "type": "virtual_accelerator",
-            "writes_enabled": writes_enabled,
-            "connector": {
-                "epics": {
-                    "probe_channel": LIVE_PROBE,
-                    "gateways": {
-                        "read_only": dict(gateway),
-                        "write_access": dict(gateway),
-                    },
-                },
-                "virtual_accelerator": {"probe_channel": VA_PROBE},
-            },
+    live_gateway = {"address": live_host, "port": live_port, "use_name_server": True}
+    va_block = {"probe_channel": VA_PROBE}
+    if va_gateways:
+        va_gateway = {"address": "127.0.0.1", "port": VA_GATEWAY_PORT, "use_name_server": True}
+        va_block["gateways"] = {
+            "read_only": dict(va_gateway),
+            "write_access": dict(va_gateway),
         }
+    control_system = {
+        "type": baseline_type,
+        "writes_enabled": writes_enabled,
+        "connector": {
+            "epics": {
+                "probe_channel": LIVE_PROBE,
+                "gateways": {
+                    "read_only": dict(live_gateway),
+                    "write_access": dict(live_gateway),
+                },
+            },
+            "live_standin": {
+                "probe_channel": STANDIN_PROBE,
+                "gateways": {
+                    "read_only": dict(gateway),
+                    "write_access": dict(gateway),
+                },
+            },
+            "virtual_accelerator": va_block,
+        },
     }
+    if strict_limits:
+        control_system["limits_checking"] = {"enabled": True, "allow_unlisted_channels": False}
+    if acknowledged:
+        control_system["target_switch"] = {ACK_LEAF: REAL_GATEWAY_HOST}
+    raw = {"control_system": control_system, "archiver": {"type": archiver_type}}
     if standin_port is not None:
         raw["services"] = {"live_standin": {"port": standin_port}}
         if deployed:
             raw["deployed_services"] = ["virtual_accelerator", "live_standin"]
+    if recorder:
+        raw.setdefault("deployed_services", []).append(ARCHIVER_RECORDER_SERVICE)
+    return raw
+
+
+def without_a_standin(**kwargs):
+    """The same deployment, before anybody stood a stand-in up.
+
+    Two targets and two blocks: the facility's ``epics`` machine and the
+    simulator. Neither the ``live_standin`` connector block nor the
+    ``services.live_standin`` port the build projects for it exists, which is
+    the shape every deployment in this repository had before the stand-in was a
+    target at all.
+    """
+    raw = standin_config(**kwargs)
+    del raw["control_system"]["connector"]["live_standin"]
+    raw.pop("services", None)
     return raw
 
 
@@ -434,14 +510,22 @@ class TestDegradation:
 
         assert ctx["envelope"]["details"]["reason"] == control_target.REASON_CONTEXT_UNAVAILABLE
 
-    async def test_an_underivable_target_still_gets_a_row(
+    async def test_an_underivable_target_gets_no_row_and_is_still_refused(
         self, make_manager, monkeypatch, no_prober
     ):
-        """A deployment that never named its real machine has no 'live' endpoint.
+        """A deployment that never named its real machine has no 'live' row.
 
-        The row is still present, with the endpoints table empty and the reason
-        naming what is missing — an absent row would read as "no such target",
-        which is a different and untrue claim.
+        A refusal is not a slot (FR-4). ``live`` here resolves to nothing at
+        all — there is no connector block naming a real machine — so the roster
+        offers no row for it rather than a row describing a machine this
+        deployment has never been told about. The roster enumerates what a
+        session can be pointed at, and an entry for an unresolvable target
+        would read as "here is a machine, currently unavailable".
+
+        Nothing is lost by the row's absence, which is the other half of this
+        test: an agent that asks for the target anyway is still refused, in the
+        eligibility module's own words, with the reason that names what is
+        missing.
         """
         # A virtual-accelerator deployment that names no real machine: the
         # session is baselined on 'va', so 'live' is judged as a destination
@@ -456,49 +540,317 @@ class TestDegradation:
 
         rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
 
-        assert rows["live"]["endpoints"] == {}
+        assert "live" not in rows
+        assert set(rows) == {"va"}
+
+        # The refusal still travels through target_availability, so the switch
+        # answers an unresolvable target with a reason rather than a traceback
+        # — and with the same words the roster would have carried had there
+        # been a row to carry them.
+        expected = target_availability(raw, "live", manager.active_target(), manager.baseline)
+        assert expected.reason == REASON_TARGET_UNRESOLVABLE
+
+        with assert_raises_error(error_type=control_target.ERROR_REFUSED) as ctx:
+            await get_tool_fn(control_target.control_target_set)(target="live")
+
+        assert ctx["envelope"]["details"] == expected.as_dict()
+        assert ctx["envelope"]["details"]["reason"] == REASON_TARGET_UNRESOLVABLE
+
+
+# ------------------------------------------ the three-target roster (SC-4)
+
+
+class TestThreeTargetRoster:
+    """SC-4: a deployment baselined on its stand-in reports all three rows.
+
+    The roster is the surface an operator asks "where am I, and where could I
+    go" on, so a deployment that stood a stand-in up beside its facility's
+    machine has to answer for three machines and not two — and answer for each
+    of them separately, because the three are gated differently. The stand-in
+    is where the session already is; the simulator is a plain destination; and
+    ``live`` is the one target that carries the whole FR-8 ritual, including
+    the gate the stand-in creates for it — a deployment recording its own store
+    beside a stand-in is recording the stand-in, and a real machine's readings
+    must not land in that store.
+
+    Every row here is read through the tool rather than through
+    :func:`target_availability`, because the row and the refusal being one
+    function is the property the roster is worth anything for, and the tool is
+    where a reader meets it.
+    """
+
+    async def test_a_standin_baselined_deployment_reports_all_three_rows(
+        self, make_manager, monkeypatch, no_prober
+    ):
+        """Three machines, three rows, and the session sitting on the stand-in.
+
+        ``control_system.type: live_standin`` is a legitimate baseline: the
+        deployment's own machine is the soft IOC it stands up, so that is where
+        a session starts and that is the row marked active. ``live`` still means
+        the facility's authored ``epics`` block — the stand-in never renames it
+        — and the simulator is untouched beside both.
+        """
+        raw = standin_config(
+            baseline_type="live_standin",
+            va_gateways=True,
+            strict_limits=True,
+            acknowledged=True,
+        )
+        manager = make_manager(raw=raw)
+        install_context(manager, monkeypatch)
+
+        payload = extract_response_dict(await ROSTER())
+        rows = payload["access_details"]["targets"]
+
+        assert set(rows) == {"live", "va", "standin"}
+        assert payload["summary"]["target"] == "standin"
+        assert payload["summary"]["baseline_target"] == "standin"
+
+        # The stand-in is where the session is, so it is unavailable for the one
+        # truthful reason — not because anything about it is misconfigured.
+        assert rows["standin"]["active"] is True
+        assert rows["standin"]["is_baseline"] is True
+        assert rows["standin"]["available_now"] is False
+        assert rows["standin"]["reason"] == REASON_ALREADY_ACTIVE
+        assert rows["standin"]["eligible"] is True
+        assert rows["standin"]["label"] == "LIVE MACHINE (stand-in)"
+        assert rows["standin"]["real_machine"] is True
+        assert rows["standin"]["connector_type"] == "live_standin"
+        assert rows["standin"]["probe_channel"] == STANDIN_PROBE
+
+        # ``live`` is the facility's own machine, reached through its own block.
+        assert rows["live"]["active"] is False
+        assert rows["live"]["label"] == "LIVE MACHINE"
+        assert rows["live"]["real_machine"] is True
+        assert rows["live"]["connector_type"] == "epics"
+        assert rows["live"]["endpoints"]["read_only"]["host"] == REAL_GATEWAY_HOST
+
+        assert rows["va"]["real_machine"] is False
+        assert rows["va"]["available_now"] is True
+
+    async def test_the_live_row_wants_the_acknowledgment_the_standin_does_not(
+        self, make_manager, monkeypatch, no_prober
+    ):
+        """The stand-in's equivalent was said at build time; live's is not.
+
+        Both machines are behind the strict limits posture, which this
+        deployment has. What separates them is the acknowledgment — the
+        operator saying the configured gateways really are this facility's —
+        and it is the live machine's alone, so an unacknowledged deployment
+        reports the stand-in usable and the facility's machine not.
+        """
+        raw = standin_config(
+            baseline_type="live_standin",
+            va_gateways=True,
+            strict_limits=True,
+            acknowledged=False,
+        )
+        manager = make_manager(raw=raw)
+        install_context(manager, monkeypatch)
+
+        rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
+
         assert rows["live"]["available_now"] is False
-        assert rows["live"]["reason"] == "target_unresolvable"
-        assert "connector_type" not in rows["live"]
+        assert rows["live"]["reason"] == REASON_OPERATOR_ACK_MISSING
+        # The stand-in met the same limits posture and is not asked for an
+        # acknowledgment at all.
+        assert rows["standin"]["eligible"] is True
+
+    async def test_a_recorded_standin_store_closes_the_live_row(
+        self, make_manager, monkeypatch, no_prober
+    ):
+        """Acknowledged, strict, and still refused: the archive is the stand-in's.
+
+        This is the gate the stand-in creates for ``live`` and for nothing else.
+        The deployment runs the recorder, so the store it writes holds the
+        stand-in's synthesized past; selecting the facility's real machine
+        would splice real readings onto it in one store nothing afterwards can
+        tell apart.
+        """
+        raw = standin_config(
+            baseline_type="live_standin",
+            va_gateways=True,
+            strict_limits=True,
+            acknowledged=True,
+            recorder=True,
+        )
+        assert ARCHIVER_RECORDER_SERVICE in raw["deployed_services"]
+        manager = make_manager(raw=raw)
+        install_context(manager, monkeypatch)
+
+        rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
+
+        assert rows["live"]["available_now"] is False
+        assert rows["live"]["reason"] == REASON_ARCHIVE_BELONGS_TO_STANDIN
+        assert ARCHIVER_RECORDER_SERVICE in rows["live"]["detail"]
+        # Nothing else moved: the recorder is a fact about the store, not about
+        # the machines beside it.
+        assert rows["standin"]["eligible"] is True
+        assert rows["va"]["available_now"] is True
+
+    async def test_an_acknowledged_deployment_that_records_nothing_offers_live(
+        self, make_manager, monkeypatch, no_prober
+    ):
+        """The same deployment without the recorder: all three rows are usable.
+
+        The positive case the three refusals above are only meaningful against
+        — stop recording and the facility's machine is available from a
+        stand-in baseline, which is the point of standing a stand-in up beside
+        it rather than instead of it.
+        """
+        raw = standin_config(
+            baseline_type="live_standin",
+            va_gateways=True,
+            strict_limits=True,
+            acknowledged=True,
+            recorder=False,
+        )
+        manager = make_manager(raw=raw)
+        install_context(manager, monkeypatch)
+
+        payload = extract_response_dict(await ROSTER())
+        rows = payload["access_details"]["targets"]
+
+        assert rows["live"]["available_now"] is True
+        assert rows["live"]["reason"] is None
+        assert rows["va"]["available_now"] is True
+        assert payload["summary"]["switchable_targets"] == ["live", "va"]
+
+    async def test_a_standin_block_off_loopback_is_a_row_that_refuses(
+        self, make_manager, monkeypatch, no_prober
+    ):
+        """The target exists, so it gets a row; the endpoint is not the container.
+
+        A ``live_standin`` block repointed at a gateway on another host is a
+        configured target — hence a row — but not the stand-in this deployment
+        co-deploys, so the row says so with the reason a switch would refuse
+        with. That distinction is exactly what an absent row could not express.
+        """
+        raw = standin_config(
+            baseline_type="epics",
+            gateway_host=REAL_GATEWAY_HOST,
+            va_gateways=True,
+            strict_limits=True,
+            acknowledged=True,
+        )
+        manager = make_manager(raw=raw)
+        install_context(manager, monkeypatch)
+
+        rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
+
+        assert "standin" in rows
+        assert rows["standin"]["available_now"] is False
+        assert rows["standin"]["reason"] == REASON_STANDIN_NOT_DEPLOYED
+        assert rows["standin"]["connector_type"] == "live_standin"
+
+    async def test_a_deployment_with_no_standin_has_no_standin_row(
+        self, make_manager, monkeypatch, no_prober
+    ):
+        """Widening the vocabulary must not grow a row on a two-target deployment.
+
+        No ``control_system.connector.live_standin`` block means no stand-in
+        target, and the roster of such a deployment enumerates exactly what it
+        always did. A ``standin`` row here would describe a soft IOC nobody
+        stood up.
+        """
+        raw = without_a_standin(va_gateways=True, strict_limits=True, acknowledged=True)
+        manager = make_manager(raw=raw)
+        install_context(manager, monkeypatch)
+
+        rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
+
+        assert set(rows) == {"live", "va"}
+        assert "standin" not in rows
 
 
-# ----------------------------------------------------- the stand-in's label
+# ------------------------------------------------- display: the three labels
+#
+# Everything below is the display section: what :func:`target_display_metadata`
+# names each target and which postures it calls a real machine. Roster rows are
+# asserted further up, through the tool.
 
 
 class TestLiveStandinLabel:
-    """What the label says when the live target is the deployment's stand-in.
+    """What each of the three targets is called, and which one may be a stand-in.
 
     Pinned on :func:`target_display_metadata` rather than through the tool,
     because that function is the single writer every reader of the label — the
     roster row, the prompt hook, the approval banner, the web badge — renders
     from. A case that failed here would reach all of them at once.
 
+    The parenthesis belongs to ``standin`` alone. ``live`` names the facility's
+    authored machine and is never renamed, whatever its endpoint happens to
+    look like; ``standin`` earns the parenthesis only when its endpoint really
+    is the container this deployment stood up, and is otherwise described as
+    the real machine it would be dialling (the eligibility gate is what refuses
+    that target, not the label).
+
     ``real_machine`` is asserted beside the label precisely because it does
     *not* move: the stand-in keeps the real machine's whole ritual, and only
-    the name an operator is shown changes. The ``va`` row is asserted in every
-    case for the same reason — the simulator is described by its own branch,
-    which the stand-in must not disturb.
+    the name an operator is shown changes. The ``va`` row is asserted for the
+    same reason — the simulator is described by its own branch, which the
+    stand-in must not disturb.
     """
+
+    def test_every_target_gets_a_slot(self):
+        """One entry per state-file slot: a missing target is an empty banner."""
+        metadata = target_display_metadata(standin_config())
+
+        assert set(metadata) == set(target_state.TARGET_NAMES)
+        assert set(metadata) == {"live", "va", "standin"}
 
     def test_a_deployed_standin_is_named_as_one(self):
         metadata = target_display_metadata(standin_config())
 
-        assert metadata["live"]["label"] == "LIVE MACHINE (stand-in)"
-        assert metadata["live"]["real_machine"] is True
-        assert metadata["live"]["endpoint"] == f"localhost:{STANDIN_PORT}"
-        assert metadata["va"]["label"] == "virtual accelerator (simulation)"
-        assert metadata["va"]["real_machine"] is False
+        assert metadata["standin"]["label"] == "LIVE MACHINE (stand-in)"
+        assert metadata["standin"]["real_machine"] is True
+        assert metadata["standin"]["endpoint"] == f"localhost:{STANDIN_PORT}"
+        assert metadata["standin"]["probe_channel"] == STANDIN_PROBE
 
-    def test_a_deployment_without_a_standin_is_the_live_machine(self):
-        raw = standin_config(
-            standin_port=None, gateway_host=REAL_GATEWAY_HOST, gateway_port=TUNNELLED_PORT
-        )
-
-        metadata = target_display_metadata(raw)
+    def test_the_facility_machine_is_never_named_a_standin(self):
+        """``live`` is the authored ``epics`` block, and it keeps its own name."""
+        metadata = target_display_metadata(standin_config())
 
         assert metadata["live"]["label"] == "LIVE MACHINE"
         assert metadata["live"]["real_machine"] is True
-        assert metadata["va"]["label"] == "virtual accelerator (simulation)"
+        assert metadata["live"]["endpoint"] == f"{REAL_GATEWAY_HOST}:{TUNNELLED_PORT}"
+
+    def test_a_facility_gateway_on_the_standins_port_is_still_the_live_machine(self):
+        """An endpoint that looks like the stand-in's does not rename ``live``.
+
+        The one case where the endpoint predicate alone would answer "stand-in"
+        for the facility's own target: a gateway reached over loopback on the
+        port the stand-in also serves. Telling an operator that the machine in
+        front of them is only a stand-in when it is not is the expensive
+        mistake, so the parenthesis is the ``standin`` target's alone.
+        """
+        metadata = target_display_metadata(
+            standin_config(live_host="localhost", live_port=STANDIN_PORT)
+        )
+
+        assert metadata["live"]["label"] == "LIVE MACHINE"
+        assert metadata["live"]["real_machine"] is True
+        assert metadata["standin"]["label"] == "LIVE MACHINE (stand-in)"
+
+    def test_a_deployment_that_stood_no_standin_up_does_not_name_one(self):
+        """No ``services.live_standin`` block: the first conjunct fails.
+
+        The target still gets its slot and is described as what it would be
+        dialling. Refusing it is ``standin_not_deployed``'s job, not the
+        label's.
+        """
+        metadata = target_display_metadata(standin_config(standin_port=None))
+
+        assert metadata["standin"]["label"] == "LIVE MACHINE"
+        assert metadata["standin"]["real_machine"] is True
+        assert metadata["live"]["label"] == "LIVE MACHINE"
+
+    def test_a_leftover_standin_block_does_not_rename_a_moved_endpoint(self):
+        """The label follows the endpoint, never the stale ``services:`` block."""
+        metadata = target_display_metadata(standin_config(gateway_port=TUNNELLED_PORT))
+
+        assert metadata["standin"]["label"] == "LIVE MACHINE"
+        assert metadata["standin"]["real_machine"] is True
 
     def test_an_ssh_tunnel_to_loopback_is_still_the_live_machine(self):
         """Loopback alone proves nothing: the operator is one hop from hardware."""
@@ -506,17 +858,14 @@ class TestLiveStandinLabel:
             standin_config(standin_port=None, gateway_port=TUNNELLED_PORT)
         )
 
-        assert metadata["live"]["label"] == "LIVE MACHINE"
-        assert metadata["live"]["endpoint"] == f"localhost:{TUNNELLED_PORT}"
-        assert metadata["va"]["label"] == "virtual accelerator (simulation)"
+        assert metadata["standin"]["label"] == "LIVE MACHINE"
+        assert metadata["standin"]["endpoint"] == f"localhost:{TUNNELLED_PORT}"
 
-    def test_a_leftover_standin_block_does_not_rename_a_moved_endpoint(self):
-        """The label follows the endpoint, never the stale ``services:`` block."""
-        metadata = target_display_metadata(standin_config(gateway_port=TUNNELLED_PORT))
+    def test_a_standin_endpoint_off_loopback_is_not_this_hosts_container(self):
+        """The port matches, the host does not: another machine on that port."""
+        metadata = target_display_metadata(standin_config(gateway_host=REAL_GATEWAY_HOST))
 
-        assert metadata["live"]["label"] == "LIVE MACHINE"
-        assert metadata["live"]["real_machine"] is True
-        assert metadata["va"]["label"] == "virtual accelerator (simulation)"
+        assert metadata["standin"]["label"] == "LIVE MACHINE"
 
     def test_a_persona_render_says_the_same_word_as_the_deployment(self):
         """Multi-user parity: the projected port is the whole evidence.
@@ -532,15 +881,39 @@ class TestLiveStandinLabel:
 
         metadata = target_display_metadata(raw)
 
-        assert metadata["live"]["label"] == "LIVE MACHINE (stand-in)"
-        assert metadata["live"]["real_machine"] is True
-        assert metadata["va"]["label"] == "virtual accelerator (simulation)"
+        assert metadata["standin"]["label"] == "LIVE MACHINE (stand-in)"
+        assert metadata["standin"]["real_machine"] is True
 
     def test_an_armed_deployment_names_the_standin_through_its_write_gateway(self):
         """Arming writes selects the other gateway row, and both point at it."""
         metadata = target_display_metadata(standin_config(writes_enabled=True))
 
-        assert metadata["live"]["label"] == "LIVE MACHINE (stand-in)"
+        assert metadata["standin"]["label"] == "LIVE MACHINE (stand-in)"
+        assert metadata["standin"]["real_machine"] is True
+        assert metadata["standin"]["endpoint"] == f"localhost:{STANDIN_PORT}"
+
+    def test_the_simulator_is_described_by_its_own_branch(self):
+        """``va`` is untouched by the stand-in, in every case above and here."""
+        for raw in (
+            standin_config(),
+            standin_config(standin_port=None),
+            standin_config(gateway_host=REAL_GATEWAY_HOST),
+        ):
+            metadata = target_display_metadata(raw)
+
+            assert metadata["va"]["label"] == "virtual accelerator (simulation)"
+            assert metadata["va"]["real_machine"] is False
+            assert metadata["va"]["probe_channel"] == VA_PROBE
+
+    def test_real_machine_marks_both_hardware_postures(self):
+        """A stand-in is a real-machine posture: only the simulator is not.
+
+        ``real_machine`` is what every strict limit, approval prompt and banner
+        keys off, so an operator on the stand-in meets the ritual hardware
+        gets.
+        """
+        metadata = target_display_metadata(standin_config())
+
         assert metadata["live"]["real_machine"] is True
-        assert metadata["live"]["endpoint"] == f"localhost:{STANDIN_PORT}"
-        assert metadata["va"]["label"] == "virtual accelerator (simulation)"
+        assert metadata["standin"]["real_machine"] is True
+        assert metadata["va"]["real_machine"] is False

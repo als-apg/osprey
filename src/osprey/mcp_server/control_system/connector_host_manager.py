@@ -93,6 +93,7 @@ from osprey_connectors.ipc.proxy import ConnectorHostProxy
 from osprey_connectors.types import (
     MOCK,
     TARGET_LIVE,
+    TARGET_STANDIN,
     TARGET_VA,
     VIRTUAL_ACCELERATOR,
 )
@@ -428,14 +429,20 @@ def target_display_metadata(config: Any) -> dict[str, dict[str, Any]]:
 
     Rendered once, here, from config: readers (the prompt hook, the roster)
     render the identity line straight from the state file and never re-derive
-    it, so this is the only place the two targets get described.
+    it, so this is the only place the three targets get described.
 
     Each entry carries ``label``, ``endpoint``, ``real_machine`` and
     ``probe_channel`` — the destination's probe channel travels with the
     metadata so a describer can name it without opening ``config.yml``.
+
+    One entry per name in :data:`~osprey.mcp_server.control_system.target_state.TARGET_NAMES`,
+    walked from that tuple rather than from a list spelled again here: the
+    state file has a slot per target, this is its single writer, and a target
+    described in one place and missing from the other is a reader rendering an
+    empty identity line for a target an operator can select.
     """
     metadata: dict[str, dict[str, Any]] = {}
-    for target in (TARGET_LIVE, TARGET_VA):
+    for target in target_state.TARGET_NAMES:
         try:
             derivation = derive_endpoints(config, target)
         except ValueError:
@@ -457,18 +464,19 @@ def target_display_metadata(config: Any) -> dict[str, dict[str, Any]]:
                 standin=_is_live_standin(config, target, endpoint),
             ),
             "endpoint": f"{endpoint.host}:{endpoint.port}" if endpoint else "",
-            # Unchanged for the stand-in, deliberately: it is the deployment's
-            # live target, so every strict limit, approval prompt and banner
-            # the real machine gets, it gets. Only the name on the label moves.
-            "real_machine": target == TARGET_LIVE
-            and derivation.connector_type not in _SIMULATED_TYPES,
+            # True for the stand-in as well as the facility's machine, and the
+            # question is the connector type alone rather than which target
+            # asked: a stand-in is a real-machine posture, so every strict
+            # limit, approval prompt and banner hardware gets, it gets. Only
+            # the name on the label moves.
+            "real_machine": derivation.connector_type not in _SIMULATED_TYPES,
             "probe_channel": str(block.get(PROBE_CHANNEL_KEY) or ""),
         }
     return metadata
 
 
 def _is_live_standin(config: Any, target: str, endpoint: Any) -> bool:
-    """Whether the live target is this deployment's stand-in, not its machine.
+    """Whether *endpoint* is this deployment's stand-in container.
 
     Derived here because here is where every other display fact is derived:
     this function is the state file's single writer, and its readers — the
@@ -486,8 +494,15 @@ def _is_live_standin(config: Any, target: str, endpoint: Any) -> bool:
     nothing more, so the port conjunct fails and the label stays
     ``LIVE MACHINE`` — which is the truth, because the operator is one hop from
     hardware.
+
+    Asked of the live family — ``live`` and ``standin``, the two targets that
+    dial a Channel Access gateway. ``va`` is not asked at all: the simulator is
+    described by its own branch, and a sandbox that happened to be configured
+    on the stand-in's port is still a simulator. Membership in the family is
+    not the same as carrying the parenthesis, which is :func:`_label`'s to
+    decide and is the ``standin`` target's alone — see there.
     """
-    if target != TARGET_LIVE:
+    if target not in (TARGET_LIVE, TARGET_STANDIN):
         return False
     return endpoint_is_live_standin(config, endpoint)
 
@@ -499,11 +514,18 @@ def _label(target: str, connector_type: str | None, *, standin: bool = False) ->
         return "live machine (not configured)"
     if connector_type in _SIMULATED_TYPES:
         return f"live target on a simulated connector ({connector_type})"
-    # Reachable only from the branch that has already resolved to the live
-    # machine: the stand-in is a live target in every respect but the readout
-    # behind it, and the parenthesis is the whole of what an operator is told
-    # differently.
-    return "LIVE MACHINE (stand-in)" if standin else "LIVE MACHINE"
+    # The parenthesis is the whole of what an operator is told differently, and
+    # it belongs to the 'standin' target alone. Two conjuncts, both required:
+    # the target is the one an operator selected by name, and its endpoint
+    # really is the stand-in container this deployment stood up. A 'standin'
+    # whose endpoint fails the predicate is labelled plain LIVE MACHINE and
+    # refused by the eligibility gate, and 'live' never carries the
+    # parenthesis at all — it names the facility's authored machine, and
+    # renaming it as a stand-in on the strength of an endpoint that merely
+    # looks like one (a facility gateway forwarded to loopback on that port)
+    # is the direction this stack must never fail in: telling an operator the
+    # machine in front of them is only a stand-in when it is not.
+    return "LIVE MACHINE (stand-in)" if (target == TARGET_STANDIN and standin) else "LIVE MACHINE"
 
 
 # ---------------------------------------------------------------------------

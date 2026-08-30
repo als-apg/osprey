@@ -307,26 +307,32 @@ def test_the_only_thing_missing_after_injection_is_the_probe_channel(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# The live stand-in: a second instance of the same service, acknowledged
+# The live stand-in: a second instance of the same service, a THIRD target
 # ---------------------------------------------------------------------------
 #
 # ``virtual_accelerator.live_standin: <port>`` deploys a SECOND soft-IOC
-# container and wires it in as the deployment's ``live`` target, so an operator
-# can rehearse the whole go-live ritual against something safe. Three writes
+# container and gives the deployment a THIRD control target, ``standin``, so an
+# operator can rehearse against something that cannot move a magnet. Two writes
 # make that work with no hand editing, and each of them is pinned below:
 #
 # * ``services.live_standin`` — same ``path`` as ``virtual_accelerator``,
 #   because it is a second instance of one template, not a second service;
 # * ``deployed_services`` — the compose template reads its instance list from
-#   there, so a block that is not deployed conjures no container;
-# * ``control_system.target_switch.live_gateway_acknowledged`` — the gate that
-#   otherwise stops a session switching TO ``live``. Nothing is left for an
-#   operator to confirm about a loopback container this build addressed itself.
+#   there, so a block that is not deployed conjures no container.
+#
+# The third write this injector used to make is now the thing it must NOT make:
+# ``control_system.target_switch.live_gateway_acknowledged``. ``live`` means the
+# machine the facility authored under ``epics:`` — on a stand-in deployment
+# exactly as on one without — so reaching it is ``control_target_set live``,
+# which asks the profile for its own acknowledgment and strict limits. The
+# stand-in is reached as ``control_target_set standin`` and needs neither. A
+# build that wrote the acknowledgment would be answering, on the operator's
+# behalf, a question about a machine it never addressed.
 #
 # The text assertions run against the REAL Control Assistant template rather
-# than a literal fixture, because what they pin is how the write lands among
-# comments that ship — the wrapped inline comments beside it, the prose above
-# ``target_switch:``, and the commented-out example the write has to remove.
+# than a literal fixture, because what they pin is that the shipped
+# ``target_switch`` block — its prose, its wrapped inline comments, and the
+# commented-out example an operator fills in by hand — comes through untouched.
 
 #: Channel Access port of the stand-in in these tests. Not 5064: the two
 #: instances serve different machines and may never share a port. An arbitrary
@@ -335,18 +341,6 @@ def test_the_only_thing_missing_after_injection_is_the_probe_channel(tmp_path):
 #: the "a facility placed the second soft-IOC somewhere specific" branch, so
 #: nothing here reads it as a default.
 STANDIN_PORT = 5074
-
-#: The note the build hangs above the acknowledgment it wrote. Restated here
-#: rather than imported, because this is the prose an operator reads in their
-#: own config.yml — a reword should have to be made twice, on purpose.
-EXPECTED_ACK_NOTE = (
-    "    # Written by `osprey build` for the live stand-in: the `epics` gateways\n"
-    "    # above dial the second virtual-accelerator container on this loopback\n"
-    "    # port, so the acknowledgment names it. When you go live, delete\n"
-    "    # `virtual_accelerator.live_standin` from the build profile, set your\n"
-    "    # gateways, and replace this value by hand with your own live gateway's\n"
-    "    # hostname.\n"
-)
 
 
 def _render_control_assistant_template() -> str:
@@ -454,42 +448,52 @@ class TestStandinServiceRegistration:
             assert "port" not in gateway, f"{role} gateway must not name a port"
 
 
-class TestAcknowledgment:
-    def test_the_stand_ins_loopback_endpoint_is_acknowledged(self, tmp_path):
-        assert _target_switch(_inject_standin(tmp_path))["live_gateway_acknowledged"] == (
-            f"localhost:{STANDIN_PORT}"
-        )
+class TestTheAcknowledgmentIsNeverWritten:
+    """The stand-in is a target of its own, so no gate about ``live`` moves.
 
-    def test_the_note_sits_directly_above_the_key(self, tmp_path):
+    ``control_target_set live`` reaches the facility's ``epics`` gateways on a
+    stand-in deployment exactly as on one without, and it asks that deployment's
+    own profile for the operator acknowledgment. Everything below pins the same
+    rule from a different angle: whatever the config said about
+    ``target_switch`` before the injector ran, it says afterwards.
+    """
+
+    def test_the_injector_writes_no_operator_acknowledgment(self, tmp_path):
+        """The key stays absent — the profile's to state, not the build's."""
+        assert "live_gateway_acknowledged" not in _target_switch(_inject_standin(tmp_path))
+
+    def test_the_commented_example_is_left_for_the_operator_to_fill_in(self, tmp_path):
+        """It is the template author's example; nothing wrote a value beside it."""
         text = _inject_standin(tmp_path)
 
-        assert (
-            EXPECTED_ACK_NOTE + f"    live_gateway_acknowledged: localhost:{STANDIN_PORT}\n"
-        ) in text
+        assert "    # live_gateway_acknowledged: cagw-alsdmz.als.lbl.gov\n" in text
+        assert text.count("    live_gateway_acknowledged:") == 0
 
-    def test_the_key_is_written_once_and_the_commented_example_is_gone(self, tmp_path):
-        """Two spellings of one setting side by side is what this write must not leave."""
-        text = _inject_standin(tmp_path)
+    def test_the_build_hangs_no_note_of_its_own_in_the_config(self, tmp_path):
+        """No `Written by \\`osprey build\\`` prose survives anywhere in the render."""
+        assert "# Written by `osprey build`" not in _inject_standin(tmp_path)
 
-        assert text.count("    live_gateway_acknowledged:") == 1
-        assert "# live_gateway_acknowledged:" not in text
+    def test_the_target_switch_block_is_identical_with_and_without_a_stand_in(self, tmp_path):
+        """The one assertion the whole section reduces to.
 
-    def test_the_template_prose_above_target_switch_survives_once(self, tmp_path):
-        """The write lands inside the block; the header explaining it does not move."""
-        text = _inject_standin(tmp_path)
-
-        assert text.count("# The `live_gateway_acknowledged` key below is the operator") == 1
-        assert _line_no(text, "# The `live_gateway_acknowledged` key below") < _line_no(
-            text, "  target_switch:"
-        )
-
-    def test_the_wrapped_inline_comments_beside_it_are_not_torn_in_half(self, tmp_path):
-        """The failure mode this write is most likely to cause, pinned directly.
-
-        ``probe_interval_s``'s inline comment wraps onto a continuation line,
-        and both lines live on ONE ruamel comment token — together with the
-        commented-out example the write removes.
+        A stand-in changes ``services`` and ``deployed_services``; the
+        target-switch block — prose, wrapped inline comments, commented example
+        and all — is byte-identical to the render that deploys no stand-in.
         """
+        template = _render_control_assistant_template()
+
+        def _block(text: str) -> str:
+            head = "  target_switch:\n"
+            return head + text.split(head, 1)[1].split("\n\n", 1)[0]
+
+        with_standin = _block(_inject_standin(tmp_path, template))
+        without = _block(_inject_standin(tmp_path, template, port=None))
+
+        assert with_standin == without
+        assert _block(template) == with_standin
+
+    def test_the_wrapped_inline_comments_are_not_torn_in_half(self, tmp_path):
+        """``probe_interval_s``'s comment wraps; both lines are ONE ruamel token."""
         text = _inject_standin(tmp_path)
 
         assert (
@@ -501,6 +505,26 @@ class TestAcknowledgment:
             "                            # old target before it is torn down regardless\n"
         ) in text
 
+    def test_a_config_with_no_target_switch_block_gains_none(self, tmp_path):
+        """The block is not conjured to hold a key the build no longer writes."""
+        config = pyyaml.safe_load(_inject_standin(tmp_path, CONFIG_WITHOUT_VA_BLOCK))
+
+        assert "target_switch" not in config["control_system"]
+
+    def test_an_operator_authored_acknowledgment_is_left_exactly_as_written(self, tmp_path):
+        """It names their own machine, and this build has no opinion about it."""
+        template = _render_control_assistant_template().replace(
+            "    # live_gateway_acknowledged: cagw-alsdmz.als.lbl.gov\n",
+            "    live_gateway_acknowledged: cagw.example.com   # ours, checked\n",
+            1,
+        )
+
+        text = _inject_standin(tmp_path, template)
+
+        assert _target_switch(text)["live_gateway_acknowledged"] == "cagw.example.com"
+        # The value AND the comment the operator wrote beside it.
+        assert "    live_gateway_acknowledged: cagw.example.com   # ours, checked\n" in text
+
     def test_a_rebuild_reproduces_the_file_byte_for_byte(self, tmp_path):
         once = _inject_standin(tmp_path)
         _inject_va(VAConfig(port=5064, live_standin=STANDIN_PORT), tmp_path)
@@ -508,25 +532,42 @@ class TestAcknowledgment:
 
         assert twice == once
 
-    def test_a_config_with_no_target_switch_block_gains_the_acknowledgment(self, tmp_path):
-        """The configs that predate the block, and the hand-maintained ones."""
-        text = _inject_standin(tmp_path, CONFIG_WITHOUT_VA_BLOCK)
 
-        assert _target_switch(text)["live_gateway_acknowledged"] == f"localhost:{STANDIN_PORT}"
+class TestTheStandinPostBuildHint:
+    """What the build TELLS the operator, now that it edits nothing for them.
 
-    def test_an_operator_authored_acknowledgment_is_never_downgraded(self, tmp_path, caplog):
-        """It names an operator's own machine, and a loopback container is not it."""
-        template = _render_control_assistant_template().replace(
-            "    # live_gateway_acknowledged: cagw-alsdmz.als.lbl.gov\n",
-            "    live_gateway_acknowledged: cagw.example.com   # ours, checked\n",
-            1,
-        )
+    The hint is the only place the third target is explained at build time, so
+    it has to name both switches by the command that performs them — and it may
+    not still describe going live as a profile edit and a rebuild.
+    """
 
-        with caplog.at_level(logging.WARNING):
-            text = _inject_standin(tmp_path, template)
+    def _hint(self, tmp_path, caplog) -> str:
+        with caplog.at_level(logging.DEBUG, logger="build"):
+            _inject_standin(tmp_path)
+        return caplog.text
 
-        assert _target_switch(text)["live_gateway_acknowledged"] == "cagw.example.com"
-        # The value AND the comment the operator wrote beside it.
-        assert "    live_gateway_acknowledged: cagw.example.com   # ours, checked\n" in text
-        assert "# Written by `osprey build`" not in text
-        assert "live_gateway_acknowledged" in caplog.text
+    def test_the_hint_names_the_command_that_goes_live(self, tmp_path, caplog):
+        assert "control_target_set live" in self._hint(tmp_path, caplog)
+
+    def test_the_hint_names_the_stand_in_as_its_own_target(self, tmp_path, caplog):
+        text = self._hint(tmp_path, caplog)
+
+        assert "control_target_set standin" in text
+        assert "`standin` target" in text
+
+    def test_the_hint_names_how_to_start_a_deployment_on_the_stand_in(self, tmp_path, caplog):
+        assert "osprey set connector=live_standin" in self._hint(tmp_path, caplog)
+
+    def test_the_hint_no_longer_asks_for_a_profile_edit_and_a_rebuild(self, tmp_path, caplog):
+        """The old ritual — delete ``live_standin``, repoint gateways, rewrite the key."""
+        text = self._hint(tmp_path, caplog)
+
+        assert "Going live" not in text
+        assert "live_gateway_acknowledged" not in text
+        assert "delete `virtual_accelerator.live_standin`" not in text
+
+    def test_no_stand_in_prints_no_stand_in_hint(self, tmp_path, caplog):
+        with caplog.at_level(logging.DEBUG, logger="build"):
+            _inject_standin(tmp_path, port=None)
+
+        assert "control_target_set" not in caplog.text

@@ -1055,13 +1055,14 @@ services:
          same fail-closed outcome as never emitting this line at all. #}
 {%- for var in svc.launch_token_env_vars %}
       {#- One token PER PLAN LANE THIS user may arm (`BLUESKY_LAUNCH_TOKEN`
-         for lane 1; `BLUESKY_VA_LAUNCH_TOKEN` / `BLUESKY_LIVE_LAUNCH_TOKEN`
-         for a second lane), because each lane is a whole bridge stack armed by
-         its own token — one shared token would let a launch approved against
-         one machine be replayed against the other. Per lane rather than per
-         deployment for the same reason: a persona whose writes are armed on
-         the virtual-accelerator lane alone is handed that lane's token alone,
-         and the live lane's stays out of its container entirely. #}
+         for lane 1; `BLUESKY_<LANE>_LAUNCH_TOKEN` — e.g. `_VA_`, `_LIVE_`,
+         `_STANDIN_` — for every additional lane), because each lane is a
+         whole bridge stack armed by its own token — one shared token would
+         let a launch approved against one machine be replayed against
+         another. Per lane rather than per deployment for the same reason: a
+         persona whose writes are armed on one lane alone is handed that
+         lane's token alone, and every other lane's stays out of its
+         container entirely. #}
       - {{ var }}={{ '${' ~ var ~ ':-}' }}
 {%- endfor %}
 {%- endif %}

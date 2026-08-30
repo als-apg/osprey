@@ -342,7 +342,13 @@ def isolated_connector_registries(*, clear: bool = False) -> Iterator[ConnectorR
         restore_connector_registries(snapshot)
 
 
-_BUILTIN_CONTROL_SYSTEMS = (types.MOCK, types.EPICS, types.VIRTUAL_ACCELERATOR, types.DOOCS)
+_BUILTIN_CONTROL_SYSTEMS = (
+    types.MOCK,
+    types.EPICS,
+    types.VIRTUAL_ACCELERATOR,
+    types.DOOCS,
+    types.LIVE_STANDIN,
+)
 _BUILTIN_ARCHIVERS = (
     types.MOCK_ARCHIVER,
     types.EPICS_ARCHIVER,
@@ -393,6 +399,14 @@ def register_builtin_connectors() -> None:
         (types.EPICS, EPICSConnector),
         (types.VIRTUAL_ACCELERATOR, VirtualAcceleratorConnector),
         (types.DOOCS, DOOCSConnector),
+        # The live stand-in is a soft IOC, so the EPICS connector is what reaches
+        # it — but it registers under its own name rather than sharing 'epics'.
+        # The registry key is what create_control_system_connector() stamps onto
+        # the instance as _connector_type, and that stamp is what selects the
+        # connector block ('control_system.connector.live_standin') and the write
+        # posture read from it. Registering the stand-in as 'epics' would give it
+        # the facility's authored block and the facility's arming.
+        (types.LIVE_STANDIN, EPICSConnector),
     ]
     archivers: list[tuple[str, type[ArchiverConnector]]] = [
         (types.MOCK_ARCHIVER, MockArchiverConnector),

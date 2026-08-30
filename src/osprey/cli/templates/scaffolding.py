@@ -122,12 +122,14 @@ _SERVICE_TOKEN_VAR_NOTES: dict[str, str] = {
     "DISPATCH_WORKER_TOKEN": "authenticates the dispatch worker back to the dispatcher",
     "BLUESKY_LAUNCH_TOKEN": "arms the Bluesky bridge's plan-launch endpoint",
     "BLUESKY_TILED_API_KEY": "the key the bridge presents to the co-deployed Tiled catalog",
-    # The opt-in SECOND plan lane's own launch token. Only one of these two can
-    # exist in a deployment — a lane is named for the control-system target it
-    # serves, and which target the second lane serves depends on which one the
-    # deployment baseline is — and neither exists at all without
-    # `bluesky.second_lane`. Both are documented anyway, because this file lists
-    # what a repo's `.env` MAY hold rather than what this one deployment does.
+    # The opt-in SECOND plan lane's own launch token. One per control-system
+    # target a lane can serve, so three names — but a deployment renders at most
+    # one second lane, so at most one of them exists in any repo's `.env`, and
+    # none at all without `bluesky.second_lane`: a lane is named for the target
+    # it serves, and which target the second lane serves depends on which
+    # machine the deployment baseline is. All three are documented anyway,
+    # because this file lists what a repo's `.env` MAY hold rather than what
+    # this one deployment does.
     "BLUESKY_VA_LAUNCH_TOKEN": (
         "arms the plan-launch endpoint of the second Bluesky lane, the one serving the "
         "virtual accelerator (only on a deployment with `bluesky.second_lane`)"
@@ -135,6 +137,10 @@ _SERVICE_TOKEN_VAR_NOTES: dict[str, str] = {
     "BLUESKY_LIVE_LAUNCH_TOKEN": (
         "arms the plan-launch endpoint of the second Bluesky lane, the one serving the live "
         "machine (only on a deployment with `bluesky.second_lane`)"
+    ),
+    "BLUESKY_STANDIN_LAUNCH_TOKEN": (
+        "arms the plan-launch endpoint of the Bluesky lane serving the live stand-in soft "
+        "IOC (only on a deployment with `bluesky.second_lane`)"
     ),
     "OSPREY_TERMINAL_SECRET": "the operator login secret for the bluesky-web panel's web gate",
     "ZO_ROOT_USER_PASSWORD": "OpenObserve root/ingest credential",

@@ -36,7 +36,11 @@ from dataclasses import dataclass, fields
 from typing import Any
 
 from osprey.connectors.honesty import VA_MOCK_ARCHIVER_WHY, pairing_in_profile
-from osprey.connectors.types import MONGODB_ARCHIVER, VIRTUAL_ACCELERATOR
+from osprey.connectors.types import (
+    INVENTED_HISTORY_TYPES,
+    MONGODB_ARCHIVER,
+    resolve_control_system_type,
+)
 from osprey.errors import BuildProfileError
 from osprey.port_layout import default_port
 
@@ -53,6 +57,13 @@ COMPRESSORS: tuple[str, ...] = ("zstd", "snappy", "zlib", "none")
 #: the host, so loopback is the connection for every self-contained project.
 #: An *attached* project overrides it with :attr:`VAArchiverConfig.host`.
 DEFAULT_ARCHIVER_HOST = "localhost"
+
+#: The baseline's section and leaf, and the whole key written as one dotted
+#: string. Both spellings are live in a profile's ``config:`` block, which is why
+#: the honesty message reads both rather than picking one.
+_CONTROL_SYSTEM_SECTION = "control_system"
+_TYPE_LEAF = "type"
+_CONTROL_SYSTEM_TYPE_KEY = f"{_CONTROL_SYSTEM_SECTION}.{_TYPE_LEAF}"
 
 #: Rendered-config subtree the ``mongodb_archiver`` connector reads. Sibling to
 #: ``archiver.type`` rather than nested under it — the archiver factory looks up
@@ -444,6 +455,12 @@ def va_mock_archiver_errors(config: Any) -> list[str]:
     dotted and the nested spelling are read, and a disagreement between them
     fails closed; see :func:`~osprey.connectors.honesty.pairing_in_profile`.
 
+    The rule covers every machine a deployment stands up for itself
+    (:data:`~osprey.connectors.types.INVENTED_HISTORY_TYPES`), so the message
+    names the one this profile selected rather than assuming the virtual
+    accelerator: a facility baselining on the live stand-in is told about the
+    stand-in, which is the only type its `config:` block actually carries.
+
     Args:
         config: The profile's ``config:`` block.
 
@@ -456,15 +473,49 @@ def va_mock_archiver_errors(config: Any) -> list[str]:
     if not pairing.is_invented_history:
         return []
     return [
-        f"config sets control_system.type to {VIRTUAL_ACCELERATOR!r} while "
+        f"config sets control_system.type to {_invented_history_type(config)!r} while "
         f"archiver.type is {pairing.archiver_phrase} — {VA_MOCK_ARCHIVER_WHY} "
         f"Give the deployment a real archive instead: add a `va_archiver:` block "
-        f"(the build then deploys a store and a recorder beside the virtual "
-        f"accelerator, seeds the history, and derives the connector's keys) and set "
+        f"(the build then deploys a store and a recorder beside the machine this "
+        f"deployment stands up, seeds the history, and derives the connector's keys) "
+        f"and set "
         f"`config: {{archiver.type: {MONGODB_ARCHIVER}}}`. If the archive lives in a "
         f"store you run yourself, set archiver.type to that connector and give it "
         f"its connection keys — anything but the mock is accepted here."
     ]
+
+
+def _invented_history_type(config: Any) -> str:
+    """Which machine with no recorded past a profile's ``config:`` block selects.
+
+    For the message only — the verdict is :func:`pairing_in_profile`'s — and read
+    the way that predicate reads it: both live spellings of
+    ``control_system.type``, each resolved through the connector vocabulary's own
+    resolver, so the type named back is one the profile really selects and not a
+    second answer invented here.
+
+    Where the two spellings disagree the predicate refuses on *either* of them
+    being one of these machines, so the offending spelling is the one named,
+    rather than whichever would happen to win at render time — the profile is
+    being told what it is being refused for.
+    """
+    stated: list[Any] = []
+    if isinstance(config, dict):
+        nested = config.get(_CONTROL_SYSTEM_SECTION)
+        if isinstance(nested, dict) and _TYPE_LEAF in nested:
+            stated.append(nested[_TYPE_LEAF])
+        if _CONTROL_SYSTEM_TYPE_KEY in config:
+            stated.append(config[_CONTROL_SYSTEM_TYPE_KEY])
+
+    for value in stated:
+        resolved: str = resolve_control_system_type({_TYPE_LEAF: value})
+        if resolved in INVENTED_HISTORY_TYPES:
+            return resolved
+
+    # Unreachable behind the verdict this names, and still resolver-derived so
+    # that no branch of this function can name a type the profile never selected.
+    merged: str = resolve_control_system_type(_expand_dotted(config).get(_CONTROL_SYSTEM_SECTION))
+    return merged
 
 
 def va_archiver_config_overrides(va_archiver: VAArchiverConfig | None) -> dict[str, Any]:

@@ -383,10 +383,15 @@ uv pip install pyepics
 pip install pyepics
 ```
 
-**Step 2:** Switch the connector to production mode:
+**Step 2:** Switch the connector to production mode. The archive goes with the
+machine: the deployment's own recorded store is the stand-in's history, so the
+archiver moves to your facility's appliance in the same step and the recorded
+store is dropped — the build refuses a facility baseline that still carries it.
 
 ```bash
 osprey set connector=epics
+osprey set config.archiver.type=epics_archiver
+osprey set va_archiver=null
 ```
 
 **Step 3:** Configure the EPICS gateway for your facility:

@@ -331,13 +331,17 @@ class TestBuildIntegration:
     def test_the_overlay_only_overrides_what_it_names(
         self, runner: CliRunner, variant_repo: Path
     ) -> None:
-        """A layer, not a replacement: the tracked profile still supplies the rest."""
+        """A layer, not a replacement: the tracked profile still supplies the rest.
+
+        ``control_system.type`` is the un-named key here — the overlay says
+        nothing about it, so it stays whatever the tracked profile baselined,
+        which for the exemplar is the live stand-in."""
         write_setting(variant_repo, f"{VARIANT_SETTING_KEY}=teststand\n")
 
         assert _build(runner, variant_repo).exit_code == 0
 
         config = _rendered_config(variant_repo)
-        assert config["control_system"]["type"] == "virtual_accelerator"
+        assert config["control_system"]["type"] == "live_standin"
         assert config["project_name"] == variant_repo.name
 
     def test_the_selected_variant_is_named_in_the_build_output(

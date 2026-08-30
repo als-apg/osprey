@@ -54,10 +54,6 @@ from bluesky_queueserver_api.comm_base import RequestFailedError, RequestTimeout
 
 logger = logging.getLogger("osprey.services.bluesky_bridge.queue_backend")
 
-# Connector types that can drive real Channel Access — a virtual accelerator
-# soft-IOC or live hardware. Everything else browses only.
-_EPICS_LIKE_CONNECTOR_TYPES = ("virtual_accelerator", "epics")
-
 # Read by `bluesky_queueserver_api` itself when `REManagerAPI` is constructed
 # with no explicit address (see `comm_base`), so the compose spec is the only
 # place these are set. Named here because `from_env` gates on the control
@@ -202,21 +198,21 @@ def _resolve_control_system_type() -> str:
 def _baseline_lane_target() -> str:
     """The target a lane with no declared one serves: the deployment baseline.
 
-    ``va`` for a virtual accelerator, ``live`` for everything else — including
-    the mock, which serves no virtual accelerator and whose deployment can
-    never be switched in practice. That is not this module's rule to invent: it
-    is exactly what ``target_banner.resolve_baseline_target`` answers host-side,
-    and the host is what refuses ``queue_add`` when the session target differs
-    from the lane's. Two rules would let a deployment be refused over a
-    mismatch neither side really has. The rule is respelled here rather than
-    imported because that module lives in the controls MCP server, which the
-    bridge image does not carry; a test pins the two answers equal.
+    ``va`` for a virtual accelerator, ``standin`` for the live stand-in, and
+    ``live`` for everything else — including the mock, which serves no virtual
+    accelerator and whose deployment can never be switched in practice. That is
+    not this module's rule to invent: it is exactly what
+    ``target_banner.resolve_baseline_target`` answers host-side, and the host is
+    what refuses ``queue_add`` when the session target differs from the lane's.
+    Two rules would let a deployment be refused over a mismatch neither side
+    really has. The host module itself lives in the controls MCP server, which
+    the bridge image does not carry, so this reads the one predicate both of
+    them share — :func:`osprey_connectors.types.baseline_target` — rather than
+    respelling it; a test still pins the two answers equal.
     """
     from osprey_connectors import types as connector_types
 
-    if _resolve_control_system_type() == connector_types.VIRTUAL_ACCELERATOR:
-        return connector_types.TARGET_VA
-    return connector_types.TARGET_LIVE
+    return connector_types.baseline_target(_control_system_section())
 
 
 def _control_system_section() -> dict[str, Any]:
@@ -1114,6 +1110,8 @@ class QueueBackend:
         connector than the one plans will actually run against would be a
         capability describing some other lane.
         """
+        from osprey_connectors.types import CHANNEL_ACCESS_TYPES
+
         lane, lane_target = resolve_lane_identity()
         if _resolve_connector_type() is None:
             return Capability(
@@ -1143,7 +1141,7 @@ class QueueBackend:
                 ),
             )
 
-        if connector_type not in _EPICS_LIKE_CONNECTOR_TYPES:
+        if connector_type not in CHANNEL_ACCESS_TYPES:
             return Capability(
                 can_execute=False,
                 reason=REASON_UNSUPPORTED_CONNECTOR,

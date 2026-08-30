@@ -104,7 +104,7 @@ from osprey.mcp_server.http import (
     notify_target_switch_async,
 )
 from osprey_connectors.control_system.base import is_readonly_run
-from osprey_connectors.types import CONTROL_TARGETS, target_writes_enabled
+from osprey_connectors.types import configured_targets, target_writes_enabled
 
 logger = logging.getLogger("osprey.mcp_server.tools.control_target")
 
@@ -323,13 +323,24 @@ def target_rows(
             endpoints and no reachability at all.
 
     Returns:
-        ``{target: row}`` for every target the connectors package defines.
+        ``{target: row}`` for every target this deployment configures
+        (:func:`~osprey_connectors.types.configured_targets`), in that
+        function's order. A target this config never described — most often
+        ``standin`` on a deployment that stands up no soft IOC — has no row at
+        all, rather than a row saying a machine nobody deployed is unavailable.
     """
     metadata = target_display_metadata(config)
     snapshot = probe_snapshot or {}
 
     rows: dict[str, dict[str, Any]] = {}
-    for target in CONTROL_TARGETS:
+    # The configured targets and never CONTROL_TARGETS: the constant is the
+    # vocabulary of machines that can exist, and looping it would hand a
+    # deployment with no `control_system.connector.live_standin` block a
+    # `standin` row describing a soft IOC nobody stood up. `configured_targets`
+    # takes the section rather than the whole config, and answers a missing or
+    # malformed one with the baseline alone.
+    section = config.get("control_system") if isinstance(config, dict) else None
+    for target in configured_targets(section):
         availability = target_availability(config, target, session_target, baseline)
         display = metadata.get(target, {})
         row: dict[str, Any] = {
@@ -409,8 +420,16 @@ async def control_target() -> str:
     ``not_applicable`` where the gateway is reached over an address list (CA
     search is UDP there, so a TCP probe could prove nothing).
 
+    The roster is the targets this deployment *configures*, not every target
+    OSPREY names. A machine this config never described — most often
+    ``standin`` on a deployment that stands no soft IOC up — has no row here at
+    all, rather than a row reporting a machine nobody deployed as unavailable.
+    So an absent row means "no such target here", and only a row that is
+    present carries a reason a switch would refuse with.
+
     Returns:
-        JSON with the active target and generation, and one row per target.
+        JSON with the active target and generation, and one row per configured
+        target.
     """
     context = _server_context()
     if context is None:
@@ -482,19 +501,30 @@ async def control_target() -> str:
 async def control_target_set(target: str) -> str:
     """Point this session's control-system tools at a different target.
 
-    Targets are ``live`` (the real machine this deployment describes) and
-    ``va`` (the virtual accelerator it deploys). The switch replaces the
-    process that talks to the control system: the destination is spawned and
-    proven reachable BEFORE the current one is retired, so a switch that fails
-    leaves the session exactly where it was.
+    Targets are ``live`` (the machine this deployment's facility authored),
+    ``va`` (the virtual accelerator it deploys) and ``standin`` (the live
+    stand-in: a soft IOC this deployment runs for itself, which behaves like
+    hardware and is a machine of its own rather than a mode of ``live``). A
+    deployment has the ones its config describes, and ``control_target`` is the
+    authority on which: a target absent from that roster is not switchable
+    here, whatever this list names. The switch replaces the process that talks
+    to the control system: the destination is spawned and proven reachable
+    BEFORE the current one is retired, so a switch that fails leaves the
+    session exactly where it was.
 
     Refused, in this order, when: the run is read-only; an execution is in
     flight; or the destination is not available to this session — already
-    active, unconfigured, or short of the posture switching to the live machine
-    requires. The refusal names the reason the target roster reports.
+    active, unconfigured, or short of the posture that target requires. The
+    strict limits posture guards ``live`` and ``standin`` alike; the operator
+    acknowledgment is the live machine's alone, since standing the soft IOC up
+    was itself the deployment saying what it is. A ``standin`` this deployment
+    has not actually stood up is refused ``standin_not_deployed``, so the
+    switch cannot be talked onto hardware under a soft label. The refusal names
+    the reason the target roster reports.
 
     Args:
-        target: The session target to switch to — ``live`` or ``va``.
+        target: The session target to switch to — ``live``, ``va`` or
+            ``standin``.
 
     Returns:
         JSON naming the new target, the generation it is on, the connector type

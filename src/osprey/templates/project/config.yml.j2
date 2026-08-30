@@ -214,7 +214,7 @@ control_system:
   limits_checking:
     enabled: false  # Enable for production safety
     database_path: null  # Path to channel_limits.json
-    allow_unlisted_channels: true
+    allow_unlisted_channels: true  # false refuses any channel the database does not list
 
   # Channel-read response size
   # Array channels (waveforms, camera frames) can be far larger than an agent's

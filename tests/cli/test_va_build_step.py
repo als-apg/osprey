@@ -63,7 +63,8 @@ def _write_profile(
     a service costs each of them a template copy.
 
     ``live_standin`` adds that block's stand-in port, which deploys a SECOND
-    soft-IOC as the deployment's ``live`` target. It implies ``deploy_va``.
+    soft-IOC and gives the deployment a THIRD control target, ``standin``. It
+    implies ``deploy_va``.
 
     ``config`` carries dotted overrides into the rendered ``config.yml`` — the
     profile's own escape hatch for a value the bundle's template pins, used
@@ -357,11 +358,18 @@ class TestLiveStandinReachesTheRender:
     parser and the written ``config.yml`` drops the second instance — and that
     the compose file the operator ends up with describes two containers rather
     than one.
+
+    The stand-in is a THIRD control target, ``standin``, not a rewrite of
+    ``live``: the build gives it its own
+    ``control_system.connector.live_standin`` block and touches nothing that
+    describes the facility's machine. So the acknowledgment gating
+    ``control_target_set live`` stays the profile's to state, and a whole build
+    must be shown NOT to write it.
     """
 
     STANDIN_PORT = 5074
 
-    def test_the_render_carries_both_instances_and_the_acknowledgment(self, tmp_path):
+    def test_the_render_carries_both_instances_and_no_acknowledgment(self, tmp_path):
         repo_dir = tmp_path / "repo"
         _write_profile(repo_dir, live_standin=self.STANDIN_PORT)
 
@@ -372,10 +380,10 @@ class TestLiveStandinReachesTheRender:
             "port": self.STANDIN_PORT,
         }
         assert "live_standin" in config["deployed_services"]
-        # Without this the deployment's own `live` target refuses itself.
-        assert config["control_system"]["target_switch"]["live_gateway_acknowledged"] == (
-            f"localhost:{self.STANDIN_PORT}"
-        )
+        # The stand-in is reached as `standin`, so nothing here speaks for the
+        # operator about `live`: the acknowledgment stays the profile's to say,
+        # exactly as on a deployment that asked for no stand-in.
+        assert "live_gateway_acknowledged" not in config["control_system"]["target_switch"]
 
     def test_the_compose_file_describes_a_second_container(self, tmp_path):
         """One template directory, two soft-IOCs, named for what each serves."""
@@ -423,4 +431,6 @@ class TestLiveStandinReachesTheRender:
 
         assert "live_standin" not in config["services"]
         assert "live_standin" not in config["deployed_services"]
+        # Unchanged by the stand-in becoming a target of its own: this build
+        # never wrote the key, and now neither does the one above.
         assert "live_gateway_acknowledged" not in config["control_system"]["target_switch"]

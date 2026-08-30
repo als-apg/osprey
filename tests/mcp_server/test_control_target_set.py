@@ -33,12 +33,18 @@ import pytest
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.server_context import ControlSystemContext
 from osprey.mcp_server.control_system.target_eligibility import (
+    ACK_LEAF,
     REASON_ALREADY_ACTIVE,
+    REASON_ARCHIVE_BELONGS_TO_STANDIN,
+    REASON_LIMITS_POSTURE,
+    REASON_OPERATOR_ACK_MISSING,
     REASON_PROBE_CHANNEL_MISSING,
     target_availability,
 )
 from osprey.mcp_server.control_system.tools import control_target
 from osprey.mcp_server.python_executor import executor as py_executor
+from osprey_connectors.standin import ARCHIVER_RECORDER_SERVICE
+from osprey_connectors.types import LIVE_STANDIN
 from tests.mcp_server import test_switch_lifecycle as switch_suite
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
@@ -115,6 +121,53 @@ def config_with_gateways(**kwargs):
     raw = raw_config(**kwargs)
     for block in raw["control_system"]["connector"].values():
         block["gateways"] = {"read_only": {"address": "127.0.0.1", "port": 5064}}
+    return raw
+
+
+#: The port this deployment's stand-in soft IOC serves. Deliberately not 5064:
+#: a stand-in on the Channel Access default would let a block that simply never
+#: set a port pass the deployed-container check.
+STANDIN_PORT = 5074
+STANDIN_PROBE = "STANDIN:BEAM:CURRENT"
+ACK_HOST = "gw.example.org"
+
+
+def config_with_a_standin(
+    *,
+    baseline_standin=False,
+    strict_limits=True,
+    acknowledged=False,
+    recorder=False,
+):
+    """The gateway harness config, plus the stand-in this deployment co-deploys.
+
+    Three connector blocks, so all three targets resolve: the harness's own live
+    and virtual-accelerator blocks, and a ``live_standin`` one dialling the soft
+    IOC on loopback at :data:`STANDIN_PORT` — matched by the
+    ``services.live_standin.port`` the build projects, which is the evidence the
+    deployment stood one up.
+
+    *baseline_standin* makes the stand-in this deployment's *own* machine
+    (``control_system.type: live_standin``), which is what puts a session on
+    ``standin`` with nothing switched and makes ``live`` a destination to be
+    gated. The remaining three arguments set the FR-8 facts the live family is
+    judged on: the limits posture, the operator acknowledgment, and whether an
+    ``archiver_recorder`` makes the archive the stand-in's history.
+    """
+    raw = config_with_gateways()
+    control_system = raw["control_system"]
+    control_system["connector"][LIVE_STANDIN] = {
+        "probe_channel": STANDIN_PROBE,
+        "gateways": {"read_only": {"address": "127.0.0.1", "port": STANDIN_PORT}},
+    }
+    if baseline_standin:
+        control_system["type"] = LIVE_STANDIN
+    if strict_limits:
+        control_system["limits_checking"] = {"enabled": True, "allow_unlisted_channels": False}
+    if acknowledged:
+        control_system["target_switch"] = {ACK_LEAF: ACK_HOST}
+    raw["services"] = {"live_standin": {"port": STANDIN_PORT}}
+    raw["deployed_services"] = [ARCHIVER_RECORDER_SERVICE] if recorder else []
     return raw
 
 
@@ -296,6 +349,136 @@ class TestRefusalOrder:
             await TOOL(target="banana")
 
         assert ctx["envelope"]["details"]["reason"] == "target_unresolvable"
+
+
+class TestTheStandinIsGatedAsAThirdTarget:
+    """SC-4 at the switch: three targets, and the live family split in two.
+
+    The stand-in is a real-machine posture, so it meets the strict limits gate
+    the facility's machine meets. It does *not* meet the operator
+    acknowledgment: that one is the operator saying the configured gateways
+    really are this facility's, and the stand-in's equivalent was said at build
+    time by the profile line that stood it up.
+
+    The other half is direction. A deployment may be baselined on
+    ``live_standin``, and on such a deployment ``live`` is a switch *away* —
+    the exemption that lets a stranded session come home follows the baseline,
+    and the baseline here is the stand-in. Getting that backwards would exempt
+    the facility's real machine from the whole of FR-8 on exactly the
+    deployments that stood a stand-in up next to it.
+    """
+
+    async def test_the_standin_needs_the_strict_limits_posture(
+        self, make_manager, monkeypatch, emitted
+    ):
+        """And the refusal names the target, not "the live machine".
+
+        One sentence now serves two machines, so it says which one it is
+        talking about: an operator told to fix the posture for "the live
+        machine" while they asked for the stand-in would go looking for a
+        different problem.
+        """
+        raw = config_with_a_standin(strict_limits=False)
+        manager = make_manager(raw=raw)
+        install_context(manager, monkeypatch)
+
+        with assert_raises_error(error_type=control_target.ERROR_REFUSED) as ctx:
+            await TOOL(target="standin")
+
+        envelope = ctx["envelope"]
+        message = envelope["error_message"]
+        assert envelope["details"]["reason"] == REASON_LIMITS_POSTURE
+        assert "Switching to target 'standin' requires the strict limits posture" in message
+        assert [call["reason"] for call in emitted] == [REASON_LIMITS_POSTURE]
+
+    async def test_the_standin_is_never_asked_for_the_operator_acknowledgment(
+        self, make_manager, monkeypatch, emitted
+    ):
+        """Strict limits and no acknowledgment: the gate lets the stand-in through.
+
+        Proven by reaching the delegation behind the gate — the switch itself
+        is stubbed to say so — because "was not refused" is the whole claim and
+        an assertion on the reason of a refusal that did not happen could not
+        make it.
+        """
+        raw = config_with_a_standin(strict_limits=True, acknowledged=False)
+        manager = make_manager(raw=raw)
+        install_context(manager, monkeypatch)
+        assert ACK_LEAF not in raw["control_system"].get("target_switch", {})
+
+        async def reached(target):
+            raise RuntimeError(f"the gate passed {target!r} through to the switch")
+
+        monkeypatch.setattr(manager, "switch", reached)
+
+        with pytest.raises(RuntimeError, match="passed 'standin' through"):
+            await TOOL(target="standin")
+
+    async def test_going_live_from_a_standin_baseline_is_a_switch_away(
+        self, make_manager, monkeypatch, emitted
+    ):
+        """The deployment's own machine is the stand-in, so ``live`` is away.
+
+        Nothing has been switched, so the session sits on the baseline —
+        ``standin`` — and asking for ``live`` from there is a switch away from
+        it. If the direction were read as a return, FR-8 would be exempted and
+        this unacknowledged deployment would hand a session the facility's real
+        machine.
+        """
+        raw = config_with_a_standin(baseline_standin=True, strict_limits=True, acknowledged=False)
+        manager = make_manager(raw=raw)
+        install_context(manager, monkeypatch)
+        assert manager.baseline == "standin"
+        assert manager.active_target() == "standin"
+
+        with assert_raises_error(error_type=control_target.ERROR_REFUSED) as ctx:
+            await TOOL(target="live")
+
+        assert ctx["envelope"]["details"]["reason"] == REASON_OPERATOR_ACK_MISSING
+        # The operator's line says where the session actually is, which on this
+        # deployment is the machine it stands up for itself.
+        assert [call["from_target"] for call in emitted] == ["standin"]
+
+    async def test_going_live_from_a_standin_baseline_also_wants_the_limits_posture(
+        self, make_manager, monkeypatch, emitted
+    ):
+        """Same direction, the earlier of the two away-gates, and target-worded."""
+        raw = config_with_a_standin(baseline_standin=True, strict_limits=False, acknowledged=True)
+        manager = make_manager(raw=raw)
+        install_context(manager, monkeypatch)
+
+        with assert_raises_error(error_type=control_target.ERROR_REFUSED) as ctx:
+            await TOOL(target="live")
+
+        envelope = ctx["envelope"]
+        message = envelope["error_message"]
+        assert envelope["details"]["reason"] == REASON_LIMITS_POSTURE
+        assert "Switching to target 'live' requires the strict limits posture" in message
+
+    async def test_a_recorded_standin_archive_refuses_the_live_machine(
+        self, make_manager, monkeypatch, emitted
+    ):
+        """The last gate, and the stand-in's alone to create.
+
+        Acknowledged, strict, and still refused: this deployment runs the
+        recorder beside a stand-in, so the store holds the stand-in's past and
+        a real machine's readings must not be spliced onto it.
+        """
+        raw = config_with_a_standin(
+            baseline_standin=True, strict_limits=True, acknowledged=True, recorder=True
+        )
+        manager = make_manager(raw=raw)
+        install_context(manager, monkeypatch)
+
+        with assert_raises_error(error_type=control_target.ERROR_REFUSED) as ctx:
+            await TOOL(target="live")
+
+        envelope = ctx["envelope"]
+        assert envelope["details"]["reason"] == REASON_ARCHIVE_BELONGS_TO_STANDIN
+        assert ARCHIVER_RECORDER_SERVICE in envelope["error_message"]
+        # Verbatim from the eligibility module, like every other refusal here.
+        expected = target_availability(raw, "live", manager.active_target(), manager.baseline)
+        assert envelope["details"] == expected.as_dict()
 
 
 class TestEveryDeclineIsVisible:
@@ -586,6 +769,16 @@ class TestServerStartup:
         The kill itself is the manager's, and pinned where it lives; what is
         pinned here is that server startup *runs* it — the wiring, which is the
         part a refactor of ``create_server`` can silently drop.
+
+        The published ``targets`` mapping is the other half. It is the state
+        file's fail-closed slot set — one slot per name in
+        :data:`target_state.TARGET_NAMES`, all three of them, whatever this
+        deployment happens to configure — because its readers are hooks that
+        render an identity line and must never have to branch on a missing key.
+        That is a different question from the roster's, which enumerates only
+        the targets a session can actually be pointed at: this deployment is a
+        mock with no connector table at all, so it configures no stand-in, and
+        the slot it still gets names no endpoint and no probe channel.
         """
         from osprey.mcp_server.control_system import connector_host_manager
         from osprey.mcp_server.control_system import server as server_mod
@@ -626,7 +819,15 @@ class TestServerStartup:
         assert record is not None, "create_server must publish this server's target state"
         assert record["target"] == "live"
         assert record["generation"] == 0
-        assert set(record["targets"]) == {"live", "va"}
+        assert set(record["targets"]) == set(target_state.TARGET_NAMES)
+        assert set(record["targets"]) == {"live", "va", "standin"}
+        # Present, and describing nothing: this deployment stood no stand-in up,
+        # so the slot carries neither an endpoint to dial nor a channel to prove
+        # one with. (The label and real_machine this slot is published with are
+        # target_display_metadata's, and are asserted where that function lives.)
+        standin_slot = record["targets"]["standin"]
+        assert standin_slot["endpoint"] == ""
+        assert "probe_channel" not in standin_slot
         assert swept == [[4242]], "the orphan recorded by the dead server was not swept"
 
     async def test_the_lifespan_runs_the_endpoint_prober(self, monkeypatch, _no_prober):

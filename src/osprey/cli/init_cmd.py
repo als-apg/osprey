@@ -1215,7 +1215,8 @@ def _reject_shorthand_flags(command: Callable) -> Callable:
     help="Inline scalar/list override baked into the emitted profile (repeatable). "
     "RHS parsed as YAML. Top-level shorthands: provider, model, "
     "channel_finder_mode, connector (the control system to talk to — mock, "
-    "epics, virtual_accelerator, doocs).",
+    "epics, virtual_accelerator, doocs; a deployment being pointed at its "
+    "stand-in may also set live_standin).",
 )
 @click.option(
     "--list-presets",

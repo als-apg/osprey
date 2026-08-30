@@ -452,13 +452,14 @@ describe('the control-target line', () => {
 
   // ── what the target is CALLED ──────────────────────────────────────────
   //
-  // `live` is the target's key, not its identity. A deployment running a
-  // stand-in for its real machine publishes a label that says so, and the
-  // badge shows the published one — it never works a name out for itself.
+  // The target name is a key, not an identity. `standin` — the soft IOC a
+  // deployment stands up for itself — publishes a label that says so, and the
+  // badge shows the published one; it never works a name out for itself. `live`
+  // is the facility's own machine and is named plainly.
 
   test('names the target by the label the server published', async () => {
     await boot({
-      session_target: 'live',
+      session_target: 'standin',
       session_target_label: 'LIVE MACHINE (stand-in)',
       target_source: 'session',
     });
@@ -472,9 +473,20 @@ describe('the control-target line', () => {
   test('keeps the raw target name as the state key it styles from', async () => {
     // The label is display text and free to change; `data-target` is what the
     // stylesheet and the rest of the system key off, so it stays the bare name.
-    await boot({ session_target: 'live', session_target_label: 'LIVE MACHINE (stand-in)' });
+    await boot({ session_target: 'standin', session_target_label: 'LIVE MACHINE (stand-in)' });
+
+    expect(badgeEl()?.dataset.target).toBe('standin');
+  });
+
+  test('the facility machine is named plainly', async () => {
+    // The parenthesis belongs to the stand-in alone. `live` means the
+    // facility's own machine, and a badge that called it a stand-in would be
+    // telling an operator the hardware in front of them is only a rehearsal.
+    await boot({ session_target: 'live', session_target_label: 'LIVE MACHINE' });
 
     expect(badgeEl()?.dataset.target).toBe('live');
+    expect(targetEl()?.textContent).toContain('LIVE MACHINE');
+    expect(targetEl()?.textContent).not.toContain('stand-in');
   });
 
   test('falls back to the target name when the server sends no label', async () => {
@@ -494,7 +506,7 @@ describe('the control-target line', () => {
 
   test('a labelled baseline is still marked as the deployment default', async () => {
     await boot({
-      session_target: 'live',
+      session_target: 'standin',
       session_target_label: 'LIVE MACHINE (stand-in)',
       target_source: 'baseline',
     });
@@ -506,7 +518,7 @@ describe('the control-target line', () => {
   test('the label does not move the writes/sandbox direction', async () => {
     await boot({
       posture: 'sandbox',
-      session_target: 'live',
+      session_target: 'standin',
       session_target_label: 'LIVE MACHINE (stand-in)',
     });
 
@@ -519,19 +531,30 @@ describe('the control-target line', () => {
 describe('the colour state the badge hands the stylesheet', () => {
   // No colour name lives in this module: the (target, posture) pair travels as
   // data attributes and terminal.css maps it — grey for a sandboxed simulator,
-  // green for one being driven, amber for a sandboxed live machine, red for a
-  // live machine this session can write to. Asserting the attributes rather
-  // than computed colours keeps the test about the contract between the two.
+  // green for one being driven, amber for a sandboxed real machine, red for a
+  // real machine this session can write to. `standin` is a real machine for
+  // that purpose and the stylesheet gives it `live`'s colours exactly, so both
+  // names have to reach it. Asserting the attributes rather than computed
+  // colours keeps the test about the contract between the two.
+  /** @type {Record<string, string>} */
+  const LABELS = {
+    va: 'sim',
+    live: 'LIVE MACHINE',
+    standin: 'LIVE MACHINE (stand-in)',
+  };
+
   test.each([
     ['va', 'writes'],
     ['va', 'sandbox'],
     ['live', 'writes'],
     ['live', 'sandbox'],
+    ['standin', 'writes'],
+    ['standin', 'sandbox'],
   ])('publishes (%s, %s) for the stylesheet to map', async (target, posture) => {
     await boot({
       posture,
       session_target: target,
-      session_target_label: target === 'live' ? 'LIVE MACHINE (stand-in)' : 'sim',
+      session_target_label: LABELS[target],
     });
 
     expect(badgeEl()?.dataset.target).toBe(target);

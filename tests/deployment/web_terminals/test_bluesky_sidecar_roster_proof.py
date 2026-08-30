@@ -74,6 +74,8 @@ from packaging.requirements import Requirement
 
 from osprey.deployment.compose_generator import compose_base_cmd
 from osprey.deployment.container_lifecycle import (
+    _QSERVER_ZMQ_PRIVATE_KEY_SUFFIX,
+    _QSERVER_ZMQ_PUBLIC_KEY_SUFFIX,
     _SERVICE_TOKEN_VARS,
     _ensure_bluesky_control_plane_keys,
     _ensure_service_tokens,
@@ -260,15 +262,22 @@ def _scrubbed_env() -> dict[str, str]:
     from the process environment ahead of ``--env-file`` for the same names.
     Either way the container would run on a value this test never wrote to
     the file, and the interpolation contract under test would go unexercised.
+
+    The RE manager's CURVE pair is scrubbed by suffix, one name per lane: a
+    public half left in the process by an earlier test's shell-only mint would
+    make this fixture's mint refuse to fabricate a private one, and compose
+    would then stop the whole project at the bridge's ``:?`` guard.
     """
     minted = {var for names in _SERVICE_TOKEN_VARS.values() for var in names}
     steering = {"OSPREY_BLUESKY_WEB_IMAGE", "COMPOSE_PROJECT_NAME", "COMPOSE_FILE"}
+    curve_pair = (_QSERVER_ZMQ_PRIVATE_KEY_SUFFIX, _QSERVER_ZMQ_PUBLIC_KEY_SUFFIX)
     return {
         name: value
         for name, value in os.environ.items()
         if name not in minted
         and name not in steering
         and not name.startswith(ROSTER_SECRET_ENV_PREFIX)
+        and not name.endswith(curve_pair)
         and name != OPERATOR_SECRET_ENV
     }
 

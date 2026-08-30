@@ -289,12 +289,15 @@ def test_live_gateway_acknowledgment_ships_only_as_a_comment():
 def test_acknowledgment_prose_sits_above_the_target_switch_key():
     """The explanation must not be the block's trailing comment.
 
-    A build that deploys the live stand-in writes ``live_gateway_acknowledged``
-    into the rendered config and drops the commented example. Prose left at the
-    bottom of the block would be re-attached to whatever key precedes it, so it
-    documents the acknowledgment from ABOVE ``target_switch:`` instead — where
-    no later-written key can take it. The commented example stays last so the
-    stand-in-less render still shows the key's shape.
+    No build writes ``live_gateway_acknowledged``: the live stand-in is a third
+    control target of its own (``standin``), and ``live`` still means the
+    machine the facility authored, so the key stays the operator's to fill in.
+    That makes the prose above it the only explanation they get — and prose
+    left at the BOTTOM of the block would be re-attached to whatever key
+    precedes it the moment anything writes into ``target_switch``. So it
+    documents the acknowledgment from ABOVE ``target_switch:``, where no
+    later-written key can take it, and the commented example stays last,
+    showing the key's shape where an operator types over it.
     """
     for name, rendered in _both_templates().items():
         lines = rendered.splitlines()

@@ -103,10 +103,10 @@ pytestmark = [
 #: locally-built image the compose templates render is prefixed with it.
 PROJECT_NAME = "lane-e2e"
 
-#: The lane whose target is the deployment baseline (``control-assistant``
-#: defaults ``control_system.type`` to the virtual accelerator), and the lane
-#: the opt-in renders beside it. Imported rather than spelled, so a rename of
-#: the service keys fails here instead of drifting.
+#: The lane whose target is the deployment baseline (this module pins
+#: ``control_system.type`` to the virtual accelerator, see ``_override_yaml``),
+#: and the lane the opt-in renders beside it. Imported rather than spelled, so
+#: a rename of the service keys fails here instead of drifting.
 LANE_VA = LANE_ONE
 LANE_LIVE = SECOND_LANE_KEYS["live"]
 
@@ -387,7 +387,7 @@ def live_endpoint():
 # The two-lane deployment
 # ---------------------------------------------------------------------------
 def _override_yaml() -> str:
-    """Host hygiene and CI sizing ONLY -- never the lane axis, never the target.
+    """Host hygiene, CI sizing, and the VA baseline -- never the lane axis.
 
     ``dispatch: null`` and ``modules.web_terminals.enabled: false`` drop two
     stacks nothing here touches and both slow to build. The port keys move
@@ -396,15 +396,19 @@ def _override_yaml() -> str:
     to a CI-sized archive -- a sizing change, not a behavioral one: the store
     and its recorder still deploy and still record.
 
-    ``control_system.type`` is inherited from the preset on purpose. The lane
-    pair is named for the targets it serves, so a preset that stopped defaulting
-    to the virtual accelerator must fail here rather than be papered over.
+    ``control_system.type`` is pinned to the virtual accelerator because this
+    module's lane pair is the VA/live one: the preset baselines on its live
+    stand-in, whose second lane is the VA rather than the live lane, and the
+    axis under test here is precisely the lane that demands a facility gateway.
+    The pin selects the baseline whose pair carries that lane; it does not
+    paper over anything about the preset.
 
     Flat dotted keys under ``config:`` (the preset's own convention): a ``--set``
     would build a NESTED dict for every dotted segment and replace whole blocks.
     """
     return (
         "config:\n"
+        "  control_system.type: virtual_accelerator\n"
         "  claude_code.servers.bluesky.enabled: true\n"
         "  modules.web_terminals.enabled: false\n"
         f"  services.postgresql.port_host: {POSTGRES_PORT}\n"

@@ -1,10 +1,14 @@
 """``anchored_put(..., comment=...)`` — a written key explains itself in place.
 
-The build injects ``target_switch.live_gateway_acknowledged`` into a rendered
-config and has to say, in the file, that it wrote a stand-in the operator must
-replace by hand. That note has to land above the key without disturbing the
-template prose around it, and a rebuild has to replace the note rather than
-stack a second copy on it.
+A caller that writes a key into a rendered config can hand ``comment=`` a note
+explaining, in the file, why that key is there. That note has to land above
+the key without disturbing the template prose around it, and a rebuild has to
+replace the note rather than stack a second copy on it. The suite below
+exercises that against a ``target_switch`` block shaped like the shipped
+template — banner prose, wrapped inline comments on neighboring keys, a
+commented-out example, and a following top-level section — using a written
+``live_gateway_acknowledged`` key as the vehicle, since that shape puts every
+hazard the split has to survive in one block.
 
 The awkward part is where ruamel keeps such blocks. A round-trip load gives a
 key no "comment above me" slot of its own unless it is the mapping's first: a
@@ -30,7 +34,9 @@ from osprey.utils.config_writer import anchored_put
 # Cut from the shipped template (control_assistant/config.yml.j2): the
 # acknowledgment prose is part of the header above `target_switch:`, the two
 # scalars carry wrapped inline comments, the commented-out example closes the
-# block, and a top-level section follows.
+# block, and a top-level section follows. `live_gateway_acknowledged` is not
+# written by the build here — it's this fixture's stand-in key, chosen because
+# its surrounding block exercises every neighboring-comment hazard at once.
 TARGET_SWITCH = """\
 control_system:
   # Control-System Target Switch (Layer 2)

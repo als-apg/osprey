@@ -1,14 +1,18 @@
-"""SC7 acceptance: default-config-check for the virtual_accelerator type.
+"""SC7 acceptance: default-config-check for a scaffolded Control Assistant.
 
 A freshly scaffolded Control Assistant project must:
-  1. Use the Virtual Accelerator control system by default (the VA soft-IOC
-     ships and is deployed unconditionally as part of the turn-key Bluesky
-     stack, so plans drive it end to end out of the box).
+  1. Start on the live stand-in (the preset declares
+     ``virtual_accelerator.live_standin``, so a second copy of the soft IOC is
+     deployed as the deployment's own third control target and is the baseline
+     a session sits on — a machine that behaves like hardware and moves
+     nothing). The virtual accelerator ships beside it, one ``osprey set``
+     away.
   2. Engage the Mock connector when control_system.type is switched to mock
      (real ConnectorFactory resolution using the scaffolded connector.mock
      config block, not just a string check) — the documented fallback for
      environments with no containers to depend on.
-  3. Leave the epics block untouched by that switch.
+  3. Leave the epics block untouched by that switch — and untouched by the
+     build in the first place.
 
 Complements tests/templates/test_preset_va_block.py (which renders the raw
 .j2 template in isolation) by exercising the real lifecycle end to end:
@@ -36,30 +40,32 @@ from osprey.connectors.factory import (
     isolated_connector_registries,
     register_builtin_connectors,
 )
-from osprey.port_layout import default_port
 
-# The epics block a scaffolded Control Assistant renders. The template's own
-# values are the untouched ALS production configuration — still pinned, on the
-# raw render, by tests/templates/test_preset_va_block.py's
-# ORIGINAL_EPICS_BLOCK — but the preset asks for a live stand-in, and the build
-# retargets the live gateways onto it after the render. So what a scaffolded
-# repo carries here is the stand-in's own address, and the probe channel the
-# switch to live checks.
+# The epics block a scaffolded Control Assistant renders: the app template's
+# own values, verbatim, and the same block
+# tests/templates/test_preset_va_block.py pins on the raw render as
+# ORIGINAL_EPICS_BLOCK. The stand-in has its own connector block —
+# `control_system.connector.live_standin`, seven leaves the build derives from
+# `virtual_accelerator.live_standin` — so `epics:` stays the machine the
+# facility authors. `live` means that machine on a deployment running a
+# stand-in exactly as on one that is not, which is why pointing this repo at a
+# real facility is one edit here and nothing else. `probe_channel` is commented
+# out in the template (facility-specific, nothing shipped set), so a scaffolded
+# block carries the two gateways and the timeout and no third key.
 SCAFFOLDED_EPICS_BLOCK = {
     "timeout": 5.0,
     "gateways": {
         "read_only": {
-            "address": "localhost",
-            "port": default_port("va_standin"),
-            "use_name_server": True,
+            "address": "cagw-alsdmz.als.lbl.gov",
+            "port": 5064,
+            "use_name_server": False,
         },
         "write_access": {
-            "address": "localhost",
-            "port": default_port("va_standin"),
-            "use_name_server": True,
+            "address": "cagw-alsdmz.als.lbl.gov",
+            "port": 5084,
+            "use_name_server": False,
         },
     },
-    "probe_channel": "SR:VAC:GAUGE:SR01:PRESSURE:RB",
 }
 
 
@@ -113,17 +119,16 @@ def clean_connector_factory():
         yield
 
 
-class TestFreshProjectDefaultsToVirtualAccelerator:
-    """State 1: a freshly scaffolded project uses the Virtual Accelerator by
-    default."""
+class TestFreshProjectDefaultsToTheLiveStandin:
+    """State 1: a freshly scaffolded project starts on the live stand-in."""
 
-    def test_default_control_system_type_is_virtual_accelerator(self, scaffolded_repo: Path):
+    def test_default_control_system_type_is_the_live_standin(self, scaffolded_repo: Path):
         config = _load_config(scaffolded_repo)
-        assert config["control_system"]["type"] == "virtual_accelerator"
+        assert config["control_system"]["type"] == "live_standin"
 
     def test_mock_and_virtual_accelerator_and_epics_blocks_all_present(self, scaffolded_repo: Path):
-        """The three-state switch is fully materialized even though only
-        'mock' is active — the other two blocks are ready to flip to."""
+        """The three authored connector blocks are fully materialized even
+        though none of them is the active type — each is ready to flip to."""
         connector = _load_config(scaffolded_repo)["control_system"]["connector"]
         assert "mock" in connector
         assert "virtual_accelerator" in connector
@@ -143,16 +148,16 @@ class TestSwitchingToMockEngagesTheConnector:
 
     def test_the_set_alone_does_not_move_the_render(self, runner: CliRunner, scaffolded_repo: Path):
         """`osprey set` edits the source and nothing else: until a build runs,
-        the deployment still answers as the Virtual Accelerator. This is the
-        property the flip test above depends on, so it is asserted rather than
-        assumed."""
+        the deployment still answers as the live stand-in it was scaffolded on.
+        This is the property the flip test above depends on, so it is asserted
+        rather than assumed."""
         result = runner.invoke(set_cmd, ["--repo", str(scaffolded_repo), "connector=mock"])
         assert result.exit_code == 0, result.output
 
         assert "control_system.type: mock" in (scaffolded_repo / "profile.yml").read_text(
             encoding="utf-8"
         )
-        assert _load_config(scaffolded_repo)["control_system"]["type"] == "virtual_accelerator"
+        assert _load_config(scaffolded_repo)["control_system"]["type"] == "live_standin"
 
     @pytest.mark.asyncio
     async def test_scaffolded_mock_config_block_resolves_to_mock_connector(
@@ -186,9 +191,17 @@ class TestSwitchingToMockEngagesTheConnector:
 
 
 class TestEpicsBlockRemainsUntouched:
-    """State 3: the epics block still reads exactly as it was scaffolded."""
+    """State 3: the epics block still reads exactly as it was authored.
+
+    The class finally tests what its name says. A deployment that stands up a
+    stand-in derives seven leaves under
+    ``control_system.connector.live_standin`` and writes nothing at all under
+    ``epics:`` — so the gateways a fresh render carries are the app template's
+    own, and the one edit that points this repo at a real facility is the one
+    the template invites."""
 
     def test_epics_block_unchanged_before_switch(self, scaffolded_repo: Path):
+        """A build of the shipped preset leaves the authored gateways alone."""
         epics = _load_config(scaffolded_repo)["control_system"]["connector"]["epics"]
         assert epics == SCAFFOLDED_EPICS_BLOCK
 

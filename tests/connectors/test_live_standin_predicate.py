@@ -1,10 +1,17 @@
-"""The shared stand-in predicate — the one derivation three readers agree on.
+"""The shared stand-in predicates — the derivations every reader agrees on.
 
-The label an operator reads, the recorder's enablement gate and the build's
-gateway derivation all ask :func:`live_standin_active`. These tests pin the
-three conjuncts, and in particular the two cases where a loopback endpoint is
-*not* a stand-in: an SSH tunnel into a real gateway, and a stale port left
-behind after a deployment went live.
+:func:`live_standin_active` is the ``standin`` target's deployed-container
+gate: the target eligibility check, the recorder's enablement gate and the
+build's gateway derivation all ask it whether the endpoint a session would dial
+is this deployment's own stand-in. These tests pin its three conjuncts, and in
+particular the two cases where a loopback endpoint is *not* a stand-in: an SSH
+tunnel into a real gateway, and a stale port left behind after a deployment
+went live.
+
+:func:`archive_belongs_to_standin` answers the other question — whose history
+the deployment's store holds — from the deployment's shape rather than from any
+endpoint. Its tests pin that it needs both the stand-in and the recorder, and
+that it never reads an endpoint at all.
 """
 
 from __future__ import annotations
@@ -12,7 +19,10 @@ from __future__ import annotations
 import pytest
 
 from osprey_connectors.standin import (
+    ARCHIVER_RECORDER_BLOCK_KEY,
+    ARCHIVER_RECORDER_SERVICE,
     LIVE_STANDIN_PORT_KEY,
+    archive_belongs_to_standin,
     live_standin_active,
     live_standin_port,
 )
@@ -26,6 +36,26 @@ def config_with_standin(port: object = STANDIN_PORT) -> dict:
         "control_system": {"type": "virtual_accelerator"},
         "services": {"live_standin": {"path": "./services/virtual_accelerator", "port": port}},
     }
+
+
+#: Distinguishes "caller said nothing" from a deployed_services value that *is*
+#: ``None`` — one of the shapes the predicate has to answer False for.
+UNSET = object()
+
+
+def config_with_recorder(port: object = STANDIN_PORT, deployed: object = UNSET) -> dict:
+    """:func:`config_with_standin` plus a ``deployed_services`` list.
+
+    *deployed* defaults to a deployment that runs the recorder beside the
+    stand-in — the shape the predicate is about.
+    """
+    config = config_with_standin(port)
+    config["deployed_services"] = (
+        ["virtual_accelerator", "mongodb", ARCHIVER_RECORDER_SERVICE]
+        if deployed is UNSET
+        else deployed
+    )
+    return config
 
 
 class TestActive:
@@ -117,3 +147,132 @@ class TestPort:
     def test_the_dotted_key_is_the_one_the_build_projects(self) -> None:
         """Pinned because the reach contract projects this exact spelling."""
         assert LIVE_STANDIN_PORT_KEY == "services.live_standin.port"
+
+
+class TestArchiveBelongsToStandin:
+    """Whose history the deployment's store holds, read from its shape."""
+
+    def test_a_standin_recorded_by_this_deployment(self) -> None:
+        """The archive belongs to the machine it records, and that is the stand-in."""
+        assert archive_belongs_to_standin(config_with_recorder())
+
+    def test_the_recorder_may_be_the_only_deployed_service(self) -> None:
+        """Nothing else in the list matters; the recorder is what writes the store."""
+        assert archive_belongs_to_standin(config_with_recorder(deployed=["archiver_recorder"]))
+
+    def test_no_standin_means_the_archive_is_the_facilitys(self) -> None:
+        """A deployment recording a machine it did not stand in for records that machine."""
+        assert not archive_belongs_to_standin(
+            {
+                "control_system": {"type": "epics"},
+                "deployed_services": ["archiver_recorder"],
+            }
+        )
+
+    def test_a_services_block_without_a_standin(self) -> None:
+        """The recorder alone proves nothing about which machine it samples."""
+        assert not archive_belongs_to_standin(
+            {
+                "services": {"openobserve": {"port": 5080}},
+                "deployed_services": ["archiver_recorder"],
+            }
+        )
+
+    def test_a_standin_with_no_recorder_deployed(self) -> None:
+        """No recorder, no store of this deployment's own — nothing to belong."""
+        assert not archive_belongs_to_standin(
+            config_with_recorder(deployed=["virtual_accelerator", "mongodb"])
+        )
+
+    def test_no_deployed_services_key_at_all(self) -> None:
+        """A stand-in on its own does not make an archive."""
+        assert not archive_belongs_to_standin(config_with_standin())
+
+    def test_an_empty_deployed_services_list(self) -> None:
+        """An attached render lists nothing, and this one was told nothing either:
+        no recorder is named in either spelling, so nothing says the store holds a
+        stand-in's history."""
+        assert not archive_belongs_to_standin(config_with_recorder(deployed=[]))
+
+    def test_a_persona_render_carrying_only_the_projected_port(self) -> None:
+        """A persona of a host that does not record: the port reached it, and there
+        was no recorder to project."""
+        persona_render = {"services": {"live_standin": {"port": STANDIN_PORT}}}
+
+        assert not archive_belongs_to_standin(persona_render)
+
+    @pytest.mark.parametrize(
+        "deployed",
+        ["archiver_recorder", {"archiver_recorder": True}, None, 1],
+        ids=["bare-string", "mapping", "null", "int"],
+    )
+    def test_a_deployed_services_value_that_is_not_a_list(self, deployed: object) -> None:
+        """Including the bare string, whose substring would otherwise answer True."""
+        assert not archive_belongs_to_standin(config_with_recorder(deployed=deployed))
+
+    @pytest.mark.parametrize("value", ["", None, "not-a-port", True, {"port": 5074}, [5074]])
+    def test_a_port_value_that_names_no_port(self, value: object) -> None:
+        """The same reading of the same key as ``live_standin_port``: a key that
+        cannot be dialled is not a deployment saying it built a stand-in."""
+        assert not archive_belongs_to_standin(config_with_recorder(value))
+
+    def test_the_port_may_be_stated_as_text(self) -> None:
+        """A YAML-quoted port still names the port it names."""
+        assert archive_belongs_to_standin(config_with_recorder("5074"))
+
+    def test_a_config_with_no_sections_at_all(self) -> None:
+        assert not archive_belongs_to_standin({})
+
+    def test_the_recorder_service_name_is_the_deployed_services_entry(self) -> None:
+        """Pinned because the recorder's compose entry is registered under it."""
+        assert ARCHIVER_RECORDER_SERVICE == "archiver_recorder"
+
+    # The projected spelling: the same fact, in the render that is told it.
+    # A web-terminal persona is an attached render: it lists no services, so
+    # `deployed_services` cannot carry this fact, and the build projects the
+    # recorder's own block from the host's render instead (the
+    # `archiver_recorder` Reach Contract). The persona reads the host's store,
+    # so it has to reach the host's answer.
+
+    def test_a_persona_told_the_recorder_block_answers_like_its_host(self) -> None:
+        """The parity case: no deployed_services, both projected facts, True."""
+        assert archive_belongs_to_standin(
+            {
+                "services": {
+                    "live_standin": {"port": STANDIN_PORT},
+                    "archiver_recorder": {"path": "./services/archiver_recorder"},
+                },
+                "deployed_services": [],
+            }
+        )
+
+    def test_the_block_alone_still_needs_a_standin(self) -> None:
+        """Recording something is not recording a stand-in."""
+        assert not archive_belongs_to_standin(
+            {"services": {"archiver_recorder": {"path": "./services/archiver_recorder"}}}
+        )
+
+    def test_an_empty_recorder_block_says_nothing(self) -> None:
+        """A null or empty stanza declares no service, the same coercion the
+        templates make, so it is not a deployment saying it records."""
+        config = config_with_standin()
+        config["services"]["archiver_recorder"] = {}
+
+        assert not archive_belongs_to_standin(config)
+
+    @pytest.mark.parametrize(
+        "block",
+        [None, "", "./services/archiver_recorder", True, ["path"]],
+        ids=["null", "empty-string", "string", "bool", "list"],
+    )
+    def test_a_recorder_block_that_is_not_a_mapping(self, block: object) -> None:
+        """The injector writes a mapping and the projection copies a leaf into
+        one; anything else is not that block."""
+        config = config_with_standin()
+        config["services"]["archiver_recorder"] = block
+
+        assert not archive_belongs_to_standin(config)
+
+    def test_the_block_key_is_the_one_the_build_projects(self) -> None:
+        """Pinned because the reach contract projects a leaf of this exact block."""
+        assert ARCHIVER_RECORDER_BLOCK_KEY == "services.archiver_recorder"
