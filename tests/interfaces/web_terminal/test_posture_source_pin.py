@@ -5,18 +5,21 @@ of ``spawn | live | app | process`` — and *which* posture-store key governed
 the record. Both are carried to the child as explicit environment markers:
 
 * ``OSPREY_POSTURE_SOURCE`` — stamped by the spawning call site, never derived
-  from the posture value. Inferring it from ``OSPREY_EXECUTION_MODE`` would
-  collapse the distinction the envelope exists to record: a ``writes`` session
-  and a session nobody ever gave a posture look identical in the posture
-  value, and only the marker tells them apart.
+  from the posture value. A source inferred from the posture would collapse
+  the distinction the envelope exists to record: a ``writes`` session and a
+  session nobody ever gave a posture are the same absence, and only the marker
+  tells them apart.
 * ``OSPREY_POSTURE_SESSION`` — the posture-store key the lookup was made
   under. It is exported whenever such a key exists, *regardless* of the
   posture that key holds, so a ``writes`` session is auditable as a session
   that was checked rather than one that was never asked about.
 
-The posture **value** stays narrowing-only (a ``sandbox`` session gets
-``OSPREY_EXECUTION_MODE=readonly``; ``writes`` sets nothing and clears
-nothing). The markers are not privileges, so they carry no such rule.
+The posture **value** no longer travels in the environment at all. It is read
+live from the store by every write-time gate, so a narrowing lands on a session
+already mid-conversation instead of waiting for a respawn — and these tests pin
+that no spawn seam stamps ``OSPREY_EXECUTION_MODE`` for a narrowed session.
+Both markers stay, because they say *whose* posture a reader must go and look
+up.
 
 Three spawn sites exist and each is pinned here:
 
@@ -67,12 +70,16 @@ from osprey.interfaces.web_terminal.pty_manager import (
 )
 from osprey.interfaces.web_terminal.routes import chat as chat_routes
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
+from osprey_connectors import session_store
 
 SESSION_A = "aaaaaaaa-1111-2222-3333-444444444444"
 SESSION_B = "bbbbbbbb-1111-2222-3333-444444444444"
 CHAT_ID = "chat-fixture-1"
 
 EXECUTION_MODE_ENV = "OSPREY_EXECUTION_MODE"
+
+#: The store's narrowing value, written per target.
+POSTURE_SANDBOX_VALUE = session_store.POSTURE_SANDBOX
 
 
 # ---- Harness (mirrors test_posture_routes.py) ---- #
@@ -86,15 +93,27 @@ def workspace_dir(tmp_path):
 
 
 @pytest.fixture
-def shared_root(tmp_path):
-    """Stand in for the deployment's shared agent-data root."""
+def shared_root(tmp_path, monkeypatch):
+    """Stand in for the deployment's shared agent-data root.
+
+    ``OSPREY_AGENT_DATA_ROOT`` is the first half of the posture store's one
+    resolution rule, so setting it is what actually redirects the store: the
+    ``osprey_connectors.workspace`` patch below reaches the resolver's other
+    callers, but ``session_store`` imported that resolver by name at module
+    load and never consults the patched module attribute — without the stamp
+    these tests would read and write the real repo's
+    ``var/agent_data/control_target/session-postures.json``.
+    """
     root = tmp_path / "shared_agent_data"
     root.mkdir()
+    monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    session_store.invalidate_cache()
     with patch(
         "osprey_connectors.workspace.resolve_shared_data_root",
         return_value=root,
     ):
         yield root
+    session_store.invalidate_cache()
 
 
 @pytest.fixture
@@ -138,13 +157,18 @@ def _sdk_env(client, session_key=None, *, posture_source=POSTURE_SOURCE_LIVE):
 
 
 def _seed_posture(client, key, posture):
-    """Put *posture* in the live store under *key*.
+    """Narrow (or clear) every target for *key* in the live store.
 
     The SDK surfaces are keyed on identifiers the POST route cannot address
     (a chat id, a minted ``operator-<hex8>``), so the store is seeded directly
-    rather than through the route.
+    rather than through the route. The entry is written in the store's own
+    per-target shape, which is what the enforcement readers parse.
     """
-    websocket_routes._session_postures(client.app)[key] = posture
+    store = websocket_routes._session_postures(client.app)
+    if posture == websocket_routes.POSTURE_SANDBOX:
+        store[key] = dict.fromkeys(session_store.CONTROL_TARGETS, POSTURE_SANDBOX_VALUE)
+    else:
+        store.pop(key, None)
 
 
 # ---- Source-level pins on the three call sites ---- #
@@ -250,7 +274,7 @@ class TestCallSitesPassThePairExplicitly:
 
 
 class TestBuilderMarkers:
-    """The SDK seam: markers unconditional, posture value narrowing-only."""
+    """The SDK seam: markers unconditional, no posture value at all."""
 
     def test_writes_session_exports_both_markers_and_no_execution_mode(self, client):
         _seed_posture(client, CHAT_ID, websocket_routes.POSTURE_WRITES)
@@ -260,13 +284,20 @@ class TestBuilderMarkers:
         assert env[POSTURE_SESSION_ENV] == CHAT_ID
         assert EXECUTION_MODE_ENV not in env
 
-    def test_sandbox_session_exports_both_markers_and_readonly(self, client):
+    def test_sandbox_session_exports_both_markers_and_no_execution_mode(self, client):
+        """A narrowed session is stamped, not sandboxed at spawn.
+
+        The narrowing is in the store; the child is handed the key and the
+        root it reads that store out of, and nothing else. Stamping
+        ``OSPREY_EXECUTION_MODE`` here would sandbox EVERY target for the
+        session, which is the one thing a per-target narrowing must not do.
+        """
         _seed_posture(client, CHAT_ID, websocket_routes.POSTURE_SANDBOX)
         env = _sdk_env(client, CHAT_ID)
 
         assert env[POSTURE_SOURCE_ENV] == POSTURE_SOURCE_LIVE
         assert env[POSTURE_SESSION_ENV] == CHAT_ID
-        assert env[EXECUTION_MODE_ENV] == "readonly"
+        assert EXECUTION_MODE_ENV not in env
 
     def test_unstored_key_still_exports_both_markers(self, client):
         """A key nobody has given a posture was still *checked*."""
@@ -289,7 +320,7 @@ class TestBuilderMarkers:
 
         assert env[POSTURE_SOURCE_ENV] == POSTURE_SOURCE_SPAWN
         assert env[POSTURE_SESSION_ENV] == key
-        assert env[EXECUTION_MODE_ENV] == "readonly"
+        assert EXECUTION_MODE_ENV not in env
 
     def test_source_does_not_follow_the_posture_value(self, client):
         """Flipping the posture must not move the provenance marker."""
@@ -299,7 +330,7 @@ class TestBuilderMarkers:
         writing = _sdk_env(client, CHAT_ID, posture_source=POSTURE_SOURCE_SPAWN)
 
         assert sandboxed[POSTURE_SOURCE_ENV] == writing[POSTURE_SOURCE_ENV] == POSTURE_SOURCE_SPAWN
-        assert sandboxed[EXECUTION_MODE_ENV] == "readonly"
+        assert EXECUTION_MODE_ENV not in sandboxed
         assert EXECUTION_MODE_ENV not in writing
 
     def test_source_outside_the_closed_set_is_refused(self, client):
@@ -322,13 +353,14 @@ class TestPtyMarkers:
         assert env[POSTURE_SOURCE_ENV] == POSTURE_SOURCE_LIVE
         assert env[POSTURE_SESSION_ENV] == SESSION_A
 
-    def test_sandbox_keeps_the_narrowing_marker(self, client):
+    def test_sandbox_exports_the_markers_and_no_execution_mode(self, client):
+        """The PTY seam agrees with the SDK one: stamps, never a sandbox."""
         _seed_posture(client, SESSION_A, websocket_routes.POSTURE_SANDBOX)
         env = _spawn_env(client, SESSION_A, SESSION_A)
 
         assert env[POSTURE_SOURCE_ENV] == POSTURE_SOURCE_LIVE
         assert env[POSTURE_SESSION_ENV] == SESSION_A
-        assert env[EXECUTION_MODE_ENV] == "readonly"
+        assert EXECUTION_MODE_ENV not in env
 
     def test_writes_exports_markers_without_the_posture_value(self, client):
         _seed_posture(client, SESSION_A, websocket_routes.POSTURE_WRITES)
@@ -343,6 +375,55 @@ class TestPtyMarkers:
 
         assert POSTURE_SOURCE_ENV not in env
         assert POSTURE_SESSION_ENV not in env
+
+
+#: The three names a spawn seam stamps so a child can find its own posture:
+#: who is asking, whose posture applies, and which directory holds the answer.
+POSTURE_STAMPS = (POSTURE_SOURCE_ENV, POSTURE_SESSION_ENV, session_store.AGENT_DATA_ROOT_ENV_VAR)
+
+
+class TestTheTwoSeamsAgree:
+    """PTY and SDK hand a child the same posture anchors, or neither does.
+
+    The two seams are separate functions in separate modules and the store is
+    read by the child, not by them — so the only thing keeping a chat session
+    and a terminal session under one posture regime is that both stamp the same
+    three names. A seam that stamped a key without a root would tell its child
+    whose posture applies and leave it to guess where; one that stamped an
+    execution mode would sandbox every target for a per-target narrowing.
+    """
+
+    @pytest.mark.parametrize("posture", ["sandbox", "writes"])
+    def test_both_seams_stamp_the_same_anchors(self, client, posture):
+        _seed_posture(client, SESSION_A, posture)
+
+        pty = _spawn_env(client, SESSION_A, SESSION_A)
+        sdk = _sdk_env(client, SESSION_A)
+
+        assert {name: pty[name] for name in POSTURE_STAMPS} == {
+            name: sdk[name] for name in POSTURE_STAMPS
+        }
+
+    @pytest.mark.parametrize("posture", ["sandbox", "writes"])
+    def test_neither_seam_carries_an_execution_mode(self, client, posture):
+        _seed_posture(client, SESSION_A, posture)
+
+        assert EXECUTION_MODE_ENV not in _spawn_env(client, SESSION_A, SESSION_A)
+        assert EXECUTION_MODE_ENV not in _sdk_env(client, SESSION_A)
+
+    def test_neither_seam_reads_the_store_to_build_the_env(self, client):
+        """The env is posture-independent, so narrowing cannot churn the pool.
+
+        Spawning under a narrowing and spawning without one must produce the
+        same overlay: that equality is what lets a flip land on a running
+        child instead of killing it (see the fingerprint tests below).
+        """
+        _seed_posture(client, SESSION_A, "writes")
+        unnarrowed = _spawn_env(client, SESSION_A)
+        _seed_posture(client, SESSION_A, "sandbox")
+        narrowed = _spawn_env(client, SESSION_A)
+
+        assert narrowed == unnarrowed
 
 
 class TestPoolFingerprint:
@@ -414,7 +495,7 @@ class TestPoolFingerprint:
         registry = client.app.state.pty_registry
         registry._sessions[SESSION_A] = MagicMock(is_alive=True)
         try:
-            registry.rekey_session(SESSION_A, SESSION_B, app=client.app)
+            registry.rekey_session(SESSION_A, SESSION_B)
             assert registry.audit_session_key(SESSION_B) == before[POSTURE_SESSION_ENV]
         finally:
             registry.terminate_session(SESSION_B)

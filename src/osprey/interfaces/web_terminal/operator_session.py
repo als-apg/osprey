@@ -18,6 +18,7 @@ from typing import Any
 
 from osprey.agent_runner.clean_env import build_clean_env
 from osprey.agent_runner.sdk_context import build_system_prompt
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.interfaces.web_auth import PANEL_TOKEN_ENV, get_web_credentials
 from osprey.interfaces.web_terminal.chat_session_pool import ChatSessionPool
 from osprey.utils.config import get_facility_timezone
@@ -76,6 +77,53 @@ POSTURE_SOURCE_LIVE = "live"
 _POSTURE_SOURCES = frozenset({POSTURE_SOURCE_SPAWN, POSTURE_SOURCE_LIVE, "app", "process"})
 
 
+def resolve_agent_data_root(app: Any = None) -> str:
+    """The agent-data root this server resolved, for the child's env stamp.
+
+    One derivation for both spawn sites — this module already owns the posture
+    markers they share, and a second copy of the resolution is exactly how two
+    sites come to disagree. It answers the SHARED root (never
+    ``resolve_agent_data_root`` from the workspace module, which appends
+    ``sessions/<OSPREY_SESSION_ID>``): the control-target state file and the
+    session-posture store both span sessions, and a reader outside the
+    session's environment could not reproduce a session-scoped path.
+
+    The stamp exists because everything below the spawn re-derives this
+    directory today — the controls server through config, the stdlib-only hooks
+    through a repo-root guess and the literal ``var/agent_data`` — and those
+    derivations disagree the moment a deployment moves ``agent_data.base_dir``.
+    Handing the child the answer makes it authoritative for every one of them.
+
+    A config load can fail transiently, and the pair must be stamped whole or
+    not at all, so a failure falls back to the same place the posture store's
+    own resolution does (``app.state.workspace_dir``, then the process CWD)
+    rather than leaving the child a session key with no anchor. Every reader
+    prefers this value, so writer and readers stay on ONE directory even when
+    it is the fallback one.
+
+    Args:
+        app: The FastAPI app, consulted only for the fallback. Optional: the
+            primary resolution reads config and needs nothing from the server.
+
+    Returns:
+        An absolute path as a string, ready to be stamped into a child env.
+    """
+    try:
+        from osprey_connectors.workspace import resolve_shared_data_root
+
+        return str(resolve_shared_data_root())
+    except Exception:  # noqa: BLE001 — a spawn must not fail on a config load
+        state = getattr(app, "state", None)
+        fallback = getattr(state, "workspace_dir", None) or Path.cwd()
+        logger.warning(
+            "Could not resolve the shared agent-data root for the session stamp; "
+            "falling back to %s",
+            fallback,
+            exc_info=True,
+        )
+        return str(Path(fallback))
+
+
 def build_operator_child_env(
     project_cwd: str | None,
     session_key: str | None = None,
@@ -109,41 +157,39 @@ def build_operator_child_env(
     having removed it from ``os.environ`` at app construction, not by its
     absence here.
 
-    It also applies the session's **runtime posture**, so the SDK topology
-    participates in the sandbox toggle for real rather than only the PTY one.
-    A session the store holds as ``sandbox`` spawns its SDK child with
-    ``OSPREY_EXECUTION_MODE=readonly``, exactly as
-    :func:`osprey.interfaces.web_terminal.routes.websocket._build_extra_env`
-    does for the PTY child. The rule is narrowing-only in both places: the
-    marker is only ever *set*. A ``writes`` posture never clears an
-    ``OSPREY_EXECUTION_MODE`` the deployment itself supplied — on this path
-    that value arrives through ``build_clean_env``'s copy of ``os.environ``,
-    and nothing here removes it. The posture narrows privilege; it cannot
-    widen it.
+    It does **not** carry the session's write posture into the child: that
+    posture is per control target, lives in the posture store, and is read
+    live at every write-time gate, so a narrowing applies to a chat already
+    mid-conversation. A deployment-wide readonly marker still reaches the
+    child exactly as it always has, through ``build_clean_env``'s copy of
+    ``os.environ``; nothing here sets or removes one.
 
-    Alongside the posture it stamps the **audit pair**:
-    ``OSPREY_POSTURE_SOURCE`` (this call site's *posture_source*) and
-    ``OSPREY_POSTURE_SESSION`` (*session_key*). Two rules differ from the
-    posture value's and both matter:
+    What it stamps instead is the **audit pair** that tells the child where to
+    read that store: ``OSPREY_POSTURE_SOURCE`` (this call site's
+    *posture_source*) and ``OSPREY_POSTURE_SESSION`` (*session_key*). Two rules
+    matter:
 
     * The pair is set **unconditionally** whenever there is a session key —
       a ``writes`` session exports both markers, as does a key the store has
-      never held. The markers are not a privilege, so the narrowing-only rule
-      does not apply to them: they say *which* key was consulted and *who*
-      consulted it, and a session that was checked and came back ``writes`` is
-      a different audit fact from one nobody ever asked about. Only
-      ``OSPREY_EXECUTION_MODE`` stays inside the sandbox branch.
+      never held. They say *which* key a reader must look up and *who*
+      spawned the child, and a session that was checked and came back
+      ``writes`` is a different audit fact from one nobody ever asked about.
     * ``posture_source`` is passed in, never worked out here. It cannot be
       derived from the posture: ``writes`` and never-stored are the same
       value, and the source is a property of the *call site*, not of the
       answer the store gave. Every in-tree caller names it explicitly.
 
-    Layering note: the posture store lives in ``routes.websocket`` (with the
-    routes that read and write it), and that module imports *this* one, so the
-    lookup is a function-local import rather than a module-level one. Keeping
-    the rule here — instead of handing each call site a lookup to compose —
-    means the two SDK surfaces cannot drift on what a posture does, which is
-    the same reason this function exists at all.
+    Stamped in the same breath, and for the same reason it must not be stamped
+    separately, is :data:`~osprey.audit.posture.OSPREY_AGENT_DATA_ROOT` —
+    :func:`resolve_agent_data_root`'s answer. A session key tells a reader
+    *whose* posture applies; the root tells it which directory holds the
+    answer. The two are one fact split in half, so they are set together or
+    not at all, and a test pins that.
+
+    Keeping the stamps here — instead of handing each call site a rule to
+    compose — is what stops the two SDK surfaces drifting on what a child is
+    told about its own posture, which is the same reason this function exists
+    at all.
 
     Args:
         project_cwd: The project directory the session runs in, forwarded to
@@ -152,11 +198,12 @@ def build_operator_child_env(
         session_key: The identity this session is pooled under — the chat
             pool's ``chat_id`` for ``POST /api/chat``, the minted
             ``operator-<hex8>`` key for ``/ws/operator``. It is the key the
-            posture store is consulted with. Omitted (or with no *app* to
-            reach the store), the child gets the render's baseline
-            environment and no marker is added.
-        app: The FastAPI app holding the posture store on its state. Required
-            alongside *session_key* for the lookup to happen.
+            posture store is read under. Omitted, the child gets the render's
+            baseline environment and no marker is added — nothing names a
+            session for a reader to look up.
+        app: The FastAPI app whose agent-data root the child is pointed at
+            (:func:`resolve_agent_data_root`). Stamped alongside *session_key*;
+            without an app the root falls back to the deployment derivation.
         posture_source: Which surface is spawning this child, from
             :data:`_POSTURE_SOURCES`. ``POST /api/chat`` passes
             :data:`POSTURE_SOURCE_LIVE` for a ``chat_id`` the posture surface
@@ -185,20 +232,14 @@ def build_operator_child_env(
 
     # The audit pair, stamped after the strip (build_clean_env would drop it)
     # and outside the sandbox branch below — see the rules in the docstring.
+    # The agent-data root travels WITH the session key, never without it: the
+    # key names whose posture applies and the root names the directory the
+    # answer is read out of, and a child holding one but not the other would
+    # look for its session's state in a directory it had to guess.
     if session_key:
         env[POSTURE_SOURCE_ENV] = posture_source
         env[POSTURE_SESSION_ENV] = session_key
-
-    if session_key and app is not None:
-        # Function-local: routes.websocket imports this module, so importing
-        # it at module scope would close the cycle.
-        from osprey.interfaces.web_terminal.routes.websocket import (
-            POSTURE_SANDBOX,
-            _session_postures,
-        )
-
-        if _session_postures(app).get(session_key) == POSTURE_SANDBOX:
-            env["OSPREY_EXECUTION_MODE"] = "readonly"
+        env[OSPREY_AGENT_DATA_ROOT] = resolve_agent_data_root(app)
 
     return env
 

@@ -1,18 +1,22 @@
-"""Terminate-for-respawn goes through the pool that OWNS the live child.
+"""The chat pool's terminate, and the probe that says a chat key is live.
 
-A posture is only ever carried by a child process's environment, so recording
-one is half the job: the child running under the *old* posture has to die and
-come back. Which pool can do that depends on the topology the key names —
+Terminating a chat child used to be half of applying a posture: the posture
+travelled in the child's environment, so a flip had to kill the child and let
+it come back. It does not any more — the per-target posture is recorded in the
+store and read at write time, so a narrowing lands on a chat already
+mid-conversation and ``POST /api/terminal/posture`` terminates nothing.
 
-* a **PTY** key is owned by ``app.state.pty_registry``; and
-* a **chat** key is owned by the Simple-mode ``ChatSessionPool`` behind
-  ``app.state.operator_registry``.
+What survives is everything that was never about the posture:
 
-Before this, ``POST /api/terminal/posture`` blind-called the PTY registry for
-every key. For a chat key that pops nothing: the operator got a 200, the store
-said ``sandbox``, and the SDK child kept running with writes — the badge lied.
-These tests pin the routing, and pin that "terminated" survives the one race
-that could undo it (a terminate arriving while the session is still starting).
+* **the pool's terminate itself**, which ``POST /api/chat/<id>/reset`` still
+  drives — eviction, the supersede of a creation still inside ``start()``, and
+  the 409 the chat route maps that supersede to;
+* **the env fingerprint**, the SDK counterpart of the PTY registry's: a reuse
+  must not hand back a child built with a different environment;
+* **the addressability probe** the posture route still asks, which has to see a
+  chat that has been accepted but not yet registered — refusing an operator's
+  toggle on a session starting in front of them would be a 409 that stores
+  nothing.
 
 Harness mirrors ``test_posture_routes.py``: each test builds its own app
 through ``create_app`` under a patched ``_load_web_config``, entered as a
@@ -23,14 +27,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
 import time
 from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-import yaml
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.app import create_app
@@ -44,7 +46,7 @@ from osprey.interfaces.web_terminal.operator_session import (
 )
 from osprey.interfaces.web_terminal.routes import chat as chat_routes
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
-from osprey.interfaces.web_terminal.routes.websocket import PostureRequest
+from osprey_connectors import session_store
 
 # A Claude session-file stem: the PTY topology's key.
 SESSION_A = "aaaaaaaa-1111-2222-3333-444444444444"
@@ -64,15 +66,25 @@ def workspace_dir(tmp_path):
 
 
 @pytest.fixture
-def shared_root(tmp_path):
-    """Stand in for the deployment's shared agent-data root."""
+def shared_root(tmp_path, monkeypatch):
+    """Stand in for the deployment's shared agent-data root.
+
+    Stamped, not patched. ``session_store.agent_data_root()`` reads
+    ``OSPREY_AGENT_DATA_ROOT`` FIRST and only falls back to
+    ``resolve_shared_data_root``, so patching the resolver is inert for any
+    developer whose shell carries the stamp — which is exactly the environment
+    this feature creates — and the store these tests write would land in the
+    repository's own ``var/agent_data``. The stamp is also the one anchor
+    ``target_state.state_dir()`` prefers, so both halves land in one directory.
+    Same idiom as ``test_posture_routes.py::agent_data_root``.
+    """
     root = tmp_path / "shared_agent_data"
     root.mkdir()
-    with patch(
-        "osprey_connectors.workspace.resolve_shared_data_root",
-        return_value=root,
-    ):
-        yield root
+    monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
+    session_store.invalidate_cache()
+    yield root
+    session_store.invalidate_cache()
 
 
 @pytest.fixture
@@ -96,242 +108,22 @@ def known_sessions(*session_ids):
         yield
 
 
-def _write_config(tmp_path, *, writes_enabled: bool):
-    path = tmp_path / "config.yml"
-    path.write_text(
-        yaml.safe_dump({"control_system": {"writes_enabled": writes_enabled}}),
-        encoding="utf-8",
-    )
-    return path
+class TestAChatKeyIsAddressable:
+    """The posture surface can name a chat, including one still starting."""
 
+    def test_the_shipped_registry_exposes_the_facades_the_callers_use(self):
+        """A rename of any of these is silent in its own way.
 
-class _ChatRegistryDouble:
-    """Operator-registry stand-in whose chat pool is a plain dict.
+        * ``has_chat_key`` — :func:`_chat_pool_answers_to` would fall back to
+          the session-map read, which cannot see a creation still inside
+          ``start()``, and an operator toggling a chat on its first prompt
+          would be refused with a 409 that stores nothing;
+        * ``get_chat_session`` — that fallback itself would answer ``False``
+          for every key; and
+        * ``terminate_chat_session`` — the chat reset route would stop tearing
+          anything down.
 
-    Only the two methods the posture route may call on it are real: the
-    read-only membership probe and the terminate. Both record, so a test can
-    tell "asked" from "acted", and the terminate records what the store held
-    at the moment it ran — that is how the store-before-terminate ordering is
-    pinned rather than assumed.
-    """
-
-    def __init__(self, app=None, live_chats=()):
-        self._app = app
-        self.chats: dict[str, object] = {chat_id: SimpleNamespace() for chat_id in live_chats}
-        self.terminated: list[str] = []
-        self.postures_seen: list[str | None] = []
-
-    def get_chat_session(self, chat_id):
-        return self.chats.get(chat_id)
-
-    async def terminate_chat_session(self, chat_id):
-        self.terminated.append(chat_id)
-        store = getattr(self._app.state, "session_postures", {}) if self._app else {}
-        self.postures_seen.append(store.get(chat_id))
-        self.chats.pop(chat_id, None)
-
-    async def terminate_session_if_owner(self, session_id, owner):
-        return None
-
-    async def cleanup_all(self):
-        return None
-
-
-class _DeafChatRegistry(_ChatRegistryDouble):
-    """A registry that reports live chats but exposes no terminate at all.
-
-    Stands in for every hand-rolled double in the suite (``test_posture_routes``
-    has several). The route must not 500 on one — the *real* registry always
-    has the method, and
-    ``test_the_shipped_registry_exposes_the_facades_the_route_uses`` is what
-    actually keeps the tolerance honest.
-    """
-
-    terminate_chat_session = None
-
-
-def _record_pty_terminations(client) -> list[str]:
-    """Record every key handed to ``pty_registry.terminate_session``."""
-    registry = client.app.state.pty_registry
-    real = registry.terminate_session
-    seen: list[str] = []
-
-    def _spy(session_id):
-        seen.append(session_id)
-        return real(session_id)
-
-    registry.terminate_session = _spy
-    return seen
-
-
-class TestTerminateRoutesToTheOwningPool:
-    def test_chat_key_terminates_the_chat_session(self, client):
-        """The flip must reach the SDK child, not a PTY that was never there."""
-        registry = _ChatRegistryDouble(app=client.app, live_chats=[CHAT_A])
-        client.app.state.operator_registry = registry
-
-        with known_sessions():
-            resp = client.post(
-                "/api/terminal/posture",
-                json={"session_id": CHAT_A, "posture": "sandbox"},
-            )
-
-        assert resp.status_code == 200
-        assert registry.terminated == [CHAT_A]
-
-    def test_chat_key_does_not_blind_call_the_pty_registry(self, client):
-        """The PTY pool owns nothing under a chat key, so it is not told to act.
-
-        The old code called it for every key and relied on "unknown key pops to
-        None". That no-op is what let the chat branch look handled while the
-        SDK child kept running; routing by owner is what makes the log line and
-        the behaviour agree.
-        """
-        client.app.state.operator_registry = _ChatRegistryDouble(
-            app=client.app, live_chats=[CHAT_A]
-        )
-        pty_calls = _record_pty_terminations(client)
-
-        with known_sessions():
-            resp = client.post(
-                "/api/terminal/posture",
-                json={"session_id": CHAT_A, "posture": "sandbox"},
-            )
-
-        assert resp.status_code == 200
-        assert pty_calls == []
-
-    def test_pty_key_terminates_the_pty_session(self, client):
-        """The PTY topology keeps its own answer, unchanged."""
-        registry = _ChatRegistryDouble(app=client.app)
-        client.app.state.operator_registry = registry
-        pty_registry = client.app.state.pty_registry
-        pty_registry.get_or_create_session(SESSION_A, "echo")
-        assert pty_registry.get_session(SESSION_A) is not None
-
-        with known_sessions(SESSION_A):
-            resp = client.post(
-                "/api/terminal/posture",
-                json={"session_id": SESSION_A, "posture": "sandbox"},
-            )
-
-        assert resp.status_code == 200
-        assert pty_registry.get_session(SESSION_A) is None
-        # The chat pool holds nothing under this key, and is told to terminate
-        # anyway — see TestTheChatTerminateIsUngated. For a key it does not
-        # hold that is a no-op, and it is the only way to reach a chat that is
-        # still inside ``start()``.
-        assert registry.terminated == [SESSION_A]
-
-    def test_one_key_live_in_both_pools_terminates_both(self, client):
-        """``chat_id`` is caller-chosen, so it can name a live PTY session too.
-
-        Nothing stops an embedder from picking a chat id equal to a Claude
-        session UUID that already has a PTY. Terminating only one pool would
-        leave a live child running the posture the operator just left, which is
-        the exact lie this route exists to prevent — so every owner acts.
-        """
-        registry = _ChatRegistryDouble(app=client.app, live_chats=[CHAT_A])
-        client.app.state.operator_registry = registry
-        pty_registry = client.app.state.pty_registry
-        pty_registry.get_or_create_session(CHAT_A, "echo")
-
-        with known_sessions(CHAT_A):
-            resp = client.post(
-                "/api/terminal/posture",
-                json={"session_id": CHAT_A, "posture": "sandbox"},
-            )
-
-        assert resp.status_code == 200
-        assert registry.terminated == [CHAT_A]
-        assert pty_registry.get_session(CHAT_A) is None
-
-    def test_terminate_sees_the_new_posture_already_stored(self, client, shared_root):
-        """Store, persist, *then* terminate — the respawn reads the store back.
-
-        A terminate that ran first would race the reconnect: the fresh child
-        could be built from the old store and the operator would have to toggle
-        twice for one change.
-        """
-        registry = _ChatRegistryDouble(app=client.app, live_chats=[CHAT_A])
-        client.app.state.operator_registry = registry
-
-        with known_sessions():
-            client.post(
-                "/api/terminal/posture",
-                json={"session_id": CHAT_A, "posture": "sandbox"},
-            )
-
-        assert registry.postures_seen == ["sandbox"]
-        on_disk = json.loads((shared_root / "session-postures.json").read_text(encoding="utf-8"))
-        assert on_disk == {CHAT_A: "sandbox"}
-
-    def test_unaddressable_key_terminates_nothing(self, client):
-        """A 409 must not tear down anything on either pool."""
-        registry = _ChatRegistryDouble(app=client.app)
-        client.app.state.operator_registry = registry
-        pty_calls = _record_pty_terminations(client)
-
-        with known_sessions():
-            resp = client.post(
-                "/api/terminal/posture",
-                json={"session_id": CHAT_A, "posture": "sandbox"},
-            )
-
-        assert resp.status_code == 409
-        assert registry.terminated == []
-        assert pty_calls == []
-
-    def test_writes_refusal_terminates_nothing(self, client, tmp_path):
-        """A 403 leaves the live child alone — it was never granted the flip."""
-        registry = _ChatRegistryDouble(app=client.app, live_chats=[CHAT_A])
-        client.app.state.operator_registry = registry
-        client.app.state.config_path = _write_config(tmp_path, writes_enabled=False)
-
-        with known_sessions():
-            resp = client.post(
-                "/api/terminal/posture",
-                json={"session_id": CHAT_A, "posture": "writes"},
-            )
-
-        assert resp.status_code == 403
-        assert registry.terminated == []
-
-    def test_registry_without_a_chat_terminate_does_not_break_the_route(self, client):
-        """Unfamiliar registries answer the gate but cannot be told to act.
-
-        Same tolerance ``_names_a_live_chat_session`` already grants: a registry
-        that cannot be asked simply has no chat session to offer. The store is
-        still written, so the next spawn under that key carries the posture.
-        """
-        client.app.state.operator_registry = _DeafChatRegistry(app=client.app, live_chats=[CHAT_A])
-
-        with known_sessions():
-            resp = client.post(
-                "/api/terminal/posture",
-                json={"session_id": CHAT_A, "posture": "sandbox"},
-            )
-
-        assert resp.status_code == 200
-        assert client.app.state.session_postures[CHAT_A] == "sandbox"
-
-    def test_the_shipped_registry_exposes_the_facades_the_route_uses(self):
-        """What makes the tolerance above safe rather than a silent hole.
-
-        The route reaches the chat pool through two facades and a rename of
-        either is silent in a different way:
-
-        * ``terminate_chat_session`` — every real deployment would take the
-          tolerant branch and stop applying chat postures at all;
-        * ``get_chat_session`` — :func:`_holds_a_chat_pool_entry` would answer
-          ``False`` for every key, so the log line would stop naming the chat
-          pool; and
-        * ``has_chat_key`` — the addressability probe would fall back to the
-          session-map read, which cannot see a creation still inside
-          ``start()``, and a flip during a chat's first prompt would go back to
-          being a 409 that writes nothing.
-
-        The first two fail silently, so all three are pinned here.
+        All three fail quietly, so all three are pinned here.
         """
         for name in ("terminate_chat_session", "get_chat_session", "has_chat_key"):
             assert callable(getattr(OperatorRegistry, name, None)), name
@@ -342,7 +134,7 @@ class TestTerminateRoutesToTheOwningPool:
         The gate's own unit: ``get_chat_session`` still says "nothing here"
         during ``start()`` — that is what it is for — while ``has_chat_key``
         says the pool will answer to this key. Only the second is a safe basis
-        for refusing an operator's flip.
+        for refusing an operator's toggle.
         """
         created: list[_FakeChatSession] = []
         registry = OperatorRegistry()
@@ -371,31 +163,6 @@ class TestTerminateRoutesToTheOwningPool:
         assert pooled is None
         assert has_key is True
         assert addressable is True
-
-
-class TestOperatorSessionsGetNoRuntimeFlip:
-    def test_operator_key_is_refused_by_the_posture_surface(self, client):
-        """No runtime flip for ``/ws/operator`` in this phase, by construction.
-
-        The key is minted per connection and nothing carries it across a
-        respawn, so there is no reconnect protocol to respawn *into*. The closed
-        key grammar refuses it before any store write, which is why every
-        operator-session record can honestly say ``posture_source=spawn``.
-        """
-        registry = _ChatRegistryDouble(app=client.app, live_chats=[OPERATOR_KEY])
-        client.app.state.operator_registry = registry
-        pty_calls = _record_pty_terminations(client)
-
-        with known_sessions(OPERATOR_KEY):
-            resp = client.post(
-                "/api/terminal/posture",
-                json={"session_id": OPERATOR_KEY, "posture": "sandbox"},
-            )
-
-        assert resp.status_code == 400
-        assert registry.terminated == []
-        assert pty_calls == []
-        assert OPERATOR_KEY not in getattr(client.app.state, "session_postures", {})
 
 
 class _FakeChatSession:
@@ -630,185 +397,19 @@ def _slow_session_class(created: list, delay: float = 0.05):
     return _Slow
 
 
-class TestAFlipDuringChatCreation:
-    """The window the ownership probe used to leave open.
-
-    ``get_chat_session`` reads the pool's session map; a creation still inside
-    ``start()`` lives in ``_pending``. Gating the terminate on that probe meant
-    a flip arriving mid-creation terminated nothing, returned 200, and let the
-    child built from the PRE-flip environment register itself into the pool
-    afterwards — with the creator going on to deliver the operator's prompt to
-    it, because its ``get_or_create`` returned normally.
-
-    The *addressability gate* had the same blind spot for longer, and it runs
-    first: for a chat-only key it answered "no session here" and refused 409
-    before the terminate was ever reached, so nothing was written and nothing
-    was killed. Every test below therefore runs with ``known_sessions()``
-    **empty** — the key is a chat and nothing else, which is the shipped
-    topology. Only the SDK session is doubled; the registry, the pool, the
-    route coroutine and the store are real.
-    """
-
-    @pytest.mark.asyncio
-    async def test_the_pre_flip_child_never_lands_in_the_pool(self, client, shared_root):
-        created: list[_FakeChatSession] = []
-        registry = OperatorRegistry()
-        client.app.state.operator_registry = registry
-
-        with patch(
-            "osprey.interfaces.web_terminal.operator_session.OperatorSession",
-            _slow_session_class(created),
-        ):
-            creation = asyncio.create_task(
-                registry.get_or_create_chat_session(
-                    CHAT_A, "/tmp", {"OSPREY_EXECUTION_MODE": "writes"}
-                )
-            )
-            await created_first(created)
-
-            with known_sessions():
-                result = await websocket_routes.set_terminal_posture(
-                    PostureRequest(session_id=CHAT_A, posture="sandbox"),
-                    SimpleNamespace(app=client.app),
-                )
-
-            with pytest.raises(ChatSessionTerminatedError):
-                await creation
-
-        assert result["posture"] == "sandbox"
-        # The store was written — the 409 path writes nothing.
-        assert client.app.state.session_postures[CHAT_A] == "sandbox"
-        on_disk = json.loads((shared_root / "session-postures.json").read_text(encoding="utf-8"))
-        assert on_disk == {CHAT_A: "sandbox"}
-        # The pre-flip child is torn down and nothing is pooled under the key.
-        assert registry.get_chat_session(CHAT_A) is None
-        assert created[0].env == {"OSPREY_EXECUTION_MODE": "writes"}
-        assert created[0].stop_calls == 1
-
-    @pytest.mark.asyncio
-    async def test_the_creator_is_refused_so_no_prompt_reaches_that_child(self, client):
-        """The refusal is the guarantee, not just the teardown.
-
-        A superseded creator raises out of ``_acquire_chat_turn`` before it can
-        ``acquire_turn``, so the prompt that started the creation is never
-        delivered to a child holding the old posture — it comes back as a 409
-        the operator can act on.
-        """
-        created: list[_FakeChatSession] = []
-        registry = OperatorRegistry()
-        client.app.state.operator_registry = registry
-        request = SimpleNamespace(app=client.app)
-
-        with patch(
-            "osprey.interfaces.web_terminal.operator_session.OperatorSession",
-            _slow_session_class(created),
-        ):
-            turn = asyncio.create_task(chat_routes._acquire_chat_turn(request, CHAT_A))
-            await created_first(created)
-
-            with known_sessions():
-                await websocket_routes.set_terminal_posture(
-                    PostureRequest(session_id=CHAT_A, posture="sandbox"),
-                    request,
-                )
-
-            with pytest.raises(Exception) as excinfo:
-                await turn
-
-        assert excinfo.value.status_code == 409
-        assert excinfo.value.detail["error"] == "chat_terminated"
-        assert registry.get_chat_session(CHAT_A) is None
-
-    @pytest.mark.asyncio
-    async def test_the_post_flip_child_carries_the_sandbox_env(self, client):
-        """The retry the 409 asks for is what applies the posture.
-
-        "Send the prompt again" is only an honest remedy if the child that
-        comes back is the sandboxed one. This runs the real chat handler twice
-        across the flip: the first creation is superseded, the second builds
-        its environment from the store the flip wrote.
-        """
-        created: list[_FakeChatSession] = []
-        client.app.state.operator_registry = OperatorRegistry()
-        request = SimpleNamespace(app=client.app)
-
-        with patch(
-            "osprey.interfaces.web_terminal.operator_session.OperatorSession",
-            _slow_session_class(created),
-        ):
-            turn = asyncio.create_task(chat_routes._acquire_chat_turn(request, CHAT_A))
-            await created_first(created)
-
-            with known_sessions():
-                await websocket_routes.set_terminal_posture(
-                    PostureRequest(session_id=CHAT_A, posture="sandbox"),
-                    request,
-                )
-
-            with pytest.raises(Exception):
-                await turn
-
-            session, _token, was_reused = await chat_routes._acquire_chat_turn(request, CHAT_A)
-
-        assert was_reused is False
-        assert session is created[1]
-        assert created[0].env.get("OSPREY_EXECUTION_MODE") != "readonly"
-        assert created[1].env["OSPREY_EXECUTION_MODE"] == "readonly"
-
-    def test_a_chat_key_the_pool_never_heard_of_is_still_a_409(self, client):
-        """Widening the gate to ``_pending`` must not open it to any UUID.
-
-        The pool answers to nothing under this key and no posture was ever set
-        on it, so there is nothing to respawn and the refusal stands.
-        """
-        client.app.state.operator_registry = OperatorRegistry()
-
-        with known_sessions():
-            resp = client.post(
-                "/api/terminal/posture",
-                json={"session_id": CHAT_A, "posture": "sandbox"},
-            )
-
-        assert resp.status_code == 409
-        assert resp.json()["detail"]["error"] == "session_not_started"
-        assert CHAT_A not in getattr(client.app.state, "session_postures", {})
-
-
-class TestTheChatTerminateIsUngated:
-    def test_the_pool_is_told_even_when_it_holds_no_entry(self, client):
-        """The probe cannot see ``_pending``, so it must not gate the call.
-
-        A key the pool holds nothing under is the same read the probe gets for
-        a chat that is still starting, and only one of those is safe to skip.
-        ``ChatSessionPool.terminate`` is idempotent and busy-safe, so the
-        unconditional call costs a no-op on the keys that own no chat.
-        """
-        registry = _ChatRegistryDouble(app=client.app)
-        client.app.state.operator_registry = registry
-
-        with known_sessions(SESSION_A):
-            resp = client.post(
-                "/api/terminal/posture",
-                json={"session_id": SESSION_A, "posture": "sandbox"},
-            )
-
-        assert resp.status_code == 200
-        assert registry.terminated == [SESSION_A]
-
-
 class TestChatPoolEnvFingerprint:
     """The chat pool's backstop: a reuse must not hand back a stale-env child.
 
     ``get_or_create`` used to return a live entry on an LRU bump alone,
     comparing nothing about the environment that child was built with. The
-    posture route terminates the chat itself, so in the ordinary toggle flow
-    there is no live entry left to compare against — but a missed terminate, a
-    registry that cannot be told to act (``_DeafChatRegistry``), or a future
-    caller that changes the launch env without knowing it must terminate first
-    would all leave a warm SDK child serving the posture the operator just left,
-    with the badge reporting the store. The PTY registry has carried an env
-    fingerprint for exactly this since it was written; this is the same
-    defence on the SDK topology, through the same helper.
+    session's write posture no longer travels that way — it is read from the
+    store at write time — but everything else a child is launched with still
+    does: a rotated panel token, a deployment-wide readonly marker, a privilege
+    name a later change adds. A caller that changes the launch env without
+    knowing it must terminate first would otherwise keep a warm SDK child
+    running under an environment nobody believes it has. The PTY registry has
+    carried an env fingerprint for exactly this since it was written; this is
+    the same defence on the SDK topology, through the same helper.
     """
 
     @pytest.mark.asyncio
@@ -910,15 +511,15 @@ class TestChatPoolEnvFingerprint:
         assert len(created) == 1
 
     @pytest.mark.asyncio
-    async def test_a_missed_terminate_still_cannot_serve_the_old_posture(self, client):
+    async def test_a_narrowing_does_not_rebuild_the_chat_child(self, client):
         """End to end on the real registry and the real chat handler.
 
-        The store is flipped without the route's terminate — the state a
-        deaf registry, a raced reconnect or a future caller would produce.
-        The next prompt must still reach a child built from the store as it
-        now stands.
+        The other side of the fingerprint, and the point of the whole feature:
+        a posture flip is NOT an environment change, so the child that is
+        already holding the operator\'s conversation is reused. The narrowing
+        still governs that child — its next write reads the store — which is
+        why nothing has to die for it to apply.
         """
-        created: list[_FakeChatSession] = []
         registry = OperatorRegistry()
         client.app.state.operator_registry = registry
         request = SimpleNamespace(app=client.app)
@@ -928,25 +529,27 @@ class TestChatPoolEnvFingerprint:
             _FakeChatSession,
         ):
             first, _token, _ = await chat_routes._acquire_chat_turn(request, CHAT_A)
-            created.append(first)
-            # The flip the route would have terminated for, minus the terminate.
-            websocket_routes._session_postures(client.app)[CHAT_A] = "sandbox"
+            websocket_routes._session_postures(client.app)[CHAT_A] = {"standin": "sandbox"}
             second, _token2, was_reused = await chat_routes._acquire_chat_turn(request, CHAT_A)
 
-        assert second is not first
-        assert was_reused is False
-        assert first.env.get("OSPREY_EXECUTION_MODE") != "readonly"
-        assert second.env["OSPREY_EXECUTION_MODE"] == "readonly"
+        assert second is first
+        assert was_reused is True
+        assert first.stop_calls == 0
+        # No mode was ever stamped; the child was handed the store key instead.
+        assert "OSPREY_EXECUTION_MODE" not in first.env
+        assert first.env[POSTURE_SESSION_ENV] == CHAT_A
 
 
 class TestTheEnvIsReadUnderThePoolLock:
-    """Atomicity of "read the posture" and "register the creation".
+    """Atomicity of "build the environment" and "register the creation".
 
-    Before, the route read the store and handed the pool a finished mapping.
-    Nothing kept those two steps together except the accident that no await on
-    the way in actually suspends — one added ``await`` in the handler and a
-    flip could land in the gap, with no test going red. The pool now resolves
-    a builder inside the lock hold that registers the pending creation.
+    Before, the route built the child\'s environment and handed the pool a
+    finished mapping. Nothing kept those two steps together except the accident
+    that no await on the way in actually suspends — one added ``await`` in the
+    handler and a change could land in the gap, with no test going red. The
+    pool now resolves a builder inside the lock hold that registers the pending
+    creation, so whatever the environment is derived from is read at the moment
+    the child is committed to.
     """
 
     @pytest.mark.asyncio
@@ -964,13 +567,13 @@ class TestTheEnvIsReadUnderThePoolLock:
         assert session.env == {"OSPREY_EXECUTION_MODE": "readonly"}
 
     @pytest.mark.asyncio
-    async def test_a_flip_landing_after_the_call_still_governs_the_child(self):
+    async def test_a_change_landing_after_the_call_still_governs_the_child(self):
         """The seam the finding is about, made real by holding the lock.
 
         With the lock held, the creation is parked *inside* ``get_or_create``:
         the caller has committed, and the environment has not been read yet.
-        A posture written in that window is the one the child gets. Hand the
-        pool a ready-made mapping instead and this asserts ``writes``.
+        A change written in that window is the one the child gets. Hand the
+        pool a ready-made mapping instead and this asserts the stale value.
         """
         pool, _created = _pool()
         store = {"posture": "writes"}
@@ -1000,7 +603,8 @@ class TestTheEnvIsReadUnderThePoolLock:
 
         A regression to a pre-built mapping is invisible in behaviour today,
         so this pins the shape: what reaches the pool must be callable, and
-        calling it must produce the posture the store holds now.
+        calling it must produce the environment this chat would be spawned
+        with — the store key it reads its posture under, and no execution mode.
         """
         captured: dict[str, object] = {}
 
@@ -1013,13 +617,14 @@ class TestTheEnvIsReadUnderThePoolLock:
                 return None
 
         client.app.state.operator_registry = _Registry()
-        websocket_routes._session_postures(client.app)[CHAT_A] = "sandbox"
 
         asyncio.run(chat_routes._acquire_chat_turn(SimpleNamespace(app=client.app), CHAT_A))
 
         build_env = captured["env"]
         assert callable(build_env)
-        assert build_env()["OSPREY_EXECUTION_MODE"] == "readonly"
+        built = build_env()
+        assert built[POSTURE_SESSION_ENV] == CHAT_A
+        assert "OSPREY_EXECUTION_MODE" not in built
 
 
 class TestARaisingBuilderStrandsNothing:
