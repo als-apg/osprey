@@ -8,8 +8,8 @@ block uses the probe-proven CA name-server gateway shape (task 1.1's
 empirical finding, mirrored in the "simulation" facility-gateway preset —
 see tests/templates/test_gateway_presets.py) plus a `simulation_file` key at
 the exact path (`connector.virtual_accelerator.simulation_file`) that the
-type-aware simulation lookup (task 4.2) resolves, and the `epics` block's
-values are unchanged from its pre-change (ALS production) rendering.
+type-aware simulation lookup (task 4.2) resolves, and the `epics` block ships
+no gateway values — authoring them is the go-live edit.
 """
 
 import yaml
@@ -27,23 +27,11 @@ PROBE_PROVEN_GATEWAY_SHAPE = {
     "use_name_server": True,
 }
 
-# The `epics` block's values as committed prior to this task's edit — the
-# untouched ALS production configuration.
-ORIGINAL_EPICS_BLOCK = {
-    "timeout": 5.0,
-    "gateways": {
-        "read_only": {
-            "address": "cagw-alsdmz.als.lbl.gov",
-            "port": 5064,
-            "use_name_server": False,
-        },
-        "write_access": {
-            "address": "cagw-alsdmz.als.lbl.gov",
-            "port": 5084,
-            "use_name_server": False,
-        },
-    },
-}
+# The `epics` block a stock render ships: the timeout and nothing else. The
+# gateways, `probe_channel` and the operator acknowledgment are all commented
+# out — a facility's machine cannot be guessed, so authoring them is the
+# go-live edit and a fresh deployment's live target reads "not configured".
+SHIPPED_EPICS_BLOCK = {"timeout": 5.0}
 
 
 def _render_connector_config():
@@ -95,6 +83,6 @@ def test_virtual_accelerator_simulation_file_matches_mock_connector():
     )
 
 
-def test_epics_block_is_unchanged():
+def test_epics_block_ships_no_gateway_values():
     epics = _render_connector_config()["connector"]["epics"]
-    assert epics == ORIGINAL_EPICS_BLOCK
+    assert epics == SHIPPED_EPICS_BLOCK

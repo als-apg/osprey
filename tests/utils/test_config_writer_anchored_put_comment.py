@@ -50,7 +50,7 @@ control_system:
                             # old target before it is torn down regardless
     probe_interval_s: 30    # Seconds between background reachability probes of
                             # every target's gateways
-    # live_gateway_acknowledged: cagw-alsdmz.als.lbl.gov
+    # live_gateway_acknowledged: your-ca-gateway.example.com
 
 # Archiver Configuration
 archiver:
@@ -120,7 +120,7 @@ class TestCommentPlacement:
             "    # Written by osprey build for the stand-in.\n"
             "    # Replace by hand when going live.\n"
             "    live_gateway_acknowledged: localhost:5074\n"
-            "    # live_gateway_acknowledged: cagw-alsdmz.als.lbl.gov\n"
+            "    # live_gateway_acknowledged: your-ca-gateway.example.com\n"
             "\n"
             "# Archiver Configuration\n"
             "archiver:\n"
@@ -169,7 +169,7 @@ class TestNeighbouringComments:
         text = _round_trip(TARGET_SWITCH, _inject)
 
         assert text.count("# The `live_gateway_acknowledged` key below is the operator") == 1
-        assert text.count("# live_gateway_acknowledged: cagw-alsdmz.als.lbl.gov") == 1
+        assert text.count("# live_gateway_acknowledged: your-ca-gateway.example.com") == 1
         assert text.count("live_gateway_acknowledged: localhost:5074") == 1
         assert text.count("# Written by osprey build for the stand-in.") == 1
         # The header prose keeps introducing the block it documents.

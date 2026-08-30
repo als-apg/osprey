@@ -139,6 +139,14 @@ Moving toward the live machine is the direction with the extra gates. The switch
 checks them in this order and reports the first one that fails, so the answer
 names the nearest thing to fix rather than the whole list.
 
+**The gateways** (``gateways_missing``).
+``control_system.connector.epics.gateways`` names where the live machine is
+reached. Like everything else about that machine it ships commented out — a
+facility's gateways cannot be guessed, and shipped values would point a stock
+deployment at hardware it never configured — so on a fresh deployment this is
+the first gate, and the live target reads *not configured* until you author
+it. Uncomment the block with your facility's gateway addresses.
+
 **A probe channel** (``probe_channel_missing``).
 ``control_system.connector.epics.probe_channel`` names the channel the switch
 reads to prove the machine answered before the session moves onto it. It ships

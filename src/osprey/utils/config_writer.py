@@ -1076,9 +1076,11 @@ def get_facility_from_gateway_config(config_path: Path) -> str | None:
             ):
                 return preset["name"]
 
+    # The template ships no gateway values, so any authored address that
+    # matched no facility preset above is the operator's own.
     if "read_only" in current_gateways:
         read_addr = current_gateways["read_only"].get("address", "")
-        if read_addr and read_addr != "cagw-alsdmz.als.lbl.gov":
+        if read_addr:
             return "Custom"
 
     return None

@@ -84,20 +84,11 @@ BLUESKY_PORT = default_port("bluesky")
 #: ``standin`` target must prove too.
 VA_PROBE_CHANNEL = "SR:VAC:GAUGE:SR01:PRESSURE:RB"
 
-#: The shipped ALS production ``epics`` gateways — the ``live`` target's, which
-#: a build must render untouched whether or not a stand-in was asked for.
-SHIPPED_EPICS_GATEWAYS = {
-    "read_only": {
-        "address": "cagw-alsdmz.als.lbl.gov",
-        "port": 5064,
-        "use_name_server": False,
-    },
-    "write_access": {
-        "address": "cagw-alsdmz.als.lbl.gov",
-        "port": 5084,
-        "use_name_server": False,
-    },
-}
+#: The ``epics`` block the template ships — the ``live`` target's, which a
+#: build must render untouched whether or not a stand-in was asked for. The
+#: gateways and probe channel ship commented out (authoring them is the
+#: go-live edit), so untouched means the timeout and nothing else.
+SHIPPED_EPICS_BLOCK = {"timeout": 5.0}
 
 #: The opening of the note ``osprey build`` used to write above an
 #: acknowledgment it derived for the operator. Nothing derives one now — the
@@ -348,7 +339,7 @@ class TestTheRenderedConfigDescribesTheStandIn:
         """
         epics = _config(standin_build)["control_system"]["connector"]["epics"]
 
-        assert epics["gateways"] == SHIPPED_EPICS_GATEWAYS
+        assert epics == SHIPPED_EPICS_BLOCK
         assert "probe_channel" not in epics
 
     def test_live_standin_render_takes_its_limits_posture_from_the_profile(
@@ -613,10 +604,10 @@ class TestABuildWithoutTheKeyIsUntouched:
         assert recorder["environment"]["EPICS_CA_NAME_SERVERS"] == f"virtual-accelerator:{VA_PORT}"
 
     def test_live_standin_render_off_keeps_the_facilitys_own_epics_block(self, plain_build) -> None:
-        """The shipped production gateways, and no probe channel copied in."""
+        """The shipped block, untouched — no gateways invented, no probe channel copied in."""
         control_system = _config(plain_build)["control_system"]
 
-        assert control_system["connector"]["epics"]["gateways"] == SHIPPED_EPICS_GATEWAYS
+        assert control_system["connector"]["epics"] == SHIPPED_EPICS_BLOCK
         assert "probe_channel" not in control_system["connector"]["epics"]
         # The profile's own strict pair, unchanged by the stand-in going away:
         # the limits posture was never the stand-in's to decide either way.
