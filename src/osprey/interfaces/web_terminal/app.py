@@ -1417,7 +1417,8 @@ def create_app(
         # send these headers, and the chip is a display, not an authorization
         # surface. The source is shown only through :data:`_ROLE_SOURCE_LABELS`,
         # so a value outside the sidecar's vocabulary renders nothing.
-        _, auth_role, auth_role_source = forwarded_identity(request.headers)
+        forwarded = forwarded_identity(request.headers)
+        auth_role, auth_role_source = forwarded.role, forwarded.role_source
         if auth_role == UNSAFE_FORWARDED_VALUE:
             auth_role = None
         if auth_role_source == UNSAFE_FORWARDED_VALUE:

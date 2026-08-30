@@ -1,6 +1,6 @@
 """Acceptance proof for the WHOLE identity chain on real artifacts: a password
 login at the deployed sidecar, an ``authorization:`` role that decides which
-persona a user's container runs, the three identity headers nginx forwards
+persona a user's container runs, the four identity headers nginx forwards
 from the sidecar's answer, and the audit records those decisions leave behind in
 each identity's OWN ledger subdirectory.
 
@@ -42,20 +42,32 @@ user       role           persona     what only this entry can prove
 ``alice``  ``operator``   REAL app    A password login reaches HER container,
                                       and an in-container protected-key refusal
                                       lands in ``var/audit/alice/``.
-``bob``    ``observer``   probe stub  Subject, role AND role source arrive at
-                                      the upstream, exactly once each, carrying
-                                      the sidecar's values — and client-forged
-                                      headers do not.
+``bob``    ``observer``   probe stub  Account, subject, role AND role source
+                                      arrive at the upstream, exactly once
+                                      each, carrying the sidecar's values —
+                                      and client-forged headers do not.
 ``carol``  (none)         probe stub  A session with no role forwards the
-                                      subject and NEITHER a role nor a
-                                      role-source header at all — absent, never
-                                      present-and-blank.
+                                      account and subject but NEITHER a role
+                                      nor a role-source header at all —
+                                      absent, never present-and-blank.
 ``kiosk``  (none)         probe stub  ``login: false``: the ungated branch
-                                      forwards NONE of the three.
+                                      forwards NONE of the four.
 ``dave``   (none)         probe stub  A role the boundary cannot carry refuses
                                       the login 403 instead of poisoning a
                                       header (see FAULT INJECTION below).
 =========  =============  ==========  =========================================
+
+WHAT THE ACCOUNT HEADER ASSERTIONS HERE DO AND DO NOT PROVE
+-----------------------------------------------------------
+This lane is password-only, and in a password deployment the account IS the
+subject: both headers carry the roster username, so every assertion below
+compares the two against the same value. That makes these assertions a proof
+of nginx TRANSPORT — that the sidecar's ``X-Osprey-Auth-Account`` is captured
+from the ``/verify`` answer, forwarded exactly once, replaces a client-forged
+copy rather than joining it, and is cleared on the ungated arm — and NOT a
+proof of OIDC semantics, where an account and a subject actually diverge. The
+OIDC half is unit-covered instead, because the repo has no OIDC e2e harness to
+drive a real IdP login through this chain.
 
 **The persona each user runs is decided by the ROLE, never by a ``persona:``
 pin.** That is not incidental to the fixture — it is the FR6 mechanism under
@@ -172,6 +184,7 @@ import yaml
 from osprey.audit.protected import SURFACE_HTTP_CONFIG
 from osprey.port_layout import default_port
 from osprey.services.auth_sidecar.identity_headers import (
+    ACCOUNT_HEADER,
     ROLE_HEADER,
     ROLE_SOURCE_HEADER,
     SUBJECT_HEADER,
@@ -1341,7 +1354,7 @@ def test_a_password_login_reaches_that_users_own_terminal(deployment: dict[str, 
     )
 
 
-def test_the_upstream_receives_exactly_one_subject_and_one_role_and_one_role_source_header(
+def test_the_upstream_receives_exactly_one_of_each_identity_header(
     deployment: dict[str, Any],
 ) -> None:
     """SC4: the sidecar's identity arrives at the container, once, unduplicated.
@@ -1365,8 +1378,17 @@ def test_the_upstream_receives_exactly_one_subject_and_one_role_and_one_role_sou
     rides that same binding one step further: ``roster`` is the only provenance
     a password deployment can produce, so its arrival proves the third header
     travels the whole chain and is not merely rendered into the config.
+
+    The account header is asserted against the same value as the subject
+    because this lane is password-only, where the account IS the subject. So
+    what its arrival proves is nginx TRANSPORT — captured from ``/verify``,
+    forwarded once, uncorrupted — and not OIDC semantics, where the two
+    diverge; that half is unit-covered, there being no OIDC e2e harness.
     """
     report = _probe_report(HEADER_USER, opener=deployment["sessions"][HEADER_USER])
+    assert _forwarded(report, ACCOUNT_HEADER) == [HEADER_USER], (
+        f"{ACCOUNT_HEADER} did not arrive exactly once carrying the roster account: {report}"
+    )
     assert _forwarded(report, SUBJECT_HEADER) == [HEADER_USER], (
         f"{SUBJECT_HEADER} did not arrive exactly once carrying the roster username: {report}"
     )
@@ -1396,19 +1418,29 @@ def test_a_client_forged_identity_header_never_reaches_the_upstream(
     assert honest; the unconditional empty clears this lane also relies on are
     in the ungated locations and are proved by
     ``test_the_exempt_branch_forwards_no_identity_header``. The forged
-    role-source is the sharpest of the three: a client that could name its own
+    role-source is the sharpest of the four: a client that could name its own
     provenance would be able to dress a roster role up as an IdP claim, so the
     gated forward has to win over the forgery there too.
+
+    The forged account is the one a downstream authorization check would read
+    as "who is this", so the forward has to REPLACE it rather than append a
+    second copy — an upstream reading the first of two would be reading the
+    client's. Password-only lane, so the honest value here equals the subject.
     """
     report = _probe_report(
         HEADER_USER,
         opener=deployment["sessions"][HEADER_USER],
         headers={
             **_navigation(),
+            ACCOUNT_HEADER: "root",
             SUBJECT_HEADER: "root",
             ROLE_HEADER: "admin",
             ROLE_SOURCE_HEADER: "claim",
         },
+    )
+    assert _forwarded(report, ACCOUNT_HEADER) == [HEADER_USER], (
+        f"a forged {ACCOUNT_HEADER} survived the gated location — replaced, never"
+        f" appended to: {report}"
     )
     assert _forwarded(report, SUBJECT_HEADER) == [HEADER_USER], (
         f"a forged {SUBJECT_HEADER} survived the gated location: {report}"
@@ -1421,7 +1453,7 @@ def test_a_client_forged_identity_header_never_reaches_the_upstream(
     )
 
 
-def test_a_session_with_no_role_forwards_a_subject_and_no_role_header(
+def test_a_session_with_no_role_forwards_an_account_and_subject_and_no_role_header(
     deployment: dict[str, Any],
 ) -> None:
     """The deny-safe contract: an absent role is ABSENT, never present-and-blank.
@@ -1434,9 +1466,14 @@ def test_a_session_with_no_role_forwards_a_subject_and_no_role_header(
     role-source header is absent for the same reason and by the same rule: it
     describes where a role came from, so with no role there is nothing for it
     to describe and an empty ``roster`` would be a provenance claim about a
-    privilege nobody holds.
+    privilege nobody holds. The account rides the opposite rule and is asserted
+    here for it: it names WHO the request is, not what they may do, so it
+    arrives for every authorized session whether or not a role was resolved.
     """
     report = _probe_report(NO_ROLE_USER, opener=deployment["sessions"][NO_ROLE_USER])
+    assert _forwarded(report, ACCOUNT_HEADER) == [NO_ROLE_USER], (
+        f"{ACCOUNT_HEADER} did not arrive for a role-less session: {report}"
+    )
     assert _forwarded(report, SUBJECT_HEADER) == [NO_ROLE_USER], (
         f"{SUBJECT_HEADER} did not arrive for a role-less session: {report}"
     )
@@ -1453,24 +1490,30 @@ def test_the_exempt_branch_forwards_no_identity_header(deployment: dict[str, Any
 
     ``kiosk`` sits on the ungated branch: nginx runs no ``auth_request`` for it,
     so there is no sidecar answer to forward — and the unconditional clears mean
-    the terminal receives none of the three headers rather than empty ones.
+    the terminal receives none of the four headers rather than empty ones.
     Reached with no credential at all, which is what ``login: false`` means.
 
     Forged headers are sent on the same request: the ungated branch is the one
     where a client could most plausibly hope to supply its own identity, and the
-    clears are the only thing stopping it. All three identity headers are
-    forged and all three have to be absent — the role-source clear included,
+    clears are the only thing stopping it. All four identity headers are
+    forged and all four have to be absent — the role-source clear included,
     since a provenance arriving where no identity was established would be a
-    claim about a role the branch never resolved.
+    claim about a role the branch never resolved, and the account clear most of
+    all, since an account arriving on the ungated arm is an unauthenticated
+    client naming itself to the upstream.
     """
     report = _probe_report(
         EXEMPT_USER,
         headers={
             **_navigation(),
+            ACCOUNT_HEADER: "root",
             SUBJECT_HEADER: "root",
             ROLE_HEADER: "admin",
             ROLE_SOURCE_HEADER: "claim",
         },
+    )
+    assert _forwarded(report, ACCOUNT_HEADER) == [], (
+        f"the exempt branch forwarded {ACCOUNT_HEADER}: {report}"
     )
     assert _forwarded(report, SUBJECT_HEADER) == [], (
         f"the exempt branch forwarded {SUBJECT_HEADER}: {report}"

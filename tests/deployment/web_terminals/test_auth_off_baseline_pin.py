@@ -27,12 +27,14 @@ exceptions:
      records what its agents did, and a posture that only writes a trail when
      someone opted into logins would have the trail missing exactly where it is
      least supervised.
-  2. **the identity-header clears** — ``proxy_set_header X-Osprey-Auth-Subject
-     ""``/``X-Osprey-Auth-Role ""`` in every proxying location. Under ``token``
-     there is no sidecar to answer for a subject, so nginx must claim both names
-     anyway: a location that names neither would hand a client's own
-     ``X-Osprey-Auth-Subject: root`` straight to a terminal container, which
-     reads that header to learn who is on the other end.
+  2. **the identity-header clears** — ``proxy_set_header X-Osprey-Auth-Account
+     ""``/``X-Osprey-Auth-Subject ""``/``X-Osprey-Auth-Role ""``/
+     ``X-Osprey-Auth-Role-Source ""`` in every proxying location. Under
+     ``token`` there is no sidecar to answer for an account or a subject, so
+     nginx must claim all four names anyway: a location that names none of them
+     would hand a client's own ``X-Osprey-Auth-Subject: root`` straight to a
+     terminal container, which reads that header to learn who is on the other
+     end.
   3. **the terminal session lifetime** — ``OSPREY_TERMINAL_SESSION_LIFETIME``
      on every per-user container. ``token`` mints a session cookie of its own
      (the ``?token=`` exchange trades the magic link for one), so the setting
@@ -304,11 +306,12 @@ _REWORDED_COMPOSE_LINES = frozenset(
     }
 )
 
-#: Task 4.7 (nginx-identity-headers), ungated arm. Three clears per `/u/<user>/`
+#: Task 4.7 (nginx-identity-headers), ungated arm. Four clears per `/u/<user>/`
 #: location, and NOTHING else: no `auth_request_set`, no forward, no `/auth/`
 #: location — those render only with authentication on.
 _ALLOWED_NGINX_LINES = Counter(
     {
+        '        proxy_set_header X-Osprey-Auth-Account "";': 2,
         '        proxy_set_header X-Osprey-Auth-Subject "";': 2,
         '        proxy_set_header X-Osprey-Auth-Role "";': 2,
         '        proxy_set_header X-Osprey-Auth-Role-Source "";': 2,
@@ -509,8 +512,8 @@ def test_compose_adds_exactly_the_audit_emitters_and_mounts() -> None:
     _assert_added_directives_are_exactly_allowed("docker-compose.web.yml")
 
 
-def test_nginx_adds_exactly_the_three_identity_header_clears() -> None:
-    """The nginx config's whole SC6 exception: the three clears, once each in
+def test_nginx_adds_exactly_the_four_identity_header_clears() -> None:
+    """The nginx config's whole SC6 exception: the four clears, once each in
     each of the two ungated `/u/<user>/` locations, from task 4.7. Nothing from
     the gated arm may appear here — no `auth_request_set`, no forward — and the
     count catches a clear that reached only one of the two locations."""

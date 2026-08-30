@@ -374,6 +374,70 @@ class TestSubjectHeader:
         assert self.SUBJECT_HEADER.lower() not in response.headers
 
 
+class TestAccountHeader:
+    """An authorized request always names the roster card it is on."""
+
+    ACCOUNT_HEADER = "X-Osprey-Auth-Account"
+    SUBJECT_HEADER = "X-Osprey-Auth-Subject"
+    ALICE_SUBJECT = "idp|alice"
+
+    def test_password_authorization_names_the_roster_account(self) -> None:
+        """In password mode the card and the proof are the same name, so both
+        headers say ``alice`` — the account still rides on its own header
+        rather than leaving a consumer to infer it from the subject."""
+        cookie = _mint(_unlocked("alice"))
+        with TestClient(_app()) as client:
+            response = _verify(client, "alice", cookie)
+        assert response.status_code == 200
+        assert response.headers[self.ACCOUNT_HEADER] == "alice"
+
+    def test_oidc_authorization_names_the_card_not_the_person(self) -> None:
+        """Under OIDC the two headers answer different questions: the account is
+        the roster card the request is on, the subject is whoever proved the
+        login. A shared card is exactly where they diverge."""
+        cookie = _mint(_unlocked("alice", stored=None, subject=self.ALICE_SUBJECT))
+        with TestClient(_app(OIDC_ENV)) as client:
+            response = _verify(client, "alice", cookie)
+        assert response.status_code == 200
+        assert response.headers[self.ACCOUNT_HEADER] == "alice"
+        assert response.headers[self.SUBJECT_HEADER] == self.ALICE_SUBJECT
+
+    def test_an_oidc_session_naming_nobody_still_names_the_account(self) -> None:
+        """The account does not depend on the session holding an identity: the
+        request is on a card whether or not the cookie says who opened it."""
+        cookie = _mint(_unlocked("alice", stored=None, subject=""))
+        with TestClient(_app(OIDC_ENV)) as client:
+            response = _verify(client, "alice", cookie)
+        assert response.status_code == 200
+        assert response.headers[self.ACCOUNT_HEADER] == "alice"
+        assert self.SUBJECT_HEADER.lower() not in response.headers
+
+    def test_a_denied_request_never_carries_the_account_header(self) -> None:
+        """The header rides only on the 200. A refusal says nothing at all, so a
+        consumer can never read a card off a request that was not authorized."""
+        cookie = _mint(_unlocked("alice"))
+        with TestClient(_app()) as client:
+            response = _verify(client, "bob", cookie)
+        assert response.status_code == 401
+        assert self.ACCOUNT_HEADER.lower() not in response.headers
+
+    def test_a_non_ascii_roster_username_denies(self) -> None:
+        """Defense in depth, and unreachable in a real deployment: the render
+        holds roster names to ``USERNAME_CHARSET_RE``, so a username that could
+        not cross the nginx boundary never reaches a rendered sidecar. The
+        roster username is also the one identity value that arrives here without
+        having passed through the session codec's own charset refusal, so this
+        route checks it itself and denies rather than emitting a header that
+        would arrive mangled — or dropping it and leaving the terminal running
+        with less identity than the deployment believes it forwarded."""
+        env = {**OIDC_ENV, "OSPREY_AUTH_USERS": "j\u00f6rg,bob"}
+        cookie = _mint(_unlocked("j\u00f6rg", stored=None, subject=""))
+        with TestClient(_app(env)) as client:
+            response = _verify(client, "j\u00f6rg", cookie)
+        assert response.status_code == 401
+        assert self.ACCOUNT_HEADER.lower() not in response.headers
+
+
 class TestLogging:
     """Denials are diagnosable without disclosing anything."""
 

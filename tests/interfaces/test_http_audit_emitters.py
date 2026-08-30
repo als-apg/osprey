@@ -43,8 +43,10 @@ from osprey.audit.envelope import (
 from osprey.interfaces import common_middleware
 from osprey.interfaces._app_setup import configure_interface_app
 from osprey.interfaces.common_middleware import (
+    AUDIT_ACCOUNT_HEADER,
     AUDIT_ACCOUNT_KEY,
     AUDIT_EXPECTED_ACCOUNT_KEY,
+    AUDIT_OIDC_SUBJECT_KEY,
     AUDIT_ROLE_HEADER,
     AUDIT_ROLE_SOURCE_HEADER,
     AUDIT_SUBJECT_HEADER,
@@ -400,12 +402,12 @@ class TestRefusalRecordProvenance:
 
 
 class TestForwardedIdentity:
-    def test_the_forwarded_subject_and_role_ride_the_record(self, app_stub, records):
+    def test_the_forwarded_account_and_role_ride_the_record(self, app_stub, records):
         drive(
             WebAuthMiddleware(RecordingApp()),
             http_scope(
                 app=app_stub,
-                headers={AUDIT_SUBJECT_HEADER: "alice", AUDIT_ROLE_HEADER: "operator"},
+                headers={AUDIT_ACCOUNT_HEADER: "alice", AUDIT_ROLE_HEADER: "operator"},
             ),
         )
 
@@ -418,44 +420,122 @@ class TestForwardedIdentity:
 
         record = only(records)
         assert AUDIT_ACCOUNT_KEY not in detail_parts(record)
+        assert AUDIT_OIDC_SUBJECT_KEY not in detail_parts(record)
         assert record["role"] is None
 
-    def test_the_decoder_returns_the_source_beside_the_subject_and_role(self):
-        """The third name is decoded under the same bound as the first two.
+    def test_the_decoder_names_each_of_the_four_headers_it_returns(self):
+        """Four names, each decoded under the same bound, each reachable by name.
 
-        Asserted on the decoder directly, not through an emitter: the ledger
-        reads the tuple and records only its first two values, so a third name
-        that quietly stopped being decoded would leave every record in this
-        module exactly as it is today, and only the terminal's chip would go
-        blank.
+        Asserted on the decoder directly, not through an emitter, and by field
+        rather than by tuple position: ``subject`` and ``account`` read alike
+        and are not the same question, so a swap of the two would be invisible
+        to a positional assertion while inverting what the ledger compares. The
+        role source is here for the same reason it always was — the ledger
+        reads it and records nothing from it, so a name that quietly stopped
+        being decoded would leave every record in this module exactly as it is
+        and only the terminal's chip would go blank.
         """
         base = {
-            AUDIT_SUBJECT_HEADER.lower(): "alice",
+            AUDIT_SUBJECT_HEADER.lower(): "idp|alice",
+            AUDIT_ACCOUNT_HEADER.lower(): "alice",
             AUDIT_ROLE_HEADER.lower(): "operator",
         }
 
-        assert forwarded_identity(base) == ("alice", "operator", None)
-        assert forwarded_identity({**base, AUDIT_ROLE_SOURCE_HEADER.lower(): "roster"}) == (
-            "alice",
-            "operator",
-            "roster",
-        )
-        assert forwarded_identity({**base, AUDIT_ROLE_SOURCE_HEADER.lower(): "ro ster"}) == (
-            "alice",
-            "operator",
-            UNSAFE_FORWARDED_VALUE,
-        )
+        decoded = forwarded_identity(base)
+        assert decoded.subject == "idp|alice"
+        assert decoded.account == "alice"
+        assert decoded.role == "operator"
+        assert decoded.role_source is None
 
-    def test_a_subject_matching_this_container_is_not_flagged(self, app_stub, records, monkeypatch):
+        with_source = forwarded_identity({**base, AUDIT_ROLE_SOURCE_HEADER.lower(): "roster"})
+        assert with_source.role_source == "roster"
+
+        unsafe_source = forwarded_identity({**base, AUDIT_ROLE_SOURCE_HEADER.lower(): "ro ster"})
+        assert unsafe_source.role_source == UNSAFE_FORWARDED_VALUE
+
+    def test_an_absent_account_header_decodes_as_none_not_as_the_subject(self):
+        """Absence is a state of its own, and the readers' fallback depends on it.
+
+        A sidecar image built before :data:`AUDIT_ACCOUNT_HEADER` existed sends
+        no account at all. Flattening that to the subject here would hide the
+        one fact ``_audit_detail`` needs in order to know it is on the fallback
+        path rather than looking at a password session.
+        """
+        decoded = forwarded_identity({AUDIT_SUBJECT_HEADER.lower(): "alice"})
+        assert decoded.subject == "alice"
+        assert decoded.account is None
+
+    def test_an_unsafe_account_is_named_unsafe_under_the_same_bound(self):
+        """The fourth header is not exempt from the guard the other three carry."""
+        decoded = forwarded_identity({AUDIT_ACCOUNT_HEADER.lower(): "ali ce"})
+        assert decoded.account == UNSAFE_FORWARDED_VALUE
+
+    def test_an_account_matching_this_container_is_not_flagged(
+        self, app_stub, records, monkeypatch
+    ):
         monkeypatch.setenv(TERMINAL_USER_ENV, "alice")
         drive(
             WebAuthMiddleware(RecordingApp()),
-            http_scope(app=app_stub, headers={AUDIT_SUBJECT_HEADER: "alice"}),
+            http_scope(app=app_stub, headers={AUDIT_ACCOUNT_HEADER: "alice"}),
         )
 
         assert AUDIT_EXPECTED_ACCOUNT_KEY not in detail_parts(only(records))
 
-    def test_a_subject_mismatching_this_container_is_audited(
+    def test_an_oidc_subject_beside_a_matching_account_is_not_a_mismatch(
+        self, app_stub, records, monkeypatch, caplog
+    ):
+        """The live defect this comparison exists to fix.
+
+        Under ``auth.method: oidc`` the subject is the IdP's assertion about a
+        person and ``OSPREY_TERMINAL_USER`` is the roster name of the card, so
+        comparing those two disagreed by construction: every audited request of
+        every card wrote a false mismatch marker and a WARNING, forever. The
+        account is the only forwarded name this container can be the container
+        *for*, so it is the only one compared. The subject is still recorded —
+        under its own key, which is the point of having one.
+        """
+        monkeypatch.setenv(TERMINAL_USER_ENV, "alice")
+        with caplog.at_level("WARNING", logger=MIDDLEWARE_LOGGER):
+            drive(
+                WebAuthMiddleware(RecordingApp()),
+                http_scope(
+                    app=app_stub,
+                    headers={
+                        AUDIT_ACCOUNT_HEADER: "alice",
+                        AUDIT_SUBJECT_HEADER: "idp|8f21c0",
+                    },
+                ),
+            )
+
+        parts = detail_parts(only(records))
+        assert parts[AUDIT_ACCOUNT_KEY] == "alice"
+        assert AUDIT_EXPECTED_ACCOUNT_KEY not in parts
+        assert parts[AUDIT_OIDC_SUBJECT_KEY] == "idp|8f21c0"
+        assert caplog.messages == []
+
+    def test_a_subject_equal_to_the_account_adds_no_subject_key(
+        self, app_stub, records, monkeypatch
+    ):
+        """A password deployment's records do not change at all.
+
+        There the roster username *is* the proof, so the two headers carry the
+        same string and a second key naming it would be noise in every record
+        of every password deployment.
+        """
+        monkeypatch.setenv(TERMINAL_USER_ENV, "alice")
+        drive(
+            WebAuthMiddleware(RecordingApp()),
+            http_scope(
+                app=app_stub,
+                headers={AUDIT_ACCOUNT_HEADER: "alice", AUDIT_SUBJECT_HEADER: "alice"},
+            ),
+        )
+
+        parts = detail_parts(only(records))
+        assert parts[AUDIT_ACCOUNT_KEY] == "alice"
+        assert AUDIT_OIDC_SUBJECT_KEY not in parts
+
+    def test_an_account_mismatching_this_container_is_audited(
         self, app_stub, records, monkeypatch, caplog
     ):
         """One user's authorization reaching another user's container.
@@ -469,13 +549,41 @@ class TestForwardedIdentity:
         with caplog.at_level("WARNING", logger=MIDDLEWARE_LOGGER):
             drive(
                 WebAuthMiddleware(RecordingApp()),
-                http_scope(app=app_stub, headers={AUDIT_SUBJECT_HEADER: "alice"}),
+                http_scope(app=app_stub, headers={AUDIT_ACCOUNT_HEADER: "alice"}),
             )
 
         parts = detail_parts(only(records))
         assert parts[AUDIT_ACCOUNT_KEY] == "alice"
         assert parts[AUDIT_EXPECTED_ACCOUNT_KEY] == "bob"
         assert any("alice" in message and "bob" in message for message in caplog.messages)
+
+    def test_a_genuine_mismatch_under_oidc_still_records_both_names(
+        self, app_stub, records, monkeypatch, caplog
+    ):
+        """Someone reaching another user's card keeps both the marker and the warning.
+
+        The fix removes the false mismatch, not the real one — and the subject
+        rides along, because "which login opened it" is the first question
+        asked of a record that says a card was reached by the wrong account.
+        """
+        monkeypatch.setenv(TERMINAL_USER_ENV, "bob")
+        with caplog.at_level("WARNING", logger=MIDDLEWARE_LOGGER):
+            drive(
+                WebAuthMiddleware(RecordingApp()),
+                http_scope(
+                    app=app_stub,
+                    headers={
+                        AUDIT_ACCOUNT_HEADER: "alice",
+                        AUDIT_SUBJECT_HEADER: "idp|8f21c0",
+                    },
+                ),
+            )
+
+        parts = detail_parts(only(records))
+        assert parts[AUDIT_EXPECTED_ACCOUNT_KEY] == "bob"
+        assert parts[AUDIT_ACCOUNT_KEY] == "alice"
+        assert parts[AUDIT_OIDC_SUBJECT_KEY] == "idp|8f21c0"
+        assert len([m for m in caplog.messages if "alice" in m and "bob" in m]) == 1
 
     @pytest.mark.parametrize(
         "forged",
@@ -489,7 +597,7 @@ class TestForwardedIdentity:
     def test_an_unrecordable_forwarded_value_is_named_unsafe(self, app_stub, records, forged):
         """A forged header never becomes the text of the record.
 
-        The subject arrives over the wire and nothing upstream of this gate is
+        The account arrives over the wire and nothing upstream of this gate is
         obliged to have produced it. The first two below are outside the
         sidecar's printable-ASCII contract and so cannot have come from it; the
         third would silently become a second ``key=value`` field in a
@@ -501,7 +609,7 @@ class TestForwardedIdentity:
             WebAuthMiddleware(RecordingApp()),
             http_scope(
                 app=app_stub,
-                headers={AUDIT_SUBJECT_HEADER: forged, AUDIT_ROLE_HEADER: forged},
+                headers={AUDIT_ACCOUNT_HEADER: forged, AUDIT_ROLE_HEADER: forged},
             ),
         )
 
@@ -509,11 +617,30 @@ class TestForwardedIdentity:
         assert detail_parts(record)[AUDIT_ACCOUNT_KEY] == UNSAFE_FORWARDED_VALUE
         assert record["role"] == UNSAFE_FORWARDED_VALUE
 
+    def test_an_unrecordable_subject_is_named_unsafe_under_its_own_key(self, app_stub, records):
+        """The new key is guarded like the one it sits beside.
+
+        The subject is now written under :data:`AUDIT_OIDC_SUBJECT_KEY`, so it
+        is a second caller-controlled value reaching ``detail`` — and would be
+        the easy way back in if only the account were bounded.
+        """
+        drive(
+            WebAuthMiddleware(RecordingApp()),
+            http_scope(
+                app=app_stub,
+                headers={AUDIT_ACCOUNT_HEADER: "alice", AUDIT_SUBJECT_HEADER: "alice bob"},
+            ),
+        )
+
+        parts = detail_parts(only(records))
+        assert parts[AUDIT_ACCOUNT_KEY] == "alice"
+        assert parts[AUDIT_OIDC_SUBJECT_KEY] == UNSAFE_FORWARDED_VALUE
+
     def test_the_unsafe_marker_is_itself_one_detail_token(self):
         """Otherwise the guard would break the format it exists to protect."""
         assert " " not in UNSAFE_FORWARDED_VALUE
 
-    def test_an_unsafe_subject_still_counts_as_a_mismatch(self, app_stub, records, monkeypatch):
+    def test_an_unsafe_account_still_counts_as_a_mismatch(self, app_stub, records, monkeypatch):
         """A value the sidecar could not have produced is not this container's user.
 
         The guard replaces the text, not the comparison: ``bob\x01`` is not
@@ -523,19 +650,44 @@ class TestForwardedIdentity:
         monkeypatch.setenv(TERMINAL_USER_ENV, "bob")
         drive(
             WebAuthMiddleware(RecordingApp()),
-            http_scope(app=app_stub, headers={AUDIT_SUBJECT_HEADER: "bob\x01"}),
+            http_scope(app=app_stub, headers={AUDIT_ACCOUNT_HEADER: "bob\x01"}),
         )
 
         parts = detail_parts(only(records))
         assert parts[AUDIT_ACCOUNT_KEY] == UNSAFE_FORWARDED_VALUE
         assert parts[AUDIT_EXPECTED_ACCOUNT_KEY] == "bob"
 
+    def test_a_forged_subject_beside_a_matching_account_buys_no_mismatch(
+        self, app_stub, records, monkeypatch, caplog
+    ):
+        """And the reverse: the subject is recorded, never compared.
+
+        A caller who can set headers can set the subject to anything at all.
+        Now that only the account is compared, that must not be a way to
+        manufacture a mismatch marker against a container whose real account
+        is the one it was rendered for.
+        """
+        monkeypatch.setenv(TERMINAL_USER_ENV, "alice")
+        with caplog.at_level("WARNING", logger=MIDDLEWARE_LOGGER):
+            drive(
+                WebAuthMiddleware(RecordingApp()),
+                http_scope(
+                    app=app_stub,
+                    headers={AUDIT_ACCOUNT_HEADER: "alice", AUDIT_SUBJECT_HEADER: "mallory"},
+                ),
+            )
+
+        parts = detail_parts(only(records))
+        assert AUDIT_EXPECTED_ACCOUNT_KEY not in parts
+        assert parts[AUDIT_OIDC_SUBJECT_KEY] == "mallory"
+        assert caplog.messages == []
+
     def test_a_value_at_the_cap_is_still_recorded_verbatim(self, app_stub, records):
         """The bound is on forgery-scale input, not on anything real."""
         at_cap = "a" * MAX_FORWARDED_VALUE_CHARS
         drive(
             WebAuthMiddleware(RecordingApp()),
-            http_scope(app=app_stub, headers={AUDIT_SUBJECT_HEADER: at_cap}),
+            http_scope(app=app_stub, headers={AUDIT_ACCOUNT_HEADER: at_cap}),
         )
 
         assert detail_parts(only(records))[AUDIT_ACCOUNT_KEY] == at_cap
@@ -566,7 +718,7 @@ class TestForwardedIdentity:
             WebAuthMiddleware(RecordingApp()),
             http_scope(
                 app=app_stub,
-                headers={AUDIT_SUBJECT_HEADER: "a" * (MAX_DETAIL_CHARS + 200)},
+                headers={AUDIT_ACCOUNT_HEADER: "a" * (MAX_DETAIL_CHARS + 200)},
             ),
         )
 
@@ -585,47 +737,145 @@ class TestForwardedIdentity:
         the forwarded account ``subject=`` inside ``detail`` would have put
         both meanings in one record, one level apart, and made "every record
         for account alice" a per-surface question.
+
+        Driven with both identity headers, because the subject now has a key of
+        its own inside ``detail`` and ``oidc_subject`` was chosen partly so that
+        neither key is bare ``subject``.
         """
         drive(
             WebAuthMiddleware(RecordingApp()),
-            http_scope(app=app_stub, headers={AUDIT_SUBJECT_HEADER: "alice"}),
+            http_scope(
+                app=app_stub,
+                headers={AUDIT_ACCOUNT_HEADER: "alice", AUDIT_SUBJECT_HEADER: "idp|8f21c0"},
+            ),
         )
 
         record = only(records)
+        parts = detail_parts(record)
         assert record["subject"] == "GET /api/config"
         assert AUDIT_ACCOUNT_KEY != "subject"
-        assert "subject" not in detail_parts(record)
-        assert detail_parts(record)[AUDIT_ACCOUNT_KEY] == "alice"
+        assert AUDIT_OIDC_SUBJECT_KEY != "subject"
+        assert "subject" not in parts
+        assert parts[AUDIT_ACCOUNT_KEY] == "alice"
+        assert parts[AUDIT_OIDC_SUBJECT_KEY] == "idp|8f21c0"
+
+    def test_the_oidc_subject_key_is_not_the_writer_s_identity(self):
+        """The audit writer owns ``identity`` for the ledger's directory component.
+
+        A ``detail`` key of that name would put one word on the folder a record
+        is filed under and on a person named inside it.
+        """
+        assert AUDIT_OIDC_SUBJECT_KEY == "oidc_subject"
+        assert AUDIT_OIDC_SUBJECT_KEY not in {"identity", "subject", AUDIT_ACCOUNT_KEY}
 
     def test_the_mismatch_marker_is_written_before_the_account(
         self, app_stub, records, monkeypatch
     ):
-        """Belt to the cap's braces: the signal survives any future truncation."""
+        """Belt to the cap's braces: the signal survives any future truncation.
+
+        The subject comes last for the same reason — it is a second value a
+        caller controls, and appending it ahead of the account would put it
+        between the marker and what the marker disagrees with.
+        """
         monkeypatch.setenv(TERMINAL_USER_ENV, "bob")
         drive(
             WebAuthMiddleware(RecordingApp()),
-            http_scope(app=app_stub, headers={AUDIT_SUBJECT_HEADER: "alice"}),
+            http_scope(
+                app=app_stub,
+                headers={AUDIT_ACCOUNT_HEADER: "alice", AUDIT_SUBJECT_HEADER: "idp|8f21c0"},
+            ),
         )
 
         keys = [part.split("=", 1)[0] for part in only(records)["detail"].split()]
         assert keys.index(AUDIT_EXPECTED_ACCOUNT_KEY) < keys.index(AUDIT_ACCOUNT_KEY)
+        assert keys.index(AUDIT_ACCOUNT_KEY) < keys.index(AUDIT_OIDC_SUBJECT_KEY)
 
     def test_the_header_names_are_the_sidecar_s_own(self):
         """The names are spelled locally; this is what keeps them in step.
 
         Importing them would put a service package in the interfaces' import
-        closure for three string constants, so the drift check is a test — the
+        closure for four string constants, so the drift check is a test — the
         same trade the rest of the audit work makes.
         """
         from osprey.services.auth_sidecar.identity_headers import (
+            ACCOUNT_HEADER,
             ROLE_HEADER,
             ROLE_SOURCE_HEADER,
             SUBJECT_HEADER,
         )
 
         assert AUDIT_SUBJECT_HEADER == SUBJECT_HEADER
+        assert AUDIT_ACCOUNT_HEADER == ACCOUNT_HEADER
         assert AUDIT_ROLE_HEADER == ROLE_HEADER
         assert AUDIT_ROLE_SOURCE_HEADER == ROLE_SOURCE_HEADER
+
+    def test_the_two_identity_headers_are_not_the_same_name(self):
+        """The comparison's whole premise: they name two different things."""
+        assert AUDIT_ACCOUNT_HEADER != AUDIT_SUBJECT_HEADER
+
+
+# --------------------------------------------------------------------------- #
+# The mixed-version fallback
+# --------------------------------------------------------------------------- #
+
+
+class TestOlderSidecarFallback:
+    """A deployment pinning ``auth.image`` to a build with no account header.
+
+    The header is what the fix compares, so an image that does not send it must
+    keep the behaviour it has today — the subject compared against
+    ``OSPREY_TERMINAL_USER``, recorded under ``account=`` — rather than lose
+    the mismatch check altogether. Such a deployment also keeps today's false
+    mismatch under OIDC; that is the bounded cost of the pin, and it is named
+    in the changelog.
+    """
+
+    def test_a_subject_only_match_is_recorded_as_the_account(
+        self, app_stub, records, monkeypatch, caplog
+    ):
+        monkeypatch.setenv(TERMINAL_USER_ENV, "alice")
+        with caplog.at_level("WARNING", logger=MIDDLEWARE_LOGGER):
+            drive(
+                WebAuthMiddleware(RecordingApp()),
+                http_scope(app=app_stub, headers={AUDIT_SUBJECT_HEADER: "alice"}),
+            )
+
+        parts = detail_parts(only(records))
+        assert parts[AUDIT_ACCOUNT_KEY] == "alice"
+        assert AUDIT_EXPECTED_ACCOUNT_KEY not in parts
+        assert caplog.messages == []
+
+    def test_a_subject_only_mismatch_is_still_flagged_and_warned(
+        self, app_stub, records, monkeypatch, caplog
+    ):
+        monkeypatch.setenv(TERMINAL_USER_ENV, "bob")
+        with caplog.at_level("WARNING", logger=MIDDLEWARE_LOGGER):
+            drive(
+                WebAuthMiddleware(RecordingApp()),
+                http_scope(app=app_stub, headers={AUDIT_SUBJECT_HEADER: "alice"}),
+            )
+
+        parts = detail_parts(only(records))
+        assert parts[AUDIT_EXPECTED_ACCOUNT_KEY] == "bob"
+        assert parts[AUDIT_ACCOUNT_KEY] == "alice"
+        assert len([m for m in caplog.messages if "alice" in m and "bob" in m]) == 1
+
+    def test_a_subject_only_record_gains_no_second_key(self, app_stub, records, monkeypatch):
+        """The fallback records exactly the keys it recorded before the fix.
+
+        ``oidc_subject=`` names the subject *when it differs from the account*;
+        with no account forwarded the subject is what stands in for one, so
+        there is nothing for a second key to add.
+        """
+        monkeypatch.setenv(TERMINAL_USER_ENV, "bob")
+        drive(
+            WebAuthMiddleware(RecordingApp()),
+            http_scope(app=app_stub, headers={AUDIT_SUBJECT_HEADER: "alice"}),
+        )
+
+        assert only(records)["detail"] == (
+            f"{AUDIT_EXPECTED_ACCOUNT_KEY}=bob {AUDIT_ACCOUNT_KEY}=alice"
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -748,12 +998,22 @@ class TestAdmittedMutations:
         assert any(message["type"] == "http.response.body" for message in sent)
 
     def test_the_forwarded_identity_rides_the_mutation_record(self, records, monkeypatch):
+        """Both emitters read the same decoder, so both compare the account.
+
+        The inner layer is where an *admitted* request is filed, which is the
+        record the OIDC defect polluted on every card; a fix that reached only
+        the gate would have left the noisier half of the ledger untouched.
+        """
         monkeypatch.setenv(TERMINAL_USER_ENV, "bob")
         drive(
             HttpAuditMiddleware(RecordingApp()),
             http_scope(
                 method="POST",
-                headers={AUDIT_SUBJECT_HEADER: "alice", AUDIT_ROLE_HEADER: "operator"},
+                headers={
+                    AUDIT_ACCOUNT_HEADER: "alice",
+                    AUDIT_SUBJECT_HEADER: "idp|8f21c0",
+                    AUDIT_ROLE_HEADER: "operator",
+                },
             ),
         )
 
@@ -761,7 +1021,21 @@ class TestAdmittedMutations:
         parts = detail_parts(record)
         assert parts[AUDIT_ACCOUNT_KEY] == "alice"
         assert parts[AUDIT_EXPECTED_ACCOUNT_KEY] == "bob"
+        assert parts[AUDIT_OIDC_SUBJECT_KEY] == "idp|8f21c0"
         assert record["role"] == "operator"
+
+    def test_a_matching_account_leaves_the_mutation_record_unflagged(self, records, monkeypatch):
+        """The defect's own shape on the inner layer: the rightful owner's card."""
+        monkeypatch.setenv(TERMINAL_USER_ENV, "alice")
+        drive(
+            HttpAuditMiddleware(RecordingApp()),
+            http_scope(
+                method="POST",
+                headers={AUDIT_ACCOUNT_HEADER: "alice", AUDIT_SUBJECT_HEADER: "idp|8f21c0"},
+            ),
+        )
+
+        assert AUDIT_EXPECTED_ACCOUNT_KEY not in detail_parts(only(records))
 
     def test_an_audit_failure_never_costs_the_request(self, audit_writer, monkeypatch):
         """The ledger degrades; the mutation does not."""
