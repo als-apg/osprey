@@ -171,6 +171,13 @@ def safety_project_mixed_render(tmp_path_factory):
     of ``permissions.ask`` instead, and the whole boundary rests on the
     PreToolUse hook chain — ``osprey_writes_check`` denying for the session's
     target and ``osprey_approval`` deferring.
+
+    The limits posture is pinned permissive like the other safety renders.
+    Scenario 11 asserts that the refusal it gets back is ``osprey_writes_check``'s
+    — the one naming the live target. Under the preset's strict posture the
+    limits hook refuses the same unlisted channel in the same PreToolUse chain,
+    and which of two denies surfaces as the reason is not something the test
+    controls; the pin leaves the writes gate as the only hook with a say.
     """
     tmp = tmp_path_factory.mktemp("safety-mixed-render")
     repo = init_project(tmp, "safety-mixed-render", provider="als-apg")
@@ -183,6 +190,7 @@ def safety_project_mixed_render(tmp_path_factory):
     connector[MIXED_RENDER_LIVE_TYPE] = dict(connector["mock"])
     connector["virtual_accelerator"]["writes_enabled"] = True
     config_path.write_text(yaml.dump(config, default_flow_style=False))
+    _point_at_safety_limits_db(repo)
     _rerender_claude_artifacts(repo)
     return repo
 
