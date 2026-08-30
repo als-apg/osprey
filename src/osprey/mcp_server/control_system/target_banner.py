@@ -58,6 +58,10 @@ its docstring for why equality is not enough.
 :func:`session_target_meta_for_pid` answers the same question with the record's
 display metadata attached, off the same match, so the badge names a target with
 the label its writer minted rather than deriving a second one from config.
+:func:`session_record_for_pid` is the widest of the three: it hands back the
+whole matched record, so a surface that needs several of its published facts at
+once — the target, its label, the switch outcome, the reachability sweep — takes
+them from ONE match rather than resolving the process table once per fact.
 
 Failure posture
 ---------------
@@ -118,6 +122,7 @@ __all__ = [
     "resolve_baseline_target",
     "resolve_session_target",
     "resolve_target_situation",
+    "session_record_for_pid",
     "session_target_for_pid",
     "session_target_meta_for_pid",
 ]
@@ -329,10 +334,12 @@ def _ancestor_pids(
 def _matched_record(pty_pid: object) -> dict | None:
     """The one live state record published from inside process *pty_pid*.
 
-    The shared half of :func:`session_target_for_pid` and
-    :func:`session_target_meta_for_pid` — the match, the cost discipline and the
-    fail-closed rules are spelled once here so the name a badge shows and the
-    metadata it shows beside it can never come from two different records. See
+    The shared half of every pid-side accessor — :func:`session_record_for_pid`
+    is its public face, and :func:`session_target_for_pid` and
+    :func:`session_target_meta_for_pid` are narrowings of what it returns.
+    The match, the cost discipline and the fail-closed rules are spelled once
+    here so the name a badge shows and the metadata it shows beside it can never
+    come from two different records. See
     :func:`session_target_for_pid` for why the match runs from each record's
     ``owner_ppid`` outwards rather than by equality, and why an ambiguous answer
     is no answer.
@@ -384,6 +391,47 @@ def _matched_record(pty_pid: object) -> dict | None:
     return matches[0]
 
 
+def session_record_for_pid(pty_pid: object) -> dict[str, Any] | None:
+    """The WHOLE live state record published from inside process *pty_pid*.
+
+    The public face of :func:`_matched_record`, and the widest of the three
+    pid-side accessors. :func:`session_target_for_pid` answers *which* target
+    and :func:`session_target_meta_for_pid` answers *how to name it*; this hands
+    back everything its writer published — ``target``, the per-target
+    ``targets`` metadata block, ``server_pid``, ``owner_ppid``, ``generation``,
+    and whichever of ``last_switch``, ``reachability`` and
+    ``last_posture_realign`` that writer has recorded so far.
+
+    Those last three are published on the writer's own schedule, so a reader
+    must treat every one of them as optional (``record.get(...)``): a record
+    written by a server that has not switched, probed or realigned yet simply
+    does not carry them, and neither does one written by an older build. An
+    absent key means "not recorded", never "no".
+
+    Why a caller wants the record rather than one derived answer: resolving is
+    the expensive half — a scan of the state directory plus an ancestor walk
+    that, on a platform without ``/proc``, forks ``ps`` — and a surface that
+    renders several published facts at once would otherwise pay for it once per
+    fact. Worse, it would open a window in which those facts came from
+    different records: a switch landing mid-render would put one target's name
+    beside another target's reachability. One match, one record, one story.
+
+    The returned dict is the freshly-parsed record and is not shared with any
+    other caller, so a caller may keep it; a caller that *caches* it owns
+    deciding when it has gone stale (see the web terminal's per-session memo).
+
+    Args:
+        pty_pid: The pid of the PTY process the session runs in, exactly as for
+            :func:`session_target_for_pid`.
+
+    Returns:
+        The matched record, or ``None`` — no pid, zero matches, more than one
+        match, or a record naming a target this build does not know. Never
+        raises.
+    """
+    return _matched_record(pty_pid)
+
+
 def session_target_for_pid(pty_pid: object) -> str | None:
     """The target of the session running inside process *pty_pid*, or ``None``.
 
@@ -423,7 +471,7 @@ def session_target_for_pid(pty_pid: object) -> str | None:
     Returns:
         ``live`` or ``va``, or ``None``. Never raises.
     """
-    record = _matched_record(pty_pid)
+    record = session_record_for_pid(pty_pid)
     if record is None:
         return None
     return str(record.get("target"))
@@ -441,9 +489,13 @@ def session_target_meta_for_pid(pty_pid: object) -> dict[str, Any] | None:
     stand-in is labelled as one by its writer, and a badge that re-derived the
     label from ``config.yml`` would be a second opinion about identity.
 
-    The match is :func:`_matched_record`, so this and
-    :func:`session_target_for_pid` agree by construction: the same records, the
-    same ancestor walk, and the same "zero or two-plus matches means no answer".
+    The match is :func:`session_record_for_pid`, so this,
+    :func:`session_target_for_pid` and any caller reading the whole record agree
+    by construction: the same records, the same ancestor walk, and the same
+    "zero or two-plus matches means no answer". This function is the narrowing
+    of that record down to the metadata block; a caller that also needs the
+    record's other published facts should take the record itself rather than
+    resolve a second time.
 
     Args:
         pty_pid: The pid of the PTY process the session runs in, exactly as for
@@ -456,7 +508,7 @@ def session_target_meta_for_pid(pty_pid: object) -> dict[str, Any] | None:
         caller gets one dict shape, and an absent key reads as "not recorded"
         rather than as a crash. Never raises.
     """
-    record = _matched_record(pty_pid)
+    record = session_record_for_pid(pty_pid)
     if record is None:
         return None
 

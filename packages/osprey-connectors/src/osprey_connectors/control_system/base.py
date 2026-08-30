@@ -297,20 +297,29 @@ def is_readonly_run() -> bool:
     Two things set ``OSPREY_EXECUTION_MODE=readonly``, and this answers yes to
     both:
 
-    * the python executor, onto the sandbox subprocess of a run submitted with
-      ``execution_mode="readonly"`` — so the per-run claim is enforceable at
-      runtime, independent of the pre-execution pattern scan;
-    * a terminal session switched to the **sandbox posture**, which puts the
-      variable in the environment of every process that session launched — the
-      MCP servers included, so ``mcp__controls__channel_write`` is refused
-      right here rather than only by the (best-effort) hook chain.
+    * the **deployment**, when the whole run is started read-only — the
+      variable is on every process the deployment owns, the MCP servers
+      included, so ``mcp__controls__channel_write`` is refused right here
+      rather than only by the (best-effort) hook chain;
+    * the **python executor**, onto the sandbox subprocess of a run submitted
+      with ``execution_mode="readonly"`` — so the per-run claim is enforceable
+      at runtime, independent of the pre-execution pattern scan.
 
     Both are refusals; only the operator-facing wording differs, which
-    :func:`_writes_disabled_result` decides. Outside either, the variable is
-    unset and only the deployment posture
-    (``control_system.writes_enabled``) applies. The comparison is by VALUE,
-    never presence: ``readwrite`` is the writes posture, and a stale or
-    misspelled value must not silently sandbox anything.
+    :func:`_writes_disabled_result` decides through
+    :func:`_in_mcp_server_process` — the discriminator, because the two are
+    the same variable at the same value and only the process tells them apart.
+
+    An operator's narrowing of ONE control target is deliberately NOT here: it
+    never lived in the environment, and is read from the per-(session, target)
+    store instead. So outside these two the variable is unset and the answer is
+    still not "writes" by itself — the deployment posture
+    (``control_system.writes_enabled``) and that store both apply, and
+    :func:`_writes_disabled_result` asks them in turn.
+
+    The comparison is by VALUE, never presence: ``readwrite`` is the writes
+    posture, and a stale or misspelled value must not silently sandbox
+    anything.
     """
     return os.environ.get("OSPREY_EXECUTION_MODE") == "readonly"
 
@@ -324,21 +333,30 @@ _MCP_SERVER_PACKAGE_PARTS = ("osprey", "mcp_server")
 def _in_mcp_server_process() -> bool:
     """True when this process is an OSPREY MCP server, not a script it ran.
 
-    This is the discriminator between the two readonly stories, and it
-    deliberately does not look at the environment: it *cannot*. The session
-    posture is env-only by design, and the executor builds its sandbox
-    subprocess from a copy of its own environment — so the same variable, at
-    the same value, arrives in both places and says nothing about which one
-    this is. What does differ is the process: an MCP server runs the server
-    package's ``__main__``, while the executor's sandbox runs a script file it
-    wrote for one submission.
+    This is the discriminator between the two remaining readonly stories, and
+    it deliberately does not look at the environment: it *cannot*. Both stories
+    speak through the same variable at the same value — the deployment-wide
+    read-only run stamps ``OSPREY_EXECUTION_MODE=readonly`` on the whole
+    deployment, and the python executor stamps the very same string on the
+    sandbox subprocess it builds for one readonly submission. So the value says
+    nothing about which one this is. What does differ is the process: an MCP
+    server runs the server package's ``__main__``, while the executor's sandbox
+    runs a script file it wrote for one submission. Answering True therefore
+    means "the deployment is read-only", and answering False means "this one
+    run was submitted readonly".
 
     Answering **False** is the safe way to be wrong. It yields the older,
     script-shaped message, which is what every readonly refusal said before
-    the posture existed; a launch shape this check does not recognise
-    therefore degrades to that text rather than to a message inventing a
-    session posture that may not exist. The refusal itself is identical either
-    way — only the sentence telling the operator where to go changes.
+    the deployment-wide run had its own wording; a launch shape this check does
+    not recognise therefore degrades to that text rather than to a message
+    telling an operator their whole deployment is read-only when it is not. The
+    refusal itself is identical either way — only the sentence telling the
+    operator where to go changes.
+
+    Neither story is the per-session narrowing an operator makes from the
+    control-target chip in the header: that never lived in the environment at
+    all, and is read from the session store further down this function's
+    caller.
     """
     argv = getattr(sys, "argv", None)
     if not argv:
@@ -351,44 +369,130 @@ def _in_mcp_server_process() -> bool:
     return any(parts[i : i + span] == _MCP_SERVER_PACKAGE_PARTS for i in range(len(parts)))
 
 
+#: The posture-store key a session child is stamped with. Read by NAME rather
+#: than imported from ``osprey.audit.posture``, which declares it for the
+#: stamping side: this package is the lean connector chain and must not grow an
+#: ``osprey`` import to learn one string. Same rule, and the same reason, as
+#: :data:`osprey_connectors.session_store.AGENT_DATA_ROOT_ENV_VAR`.
+POSTURE_SESSION_ENV_VAR = "OSPREY_POSTURE_SESSION"
+
+
+def _posture_session() -> str | None:
+    """The posture-store key this process's session was stamped with, if any."""
+    return (os.environ.get(POSTURE_SESSION_ENV_VAR) or "").strip() or None
+
+
+def _session_store_permits(control_target: str | None) -> bool:
+    """Whether the operator has left *control_target* writable for this session.
+
+    This function is the ENV read and nothing else: the clause itself is
+    :func:`osprey_connectors.session_store.store_permits`, and it is delegated
+    to rather than restated. The store contract's rule 3 has exactly two
+    implementations — that module and the stdlib-only hook — and a connector
+    that spelled the combining terms a third time would be a third thing to
+    keep in step. What stays here is the ceiling: this connector's deployment
+    posture is keyed on the connector TYPE, which is not a ceiling
+    ``effective_writes`` can derive from a target, so the AND happens in
+    :attr:`ControlSystemConnector._writes_enabled` rather than there.
+
+    Evaluated on EVERY write, never cached: unlike the deployment posture, a
+    narrowing set from the control-target chip has to land on a session that is
+    already mid-conversation, which is the whole point of storing it in a file
+    instead of delivering it by respawn.
+    """
+    # Imported here, not at module scope: ``session_store`` imports this module
+    # for :func:`is_readonly_run`, and the two must not import each other while
+    # loading.
+    from osprey_connectors import session_store
+
+    return session_store.store_permits(_posture_session(), control_target)
+
+
+def _deployment_writes_enabled(connector_type: str | None) -> bool:
+    """The deployment half of the write posture — config alone, fail-safe.
+
+    Split out of :attr:`ControlSystemConnector._writes_enabled` so the refusal
+    message can ask the same question the monitor asked, rather than carry a
+    second spelling of it. Reads no environment: see
+    :func:`~osprey_connectors.types.type_writes_enabled`.
+    """
+    try:
+        from osprey_connectors.config import get_config_value
+
+        if connector_type is None:
+            return get_config_value(WRITES_ENABLED_KEY, False) is True
+        return type_writes_enabled(get_config_value("control_system", {}), connector_type)
+    except (FileNotFoundError, RuntimeError):
+        return False
+
+
 def _writes_disabled_result(
-    channel_address: str, value: Any, connector_type: str | None = None
+    channel_address: str,
+    value: Any,
+    connector_type: str | None = None,
+    control_target: str | None = None,
+    *,
+    store_permits: bool | None = None,
 ) -> ChannelWriteResult:
     """Build the refusal result for a write the monitor never attempted.
 
-    Three reasons share this shape, and each sends the operator somewhere
+    *store_permits* is the store answer the monitor already got, handed down so
+    that one write makes exactly ONE store read. Without it this function would
+    ask again, and a narrowing lifted between the two reads would produce a
+    refusal that named the wrong cause. ``None`` means nobody answered — a
+    direct caller rather than the write guard — and the store is read here.
+
+    Five reasons share this shape, and each sends the operator somewhere
     different — so the message names the one that actually refused:
 
-    * the **session posture** is sandbox, which holds every process that
-      session launched in readonly execution mode. Nothing is wrong with the
-      deployment and there is no script involved: the way out is the posture
-      toggle on the terminal card.
+    * the whole **deployment** is running in readonly execution mode
+      (``OSPREY_EXECUTION_MODE=readonly`` on the run itself), which refuses
+      control-system writes for every session. Nothing is wrong with the
+      config and there is no script involved: the run has to be started
+      without it, and the control-target chip in the header cannot lift it.
     * this **script** was submitted readonly. The deployment may well allow
       writes; the run simply was not declared readwrite, and resubmitting it
       as readwrite (with human approval) is the remedy.
+    * this **run launched** under a narrowed posture. The store may well read
+      writes right now — the operator widened it while the script was already
+      running, and a widen deliberately does not reach a run in flight. Nothing
+      to lift: the remedy is to re-run the script. Asked BEFORE the store
+      clause, because ``store_permits`` already includes the launch pin, so
+      without this fork the refusal would point at a chip that already reads
+      writes. Its two wordings separate "this target was read-only when the run
+      started" from "nothing could be resolved at launch, so the run was pinned
+      everywhere" — the second is nobody's decision and must not be reported as
+      one.
+    * this **session's posture for one control target** is read-only. The
+      deployment arms this connector and no readonly run is in force; an
+      operator narrowed this one machine for this one session from the
+      control-target chip in the header, and the chip is where it lifts.
     * the **deployment** has writes off for this connector type, which is the
-      only one of the three that ``writes_enabled`` governs. Posture is per
+      only one of the four that ``writes_enabled`` governs. Posture is per
       type, so the message names the block an operator actually has to edit:
       ``control_system.connector.<type>.writes_enabled`` when the connector
-      knows its type, and the deployment-wide key when it does not.
+      knows its type, and the deployment-wide key when it does not. This is
+      also the last resort: a narrowing the operator cannot usefully lift,
+      because the deployment would refuse the write the moment they did, is
+      reported as the deployment refusal it really is rather than as a chip to
+      go and flip.
 
     Only the wording forks. The ``refused`` outcome and ``refusal_reason`` stay
-    the same for all three: the same thing happened — the monitor refused, and
+    the same for all five: the same thing happened — the monitor refused, and
     the control system was never asked — and every caller of
     :func:`raise_for_write_result` already handles it under that one word.
     """
     if is_readonly_run() and _in_mcp_server_process():
         # Deliberately carries the same "readonly execution mode" substring the
-        # script message does (wrapper.READONLY_REFUSAL_MARKER): it is true of
-        # the posture as well, and it keeps this refusal recognisable to the
-        # stderr matcher if a future launch shape ever produces it inside a
+        # script message does (wrapper.READONLY_REFUSAL_MARKER): it is the same
+        # run-wide mode either way, and it keeps this refusal recognisable to
+        # the stderr matcher if a future launch shape ever produces it inside a
         # subprocess.
         message = (
-            f"Write to '{channel_address}' blocked: this terminal session is in the "
-            "sandbox posture — readonly execution mode is in force for the whole "
-            "session, not for a single script. Switch the session to the writes "
-            "posture from the terminal card if the write is intended; config.yml "
-            "is not the gate here."
+            f"Write to '{channel_address}' blocked: this deployment is running in "
+            "readonly execution mode (OSPREY_EXECUTION_MODE=readonly), which refuses "
+            "control-system writes for every session. The control-target chip in the "
+            "header cannot lift it."
         )
     elif is_readonly_run():
         message = (
@@ -397,12 +501,76 @@ def _writes_disabled_result(
             "(human approval required) if the write is intended."
         )
     else:
-        key = writes_enabled_key(connector_type)
-        message = (
-            f"Write to '{channel_address}' blocked: writes are disabled. "
-            f"Set {key}: true in the build profile "
-            "(profile.yml on the host), then rebuild and redeploy."
+        # Only here can the store still be the reason, and only here is it
+        # asked when nobody handed an answer down — a readonly run refuses
+        # above without ever reading it.
+        if store_permits is None:
+            store_permits = _session_store_permits(control_target)
+        # Imported here for the same reason :func:`_session_store_permits`
+        # imports it here: ``session_store`` imports this module for
+        # :func:`is_readonly_run`, so the two must not import each other while
+        # loading.
+        from osprey_connectors.session_store import (
+            LAUNCH_POSTURE_ALL_TARGETS,
+            launch_narrowed_target,
+            launch_permits,
         )
+
+        deployment_arms = _deployment_writes_enabled(connector_type)
+        # The launch pin is asked FIRST, because ``store_permits`` above already
+        # includes it and a run refused by the pin would otherwise be reported
+        # as a live narrowing — telling an operator to set a target back to
+        # writes that already reads writes. Re-read rather than handed down:
+        # ``launch_permits`` is one environment read and touches no file, so the
+        # one-store-read-per-write memo is untouched.
+        if not launch_permits(control_target) and deployment_arms:
+            launched = launch_narrowed_target()
+            if launched == LAUNCH_POSTURE_ALL_TARGETS:
+                # The executor could not name a target, or could not read the
+                # store at all, and pinned the run everywhere. Nobody decided
+                # this, so the message must not send anyone to the chip to undo
+                # a decision they never made.
+                message = (
+                    f"Write to '{channel_address}' blocked: this run launched under the "
+                    "most restrictive write posture — at launch neither its control "
+                    "target nor this session's posture for it could be resolved, so the "
+                    "run was pinned read-only for every target. A posture set since "
+                    "applies to the next run, not to one already in flight. Re-run the "
+                    "script to pick up the current posture."
+                )
+            else:
+                message = (
+                    f"Write to '{channel_address}' blocked: this run launched while "
+                    f"'{launched}' was read-only for this session; the posture set since "
+                    "applies to the next run, not to one already in flight. Re-run the "
+                    "script to pick it up."
+                )
+        elif not store_permits and deployment_arms:
+            if control_target:
+                where = f"the '{control_target}' control target"
+                remedy = f"Set '{control_target}' back to writes from the chip"
+            else:
+                # No stamp, so the most restrictive entry decided and this
+                # connector genuinely cannot say which target that was. Naming
+                # one would be a guess an operator then acts on.
+                where = (
+                    "at least one control target (this connector was built without one, "
+                    "so the most restrictive of them decides)"
+                )
+                remedy = "Lift that narrowing from the chip"
+            message = (
+                f"Write to '{channel_address}' blocked: this session's posture for "
+                f"{where} is read-only — set from the control-target chip in the header, "
+                f"and in force for this session only. {remedy} if the write is intended; "
+                "config.yml is not the gate here."
+            )
+        else:
+            key = writes_enabled_key(connector_type)
+            message = (
+                f"Write to '{channel_address}' blocked: writes are disabled. "
+                f"Set {key}: true in the build profile "
+                "(profile.yml on the host), then rebuild and redeploy."
+            )
     return ChannelWriteResult(
         channel_address=channel_address,
         value_written=value,
@@ -499,6 +667,21 @@ class ControlSystemConnector(ABC):
     # connect(), so connect() can already read the posture. Stays None on an
     # instance nobody built through the factory: no type, so no per-type block.
     _connector_type: str | None = None
+    # The session target this instance was built for. Stamped by the same
+    # factory seam as _connector_type, from the target the *caller* named — the
+    # init payload's target, the sandbox's stamp, the deployment baseline, the
+    # bridge lane's own target. Stays None on an instance nobody built through
+    # the factory, and on a caller that has no target to name.
+    _control_target: str | None = None
+    # What the last :attr:`_writes_enabled` evaluation saw in the posture store,
+    # so the refusal it leads to can name the right cause without reading the
+    # store a second time — a narrowing lifted between the two reads would
+    # otherwise produce a refusal blaming the chip for a write the deployment
+    # turned down. The write guard clears it before each evaluation, so a
+    # subclass that OVERRIDES ``_writes_enabled`` (and therefore never sets it)
+    # leaves it None and the refusal reads the store for itself, exactly as it
+    # did before this memo existed.
+    _last_store_verdict: bool | None = None
 
     @property
     def _writes_enabled(self) -> bool:
@@ -523,19 +706,34 @@ class ControlSystemConnector(ABC):
         relaunching the agent. In-flight control of an active scan is the
         RunEngine's own ``abort`` / ``pause`` — never a config flag.
 
-        A readonly sandbox run (see :func:`is_readonly_run`) is refused
-        regardless of the deployment posture.
+        That paragraph describes the DEPLOYMENT half alone. Two live terms are
+        ANDed with it, and both are re-read on every call:
+
+        * a readonly sandbox run (see :func:`is_readonly_run`) is refused
+          regardless of the deployment posture;
+        * the operator's own narrowing for :attr:`_control_target`, read from
+          the per-(session, target) posture store on every write (see
+          :func:`_session_store_permits`). That is the live half the deployment
+          posture deliberately is not: a target flipped to read-only from the
+          control-target chip refuses the very next write on a session that is
+          already running, with no respawn and no config edit.
+
+        The store can only narrow. Nothing in it widens the deployment's
+        ceiling, and an unresolvable or empty store leaves that ceiling exactly
+        as it was.
+
+        The store answer is memoised on :attr:`_last_store_verdict` for the
+        refusal the write guard is about to build, so one write reads the store
+        once; a subclass overriding this property simply never sets it, and the
+        refusal falls back to reading for itself.
         """
         if is_readonly_run():
             return False
-        try:
-            from osprey_connectors.config import get_config_value
-
-            if self._connector_type is None:
-                return get_config_value(WRITES_ENABLED_KEY, False) is True
-            return type_writes_enabled(get_config_value("control_system", {}), self._connector_type)
-        except (FileNotFoundError, RuntimeError):
+        store_permits = _session_store_permits(self._control_target)
+        self._last_store_verdict = store_permits
+        if not store_permits:
             return False
+        return _deployment_writes_enabled(self._connector_type)
 
     def __init_subclass__(cls, **kwargs):
         """Auto-wrap write methods with writes_enabled pre-check.
@@ -556,8 +754,15 @@ class ControlSystemConnector(ABC):
 
             @functools.wraps(original_write)
             async def _guarded_write(self, channel_address, value, *args, **kwargs):
+                self._last_store_verdict = None
                 if not self._writes_enabled:
-                    return _writes_disabled_result(channel_address, value, self._connector_type)
+                    return _writes_disabled_result(
+                        channel_address,
+                        value,
+                        self._connector_type,
+                        self._control_target,
+                        store_permits=self._last_store_verdict,
+                    )
                 return await original_write(self, channel_address, value, *args, **kwargs)
 
             cls.write_channel = _guarded_write
@@ -567,9 +772,20 @@ class ControlSystemConnector(ABC):
 
             @functools.wraps(original_multi)
             async def _guarded_multi(self, operations, *args, **kwargs):
+                self._last_store_verdict = None
                 if not self._writes_enabled:
+                    # One store read for the batch, not one per operation: the
+                    # whole batch was refused by one verdict, and every result
+                    # must tell the same story about why.
+                    verdict = self._last_store_verdict
                     return [
-                        _writes_disabled_result(addr, val, self._connector_type)
+                        _writes_disabled_result(
+                            addr,
+                            val,
+                            self._connector_type,
+                            self._control_target,
+                            store_permits=verdict,
+                        )
                         for addr, val in operations
                     ]
                 return await original_multi(self, operations, *args, **kwargs)

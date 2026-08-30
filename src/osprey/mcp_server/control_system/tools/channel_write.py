@@ -652,13 +652,22 @@ async def channel_write(
                     if reason == "CONTROL_SYSTEM_REFUSED"
                     else "the reference monitor"
                 )
+                headline = (
+                    f"All {len(results)} write(s) refused by {refuser}: "
+                    f"{', '.join(entry['channel'] for entry in results)}"
+                )
+                # The per-result `error` is the only place the refusal says
+                # WHICH posture refused and where to lift it — the session's
+                # read-only setting for this control target and the header chip
+                # that set it, or the config key for a deployment refusal. A
+                # raised envelope replaces the results the agent would have
+                # read, so the headline alone would drop that sentence on the
+                # floor for exactly the common case: one channel, one refusal.
+                detail = first["error"]
                 raise ChannelWriteBlockedError(
                     first["channel"],
                     reason,
-                    message=(
-                        f"All {len(results)} write(s) refused by {refuser}: "
-                        f"{', '.join(entry['channel'] for entry in results)}"
-                    ),
+                    message=f"{headline} — {detail}" if detail else headline,
                 )
             # At least one write was attempted and failed (an I/O failure, not a
             # policy refusal): preserve the internal_error classification.

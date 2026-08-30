@@ -199,14 +199,21 @@ async def create_connector() -> Any:
     when it executed plans in-process.
     """
     from osprey.connectors.factory import ConnectorFactory, register_builtin_connectors
-    from osprey.services.bluesky_bridge.queue_backend import resolve_lane_connector_type
+    from osprey.services.bluesky_bridge.queue_backend import (
+        resolve_lane_connector_type,
+        resolve_lane_identity,
+    )
 
     control_system_type, lane_degraded = resolve_lane_connector_type()
     if lane_degraded:
         logger.warning("qserver_startup: %s", lane_degraded)
     register_builtin_connectors()  # idempotent; must run before create
     connector = await ConnectorFactory.create_control_system_connector(
-        build_connector_config(control_system_type)
+        # This lane's OWN target, not the deployment baseline: a two-lane
+        # deployment is exactly where the two differ, and the machine this
+        # worker drives is the one its lane declares.
+        build_connector_config(control_system_type),
+        control_target=resolve_lane_identity()[1],
     )
     if lane_degraded:
         # The factory stamps the type it built, and the reference monitor keys
@@ -217,6 +224,13 @@ async def create_connector() -> Any:
         # `control_system.writes_enabled` — the only posture the config has
         # ever stated about this lane — which is also what
         # `worker_writes_enabled` reports.
+        #
+        # The TARGET stamp is left alone. Degradation is a statement about the
+        # config's type table, not about the lane: rung 3 is reached precisely
+        # because the lane declared a target this deployment cannot resolve, so
+        # the declared target is still the honest answer to "which machine does
+        # this worker address", and it indexes the session store rather than any
+        # config block.
         connector._connector_type = None
     logger.info(
         "qserver_startup: connected the worker's OSPREY connector (type=%s, %s, writes %s)",

@@ -45,6 +45,23 @@ destroying the last real observation.
 Ages are measured on :func:`time.monotonic`, which no clock adjustment can move;
 ``probed_at`` carries the wall-clock ISO timestamp for display only. A row is
 never called stale because someone changed the system clock.
+
+Readers in other processes
+--------------------------
+:meth:`EndpointProber.snapshot` serves callers inside this process. The header
+chip is not one of them: it runs in the web server, which cannot reach this
+object at all. So the sweep loop also *publishes* every sweep to the control
+target state file via
+:func:`~osprey.mcp_server.control_system.target_state.publish_reachability`,
+in the vocabulary those readers use (``reached`` / ``down`` /
+``not_applicable``).
+
+Publication is unconditional — every sweep, changed or not. A cross-process
+reader has only the file to go on, and an unchanged row that merely stopped
+being republished looks exactly like a row from a prober that died; the way to
+tell them apart is a ``probed_at`` that keeps moving. For the same reason
+``stale`` is never published: it is a verdict a reader draws from a row's age,
+and writing it down would freeze one reader's clock into the file.
 """
 
 from __future__ import annotations
@@ -57,6 +74,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.target_eligibility import (
     MODE_NAME_SERVER,
     Endpoint,
@@ -91,6 +109,28 @@ STATUS_UNREACHABLE = "unreachable"
 STATUS_NOT_APPLICABLE = "not_applicable"
 #: Read-time only: no sweep has refreshed this row in too long.
 STATUS_STALE = "stale"
+
+# -- Published states -------------------------------------------------------
+#
+# The roster's ``endpoint_tcp`` vocabulary is about a socket; the state file's
+# is about a target's reachability, and cross-process readers speak the second
+# one. Translating here rather than at each reader keeps a single mapping and
+# stops "ok" from leaking into a surface that also has to say "unknown".
+
+#: A gateway answered.
+STATE_REACHED = "reached"
+#: A gateway did not answer.
+STATE_DOWN = "down"
+
+#: Prober status → published state. ``not_applicable`` maps to itself: it is a
+#: decision, not a measurement, and survives publication as one. ``stale`` and
+#: ``unknown`` are deliberately absent — both are read-time verdicts, computed
+#: by a reader from a row's age or from its absence, never written here.
+PUBLISHED_STATES: dict[str, str] = {
+    STATUS_OK: STATE_REACHED,
+    STATUS_UNREACHABLE: STATE_DOWN,
+    STATUS_NOT_APPLICABLE: STATUS_NOT_APPLICABLE,
+}
 
 ADDR_LIST_DETAIL = (
     "This gateway is configured with use_name_server: false, so it is reached "
@@ -241,7 +281,15 @@ class EndpointProber:
             await task
 
     async def _run(self) -> None:
-        """Sweep immediately, then once per interval until cancelled."""
+        """Sweep immediately, then once per interval until cancelled.
+
+        Each completed sweep is published before :attr:`first_sweep_done` is
+        set, so a caller that awaits that event finds the file written too.
+
+        A sweep that *failed* publishes nothing: it measured nothing, and
+        restamping the block would tell a reader the prober is healthy. Leaving
+        the last rows to age is exactly how the failure becomes visible.
+        """
         while True:
             try:
                 await self.sweep_once()
@@ -249,9 +297,28 @@ class EndpointProber:
                 raise
             except Exception:  # pragma: no cover - defensive; a sweep swallows its own
                 logger.exception("Endpoint probe sweep failed; continuing")
+            else:
+                self._publish()
             finally:
                 self.first_sweep_done.set()
             await asyncio.sleep(self._interval_s)
+
+    def _publish(self) -> None:
+        """Publish this sweep's rows, never at the cost of the next one.
+
+        A state file that cannot be written is a reporting outage: the chip
+        falls back to ``unknown`` and says so. Letting that outage propagate out
+        of here would end the sweep task and turn it into a *measurement*
+        outage, which is the thing the chip exists to notice.
+        """
+        try:
+            target_state.publish_reachability(self.reachability_rows())
+        except Exception:
+            logger.warning(
+                "Could not publish endpoint reachability to the target state file; "
+                "readers will age out to unknown. Probing continues.",
+                exc_info=True,
+            )
 
     # -- Probing ------------------------------------------------------------
 
@@ -345,6 +412,32 @@ class EndpointProber:
                         and (now - row.probed_monotonic) > threshold
                     )
                 )
+                for role, row in rows.items()
+            }
+            for target, rows in self._cache.items()
+        }
+
+    def reachability_rows(self) -> dict[str, dict[str, dict[str, Any]]]:
+        """The current rows as the state file publishes them, freshly built.
+
+        ``{target: {role: {"state", "probed_at", "gateway", "detail"}}}`` —
+        ``state`` in the readers' vocabulary, ``probed_at`` the wall clock a
+        reader in another process can subtract from its own to get an age.
+        ``probed_monotonic`` is deliberately not published: it is meaningless
+        outside this process.
+
+        Unaged, unlike :meth:`snapshot`: staleness belongs to whoever reads,
+        and one process's clock has no business being written into a file that
+        several read.
+        """
+        return {
+            target: {
+                role: {
+                    "state": PUBLISHED_STATES.get(row.endpoint_tcp, row.endpoint_tcp),
+                    "probed_at": row.probed_at,
+                    "gateway": row.gateway,
+                    "detail": row.detail,
+                }
                 for role, row in rows.items()
             }
             for target, rows in self._cache.items()

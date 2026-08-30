@@ -56,8 +56,10 @@ SCAN_SUFFIXES = frozenset({".py", ".j2", ".yml", ".yaml", ".sh", ".conf", ".rst"
 
 # Path exclusions.  Third-party bundles are not ours to reword, and a minified
 # payload is one enormous line in which any 4-5 digit run is coincidence.
+# ``_version.py`` is written by setuptools-scm and carries the abbreviated git
+# hash of the checkout, which can spell any 4-5 digit run by chance.
 EXCLUDED_PATH_PARTS = ("static/vendor/",)
-EXCLUDED_NAME_GLOBS = ("*.min.*",)
+EXCLUDED_NAME_GLOBS = ("*.min.*", "_version.py")
 
 MARKER = "osprey:not-a-port"
 

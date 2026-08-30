@@ -16,15 +16,24 @@ Path contract
 -------------
 Restated from the writer's docstring, in stdlib terms::
 
-    <repo_root>/var/agent_data/control_target/target_state_<server_pid>.json
+    <agent_data_root>/control_target/target_state_<server_pid>.json
+    <agent_data_root>/control_target/session-postures.json
 
+* ``agent_data_root`` resolves by ONE rule, the same one the writer and the
+  connector-side reader use: the ``OSPREY_AGENT_DATA_ROOT`` stamp when it names
+  a non-blank path, else ``<repo_root>/var/agent_data``. The stamp is what a
+  session child carries, always beside ``OSPREY_POSTURE_SESSION``; a child
+  holding one anchor and not the other would read a store nobody writes.
 * ``repo_root`` comes from :func:`osprey_hook_log.get_repo_root` — the repo, not
   the render: ``build/`` is disposable and ``data/`` is checksummed.
-* the base dir is the framework DEFAULT ``var/agent_data``. A project that
-  overrides ``agent_data.base_dir`` moves the directory somewhere this reader
-  does not look; the reader then reports the baseline fallback, which is the
-  documented fail-closed outcome rather than a wrong target.
-* one file per server process, discovered by the glob ``target_state_*.json``.
+* the DERIVED base dir is the framework default ``var/agent_data``. A project
+  that overrides ``agent_data.base_dir`` and does not stamp the root moves the
+  directory somewhere this reader does not look; the reader then reports the
+  baseline fallback, which is the documented fail-closed outcome rather than a
+  wrong target — and :func:`posture_unknown` turns that same silence into a
+  refusal for the one session shape that could have been narrowed unseen.
+* one file per server process, discovered by the glob ``target_state_*.json``;
+  one posture store for the whole root, named :data:`STORE_FILENAME`.
 
 Multi-session resolution (CC-3, fail-closed)
 --------------------------------------------
@@ -138,6 +147,72 @@ key and no per-type key anywhere. That is the shape every deployment had before
 the per-type key existed, and a hook must leave it exactly as it found it rather
 than reading silence as a refusal.
 
+Session write posture (a third question, answered from a store)
+---------------------------------------------------------------
+An operator narrows one control target for one session from the control-target
+chip in the header: "stand-in is read-only for me, leave the virtual accelerator
+alone". That narrowing is recorded in a single JSON file under the agent-data
+root and is enforced at WRITE time rather than delivered by respawning the
+agent, which is what lets a flip land on a session already mid-conversation.
+
+``osprey_connectors.session_store`` is the canonical reader. Hooks cannot import
+it, so its four rules are restated here — a change there is a change here.
+
+**1. Where the file is.** :data:`STORE_FILENAME` inside :data:`STATE_DIR_NAME`
+under the agent-data root, so the store is co-sited with the control-target
+state file and one directory answers "session state for the control targets".
+The root resolves by the ONE rule the path contract above states, used by the
+writer and by both readers; there is no third path and no fallback. For
+*reading*, an unresolvable root is indistinguishable from an empty store:
+nothing has been narrowed, so the deployment ceiling stays in charge. One legacy
+location is read through while the new file does not exist — the store the
+session-wide posture kept directly under the agent-data root
+(:func:`legacy_store_path`) — so a deployment upgrading with a sandboxed session
+live does not have that narrowing silently lifted the moment the code lands.
+Nothing here writes: the web server persists the migrated shape on its first
+load, and the fallback stops answering the moment it does.
+
+**2. What the shapes mean.** The file is a JSON object keyed by session key. A
+value is either a per-target object (``{"live": "sandbox"}``) or one of the two
+bare legacy strings the session-wide posture wrote before targets existed:
+
+* bare ``"sandbox"`` narrows EVERY target in :data:`CONTROL_TARGETS`;
+* bare ``"writes"`` is dropped — the writes posture is the *absence* of an
+  entry, never a stored assertion, so nothing in this file can ever widen.
+
+Anything else — an unknown value, a non-string key, a per-target leaf nobody
+recognises — is dropped rather than honoured: what survives this filter decides
+whether a real machine is written to, so a hand-edited or future-version entry
+must not reach the decision. Every surviving key is returned, ``operator-`` keys
+included. Their drop-on-restore rule belongs to the web server's startup load
+alone: an enforcement reader that dropped them would ignore a narrowing that is
+live for the rest of that process's life.
+
+**3. How a lookup combines.** :func:`effective_writes_for` is the whole rule::
+
+    ceiling AND not readonly run AND (store entry != sandbox)
+
+The ceiling is the deployment's own posture, read through this module's own
+predicates and never re-derived: :func:`writes_posture` for the target this
+session holds, and :func:`most_restrictive_posture` when it holds none. That
+second half is the one place this restatement is deliberately STRICTER than the
+module it restates, which takes the union across configured targets for a caller
+that holds no target at all — right for a roster describing a deployment, wrong
+for a gate, which must not be handed the more permissive of two answers it
+cannot choose between. The store can only narrow the ceiling. With a session key
+and no resolvable target the MOST RESTRICTIVE entry for that key wins (any
+sandbox refuses). With no session key at all the store is not consulted: nothing
+addressed the session, so nothing narrowed it.
+
+**4. When a change is seen.** Every read re-reads the file. The canonical reader
+caches its parse against ``(st_mtime_ns, st_size, st_ino)`` because it lives in
+a long-running process; a hook is a fresh process per tool call, where reading
+is already the freshest answer there is. A missing file is an empty store, not
+an error.
+
+:func:`posture_unknown` is the one shape where a hook must refuse rather than
+read an empty store as "nothing was narrowed" — see its own docstring.
+
 This module never writes to stdout and never raises into a hook.
 """
 
@@ -228,37 +303,88 @@ _BASELINE_TARGETS = {
 #: whose own key is the connector type in full.
 WRITES_ENABLED_LEAF = "writes_enabled"
 
+#: The agent-data root stamp a session child carries. Read by NAME rather than
+#: imported from ``osprey.audit.posture``, which declares it for the stamping
+#: side: hooks are stdlib-only and must not grow an ``osprey`` import to learn
+#: one string.
+AGENT_DATA_ROOT_ENV_VAR = "OSPREY_AGENT_DATA_ROOT"
+
+#: The posture-store key this session was launched under. Stamped as a PAIR with
+#: :data:`AGENT_DATA_ROOT_ENV_VAR` — one without the other would read a store
+#: nobody writes, which is what :func:`posture_unknown` refuses on.
+POSTURE_SESSION_ENV_VAR = "OSPREY_POSTURE_SESSION"
+
+#: The session-wide execution mode, and the one value of it that sandboxes.
+#: A value comparison, never a presence check: ``readwrite`` is the writes
+#: posture of a readwrite execution, and a presence check would sandbox on it.
+EXECUTION_MODE_ENV_VAR = "OSPREY_EXECUTION_MODE"
+SANDBOX_MODE = "readonly"
+
+#: The posture store's filename inside :func:`resolve_state_dir`. Mirrors
+#: ``STORE_FILENAME`` on the canonical reader; part of the path contract.
+STORE_FILENAME = "session-postures.json"
+
+#: The narrowing value — the only one that ever refuses anything — and the
+#: un-narrowed one, recorded by some writers and meaningful to none: it is
+#: dropped on parse so the store holds narrowings and nothing else.
+POSTURE_SANDBOX = "sandbox"
+POSTURE_WRITES = "writes"
+
+#: The two values a store entry may spell. Everything else is dropped.
+VALID_POSTURES = (POSTURE_SANDBOX, POSTURE_WRITES)
+
 __all__ = [
+    "AGENT_DATA_ROOT_ENV_VAR",
     "CONTROL_TARGETS",
+    "EXECUTION_MODE_ENV_VAR",
     "FALLBACK_BASELINE",
     "LIVE_STANDIN_TYPE",
     "MAX_ANCESTOR_HOPS",
     "MOCK_TYPE",
+    "POSTURE_SANDBOX",
+    "POSTURE_SESSION_ENV_VAR",
+    "POSTURE_WRITES",
     "REASON_AMBIGUOUS",
     "REASON_NO_STATE",
     "REASON_UNREADABLE",
+    "SANDBOX_MODE",
     "SIMULATED_TYPES",
     "STANDIN_TYPES",
     "STATE_DIR_NAME",
     "STATE_FILE_GLOB",
     "STATE_FILE_PREFIX",
     "STATE_FILE_SUFFIX",
+    "STORE_FILENAME",
     "TARGET_LIVE",
     "TARGET_STANDIN",
     "TARGET_VA",
+    "VALID_POSTURES",
     "VIRTUAL_ACCELERATOR_TYPE",
     "WRITES_ENABLED_LEAF",
+    "agent_data_root",
     "ancestor_pids",
     "baseline_result",
+    "effective_writes_for",
+    "has_live_record",
     "is_baseline",
+    "is_readonly_run",
+    "legacy_store_path",
     "most_restrictive_posture",
     "parent_pid",
+    "parse_store",
+    "posture_unknown",
     "read_session_record",
+    "read_session_store",
     "read_session_target",
     "read_state_file",
     "resolve_state_dir",
     "selected_target",
+    "session_key",
+    "session_sandboxed",
+    "session_store_record",
+    "session_target_posture",
     "session_types",
+    "store_path",
     "target_metadata",
     "target_type",
     "type_posture",
@@ -299,19 +425,68 @@ def is_baseline(result):
 # -- paths -----------------------------------------------------------------
 
 
+def agent_data_root(hook_input=None):
+    """The agent-data root the state file and the posture store share.
+
+    Rule 1 of the restated store contract, and the anchor of the path contract
+    above: the :data:`AGENT_DATA_ROOT_ENV_VAR` stamp when it names a non-blank
+    path, else ``<repo_root>/var/agent_data``. ``None`` when neither answers — a
+    session whose repo root cannot be resolved has no state and no store, which
+    is a different thing from having empty ones.
+
+    The stamp comes first because it is the only answer that is right when a
+    project moved ``agent_data.base_dir``: the derivation below is the framework
+    DEFAULT, and a reader that preferred it would look in a directory nobody
+    writes while a live narrowing sat somewhere else.
+    """
+    try:
+        stamped = (os.environ.get(AGENT_DATA_ROOT_ENV_VAR) or "").strip()
+        if stamped:
+            return os.path.expanduser(stamped)
+        repo_root = get_repo_root(hook_input)
+        if not repo_root:
+            return None
+        return os.path.join(repo_root, _AGENT_DATA_BASE_DIR)
+    except Exception:  # pragma: no cover - defensive; get_repo_root is total
+        return None
+
+
 def resolve_state_dir(hook_input=None):
     """Directory holding every server's state file, or ``None`` if unresolvable.
+
+    Also where the posture store lives, so that one directory answers "session
+    state for the control targets" rather than two.
 
     Not created here — a reader that created state directories would leave
     litter in every repo a hook ever ran in.
     """
-    try:
-        repo_root = get_repo_root(hook_input)
-        if not repo_root:
-            return None
-        return os.path.join(repo_root, _AGENT_DATA_BASE_DIR, STATE_DIR_NAME)
-    except Exception:  # pragma: no cover - defensive; get_repo_root is total
-        return None
+    root = agent_data_root(hook_input)
+    return None if root is None else os.path.join(root, STATE_DIR_NAME)
+
+
+def store_path(hook_input=None):
+    """The posture store's path, or ``None`` when the root is unresolvable.
+
+    The same file the canonical reader's ``store_path()`` names; a store the
+    writer puts in one directory and a reader looks for in another is a
+    narrowing that silently never applies.
+    """
+    directory = resolve_state_dir(hook_input)
+    return None if directory is None else os.path.join(directory, STORE_FILENAME)
+
+
+def legacy_store_path(hook_input=None):
+    """The pre-feature store path, read through once when the new one is absent.
+
+    The session-wide posture kept its store directly under the agent-data root.
+    A deployment upgrading with a sandboxed session live must not have that
+    narrowing silently lifted the moment the code lands, so readers fall back to
+    it while the new file does not exist. Nothing here writes: the web server
+    persists the migrated shape on its first load, and this fallback stops
+    answering the moment it does.
+    """
+    root = agent_data_root(hook_input)
+    return None if root is None else os.path.join(root, STORE_FILENAME)
 
 
 def _pid_from_filename(name):
@@ -605,6 +780,51 @@ def read_session_record(hook_input=None):
         return None
 
 
+def _live_records(paths):
+    """``(records, saw_unreadable)`` for the state files a live server owns.
+
+    Factored out of :func:`_select_record` because :func:`has_live_record` asks
+    the same question with the parentage step left off — whether the resolved
+    directory is one a running server writes to at all. A second walk written
+    beside this one would eventually drop the liveness filter, and a crashed
+    server's stale file would answer for a live one.
+    """
+    live_records = []
+    saw_unreadable = False
+    for path in paths:
+        pid = _pid_from_filename(os.path.basename(path))
+        if pid is not None and not _is_process_alive(pid):
+            # Dead owner: ignore the file, never delete it. Sweeping belongs to
+            # the writer; this reader is read-only by design.
+            continue
+        record = read_state_file(path)
+        if record is None:
+            saw_unreadable = True
+            continue
+        if pid is None and not _is_process_alive(record.get("server_pid")):
+            continue
+        live_records.append(record)
+    return live_records, saw_unreadable
+
+
+def has_live_record(hook_input=None):
+    """Whether the resolved state directory holds ANY live server's record.
+
+    Deliberately not "this session's record": the question is whether the
+    directory this reader *derived* is the one a writer actually writes to. A
+    live record there is the evidence that it is — see :func:`posture_unknown`,
+    the only caller. Never raises.
+    """
+    try:
+        directory = resolve_state_dir(hook_input)
+        if not directory:
+            return False
+        records, _saw_unreadable = _live_records(_list_state_files(directory))
+        return bool(records)
+    except Exception:  # pragma: no cover - defensive; every step above is total
+        return False
+
+
 def _select_record(hook_input):
     """Select this session's state record: ``(record, target, reason)``.
 
@@ -621,21 +841,7 @@ def _select_record(hook_input):
     if not paths:
         return None, None, REASON_NO_STATE
 
-    live_records = []
-    saw_unreadable = False
-    for path in paths:
-        pid = _pid_from_filename(os.path.basename(path))
-        if pid is not None and not _is_process_alive(pid):
-            # Dead owner: ignore the file, never delete it. Sweeping belongs to
-            # the writer; this reader is read-only by design.
-            continue
-        record = read_state_file(path)
-        if record is None:
-            saw_unreadable = True
-            continue
-        if pid is None and not _is_process_alive(record.get("server_pid")):
-            continue
-        live_records.append(record)
+    live_records, saw_unreadable = _live_records(paths)
 
     if not live_records:
         return None, None, (REASON_UNREADABLE if saw_unreadable else REASON_NO_STATE)
@@ -900,3 +1106,230 @@ def most_restrictive_posture(section):
         type_posture(section, connector_type) is True
         for connector_type in session_types(section).values()
     )
+
+
+# -- session posture store -------------------------------------------------
+
+
+def _target_map(value):
+    """One store entry's value as a ``{target: posture}`` map of NARROWINGS.
+
+    Rule 2 of the restated store contract. Returns an empty map for anything
+    that narrows nothing, which is what drops the key.
+    """
+    if isinstance(value, str):
+        if value == POSTURE_SANDBOX:
+            # The bare legacy string the session-wide posture wrote before
+            # targets existed: it narrowed the whole session, so it narrows
+            # every target.
+            return dict.fromkeys(CONTROL_TARGETS, POSTURE_SANDBOX)
+        # Bare "writes" — and every unknown string — narrows nothing.
+        return {}
+    if isinstance(value, dict):
+        return {
+            target: posture
+            for target, posture in value.items()
+            if isinstance(target, str) and posture == POSTURE_SANDBOX
+        }
+    return {}
+
+
+def parse_store(raw):
+    """Decode a store into ``{session_key: {target: "sandbox"}}``. Never raises.
+
+    Accepts the decoded JSON object or the raw text of one. A corrupt,
+    truncated or hand-edited store is an EMPTY store: the alternative — every
+    write failing on a file nobody can repair from the browser — is worse than
+    losing narrowings an operator can set again. Every surviving key is
+    returned, ``operator-`` keys included.
+    """
+    if isinstance(raw, (bytes, bytearray)):
+        try:
+            raw = raw.decode("utf-8")
+        except Exception:
+            return {}
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            return {}
+    if not isinstance(raw, dict):
+        return {}
+    parsed = {}
+    for key, value in raw.items():
+        if not isinstance(key, str):
+            continue
+        narrowed = _target_map(value)
+        if narrowed:
+            parsed[key] = narrowed
+    return parsed
+
+
+def _store_exists(path):
+    """Whether *path* is there at all — the ONLY thing the fallback turns on.
+
+    The canonical reader decides between the two paths on ``stat()`` and nothing
+    else, so this reader must too. Deciding on "did the read succeed" instead
+    would make an existing-but-unreadable new store hand back the LEGACY file's
+    narrowings while the canonical reader hands back an empty one — two answers
+    to one write, from the failure mode least likely to be noticed.
+    """
+    if not path:
+        return False
+    try:
+        os.stat(path)
+    except OSError:
+        return False
+    return True
+
+
+def _read_store_file(path):
+    """The parsed store at *path*. Empty on any trouble at all; never raises.
+
+    ``UnicodeDecodeError`` is caught beside ``OSError`` on purpose: it is a
+    ``ValueError``, so a store written by something that was not UTF-8 would
+    otherwise propagate. Nothing may raise into a hook — see the module
+    docstring — and an undecodable store is a corrupt store, which rule 2
+    already answers as empty.
+    """
+    if not path:
+        return {}
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return parse_store(handle.read())
+    except (OSError, UnicodeDecodeError):
+        return {}
+
+
+def read_session_store(hook_input=None):
+    """The whole posture store — ``{session_key: {target: "sandbox"}}``.
+
+    The new path when it EXISTS (:func:`store_path`), the legacy one otherwise
+    (:func:`legacy_store_path`) — existence alone, exactly as the canonical
+    reader chooses between them. Missing, unresolvable, unreadable, undecodable
+    or corrupt all arrive as an EMPTY store: for a reader, nothing has been
+    narrowed, so the deployment ceiling stays in charge. Never raises.
+
+    Re-read on every call. The canonical reader caches against the file's
+    ``(st_mtime_ns, st_size, st_ino)`` because it lives in a long-running
+    process; a hook is a fresh process per tool call.
+    """
+    path = store_path(hook_input)
+    if _store_exists(path):
+        return _read_store_file(path)
+    return _read_store_file(legacy_store_path(hook_input))
+
+
+def session_key():
+    """This session's posture-store key, or ``None`` when it carries none.
+
+    ``None`` is the answer for every CLI session and every deployment that never
+    opened the header chip: nothing addressed the session, so nothing narrowed
+    it and the store is not consulted at all.
+    """
+    return (os.environ.get(POSTURE_SESSION_ENV_VAR) or "").strip() or None
+
+
+def session_store_record(hook_input=None):
+    """The narrowings recorded for THIS session — ``{target: "sandbox"}``.
+
+    Empty without a session key: rule 3's "with no session key at all the store
+    is not consulted". Never raises.
+    """
+    key = session_key()
+    if not key:
+        return {}
+    entry = read_session_store(hook_input).get(key)
+    return entry if isinstance(entry, dict) else {}
+
+
+def session_target_posture(record, target):
+    """The stored posture for one target inside one session's *record*.
+
+    ``"sandbox"`` or ``None``. A *target* of ``None`` takes the MOST RESTRICTIVE
+    entry in the record — any sandbox answers sandbox — because a caller that
+    cannot say which machine it is about must not be granted the most permissive
+    answer. Tolerant of any *record* at all, so no caller has to defend itself.
+    """
+    if not isinstance(record, dict) or not record:
+        return None
+    if target:
+        return record.get(target)
+    return POSTURE_SANDBOX if POSTURE_SANDBOX in record.values() else None
+
+
+def session_sandboxed(hook_input, target):
+    """Whether the operator narrowed this (session, target). Never raises.
+
+    The store half of :func:`effective_writes_for` on its own, for a caller that
+    already knows writes are refused and needs to say WHICH refusal it is: a
+    narrowing is lifted on the header chip, an unarmed deployment in config.yml,
+    and telling an operator the wrong one sends them to a control that will not
+    move.
+    """
+    return session_target_posture(session_store_record(hook_input), target) == POSTURE_SANDBOX
+
+
+def is_readonly_run():
+    """Whether this process is a read-only run.
+
+    A value comparison, never a presence check — the same semantics as
+    ``osprey_connectors.control_system.base.is_readonly_run`` and the executor's
+    posture clamp: only the exact ``"readonly"`` string sandboxes a session.
+    """
+    return os.environ.get(EXECUTION_MODE_ENV_VAR) == SANDBOX_MODE
+
+
+def posture_unknown(hook_input=None):
+    """Whether this session's posture cannot be read where a narrowing would be.
+
+    All three at once, and nothing less:
+
+    * a session key is set — the session is one the header chip can address, so
+      a narrowing for it is possible at all;
+    * :data:`AGENT_DATA_ROOT_ENV_VAR` is NOT stamped — the directory below was
+      derived from the framework default rather than handed over, and a project
+      that moved ``agent_data.base_dir`` moved it out from under this reader;
+    * that directory holds no live control-target record — the evidence that
+      the derivation found the right directory after all is missing.
+
+    Stamped, or with a live record present, an empty store means exactly what it
+    says and nothing is refused on its account. Only in this one cell is the
+    store unreadable *and* possibly non-empty, and an unreadable posture is not
+    a permissive one. Never raises.
+    """
+    if not session_key():
+        return False
+    if (os.environ.get(AGENT_DATA_ROOT_ENV_VAR) or "").strip():
+        return False
+    return not has_live_record(hook_input)
+
+
+def effective_writes_for(hook_input, section, target):
+    """Whether a write may proceed here and now. Never raises.
+
+    Rule 3 of the restated store contract, spelled once::
+
+        ceiling AND not readonly run AND (store entry != sandbox)
+
+    The ceiling is :func:`writes_posture` for the target this session holds, and
+    :func:`most_restrictive_posture` when it holds none — the fail-closed half,
+    and the one place this restatement is stricter than the module it restates
+    (see the module docstring). The store can only narrow it.
+
+    Args:
+        hook_input: The hook's stdin payload, for repo-root resolution.
+        section: The ``control_system:`` config section.
+        target: The session control target, or ``None`` when it could not be
+            identified.
+
+    Returns:
+        ``True`` only when the deployment arms this machine, the process is not
+        a read-only run, and the operator has not narrowed it.
+    """
+    ceiling = writes_posture(section, target) if target else most_restrictive_posture(section)
+    if ceiling is not True:
+        return False
+    if is_readonly_run():
+        return False
+    return not session_sandboxed(hook_input, target)

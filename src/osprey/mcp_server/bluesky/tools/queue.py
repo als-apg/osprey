@@ -27,19 +27,22 @@ the two answer the same bridge code the same way.
 guard them, both enforced BEFORE any HTTP call — but only the first is carried
 everywhere:
 
-1. A write-posture re-read straight from config, for the control target the
-   BOUND LANE serves: ``control_system.connector.<type>.writes_enabled``,
-   inheriting the deployment-wide ``control_system.writes_enabled`` where that
-   type has no block of its own. It goes through the same resolver
-   ``ControlSystemConnector._writes_enabled`` uses
-   (``osprey_connectors.types.target_writes_enabled``), ANDed with
-   ``is_readonly_run()``, so the queue agrees with every other OSPREY write
-   path about which targets are armed and about a sandbox session. Re-read
-   fresh on every call, never cached, so a hook-bypassed invocation carrying a
-   valid launch token is still refused. Per target is the point of it: a
-   deployment whose live machine is deliberately unarmed still runs plans on
-   its virtual-accelerator lane, and the lane a call binds to is what decides
-   which posture applies to it.
+1. A write-posture re-read for the control target the BOUND LANE serves, made
+   through the one rule every OSPREY write path shares
+   (``osprey_connectors.session_store.effective_writes``): the deployment
+   ceiling ``control_system.connector.<type>.writes_enabled`` — inheriting the
+   deployment-wide ``control_system.writes_enabled`` where that type has no
+   block of its own — ANDed with ``is_readonly_run()`` and with the operator's
+   per-(session, target) narrowing from the header chip. The ceiling half is
+   the same resolver ``ControlSystemConnector._writes_enabled`` reads, so the
+   queue agrees with every other write path about which targets a deployment
+   arms; the store half can only narrow that, never widen it, and it is what
+   lets an operator take one machine out of a session's reach without
+   respawning the session. Re-read fresh on every call, never cached, so a
+   hook-bypassed invocation carrying a valid launch token is still refused.
+   Per target is the point of it: a deployment whose live machine is
+   deliberately unarmed still runs plans on its virtual-accelerator lane, and
+   the lane a call binds to is what decides which posture applies to it.
 2. A client-side launch-token presence check, so an unarmed server refuses
    locally with no network call.
 
@@ -137,6 +140,7 @@ from typing import NoReturn
 import anyio
 from fastmcp.exceptions import ToolError
 
+from osprey.audit.posture import posture_session
 from osprey.bluesky_bridge_connection import unwrap_bridge_conflict_detail
 from osprey.mcp_server.bluesky.lanes import (
     LANE_ONE,
@@ -164,11 +168,11 @@ from osprey.mcp_server.control_system.target_banner import (
 )
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
+from osprey_connectors import session_store
 from osprey_connectors.control_system.base import is_readonly_run
 from osprey_connectors.types import (
     WRITES_ENABLED_KEY,
     baseline_target,
-    target_writes_enabled,
     target_writes_enabled_key,
 )
 
@@ -330,14 +334,24 @@ def _writes_enabled(lane_target: str | None) -> bool:
     serves by construction — so a future caller with no lane in hand gets the
     baseline's posture rather than a fail-open read of nothing.
 
-    Reads the same resolver the connector reads
-    (``osprey_connectors.types.target_writes_enabled``: the per-type key
+    Asks the ONE rule every OSPREY write path shares,
+    :func:`osprey_connectors.session_store.effective_writes`, so the queue's
+    arming gate cannot answer differently from the connector's reference
+    monitor, the executor's gate or the PreToolUse hook:
+
+        ceiling ∧ not is_readonly_run() ∧ (store entry ≠ sandbox)
+
+    The ceiling is the deployment's own posture, unchanged — the per-type key
     ``control_system.connector.<type>.writes_enabled``, inheriting the
-    deployment-wide ``control_system.writes_enabled`` where a type has no block)
-    so the queue's arming gate and every other OSPREY write path agree about
-    which targets are armed. A read-only run is ANDed in, because a sandbox
-    session must be refused here as it is at the connector rather than only by
-    the hook chain.
+    deployment-wide ``control_system.writes_enabled`` where a type has no block.
+    The read-only run is ANDed in because a sandbox session must be refused here
+    as it is at the connector rather than only by the hook chain. The third term
+    is the operator's per-(session, target) narrowing from the header chip,
+    keyed on ``OSPREY_POSTURE_SESSION`` and indexed by THIS LANE's target: it
+    can only narrow the ceiling, and a process nobody stamped a session key into
+    does not consult it at all. Enforcing it here rather than at spawn is what
+    lets an operator take one machine out of a live session's reach without
+    respawning the session mid-conversation.
 
     Deliberately NOT cached on the BridgeContext singleton — the whole point is
     a fresh read on every call, so a hook-bypassed invocation holding a valid
@@ -353,7 +367,7 @@ def _writes_enabled(lane_target: str | None) -> bool:
 
         section = get_config_value("control_system", {})
         target = lane_target or baseline_target(section)
-        return target_writes_enabled(section, target) and not is_readonly_run()
+        return session_store.effective_writes(section, posture_session(), target)
     except Exception:
         return False
 
@@ -384,6 +398,12 @@ def _any_lane_writes_enabled() -> bool:
     endpoint carries no posture check of its own, so this gate is the whole
     defense.
 
+    Each term is :func:`_writes_enabled`'s whole rule for one target, session
+    narrowing included — withdrawing a halt RESUMES motion, so a session that
+    took every rendered lane's machine out of its own reach must not be able to
+    perform it. The union over narrowed terms is still a union: narrowing one
+    lane on a two-lane deployment leaves the other one able to withdraw.
+
     Same broad except clause, and the same reason, as :func:`_writes_enabled`.
     """
     try:
@@ -394,8 +414,52 @@ def _any_lane_writes_enabled() -> bool:
         # all this needs, and reading session state to answer a question about
         # halting would tie the two together for no reason.
         targets = {lane.target for lane in discover_lanes(baseline_target(section))}
-        armed = any(target_writes_enabled(section, target) for target in targets)
-        return armed and not is_readonly_run()
+        session_key = posture_session()
+        return any(
+            session_store.effective_writes(section, session_key, target) for target in targets
+        )
+    except Exception:
+        return False
+
+
+def _session_narrowed(lane_target: str | None) -> bool:
+    """Whether the SESSION's header chip is what unarmed the refused target.
+
+    Wording only: :func:`_writes_enabled` has already refused by the time this
+    is asked, and this decides which of the three sentences the refusal is. An
+    operator sent to ``profile.yml`` for a narrowing they set from the header
+    chip would be told to rebuild a deployment whose config already says
+    ``true`` — the one instruction guaranteed not to change anything.
+
+    ``None`` asks the question :func:`_any_lane_writes_enabled` refused on, not
+    the baseline's: EVERY rendered lane's target is narrowed. Falling back to
+    the baseline target here (as :func:`_writes_enabled` does, where it is the
+    posture of a lane nobody bound) would read the wrong entry entirely — a
+    single-lane deployment serving ``standin`` has a ``live`` baseline, and no
+    narrowing of the machine it never runs plans on is what refused anything.
+
+    Reads the store directly rather than differencing :func:`_writes_enabled`
+    against the ceiling: the entry either names the target or it does not, and
+    asking for it is the whole question.
+
+    Fails to ``False`` — the config-key sentence — for the same reason
+    :func:`_writes_enabled` fails to ``False``: an unreadable store is not
+    evidence that a narrowing exists, and the deployment key is the answer that
+    is true of every refusal here.
+    """
+    try:
+        session_key = posture_session()
+        if lane_target is not None:
+            targets: list[str] = [lane_target]
+        else:
+            from osprey.utils.config import get_config_value
+
+            section = get_config_value("control_system", {})
+            targets = [lane.target for lane in discover_lanes(baseline_target(section))]
+        return bool(targets) and all(
+            session_store.target_posture(session_key, target) == session_store.POSTURE_SANDBOX
+            for target in targets
+        )
     except Exception:
         return False
 
@@ -432,10 +496,13 @@ def _refuse_writes_disabled(
     operator sent to the deployment-wide key would arm every target rather than
     the one lane whose plans they wanted to run.
 
-    A read-only session refuses in the same place under the same code, but not
-    with the same sentence — telling an operator to edit a config key that may
-    already say ``true`` would send them to change something that is not what
-    stopped this.
+    Three refusals share this code, and they differ only in the sentence,
+    because the thing to do about each is different. A read-only session and a
+    session narrowed for this target from the header chip are both postures the
+    config cannot speak for: telling an operator to edit a key that may already
+    say ``true`` would send them to change something that is not what stopped
+    this. Only the third — the deployment never armed this target — is answered
+    by a config key.
     """
     if is_readonly_run():
         return make_error(
@@ -448,6 +515,35 @@ def _refuse_writes_disabled(
                 f"and this session gave up arming when it went read-only.",
                 f"Hand the action to the operator, who can perform {refused} from the "
                 f"BLUESKY queue panel.",
+            ],
+        )
+
+    if _session_narrowed(target):
+        if target:
+            served = f", which this deployment's {lane!r} plan lane serves" if lane else ""
+            subject = (
+                f"This session's posture (header chip) is read-only for the "
+                f"{target!r} control target{served}"
+            )
+            machine = f"{target!r}"
+        else:
+            subject = (
+                "This session's posture (header chip) is read-only for every control "
+                "target this deployment's plan lanes serve"
+            )
+            machine = "those targets"
+        return make_error(
+            "writes_disabled",
+            f"{subject}, so {refused} is refused.",
+            [
+                "The deployment config is not the gate here: what refused is the "
+                "narrowing an operator set for THIS session, so no config edit, "
+                "rebuild or redeploy lifts it.",
+                f"An operator setting {machine} back to writes on the header chip "
+                f"does lift it, and it reaches this session immediately — the session "
+                f"does not have to be restarted.",
+                f"Until then, hand the action to the operator, who can perform "
+                f"{refused} from the BLUESKY queue panel.",
             ],
         )
 
@@ -1228,6 +1324,19 @@ async def queue_add(draft_revision: int, lane: str | None = None) -> str:
                     "config says. No config edit unblocks adding to a running queue "
                     "from this session; the operator can add the item from the BLUESKY "
                     "queue panel instead.",
+                ]
+            elif _session_narrowed(bound.target):
+                # Same split again: this deployment arms the target, and the
+                # narrowing that withheld the token lives in the session, not in
+                # config.yml. Pointing at a key here would send an operator to
+                # rebuild for a setting that already says what they want.
+                extra_hints = [
+                    f"This server withheld the launch token because this session's "
+                    f"posture (header chip) is read-only for the {bound.target!r} "
+                    f"target that this deployment's {bound.key!r} plan lane serves. "
+                    f"No config edit and no different token unblocks it; an operator "
+                    f"setting that target back to writes on the header chip does, and "
+                    f"it reaches this session immediately.",
                 ]
             else:
                 extra_hints = [

@@ -11,6 +11,7 @@ from osprey.connectors.types import (
     DOOCS_ARCHIVER,
     EPICS,
     EPICS_ARCHIVER,
+    LIVE_STANDIN,
     MOCK,
     MOCK_ARCHIVER,
     MONGODB_ARCHIVER,
@@ -85,6 +86,33 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     module_path="osprey.connectors.control_system.doocs_connector",
                     class_name="DOOCSConnector",
                     description="DOOCS control system connector (requires doocs4py)",
+                ),
+                # The live stand-in is a soft IOC, so the EPICS connector is
+                # what reaches it — but it is registered under its own name,
+                # exactly as ``register_builtin_connectors`` registers it. The
+                # registration name is what the factory stamps onto the
+                # instance as ``_connector_type``, and that stamp selects both
+                # the connector block the instance is configured from
+                # (``control_system.connector.live_standin``) and the write
+                # posture read out of it; sharing the ``epics`` name would hand
+                # the stand-in the facility's authored block and arming.
+                #
+                # Listed here and not only in the factory's built-in tuple
+                # because the two paths populate the registry independently:
+                # ``initialize_registry()`` registers what this provider lists
+                # and nothing else, and it is the setup step every python
+                # executor sandbox runs. A stand-in missing here is a sandbox
+                # stamped for ``standin`` dying on "Unknown control system type:
+                # 'live_standin'" before any posture is read.
+                ConnectorRegistration(
+                    name=LIVE_STANDIN,
+                    connector_type="control_system",
+                    module_path="osprey.connectors.control_system.epics_connector",
+                    class_name="EPICSConnector",
+                    description=(
+                        "Live stand-in connector: the facility-shaped soft IOC a "
+                        "deployment runs for itself, served over Channel Access"
+                    ),
                 ),
                 # Archiver connectors
                 ConnectorRegistration(

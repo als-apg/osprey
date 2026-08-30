@@ -44,11 +44,21 @@ asking "what did the sandbox posture refuse for this user?" greps one word.
 They must not answer in two dialects. The hook is pinned by AST for both
 values, since it ships as a copied-in template file run by a bare ``python3``
 and imports nothing from ``osprey``.
+
+The operator-facing half of that refusal is the same problem again, one layer
+up: each of those layers ends its refusal by naming where the posture is
+lifted, and that surface MOVED — the session posture used to be a toggle on
+the terminal card and is now the control-target chip in the header. A layer
+left pointing at the old surface sends an operator looking for a control that
+is not there, and nothing else would catch it, because each layer's own tests
+assert only its own sentence.
 """
 
 from __future__ import annotations
 
 import ast
+import inspect
+import re
 from pathlib import Path
 
 from osprey.mcp_server import audit_middleware as am
@@ -59,6 +69,7 @@ from osprey.registry.mcp import (
     MIXED_READ_WRITE_TEMPLATES,
     framework_write_tools,
 )
+from osprey_connectors.control_system import base as connector_base
 
 _HOOKS_DIR = Path(__file__).resolve().parents[2] / "src/osprey/templates/claude_code/claude/hooks"
 #: The kill-switch hook: home of the posture-refusal reason word.
@@ -185,3 +196,48 @@ class TestThePostureRefusalIsOneWord:
     def test_the_posture_reason_is_not_the_kill_switch_reason(self):
         """A different action lifts each, so they stay different words."""
         assert _hook_literal("_WRITES_DISABLED_AUDIT_REASON") != am.REASON_POSTURE
+
+
+#: Where a session posture is lifted, spelled once. Every layer that refuses a
+#: write under one ends by naming this, and the phrase is the load-bearing part:
+#: "terminal card" was the answer until the control-target chip replaced it.
+HEADER_CHIP_PHRASE = "control-target chip in the header"
+
+#: What that phrase replaced. Pinned as an absence so a layer cannot be left
+#: behind on the old surface while the others move.
+RETIRED_POSTURE_SURFACE = "terminal card"
+
+#: The three layers that tell an operator where to lift a posture. The hook
+#: says it too, but it ships as a copied-in template and is pinned where the
+#: template is owned (``tests/hooks/test_writes_check_hook.py``).
+_POSTURE_REFUSAL_LAYERS = (am, gates, connector_base)
+
+
+def _prose(module) -> str:
+    """A module's source with adjacent string literals joined back together.
+
+    These messages are long enough to wrap, and where the formatter breaks one
+    is not a fact about the sentence: a phrase split as ``"…chip in " "the
+    header…"`` is present to the operator and absent to a naive substring
+    search. Collapsing the ``" <newline> "`` seam pins the sentence rather than
+    the line width.
+    """
+    return re.sub(r'"\s*\n\s*"', "", inspect.getsource(module))
+
+
+class TestThePostureRefusalPointsAtOnePlace:
+    """One posture, one place to lift it, spelled the same by every layer.
+
+    The MCP middleware (``tools/call`` refusal), the executor's in-tool clamp
+    and the connector's own reference monitor each end their refusal with the
+    surface an operator goes to. They were written from each other; a rewording
+    of one is a rewording of all three, or it is a dead end in the other two.
+    """
+
+    def test_every_layer_names_the_chip(self):
+        for module in _POSTURE_REFUSAL_LAYERS:
+            assert HEADER_CHIP_PHRASE in _prose(module), module.__name__
+
+    def test_no_layer_still_names_the_surface_that_moved(self):
+        for module in _POSTURE_REFUSAL_LAYERS:
+            assert RETIRED_POSTURE_SURFACE not in _prose(module), module.__name__

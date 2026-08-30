@@ -158,7 +158,7 @@ def _patched(connector, *, when_resolved=None):
     tool's own control flow passes through this seam.
     """
 
-    async def _create(_config):
+    async def _create(_config, *, control_target=None):
         if when_resolved is not None:
             when_resolved()
         return connector

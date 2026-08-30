@@ -12,6 +12,7 @@ execution.
 """
 
 import json
+import os
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -259,31 +260,107 @@ async def test_clean_read_still_executes(tmp_path, monkeypatch, audit_zone):
 # here is that both tools actually *call* it — the clamp existed and was
 # correct for a while without being wired into either tool, which left the
 # executor gate that FR6 names as enforced doing nothing at all.
+#
+# ``posture()`` answers ``sandbox`` for two different reasons, and the remedy
+# differs, so the refusal forks and the assertions below fork with it:
+# ``OSPREY_EXECUTION_MODE=readonly`` on this process is a DEPLOYMENT-wide
+# read-only run, which the header chip cannot lift; a store entry for the
+# session's control target is the operator's own narrowing, which is exactly
+# what the chip lifts. A refusal that names the wrong one sends the operator
+# somewhere that changes nothing.
 # ---------------------------------------------------------------------------
 
 CLEAN_READWRITE_CODE = "print('would write')\n"
 
+SESSION_KEY = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+
 
 @pytest.fixture
-def sandbox_posture(monkeypatch):
-    """Put the session in the sandbox posture, as the Web Terminal does."""
+def readonly_run(monkeypatch):
+    """A deployment-wide read-only run: the variable is on this process."""
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
 
 
-def _assert_posture_envelope(envelope):
-    """The refusal must name the posture, and must not blame the deployment.
+@pytest.fixture
+def narrowed_session(tmp_path, monkeypatch):
+    """The other source: this session narrowed its control target from the chip.
 
-    Sending an operator to ``control_system.writes_enabled`` when the real
-    gate is the session's posture costs them a config edit that changes
-    nothing.
+    No ``OSPREY_EXECUTION_MODE`` anywhere — narrowing one target must not
+    sandbox the process, which is the whole point of the store. ``posture()``
+    resolves the session's target from the controls-server state file and finds
+    the sandbox entry the chip wrote for it.
     """
-    message = envelope["error_message"]
-    assert "posture" in message.lower()
-    assert "writes_enabled" not in message
+    from osprey.audit import posture as posture_module
+    from osprey_connectors import session_store
+
+    root = tmp_path / "agent_data"
+    directory = root / session_store.STATE_DIR_NAME
+    directory.mkdir(parents=True)
+    monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv("OSPREY_POSTURE_SESSION", SESSION_KEY)
+    monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
+
+    pid = os.getpid()
+    (directory / f"target_state_{pid}.json").write_text(
+        json.dumps(
+            {
+                "target": "live",
+                "generation": 0,
+                "server_pid": pid,
+                "owner_ppid": os.getppid(),
+                "targets": {},
+                "children": [],
+            }
+        )
+    )
+    (directory / session_store.STORE_FILENAME).write_text(
+        json.dumps({SESSION_KEY: {"live": "sandbox"}})
+    )
+    session_store.invalidate_cache()
+    posture_module.invalidate_session_target_cache()
+    yield root
+    session_store.invalidate_cache()
+    posture_module.invalidate_session_target_cache()
+
+
+#: The remedy sentence each source must carry, and the one it must NOT.
+#: Keyed by source, because the loose "'posture' in message" net this replaced
+#: let the chip sentence stand on a deployment-wide run without failing. The
+#: store row names ``live`` because that is the target ``narrowed_session``
+#: narrows: the store-derived refusal is per TARGET, so its remedy names a
+#: machine rather than the session.
+POSTURE_REMEDIES = {
+    "deployment": (
+        "the control-target chip in the header cannot lift a deployment-wide read-only run",
+        # A live discriminator, not a dead string: this is how BOTH store-derived
+        # wordings open, so borrowing either one here fails.
+        "this session's write posture",
+    ),
+    "store": (
+        "set 'live' back to writes from the control-target chip in the header",
+        "cannot lift a deployment-wide read-only run",
+    ),
+}
+
+
+def _assert_posture_envelope(envelope, *, source="deployment"):
+    """The refusal must name the remedy for its OWN source, and not the deployment config.
+
+    Sending an operator to ``control_system.writes_enabled`` when the real gate
+    is the posture costs them a config edit that changes nothing — and sending
+    them to the header chip when the real gate is a deployment-wide read-only
+    run costs them a click that changes nothing, on a chip that already reads
+    writes.
+    """
+    expected, forbidden = POSTURE_REMEDIES[source]
+    text = " ".join([envelope["error_message"], *envelope["suggestions"]]).lower()
+    assert expected in text, text
+    assert forbidden not in text, text
+    assert "writes_enabled" not in envelope["error_message"]
     assert not any("writes_enabled" in s for s in envelope["suggestions"])
 
 
-async def test_execute_readwrite_is_refused_under_the_sandbox_posture(sandbox_posture):
+async def test_execute_readwrite_is_refused_under_a_read_only_run(readonly_run):
     with assert_raises_error(error_type="safety_error") as ctx:
         await _execute()(
             code=CLEAN_READWRITE_CODE,
@@ -294,9 +371,7 @@ async def test_execute_readwrite_is_refused_under_the_sandbox_posture(sandbox_po
     _assert_posture_envelope(ctx["envelope"])
 
 
-async def test_execute_file_readwrite_is_refused_under_the_sandbox_posture(
-    sandbox_posture, script_root
-):
+async def test_execute_file_readwrite_is_refused_under_a_read_only_run(readonly_run, script_root):
     script = _script(script_root, CLEAN_READWRITE_CODE)
     with assert_raises_error(error_type="safety_error") as file_ctx:
         await _execute_file()(
@@ -314,6 +389,45 @@ async def test_execute_file_readwrite_is_refused_under_the_sandbox_posture(
     _assert_posture_envelope(file_ctx["envelope"])
     assert file_ctx["envelope"]["error_message"] == code_ctx["envelope"]["error_message"]
     assert file_ctx["envelope"]["suggestions"] == code_ctx["envelope"]["suggestions"]
+
+
+async def test_a_read_only_run_does_not_send_the_operator_to_the_chip(readonly_run):
+    """The deployment-wide source names the variable, never the chip as a fix.
+
+    The chip already reads writes for this session — the run itself is what
+    refuses — so a message pointing at it is a dead end. It is still named,
+    because it is the first place an operator would look.
+    """
+    with assert_raises_error(error_type="safety_error") as ctx:
+        await _execute()(
+            code=CLEAN_READWRITE_CODE,
+            description="write a channel",
+            execution_mode="readwrite",
+        )
+
+    envelope = ctx["envelope"]
+    _assert_posture_envelope(envelope, source="deployment")
+    assert "readonly execution mode" in envelope["error_message"].lower()
+    assert "OSPREY_EXECUTION_MODE=readonly" in " ".join(envelope["suggestions"])
+
+
+async def test_a_narrowed_target_sends_the_operator_to_the_chip(narrowed_session):
+    """The store-derived source is the operator's own narrowing, so it points at
+    the chip that made it — the sentence the deployment-wide branch must not
+    borrow — and names the ONE target it narrowed, never the session."""
+    with assert_raises_error(error_type="safety_error") as ctx:
+        await _execute()(
+            code=CLEAN_READWRITE_CODE,
+            description="write a channel",
+            execution_mode="readwrite",
+        )
+
+    envelope = ctx["envelope"]
+    _assert_posture_envelope(envelope, source="store")
+    assert "'live' control target" in envelope["error_message"]
+    assert "for this session only" in envelope["error_message"]
+    assert "This terminal session is in the sandbox posture" not in envelope["error_message"]
+    assert "OSPREY_EXECUTION_MODE" not in " ".join(envelope["suggestions"])
 
 
 async def _run_clean_readwrite(tmp_path, monkeypatch):
@@ -358,9 +472,7 @@ async def _run_clean_readwrite(tmp_path, monkeypatch):
         )
 
 
-async def test_readonly_still_runs_under_the_sandbox_posture(
-    sandbox_posture, tmp_path, monkeypatch
-):
+async def test_readonly_still_runs_under_a_read_only_run(readonly_run, tmp_path, monkeypatch):
     """The posture clamps writes, not reads — ordinary work must be unaffected."""
     monkeypatch.chdir(tmp_path)
 

@@ -74,6 +74,13 @@ _HOOK_VARS = (
     # reason. Blanked by default in :func:`_no_session_posture` so the value
     # can only ever arrive from the test that asked for it.
     "OSPREY_EXECUTION_MODE",
+    # The per-(session, target) posture store's two anchors, always stamped as a
+    # pair by the web server. Forwarded for the same reason and blanked in the
+    # same fixture: a developer running the suite from inside a web-terminal
+    # session would otherwise hand every hook subprocess a session key and an
+    # agent-data root no test asked for.
+    "OSPREY_POSTURE_SESSION",
+    "OSPREY_AGENT_DATA_ROOT",
     "OSPREY_WEB_PORT",
     "OSPREY_WEB_UX",
     "BLUESKY_BRIDGE_URL",
@@ -238,16 +245,20 @@ def _isolated_home(hook_home, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _no_session_posture(monkeypatch):
+def _no_session_posture(session_posture_leak_guard):
     """Run every hook test outside a session posture unless it asks for one.
 
-    Leak guarded, the same way ``CLAUDE_CONFIG_DIR`` is: ``OSPREY_EXECUTION_MODE``
-    is forwarded to hook subprocesses, so a developer running the suite from
-    inside a sandboxed session would otherwise put every hook under a posture no
-    test asked for. Tests that want a posture set it with ``monkeypatch.setenv``
-    in the test body, which runs after this fixture.
+    All three anchors are blanked suite-wide by
+    ``tests/conftest.py::session_posture_leak_guard``, and this fixture depends
+    on it rather than restating them. It matters more here than anywhere else:
+    all three are forwarded to hook subprocesses through ``_HOOK_VARS``, so a
+    developer running the suite from inside a narrowed web-terminal session
+    would otherwise put every hook under a posture — deployment-wide or
+    per-target — that no test asked for.
+
+    Tests that want any of the three set it with ``monkeypatch.setenv`` in the
+    test body, which runs after both fixtures.
     """
-    monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     yield
 
 

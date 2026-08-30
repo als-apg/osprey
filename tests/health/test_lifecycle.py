@@ -68,7 +68,7 @@ def _patch_factory(
 ) -> None:
     """Spy `register_builtin_connectors` + `create_control_system_connector`."""
 
-    async def fake_create(config: dict[str, Any]) -> Any:
+    async def fake_create(config: dict[str, Any], *, control_target: str | None = None) -> Any:
         construct_calls.append(config)
         return connector
 

@@ -57,6 +57,7 @@ from osprey.mcp_server.control_system.connector_host_manager import (
     ConnectorHostManager,
     NoConnectorHostError,
     SwitchError,
+    baseline_target,
     switch_capable,
 )
 from osprey_connectors.ipc.proxy import ConnectorHostProxy
@@ -277,7 +278,17 @@ class ControlSystemContext:
         from osprey.connectors.factory import ConnectorFactory
 
         if name == "control_system":
-            entry.instance = await ConnectorFactory.create_control_system_connector(entry.config)
+            # A deployment on this path serves one target and never switches, so
+            # the target it is on is the deployment's own baseline. Naming it
+            # rather than leaving the stamp blank is what makes the rebuild after
+            # invalidate_connector() carry the same session posture the instance
+            # it replaces was reading. Derived from config through the same
+            # function the supervisor's own `baseline` property uses, rather than
+            # through the supervisor: asking this path for one would construct a
+            # supervisor a non-switch-capable deployment must never have.
+            entry.instance = await ConnectorFactory.create_control_system_connector(
+                entry.config, control_target=baseline_target(self.config.raw)
+            )
         elif name == "archiver":
             entry.instance = await ConnectorFactory.create_archiver_connector(entry.config)
 
@@ -299,7 +310,7 @@ class ControlSystemContext:
             raise NoConnectorHostError(manager.active_target(), manager.active_generation())
         return proxy
 
-    async def invalidate_connector(self, name: str) -> None:
+    async def invalidate_connector(self, name: str) -> bool:
         """Disconnect and remove a cached connector (e.g., on error).
 
         The next call to control_system() or archiver() will recreate it.
@@ -309,6 +320,25 @@ class ControlSystemContext:
         respawn of that child on the *same* target — the generation does not
         move, because the session is still pointed where it was. A deployment
         with no running child takes the in-process path below, unchanged.
+
+        The second caller is the session-control reconciler
+        (:mod:`osprey.mcp_server.control_system.session_control`), which rebuilds
+        the connector when the operator narrows the posture of the target the
+        session is on: the child connected on a gateway role chosen under the
+        old posture, and only a rebuild moves it. That caller deliberately takes
+        no lock of its own — the one below is the lock, and a second one around
+        the same operation is how two things that must agree stop agreeing.
+
+        Returns:
+            Whether the connector this call was asked about is now gone or
+            replaced. ``False`` means one specific thing: the connector-host
+            respawn was attempted and refused, so the OLD child is still
+            serving and whatever the caller invalidated it for has not
+            happened. The reconciler needs that answer — a realignment reported
+            as done on a child that never restarted would tell an operator
+            their read-only toggle had taken effect when it had not — and the
+            error paths that invalidate on a ``ConnectionError`` are free to
+            ignore it, because their next call rebuilds regardless.
         """
         if (
             name == "control_system"
@@ -321,9 +351,12 @@ class ControlSystemContext:
                 # Spawn-then-swap all the way down: a respawn that fails leaves
                 # the existing child in place rather than tearing down the only
                 # thing still able to serve. If it is dead too, has_child()
-                # already says so and the tools refuse on that.
+                # already says so and the tools refuse on that. Swallowed here
+                # and reported as False: this is not an error the *caller* can
+                # act on, but it is a fact the caller has to know.
                 logger.error("Could not respawn the connector host: %s", exc.detail)
-            return
+                return False
+            return True
 
         entry = self._connectors.get(name)
         if entry and entry.instance:
@@ -333,6 +366,7 @@ class ControlSystemContext:
                 logger.debug("Error disconnecting %s (ignored)", name, exc_info=True)
             entry.instance = None
             logger.info("ControlSystemContext: invalidated %s connector", name)
+        return True
 
     def channel_finder_config(self) -> dict[str, Any]:
         """Config section for ChannelFinderService."""

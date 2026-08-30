@@ -558,6 +558,76 @@ def _record(
 # --------------------------------------------------------------------------
 
 
+def _posture_refusal_wording() -> tuple[str, list[str]]:
+    """Why this call is refused, and where the operator can do something about it.
+
+    Three cells, because :func:`osprey.audit.posture.posture` says ``sandbox``
+    for reasons an operator acts on differently:
+
+    * the **deployment** is running in readonly execution mode. ``posture()``
+      short-circuits to that ENVIRONMENT answer before the store is read, so
+      this is the deployment's own switch, not this session's — and the
+      control-target chip cannot lift it. Named all the same, because it is the
+      first place an operator looks.
+    * this **session's posture for ONE control target** is read-only. The
+      operator's own narrowing, made from the chip, so the chip is where it
+      lifts — and the target is named, because narrowing one machine leaves the
+      session working normally on every other one.
+    * the same, but the **target cannot be named**. The store's rule with no
+      resolvable target is that the most restrictive entry decides, and which
+      one that was is not knowable here, so nothing is invented.
+
+    The wordings are the executor clamp's, deliberately: an operator who meets
+    both gates in one session should not have to work out that they are the
+    same refusal.
+    """
+    if os.environ.get(posture.POSTURE_ENV_VAR) == posture.SANDBOX_MODE:
+        return (
+            "this deployment is running in readonly execution mode, which refuses "
+            "control-system writes for every session.",
+            [
+                "Writes need the deployment started without "
+                "OSPREY_EXECUTION_MODE=readonly; the control-target chip in the "
+                "header cannot lift a deployment-wide read-only run.",
+            ],
+        )
+
+    # Degrades to the target-less wording rather than to a crash: this runs on
+    # the refusal path of every clamped tool call, and a surprise here would
+    # turn a refusal into an internal error — the one outcome this middleware
+    # is built to never produce.
+    try:
+        target = posture.session_control_target()
+    except Exception:  # noqa: BLE001 - the name degrades; the refusal does not
+        logger.warning(
+            "Could not name the session's control target for the posture refusal",
+            exc_info=True,
+        )
+        target = None
+
+    if target is None:
+        return (
+            "this session's write posture is read-only for at least one control "
+            "target (this call's target could not be identified, so the most "
+            "restrictive decides) — set from the control-target chip in the header.",
+            [
+                "Lift that narrowing from the control-target chip in the header if "
+                "the write is intended; the deployment config is not the gate here.",
+            ],
+        )
+
+    return (
+        f"this session's write posture for the '{target}' control target is "
+        "read-only — set from the control-target chip in the header, and in "
+        "force for this session only.",
+        [
+            f"Set '{target}' back to writes from the control-target chip in the "
+            "header if the write is intended; the deployment config is not the "
+            "gate here.",
+        ],
+    )
+
+
 class AuditMiddleware(Middleware):
     """Audit every ``tools/call``, and clamp write tools under the sandbox posture.
 
@@ -606,10 +676,16 @@ class AuditMiddleware(Middleware):
             # `make_error` raises: fastmcp turns a raised ToolError into a
             # CallToolResult with isError=True and the message verbatim, which
             # returning a result directly does not.
-            suggestions = [
-                "Switch the session to writes posture from the terminal card; "
-                "config.yml is not the gate here.",
-            ]
+            #
+            # `posture.posture()` answers `sandbox` for two different reasons
+            # and sends the operator to two different places, so the wording
+            # forks exactly as the executor's clamp does
+            # (`_execution_gates.enforce_posture_clamp`): a deployment-wide
+            # read-only run is answered from the ENVIRONMENT, short-circuiting
+            # before the store is read, and the chip cannot lift it — naming
+            # the chip there is a click that changes nothing on a chip that
+            # already reads writes.
+            reason, suggestions = _posture_refusal_wording()
             if clamp_source != CLAMP_SOURCE_LOADED:
                 # Off the verified path the match is by bare tool name, so a
                 # read tool sharing a name with some write tool lands here too.
@@ -621,11 +697,7 @@ class AuditMiddleware(Middleware):
                     "name; re-render with `osprey build`, and relaunch this server under "
                     "`osprey` if its name or launch changed."
                 )
-            make_error(
-                "safety_error",
-                f"{tool} is refused: this terminal session is in the sandbox posture.",
-                suggestions,
-            )
+            make_error("safety_error", f"{tool} is refused: {reason}", suggestions)
 
         # One dedup scope per call: the innermost layer that recorded a
         # decision owns it, and this layer defers. Entering clears any marker

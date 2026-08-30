@@ -81,6 +81,12 @@ def build_pty_env(extra_env: dict[str, str] | None = None) -> dict[str, str]:
 #: about can do is force a respawn, never let a stale child outlive the
 #: privilege change that was supposed to reach it.
 #:
+#: **It is no longer the session posture's backstop, on purpose.** A
+#: per-target posture now lands in the store and is read at write time, so
+#: nothing about it belongs in a spawn env — do not re-add the stamp. What
+#: this list still protects is every OTHER env change: a deployment-wide
+#: readonly marker, a rotated panel token, a later privilege name.
+#:
 #: The exclusions are the names that legitimately differ between two
 #: connections to the *same pool key*, as built by
 #: :func:`osprey.interfaces.web_terminal.routes.websocket._build_extra_env`:
@@ -325,7 +331,7 @@ class PtySession:
         """The PTY child's process id, or ``None`` before it is started.
 
         Read-only and public because one thing outside this class legitimately
-        needs it: the posture badge asks which control-system target the session
+        needs it: the control-target chip in the header asks which control-system target the session
         is on, and the controls MCP server publishes that against the pid chain
         of the Claude Code process running inside this PTY. That pid is the only
         handle the web server has on the session's process tree.
@@ -347,46 +353,6 @@ class PtySession:
         if self._process is None:
             return None
         return self._process.poll()
-
-
-def _move_posture_entry(app, old_key: str, new_key: str) -> None:
-    """Move one session's posture-store entry as its pool key is renamed.
-
-    Function-local import: ``routes.websocket`` owns the store and reaches
-    into this module for the registry, so importing it at module scope would
-    close the cycle. ``operator_session`` reads the same store the same way.
-
-    Best-effort by construction. The rename itself has already landed and must
-    not be undone by a store that cannot be read or written: losing the move
-    degrades the posture join for one session, while unwinding the rename
-    would orphan a live child under a key nothing will attach to again.
-
-    Nothing is written when the old key holds no entry. "No entry" is how the
-    store spells ``writes``, and minting one on every discovery would turn a
-    routine rekey into a durable record of a deviation that never happened.
-    On the (practically unreachable) collision where the new key already holds
-    an entry, the moved one wins: it is the posture the live child actually
-    spawned under, and the other has never reached a child.
-    """
-    try:
-        from osprey.interfaces.web_terminal.routes.websocket import (
-            _persist_postures,
-            _session_postures,
-        )
-
-        store = _session_postures(app)
-        if old_key not in store:
-            return
-        store[new_key] = store.pop(old_key)
-        _persist_postures(app, store)
-    except Exception:  # noqa: BLE001 — the rename is the load-bearing half
-        logger.warning(
-            "Could not move the session-posture entry from %s to %s during rekey; "
-            "the session keeps running and its posture may need re-applying",
-            old_key,
-            new_key,
-            exc_info=True,
-        )
 
 
 class PtyRegistry:
@@ -425,20 +391,19 @@ class PtyRegistry:
         A warm pooled child is reattached only when the caller's ``extra_env``
         fingerprints identically to the one it was spawned with. A child's
         environment is fixed at ``execvp`` time and cannot be amended
-        afterwards, so an env change that matters — above all a runtime posture
-        flip, which reaches the agent as ``OSPREY_EXECUTION_MODE`` and nothing
-        else — can only be delivered by killing the child and spawning a new
-        one. Reusing the warm entry after such a change would leave the UI
-        reporting a posture (it reads the store) that the running agent is not
-        actually under, which is precisely the state this comparison exists to
-        make unreachable.
+        afterwards, so an env change that matters can only be delivered by
+        killing the child and spawning a new one. Reusing the warm entry after
+        such a change would leave the server believing it had launched a child
+        under an environment that child never saw, which is precisely the state
+        this comparison exists to make unreachable.
 
-        The ``/api/terminal/posture`` route already terminates the PTY itself,
-        so in the ordinary toggle flow there is no warm entry left to compare
-        against. This check is the backstop for every other path: a stale warm
-        entry, a client that reconnects before the terminate lands, or a future
-        caller that changes the launch env without knowing it must terminate
-        first. It fails towards a respawn, never towards a stale child.
+        The session's write posture is **not** among those changes any more:
+        it is read live from the posture store at write time, so a flip reaches
+        a running agent without a respawn (see
+        :data:`POOL_FINGERPRINT_EXCLUDED_ENV`). What is left is a stale warm
+        entry, a rotated credential, or a caller that changes the launch env
+        without knowing it must terminate first. It fails towards a respawn,
+        never towards a stale child.
 
         Only :data:`POOL_FINGERPRINT_EXCLUDED_ENV` is ignored in that
         comparison — the names that legitimately differ between two connections
@@ -515,23 +480,18 @@ class PtyRegistry:
         if session_key in self._sessions:
             self._sessions.move_to_end(session_key)
 
-    def rekey_session(self, old_key: str, new_key: str, *, app=None) -> None:
+    def rekey_session(self, old_key: str, new_key: str) -> None:
         """Rename a session entry (e.g. after UUID discovery).
 
         A PTY spawns under the telemetry id and is renamed to the Claude UUID
-        the moment discovery finds it. Three things have to move with it, and
-        they do not all move to the same place:
+        the moment discovery finds it. Two things move with it, in opposite
+        directions:
 
         * **The env fingerprint.** It describes the child, not the key, and
           dropping it would leave the renamed session looking unrecorded —
           which the next :meth:`get_or_create_session` would read as "spawned
           with no overlay" and could hand back a sandboxed child to a caller
           asking for a writable one.
-        * **The posture-store entry**, when *app* is given. Every later reader
-          — the next spawn's ``_build_extra_env``, the badge route, the toggle
-          route — addresses the session by its *current* id, so an entry left
-          under the old key is invisible to all of them and a sandboxed
-          session would come back writable on its next respawn.
         * **The audit join key**, in the opposite direction. The live child's
           ``OSPREY_POSTURE_SESSION`` was fixed at ``execvp`` time and still
           names the spawn key; it is in
@@ -540,12 +500,19 @@ class PtyRegistry:
           server-side emitter holding only the new key can resolve back to the
           key that child's own records carry — see :meth:`audit_session_key`.
 
+        **The posture store is not touched here, on purpose.** A rekey fires
+        moments after the spawn, before any entry for this session can exist,
+        so there is nothing to move; and every entry the web server writes goes
+        under *both* the current key and the spawn key
+        (``routes.websocket.persist_or_raise``), which is what keeps the
+        running child — reading the telemetry id it was spawned with — and a
+        post-restart reattach under the Claude UUID on one narrowing. Moving an
+        entry here would have to choose which of those two readers to take it
+        away from.
+
         Args:
             old_key: The key the session is pooled under now.
             new_key: The key it moves to.
-            app: The web app whose posture store should follow the rename.
-                Optional: callers outside a request (and the pool's own unit
-                tests) rekey with no app in hand and get the rename alone.
         """
         if old_key not in self._sessions:
             return
@@ -569,9 +536,6 @@ class PtyRegistry:
         else:
             self._audit_keys[new_key] = original
 
-        if app is not None:
-            _move_posture_entry(app, old_key, new_key)
-
     def audit_session_key(self, session_key: str) -> str:
         """The posture-store key an audit record about *session_key* joins on.
 
@@ -586,16 +550,19 @@ class PtyRegistry:
         into two unrelated actors in the ledger: the toggle under the Claude
         UUID, every tool call it governs under the telemetry id.
 
-        **No shipped emitter uses this yet, and no record on this surface
-        carries a session key today.** ``POST /api/terminal/posture`` writes no
-        record of its own, and the layer that does record it —
-        ``HttpAuditMiddleware`` — files every ``http_mutation`` envelope with
-        ``session: null``, because an HTTP request belongs to no session (it is
-        stamped ``posture_source=app`` for the same reason). The seam is
-        provided for the emitter that changes that: any future server-side
-        recorder that names a PTY session must pass the id it was handed
-        through here before putting it in an envelope's ``session`` field, or
-        the join it writes will be to a key no child's records carry.
+        The posture store reads it for the same reason, one step earlier:
+        ``routes.websocket.persist_or_raise`` records every narrowing under
+        this key as well as the current one, so the running child — which
+        looks its posture up under the key it exported — finds the entry a
+        route wrote under the Claude UUID it knows nothing about.
+
+        Any server-side recorder that names a PTY session must pass the id it
+        was handed through here before putting it in an envelope's ``session``
+        field, or the join it writes will be to a key no child's records carry.
+        ``HttpAuditMiddleware`` is not such a recorder: it files every
+        ``http_mutation`` envelope with ``session: null``, because an HTTP
+        request belongs to no session (it is stamped ``posture_source=app`` for
+        the same reason).
 
         Returns:
             The original spawn key when this session has been rekeyed,

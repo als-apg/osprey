@@ -121,7 +121,22 @@ class TestMarkerSpellings:
             "OSPREY_AUDIT_WRITER",
             "OSPREY_POSTURE_SOURCE",
             "OSPREY_POSTURE_SESSION",
+            "OSPREY_AGENT_DATA_ROOT",
+            "OSPREY_LAUNCH_POSTURE",
         )
+
+    def test_the_agent_data_root_is_non_pinnable(self):
+        """The directory the posture answer is READ OUT OF, not only the answer.
+
+        The stamp is the pair-half of ``OSPREY_POSTURE_SESSION`` and decides
+        where the session-posture store and the control-target state file are
+        looked for. A spec that could pin it would aim the session at a
+        directory of its own — and an empty store reads as "nothing narrowed",
+        so pinning the root sheds a sandbox without touching the posture value.
+        Pinned by identity against the posture module, which owns the name.
+        """
+        assert posture.OSPREY_AGENT_DATA_ROOT == "OSPREY_AGENT_DATA_ROOT"
+        assert posture.OSPREY_AGENT_DATA_ROOT in NON_PINNABLE_AUDIT_MARKERS
 
     def test_identity_marker_is_the_identity_ladder_rung(self):
         """Not a copy: the registry imports the stdlib-only leaf module's name."""

@@ -9,7 +9,6 @@ import { initMemoryGallery } from './memory-gallery.js';
 import { initScaffoldGallery } from './scaffold-gallery.js';
 import { initHookDebug } from './hook-debug.js';
 import { initSessionSelector, startNewSession } from './sessions.js';
-import { initPostureBadge } from './posture-badge.js';
 import { initCommandPalette } from './palette-boot.js';
 import { getFamily, initTheme, subscribe as subscribeTheme } from '/design-system/js/theme-manager.js';
 import { onModeChange } from '/design-system/js/frame-params.js';
@@ -18,6 +17,8 @@ import { initChat } from './chat.js';
 import { initDockWorkspace, applyDockMode } from './dock-workspace.js';
 import { initHeaderContrib } from './tile-header-contrib.js';
 import { initIdentityMenu } from './identity-menu.js';
+import { initControlTargetChip } from './control-target-chip.js';
+import { initControlTargetPopover } from './control-target-popover.js';
 import { followThemeFamily, getRailPosition, setRailPosition } from './rail-position.js';
 import { initFeedback } from './feedback-boot.js';
 
@@ -46,9 +47,6 @@ document.addEventListener('DOMContentLoaded', () => {
   initHeaderContrib();
   initPanelManager('right-panel');
   initSessionSelector('session-selector');
-  // After the selector: the badge mounts to its left, and the header is the
-  // node dock-tab.js adopts into the tile strip, so the badge travels with it.
-  initPostureBadge();
   initStatusBar();
   // Dock the terminal + workspace panels into the dockview shell (replaces the
   // old fixed resize-handle split). Guarded so a dock init failure can't break
@@ -65,6 +63,15 @@ document.addEventListener('DOMContentLoaded', () => {
   initUiModeFollowUps();
   initDisplayMenu();
   initIdentityMenu();
+  // The control-target chip: which machine this session stands on, and
+  // whether a write there would land. Mounts itself into `.header-actions`
+  // ahead of the palette trigger and stays hidden until the terminal reports
+  // a session, so boot order only needs the static header markup.
+  initControlTargetChip();
+  // Its popover — the roster and every gesture that changes where this session
+  // writes. Mounts under the chip's own positioning context, so it has to
+  // follow the chip's init and no-ops on a page that renders no chip.
+  initControlTargetPopover();
   initRailPosition();
   initFeedbackDialog();
   initDrawerTriggerHighlight();

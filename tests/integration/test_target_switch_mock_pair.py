@@ -71,6 +71,7 @@ from osprey.mcp_server.control_system.target_eligibility import derive_endpoints
 from osprey.mcp_server.control_system.tools.channel_read import channel_read
 from osprey.mcp_server.control_system.tools.control_target import control_target
 from osprey.mcp_server.python_executor import executor as host_executor
+from osprey_connectors import session_store
 from osprey_connectors.control_system.base import ChannelValue
 from osprey_connectors.control_system.va_connector import fill_gateway_ports
 from osprey_connectors.errors import ChannelLimitsViolationError
@@ -671,6 +672,12 @@ class TestSandboxEndpointMatchesTheDerivation:
         worth of code, and they have to be the same answer.
         """
         _write_state_record(target="va", generation=2)
+        # The launch pin is computed from the posture store, so the scenario has
+        # to say what that store holds rather than inheriting whatever the suite
+        # runs under: no session key means nothing addressed this session, which
+        # is the un-narrowed answer this test is about.
+        monkeypatch.delenv(session_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
+        monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
         env: dict[str, str] = {}
 
         assert host_executor._apply_target_stamp(env) == "va"
@@ -678,6 +685,14 @@ class TestSandboxEndpointMatchesTheDerivation:
             host_executor.ENV_CONTROL_TARGET: "va",
             host_executor.ENV_CONTROL_TARGET_GENERATION: "2",
             host_executor.ENV_CONTROL_TARGET_STATE_PID: str(os.getpid()),
+            # Stamped beside the routing names on every launch: which machine
+            # the run reaches, and what it was allowed to do to it when it
+            # started. Composed rather than spelled, so the pin follows the
+            # target this scenario derives instead of a literal that would
+            # survive a rename.
+            host_executor.ENV_LAUNCH_POSTURE: session_store.launch_posture_stamp(
+                "va", session_store.POSTURE_WRITES
+            ),
         }
         for name, value in env.items():
             monkeypatch.setenv(name, value)

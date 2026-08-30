@@ -84,6 +84,7 @@ from osprey.mcp_server.control_system.target_eligibility import (
     Verification,
     connector_block,
     derive_endpoints,
+    effective_writes_for_target,
     endpoint_is_live_standin,
     verify_child_report,
 )
@@ -815,14 +816,23 @@ class ConnectorHostManager:
             )
             return True
 
-    async def switch(self, target: str) -> dict[str, Any]:
+    async def switch(self, target: str, *, force: bool = False) -> dict[str, Any]:
         """Move the session to *target*, spawn-then-swap, under the lock.
 
-        A switch to the target already active is a respawn: the process is
-        replaced and the generation stands still. Whether that is a sensible
-        thing to ask for is the tool's question — the roster reports the active
-        target as unavailable for exactly this reason — and not this method's,
-        which has no way to tell a redundant request from a deliberate one.
+        A switch whose destination is already active *and* served is already
+        done: nothing is spawned, and the result says so with
+        ``target_changed`` false. Every gate above this one is evaluated before
+        the lock is taken, so two callers can both be told to go to the same
+        place and both be right when they were told — and the one that arrives
+        second would otherwise replace a working child with an identical one,
+        costing the session every connection it holds to change nothing.
+
+        Args:
+            target: The destination.
+            force: Replace the child even when it already serves *target*. The
+                deliberate respawn (:meth:`respawn_same_target`) is the one
+                caller that means "a new process" rather than "be on this
+                target".
 
         Raises:
             SwitchError: The target could not be derived, names no probe
@@ -833,6 +843,7 @@ class ConnectorHostManager:
             return await self._switch_locked(
                 target,
                 cause=(f"the control-system target switch from {self._target!r} to {target!r}"),
+                force=force,
             )
 
     async def respawn_same_target(self) -> dict[str, Any]:
@@ -847,6 +858,7 @@ class ConnectorHostManager:
             return await self._switch_locked(
                 self._target,
                 cause=f"respawning the connector host on target {self._target!r}",
+                force=True,
             )
 
     async def shutdown(self) -> None:
@@ -872,9 +884,13 @@ class ConnectorHostManager:
     # -- the switch --------------------------------------------------------
 
     async def _switch_locked(
-        self, target: str, *, cause: str, probe: bool = True
+        self, target: str, *, cause: str, probe: bool = True, force: bool = False
     ) -> dict[str, Any]:
         derivation = self._derive(target)
+        if not force:
+            settled = self._already_served(target, derivation)
+            if settled is not None:
+                return settled
         # ``probe`` is false only for the deployment's very first child, where
         # there is no working session to protect — see ensure_started().
         probe_channel = self._probe_channel(target, derivation) if probe else ""
@@ -975,6 +991,58 @@ class ConnectorHostManager:
             result["write_gateway_fallback"] = fallback
         return result
 
+    def _already_served(self, target: str, derivation: TargetDerivation) -> dict[str, Any] | None:
+        """The answer for a switch whose destination is already being served.
+
+        Both halves of the condition matter. The **target of record** alone is
+        not enough: a child that died outside a switch leaves the session
+        pointed at its target with nothing serving it, and answering "already
+        there" would strand it with no connector host and call that success. A
+        **live child** on that target, though, is the whole of what the caller
+        asked for, so the switch is reported as done rather than performed
+        again — the destination is not re-derived into a second process, the
+        generation does not move, and the connections the session holds survive.
+
+        The fields describe the child that is already running rather than one
+        that was just launched: its connector type, the role it reported having
+        connected on, and the channel it proved itself with — empty for the
+        deployment's first child, which was started without a probe, because
+        claiming a probe that never ran would be worse than saying so.
+
+        Returns:
+            The normal switch result for the running child, or ``None`` when
+            this is not that case and the caller should go on and spawn.
+        """
+        if target != self._target:
+            return None
+        child = self._live_child()
+        if child is None:
+            return None
+        logger.info(
+            "The connector host is already on target %r (generation %s, pid %s); "
+            "nothing was spawned and nothing was retired",
+            target,
+            self._generation,
+            child.pid,
+        )
+        reported = child.report.get("selected_role")
+        has_role = isinstance(reported, str) and bool(reported)
+        selected_role = reported if has_role else derivation.selected_role
+        endpoint = derivation.endpoints.get(selected_role)
+        return {
+            "target": target,
+            "generation": self._generation,
+            "previous_target": self._target,
+            "target_changed": False,
+            "connector_type": child.connector_type,
+            "selected_role": selected_role,
+            "endpoint": endpoint.as_dict() if endpoint is not None else None,
+            "probe_channel": child.probe_channel,
+            "child_pid": child.pid,
+            "previous_drained": True,
+            "drain_timeout_s": self._drain_timeout(),
+        }
+
     def _publish(self, target: str, child_pid: int) -> bool:
         """Record the completed switch in the state file. Never raises.
 
@@ -1008,9 +1076,21 @@ class ConnectorHostManager:
         return False
 
     def _derive(self, target: str) -> TargetDerivation:
-        """The destination's derivation, or a refusal naming what is missing."""
+        """The destination's derivation, or a refusal naming what is missing.
+
+        The write posture handed in is this SESSION's, not the config's: the
+        child selects its gateway from the per-(session, target) posture store
+        as well as from config, so a parent deriving the configured posture
+        would expect ``write_access`` from a child the operator has narrowed to
+        ``read_only`` — and ``verify_child_report``, comparing the two, would
+        abort the switch over a disagreement neither side got wrong.
+        """
         try:
-            return derive_endpoints(self._config.raw, target)
+            return derive_endpoints(
+                self._config.raw,
+                target,
+                writes_enabled=effective_writes_for_target(self._config.control_system, target),
+            )
         except ValueError as exc:
             raise SwitchError(target, STAGE_TARGET, REASON_TARGET_UNRESOLVABLE, str(exc)) from exc
 

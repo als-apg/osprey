@@ -134,6 +134,93 @@ def restore_environ():
         os.environ.update(saved)
 
 
+@pytest.fixture(autouse=True, scope="function")
+def session_posture_leak_guard(monkeypatch):
+    """Run every test outside a web-terminal session's write posture.
+
+        Three variables carry that posture: ``OSPREY_EXECUTION_MODE`` (a read-only
+        run), and the per-(session, target) store's two anchors
+        ``OSPREY_POSTURE_SESSION`` and ``OSPREY_AGENT_DATA_ROOT``, which the web
+        server always stamps as a pair. A developer running the suite from inside a
+        narrowed session would otherwise hand every store-touching test a session
+        key and an agent-data root no test asked for — and, worse, a test that
+        redirects the store by patching ``resolve_shared_data_root`` would be
+        silently inert, because ``session_store.agent_data_root()`` reads the
+        variable FIRST and only falls back to the resolver.
+
+    All three are CLEARED, not pointed elsewhere. Stamping a throwaway root here
+        would look tidier — clearing the variable does not stop a write, it aims it
+        at ``<repo>/var/agent_data`` via ``resolve_shared_data_root()`` — but the
+        stamp is preferred over the resolver by both readers, so a suite-wide stamp
+        silently overrides every test that redirects the root by patching
+        ``resolve_shared_data_root``, which is most of them: measured, it turns 90
+        tests across ``tests/mcp_server`` red and the whole hooks tree with it.
+        The leak is therefore closed where it is caused — a test whose code writes
+        under that root stamps its own — and kept closed by
+        :func:`no_agent_data_in_the_repo` below, which fails the session if the run
+        created the directory.
+
+        Named without a leading underscore on purpose. Autouse fixtures of equal
+        scope are set up in alphabetical order, so this sorts AFTER
+        ``restore_environ`` and is therefore torn down before it — a name like
+        ``_no_session_posture`` would delete the variables before that snapshot was
+        taken, and the restore would then drop them for the rest of the session.
+    """
+    for anchor in (
+        "OSPREY_EXECUTION_MODE",
+        "OSPREY_POSTURE_SESSION",
+        "OSPREY_AGENT_DATA_ROOT",
+    ):
+        monkeypatch.delenv(anchor, raising=False)
+    yield
+
+
+_REAL_DEPLOYMENT_LANES = ("tests/e2e/", "tests/va/e2e/")
+
+
+@pytest.fixture(autouse=True, scope="session")
+def no_agent_data_in_the_repo(request):
+    """Fail the session if the suite created ``<repo>/var/agent_data``.
+
+    The regression this exists for is silent by construction: ``var/`` is
+    gitignored, the marker files are unlinked on the way out, and what is left
+    behind is an empty directory that ``git status`` never mentions. It was
+    found twice by hand; this is what finds it the third time.
+
+    This is the guard that actually holds the line, rather than a suite-wide
+    stamp of ``OSPREY_AGENT_DATA_ROOT`` — see
+    :func:`session_posture_leak_guard`. A stamp would silence the symptom for
+    every test at once, at the cost of overriding the resolver patch most
+    store-touching tests use to redirect that root.
+
+    Only a directory the RUN created is a failure. One that was already there
+    belongs to a real local deployment and is none of the suite's business —
+    checking for creation rather than existence is what keeps this from firing
+    on a developer who has actually run OSPREY in this checkout.
+
+    The real-deployment lanes (``tests/e2e/``, ``tests/va/e2e/``) are exempt:
+    they run agents and servers with this checkout as the project root, so the
+    executor's run folders land under ``var/agent_data`` by design, not by a
+    fixture's mistake. The guard is armed only in a session that collects none
+    of them — the unit lane it was written for.
+    """
+    marker = Path(__file__).resolve().parent.parent / "var" / "agent_data"
+    real_deployment_lane = any(
+        item.nodeid.startswith(_REAL_DEPLOYMENT_LANES) for item in request.session.items
+    )
+    existed = marker.exists()
+    yield
+    if real_deployment_lane:
+        return
+    if not existed and marker.exists():
+        raise AssertionError(
+            f"the test run created {marker} — something resolved the agent-data root "
+            "to the repository. A test that writes the posture store or a control-target "
+            "state file must stamp OSPREY_AGENT_DATA_ROOT at a tmp path (see "
+            "session_posture_leak_guard) rather than leave it to resolve_shared_data_root()."
+        )
+
+
 # ===================================================================
 # Auto-reset Registry and Config Between Tests
 # ===================================================================

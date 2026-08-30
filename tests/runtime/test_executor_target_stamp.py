@@ -13,6 +13,7 @@ class was handed, which is the only evidence that routing actually happened.
 """
 
 import asyncio
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -80,6 +81,36 @@ def clear_stamp(monkeypatch):
     """Start every test from an unstamped environment."""
     for name in host_executor._STAMP_ENV_NAMES:
         monkeypatch.delenv(name, raising=False)
+
+
+#: The posture-store key the launch-posture tests run under.
+POSTURE_SESSION_KEY = "4f1c2a7e-0000-4000-8000-000000000001"
+
+
+@pytest.fixture
+def posture_store(state_root, monkeypatch):
+    """A writable posture store at the same root the state file uses.
+
+    Both anchors have to agree or the launch pin would be computed from a store
+    nobody wrote: the state file is redirected by patching ``target_state``'s
+    bound resolver, and the store follows the ``OSPREY_AGENT_DATA_ROOT`` stamp,
+    so this points the stamp at the same directory. Returns a writer.
+    """
+    from osprey_connectors import session_store
+
+    monkeypatch.setenv(session_store.AGENT_DATA_ROOT_ENV_VAR, str(state_root))
+    monkeypatch.setenv("OSPREY_POSTURE_SESSION", POSTURE_SESSION_KEY)
+    monkeypatch.delenv(session_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
+    session_store.invalidate_cache()
+
+    def write(payload) -> None:
+        path = state_root / session_store.STATE_DIR_NAME / session_store.STORE_FILENAME
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        session_store.invalidate_cache()
+
+    yield write
+    session_store.invalidate_cache()
 
 
 #: A deployment that has both a simulated baseline and one real machine, so
@@ -266,6 +297,70 @@ class TestStampApplication:
         assert env[host_executor.ENV_CONTROL_TARGET] == "va"
 
 
+class TestLaunchPostureStamp:
+    """The second thing a launch pins: the posture, beside the target.
+
+    The routing stamp says WHICH machine the sandbox talks to; this one says
+    what the session was allowed to do to it at the moment the run started. It
+    is stamped on both paths — including the one that removes every routing
+    name — because an unstamped run is the one whose target is unknowable, and
+    that is the case the pin must cover most restrictively rather than least.
+    The rule it feeds is exercised in
+    ``tests/services/python_executor/test_launch_posture_pin.py``; here it is
+    only that the executor stamps it, and stamps it every time.
+    """
+
+    def test_the_posture_is_stamped_beside_the_target(
+        self, state_root, deployment_config, posture_store
+    ):
+        write_record(target="va", generation=7)
+        env: dict[str, str] = {}
+
+        assert host_executor._apply_target_stamp(env) == "va"
+        assert env[host_executor.ENV_LAUNCH_POSTURE] == "va=writes"
+
+    def test_a_narrowed_target_is_stamped_sandboxed(
+        self, state_root, deployment_config, posture_store
+    ):
+        posture_store({POSTURE_SESSION_KEY: {"va": "sandbox"}})
+        write_record(target="va", generation=7)
+        env: dict[str, str] = {}
+
+        assert host_executor._apply_target_stamp(env) == "va"
+        assert env[host_executor.ENV_LAUNCH_POSTURE] == "va=sandbox"
+
+    def test_an_unstamped_run_is_still_pinned(self, state_root, deployment_config, posture_store):
+        """No record: every routing name goes, the posture pin stays.
+
+        It names every target, because a run that cannot say which machine it is
+        about must not be the one run a narrowing fails to reach.
+        """
+        posture_store({POSTURE_SESSION_KEY: {"live": "sandbox"}})
+        env: dict[str, str] = {}
+
+        assert host_executor._apply_target_stamp(env) == host_executor.CONTROL_TARGET_BASELINE
+        for name in host_executor._STAMP_ENV_NAMES:
+            assert name not in env
+        assert env[host_executor.ENV_LAUNCH_POSTURE] == "*=sandbox"
+
+    def test_an_inherited_posture_pin_is_overwritten_not_trusted(
+        self, state_root, deployment_config, posture_store
+    ):
+        """A stale value in the parent's environment must not survive the launch.
+
+        The routing names are POPPED for the same reason; this one is always
+        assigned instead, so a ``writes`` inherited from anywhere cannot outlive
+        the store's actual answer for this run.
+        """
+        posture_store({POSTURE_SESSION_KEY: {"va": "sandbox"}})
+        write_record(target="va", generation=1)
+        env = {host_executor.ENV_LAUNCH_POSTURE: "va=writes"}
+
+        host_executor._apply_target_stamp(env)
+
+        assert env[host_executor.ENV_LAUNCH_POSTURE] == "va=sandbox"
+
+
 class TestExecuteViaLocalStamping:
     """End-to-end through ``_execute_via_local``, with the subprocess faked out."""
 
@@ -317,6 +412,36 @@ class TestExecuteViaLocalStamping:
         # The mode injection this stamp sits beside must survive untouched.
         assert env["OSPREY_EXECUTION_MODE"] == "readonly"
         assert result.control_target == "va"
+
+    def test_sandbox_env_carries_the_launch_posture(
+        self, state_root, deployment_config, posture_store, tmp_path, monkeypatch
+    ):
+        """The pin reaches the child, and the marker states the same thing.
+
+        Both halves of FR15 through the real launch path: the sandbox reads the
+        stamp back through ``session_store``, and the in-flight marker is what
+        the posture route consults before it agrees to widen anything.
+        """
+        # Arrange
+        posture_store({POSTURE_SESSION_KEY: {"va": "sandbox"}})
+        write_record(target="va", generation=5)
+        seen: list[list[dict[str, Any]]] = []
+        real_marker = host_executor._in_flight_marker
+
+        @contextlib.contextmanager
+        def watching_marker(control_target, launch_posture=None):
+            with real_marker(control_target, launch_posture):
+                seen.append(target_state.in_flight_executions())
+                yield
+
+        monkeypatch.setattr(host_executor, "_in_flight_marker", watching_marker)
+
+        # Act
+        env, _ = self._run(tmp_path, monkeypatch)
+
+        # Assert
+        assert env[host_executor.ENV_LAUNCH_POSTURE] == "va=sandbox"
+        assert [record["launch_posture"] for record in seen[0]] == ["va=sandbox"]
 
     def test_unstamped_run_records_the_baseline(
         self, state_root, deployment_config, tmp_path, monkeypatch

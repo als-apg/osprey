@@ -109,6 +109,9 @@ class TestWriteOnStart:
             "owner_ppid": 99,
             "targets": TARGETS_META,
             "children": [],
+            "last_switch": None,
+            "reachability": None,
+            "last_posture_realign": None,
         }
 
     def test_captures_own_pid_and_parent_pid_by_default(self, state_root):

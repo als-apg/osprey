@@ -165,15 +165,17 @@ async def test_readonly_refusal_message_carries_the_shared_marker(
     assert READONLY_REFUSAL_MARKER in result.error_message
 
 
-# --- Session posture: the same variable, a different story to tell ----------
+# --- A deployment-wide read-only run: same variable, a different story ------
 #
-# A session switched to the sandbox posture carries ``OSPREY_EXECUTION_MODE=
-# readonly`` in the environment of every process it launched, so the controls
-# MCP server refuses ``channel_write`` through exactly the code path above —
-# but there is no script there, and nothing to resubmit. The connector tells
-# the two apart by whether it is running inside an OSPREY MCP server process
-# (see ``_in_mcp_server_process``): the executor's sandbox subprocess, which
-# runs a script the operator really can resubmit, keeps the older text.
+# ``OSPREY_EXECUTION_MODE=readonly`` on the deployment itself puts the whole
+# run in readonly execution mode, so the controls MCP server refuses
+# ``channel_write`` through exactly the code path above — but there is no
+# script there, and nothing to resubmit. The connector tells the two apart by
+# whether it is running inside an OSPREY MCP server process (see
+# ``_in_mcp_server_process``): the executor's sandbox subprocess, which runs a
+# script the operator really can resubmit, keeps the older text. Neither story
+# is the per-session narrowing the control-target chip makes — that never
+# lived in the environment, and is read from the session store.
 
 
 def _controls_server_main() -> Path:
@@ -192,8 +194,8 @@ def _controls_server_main() -> Path:
 
 
 @pytest.fixture
-def sandbox_posture_session(monkeypatch):
-    """A controls MCP server process inside a session in the sandbox posture."""
+def readonly_run_in_an_mcp_server(monkeypatch):
+    """A controls MCP server process inside a deployment-wide read-only run."""
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
     monkeypatch.setattr(sys, "argv", [str(_controls_server_main())])
 
@@ -209,11 +211,12 @@ def executor_sandbox_script(monkeypatch, tmp_path):
 def test_mcp_server_process_is_detected_from_the_real_entry_point(monkeypatch):
     """The discriminator, on its own: server entry point yes, script no.
 
-    The posture and a readonly script run are indistinguishable by environment
-    — the posture is env-only by design and the executor's subprocess inherits
-    its parent's whole environment — so this is the only thing separating the
-    two messages. Pinning it here means a move of the MCP server package
-    fails loudly rather than silently reverting the posture text.
+    A deployment-wide read-only run and a readonly script run are
+    indistinguishable by environment — both are the same variable at the same
+    value, and the executor's subprocess inherits its parent's whole
+    environment — so this is the only thing separating the two messages.
+    Pinning it here means a move of the MCP server package fails loudly rather
+    than silently reverting the deployment-wide text.
     """
     from osprey.connectors.control_system.base import _in_mcp_server_process
 
@@ -229,31 +232,37 @@ def test_mcp_server_process_is_detected_from_the_real_entry_point(monkeypatch):
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_posture_refusal_names_the_posture(
-    writes_enabled_deployment, sandbox_posture_session
+async def test_readonly_run_refusal_names_the_deployment_wide_run(
+    writes_enabled_deployment, readonly_run_in_an_mcp_server
 ):
-    """The operator is told what actually refused: the session's posture."""
+    """The operator is told what actually refused: the whole run is read-only.
+
+    Not a posture, and not this one session — the variable is on the
+    deployment, so every session it serves refuses writes while it is set.
+    """
     connector = _WriteEnabledConnector()
 
     result = await connector.write_channel("SR:MAG:QF:01:CURRENT:SP", 150.0)
 
     assert result.outcome is WriteOutcome.REFUSED
-    assert "posture" in result.error_message.lower()
-    assert "sandbox posture" in result.error_message.lower()
+    assert "readonly execution mode" in result.error_message.lower()
+    assert "OSPREY_EXECUTION_MODE=readonly" in result.error_message
+    assert "every session" in result.error_message.lower()
     assert connector.writes == []
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_posture_refusal_does_not_blame_deployment_or_a_script(
-    writes_enabled_deployment, sandbox_posture_session
+async def test_readonly_run_refusal_does_not_blame_config_or_a_script(
+    writes_enabled_deployment, readonly_run_in_an_mcp_server
 ):
-    """Neither of the other two stories applies here.
+    """Neither of the other stories applies here.
 
-    ``writes_enabled`` is not the gate (the deployment allows writes), and
-    there is no script to resubmit — ``channel_write`` came straight from the
-    agent through the controls MCP server. Sending the operator to either one
-    is a dead end.
+    ``writes_enabled`` is not the gate (the deployment config allows writes),
+    and there is no script to resubmit — ``channel_write`` came straight from
+    the agent through the controls MCP server. Sending the operator to either
+    one is a dead end. The variable is named, but as the run's own switch,
+    never as an ``execution_mode`` argument the caller could resubmit with.
     """
     connector = _WriteEnabledConnector()
 
@@ -261,35 +270,41 @@ async def test_posture_refusal_does_not_blame_deployment_or_a_script(
 
     assert "writes_enabled" not in result.error_message
     assert "resubmit" not in result.error_message.lower()
-    assert "execution_mode" not in result.error_message
+    assert "execution_mode=" not in result.error_message
+    assert "execution_mode='" not in result.error_message
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_posture_refusal_says_where_to_change_it(
-    writes_enabled_deployment, sandbox_posture_session
+async def test_readonly_run_refusal_says_the_chip_cannot_lift_it(
+    writes_enabled_deployment, readonly_run_in_an_mcp_server
 ):
-    """A refusal that names no way out is a dead end; the toggle lives on the
-    terminal card, which is also where the hook and the executor gate point."""
+    """The one remedy that does NOT work is named, because it is the one an
+    operator would reach for: the control-target chip in the header already
+    reads writes here and cannot lift a deployment-wide read-only run. Sending
+    them there is the dead end this wording exists to close."""
     connector = _WriteEnabledConnector()
 
     result = await connector.write_channel("A:SP", 1.0)
 
-    assert "terminal card" in result.error_message.lower()
-    assert "writes posture" in result.error_message.lower()
+    message = result.error_message.lower()
+    assert "control-target chip in the header" in message
+    assert "cannot lift it" in message
+    assert "switch the session to the writes posture" not in message
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_posture_refusal_carries_the_shared_marker(
-    writes_enabled_deployment, sandbox_posture_session
+async def test_readonly_run_refusal_carries_the_shared_marker(
+    writes_enabled_deployment, readonly_run_in_an_mcp_server
 ):
-    """The posture message keeps the marker the script message carries.
+    """This message keeps the marker the script message carries.
 
-    It costs nothing — the posture is readonly execution mode, held for a
-    whole session instead of one run — and it means the stderr matcher still
-    recognises this refusal if it is ever produced inside a subprocess, which
-    is exactly the case a future launch-shape change would create.
+    It costs nothing — both are readonly execution mode, one held for the
+    whole deployment and one for a single run — and it means the stderr
+    matcher still recognises this refusal if it is ever produced inside a
+    subprocess, which is exactly the case a future launch-shape change would
+    create.
     """
     from osprey.services.python_executor.execution.wrapper import READONLY_REFUSAL_MARKER
 
@@ -302,13 +317,13 @@ async def test_posture_refusal_carries_the_shared_marker(
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_posture_refusal_keeps_the_shared_refusal_reason(
-    writes_enabled_deployment, sandbox_posture_session
+async def test_readonly_run_refusal_keeps_the_shared_refusal_reason(
+    writes_enabled_deployment, readonly_run_in_an_mcp_server
 ):
     """Only the message forks. ``refusal_reason`` is the machine-readable
     contract every caller of ``raise_for_write_result`` already handles, and a
-    posture refusal is the same kind of refusal: writes are off for this
-    caller, and the control system was never asked."""
+    read-only run's refusal is the same kind of refusal: writes are off for
+    this caller, and the control system was never asked."""
     connector = _WriteEnabledConnector()
 
     result = await connector.write_channel("A:SP", 1.0)
@@ -318,8 +333,8 @@ async def test_posture_refusal_keeps_the_shared_refusal_reason(
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_posture_refusal_covers_the_multi_write_path(
-    writes_enabled_deployment, sandbox_posture_session
+async def test_readonly_run_refusal_covers_the_multi_write_path(
+    writes_enabled_deployment, readonly_run_in_an_mcp_server
 ):
     """Both guarded entry points build their result the same way."""
     connector = _WriteEnabledConnector()
@@ -327,7 +342,7 @@ async def test_posture_refusal_covers_the_multi_write_path(
     results = await connector.write_multiple_channels([("A:SP", 1.0), ("B:SP", 2.0)])
 
     assert all(r.outcome is WriteOutcome.REFUSED for r in results)
-    assert all("sandbox posture" in r.error_message.lower() for r in results)
+    assert all("readonly execution mode" in r.error_message.lower() for r in results)
     assert connector.writes == []
 
 

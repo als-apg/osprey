@@ -116,24 +116,20 @@ class ChatSessionPool:
         the reuse check below compares against what they produce.
 
         **A live entry is only reused when its environment still matches.** A
-        child's environment is fixed when it is spawned and cannot be amended,
-        so an env change that matters — a runtime posture flip, which reaches
-        the agent as ``OSPREY_EXECUTION_MODE`` and nothing else — can only be
-        delivered by tearing the child down and building a new one. Returning
-        the warm entry after such a change would leave the badge reporting the
-        store while the running agent serves the posture the operator just
-        left. The comparison is on
+        child's environment is fixed when it is spawned and cannot be
+        amended. A runtime posture flip is not such a change: it lands in
+        the per-target posture store and is read at write time, never
+        stamped into the child's environment, so the control-target chip in
+        the header reflects it without any rebuild. The comparison is on
         :func:`~osprey.interfaces.web_terminal.pty_manager.env_fingerprint`,
         the same digest and the same deny list the PTY pool uses, so the two
         topologies cannot drift on what "the same environment" means.
 
-        This is a backstop, not the mechanism: ``/api/terminal/posture``
-        terminates the chat session itself, so in the ordinary toggle flow
-        there is no live entry left to compare against. It covers the paths
-        that skip that terminate — a registry the route cannot tell to act, a
-        prompt racing the teardown, a future caller that changes the launch env
-        without knowing it must terminate first. It fails towards a rebuild,
-        never towards a stale child.
+        A posture change never reaches this check at all: it lands in the
+        per-target posture store, and the running chat child reads it live at
+        every write-time gate, so the same live entry keeps serving the
+        conversation right through a narrowing or a widen. The reuse rule
+        above is unaffected — it exists for other env changes only.
         """
         to_stop: list[OperatorSession] = []
         builder_error: BaseException | None = None

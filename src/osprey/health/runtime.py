@@ -39,6 +39,7 @@ from typing import TYPE_CHECKING, Any
 
 from osprey.connectors.control_system.base import ControlSystemConnector
 from osprey.health.models import CheckResult, Status
+from osprey_connectors.types import baseline_target
 
 if TYPE_CHECKING:
     from osprey.connectors.archiver.base import ArchiverConnector
@@ -165,7 +166,11 @@ class HealthRuntime:
                 )
 
                 register_builtin_connectors()  # idempotent; must run before create
-                connector = await ConnectorFactory.create_control_system_connector(self._config)
+                # A health run is not a session and never switches: the target
+                # it probes is the one its own configured section describes.
+                connector = await ConnectorFactory.create_control_system_connector(
+                    self._config, control_target=baseline_target(self._config)
+                )
                 if self._closed:
                     # shutdown() ran during construction: it found the slot
                     # empty and disconnected nothing, so this one is ours to

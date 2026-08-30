@@ -53,8 +53,9 @@ from typing import Any, ClassVar
 # Closed sets
 # --------------------------------------------------------------------------
 
-#: The posture in a record was established at spawn time and cannot have
-#: changed since — the child was launched with an explicit posture marker.
+#: The posture was minted at connection time for the `/ws/operator` chat
+#: session (see routes/websocket.py) — operator_key is addressable by
+#: nothing else, so whatever the store held for it then is the whole story.
 POSTURE_SOURCE_SPAWN = "spawn"
 
 #: The posture was read live from the posture store at decision time, so it
