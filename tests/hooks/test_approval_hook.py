@@ -1520,3 +1520,45 @@ def test_a_defer_is_never_the_last_word(
         assert approval_deferred is True
     if guarantor == _BY_WRITES_CHECK:
         assert run("osprey_writes_check.py") == "deny"
+
+
+@pytest.mark.unit
+def test_a_store_narrowed_target_defers_and_writes_check_denies(
+    tmp_path, hook_runner, make_config, monkeypatch
+):
+    """An operator narrowing composes like a config disarm: defer, with the deny behind it.
+
+    The deployment arms this machine, so the config half of the posture answers
+    "armed" — the per-(session, target) store is the only thing refusing here,
+    and ``osprey_writes_check`` reads the same store
+    (``effective_writes_for``). Keeping the prompt would ask the human to
+    approve a write the next hook is guaranteed to refuse; the matrix above
+    pins the config half of this rule, this test pins the store half.
+    """
+    session_key = "4f1c2a7e-0000-4000-8000-000000000001"
+    config = _posture_config(make_config, ARMED_LIVE_ONLY_CONFIG)
+    _write_session_state(tmp_path, target="live")
+    monkeypatch.setenv("OSPREY_POSTURE_SESSION", session_key)
+
+    def run(hook):
+        return _decision(
+            hook_runner(
+                hook,
+                "mcp__controls__channel_write",
+                {"operations": [{"channel": "SR:QF:SP", "value": 1.5}]},
+                config_path=config,
+                cwd=tmp_path,
+                hook_config=POSTURE_HOOK_CONFIG,
+            )
+        )
+
+    # Control: with no narrowing in the store, the armed machine keeps its prompt.
+    assert run("osprey_approval.py") == "ask"
+
+    store = tmp_path / "var" / "agent_data" / "control_target" / "session-postures.json"
+    store.write_text(json.dumps({session_key: {"live": "sandbox"}}), encoding="utf-8")
+
+    assert run("osprey_approval.py") is None, (
+        "the narrowing is refused by writes_check, so the prompt must defer to that deny"
+    )
+    assert run("osprey_writes_check.py") == "deny"
