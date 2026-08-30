@@ -170,6 +170,10 @@ def deployed_grid_scan_stack(
         PROJECT_NAME,
         output_dir=base,
         bridge_port=BRIDGE_PORT,
+        # This module's own thousand-port block (see test_dispatch_deploy.py's
+        # 20700 note): everything not pinned explicitly follows it instead of
+        # landing on a real deployment's default 10000 block.
+        port_base=21300,
         timeout=BUILD_TIMEOUT_SEC,
         pre_build=author_devices,
     )

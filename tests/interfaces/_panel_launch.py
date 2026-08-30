@@ -9,12 +9,31 @@ companion panel unlaunched — are stated once instead of re-derived per file.
 
 from __future__ import annotations
 
+import socket
 from typing import Any
 
 from osprey.registry.web import panel_url_state_attr
 
-#: The address the pre-launched/faked gallery is reachable at in these tests.
-DEFAULT_ARTIFACT_URL = "http://127.0.0.1:10200"
+
+def _reserve_unserved_port() -> int:
+    """A loopback port that nothing serves on, reserved once per process.
+
+    The published URL must point at NOTHING: the hub dials it server-side with
+    the process operator secret the moment a browser opens the WORKSPACE tab,
+    so a fixed default-block address (the gallery's own 10200) would, on a dev
+    host running a real deployment, proxy the developer's live artifacts into
+    the test — a false green — and hand that gallery the test's secret. An
+    ephemeral port that was just free reproduces everywhere what CI sees:
+    connection refused, panel advertised but unhealthy.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+#: The address the faked gallery launch publishes in these tests — deliberately
+#: an address nothing serves on; see :func:`_reserve_unserved_port`.
+DEFAULT_ARTIFACT_URL = f"http://127.0.0.1:{_reserve_unserved_port()}"
 
 
 def publish_artifact_url(url: str | None = DEFAULT_ARTIFACT_URL):

@@ -221,7 +221,14 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
     # The deployment REPO: `osprey up` runs here, `.env` lives here, and the
     # render `osprey build` produced is `<repo>/build`.
     repo = _orm_stack.build_project_subprocess(
-        PROJECT_NAME, output_dir=base, timeout=BUILD_TIMEOUT_SEC, pre_build=author_devices
+        PROJECT_NAME,
+        output_dir=base,
+        timeout=BUILD_TIMEOUT_SEC,
+        pre_build=author_devices,
+        # This module's own thousand-port block (see test_dispatch_deploy.py's
+        # 20700 note): everything not pinned explicitly follows it instead of
+        # landing on a real deployment's default 10000 block.
+        port_base=21200,
     )
     _orm_stack.assert_devices_authored(correctors, bpms)
 
