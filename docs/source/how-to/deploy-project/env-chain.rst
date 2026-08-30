@@ -171,6 +171,64 @@ are.
    the minted password, remove the ``ariel_postgres_data`` volume and redeploy
    (this deletes the stored logbook data — re-ingest afterwards).
 
+Egress through a site proxy
+---------------------------
+
+A site that reaches the outside world only through a proxy sets the three
+standard names in the chain — in ``.env.shared`` when every host goes through
+the same proxy, in ``.env`` when this one differs:
+
+.. code-block:: bash
+
+   HTTP_PROXY=http://proxy.example.com:8080
+   HTTPS_PROXY=http://proxy.example.com:8080
+   NO_PROXY=localhost,127.0.0.1
+
+**Spell them in uppercase.** The login service is handed exactly these three
+names and nothing else from the chain, so a lowercase ``https_proxy`` never
+reaches it. (Inside a container that does receive the whole chain, an empty
+lowercase name is worse than absent — it turns the proxy off for that scheme —
+which is why only the uppercase spelling is passed through.)
+
+On a multi-user deployment the login service reads this set from the chain as
+well, and it is the one worth remembering, because it makes a call of its own:
+at the first login it fetches the identity provider's discovery document. On a
+proxied host without these names that call goes out directly, so the stack
+comes up, the health check is green, and every login fails. Nothing
+proxy-related belongs in ``.env.auth``. That file is the login service's
+credential store; proxy settings are configuration rather than secrets, and the
+chain already delivers them (see :ref:`multi-user-require-a-login`).
+
+**The trust store is not carried across.** A proxy that re-signs TLS with a
+site certificate authority needs that authority's certificate inside the
+container, and nothing puts it there yet. ``SSL_CERT_FILE`` and
+``REQUESTS_CA_BUNDLE`` in the chain do not reach the login service at all — it
+receives only the three proxy names. Uncommenting the site-CA block
+``osprey init`` writes into ``.env.shared`` therefore changes nothing for
+logins; the stack still starts and the identity-provider fetch still fails at
+TLS. (Routing a CA variable into the sidecar is not a fix either: one naming a
+path the image does not carry stops httpx from constructing a client at all.)
+Delivering a custom CA is a mount plus a variable, and separate work.
+
+**A changed value lands at the next start.** These values are filled in when a
+container is created, so editing the chain does not reach a running stack:
+``osprey up`` is what puts a new proxy into force. Because the value is
+interpolated into the sidecar's ``environment:``, a changed value is a
+service-definition change, so Docker Compose recreates the login service and
+leaves the running terminals alone; podman-compose bounces the whole project.
+``osprey restart`` also works, but it is a full stop-and-start on either
+provider, so every live web-terminal session drops. Pick the moment for it.
+
+.. warning::
+
+   No value in the chain may contain a ``$``, and a proxy URL carrying a
+   password is the usual way to meet that rule. Container stacks substitute
+   ``$`` sequences on the way through, so what reaches the container is
+   silently not what you wrote. ``osprey up`` scans ``.env.shared`` and
+   ``.env`` before it starts anything, refuses, and names the variable. The
+   remedy is a value without the character — ask for a credential that has
+   none.
+
 .. _deployment-pinned-env:
 
 Pinning a variable to the chain
