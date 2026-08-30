@@ -136,30 +136,32 @@ COMPOSE_PROJECT_LABEL = "com.docker.compose.project"
 #: is verified against before removal — exactly as ``nuke`` verifies it.
 OSPREY_PROJECT_LABEL = "com.osprey.project"
 
-#: The web tier's credential files, as ``(filename, what it holds, how it is
-#: refreshed)``. Each is written once — a deploy creates it when it is absent
-#: and never rewrites an existing one — and reset removes none of them, which is
-#: why they are disclosed (:meth:`ResetPlan._kept_lines`) rather than left for an
-#: operator to discover after wiping the deployment they belong to.
+#: The web tier's credential files reset KEEPS, as ``(filename, what it holds,
+#: how it is refreshed)``. Each is written once — a deploy creates it when it is
+#: absent and never rewrites an existing one — and reset removes neither, which
+#: is why they are disclosed (:meth:`ResetPlan._kept_lines`) rather than left
+#: for an operator to discover after wiping the deployment they belong to.
+#:
+#: ``.env.auth`` is deliberately NOT here: reset removes it (it is on the
+#: plan's path list, with its own removal note). A password hash survives
+#: routine redeploys untouched so sessions outlive a deploy, but a reset ends
+#: every session and re-seeds ``.env`` from the profile — a hash carried across
+#: that boundary is the previous deployment's password contradicting the
+#: freshly seeded one, which is how a closing card comes to print a login the
+#: sidecar refuses.
 #:
 #: The refresh clauses are per-file because these do NOT behave alike: the same
 #: removal that gets the first re-derived (and stops a registry-mode deploy
-#: outright) costs every user their password in the second, while the third is
-#: a superseded copy nothing refreshes at all and the operator is free to drop.
-#: Every spelling comes from the module that writes it, so no disclosure here
-#: can name a file this system stopped producing.
+#: outright) leaves the second a superseded copy nothing refreshes at all and
+#: the operator is free to drop. Every spelling comes from the module that
+#: writes it, so no disclosure here can name a file this system stopped
+#: producing.
 WEB_CREDENTIAL_FILES: tuple[tuple[str, str, str], ...] = (
     (
         USERS_ENV_FILENAME,
         "the runtime secrets every web-terminal container reads",
         "Remove it and a local-mode deploy re-derives one from .env; a registry-mode "
         "deploy expects it to be there already.",
-    ),
-    (
-        AUTH_ENV_FILENAME,
-        "the web terminals' password hashes and cookie-signing secrets",
-        "Remove it and the next deploy mints a NEW password for every user; "
-        "`osprey users decommission` is what drops one departed user's entries.",
     ),
     (
         SUPERSEDED_USERS_ENV_FILENAME,
@@ -880,6 +882,12 @@ class ResetPlan:
             )
         if path == self.repo_root / MERGED_COMPOSE_FILENAME:
             return "  the merged compose document — rewritten by the next `osprey up`"
+        if path == self.repo_root / AUTH_ENV_FILENAME:
+            return (
+                "  the web logins' password hashes and cookie-signing secrets — the next "
+                "deploy re-mints them from .env, so passwords an operator set only with "
+                "`osprey users passwd` are lost"
+            )
         if path == self.audit_dir:
             return "  the safety audit log — not recoverable"
         return ""
@@ -1321,7 +1329,18 @@ def plan_reset(repo_root: Path, *, probe: RuntimeProbe, purge_audit: bool = Fals
 
     agent_data, contained = resolve_agent_data_target(repo_root, config)
 
-    paths = [repo_root / BUILD_DIRNAME, repo_root / MERGED_COMPOSE_FILENAME]
+    # `.env.auth` goes with the generation being discarded: a hash normally
+    # survives redeploys untouched (`ensure_auth_credentials` rule 1, so routine
+    # deploys never log anyone out), which after a reset would carry the
+    # PREVIOUS deployment's passwords into a repo whose `.env` was just
+    # re-seeded with the profile defaults — the closing card then names a login
+    # the sidecar refuses. Reset is the verb that ends sessions anyway; the next
+    # deploy re-mints every hash from `.env`.
+    paths = [
+        repo_root / BUILD_DIRNAME,
+        repo_root / MERGED_COMPOSE_FILENAME,
+        repo_root / AUTH_ENV_FILENAME,
+    ]
     if contained:
         paths.insert(0, agent_data)
     if purge_audit:
@@ -1563,7 +1582,15 @@ def execute_reset(plan: ResetPlan, *, probe: RuntimeProbe) -> None:
     for resource in plan.images:
         probe.remove_image(resource.name)
 
-    derived = {plan.repo_root / BUILD_DIRNAME, plan.repo_root / MERGED_COMPOSE_FILENAME}
+    # Left absent, never recreated: `build/` because its absence is what
+    # `osprey up` reads as "no build found", and the two FILES because the next
+    # deploy that needs them writes each whole (an empty directory in a file's
+    # place would fail that write).
+    derived = {
+        plan.repo_root / BUILD_DIRNAME,
+        plan.repo_root / MERGED_COMPOSE_FILENAME,
+        plan.repo_root / AUTH_ENV_FILENAME,
+    }
     for path in plan.paths:
         _wipe_directory(path, recreate=path not in derived)
 
