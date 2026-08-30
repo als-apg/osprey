@@ -35,8 +35,10 @@ from .build_profile_document import _normalize_profile_aliases, _read_profile_do
 from .build_profile_load import (
     CONNECTOR_CONFIG_KEY,
     CONNECTOR_PROFILE_KEY,
+    PORT_BASE_PROFILE_KEY,
     LoadedProfile,
     _apply_connector_shorthand,
+    _apply_port_base_shorthand,
     _parse_profile,
 )
 from .build_profile_merge import _deep_merge, _resolve_extends, resolve_profile_document
@@ -107,7 +109,11 @@ MODEL_SELECTION_OVERRIDE_KEYS = ("provider", "model", "channel_finder_mode")
 # in the same sense: which control system a project talks to is a property of
 # the deployment, not of one persona, so it belongs in profile.yml where every
 # persona delta inherits it rather than in any one persona's own file.
-SHORTHAND_OVERRIDE_KEYS = (*MODEL_SELECTION_OVERRIDE_KEYS, CONNECTOR_PROFILE_KEY)
+SHORTHAND_OVERRIDE_KEYS = (
+    *MODEL_SELECTION_OVERRIDE_KEYS,
+    CONNECTOR_PROFILE_KEY,
+    PORT_BASE_PROFILE_KEY,
+)
 
 
 def explicit_model_override_keys(set_pairs: tuple[str, ...]) -> list[str]:
@@ -338,7 +344,7 @@ def merge_cli_overrides(
     _reject_connector_type_conflict(cli_layers)
     if set_config_paths is not None:
         set_config_paths.extend(_set_config_paths(set_pairs))
-    return _apply_connector_shorthand(raw)
+    return _apply_port_base_shorthand(_apply_connector_shorthand(raw))
 
 
 def resolve_build_profile(

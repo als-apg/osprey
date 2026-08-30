@@ -53,8 +53,13 @@ def test_connector_is_a_known_profile_key() -> None:
 
 
 def test_connector_joins_the_shorthand_override_keys() -> None:
-    """The shorthand keys are the model-selection ones plus ``connector``."""
-    assert SHORTHAND_OVERRIDE_KEYS == (*MODEL_SELECTION_OVERRIDE_KEYS, "connector")
+    """The shorthand keys are the model-selection ones plus ``connector`` and
+    ``port_base``."""
+    assert SHORTHAND_OVERRIDE_KEYS == (
+        *MODEL_SELECTION_OVERRIDE_KEYS,
+        "connector",
+        "port_base",
+    )
 
 
 # ── folding into the literal dotted config key ───────────────────────────────
