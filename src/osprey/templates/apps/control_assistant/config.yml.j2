@@ -677,10 +677,17 @@ archiver:
   # mock_archiver:
   #   simulation_file: data/simulation/machine.json
 
-  # EPICS Archiver Appliance (production mode)
-  epics_archiver:
-    url: https://archiver.als.lbl.gov:8443
-    timeout: 60              # Timeout for archiver requests in seconds
+  # EPICS Archiver Appliance (production mode) — ships unconfigured on purpose.
+  #
+  # Nothing here names an appliance: a facility's archiver cannot be guessed,
+  # and shipping someone else's URL would make a flip to `type: epics_archiver`
+  # look ready while reading history from a machine you never configured.
+  # Authoring this block travels with that flip — uncomment it with your
+  # facility's values. Until then the connector refuses to start without a
+  # `url`, which is the truthful state of a fresh deployment.
+  # epics_archiver:
+  #   url: https://your-archiver.example.com:8443
+  #   timeout: 60            # Timeout for archiver requests in seconds
 
   # MongoDB archiver. Its client ships with OSPREY, so there is nothing extra to
   # install. Every key here except timeout is required; the connector raises on
