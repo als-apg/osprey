@@ -213,41 +213,6 @@ def _chat_pool_answers_to(app, session_id: str) -> bool:
     return _holds_a_chat_pool_entry(app, session_id)
 
 
-def _posture_key_is_addressable(app, session_id: str) -> bool:
-    """Whether some real session answers to *session_id* on either topology.
-
-    The posture is per session, so a key that names no session is a key nothing
-    will ever spawn under. Three answers count, cheapest first:
-
-    * a **chat session the pool would answer to** — pooled, or still inside
-      ``start()`` (:func:`_chat_pool_answers_to`). The SDK topology's key
-      exists from the moment the pool accepts the creation and never appears
-      in the JSONL stems the discovery walks.
-    * a **key the posture store already holds an entry for**. The chat pool is
-      LRU-capped, idle-reaped, and evicted by the flip itself, so pool
-      membership is a fact with an end — and without this clause a chat
-      sandboxed once could never be brought back out, because the successful
-      flip is what removed it from the pool. An entry in the store is the
-      operator's own earlier, accepted decision about this key; letting them
-      revise it grants nothing new (the store only ever *narrows* a spawn, and
-      a key nothing spawns under is inert), while refusing it would strand a
-      session in the sandbox.
-    * a **PTY session discovered on disk** — a Claude session-file stem, which
-      only exists once the operator has sent a prompt. Checked last: it walks
-      the session directory, while the other two are in-memory reads.
-
-    Checking only the stems is what made a chat session's posture unsettable:
-    the chat spawn already honours the store (``_acquire_chat_turn`` passes the
-    key to ``build_operator_child_env``), so the store was readable on that
-    surface and not writable — a badge the operator could not act on.
-    """
-    if _chat_pool_answers_to(app, session_id):
-        return True
-    if _posture_entry(app, session_id):
-        return True
-    return session_id in SessionDiscovery(app.state.project_cwd).snapshot_session_ids()
-
-
 def _atomic_write_json(path: Path, data: dict[str, Any]) -> None:
     """Serialize *data* to *path* as JSON, atomically.
 
@@ -1803,15 +1768,13 @@ ALL_TARGETS = "all"
 class _PostureRequestFacts:
     """Everything ``POST /api/terminal/posture`` needs off the event loop.
 
-    One worker-thread hop for the whole ladder: the render parse, the session
-    discovery walk, the store-path resolution, the hypothetical narrowing
-    derivation and — only when the request widens — the execution-marker sweep.
-    Answers drawn from separate hops could straddle each other: a ceiling read
-    from one render beside a narrowing verdict taken from the next.
+    One worker-thread hop for the whole ladder: the render parse, the
+    store-path resolution, the hypothetical narrowing derivation and — only
+    when the request widens — the execution-marker sweep. Answers drawn from
+    separate hops could straddle each other: a ceiling read from one render
+    beside a narrowing verdict taken from the next.
     """
 
-    #: Whether some real session answers to this key on either topology.
-    addressable: bool
     #: Target names this render configures — the 400's vocabulary.
     configured: tuple[str, ...]
     #: The targets this request actually touches (``all`` expands here).
@@ -1922,10 +1885,10 @@ def _posture_post_facts(
 ) -> _PostureRequestFacts:
     """Read everything the posture ladder decides on. BLOCKING.
 
-    Called through ``run_in_threadpool``: it parses ``config.yml``, walks the
-    session directory and globs the state directory. None of that may happen on
-    the event loop, where one slow shared volume would stall every request this
-    server is serving, the terminal websocket included.
+    Called through ``run_in_threadpool``: it parses ``config.yml`` and globs
+    the state directory. None of that may happen on the event loop, where one
+    slow shared volume would stall every request this server is serving, the
+    terminal websocket included.
     """
     config = _rendered_config(config_path)
     section = _section_of(config)
@@ -1941,7 +1904,6 @@ def _posture_post_facts(
     changing = tuple(t for t in wanted if current.get(t) != POSTURE_SANDBOX)
 
     return _PostureRequestFacts(
-        addressable=_posture_key_is_addressable(app, session_key),
         configured=configured,
         wanted=wanted,
         ceilings=_session_ceilings(section),
@@ -1994,9 +1956,8 @@ def _posture_refusal(
     BEFORE that threadpool hop stays in the handler, where it can be reached
     without paying for the facts.
 
-    The order is load-bearing and is documented on the route: 400 before 409
-    before 503 before 403, because each rung answers a question the next
-    one assumes.
+    The order is load-bearing and is documented on the route: 400 before 503
+    before 403, because each rung answers a question the next one assumes.
 
     Returns the exception rather than raising it, for the same reason
     :func:`_refuse_gesture` does: the audit record is filed here, and the
@@ -2013,21 +1974,6 @@ def _posture_refusal(
             status_code=400,
             error="unknown_target",
             message=_unknown_target_message(facts.configured),
-            detail=gesture,
-        )
-
-    if not facts.addressable:
-        return _refuse_gesture(
-            app,
-            session_id,
-            subject=subject,
-            status_code=409,
-            error="session_not_started",
-            message=(
-                "This session has not started yet — send one prompt first, then set "
-                "its posture. A chat session becomes addressable again on its next "
-                "prompt."
-            ),
             detail=gesture,
         )
 
@@ -2113,14 +2059,21 @@ async def set_terminal_posture(body: PostureRequest, request: Request):
     store, so memory and disk disagreeing is a session the popover shows as
     narrowed whose next write is still permitted — or the reverse.
 
+    **Any well-formed session id is accepted, spoken-to or not.** The posture
+    must never depend on whether the operator has talked to the agent: both
+    spawn paths read the store at spawn (``_acquire_chat_turn`` for a chat,
+    ``build_operator_child_env`` for a PTY), so a narrowing recorded before
+    the first prompt binds that session's very first write. An entry under a
+    key nothing ever spawns is inert — the store only narrows, so the worst a
+    stale or mistyped key can do is restrict a session that does not exist —
+    and the ``operator-`` filter in :func:`_load_postures` is the hygiene
+    boundary for keys that cannot come back. An earlier gate here refused
+    fresh sessions with "send one prompt first"; it guarded nothing.
+
     The ladder, in order:
 
     * **400** — an id outside the closed key grammar; a target this render does
       not configure; or :data:`ALL_TARGETS` with ``writes``.
-    * **409** ``session_not_started`` — the id names no session at all: no chat
-      the pool would answer to, no entry already in the store, no Claude
-      session file on disk (:func:`_posture_key_is_addressable`). Sending one
-      prompt is the entire remedy, and the message says so.
     * **503** — the store has no location, or the write failed. The toggle was
       refused and nothing changed.
     * **403** ``writes_disabled`` — ``writes`` on a target this render does not

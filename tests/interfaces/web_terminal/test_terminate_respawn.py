@@ -1,10 +1,13 @@
-"""The chat pool's terminate, and the probe that says a chat key is live.
+"""The chat pool's terminate, and the registry facades the chat surfaces use.
 
 Terminating a chat child used to be half of applying a posture: the posture
 travelled in the child's environment, so a flip had to kill the child and let
 it come back. It does not any more — the per-target posture is recorded in the
 store and read at write time, so a narrowing lands on a chat already
-mid-conversation and ``POST /api/terminal/posture`` terminates nothing.
+mid-conversation and ``POST /api/terminal/posture`` terminates nothing. (The
+posture route asks no addressability question at all any more: any well-formed
+key is accepted, because the store only narrows and both spawn paths read it
+before the first write.)
 
 What survives is everything that was never about the posture:
 
@@ -13,10 +16,9 @@ What survives is everything that was never about the posture:
   the 409 the chat route maps that supersede to;
 * **the env fingerprint**, the SDK counterpart of the PTY registry's: a reuse
   must not hand back a child built with a different environment;
-* **the addressability probe** the posture route still asks, which has to see a
-  chat that has been accepted but not yet registered — refusing an operator's
-  toggle on a session starting in front of them would be a 409 that stores
-  nothing.
+* **the registry facades** (``has_chat_key`` and friends) the GET roster and
+  the reset route still call, pinned by name because their renames fail
+  quietly.
 
 Harness mirrors ``test_posture_routes.py``: each test builds its own app
 through ``create_app`` under a patched ``_load_web_config``, entered as a
@@ -109,15 +111,15 @@ def known_sessions(*session_ids):
 
 
 class TestAChatKeyIsAddressable:
-    """The posture surface can name a chat, including one still starting."""
+    """The registry facades the chat surfaces rely on stay pinned by name."""
 
     def test_the_shipped_registry_exposes_the_facades_the_callers_use(self):
         """A rename of any of these is silent in its own way.
 
         * ``has_chat_key`` — :func:`_chat_pool_answers_to` would fall back to
           the session-map read, which cannot see a creation still inside
-          ``start()``, and an operator toggling a chat on its first prompt
-          would be refused with a 409 that stores nothing;
+          ``start()``, and the GET roster would stop marking a starting chat's
+          rows as ``chat_session``;
         * ``get_chat_session`` — that fallback itself would answer ``False``
           for every key; and
         * ``terminate_chat_session`` — the chat reset route would stop tearing
@@ -127,42 +129,6 @@ class TestAChatKeyIsAddressable:
         """
         for name in ("terminate_chat_session", "get_chat_session", "has_chat_key"):
             assert callable(getattr(OperatorRegistry, name, None)), name
-
-    def test_the_addressability_probe_sees_a_creation_still_starting(self, client):
-        """The pool answers to a key it has accepted but not yet registered.
-
-        The gate's own unit: ``get_chat_session`` still says "nothing here"
-        during ``start()`` — that is what it is for — while ``has_chat_key``
-        says the pool will answer to this key. Only the second is a safe basis
-        for refusing an operator's toggle.
-        """
-        created: list[_FakeChatSession] = []
-        registry = OperatorRegistry()
-        client.app.state.operator_registry = registry
-
-        async def _probe_mid_creation():
-            with patch(
-                "osprey.interfaces.web_terminal.operator_session.OperatorSession",
-                _slow_session_class(created),
-            ):
-                creation = asyncio.create_task(
-                    registry.get_or_create_chat_session(CHAT_A, "/tmp", None)
-                )
-                await created_first(created)
-                seen = (
-                    registry.get_chat_session(CHAT_A),
-                    registry.has_chat_key(CHAT_A),
-                    websocket_routes._posture_key_is_addressable(client.app, CHAT_A),
-                )
-                await creation
-                return seen
-
-        with known_sessions():
-            pooled, has_key, addressable = asyncio.run(_probe_mid_creation())
-
-        assert pooled is None
-        assert has_key is True
-        assert addressable is True
 
 
 class _FakeChatSession:
@@ -377,24 +343,6 @@ class TestChatRouteMapsTheRefusal:
 
         assert excinfo.value.status_code == 409
         assert excinfo.value.detail["error"] == "chat_terminated"
-
-
-def _slow_session_class(created: list, delay: float = 0.05):
-    """A chat-session class whose ``start()`` is still running on the next tick.
-
-    The registry's factory builds ``OperatorSession(cwd=..., env=...)`` by
-    resolving the name in ``operator_session`` at call time, so patching that
-    name with this class is enough to put a REAL ``ChatSessionPool`` and a real
-    ``OperatorRegistry`` under the route with a session that cannot start.
-    """
-
-    class _Slow(_FakeChatSession):
-        def __init__(self, cwd="/tmp", env=None):
-            super().__init__(cwd=cwd, env=env)
-            self.start_delay = delay
-            created.append(self)
-
-    return _Slow
 
 
 class TestChatPoolEnvFingerprint:

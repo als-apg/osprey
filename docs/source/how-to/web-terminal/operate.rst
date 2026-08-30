@@ -182,12 +182,10 @@ cannot move it is locked and carries the reason:
        configured, leaving the target unusable. You are told before you act,
        not after.
 
-Two more refusals arrive on the gesture rather than on the toggle. A session
-that has never been sent a prompt has nothing to record a posture against:
-*"This session has not started yet --- send one prompt first, then set its
-posture."* And widening while an execution is running is refused --- a run is
-pinned to the posture it launched under, so a widening could not reach it
-anyway, and saying so beats a silent no-op.
+One more refusal arrives on the gesture rather than on the toggle: you cannot
+turn writes back on while the agent is still running something. The run keeps
+the posture it started with, so wait for it to finish, or stop it, and try
+again.
 
 Switch this session to another machine
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

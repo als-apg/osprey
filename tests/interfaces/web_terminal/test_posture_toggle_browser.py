@@ -680,27 +680,27 @@ def test_switch_confirms_is_accepted_and_reads_switching(tmp_path, monkeypatch, 
 
 
 # ---------------------------------------------------------------------------
-# (e) a refusal keeps its sentence on screen
+# (e) an unstarted session is already addressable
 # ---------------------------------------------------------------------------
 
 
-def test_an_unstarted_session_surfaces_the_409_remedy_on_the_row(
+def test_an_unstarted_session_accepts_a_narrowing_the_moment_it_opens(
     tmp_path, monkeypatch, chromium_browser
 ):
-    """A session with no file on disk is refused, and the row says why.
+    """A session with no file on disk narrows all the same.
 
     ``known_ids`` stays empty, so the id the chip is on names no session file —
-    the state a terminal is in before its first prompt. The route answers 409
-    with a dict detail, and the chip's request path unwraps ``detail.message``
-    (rather than stringifying the dict to "[object Object]") onto the row the
-    gesture was made on. The remedy sentence is the whole point of the refusal,
-    so it stays on the row the operator is looking at and nothing is written.
+    the state a terminal is in before its first prompt. The store only ever
+    narrows and both spawn paths read it before the first write, so there is
+    nothing an unstarted session could evade: the gesture lands in the store
+    under this session's key, and the row settles into the narrowed state
+    instead of surfacing a remedy sentence.
     """
     known_ids: set[str] = set()
 
     with _chip_hub(tmp_path, monkeypatch, known_ids=known_ids) as (base_url, app):
         # Deliberately NOT _settled_chip: that helper makes the session
-        # addressable, which is the exact fact this case removes.
+        # addressable, and working WITHOUT that fact is the case.
         page = chromium_browser.new_page()
         page.goto(base_url, wait_until="domcontentloaded")
         try:
@@ -715,13 +715,11 @@ def test_an_unstarted_session_surfaces_the_409_remedy_on_the_row(
             _open_popover(page)
             _segment(page, POSTURE_TARGET, "read-only").click()
 
-            outcome = _row(page, POSTURE_TARGET).locator(".ctc-outcome")
-            expect(outcome).to_be_visible(timeout=TIMEOUT)
-            expect(outcome).to_contain_text("send one prompt first", timeout=TIMEOUT)
-
-            # Nothing was applied and nothing was stored.
-            expect(_row(page, POSTURE_TARGET)).to_have_attribute("data-state", "writes")
-            assert _stored_postures() == {}
+            expect(_segment(page, POSTURE_TARGET, "read-only")).to_have_attribute(
+                "aria-pressed", "true", timeout=TIMEOUT
+            )
+            stored = _stored_postures()
+            assert stored == {session_id: {POSTURE_TARGET: "sandbox"}}, stored
         finally:
             page.close()
 

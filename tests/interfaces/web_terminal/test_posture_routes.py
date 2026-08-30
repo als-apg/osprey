@@ -201,8 +201,9 @@ def ledger():
 def known_sessions(*session_ids):
     """Make ``SessionDiscovery`` report *session_ids* as started on disk.
 
-    A posture can only be set on a session that exists — a PTY session's file
-    appears once the operator has sent a prompt.
+    The posture route no longer consults the discovery walk, but the GET
+    surface and the terminate/respawn paths still do; pinning it keeps every
+    test's disk state explicit either way.
     """
     with patch(
         "osprey.interfaces.web_terminal.session_discovery.SessionDiscovery.snapshot_session_ids",
@@ -407,19 +408,28 @@ class TestGrammar:
         assert resp.json()["detail"]["error"] == "unknown_target"
 
 
-class TestSessionNotStarted:
-    def test_an_id_no_session_backs_is_409(self, client):
-        with known_sessions(SESSION_B):
-            resp = post_posture(client)
-        assert resp.status_code == 409
-        assert resp.json()["detail"]["error"] == "session_not_started"
-        assert "send one prompt first" in json.dumps(resp.json()["detail"])
+class TestUnspokenSessions:
+    """The posture never depends on whether the operator has talked to the agent.
 
-    def test_a_refused_session_stores_nothing(self, client, agent_data_root):
+    Both spawn paths read the store at spawn, so a narrowing recorded before
+    the first prompt binds that session's very first write — and the store
+    only narrows, so an entry under a key nothing spawns is inert. The gate
+    that refused these gestures with "send one prompt first" guarded nothing
+    and is gone.
+    """
+
+    def test_a_key_with_no_session_behind_it_still_narrows(self, client, agent_data_root):
+        with known_sessions():  # nothing on disk, nothing pooled
+            resp = post_posture(client)
+        assert resp.status_code == 200
+        assert read_store(agent_data_root) == {SESSION_A: {"standin": "sandbox"}}
+
+    def test_a_fresh_chat_key_narrows_before_its_first_prompt(self, client, agent_data_root):
+        """The page mints its chat id at load; the toggle must work from then on."""
         with known_sessions():
-            assert post_posture(client).status_code == 409
-        assert SESSION_A not in getattr(client.app.state, "session_postures", {})
-        assert read_store(agent_data_root) is None
+            resp = post_posture(client, session_id=CHAT_A, target="va")
+        assert resp.status_code == 200
+        assert read_store(agent_data_root) == {CHAT_A: {"va": "sandbox"}}
 
 
 class TestStoreUnavailable:
@@ -959,6 +969,20 @@ class TestTopologies:
                 resp = post_posture(client, session_id=CHAT_A, target="standin")
         assert resp.status_code == 200
         assert read_store(agent_data_root) == {CHAT_A: {"standin": "sandbox"}}
+
+    def test_a_prompt_less_pty_session_narrows(self, client, agent_data_root):
+        """A just-opened terminal, zero prompts sent: the toggle works.
+
+        The regression that motivated dropping the started-session gate — an
+        operator opened a terminal and was told to talk to the agent before
+        they could take writes away from it.
+        """
+        registry = client.app.state.pty_registry
+        registry.get_or_create_session(SESSION_A, "echo")
+        with known_sessions():  # nothing on disk: no prompt has been sent
+            resp = post_posture(client, target="standin")
+        assert resp.status_code == 200
+        assert read_store(agent_data_root) == {SESSION_A: {"standin": "sandbox"}}
 
     def test_a_key_the_store_already_holds_stays_addressable(self, client, agent_data_root):
         """Otherwise a chat sandboxed once could never be brought back out."""
