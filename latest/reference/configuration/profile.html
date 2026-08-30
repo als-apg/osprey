@@ -663,7 +663,15 @@ under <code class="docutils literal notranslate"><span class="pre">claude_code</
 <span class="w">  </span><span class="c1"># for the key to mean anything (see the &quot;Use the Virtual Accelerator&quot;</span>
 <span class="w">  </span><span class="c1"># how-to).</span>
 <span class="w">  </span><span class="nt">control_system.connector.virtual_accelerator.writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="c1"># Limits checking works the same way. This pair is the deployment&#39;s, and</span>
+<span class="w">  </span><span class="c1"># every type inherits it ...</span>
 <span class="w">  </span><span class="nt">control_system.limits_checking.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">control_system.limits_checking.allow_unlisted_channels</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">  </span><span class="c1"># ... while a per-type block replaces it whole for one type. Both settings</span>
+<span class="w">  </span><span class="c1"># have to be stated: one alone is refused by `osprey build` and</span>
+<span class="w">  </span><span class="c1"># `osprey validate`.</span>
+<span class="w">  </span><span class="nt">control_system.connector.virtual_accelerator.limits_checking.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 
 <span class="w">  </span><span class="c1"># Archiver</span>
 <span class="w">  </span><span class="nt">archiver.type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">epics_archiver</span>
@@ -680,6 +688,43 @@ under <code class="docutils literal notranslate"><span class="pre">claude_code</
 <span class="w">  </span><span class="c1"># Approval policy</span>
 <span class="w">  </span><span class="nt">approval.default_policy</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">always</span>
 </pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><strong>Connector types whose name contains a dot</strong> are the one place the flat form
+does not work. A custom connector is named by its module path, and the build
+splits only the <em>first</em> key of each <code class="docutils literal notranslate"><span class="pre">config:</span></code> entry on dots — so
+<code class="docutils literal notranslate"><span class="pre">control_system.connector.mypkg.TangoConnector.limits_checking.enabled</span></code>
+renders the type’s module path as two nested keys, <code class="docutils literal notranslate"><span class="pre">mypkg</span></code> and
+<code class="docutils literal notranslate"><span class="pre">TangoConnector</span></code>, instead of the one key the connector is actually called.
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> refuse that entry by name rather
+than letting it render somewhere nothing reads. Write such a type as its own
+map key under a dotted prefix, which is the one spelling that puts the block
+where the connector looks for it:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">control_system.connector</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">mypkg.TangoConnector</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">limits_checking</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">        </span><span class="nt">allow_unlisted_channels</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</pre></div>
+</div>
+<p><strong>That entry replaces the whole rendered connector section.</strong> <code class="docutils literal notranslate"><span class="pre">connector</span></code>
+is the last key of the dotted prefix, and a leaf is assigned verbatim — so
+the mapping has to carry every connector block the deployment needs, not only
+the custom type’s. Copy the <code class="docutils literal notranslate"><span class="pre">mock</span></code>, <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> and <code class="docutils literal notranslate"><span class="pre">epics</span></code>
+blocks, with their gateways, ports and probe channels, from
+<code class="docutils literal notranslate"><span class="pre">templates/project/config.yml.j2</span></code> or from a prior render’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.
+Nothing outside <code class="docutils literal notranslate"><span class="pre">connector</span></code> is disturbed, and nothing refuses a mapping
+that leaves a block out: the deployment simply comes up without the addresses
+that block held.</p>
+<p>What is never right is a bare <code class="docutils literal notranslate"><span class="pre">control_system:</span></code> mapping beside flat
+<code class="docutils literal notranslate"><span class="pre">control_system.*</span></code> keys — the bare top-level key is the only spelling that
+does not merge, since deeper dotted prefixes are walked into rather than
+assigned over. It replaces the whole rendered section, so which of the two
+reaches <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> depends on key order. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<span class="pre">validate</span></code> refuse that pair by name too. Built-in types have no dots and take
+the flat form.</p>
 </div>
 </section>
 <section id="mcp-server-injection">
@@ -1107,6 +1152,12 @@ normally writes the pair itself:</p>
 <span class="w">  </span><span class="nt">control_system.limits_checking.allow_unlisted_channels</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
 </pre></div>
 </div>
+<p>That pair is the deployment’s, and the stand-in inherits it: the build writes no
+<code class="docutils literal notranslate"><span class="pre">limits_checking</span></code> block under <code class="docutils literal notranslate"><span class="pre">control_system.connector.live_standin</span></code>, and a
+profile should not either, since a permissive block there would make
+<code class="docutils literal notranslate"><span class="pre">control_target_set</span> <span class="pre">standin</span></code> refuse the very rehearsal the stand-in exists
+for. A simulator beside it is where a per-type block belongs — see
+<a class="reference internal" href="../contracts/connectors.html#limits-checking-config"><span class="std std-ref">Limits Checking</span></a>.</p>
 <p><code class="docutils literal notranslate"><span class="pre">control_system.target_switch.live_gateway_acknowledged</span></code> stays the live
 machine’s alone — the stand-in’s equivalent is the <code class="docutils literal notranslate"><span class="pre">live_standin</span></code> line itself.</p>
 <p><strong>What the build refuses.</strong> Beside the duplicate-key refusal above:</p>

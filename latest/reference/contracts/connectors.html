@@ -629,8 +629,8 @@ connector type:</p>
 </div>
 <p>A connector type that carries no <code class="docutils literal notranslate"><span class="pre">writes_enabled</span></code> of its own inherits
 <code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code>; one that carries it uses its own value and
-never falls back. Both default to blocked when omitted, and <strong>only a literal
-``true`` arms writes</strong> — the quoted string <code class="docutils literal notranslate"><span class="pre">'true'</span></code> and the number <code class="docutils literal notranslate"><span class="pre">1</span></code> do
+never falls back. Both default to blocked when omitted, and <strong>only a literal</strong>
+<code class="docutils literal notranslate"><span class="pre">true</span></code> <strong>arms writes</strong> — the quoted string <code class="docutils literal notranslate"><span class="pre">'true'</span></code> and the number <code class="docutils literal notranslate"><span class="pre">1</span></code> do
 not. A custom connector’s block is keyed by the same dotted module path that
 selects it, so <code class="docutils literal notranslate"><span class="pre">mypackage.TangoConnector</span></code> names one block and is never split
 on its dots.</p>
@@ -664,11 +664,45 @@ substitute for the connector’s mechanical refusal.</p>
 <span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">                     </span><span class="c1"># Enable limits validation</span>
 <span class="w">    </span><span class="nt">database_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./limits_db.json</span><span class="w">   </span><span class="c1"># Path to the channel limits JSON</span>
 <span class="w">    </span><span class="nt">allow_unlisted_channels</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">    </span><span class="c1"># Block writes to channels not in the database</span>
+<span class="w">  </span><span class="nt">connector</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">virtual_accelerator</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">limits_checking</span><span class="p">:</span><span class="w">                </span><span class="c1"># This connector type&#39;s own posture,</span>
+<span class="w">        </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">                 </span><span class="c1"># replacing the pair above for it alone</span>
+<span class="w">        </span><span class="nt">allow_unlisted_channels</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 </pre></div>
 </div>
 <p>When enabled, every <code class="docutils literal notranslate"><span class="pre">write_channel()</span></code> call is validated against the limits
 database before the write reaches hardware. The database format is the
 per-channel configuration above.</p>
+<p>The posture is per connector type. <code class="docutils literal notranslate"><span class="pre">control_system.limits_checking</span></code> is what a
+type inherits when it says nothing about itself, and
+<code class="docutils literal notranslate"><span class="pre">control_system.connector.&lt;type&gt;.limits_checking</span></code> answers for that type
+instead — so one deployment can refuse unlisted channels on its live machine
+while letting them through on a simulator. Three rules govern the per-type
+block:</p>
+<ul class="simple">
+<li><p><strong>It replaces, it does not merge.</strong> A per-type block must state both
+<code class="docutils literal notranslate"><span class="pre">enabled</span></code> and <code class="docutils literal notranslate"><span class="pre">allow_unlisted_channels</span></code>; neither is inherited. A block
+stating one alone is refused by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code>,
+naming the missing setting — and a half-written block that reaches a running
+deployment anyway, by a hand-edited <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> or an older render, blocks
+every write until it is completed.</p></li>
+<li><p><strong>The database stays deployment-wide.</strong> <code class="docutils literal notranslate"><span class="pre">database_path</span></code> is not a per-type
+setting: the deployment mounts one limits file, and every target is checked
+against it.</p></li>
+<li><p><strong>Only explicit values decide.</strong> <code class="docutils literal notranslate"><span class="pre">allow_unlisted_channels</span></code> is true, false,
+or unstated. With limits checking enabled, an <code class="docutils literal notranslate"><span class="pre">allow_unlisted_channels</span></code>
+that no key states refuses unlisted channels — permission needs an explicit
+<code class="docutils literal notranslate"><span class="pre">true</span></code>. A deployment that states no limits posture at all runs no limits
+checking, and nothing on that path refuses an unlisted channel.</p></li>
+</ul>
+<p>A refusal about an unlisted channel — and the target switch’s
+<code class="docutils literal notranslate"><span class="pre">limits_posture</span></code> refusal — names the key that answered, the per-type one where
+a block spoke and the deployment-wide one where none did, so an operator edits
+the line that decides rather than one it overrides. The <code class="docutils literal notranslate"><span class="pre">channel_limits</span></code> tool
+reports the same pair for the target the session is on, including <code class="docutils literal notranslate"><span class="pre">null</span></code> where
+nothing states an answer, alongside <code class="docutils literal notranslate"><span class="pre">allow_unlisted_key</span></code> naming the key it
+read.</p>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <dl class="simple">
@@ -752,11 +786,11 @@ round to one it can (the Archiver Appliance connector rejects a positive
 <code class="docutils literal notranslate"><span class="pre">require_datetime</span></code>, <code class="docutils literal notranslate"><span class="pre">resolve_processing</span></code>, <code class="docutils literal notranslate"><span class="pre">long_frame</span></code>, <code class="docutils literal notranslate"><span class="pre">decimate_raw</span></code>,
 <code class="docutils literal notranslate"><span class="pre">aggregate_series</span></code>, <code class="docutils literal notranslate"><span class="pre">reject_non_numeric</span></code>) implement all of the above –
 every in-tree connector builds on them rather than reimplementing binning.</p>
-<p><strong>The ``value`` dtype rule.</strong> Enum/status channels carry string values, and
-<code class="docutils literal notranslate"><span class="pre">get_data</span></code> never coerces them: a channel’s own dtype flows through, and only
-mixing non-numeric with numeric channels in one query promotes the shared
-<code class="docutils literal notranslate"><span class="pre">value</span></code> column. Forcing <code class="docutils literal notranslate"><span class="pre">value</span></code> to <code class="docutils literal notranslate"><span class="pre">float64</span></code> “for consistency” silently
-corrupts every enum/status channel. (This is deliberately not the live-read
+<p><strong>The dtype rule for</strong> <code class="docutils literal notranslate"><span class="pre">value</span></code><strong>.</strong> Enum/status channels carry string
+values, and <code class="docutils literal notranslate"><span class="pre">get_data</span></code> never coerces them: a channel’s own dtype flows
+through, and only mixing non-numeric with numeric channels in one query promotes
+the shared <code class="docutils literal notranslate"><span class="pre">value</span></code> column. Forcing <code class="docutils literal notranslate"><span class="pre">value</span></code> to <code class="docutils literal notranslate"><span class="pre">float64</span></code> “for consistency”
+silently corrupts every enum/status channel. (This is deliberately not the live-read
 contract, where an enum reads as its index with the label in <code class="docutils literal notranslate"><span class="pre">enum_label</span></code> –
 an archiver reports what its backend recorded, and these backends recorded the
 string.)</p>

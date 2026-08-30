@@ -804,18 +804,36 @@ they are gated in every deployment.</p>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>The limits posture is a separate decision, and it is the profile’s to make.
-Shipped permissive (<code class="docutils literal notranslate"><span class="pre">limits_checking.allow_unlisted_channels:</span> <span class="pre">true</span></code>), the
-limits checker does not block a channel <em>absent</em> from
-<code class="docutils literal notranslate"><span class="pre">channel_limits.json</span></code>: range enforcement covers the listed channels, and
-it is not a closed allowlist.</p>
-<p>A deployment that rehearses on a stand-in wants the strict posture instead —
-limits checking on, unlisted channels refused — because that is what a switch
-to either real-machine target requires, and rehearsing it is what the
-stand-in is for. Write the pair in the build profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block; the
-<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset does. It applies to the whole deployment, so an
-unlisted channel is refused on the simulator too. See <a class="reference internal" href="#rehearsing-against-a-live-target">Rehearsing against a
-live target</a>.</p>
+<p>The limits posture is a separate decision, and it is per connector type in
+the same way. <code class="docutils literal notranslate"><span class="pre">control_system.limits_checking</span></code> is the pair a type inherits
+when it says nothing about itself; a <code class="docutils literal notranslate"><span class="pre">limits_checking</span></code> block under a type’s
+<code class="docutils literal notranslate"><span class="pre">connector:</span></code> entry answers for that type instead.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">limits_checking</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">                       </span><span class="c1"># the posture the live machine runs</span>
+<span class="w">    </span><span class="nt">allow_unlisted_channels</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">      </span><span class="c1"># under, and every type inherits</span>
+<span class="w">  </span><span class="nt">connector</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">virtual_accelerator</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">limits_checking</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">                   </span><span class="c1"># ... and the simulator alone lets</span>
+<span class="w">        </span><span class="nt">allow_unlisted_channels</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">   </span><span class="c1"># an unlisted channel through</span>
+</pre></div>
+</div>
+<p>That is the shape <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> ends up in; write it in the build profile’s
+<code class="docutils literal notranslate"><span class="pre">config:</span></code> block as flat dotted keys, as the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset
+does. A per-type block replaces the inherited pair as a <em>whole</em>: nothing is
+borrowed from the deployment-wide block, so both settings have to be written
+out. A block stating one of them alone is refused by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code>, naming the one that is missing. The limits database
+itself stays deployment-wide — <code class="docutils literal notranslate"><span class="pre">limits_checking.database_path</span></code> is one file
+for every target, and a per-type block does not take a path.</p>
+<p>With the pair above, a write to the simulator is still checked against the
+ranges <code class="docutils literal notranslate"><span class="pre">channel_limits.json</span></code> gives for the channels it lists; what changes
+is that a channel the file does <em>not</em> list is allowed through on the
+simulator and refused on the live machine and the stand-in. That strict
+posture is what a switch to either real-machine target requires, and
+rehearsing it is what the stand-in is for. See <a class="reference internal" href="#rehearsing-against-a-live-target">Rehearsing against a live
+target</a>.</p>
 </div>
 </section>
 </section>

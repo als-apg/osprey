@@ -655,12 +655,16 @@ commented out — a facility’s channel names cannot be guessed, and a placehol
 would make the live target look ready while naming a channel nothing answers.
 Set it to a channel your facility actually serves.</p>
 <p><strong>A strict limits posture</strong> (<code class="docutils literal notranslate"><span class="pre">limits_posture</span></code>).
-<code class="docutils literal notranslate"><span class="pre">control_system.limits_checking.enabled</span></code> must be <code class="docutils literal notranslate"><span class="pre">true</span></code> and
-<code class="docutils literal notranslate"><span class="pre">control_system.limits_checking.allow_unlisted_channels</span></code> must be <code class="docutils literal notranslate"><span class="pre">false</span></code> —
-every writable channel is on the list, and a channel that is not on the list is
-refused rather than allowed through. This one guards <code class="docutils literal notranslate"><span class="pre">standin</span></code> too: both are
-machines you meet hardware behaviour on, and a rehearsal on a permissive posture
-rehearses the wrong facility.</p>
+Limits checking must be <code class="docutils literal notranslate"><span class="pre">enabled:</span> <span class="pre">true</span></code> with <code class="docutils literal notranslate"><span class="pre">allow_unlisted_channels:</span>
+<span class="pre">false</span></code> — every writable channel is on the list, and a channel that is not on
+the list is refused rather than allowed through. The posture is the target’s
+own: <code class="docutils literal notranslate"><span class="pre">control_system.connector.&lt;type&gt;.limits_checking</span></code> when that target’s
+connector type states a block, and the deployment-wide
+<code class="docutils literal notranslate"><span class="pre">control_system.limits_checking</span></code> when it does not. The refusal names whichever
+of the two answered, so you edit the line that decides rather than one it
+overrides. This gate guards <code class="docutils literal notranslate"><span class="pre">standin</span></code> too: both are machines you meet hardware
+behaviour on, and a rehearsal on a permissive posture rehearses the wrong
+facility.</p>
 <p><strong>An operator acknowledgment</strong> (<code class="docutils literal notranslate"><span class="pre">operator_ack_missing</span></code>).
 <code class="docutils literal notranslate"><span class="pre">control_system.target_switch.live_gateway_acknowledged</span></code> must be set, to the
 hostname of the live gateway this deployment is configured against. Setting it
@@ -819,6 +823,16 @@ than presented as current.</p></td>
 the real machine, and the channel a switch would prove it with. Two rows
 of the same deployment can disagree about the first one: write posture is
 per target, so a simulator may be armed beside a live machine that is not.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">limits_strict</span></code></p></td>
+<td><p>Whether <strong>this target</strong> runs the strict limits posture — limits checking
+on and unlisted channels refused — which is what the <code class="docutils literal notranslate"><span class="pre">limits_posture</span></code>
+gate above requires. Rows can disagree here too, but only from the
+deployment’s config: a deployment can relax unlisted channels for its
+simulator alone. Unlike <code class="docutils literal notranslate"><span class="pre">writes_permitted</span></code>, no session narrowing
+moves it. A target whose config states neither setting reads
+<code class="docutils literal notranslate"><span class="pre">false</span></code>, because a deployment that has stated nothing has refused
+nothing.</p></td>
 </tr>
 </tbody>
 </table>
@@ -1017,16 +1031,23 @@ reachable. The <code class="docutils literal notranslate"><span class="pre">epic
 pointed at its own control system can stand a rehearsal up next to it without
 losing sight of its machine.</p>
 <p><strong>Set the posture yourself.</strong> The strict limits pair is the profile’s to state,
-in its <code class="docutils literal notranslate"><span class="pre">config:</span></code> block:</p>
+in its <code class="docutils literal notranslate"><span class="pre">config:</span></code> block. The stand-in gets no block of its own — it is
+hardware-shaped, so it keeps the deployment-wide pair the live machine runs
+under, and only the simulator is relaxed:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">control_system.limits_checking.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">  </span><span class="nt">control_system.limits_checking.allow_unlisted_channels</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<span class="w">  </span><span class="nt">control_system.connector.virtual_accelerator.limits_checking.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 </pre></div>
 </div>
-<p>That is what a switch to either real-machine target requires. Without it
-<code class="docutils literal notranslate"><span class="pre">control_target_set</span> <span class="pre">standin</span></code> refuses with <code class="docutils literal notranslate"><span class="pre">limits_posture</span></code>, which is the
+<p>That first pair is what a switch to either real-machine target requires. Without
+it <code class="docutils literal notranslate"><span class="pre">control_target_set</span> <span class="pre">standin</span></code> refuses with <code class="docutils literal notranslate"><span class="pre">limits_posture</span></code>, which is the
 right refusal: a rehearsal on a permissive posture rehearses a facility you do
-not have.</p>
+not have. Writing the relaxation under <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> instead of
+deployment-wide is what keeps the rehearsal honest — a per-type block replaces
+the pair above for that type alone, and must state both settings or <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> refuse it.</p>
 <p><strong>Three rows on the roster.</strong> Ask where the session could go and you get one row
 per configured machine:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span>&gt; what control target is this session on, and where else could it go?
