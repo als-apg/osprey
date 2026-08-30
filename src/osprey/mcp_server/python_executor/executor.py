@@ -26,6 +26,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from osprey.audit import posture
 from osprey.mcp_server.sandbox_env import (
     PERIMETER_DENY_PORTS_ENV,
     PERIMETER_MARKER_ENV,
@@ -33,6 +34,7 @@ from osprey.mcp_server.sandbox_env import (
 )
 from osprey.stores.artifact_manifest import collect_artifacts
 from osprey.utils.config import EXECUTION_METHOD_SUBPROCESS
+from osprey_connectors import session_store
 
 logger = logging.getLogger("osprey.mcp_server.python_executor.executor")
 
@@ -109,11 +111,22 @@ ENV_CONTROL_TARGET_GENERATION = "OSPREY_CONTROL_TARGET_GENERATION"
 ENV_CONTROL_TARGET_STATE_PID = "OSPREY_CONTROL_TARGET_STATE_PID"
 
 #: Every name the stamp occupies. Cleared together when nothing is stamped.
+#: :data:`ENV_LAUNCH_POSTURE` is deliberately NOT a member: it is stamped on
+#: every launch, including the unstamped one, so it is never cleared.
 _STAMP_ENV_NAMES = (
     ENV_CONTROL_TARGET,
     ENV_CONTROL_TARGET_GENERATION,
     ENV_CONTROL_TARGET_STATE_PID,
 )
+
+#: The per-target write posture the run was LAUNCHED under, stamped into the
+#: sandbox environment and recorded in the in-flight marker. The format and the
+#: reading side belong to
+#: :mod:`osprey_connectors.session_store`, which is where the sandbox's own
+#: reference monitor asks the question; the name is imported from there rather
+#: than re-spelled, because unlike the three stamps above this one is read by a
+#: module this process can import.
+ENV_LAUNCH_POSTURE = session_store.LAUNCH_POSTURE_ENV_VAR
 
 #: The in-flight marker contract, spelled here and restated in
 #: :mod:`osprey.mcp_server.control_system.tools.control_target`, which reads
@@ -452,6 +465,40 @@ def _target_is_resolvable(target: str) -> bool:
     return True
 
 
+def _launch_posture(target: str | None) -> str:
+    """The :data:`ENV_LAUNCH_POSTURE` value for a run about to start on *target*.
+
+    The store answers "may this session write to this machine" at the instant
+    of launch, and that answer is pinned into the run rather than left to be
+    re-asked. The store read inside the sandbox still follows the operator, so
+    a narrowing lands on the very next write; this pin is the other direction —
+    a WIDENING must not reach a run that started narrow, because the script is
+    already running and nobody re-consented to what it does next.
+
+    ``target`` is ``None`` for a run this executor could not place on a target,
+    and the stamp then covers every target: the most restrictive answer, for the
+    same reason :func:`~osprey_connectors.session_store.store_permits` takes it
+    when it is handed no target.
+
+    Fails CLOSED. Every way of not being able to read the store lands on
+    ``sandbox``, which costs a readwrite run its control-system writes and
+    costs a readonly run nothing — the trade every other reader in this
+    contract makes.
+    """
+    try:
+        permitted = session_store.store_permits(posture.posture_session(), target)
+    except Exception:  # noqa: BLE001 - an unreadable store must not grant writes
+        logger.warning(
+            "Could not resolve the session write posture for target %r; "
+            "the run is launched sandboxed",
+            target,
+            exc_info=True,
+        )
+        permitted = False
+    value = session_store.POSTURE_WRITES if permitted else session_store.POSTURE_SANDBOX
+    return session_store.launch_posture_stamp(target, value)
+
+
 def _apply_target_stamp(sandbox_env: dict[str, str]) -> str:
     """Stamp the session's control target into *sandbox_env*; return the target.
 
@@ -465,11 +512,17 @@ def _apply_target_stamp(sandbox_env: dict[str, str]) -> str:
     ancestor, and passing that through would route agent code off a target this
     session never selected — the absence of a stamp has to mean "baseline", so
     it has to be spelled as absence.
+
+    :data:`ENV_LAUNCH_POSTURE` is stamped on BOTH paths, and is the one name
+    here that is never removed: absence would read as "this run was never
+    pinned", and an unstamped run is precisely the one whose target could not be
+    named — the case the pin has to cover most restrictively, not least.
     """
     record = _session_target_record()
     if record is None or not _target_is_resolvable(str(record["target"])):
         for name in _STAMP_ENV_NAMES:
             sandbox_env.pop(name, None)
+        sandbox_env[ENV_LAUNCH_POSTURE] = _launch_posture(None)
         return CONTROL_TARGET_BASELINE
 
     target = str(record["target"])
@@ -478,11 +531,12 @@ def _apply_target_stamp(sandbox_env: dict[str, str]) -> str:
     # The record's identity, so the sandbox pins against this server's file and
     # not against whatever else is in the state directory.
     sandbox_env[ENV_CONTROL_TARGET_STATE_PID] = str(int(record["server_pid"]))
+    sandbox_env[ENV_LAUNCH_POSTURE] = _launch_posture(target)
     return target
 
 
 @contextlib.contextmanager
-def _in_flight_marker(control_target: str):
+def _in_flight_marker(control_target: str, launch_posture: str | None = None):
     """Record that an execution is running, for as long as it runs.
 
     The control-system server refuses a target switch while a marker is live:
@@ -504,6 +558,13 @@ def _in_flight_marker(control_target: str):
     past the generation it launched under. See
     :mod:`osprey.mcp_server.control_system.tools.control_target` for the reader
     and for why the contract is stated on both sides.
+
+    ``launch_posture`` is the :data:`ENV_LAUNCH_POSTURE` stamp this run carries,
+    recorded verbatim so the marker states what the run launched under and not
+    merely which machine it is on. It is what lets the posture route say *why*
+    it will not widen while a run is live, and it is optional only because the
+    marker is written for callers that have no posture to report (the tests that
+    exercise the switch gate through this contextmanager).
     """
     path = None
     tmp = None
@@ -520,6 +581,7 @@ def _in_flight_marker(control_target: str):
             "pid": os.getpid(),
             "owner_ppid": os.getppid(),
             "target": control_target,
+            "launch_posture": launch_posture,
             "started_at": datetime.now().astimezone().isoformat(),
         }
         # Temp file in the same directory, then a rename: os.replace is atomic
@@ -668,8 +730,10 @@ async def _execute_via_local(
 
     # A switch of the session target retires the connector host this run was
     # stamped against, so the switch tool has to be able to see that a run is
-    # under way. The marker exists for exactly as long as the sandbox process.
-    with _in_flight_marker(control_target):
+    # under way. The marker exists for exactly as long as the sandbox process,
+    # and carries the posture stamp the sandbox launched under so a reader can
+    # say which way this run may still be moved.
+    with _in_flight_marker(control_target, sandbox_env.get(ENV_LAUNCH_POSTURE)):
         try:
             proc = await asyncio.create_subprocess_exec(
                 python_bin,

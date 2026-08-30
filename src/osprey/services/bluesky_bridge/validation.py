@@ -66,6 +66,22 @@ def _assert_limits_readable_if_writable() -> None:
     block says nothing), ANDed with ``not is_readonly_run()`` so a read-only
     run needs no limits database at all.
 
+    That whole condition is asked through
+    :func:`osprey_connectors.session_store.effective_writes`, the one rule the
+    connector's reference monitor and the MCP queue surface also read, so the
+    bridge and the tool addressing it cannot disagree about whether this lane
+    can write. It adds a third term to the two above: the operator's
+    per-(session, target) narrowing from the header chip, which can only
+    narrow. In practice a bridge CONTAINER carries no
+    ``OSPREY_POSTURE_SESSION`` stamp — a container is not spawned from a
+    session — so the term is inert there and this guard behaves exactly as it
+    always has; it bites only where the bridge runs under a stamped session,
+    and it bites in the fail-open direction, which is the same direction
+    "writes disabled" already takes. Note that this is a STARTUP guard reading
+    a store that moves at run time: a narrowing lifted after start is not
+    re-checked here. That is deliberate and costs nothing, because the gate
+    that stands between a plan and hardware is the per-write one, not this.
+
     Fail-OPEN by design: this is the ONLY combination that refuses
     startup — this lane's write posture AND
     ``control_system.limits_checking.enabled`` both true, AND the limits
@@ -100,9 +116,10 @@ def _assert_limits_readable_if_writable() -> None:
             configured/found/parseable) — never the database's file contents
             or any other secret value.
     """
+    from osprey.audit.posture import posture_session
     from osprey.utils.config import get_config_value
-    from osprey_connectors.control_system.base import is_readonly_run
-    from osprey_connectors.types import target_writes_enabled, target_writes_enabled_key
+    from osprey_connectors import session_store
+    from osprey_connectors.types import target_writes_enabled_key
 
     from .queue_backend import resolve_lane_identity
 
@@ -116,7 +133,7 @@ def _assert_limits_readable_if_writable() -> None:
     except (FileNotFoundError, KeyError, RuntimeError):
         return
 
-    if not target_writes_enabled(section, lane_target) or is_readonly_run():
+    if not session_store.effective_writes(section, posture_session(), lane_target):
         return
     if not limits_enabled:
         return

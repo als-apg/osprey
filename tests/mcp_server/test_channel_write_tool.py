@@ -703,6 +703,45 @@ async def test_control_system_refusal_names_the_control_system(tmp_path, monkeyp
 
 
 @pytest.mark.unit
+async def test_a_single_refusal_envelope_says_what_the_refusal_said(tmp_path, monkeypatch):
+    """The raised envelope replaces the results, so it must carry their reason.
+
+    A refusal's ``error`` field is the only place the monitor names WHICH
+    posture refused and where it lifts — this session's read-only setting for
+    one control target and the header chip that set it, or the config key for a
+    deployment refusal. Naming the channel and stopping there is a dead end,
+    and the single-channel write is exactly the common case where the agent
+    never sees the per-result field at all.
+    """
+    _prepare(tmp_path, monkeypatch)
+
+    refusal = (
+        "Write to 'PV:A' blocked: this session's posture for the 'standin' control "
+        "target is read-only — set from the control-target chip in the header, and "
+        "in force for this session only."
+    )
+    result = _make_write_result(
+        channel="PV:A",
+        value=1.0,
+        outcome="refused",
+        refusal_reason="WRITES_DISABLED",
+        error_message=refusal,
+    )
+    connector = AsyncMock()
+    connector.write_channel.return_value = result
+
+    with _patched(connector):
+        fn = _get_channel_write()
+        with assert_raises_error(error_type="write_refused") as _exc_ctx:
+            await fn(operations=[{"channel": "PV:A", "value": 1.0}])
+
+    message = _exc_ctx["envelope"]["error_message"]
+    assert "the reference monitor" in message
+    assert "control-target chip in the header" in message
+    assert "standin" in message
+
+
+@pytest.mark.unit
 async def test_all_failed_is_internal_error(tmp_path, monkeypatch):
     """All-failed batch (attempted, not refused) preserves internal_error.
 

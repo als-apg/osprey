@@ -1174,3 +1174,285 @@ def test_importing_the_module_reads_nothing(project):
     )
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout.strip() == "None 0 0", completed.stderr
+
+
+# --------------------------------------------------------------------------
+# The clamp under a per-(session, target) posture
+# --------------------------------------------------------------------------
+
+
+SESSION_KEY = "11111111-2222-3333-4444-555555555555"
+
+
+@pytest.fixture
+def session(project, monkeypatch):
+    """This server as a child of a session that can narrow one control target.
+
+    The operator narrows a target from the header chip; nothing respawns this
+    server and nothing sets ``OSPREY_EXECUTION_MODE`` (which would sandbox every
+    target at once). The clamp therefore has to see the narrowing through
+    ``posture.posture()``, which reads the store — so the fixture stamps the
+    session key and the agent-data root, publishes the controls server's state
+    record naming the session's target, and writes the store beside it.
+    """
+    from osprey.audit import posture as posture_module
+    from osprey_connectors import session_store
+
+    root = project.root / "agent_data"
+    directory = root / session_store.STATE_DIR_NAME
+    directory.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv(posture_module.OSPREY_AGENT_DATA_ROOT, str(root))
+    monkeypatch.setenv(am.POSTURE_SESSION_ENV, SESSION_KEY)
+    monkeypatch.delenv(posture_module.CONTROL_TARGET_ENV_VAR, raising=False)
+
+    def _drop_caches() -> None:
+        session_store.invalidate_cache()
+        posture_module.invalidate_session_target_cache()
+
+    class _Session:
+        key = SESSION_KEY
+
+        @staticmethod
+        def on(target: str) -> None:
+            pid = os.getpid()
+            (directory / f"target_state_{pid}.json").write_text(
+                json.dumps(
+                    {
+                        "target": target,
+                        "generation": 0,
+                        "server_pid": pid,
+                        "owner_ppid": os.getppid(),
+                        "targets": {},
+                        "children": [],
+                    }
+                )
+            )
+            _drop_caches()
+
+        @staticmethod
+        def narrow(**entries: str) -> None:
+            (directory / session_store.STORE_FILENAME).write_text(
+                json.dumps({SESSION_KEY: entries})
+            )
+            _drop_caches()
+
+    _drop_caches()
+    yield _Session
+    _drop_caches()
+
+
+#: The remedy each posture SOURCE must offer, and the one it must not — the
+#: same expected-present / forbidden-absent shape ``test_tool_gates.py`` uses on
+#: the executor clamp, because the two gates now speak the same three wordings.
+#: ``posture()`` says ``sandbox`` for reasons an operator acts on differently,
+#: and a loose net (the old "'sandbox posture' in message") let the chip
+#: sentence stand on a deployment-wide run that the chip cannot lift.
+POSTURE_REMEDIES = {
+    "deployment": (
+        "the control-target chip in the header cannot lift a deployment-wide read-only run",
+        "this session's write posture",
+    ),
+    "store": (
+        "set 'live' back to writes from the control-target chip in the header",
+        "cannot lift a deployment-wide read-only run",
+    ),
+    "store_unknown_target": (
+        "lift that narrowing from the control-target chip in the header",
+        "cannot lift a deployment-wide read-only run",
+    ),
+}
+
+
+def _assert_posture_remedy(error: ToolError, *, source: str) -> dict:
+    """The refusal names the remedy for its OWN source, and not the config."""
+    envelope = json.loads(str(error))
+    expected, forbidden = POSTURE_REMEDIES[source]
+    text = " ".join([envelope["error_message"], *envelope["suggestions"]]).lower()
+    assert expected in text, text
+    assert forbidden not in text, text
+    assert "config.yml" not in text, text
+    return envelope
+
+
+class TestTheRefusalNamesItsOwnSource:
+    """One case per reason ``posture()`` can answer ``sandbox``.
+
+    Mirror of ``test_tool_gates.py``'s fork on the executor clamp. This gate
+    refuses before the tool runs either way — what is pinned here is that the
+    sentence telling the operator what to do is the one for the reason that
+    actually fired.
+    """
+
+    async def test_a_deployment_wide_run_does_not_send_the_operator_to_the_chip(
+        self, project, monkeypatch
+    ):
+        """The environment source is the DEPLOYMENT's switch, not this session's.
+
+        ``posture()`` short-circuits to the environment answer before the store
+        is read, so the chip already reads writes here and clicking it changes
+        nothing. It is named only to close that dead end.
+        """
+        _sandbox(monkeypatch)
+
+        error = await _refused(am.AuditMiddleware(), "channel_write")
+
+        envelope = _assert_posture_remedy(error, source="deployment")
+        assert "readonly execution mode" in envelope["error_message"]
+        assert "every session" in envelope["error_message"]
+        assert "OSPREY_EXECUTION_MODE=readonly" in " ".join(envelope["suggestions"])
+
+    async def test_a_narrowed_target_is_named_in_the_refusal(self, project, session):
+        """The store source is the operator's own narrowing of ONE machine.
+
+        So the refusal names it. "This terminal session is in the sandbox
+        posture" would read as a session-wide block to an operator whose session
+        is working normally on every other target.
+        """
+        session.on("live")
+        session.narrow(live="sandbox")
+
+        error = await _refused(am.AuditMiddleware(), "channel_write")
+
+        envelope = _assert_posture_remedy(error, source="store")
+        assert "'live' control target" in envelope["error_message"]
+        assert "for this session only" in envelope["error_message"]
+        assert "terminal session is in the sandbox posture" not in envelope["error_message"]
+
+    async def test_an_unnameable_target_invents_no_machine(self, project, session, monkeypatch):
+        """The degraded cell: the clamp fired, but the target cannot be named.
+
+        ``posture()`` resolved a target and clamped; this refusal resolves it
+        again to name it, and a state file replaced between the two reads leaves
+        the second answer ``None``. The store's rule with no resolvable target
+        is that the MOST RESTRICTIVE entry decides, and which one that was is
+        not knowable here — so nothing is named.
+        """
+        from osprey.audit import posture as posture_module
+
+        session.on("live")
+        session.narrow(live="sandbox")
+        monkeypatch.setattr(posture_module, "posture", lambda: posture_module.POSTURE_SANDBOX)
+        monkeypatch.setattr(posture_module, "session_control_target", lambda: None)
+
+        error = await _refused(am.AuditMiddleware(), "channel_write")
+
+        envelope = _assert_posture_remedy(error, source="store_unknown_target")
+        assert "at least one control target" in envelope["error_message"]
+        assert "most restrictive" in envelope["error_message"]
+        assert "'live'" not in envelope["error_message"]
+
+    async def test_a_raising_resolver_still_refuses(self, project, session, monkeypatch):
+        """Naming the target is a convenience; refusing is the contract.
+
+        This middleware exists so that an internal error can never become an
+        allowed write — including an error raised while composing the refusal.
+        """
+        from osprey.audit import posture as posture_module
+
+        def _explode() -> str | None:
+            raise RuntimeError("state directory is on fire")
+
+        session.on("live")
+        session.narrow(live="sandbox")
+        monkeypatch.setattr(posture_module, "posture", lambda: posture_module.POSTURE_SANDBOX)
+        monkeypatch.setattr(posture_module, "session_control_target", _explode)
+
+        error = await _refused(am.AuditMiddleware(), "channel_write")
+
+        envelope = _assert_posture_remedy(error, source="store_unknown_target")
+        assert "at least one control target" in envelope["error_message"]
+
+
+class TestPerTargetPostureClamp:
+    async def test_a_write_tool_is_refused_on_a_narrowed_target(self, project, session):
+        """No environment variable says sandbox; the store does, for this target."""
+        session.on("live")
+        session.narrow(live="sandbox")
+
+        error = await _refused(am.AuditMiddleware(), "channel_write")
+
+        assert json.loads(str(error))["error_type"] == "safety_error"
+
+    async def test_the_refusal_files_reason_posture_and_posture_sandbox(self, project, session):
+        """The ledger cannot tell a per-target refusal from the session-wide one.
+
+        Both fields come from the same place they always did — ``reason`` from
+        the middleware, ``posture`` from ``posture.posture()`` — so an operator
+        greps one query for every posture refusal, and the ``session`` field
+        says which store key answered.
+        """
+        session.on("live")
+        session.narrow(live="sandbox")
+
+        await _refused(am.AuditMiddleware(), "channel_write")
+
+        record = _records(project)[-1]
+        assert record["reason"] == am.REASON_POSTURE
+        assert record["posture"] == am.POSTURE_SANDBOX
+        assert record["decision"] == DECISION_REFUSED
+        assert record["session"] == SESSION_KEY
+
+    async def test_a_write_tool_runs_when_another_target_is_narrowed(self, project, session):
+        """Read-only on the live machine leaves a session on the accelerator working."""
+        session.on("va")
+        session.narrow(live="sandbox")
+
+        _, seen = await _call(am.AuditMiddleware(), "channel_write")
+
+        assert seen == ["channel_write"]
+        assert _records(project)[-1]["decision"] == DECISION_ALLOWED
+        assert _records(project)[-1]["posture"] == am.POSTURE_WRITES
+
+    async def test_a_read_tool_runs_on_a_narrowed_target(self, project, session):
+        session.on("live")
+        session.narrow(live="sandbox")
+
+        _, seen = await _call(am.AuditMiddleware(), "channel_read")
+
+        assert seen == ["channel_read"]
+
+    async def test_an_unnarrowed_session_runs(self, project, session):
+        session.on("live")
+        session.narrow()
+
+        _, seen = await _call(am.AuditMiddleware(), "channel_write")
+
+        assert seen == ["channel_write"]
+
+    async def test_a_narrowing_lands_without_a_respawn(self, project, session):
+        """One process, two answers: the store is re-read when its signature moves."""
+        session.on("live")
+        session.narrow()
+        middleware = am.AuditMiddleware()
+        _, seen = await _call(middleware, "channel_write")
+        assert seen == ["channel_write"]
+
+        session.narrow(live="sandbox")
+
+        await _refused(middleware, "channel_write")
+
+    async def test_an_unresolvable_target_leaves_the_server_unclamped(self, project, session):
+        """With no state record this server cannot say which machine it is about.
+
+        Clamping here would refuse every write tool over a narrowing that names
+        a target nobody could match to this session. The fail-closed layer for
+        one specific write is the connector's reference monitor, which takes the
+        most restrictive entry when it cannot name its target.
+        """
+        session.narrow(live="sandbox")
+
+        _, seen = await _call(am.AuditMiddleware(), "channel_write")
+
+        assert seen == ["channel_write"]
+
+    async def test_a_narrowed_target_without_a_session_key_is_not_consulted(
+        self, project, session, monkeypatch
+    ):
+        """A server outside any session is answered by the environment alone."""
+        session.on("live")
+        session.narrow(live="sandbox")
+        monkeypatch.delenv(am.POSTURE_SESSION_ENV, raising=False)
+
+        _, seen = await _call(am.AuditMiddleware(), "channel_write")
+
+        assert seen == ["channel_write"]

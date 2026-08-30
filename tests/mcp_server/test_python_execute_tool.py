@@ -26,6 +26,27 @@ from tests.mcp_server.conftest import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _in_flight_markers_land_in_tmp(tmp_path, monkeypatch):
+    """Keep the executor's in-flight marker out of the repository.
+
+    These tests drive the real ``python_execute`` tool, which opens the
+    in-flight marker contextmanager (``executor.py``): it calls
+    ``target_state.state_dir()`` and ``mkdir(parents=True)`` before writing.
+    With ``OSPREY_AGENT_DATA_ROOT`` unset — which ``session_posture_leak_guard``
+    guarantees — that resolves through ``resolve_shared_data_root()`` to the
+    repository, so the run creates ``<repo>/var/agent_data/control_target/``.
+    The marker itself is unlinked on the way out, which is why the leak was
+    invisible: an empty, gitignored directory.
+
+    Stamping the anchor at ``tmp_path`` is the same fix every other
+    store-touching test in this suite uses, and it is enforced by
+    ``tests/conftest.py::no_agent_data_in_the_repo``, which fails the session if
+    the run created that directory.
+    """
+    monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(tmp_path / "agent_data"))
+
+
 def _get_python_execute():
     from osprey.mcp_server.python_executor.tools.python_execute import execute
 

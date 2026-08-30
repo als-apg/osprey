@@ -31,6 +31,15 @@ which owns the child process, the generation counter and the spawn-then-swap
 order. This module is the *gate* in front of it: three refusals, in a fixed
 order, and then a delegation.
 
+The three refusals are :func:`switch_gate`, a function rather than tool-body
+code, because the agent's tool is no longer the only way a session moves: the
+session-control reconciler asks the same question immediately before
+``hosts.switch()``, on a path that has no MCP request behind it. The gate
+therefore takes the server context and a target name and nothing else, and the
+tool's only remaining job with a refusal is to report it. Two implementations
+of "may this session move there" would eventually disagree, and the surface an
+operator happened to use would decide which answer they got.
+
 Why the order is fixed
 ----------------------
 Each refusal answers a different question, and the order runs from "this
@@ -69,25 +78,32 @@ process's PID, so a marker left behind by an executor that was killed is
 ignored (and swept) rather than wedging every future switch: a PID that names
 no live process cannot be running anything.
 
-The constants and the record shape are stated **twice** — here and in
-:mod:`osprey.mcp_server.python_executor.executor` — and pinned equal by
-``tests/mcp_server/test_control_target_set.py``. That is the replica pattern
-this repository already uses for the deployed hooks: the alternative is for one
-MCP server process to import the other's module at run time, which would drag
-the whole controls server into the executor (or the reverse) for two string
-constants.
+The reader's half — the constants and :func:`in_flight_executions` — lives in
+:mod:`osprey.mcp_server.control_system.target_state`, beside the directory it
+names, because this tool is no longer its only reader: the session-control
+reconciler asks the same question before an operator-initiated switch, and the
+posture route asks it before widening a posture out from under a running
+execution. The names are re-exported here so every existing importer keeps
+working.
+
+The constants and the record shape are still stated **twice** — in
+``target_state`` and in :mod:`osprey.mcp_server.python_executor.executor` — and
+pinned equal by ``tests/mcp_server/test_control_target_set.py``. That is the
+replica pattern this repository already uses for the deployed hooks: the
+alternative is for one MCP server process to import the other's module at run
+time, which would drag the whole controls server into the executor (or the
+reverse) for two string constants.
 
 """
 
 from __future__ import annotations
 
-import contextlib
 import json
 import logging
 import os
+from dataclasses import dataclass, field
 from typing import Any
 
-from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.connector_host_manager import (
     SwitchError,
     target_display_metadata,
@@ -95,7 +111,14 @@ from osprey.mcp_server.control_system.connector_host_manager import (
 from osprey.mcp_server.control_system.server import mcp
 from osprey.mcp_server.control_system.target_eligibility import (
     derive_endpoints,
+    effective_writes_for_target,
     target_availability,
+)
+from osprey.mcp_server.control_system.target_state import (
+    INFLIGHT_FILE_GLOB,
+    INFLIGHT_FILE_PREFIX,
+    INFLIGHT_FILE_SUFFIX,
+    in_flight_executions,
 )
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import (
@@ -104,7 +127,7 @@ from osprey.mcp_server.http import (
     notify_target_switch_async,
 )
 from osprey_connectors.control_system.base import is_readonly_run
-from osprey_connectors.types import configured_targets, target_writes_enabled
+from osprey_connectors.types import configured_targets
 
 logger = logging.getLogger("osprey.mcp_server.tools.control_target")
 
@@ -114,18 +137,18 @@ __all__ = [
     "INFLIGHT_FILE_SUFFIX",
     "REASON_EXECUTION_IN_FLIGHT",
     "REASON_READONLY_RUN",
+    "GateVerdict",
     "control_target",
     "control_target_set",
     "in_flight_executions",
+    "switch_gate",
     "target_rows",
 ]
 
-# -- the in-flight marker contract (replica; see the module docstring) -------
-
-#: One marker per execution, named for the process that will remove it.
-INFLIGHT_FILE_PREFIX = "exec_inflight_"
-INFLIGHT_FILE_SUFFIX = ".json"
-INFLIGHT_FILE_GLOB = f"{INFLIGHT_FILE_PREFIX}*{INFLIGHT_FILE_SUFFIX}"
+# The in-flight marker names and reader are re-exported from ``target_state``
+# (imported above and named in ``__all__``); see the module docstring for why
+# they moved. Importers of this module — including the drift guard that pins the
+# spelling against the executor's replica — are unaffected.
 
 # -- machine-readable refusal reasons ---------------------------------------
 
@@ -177,45 +200,6 @@ def _context_unavailable_message() -> str:
         "The control-system server context is not initialized, so this session has no "
         "target of record to read or change."
     )
-
-
-def in_flight_executions() -> list[dict[str, Any]]:
-    """Every live execution marker, oldest first. Never raises.
-
-    A marker whose writing process is gone is swept: it is the residue of a
-    killed executor, and treating it as live would make every later switch
-    impossible with nothing an operator could stop. A marker that cannot be
-    read is neither reported nor removed — it says nothing, and it is not this
-    reader's file to delete.
-
-    The answer is ADVISORY. It is a best-effort observation of another
-    process's files, so a marker can be missing (the executor could not write
-    it) or can appear a moment after this reader looked. Nothing about
-    correctness rests on it: the guarantee that a run cannot be moved onto a
-    machine nobody selected is the generation pin — an execution stamped at
-    generation *n* has its writes refused once the session moves past it — and
-    this check exists to turn that refusal into a question asked before the
-    switch rather than an error discovered after it.
-    """
-    try:
-        entries = sorted(target_state.state_dir().glob(INFLIGHT_FILE_GLOB))
-    except OSError:  # pragma: no cover - unreadable state dir
-        return []
-
-    live: list[dict[str, Any]] = []
-    for entry in entries:
-        record = target_state.read_file(entry)
-        if record is None:
-            logger.debug("Unreadable execution marker %s; ignoring it", entry.name)
-            continue
-        pid = record.get("pid")
-        if not isinstance(pid, int) or not target_state.is_process_alive(pid):
-            with contextlib.suppress(OSError):
-                entry.unlink(missing_ok=True)
-            logger.debug("Swept execution marker %s (writer pid %r gone)", entry.name, pid)
-            continue
-        live.append(record)
-    return live
 
 
 async def _emit_failure(from_target: str, to_target: str, reason: str) -> None:
@@ -341,7 +325,16 @@ def target_rows(
     # malformed one with the baseline alone.
     section = config.get("control_system") if isinstance(config, dict) else None
     for target in configured_targets(section):
-        availability = target_availability(config, target, session_target, baseline)
+        # This session's real posture for the target, read ONCE and then used
+        # for every answer this row carries. The eligibility verdict, the
+        # gateway role and the `writes_permitted` flag are three views of the
+        # same fact, and a row that read the store separately for each could
+        # report a role the operator narrowed away beside a flag saying they
+        # had not.
+        writes_permitted = _writes_permitted(config, target)
+        availability = target_availability(
+            config, target, session_target, baseline, writes_enabled=writes_permitted
+        )
         display = metadata.get(target, {})
         row: dict[str, Any] = {
             "target": target,
@@ -359,14 +352,14 @@ def target_rows(
             # one deployment may differ: posture is per connector type, so a
             # simulator can be armed beside a live machine that is not. The
             # gateway those writes would leave by is `selected_role`.
-            "writes_permitted": _writes_permitted(config, target),
+            "writes_permitted": writes_permitted,
         }
         probe_channel = display.get("probe_channel") or ""
         if probe_channel:
             row["probe_channel"] = probe_channel
 
         try:
-            derivation = derive_endpoints(config, target)
+            derivation = derive_endpoints(config, target, writes_enabled=writes_permitted)
         except ValueError:
             # An underivable target has no connector type and no endpoints —
             # the availability verdict above already says so, with the reason.
@@ -382,18 +375,21 @@ def target_rows(
 
 
 def _writes_permitted(config: Any, target: str) -> bool:
-    """Whether a write to *target* would be permitted at all.
+    """Whether a write to *target* would be permitted on this session, now.
 
-    The two things that decide it are that target's own posture
+    Three things decide it: that target's own posture
     (``control_system.connector.<type>.writes_enabled``, falling back to
-    ``control_system.writes_enabled`` where its type states none) and this run's
-    own claim (``OSPREY_EXECUTION_MODE``) — exactly the pair
+    ``control_system.writes_enabled`` where its type states none), this run's
+    own claim (``OSPREY_EXECUTION_MODE``), and the operator's narrowing for
+    this session from the header chip. All three are combined by
+    :func:`~osprey.mcp_server.control_system.target_eligibility.effective_writes_for_target`,
+    which is also the value the roster hands
     :func:`~osprey.mcp_server.control_system.target_eligibility.derive_endpoints`
-    takes, resolved through the same helper it resolves it with, so the roster
-    and the gateway selection cannot disagree about the posture they describe.
+    — so the flag a row reports and the gateway that row names are the same
+    answer rather than two readings that could drift apart.
     """
     section = config.get("control_system") if isinstance(config, dict) else None
-    return target_writes_enabled(section, target) and not is_readonly_run()
+    return effective_writes_for_target(section, target)
 
 
 @mcp.tool()
@@ -497,6 +493,104 @@ async def control_target() -> str:
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class GateVerdict:
+    """One refusal, in the exact words the operator would be told.
+
+    Carries everything a caller needs to report the refusal on its own surface:
+    the machine-readable ``reason``, the human-readable ``detail`` and the
+    suggestions, plus the structured ``details`` payload that goes into the
+    error envelope (and whose ``reason`` key is the same string). A verdict is
+    a refusal — "may proceed" is spelled ``None`` by :func:`switch_gate`, not
+    as a fourth verdict, so no caller can mistake an allowed switch for a
+    refusal it forgot to check the flag on.
+    """
+
+    reason: str
+    detail: str
+    suggestions: list[str] = field(default_factory=list)
+    details: dict[str, Any] = field(default_factory=dict)
+
+
+async def switch_gate(context: Any, wanted: str) -> GateVerdict | None:
+    """Whether this session may switch to *wanted* right now.
+
+    The three refusals, in the fixed order the module docstring explains: a
+    read-only run, an execution in flight, then eligibility — which is where
+    ``already_active`` arrives, since "you are already there" is the roster's
+    answer and not a check of this gate's own.
+
+    It takes the server context and a target name and nothing else: the second
+    caller is the session-control reconciler, which asks this immediately
+    before :meth:`ConnectorHostManager.switch` on a path that has no MCP
+    request behind it. The session's target of record and the deployment
+    baseline are therefore read from the manager the context holds, not passed
+    in — two callers that supplied their own would eventually supply different
+    ones.
+
+    Args:
+        context: The controls server context (already resolved; a context that
+            could not be read is its caller's problem to report, because the
+            two surfaces owe the operator different things for that failure).
+        wanted: The target the session wants to move to.
+
+    Returns:
+        The refusal, or ``None`` when nothing refuses and the caller may switch.
+    """
+    hosts = context.connector_hosts
+
+    # (1) A read-only run mutates nothing, whatever the destination.
+    if is_readonly_run():
+        return GateVerdict(
+            reason=REASON_READONLY_RUN,
+            detail=(
+                "a switch mutates session state; read-only sessions stay on the "
+                "deployment baseline."
+            ),
+            suggestions=[
+                "Re-run this without the read-only execution mode to change the "
+                "control-system target."
+            ],
+            details={"target": wanted, "reason": REASON_READONLY_RUN},
+        )
+
+    # (2) A run in flight was stamped with the target it started on. This reads
+    # another process's files, so there is a window: an execution that starts
+    # between this check and the swap is not seen here. That window is closed
+    # elsewhere and not by widening this check — the sandbox is pinned to the
+    # generation it launched under, and its writes refuse once the session moves
+    # past it. What this check buys is the refusal arriving as an answer to the
+    # switch rather than as a failure inside a running script.
+    running = in_flight_executions()
+    if running:
+        message, suggestions, details = _in_flight_detail(running[0], wanted)
+        return GateVerdict(
+            reason=REASON_EXECUTION_IN_FLIGHT,
+            detail=message,
+            suggestions=suggestions,
+            details=details,
+        )
+
+    # (3) Eligibility, session-relative, in the eligibility module's own words.
+    availability = target_availability(
+        context.config.raw,
+        wanted,
+        hosts.active_target(),
+        hosts.baseline,
+    )
+    if not availability.available_now:
+        return GateVerdict(
+            reason=str(availability.reason or ""),
+            detail=availability.detail,
+            suggestions=[
+                "Ask for the target roster to see what each target would need to become usable."
+            ],
+            details=availability.as_dict(),
+        )
+
+    return None
+
+
 @mcp.tool()
 async def control_target_set(target: str) -> str:
     """Point this session's control-system tools at a different target.
@@ -551,57 +645,17 @@ async def control_target_set(target: str) -> str:
     hosts = context.connector_hosts
     session_target = hosts.active_target()
 
-    # (1) A read-only run mutates nothing, whatever the destination.
-    if is_readonly_run():
+    # The three refusals, in their fixed order, from the one function the
+    # operator-initiated switch consults too. Read them in :func:`switch_gate`;
+    # this tool's job with a verdict is only to report it the way it always has.
+    verdict = await switch_gate(context, wanted)
+    if verdict is not None:
         return await _refuse(
             from_target=session_target,
             to_target=wanted,
-            message=(
-                "a switch mutates session state; read-only sessions stay on the "
-                "deployment baseline."
-            ),
-            suggestions=[
-                "Re-run this without the read-only execution mode to change the "
-                "control-system target."
-            ],
-            details={"target": wanted, "reason": REASON_READONLY_RUN},
-        )
-
-    # (2) A run in flight was stamped with the target it started on. This reads
-    # another process's files, so there is a window: an execution that starts
-    # between this check and the swap below is not seen here. That window is
-    # closed elsewhere and not by widening this check — the sandbox is pinned to
-    # the generation it launched under, and its writes refuse once the session
-    # moves past it. What this check buys is the refusal arriving as an answer
-    # to the operator's switch rather than as a failure inside their running
-    # script.
-    running = in_flight_executions()
-    if running:
-        message, suggestions, details = _in_flight_detail(running[0], wanted)
-        return await _refuse(
-            from_target=session_target,
-            to_target=wanted,
-            message=message,
-            suggestions=suggestions,
-            details=details,
-        )
-
-    # (3) Eligibility, session-relative, in the eligibility module's own words.
-    availability = target_availability(
-        context.config.raw,
-        wanted,
-        session_target,
-        hosts.baseline,
-    )
-    if not availability.available_now:
-        return await _refuse(
-            from_target=session_target,
-            to_target=wanted,
-            message=availability.detail,
-            suggestions=[
-                "Ask for the target roster to see what each target would need to become usable."
-            ],
-            details=availability.as_dict(),
+            message=verdict.detail,
+            suggestions=verdict.suggestions,
+            details=verdict.details,
         )
 
     try:
