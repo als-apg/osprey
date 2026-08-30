@@ -186,7 +186,10 @@ read from config and process-cached, so flipping it in ``config.yml`` does not
 affect a running process. The enforced kill-switch lives at the harness layer
 (a renderer ``permissions.deny`` on the write tool, then regenerate and
 relaunch); in-flight control of an active plan is the RunEngine's own
-``abort`` / ``pause``.
+``abort`` / ``pause``. One live control does exist alongside it, and it only
+ever narrows: an operator can take one control target away from one session from
+:ref:`the control-target chip <web-terminal-session-posture>`, and the
+connector re-reads that on every put.
 
 That rendered deny list is written once, before any session has chosen a
 target, so it exists only where **no** target may write. A deployment armed on

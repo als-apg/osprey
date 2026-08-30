@@ -10,7 +10,7 @@ JSON-lines file per surface inside it. This page is the shape of that trail ---
 which file a decision lands in, what each field holds, who can read the files,
 and what the trail does not promise. For the policy that produces most of the
 refusals see :ref:`the protected set <config-protected-set>`; for the
-per-session posture that refuses control-system writes see
+per-session, per-target posture that refuses control-system writes see
 :ref:`web-terminal-session-posture`.
 
 The zone is durable by construction: ``osprey build`` re-renders ``build/``

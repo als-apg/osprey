@@ -80,6 +80,13 @@ Ask the OSPREY agent for these in plain language — *"what am I pointed at?"*,
 session on the machine: reads, writes and the python executor all follow the
 switch.
 
+In the Web Terminal you can also move the session yourself, without asking the
+agent: the :ref:`control-target chip <web-terminal-session-posture>` in the
+header lists every target and offers **Switch** on the ones this session could
+move to. The switch it asks for is the same one — the same gate, the same
+checks, the same refusal words — and a target the gate would refuse shows that
+word where the button would be.
+
 Whether writes are *allowed* follows it too. Write posture is per control
 target, so a deployment can be armed on the simulator and read-only on the
 machine — the same tool call that moved a setpoint before the switch is refused
@@ -411,13 +418,15 @@ The switch would be a hazard if it were quiet. It is not:
   target and the archiver that served them, so a saved plot still says what it
   is about a week later.
 - **The session's target is visible in the Web Terminal** activity stream as
-  work happens, and on the posture badge in the terminal card's header, which
-  names the current target beside the session's posture and says whether writes
-  are armed for *that* target --- ``va · armed``, ``live · not armed``. Write
-  posture is per target, so a deployment can arm its simulator and leave the
-  live machine read-only; the badge is where that shows. It catches up with a
-  switch a few seconds after you make one, and when no target can be resolved for
-  the session it shows the deployment's default, marked ``(baseline)``.
+  work happens, and on the :ref:`control-target chip
+  <web-terminal-session-posture>` in the header, which names the machine the
+  session stands on and the write state on *that* machine ---
+  ``● VIRTUAL · writes``, ``● LIVE · read-only``. Write posture is per target, so
+  a deployment can arm its simulator and leave the live machine read-only; the
+  chip is where that shows. It catches up with a switch a few seconds after one
+  is made, whoever made it. The popover tags the deployment's default row
+  ``baseline``, and the chip falls back to that row when no target can be
+  resolved for the session.
 - **Nothing survives the session.** Every controls-server start returns to the
   deployment baseline. There is no saved preference that could quietly point a
   later session at the real machine.
@@ -523,10 +532,10 @@ own appliance in the same step:
 does not run.
 
 **The label stays honest.** Nothing calls the stand-in the live machine. The
-banner and the posture badge read ``LIVE MACHINE (stand-in)``, and the roster
-says the same. It carries a real machine's posture — the same limits, the same
-approval prompts — because it is operated as one, not because a write reaches
-the facility. What the stand-in rehearses is the procedure, not the risk.
+banner reads ``LIVE MACHINE (stand-in)``, the roster says the same, and the
+header chip reads ``STAND-IN``. It carries a real machine's posture — the
+same limits, the same approval prompts — because it is operated as one, not
+because a write reaches the facility. What the stand-in rehearses is the procedure, not the risk.
 
 **Telling the two machines apart.** Both run one image over one lattice, so the
 stand-in ships a small fixed offset on its BPM readouts: a read that comes back

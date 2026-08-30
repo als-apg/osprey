@@ -151,7 +151,8 @@ lattice, but a small fixed offset on the stand-in's BPM readouts. (Where the
 environment pins ``VA_LATTICE=none`` or a facility channel file, there is no
 lattice to displace — the stand-in serves that manifest unperturbed, and reads
 identically to the Virtual Accelerator beside it.) The label stays honest either
-way: the banner and the posture badge read ``LIVE MACHINE (stand-in)``.
+way: the banner reads ``LIVE MACHINE (stand-in)`` and the Web Terminal's
+header chip reads ``STAND-IN``.
 :doc:`switch-control-target` has the ritual itself.
 
 **Scenarios reach both machines.** ``osprey sim apply`` writes one scenario file

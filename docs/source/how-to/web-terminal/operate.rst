@@ -59,9 +59,11 @@ The window has three working areas plus a header:
   **Documentation** link and a **Feedback** button that lets whoever is at the
   terminal report a problem without leaving it. See
   :doc:`send-feedback`.
-- **Header** — the display menu (a small dot holding the light/dark,
-  Expert/Simple, and theme controls — see :doc:`theming`), a settings drawer,
-  and an optional name badge to tell one deployment from another.
+- **Header** — the :ref:`control-target chip <web-terminal-session-posture>`
+  (which machine this session writes to, and whether it may), the display menu
+  (a small dot holding the light/dark, Expert/Simple, and theme controls — see
+  :doc:`theming`), a settings drawer, and an optional name badge to tell one
+  deployment from another.
 
 The settings drawer lets you read and edit the project's ``config.yml`` — and
 the agent's own setup and memory files — from the browser, so you rarely need
@@ -78,65 +80,150 @@ back to an older browser mechanism that Safari may refuse.
 
 .. _web-terminal-session-posture:
 
-Sandbox one session
--------------------
+The control-target chip
+-----------------------
 
-Every terminal session carries a **posture**, shown as a badge in the terminal
-card's header:
+The header carries a chip that answers, at a glance, the question every write
+depends on: *if the agent writes now, which machine does it land on, and will
+it be refused?* It reads like this::
 
-- **Writes** --- the session runs whatever the deployment permits, under its
-  usual approval and write-safety rules. This is the baseline.
-- **Sandbox** --- the session refuses every control-system write, for as long as
-  it stays sandboxed. Reads are untouched: the agent keeps its full view of the
-  control system and of the project, and can still run analysis, plots and
-  readonly Python.
+   ● STAND-IN · writes ▾
 
-Click the badge to switch. Both directions ask you to confirm, every time and
-with nothing remembered between switches, because switching restarts the agent
-for that session: the turn it is running right now stops immediately. Your
-conversation history is preserved --- the terminal reconnects to the same
-session and you pick up where you left off.
+The first word is the machine this session stands on --- ``LIVE`` for the
+facility's own machine, ``STAND-IN`` for a rehearsal machine that is operated
+like one, ``VIRTUAL`` for the virtual accelerator, ``SIMULATED`` for anything
+else simulated. The second is the write state **on that machine**:
+
+- **writes** --- the agent may write there, under the deployment's usual
+  approval and write-safety rules. This is the baseline.
+- **read-only** --- the deployment does not arm writes on that target, or the
+  whole deployment is running read-only. Nothing in the browser lifts this.
+- **sandbox** --- *you* narrowed that target for this session. Reads are
+  untouched: the agent keeps its full view of the control system and of the
+  project, and can still run analysis, plots and readonly Python.
+
+Click the chip and a popover opens on **every** control target the deployment
+configures, not only the one you are standing on.
+
+One row per machine
+~~~~~~~~~~~~~~~~~~~
+
+Each row names a machine and carries the two things you can do to it:
+
+- **What it is** --- the name the deployment gave it, and a plain word for the
+  kind of machine behind it: *live machine*, *stand-in*, *virtual accelerator*
+  or *simulated*. That word comes from what the connector actually is, so a
+  stand-in never renders as the facility's own machine. The row you are on is
+  tagged ``current``.
+- **Whether it is answering** --- ``connected``, ``unreachable`` or ``unknown``,
+  with how long ago that was measured. ``unknown`` means nothing has vouched for
+  it yet, not that it is down.
+- **writes | read-only** --- the posture *this session* holds on that target, as
+  a two-segment toggle. It is the readout as well as the control: where it
+  cannot move it still shows which state holds, with the reason beside it.
+- **Switch** --- moves this session onto that machine. Where a switch is not
+  available the button is replaced by the reason word, so the gap is explained
+  rather than merely empty.
+
+The foot of the popover has **Sandbox everything**, which narrows every target
+that can be narrowed in one gesture, and the sentence that bounds the whole
+surface: nothing here changes the deployment's config.
+
+Narrow a target, or widen it
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The posture is **per target**. Narrowing the live machine leaves a session
+working on the virtual accelerator alone, which is the point: you can put the
+machine you are worried about out of reach without giving up the one you are
+working on.
+
+Narrowing applies as you click it --- taking reach away needs no ceremony.
+Widening a target back to writes asks you to confirm first, every time and with
+nothing remembered between clicks, and the confirmation names the machine and
+the endpoint the agent would then be able to write to.
+
+**Nothing is restarted.** Every gate reads the posture at the moment of the
+write, so a narrowing lands on the conversation that is already running: the
+agent obeys it on its very next write, and the turn in flight is not
+interrupted. The one lag worth knowing about is a narrowing on the target the
+session is *on* --- it reaches the agent when the connector is rebuilt, which
+waits for a running execution to finish, and the row says so rather than
+leaving a toggle that appears to have done nothing.
+
+**It narrows, and never widens.** Only narrowings are recorded, so the chip can
+tighten what the deployment permits and never loosen it. Where the toggle
+cannot move it is locked and carries the reason:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Reason
+     - What it means
+   * - ``persona ceiling``
+     - This deployment does not arm writes on that target at all. Only a
+       rebuild changes that, not a click.
+   * - ``readonly run``
+     - The whole deployment is running read-only
+       (``OSPREY_EXECUTION_MODE=readonly``), which sits above any one session.
+   * - ``not enforceable``
+     - This session's control-system server is not one this web server can
+       address, so a narrowing recorded here would be read by nobody. The
+       roster still renders --- it is worth reading --- but the toggles govern
+       nothing.
+   * - ``store unavailable``
+     - The deployment's agent-data root does not resolve, so there is nowhere to
+       record a posture the agent would read back. Nothing was changed.
+   * - ``no read-only endpoint``
+     - Narrowing this target would select a gateway role the deployment has not
+       configured, leaving the target unusable. You are told before you act,
+       not after.
+
+Two more refusals arrive on the gesture rather than on the toggle. A session
+that has never been sent a prompt has nothing to record a posture against:
+*"This session has not started yet --- send one prompt first, then set its
+posture."* And widening while an execution is running is refused --- a run is
+pinned to the posture it launched under, so a widening could not reach it
+anyway, and saying so beats a silent no-op.
+
+Switch this session to another machine
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+**Switch** on a row moves the session onto that machine, after a confirmation
+that names it and its endpoint. The web server does not perform the switch: it
+records the request, and the control-system server that owns the connector
+picks it up, re-checks eligibility and reachability at that moment, and
+publishes the outcome back. The row then reads ``✓ switched``, or ``✗`` with the
+refusal word --- the same word the agent is given for the same refusal. While a
+request is out the chip reads ``switching…``, and one request is outstanding at
+a time. If nothing answers within 30 seconds the row reads ``request_expired``:
+the request was written, and nothing that could act on it was alive.
+
+What the switch itself is gated on --- the approval prompt, the limits posture,
+the archive --- is :doc:`../control-systems/switch-control-target`.
+
+Simple and Expert
+~~~~~~~~~~~~~~~~~
+
+The popover follows the session's density setting (the Simple/Expert control in
+the display menu; see :doc:`theming`). Simple mode shows the machine, the plain
+kind word, whether it is answering, the toggle and **Switch**. Expert mode adds
+the endpoint, the gateway role, the age of the last probe, and the notes under a
+locked toggle. The controls and the confirmations are the same in both: the
+density changes what is on screen, never what a click does.
+
+Where the posture lives
+~~~~~~~~~~~~~~~~~~~~~~~
 
 The posture belongs to **one session**, not to the deployment. Nothing is
-written to ``config.yml``; the session's agent is respawned with the sandbox
-marker in its environment, and every process it launches inherits it. Two
-people working in two sessions of the same deployment can hold different
-postures, and one of them sandboxing theirs does not touch the other.
+written to ``config.yml``. Two people working in two sessions of the same
+deployment hold their own postures, and one of them narrowing theirs does not
+touch the other.
 
-It narrows, and never widens. On a deployment rendered so that **no** control
-target may be written to, no session can leave the sandbox: the request is
-refused with *"This deployment arms writes for no control target ... No session
-can step out of the sandbox until one target is armed"*, and the badge on a
-sandboxed session there is shown disabled rather than offering a switch that is
-certain to fail.
-
-Write posture is per target, so a deployment armed on one target and not another
-is not that deployment: its sessions can leave the sandbox, and what they meet
-afterwards depends on where the session is pointed. Leaving the sandbox restores
-the deployment's posture; it never adds to it.
-
-The badge therefore carries a second reading beside the posture word: the
-control target this session is on, and whether writes are armed **for that
-target** --- ``live · armed`` or ``live · not armed``. On a deployment that
-arms its virtual accelerator and leaves the live machine read-only, a session
-sitting on the live machine reads ``live · not armed``: the session is out of
-the sandbox, and every write it attempts on that target is still refused, one
-call at a time. The reading updates a few seconds after you switch targets, so
-you do not have to reload the page to trust it. When no control target can be
-resolved for the session --- before the controls tools have been used at all, or
-when the record cannot be read --- it shows the deployment's own default, marked
-``(baseline)``.
-
-A terminal session has to have started before it can be given a posture --- it
-only exists on disk once it has been sent a prompt. Until then the request is
-refused with *"This session has not started yet --- send one prompt first, then
-set its posture."* (Chat sessions answer to a different rule; see the note at
-the end of this section.)
-
-Postures survive a restart. They are stored in
-``var/agent_data/session-postures.json``, written as soon as you switch and
-read back when the server starts, so restarting the container never quietly
-returns a sandboxed session to writes.
+Narrowings are recorded in
+``var/agent_data/control_target/session-postures.json``, written as soon as you
+click and read back when the server starts, so restarting the container never
+quietly returns a narrowed session to writes.
 
 What refuses a write, and how firmly
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -170,19 +257,38 @@ knowing, because one of them is a belt rather than the buckle:
 Each layer says which gate refused, in its own words, so the message never
 sends you to the wrong control:
 
-- The hook --- *"SANDBOX POSTURE --- this terminal session refuses
-  control-system writes. Switch the session to writes posture from the terminal
-  card; config.yml is not the gate here."*
-- The connector --- *"Write to '<channel>' blocked: this terminal session is in
-  the sandbox posture --- readonly execution mode is in force for the whole
-  session, not for a single script. Switch the session to the writes posture
-  from the terminal card if the write is intended; config.yml is not the gate
+- The hook --- *"SANDBOX POSTURE --- this session refuses control-system writes
+  to the <target> target. Switch it back to writes on the control-target chip in
+  the header; config.yml is not the gate here."*
+- The connector --- *"Write to '<channel>' blocked: this session's posture for
+  the '<target>' control target is read-only --- set from the control-target
+  chip in the header, and in force for this session only. Set '<target>' back to
+  writes from the chip if the write is intended; config.yml is not the gate
   here."*
-- The executor --- *"This terminal session is in the sandbox posture, which
-  refuses control-system writes regardless of what the run asks for."*
+- The executor --- *"This session's write posture for the '<target>' control
+  target is read-only --- set from the control-target chip in the header, and in
+  force for this session only."* --- offering a re-run as ``readonly``, and
+  saying to set that target back to writes from the chip if the write is
+  intended.
 
-None of them mentions the deployment's write posture, deliberately: changing a
-``writes_enabled`` key would not lift a posture refusal, and a message that
+Those three are what a narrowing you made from the chip sounds like, and the
+chip is where you lift it. A **deployment-wide read-only run** is a different
+story and says so, because no click lifts that one:
+
+- The connector --- *"Write to '<channel>' blocked: this deployment is running
+  in readonly execution mode (OSPREY_EXECUTION_MODE=readonly), which refuses
+  control-system writes for every session. The control-target chip in the
+  header cannot lift it."*
+- The executor --- *"This deployment is running in readonly execution mode,
+  which refuses control-system writes regardless of what the run asks for."* ---
+  offering the same re-run as ``readonly``, and saying that writes need the
+  deployment started without the variable.
+
+The chip shows the same thing: every toggle locked, with ``readonly run`` as the
+reason.
+
+No posture refusal mentions the deployment's ``writes_enabled`` keys,
+deliberately: changing one would not lift a posture refusal, and a message that
 pointed at one would send an operator to rebuild a deployment when a single
 click was the remedy. The reverse holds too --- a write refused because this
 target is not armed says so in its own words, names the key that would arm it,
@@ -190,29 +296,24 @@ and says nothing about postures.
 
 .. note::
 
-   **The other two surfaces.** Simple mode's chat and the operator websocket
-   run their agent through the Agent SDK rather than a terminal, and both apply
-   the posture at the moment they start that agent, exactly as the terminal
-   does. Where they differ is in whether you can switch one while it runs.
+   **The other two surfaces.** Simple mode's chat and the operator websocket run
+   their agent through the Agent SDK rather than a terminal. Both read the same
+   record at write time, so a narrowing reaches them exactly as it reaches a
+   terminal session. Where they differ is in what the chip can do for them.
 
-   A **chat session can be switched**, and the flip restarts its agent the same
-   way. The badge in the card header addresses terminal sessions; a chat is
-   addressed by its chat id, through the same ``POST /api/terminal/posture``
-   route. The rule about having sent a prompt first does not apply to it ---
-   a chat is addressable from the moment its first prompt starts its agent,
-   including while that agent is still starting up, and it stays addressable
-   for as long as it is running or has a posture on record, so a chat you
-   sandboxed can always be brought back out. One thing is worth knowing before
-   relying on this: the chat page mints a new chat id every time it loads, so
-   a chat's posture lasts as long as that page does rather than following the
-   conversation.
+   A **chat session's toggles work** --- its writes meet the same ceiling and the
+   same narrowing a terminal's do --- but it is offered no **Switch**: a chat has
+   no control-system server of its own for a switch request to be addressed to,
+   and every row says ``chat_session`` where the button would be. One thing is
+   worth knowing before relying on a chat's posture: the chat page mints a new
+   chat id every time it loads, so a chat's posture lasts as long as that page
+   does rather than following the conversation.
 
-   An **operator websocket session keeps the posture it was started with.**
-   There is no way to flip one while it runs, and its posture is not restored
-   across a restart --- its id is minted when the connection is accepted and
-   names nothing afterwards, so there would be nothing to restore it to. That
-   stays true until an operator client exists to define its reconnect protocol.
-   Every audit record such a session emits is labelled
+   An **operator websocket session cannot be addressed from the chip.** Its id is
+   minted when the connection is accepted and names nothing afterwards, so no
+   narrowing can ever be recorded against it and there is nothing to restore
+   across a restart. That stays true until an operator client exists to define
+   its reconnect protocol. Every audit record such a session emits is labelled
    ``posture_source=spawn``, which is the trail's way of saying the posture was
    fixed when the session started rather than read from a live setting --- see
    the record fields in :ref:`the audit trail contract <audit-trail-record>`.
