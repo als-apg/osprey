@@ -12,15 +12,16 @@
  * machine, where it points, whether anything is reaching it, the ceiling the
  * deployment rendered, this session's own narrowing, and what a switch would
  * do. Status and action stay in separate columns because reading the popover
- * and changing it are different gestures.
+ * and changing it are different gestures — and every element carries one fact,
+ * once: the row's single identity line is the server's label, which already
+ * says what kind of machine it names.
  *
  * **One DOM, two densities.** `html[data-ui-mode]` is a CSS concern and only a
- * CSS concern: every row renders the plain-language kind word, the endpoint
- * and role line, the reachability word and age, the baseline tag, the lock
- * reason and the foot note, in both modes, and terminal.css hides what simple
- * mode drops. Nothing here reads `data-ui-mode` — a JS branch on it would make
- * a live toggle-back rebuild the DOM, and would put the density rule in two
- * files that could drift.
+ * CSS concern: every row renders the endpoint and role line, the reachability
+ * word and age, the baseline tag, the lock reason and the foot note, in both
+ * modes, and terminal.css hides what simple mode drops. Nothing here reads
+ * `data-ui-mode` — a JS branch on it would make a live toggle-back rebuild the
+ * DOM, and would put the density rule in two files that could drift.
  *
  * **The popover stays open beneath a confirm.** Arming writes and switching
  * both raise a `.posture-modal-overlay` at `--z-modal`, a full layer above the
@@ -80,6 +81,48 @@ const REASON_CHAT_SESSION = 'chat_session';
 
 /** The refusal word for a row whose Switch is missing because the store is. */
 const REASON_STORE_UNAVAILABLE = 'store_unavailable';
+
+/**
+ * Refusal code → the short phrase the operator reads.
+ *
+ * The route publishes the switch tool's machine codes so the popover and the
+ * agent keep agreeing about the same refusal; what an OPERATOR reads is this
+ * map's phrase, with the server's own sentence (`reason_detail`) on the
+ * element's `title`. A code this map does not know renders verbatim — failing
+ * informative is better than a blank where the reason should be, and it is how
+ * a future code reaches the operator before this file has a phrase for it.
+ *
+ * The three `not configured` codes are one phrase on purpose: all three mean
+ * the deployment has not authored this machine yet, which on a stock render is
+ * the live target's DELIBERATE state (authoring it is the go-live edit), and
+ * the distinction between them belongs to the tooltip, not the row.
+ * @type {Record<string, string>}
+ */
+const REASON_PHRASES = {
+  connector_block_missing: 'not configured',
+  gateways_missing: 'not configured',
+  probe_channel_missing: 'not configured',
+  target_unresolvable: 'unavailable',
+  limits_posture: 'needs strict limits',
+  operator_ack_missing: 'needs gateway ack',
+  archive_belongs_to_standin: 'archive conflict',
+  invented_history: 'no archive',
+  standin_not_deployed: 'stand-in not deployed',
+  selected_role_missing: 'no endpoint for role',
+  [REASON_STORE_UNAVAILABLE]: 'store unavailable',
+};
+
+/**
+ * The operator phrase for one refusal code. Sentences pass through untouched —
+ * the gesture notes hold the server's own refusal sentences as well as codes,
+ * and a sentence is already the most operator-readable form there is.
+ * @param {unknown} code
+ * @returns {string}
+ */
+function reasonPhrase(code) {
+  const word = String(code ?? '');
+  return REASON_PHRASES[word] || word;
+}
 
 /** @type {HTMLElement|null} */
 let popover = null;
@@ -363,7 +406,7 @@ function reachText(reachability) {
  * row that did not take part in it has nothing to report.
  * @param {any} row
  * @param {any} state
- * @returns {{status: string, text: string}|null}
+ * @returns {{status: string, text: string, title?: string}|null}
  */
 function switchOutcome(row, state) {
   if (isPending() && pendingTarget === row.target) {
@@ -376,11 +419,13 @@ function switchOutcome(row, state) {
     const age = typeof last.age_s === 'number' ? ` · ${last.age_s} s ago` : '';
     return { status: 'success', text: `✓ switched${age}` };
   }
-  // refused / failed / expired all render the word the gate (or the client's
-  // own deadline, for a request nothing ever answered) put on them.
+  // refused / failed / expired render the operator phrase for the word the
+  // gate (or the client's own deadline, for a request nothing ever answered)
+  // put on them, with the gate's own sentence on the title where it sent one.
   return {
     status: last.status === 'expired' ? 'expired' : 'refused',
-    text: `✗ ${last.reason || last.status}`,
+    text: `✗ ${reasonPhrase(last.reason || last.status)}`,
+    title: typeof last.detail === 'string' && last.detail ? last.detail : undefined,
   };
 }
 
@@ -440,7 +485,7 @@ function render() {
   // A gesture that named every target has no row of its own to report on.
   const allNote = gestureNotes.get(ALL_TARGETS);
   if (allNote) {
-    const outcome = el('div', 'ctc-outcome', `✗ ${allNote}`);
+    const outcome = el('div', 'ctc-outcome', `✗ ${reasonPhrase(allNote)}`);
     outcome.dataset.status = 'refused';
     popover.append(outcome);
   }
@@ -468,15 +513,14 @@ function renderRow(row, state, rows) {
   node.append(el('span', 'ctc-dot'));
 
   const ident = el('div', 'ctc-ident');
+  // The row's ONE identity line: the server's label, which already carries the
+  // kind of machine it names ("LIVE MACHINE (stand-in)", "virtual accelerator
+  // (simulation)"). A subtitle restating it would be the same fact twice on
+  // the one surface whose job is to be read at a glance.
   const name = el('div', 'ctc-name');
   name.append(el('span', 'ctc-label', row.label || row.target));
   if (row.active) name.append(el('span', 'ctc-tag ctc-tag-current', 'current'));
   ident.append(name);
-
-  // Always rendered, in both densities: simple mode shows this instead of the
-  // meta line below, and terminal.css decides which. An operator who does not
-  // think in endpoints still has to be able to tell the real machine.
-  ident.append(el('div', 'ctc-kind', row.kind || ''));
 
   const meta = el('div', 'ctc-meta');
   meta.append(el('span', 'ctc-endpoint', row.endpoint || ''));
@@ -496,11 +540,12 @@ function renderRow(row, state, rows) {
   if (outcome) {
     const line = el('div', 'ctc-outcome', outcome.text);
     line.dataset.status = outcome.status;
+    if (outcome.title) line.title = outcome.title;
     ident.append(line);
   }
   const gestureNote = gestureNotes.get(row.target);
   if (gestureNote) {
-    const line = el('div', 'ctc-outcome', `✗ ${gestureNote}`);
+    const line = el('div', 'ctc-outcome', `✗ ${reasonPhrase(gestureNote)}`);
     line.dataset.status = 'refused';
     ident.append(line);
   }
@@ -562,12 +607,14 @@ function renderPosture(row, state, word, lock) {
 }
 
 /**
- * Column 4: Switch, or the word for why there is no Switch.
+ * Column 4: Switch, or the phrase for why there is no Switch.
  *
- * The refusal word is the switch tool's own, published by the route and
- * rendered verbatim — so the gap where the button would be is explained
- * rather than merely empty, and the popover and the agent name the same
- * refusal the same way.
+ * The refusal is keyed on the switch tool's own machine code, published by the
+ * route — so the popover and the agent agree about the same refusal — and
+ * rendered as {@link REASON_PHRASES}' operator phrase, with the route's
+ * `reason_detail` sentence (falling back to the code) on the `title`. The gap
+ * where the button would be is explained rather than merely empty, and never
+ * in a vocabulary only the tool speaks.
  * @param {any} row
  * @param {any} state
  * @param {any[]} rows
@@ -588,8 +635,11 @@ function renderAction(row, state, rows) {
     action.append(swap);
     return action;
   }
-  const reason = row.reason || (state.store_available ? '' : REASON_STORE_UNAVAILABLE);
-  action.append(el('span', 'ctc-reason', reason));
+  const code = row.reason || (state.store_available ? '' : REASON_STORE_UNAVAILABLE);
+  const reason = el('span', 'ctc-reason', reasonPhrase(code));
+  const detail = typeof row.reason_detail === 'string' && row.reason_detail ? row.reason_detail : '';
+  if (detail || code) reason.title = detail || String(code);
+  action.append(reason);
   return action;
 }
 
@@ -801,6 +851,10 @@ function dismissConfirm() {
  *
  * Only this direction asks. Narrowing removes reach and is undone by a click;
  * arming is the gesture after which a write the agent makes can land.
+ *
+ * The title already names the machine, so the body does not name it again:
+ * each line is one fact the title does not carry — the scope and the endpoint,
+ * then the guards that stay up and when it takes hold.
  * @param {any} row
  * @param {any} state
  */
@@ -809,7 +863,7 @@ function confirmArming(row, state) {
   showConfirm({
     title: `Allow writes on ${label}?`,
     body: [
-      ["This session's agent will be able to write to ", strong(label), ` (${row.endpoint}).`],
+      ['Arms writes for ', strong('this session'), ` · ${row.endpoint}.`],
       [
         'Per-write approval and channel limits still apply. Takes effect on the next write — ' +
           'no restart.',
@@ -824,9 +878,12 @@ function confirmArming(row, state) {
 /**
  * The confirm for switching this session onto another machine.
  *
- * It names the posture the session will have THERE, because that is the fact
+ * It names the posture the session will ARRIVE in, because that is the fact
  * the chip will read a moment later and the one an operator is most likely to
- * assume travels with them: posture is per-target, and it does not.
+ * assume travels with them: posture is per-target, and it does not. The word
+ * is {@link stateWord}'s own, so the dialog and the chip a moment later can
+ * never disagree. The title already names the machine, so the body does not
+ * name it again.
  * @param {any} row
  * @param {any} state
  */
@@ -842,8 +899,8 @@ function confirmSwitch(row, state) {
   showConfirm({
     title: `Switch to ${label}?`,
     body: [
-      ["The session's control target moves to ", strong(label), ` at ${row.endpoint}.`],
-      ['Session posture there: ', strong(word), '. The agent keeps its conversation.'],
+      ['Arrives in the ', strong(word), ` posture · ${row.endpoint}.`],
+      ['The conversation continues.'],
     ],
     live,
     confirmLabel: 'Switch',

@@ -2547,13 +2547,16 @@ def _row_narrowing_refusal(config: Any, target: str) -> str | None:
 
 def _row_availability(
     config: Any, target: str, session_target: str, baseline: str, writes_enabled: bool
-) -> tuple[bool, str | None]:
-    """Whether a switch to *target* is offered now, and the word for why not.
+) -> tuple[bool, str | None, str | None]:
+    """Whether a switch to *target* is offered now, plus the reason and its sentence.
 
     :func:`~osprey.mcp_server.control_system.target_eligibility.target_availability`
     and nothing else, so the reason under a missing Switch button is the reason
     the reconciler would refuse with, character for character. Re-deriving it
     here would be a second opinion about the same machine, phrased differently.
+    The verdict's two voices travel together: ``reason`` is the machine code
+    the popover and the switch tool key on, and the ``detail`` sentence is what
+    the popover puts on the operator's tooltip.
 
     An unreadable render offers no switch and names
     :data:`~osprey.mcp_server.control_system.target_eligibility.REASON_TARGET_UNRESOLVABLE`:
@@ -2566,18 +2569,23 @@ def _row_availability(
         )
     except Exception:  # noqa: BLE001 — no eligibility module, no switch offered
         logger.warning("Could not import the target eligibility rules", exc_info=True)
-        return False, None
+        return False, None, None
 
     if config is _UNREADABLE_SECTION:
-        return False, REASON_TARGET_UNRESOLVABLE
+        return False, REASON_TARGET_UNRESOLVABLE, None
     try:
         verdict = target_availability(
             config, target, session_target, baseline, writes_enabled=writes_enabled
         )
     except Exception:  # noqa: BLE001 — an unjudgeable target is not an available one
         logger.warning("Could not judge availability for control target %s", target)
-        return False, REASON_TARGET_UNRESOLVABLE
-    return bool(verdict.available_now), verdict.reason
+        return False, REASON_TARGET_UNRESOLVABLE, None
+    # The verdict narrates an offered target too ("Target 'live' is
+    # configured…"), but this field explains a REASON: with no refusal there
+    # is nothing for a tooltip to explain, and publishing the happy sentence
+    # would put prose on rows whose whole answer is the Switch button.
+    detail = (verdict.detail or None) if verdict.reason else None
+    return bool(verdict.available_now), verdict.reason, detail
 
 
 def _target_display(config: Any, record: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
@@ -2698,9 +2706,9 @@ def _posture_view(app: Any, session_key: str, config_path: Path | None) -> dict[
         # would lock the toggle that brings it back.
         narrowing = None if posture == POSTURE_SANDBOX else _row_narrowing_refusal(config, target)
         if is_chat:
-            available_now, reason = False, REASON_CHAT_SESSION
+            available_now, reason, reason_detail = False, REASON_CHAT_SESSION, None
         else:
-            available_now, reason = _row_availability(
+            available_now, reason, reason_detail = _row_availability(
                 config, target, session_target, baseline, effective
             )
         rows.append(
@@ -2715,6 +2723,7 @@ def _posture_view(app: Any, session_key: str, config_path: Path | None) -> dict[
                 "is_baseline": target == baseline,
                 "available_now": available_now,
                 "reason": reason,
+                "reason_detail": reason_detail,
                 "ceiling_writes": ceiling_writes,
                 "posture": posture,
                 "effective": effective,
@@ -2775,9 +2784,12 @@ async def get_terminal_posture(session_id: str, request: Request):
       route would refuse are decided by one function. ``null`` on a row already
       narrowed: that toggle brings the target BACK, and nothing about it can
       strand anything.
-    * ``active`` / ``is_baseline`` / ``available_now`` / ``reason`` — where the
-      session is standing and whether a switch is offered, with the switch
-      tool's own refusal word where the button would be.
+    * ``active`` / ``is_baseline`` / ``available_now`` / ``reason`` /
+      ``reason_detail`` — where the session is standing and whether a switch is
+      offered. ``reason`` is the switch tool's own machine code, so the popover
+      and the agent keep agreeing about the same refusal; ``reason_detail`` is
+      the eligibility verdict's operator sentence, which the popover renders as
+      the tooltip behind its short phrase.
     * ``reachability`` — the state of the gateway role this target would
       actually select under its effective posture, aged server-side, with the
       other roles named beside it (see :func:`_collapse_reachability`).

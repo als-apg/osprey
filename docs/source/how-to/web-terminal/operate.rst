@@ -110,11 +110,11 @@ One row per machine
 
 Each row names a machine and carries the two things you can do to it:
 
-- **What it is** --- the name the deployment gave it, and a plain word for the
-  kind of machine behind it: *live machine*, *stand-in*, *virtual accelerator*
-  or *simulated*. That word comes from what the connector actually is, so a
-  stand-in never renders as the facility's own machine. The row you are on is
-  tagged ``current``.
+- **What it is** --- the name the deployment gave it, which already says what
+  kind of machine it names (*LIVE MACHINE*, *LIVE MACHINE (stand-in)*,
+  *virtual accelerator (simulation)*). That label comes from what the
+  connector actually is, so a stand-in never renders as the facility's own
+  machine. The row you are on is tagged ``current``.
 - **Whether it is answering** --- ``connected``, ``unreachable`` or ``unknown``,
   with how long ago that was measured. ``unknown`` means nothing has vouched for
   it yet, not that it is down.
@@ -122,8 +122,11 @@ Each row names a machine and carries the two things you can do to it:
   a two-segment toggle. It is the readout as well as the control: where it
   cannot move it still shows which state holds, with the reason beside it.
 - **Switch** --- moves this session onto that machine. Where a switch is not
-  available the button is replaced by the reason word, so the gap is explained
-  rather than merely empty.
+  available the button is replaced by a short phrase for the reason ---
+  ``not configured``, ``needs gateway ack`` --- so the gap is explained rather
+  than merely empty, and the server's full sentence sits on the tooltip. On a
+  fresh deployment the live machine reading ``not configured`` is the normal
+  state, not a fault: authoring its gateways is the go-live edit.
 
 The foot of the popover has **Sandbox everything**, which narrows every target
 that can be narrowed in one gesture, and the sentence that bounds the whole
@@ -190,11 +193,13 @@ Switch this session to another machine
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 **Switch** on a row moves the session onto that machine, after a confirmation
-that names it and its endpoint. The web server does not perform the switch: it
-records the request, and the control-system server that owns the connector
-picks it up, re-checks eligibility and reachability at that moment, and
-publishes the outcome back. The row then reads ``✓ switched``, or ``✗`` with the
-refusal word --- the same word the agent is given for the same refusal. While a
+that names it and says which write posture the session arrives in there ---
+posture is per target, and it does not travel with you. The web server does
+not perform the switch: it records the request, and the control-system server
+that owns the connector picks it up, re-checks eligibility and reachability at
+that moment, and publishes the outcome back. The row then reads ``✓ switched``,
+or ``✗`` with the phrase for the refusal --- the same refusal, by the same
+code, the agent is given. While a
 request is out the chip reads ``switching…``, and one request is outstanding at
 a time. If nothing answers within 30 seconds the row reads ``request_expired``:
 the request was written, and nothing that could act on it was alive.
@@ -206,8 +211,8 @@ Simple and Expert
 ~~~~~~~~~~~~~~~~~
 
 The popover follows the session's density setting (the Simple/Expert control in
-the display menu; see :doc:`theming`). Simple mode shows the machine, the plain
-kind word, whether it is answering, the toggle and **Switch**. Expert mode adds
+the display menu; see :doc:`theming`). Simple mode shows the machine's name,
+whether it is answering, the toggle and **Switch**. Expert mode adds
 the endpoint, the gateway role, the age of the last probe, and the notes under a
 locked toggle. The controls and the confirmations are the same in both: the
 density changes what is on screen, never what a click does.
