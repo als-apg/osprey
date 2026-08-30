@@ -220,6 +220,11 @@ class TestControlPlaneKeys:
 
         public, secret = _curve_keypair()
         monkeypatch.setenv("BLUESKY_QSERVER_ZMQ_PRIVATE_KEY", secret.decode())
+        # The mint exports the derived public half straight into os.environ;
+        # recording its absence here is what makes monkeypatch take it back
+        # out at teardown instead of leaking it to every later test in this
+        # worker as an orphan public key.
+        monkeypatch.delenv("BLUESKY_QSERVER_ZMQ_PUBLIC_KEY", raising=False)
 
         _ensure_bluesky_control_plane_keys({"deployed_services": ["bluesky"]}, env_path=env_path)
 
@@ -234,6 +239,9 @@ class TestControlPlaneKeys:
 
         public, secret = _curve_keypair()
         monkeypatch.setenv("BLUESKY_QSERVER_ZMQ_PRIVATE_KEY", secret.decode())
+        # Recorded as absent BEFORE the first mint exports it, so teardown
+        # removes the public half rather than restoring the exported value.
+        monkeypatch.delenv("BLUESKY_QSERVER_ZMQ_PUBLIC_KEY", raising=False)
         config = {"deployed_services": ["bluesky"]}
 
         _ensure_bluesky_control_plane_keys(config, env_path=env_path)
