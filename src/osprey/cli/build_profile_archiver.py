@@ -412,7 +412,7 @@ def va_archiver_errors(
     if not _ENV_VAR_RE.match(cfg.password_env):
         errors.append(
             f"va_archiver.password_env must be an environment variable NAME "
-            f"(uppercase letters, digits, underscores), got {cfg.password_env!r}. The "
+            f"(letters, digits, underscores), got {cfg.password_env!r}. The "
             f"password itself belongs in the deployment's .env, never in the profile."
         )
 

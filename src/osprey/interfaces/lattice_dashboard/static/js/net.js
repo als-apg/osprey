@@ -191,7 +191,7 @@ export function createNetClient(callbacks) {
     // root-absolute '/api/...' only when a quote precedes it, and
     // `${API_BASE}/api/events` put a `}` there instead — so under
     // /u/<user>/panel/lattice/ the stream subscribed at the origin root and
-    // 404ed forever (#784). Every fetch() in this file already passes a
+    // 404ed forever (issue 784). Every fetch() in this file already passes a
     // quoted literal; this was the one URL assembled differently.
     eventSource = new EventSource(API_BASE + '/api/events');
 

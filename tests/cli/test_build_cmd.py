@@ -339,7 +339,7 @@ class TestValidation:
     def test_invalid_env_var_name(self, tmp_path: Path):
         profile = BuildProfile(
             name="Test",
-            env=EnvConfig(required=["lowercase_bad"]),
+            env=EnvConfig(required=["bad-name"]),
         )
         with pytest.raises(BuildProfileError, match="Invalid env var name"):
             profile.validate(tmp_path)
