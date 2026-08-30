@@ -24,6 +24,7 @@ actually used) belong to a connector that configures an EPICS environment,
 which the mock deliberately does not.
 """
 
+import asyncio
 import json
 import os
 import queue
@@ -678,6 +679,54 @@ def _va_config(gateways):
     }
 
 
+# --------------------------------------------- limits posture (child build)
+#
+# Limits posture is per connector type, and the child never learns which type
+# it is by asking: the factory stamps ``_connector_type`` between construction
+# and ``connect()``, and the connector builds its validator from that stamp. So
+# there is nothing in this package for a per-type block to reach — the child
+# inherits the posture by pointing at the project config and resolving its
+# target, exactly as the parent would have.
+#
+# These two run the child's own ``_build_connector`` in this process rather
+# than over a pipe, because what is being pinned is an attribute of the
+# connector living inside the child and the wire serves connector *methods*
+# (:data:`host.PROXY_METHODS`) — the policy a validator was built with never
+# crosses it. Everything up to that attribute is the real path: the on-disk
+# config the child is pointed at, ``resolve_target``, the factory, ``connect()``.
+
+
+DEPLOYMENT_WIDE_ALLOW_KEY = "control_system.limits_checking.allow_unlisted_channels"
+VA_ALLOW_KEY = (
+    "control_system.connector.virtual_accelerator.limits_checking.allow_unlisted_channels"
+)
+
+
+def _limits_control_system(database_path: Path) -> dict:
+    """A deployment that refuses unlisted channels everywhere but its simulator.
+
+    The deployment-wide block is strict and the virtual accelerator's own block
+    relaxes it, so the two targets disagree and only a reader that resolved its
+    own type can say which answer it got. The deployment's own type is the mock
+    by dotted path, so ``live`` resolves to it and needs no EPICS; ``va``
+    resolves to ``virtual_accelerator`` whatever the deployment was built for.
+    """
+    return {
+        "type": MOCK_TYPE,
+        "limits_checking": {
+            "enabled": True,
+            "allow_unlisted_channels": False,
+            "database_path": str(database_path),
+        },
+        "connector": {
+            MOCK_TYPE: {"response_delay_ms": 10, "noise_level": 0.0},
+            "virtual_accelerator": {
+                "limits_checking": {"enabled": True, "allow_unlisted_channels": True}
+            },
+        },
+    }
+
+
 @pytest.fixture
 def va_deployment(tmp_path, monkeypatch):
     """Put an armed virtual accelerator on disk and in reach of this process."""
@@ -827,3 +876,58 @@ async def test_a_narrowed_target_reports_the_posture_its_writes_are_refused_on(
     derivation, verification = _verify(config, report, connector._writes_enabled)
     assert derivation.selected_role == "read_only"
     assert verification.ok, verification.detail
+
+
+@pytest.fixture
+def limits_deployment(tmp_path):
+    """The mixed-posture deployment on disk, beside a real limits database.
+
+    The database path is deployment-wide — one file per deployment — and has to
+    resolve to something loadable, or every posture collapses to the same
+    fail-safe validator and the test would pass without reading a block.
+    """
+    database = tmp_path / "limits.json"
+    database.write_text(json.dumps({"SR:CORR:1:SP": {"min_value": -1.0, "max_value": 1.0}}))
+    section = _limits_control_system(database)
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(yaml.safe_dump({"control_system": section}))
+    return section, str(config_file)
+
+
+def _child_limits_policy(section: dict, config_file: str, target: str) -> dict:
+    """The policy the child's connector ends up validating writes against."""
+
+    async def build():
+        connector, _report = await host._build_connector(
+            {"control_system": section, "target": target, "config_file": config_file}
+        )
+        try:
+            return dict(connector._limits_validator.policy)
+        finally:
+            await connector.disconnect()
+
+    return asyncio.run(build())
+
+
+def test_child_limits_posture_comes_from_the_block_for_the_target_it_serves(limits_deployment):
+    section, config_file = limits_deployment
+
+    policy = _child_limits_policy(section, config_file, "va")
+
+    # The simulator's own block answered, and the refusal an operator would
+    # eventually read names that line rather than the deployment-wide one it
+    # overrides.
+    assert policy["allow_unlisted_channels"] is True
+    assert policy["allow_unlisted_key"] == VA_ALLOW_KEY
+
+
+def test_child_limits_posture_falls_back_to_the_deployment_wide_block(limits_deployment):
+    section, config_file = limits_deployment
+
+    policy = _child_limits_policy(section, config_file, "live")
+
+    # This deployment wrote no block for the type ``live`` resolves to, so the
+    # deployment-wide refusal is the whole posture — and the simulator's
+    # relaxation, two keys away in the same file, does not reach it.
+    assert policy["allow_unlisted_channels"] is False
+    assert policy["allow_unlisted_key"] == DEPLOYMENT_WIDE_ALLOW_KEY

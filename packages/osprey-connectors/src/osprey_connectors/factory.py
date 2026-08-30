@@ -74,11 +74,11 @@ class ConnectorFactory:
         logger.debug(f"Registered archiver connector: {name}")
 
     @classmethod
-    async def create_control_system_connector(
-        cls, config: dict[str, Any] = None, *, control_target: str | None = None
-    ) -> ControlSystemConnector:
+    def build_control_system_connector(
+        cls, config: dict[str, Any] | None = None, *, control_target: str | None = None
+    ) -> tuple[ControlSystemConnector, dict[str, Any]]:
         """
-        Create and configure a control system connector.
+        Build a control system connector and its type config, without connecting.
 
         Args:
             config: Control system configuration dict with keys:
@@ -96,23 +96,17 @@ class ConnectorFactory:
                 behaviour every caller had before the stamp existed.
 
         Returns:
-            Initialized and connected ControlSystemConnector
+            ``(connector, type_config)`` — the stamped but *unconnected*
+            connector, and the type-specific config block ``connect()`` takes.
+            Both halves are needed to finish the build, and the second is not
+            derivable from the first, so they travel together.
 
         Raises:
             ValueError: If connector type is unknown or config is invalid
-            ConnectionError: If connection fails
 
         Example:
-            >>> config = {
-            >>>     'type': 'epics',
-            >>>     'connector': {
-            >>>         'epics': {
-            >>>             'timeout': 5.0,
-            >>>             'gateways': {'read_only': {...}}
-            >>>         }
-            >>>     }
-            >>> }
-            >>> connector = await ConnectorFactory.create_control_system_connector(config)
+            >>> connector, type_config = ConnectorFactory.build_control_system_connector(config)
+            >>> await connector.connect(type_config)
         """
         # Load config if not provided
         if config is None:
@@ -161,8 +155,9 @@ class ConnectorFactory:
 
         # Create connector instance
         connector = connector_class()
-        # The one seam between construction and connect(): the write posture is
-        # per connector type, and connect() itself may already consult it.
+        # The one seam between construction and connect(): the write posture and
+        # the limits posture are both per connector type, and connect() itself
+        # already consults the stamp to load them.
         connector._connector_type = connector_type
         # Beside it, and for the same reason: the session half of the posture is
         # per target, so the target has to be on the instance before connect()
@@ -175,10 +170,52 @@ class ConnectorFactory:
         connector_configs = config.get("connector", {})
         type_config = connector_configs.get(connector_type, {})
 
-        # Connect with configuration
-        await connector.connect(type_config)
+        logger.debug(f"Built control system connector: {connector_type}")
+        return connector, type_config
 
-        logger.debug(f"Created control system connector: {connector_type}")
+    @classmethod
+    async def create_control_system_connector(
+        cls, config: dict[str, Any] | None = None, *, control_target: str | None = None
+    ) -> ControlSystemConnector:
+        """
+        Create, configure and connect a control system connector.
+
+        The whole build in one call, and what almost every caller wants.
+        :meth:`build_control_system_connector` is the same build stopped one
+        step short, for the one caller that has to reach the instance between
+        the type stamp and ``connect()``.
+
+        Args:
+            config: Control system configuration dict, as
+                :meth:`build_control_system_connector` documents it.
+            control_target: The session target this connector is being built
+                for, stamped on the instance as
+                :meth:`build_control_system_connector` documents it.
+
+        Returns:
+            Initialized and connected ControlSystemConnector
+
+        Raises:
+            ValueError: If connector type is unknown or config is invalid
+            ConnectionError: If connection fails
+
+        Example:
+            >>> config = {
+            >>>     'type': 'epics',
+            >>>     'connector': {
+            >>>         'epics': {
+            >>>             'timeout': 5.0,
+            >>>             'gateways': {'read_only': {...}}
+            >>>         }
+            >>>     }
+            >>> }
+            >>> connector = await ConnectorFactory.create_control_system_connector(config)
+        """
+        connector, type_config = cls.build_control_system_connector(
+            config, control_target=control_target
+        )
+        await connector.connect(type_config)
+        logger.debug(f"Created control system connector: {connector._connector_type}")
         return connector
 
     @classmethod
@@ -414,7 +451,7 @@ def register_builtin_connectors() -> None:
         (types.DOOCS, DOOCSConnector),
         # The live stand-in is a soft IOC, so the EPICS connector is what reaches
         # it — but it registers under its own name rather than sharing 'epics'.
-        # The registry key is what create_control_system_connector() stamps onto
+        # The registry key is what build_control_system_connector() stamps onto
         # the instance as _connector_type, and that stamp is what selects the
         # connector block ('control_system.connector.live_standin') and the write
         # posture read from it. Registering the stand-in as 'epics' would give it

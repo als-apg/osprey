@@ -169,7 +169,7 @@ class TestConnect:
         sentinel = MagicMock(name="limits_validator")
         monkeypatch.setattr(
             "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
-            classmethod(lambda cls: sentinel),
+            classmethod(lambda cls, *, connector_type=None, target=None: sentinel),
         )
 
         connector = EPICSConnector()
