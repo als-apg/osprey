@@ -68,10 +68,18 @@ _CLAUDE_MD_TARGET = "/data/claude-config/CLAUDE.md"
 # owner :func:`_container_seed_owner` queried from the container — images name
 # their runtime user differently (osprey, dispatch, ...), so ownership is
 # always passed in, never hardcoded.
+#
+# The hand-back is RECURSIVE. The volume is the harness's home — `projects/`
+# transcripts, `session-env/` hook env files, `sessions/`, caches — and all of
+# it must be writable by the runtime user. A volume that outlived an image
+# whose entrypoint still ran as root keeps root-owned subtrees a top-level
+# chown never reaches: every SessionStart hook then fails with EACCES, no
+# transcript is written, and each page load spawns a fresh session (#785).
+# Idempotent on an already-owned volume.
 _CLAUDE_MD_SH = (
     "set -e\n"
     'owner="$1"\n'
-    'chown "$owner" /data/claude-config\n'
+    'chown -R "$owner" /data/claude-config\n'
     f"cat > {_CLAUDE_MD_TARGET}\n"
     f'chown "$owner" {_CLAUDE_MD_TARGET}\n'
 )

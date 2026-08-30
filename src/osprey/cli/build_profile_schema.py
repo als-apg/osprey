@@ -20,7 +20,16 @@ from typing import Any, Literal
 
 from osprey.port_layout import DEFAULT_PORT_BASE, SLOTS_BY_NAME, default_port, layout_ports
 
-_ENV_VAR_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
+#: The shape of an environment-variable NAME wherever a profile names one
+#: (``services.<name>.env``, ``env.required``, ``env.pinned``, ...). Both cases
+#: are admitted: the proxy family (``http_proxy`` / ``https_proxy`` /
+#: ``no_proxy``) is conventionally lowercase, and a deployment behind a proxy
+#: must be able to pass or pin those spellings too — ``urllib``'s
+#: ``getproxies()`` (hence httpx and requests) reads whichever spelling comes
+#: LAST in the environment, so an uppercase-only passthrough is silently
+#: overruled by a lowercase twin the container runtime injects from the host
+#: after the compose ``environment:`` block (#783).
+_ENV_VAR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 NetworkMode = Literal["bridge", "host"]
 """How a deployed service attaches to the network."""
@@ -98,7 +107,7 @@ def env_names_errors(value: Any, key: str) -> list[str]:
             continue
         message = (
             f"{key}[{index}] must be an environment variable name matching "
-            f"[A-Z_][A-Z0-9_]* (got {name!r})"
+            f"[A-Za-z_][A-Za-z0-9_]* (got {name!r})"
         )
         if isinstance(name, bool):
             # A bare `- on` entry is read on the YAML 1.1 resolver as a bool,
