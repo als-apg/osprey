@@ -446,7 +446,40 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # absent key renders as nothing at all — the same way hook_config.json
         # once shipped with an empty write-tool list and no error to say so.
         "mixed_read_write_tools": [],
+        # The terminal theme `web.theme` pins, if any — settings.json.j2
+        # renders it so one config key governs the look of both surfaces.
+        "terminal_theme": _terminal_theme(config),
     }
+
+
+def _terminal_theme(config: dict) -> str | None:
+    """The Claude Code terminal theme the deployment's ``web.theme`` pins.
+
+    ``web.theme`` may name a concrete theme id (``"desy-light"`` — a palette
+    *and* a mode) or a family (``"desy"`` — light/dark left to each viewer's
+    OS). Only a pinned mode maps onto Claude Code's ``theme`` key: a terminal
+    cannot follow the OS, so a family renders nothing and Claude Code's own
+    default applies rather than this render inventing a pin the operator never
+    stated. Same distinction, same resolver, as the web surfaces —
+    :func:`osprey.interfaces.design_system.theme_config.resolve_pinned_mode`.
+
+    Never raises: a broken theme registry must not take down a render, exactly
+    as it must not take down a server's startup.
+    """
+    configured = (config.get("web") or {}).get("theme")
+    if not configured:
+        return None
+    try:
+        from osprey.interfaces.design_system.theme_config import (
+            load_theme_registry,
+            resolve_pinned_mode,
+        )
+
+        entries, _ = load_theme_registry()
+        return resolve_pinned_mode(str(configured), entries)
+    except Exception as exc:  # noqa: BLE001 — cosmetic key, never render-blocking
+        logger.warning("Could not resolve web.theme %r for the terminal (%r)", configured, exc)
+        return None
 
 
 def _renders_the_target_switch(control_system: dict) -> bool:

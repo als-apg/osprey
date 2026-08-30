@@ -107,15 +107,23 @@ class TestScriptShape:
         assert text.startswith("#!/bin/sh\n")
         assert re.search(r"^set -eu$", text, flags=re.MULTILINE)
 
-    def test_regen_then_restore_then_drop(self, text: str):
+    def test_regen_then_restore_then_seed_then_drop(self, text: str):
         """The order that makes the render's root ownership meaningful."""
-        # The call sites, not the prose: the header comment names both steps
+        # The call sites, not the prose: the header comment names the steps
         # while explaining the order, in whatever sequence reads best there.
         regen = text.index("regen_if_drift(render_dir)")
         restore = text.index("restore_scaffold_bodies(render_dir)")
+        seed = text.index("seed_claude_state(render_dir")
         drop = _EXEC_FORM.search(text)
         assert drop is not None, 'no `exec gosu osprey "$@"` privilege drop'
-        assert regen < restore < drop.start()
+        assert regen < restore < seed < drop.start()
+
+    def test_seed_hands_its_writes_to_the_dropped_user(self, text: str):
+        """The first-run seed writes into the claude-config volume, which the
+        state-zone hand-back does not cover — so the seed must name the
+        privilege-drop target itself, or its file stays root-owned in a volume
+        the dropped process has to rewrite."""
+        assert 'seed_claude_state(render_dir, owner_user="osprey")' in text
 
     def test_exec_form(self, text: str):
         assert len(_EXEC_FORM.findall(text)) == 1

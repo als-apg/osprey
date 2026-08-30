@@ -21,6 +21,12 @@
 {%- endmacro -%}
 {
   "showThinkingSummaries": true,
+{%- if terminal_theme %}
+{#- The terminal follows the deployment's `web.theme`, and only when that
+    value PINS a mode (a concrete theme id like "desy-light"). A family pins
+    nothing and this line is absent — Claude Code's own default applies. -#}
+  "theme": {{ terminal_theme | tojson }},
+{%- endif %}
   "outputStyle": ".claude/output-styles/control-operator.md",
   "statusLine": {
     "type": "command",
