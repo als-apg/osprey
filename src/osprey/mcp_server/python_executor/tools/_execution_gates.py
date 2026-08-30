@@ -256,20 +256,31 @@ def _enforce_session_store_term(target: str | None) -> None:
     if permitted:
         return
 
-    scope = (
-        f"control target '{target}'"
-        if target
-        else "this session (its control target could not be identified, so the "
-        "most restrictive posture applies)"
-    )
+    # The wording is enforce_posture_clamp's, deliberately: this is the same
+    # refusal met one layer down, and an operator who meets both gates in one
+    # session should not have to work out that they are the same answer.
+    if target is None:
+        make_error(
+            "safety_error",
+            "This session's write posture is read-only for at least one control "
+            "target (the run's target could not be identified, so the most "
+            "restrictive decides) — set from the control-target chip in the header.",
+            [
+                'Re-run with execution_mode="readonly" — reads are unaffected by the posture.',
+                "Lift that narrowing from the control-target chip in the header if "
+                "the write is intended; the deployment config is not the gate here.",
+            ],
+            details={"active_target": target},
+        )
     make_error(
         "safety_error",
-        f"This session's write posture for {scope} is read-only, which refuses "
-        "control-system writes regardless of what the run asks for.",
+        f"This session's write posture for the '{target}' control target is "
+        "read-only — set from the control-target chip in the header, and in "
+        "force for this session only.",
         [
             'Re-run with execution_mode="readonly" — reads are unaffected by the posture.',
-            "To allow writes, switch this target to the writes posture from the "
-            "control-target chip in the header; the deployment config is not the "
+            f"Set '{target}' back to writes from the control-target chip in the "
+            "header if the write is intended; the deployment config is not the "
             "gate here.",
         ],
         details={"active_target": target},
