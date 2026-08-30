@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Aug 29, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 30, 2026"/>
   </head>
   
   
@@ -526,9 +526,9 @@ How it is put together is <a class="reference internal" href="../../architecture
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
 <ul class="simple">
 <li><p class="sd-card-text">What the Virtual Accelerator is (and is not)</p></li>
-<li><p class="sd-card-text">The three-state <code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> switch</p></li>
+<li><p class="sd-card-text">What <code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> selects, and which machine each value names</p></li>
 <li><p class="sd-card-text">Pointing a project at the Virtual Accelerator the stack already deploys</p></li>
-<li><p class="sd-card-text">Moving a running session between the simulator and the real machine</p></li>
+<li><p class="sd-card-text">Moving a running session between the machines a deployment describes</p></li>
 <li><p class="sd-card-text">Switching back to the mock, and why plans go browse-only there</p></li>
 <li><p class="sd-card-text">How <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> scenarios behave in Virtual Accelerator mode</p></li>
 <li><p class="sd-card-text">Write limits</p></li>
@@ -539,8 +539,9 @@ tutorial project (see <a class="reference internal" href="../../getting-started/
 </div>
 </details><section id="overview">
 <h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
-<p>The Control Assistant tutorial ships three interchangeable control-system
-backends, selected by a single <code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> value:</p>
+<p>The Control Assistant tutorial ships interchangeable control-system backends,
+selected by a single <code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> value. The value picks the machine
+a session <strong>starts</strong> on:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 22.0%" />
@@ -566,6 +567,12 @@ uses. The tutorial’s default, and deployed as part of its stack.</p></td>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">epics</span></code></p></td>
 <td><p>Production EPICS, pointed at the facility gateway. Untouched by this
 guide.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">live_standin</span></code></p></td>
+<td><p>The <strong>live stand-in</strong> — a second soft IOC the deployment runs for
+itself, served by the EPICS connector from its own connector block.
+Available only where the build profile stood one up; see <a class="reference internal" href="#rehearsing-against-a-live-target">Rehearsing
+against a live target</a>.</p></td>
 </tr>
 </tbody>
 </table>
@@ -624,10 +631,10 @@ an honestly storeless deployment. <a class="reference internal" href="#the-hones
 <section id="switching-a-running-session">
 <h2>Switching a running session<a class="headerlink" href="#switching-a-running-session" title="Link to this heading">#</a></h2>
 <p>Those three commands set which control system the deployment <strong>starts</strong> on; on a
-deployment that describes both a real machine and a Virtual Accelerator, a
-running session can also be moved between the two — rehearse a script against
-the simulator, then run it on the machine — with one approval-gated tool call and
-no rebuild, no redeploy and no restart.</p>
+deployment that describes more than one machine, a running session can also be
+moved between them — rehearse a script against the simulator, then run it on the
+machine — with one approval-gated tool call and no rebuild, no redeploy and no
+restart.</p>
 <p>See <a class="reference internal" href="switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a> for the whole workflow: the two tools, the
 reachability proof that keeps a failed switch from stranding the session, the
 posture a move toward the live machine requires, what the switch refuses, and
@@ -635,29 +642,39 @@ how Bluesky plans behave while a session is switched.</p>
 </section>
 <section id="rehearsing-against-a-live-target">
 <h2>Rehearsing against a live target<a class="headerlink" href="#rehearsing-against-a-live-target" title="Link to this heading">#</a></h2>
-<p>A deployment usually has nothing to switch <em>to</em>: the live connector points at a
-facility gateway that may not exist yet, or not from this laptop. Setting
-<code class="docutils literal notranslate"><span class="pre">virtual_accelerator.live_standin:</span> <span class="pre">true</span></code> in the build profile gives it one —
-a <strong>second</strong> simulator container, deployed as this deployment’s <code class="docutils literal notranslate"><span class="pre">live</span></code> target.
-<code class="docutils literal notranslate"><span class="pre">control_target_set</span> <span class="pre">live</span></code> then rehearses the whole go-live ritual with nothing
-to edit and no real machine involved. The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships it
-on; delete the line to run one machine again.</p>
-<p>The two are told apart by reading them: one image over one lattice, but a small
-fixed offset on the stand-in’s BPM readouts. The label stays honest throughout —
-the banner and the posture badge read <code class="docutils literal notranslate"><span class="pre">LIVE</span> <span class="pre">MACHINE</span> <span class="pre">(stand-in)</span></code>.
-<a class="reference internal" href="switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a> has the ritual itself, and the three steps that
-turn the stand-in into your facility.</p>
+<p>A deployment usually has nothing to rehearse the real-machine procedure on: the
+<code class="docutils literal notranslate"><span class="pre">epics</span></code> connector points at a facility gateway that may not exist yet, or not
+from this laptop. Setting <code class="docutils literal notranslate"><span class="pre">virtual_accelerator.live_standin:</span> <span class="pre">true</span></code> in the build
+profile gives it a machine to rehearse on — a <strong>second</strong> simulator container,
+deployed as a control target of its own, <code class="docutils literal notranslate"><span class="pre">standin</span></code>. The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code>
+preset ships it on; delete the line to run one machine again.</p>
+<p>The stand-in is a third machine, not a rewrite of <code class="docutils literal notranslate"><span class="pre">live</span></code>. It has its own
+connector block, and <code class="docutils literal notranslate"><span class="pre">control_system.connector.epics</span></code> stays whatever your
+facility wrote there — so <code class="docutils literal notranslate"><span class="pre">live</span></code> still names your machine while the rehearsal
+runs beside it. <code class="docutils literal notranslate"><span class="pre">control_target_set</span> <span class="pre">standin</span></code> moves a session onto the stand-in;
+<code class="docutils literal notranslate"><span class="pre">control_target_set</span> <span class="pre">live</span></code> from there walks the real go-live path, gates and
+all.</p>
+<p>The two simulated machines are told apart by reading them: one image over one
+lattice, but a small fixed offset on the stand-in’s BPM readouts. (Where the
+environment pins <code class="docutils literal notranslate"><span class="pre">VA_LATTICE=none</span></code> or a facility channel file, there is no
+lattice to displace — the stand-in serves that manifest unperturbed, and reads
+identically to the Virtual Accelerator beside it.) The label stays honest either
+way: the banner and the posture badge read <code class="docutils literal notranslate"><span class="pre">LIVE</span> <span class="pre">MACHINE</span> <span class="pre">(stand-in)</span></code>.
+<a class="reference internal" href="switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a> has the ritual itself.</p>
 <p><strong>Scenarios reach both machines.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> writes one scenario file
 and both containers poll it, so a scenario changes the world rather than one
-lane. There is no scenario that applies to the simulator but not to the machine
-standing in for the live one, and switching targets does not undo one.</p>
+lane. There is no scenario that applies to the simulator but not to the stand-in,
+and switching targets does not undo one.</p>
 <p><strong>The archive belongs to the machine.</strong> The recorder records the stand-in when
 one is deployed, and the history seeded on the first deploy carries the same BPM
 offsets the stand-in reads — so its past and its present describe one machine,
 the way a real machine’s do. What the two halves share is the systematic error,
 not the individual samples: the seeded past carries the same systematic offsets
 as the stand-in’s readout, not the same numbers, because the seed’s values are
-generated rather than read off the running IOC.</p>
+generated rather than read off the running IOC. While that store is being
+recorded, the <code class="docutils literal notranslate"><span class="pre">live</span></code> target is refused — a real machine’s readings must not
+land in a stand-in’s archive. <a class="reference internal" href="switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a> says how to clear
+that.</p>
 </section>
 <section id="switching-back-to-the-mock">
 <h2>Switching back to the mock<a class="headerlink" href="#switching-back-to-the-mock" title="Link to this heading">#</a></h2>
@@ -690,7 +707,8 @@ honest answer to “is this archive still being written”. Flipping back to
 <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> restarts recording within a poll too.</p>
 <p>A stand-in changes that answer, because the recorder follows the machine rather
 than the <code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> line: the stand-in keeps running and is still
-this deployment’s live machine, so it keeps being recorded on <code class="docutils literal notranslate"><span class="pre">mock</span></code> as well.</p>
+the machine this deployment records, so it keeps being recorded on <code class="docutils literal notranslate"><span class="pre">mock</span></code> as
+well.</p>
 </section>
 <section id="connecting-to-the-ioc">
 <h2>Connecting to the IOC<a class="headerlink" href="#connecting-to-the-ioc" title="Link to this heading">#</a></h2>
@@ -785,17 +803,18 @@ they are gated in every deployment.</p>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>The limits posture here follows the stand-in. Without one, the limits
-checker runs permissive (<code class="docutils literal notranslate"><span class="pre">limits_checking.allow_unlisted_channels:</span>
-<span class="pre">true</span></code>): a channel <em>absent</em> from <code class="docutils literal notranslate"><span class="pre">channel_limits.json</span></code> is not blocked,
-range enforcement covers the listed channels, and it is not a closed
-allowlist.</p>
-<p>Set <code class="docutils literal notranslate"><span class="pre">virtual_accelerator.live_standin</span></code> in the build profile — the
-<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset does — and the build runs the deployment
-strict instead: limits checking on, unlisted channels refused, on both
-machines. That is the posture a switch to the live machine requires, and
-rehearsing it is what the stand-in is for, so an unlisted channel is
-refused on the simulator too. See <a class="reference internal" href="#rehearsing-against-a-live-target">Rehearsing against a live target</a>.</p>
+<p>The limits posture is a separate decision, and it is the profile’s to make.
+Shipped permissive (<code class="docutils literal notranslate"><span class="pre">limits_checking.allow_unlisted_channels:</span> <span class="pre">true</span></code>), the
+limits checker does not block a channel <em>absent</em> from
+<code class="docutils literal notranslate"><span class="pre">channel_limits.json</span></code>: range enforcement covers the listed channels, and
+it is not a closed allowlist.</p>
+<p>A deployment that rehearses on a stand-in wants the strict posture instead —
+limits checking on, unlisted channels refused — because that is what a switch
+to either real-machine target requires, and rehearsing it is what the
+stand-in is for. Write the pair in the build profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block; the
+<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset does. It applies to the whole deployment, so an
+unlisted channel is refused on the simulator too. See <a class="reference internal" href="#rehearsing-against-a-live-target">Rehearsing against a
+live target</a>.</p>
 </div>
 </section>
 </section>
@@ -928,9 +947,10 @@ it has.</p>
 </section>
 <section id="the-honesty-rule">
 <h2>The honesty rule<a class="headerlink" href="#the-honesty-rule" title="Link to this heading">#</a></h2>
-<p>There is one configuration this stack refuses: a <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> control
-system paired with the <strong>mock archiver</strong> — or with no archiver set at all, which
-resolves to the same thing.</p>
+<p>There is one configuration this stack refuses: a machine the deployment stands
+up for itself — the <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> control system, or the
+<code class="docutils literal notranslate"><span class="pre">live_standin</span></code> one — paired with the <strong>mock archiver</strong>, or with no archiver
+set at all, which resolves to the same thing.</p>
 <p>The reason is what the two do differently. The Virtual Accelerator serves
 channels that move for modelled reasons: you step a corrector, the orbit
 responds. The mock archiver does not store anything; it synthesizes a

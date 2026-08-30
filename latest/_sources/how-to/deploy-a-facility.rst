@@ -587,6 +587,8 @@ anywhere inside the repository:
 .. code-block:: bash
 
    osprey set connector=epics          # or edit profile.yml by hand
+   osprey set config.archiver.type=epics_archiver
+   osprey set va_archiver=null         # the recorded archive goes with the stand-in
    osprey build
    osprey up -d
 

@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Aug 29, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 30, 2026"/>
   </head>
   
   
@@ -762,11 +762,15 @@ configuration change, not a code change. Point the connectors at your facility
 in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">connector</span><span class="o">=</span>epics
 osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span>config.archiver.type<span class="o">=</span>epics_archiver
+osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">va_archiver</span><span class="o">=</span>null
 </pre></div>
 </div>
 <p>The archive this tutorial deploys is a <em>simulated</em> machine’s history, which is
 not what you want against hardware — so the archiver moves to your facility’s
-appliance at the same time as the control system.</p>
+appliance at the same time as the control system, and the recorded store is
+dropped. All three lines are needed: the build refuses a facility baseline that
+still carries a <code class="docutils literal notranslate"><span class="pre">va_archiver:</span></code> block, because that store would be served as
+the real machine’s past.</p>
 <p>Because these are build-time inputs, re-render the agent’s artifacts and
 relaunch:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build
