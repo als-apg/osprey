@@ -565,7 +565,7 @@ export function pasteToTerminal(/** @type {string} */ text) {
 /**
  * In-page listeners for "which session is this card on?" — the same question
  * the panel iframes get answered by postMessage below, asked by hub modules
- * that live in this document (the posture badge). Kept as one list rather
+ * that live in this document (the control-target chip). Kept as one list rather
  * than a DOM event so the answer travels through exactly the seam every id
  * change already funnels into.
  * @type {((sessionId: string) => void)[]}

@@ -353,6 +353,703 @@ osprey-display-menu .display-menu-logout-icon {
   .header-identity-menu.open { animation: none; }
 }
 
+/* ---- Control-target chip + its popover ----
+
+   The one chip in the header that answers "if the agent writes now, where does
+   it land, and will it be refused?". Geometry and tone are the command-palette
+   trigger's, so it reads as a peer of the other header actions rather than as a
+   banner; the state it carries is what makes it worth looking at.
+
+   Everything is keyed off four data attributes the chip module sets —
+   `data-target-kind` (live | standin | va | simulated), `data-state`
+   (writes | sandbox | read-only), `data-enforceable`, `data-pending` — so no
+   colour name and no state word lives in the JS.
+
+   The popover is the identity menu's idiom (absolute, anchored under its
+   trigger, --z-sticky, a 120ms fade), turned into a table of the targets this
+   session may sit on. */
+
+/* Positioning context for the popover: the chip and its menu travel together
+   inside the header action cluster. */
+.ctc-anchor {
+  position: relative;
+  display: flex;
+}
+
+.ctc-anchor[hidden] {
+  display: none;
+}
+
+.control-target-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 9px 0 10px;
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  font-weight: var(--weight-regular);
+  color: var(--text-secondary);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast),
+    background var(--wt-transition-fast);
+}
+
+/* `display: inline-flex` above outranks the user-agent [hidden] rule, so the
+   hidden state (no session yet, or a deployment with nothing to say) needs
+   saying explicitly — the same trap `.status-item[hidden]` in files.css
+   documents. */
+.control-target-chip[hidden] {
+  display: none;
+}
+
+.control-target-chip:hover,
+.control-target-chip[aria-expanded="true"] {
+  color: var(--text-primary);
+  border-color: var(--border-accent);
+  background: var(--bg-elevated);
+}
+
+/* The one loud cell in the whole matrix: the facility's own machine, with this
+   session able to write to it. Nothing else tints the border — a sandboxed
+   real machine is a safe state and must not shout, or the one state that
+   should stops being distinguishable. */
+.control-target-chip[data-target-kind="live"][data-state="writes"] {
+  border-color: var(--error-tint-40);
+}
+
+.control-target-chip[data-target-kind="live"][data-state="writes"]:hover,
+.control-target-chip[data-target-kind="live"][data-state="writes"][aria-expanded="true"] {
+  border-color: var(--color-error);
+  background: var(--error-tint-08);
+}
+
+/* Nothing behind the chip can enforce what it says (posture store unavailable,
+   no session-owned record, a deployment-wide readonly run): it stays the
+   readout, and stays clickable, but drops out of the foreground. */
+.control-target-chip[data-enforceable="false"] {
+  opacity: 0.72;
+}
+
+/* The short label — derived from the target's own kind and label, never the
+   raw target name, so the chip cannot grow with a long deployment string. */
+.ctc-short {
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.04em;
+  color: var(--text-primary);
+}
+
+/* A simulator is the unremarkable case: it drops to the secondary weight so
+   the eye skips it, exactly as the popover's own row label does. */
+.control-target-chip[data-target-kind="simulated"] .ctc-short {
+  color: var(--text-secondary);
+  font-weight: var(--weight-regular);
+}
+
+.ctc-sep {
+  color: var(--text-muted);
+}
+
+.ctc-state {
+  color: var(--text-secondary);
+}
+
+/* Sandbox is the state an operator chose and can lift; it earns the warning
+   colour on the word, not on the border. */
+.control-target-chip[data-state="sandbox"] .ctc-state {
+  color: var(--color-warning);
+}
+
+.control-target-chip[data-state="read-only"] .ctc-state {
+  color: var(--text-muted);
+}
+
+.control-target-chip[data-pending="true"] .ctc-state {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.ctc-caret {
+  flex-shrink: 0;
+  margin-left: 1px;
+  font-size: var(--text-sm);
+  line-height: var(--leading-none);
+  color: var(--text-muted);
+}
+
+/* ---- The dot ----
+
+   Two channels, read together: colour is the consequence of a write landing
+   here, shape is who is holding writes back. Filled = nobody, the agent can
+   write. Half = the operator sandboxed it for this session, and one click in
+   the popover lifts it. Hollow = the deployment never armed this target, so
+   there is nothing to lift from here.
+
+   The words beside the dot say the same thing, so colour is a second channel
+   rather than the only one. */
+.ctc-dot {
+  --dot: var(--text-muted);
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  background: var(--dot);
+  border: 1.5px solid var(--dot);
+  border-radius: var(--radius-full);
+}
+
+/* Shape. The attribute may sit on the dot itself (a standalone dot) or on the
+   chip or row that owns it, so both spellings resolve. */
+[data-state="sandbox"] > .ctc-dot,
+.ctc-dot[data-state="sandbox"] {
+  background: linear-gradient(90deg, var(--dot) 50%, transparent 50%);
+}
+
+[data-state="read-only"] > .ctc-dot,
+.ctc-dot[data-state="read-only"] {
+  background: transparent;
+}
+
+/* Colour. A stand-in soft-IOC is a real machine for this purpose — an operator
+   drives it the way they drive the facility's own — so it shares `live`'s
+   palette rather than getting a third one that would invite reading it as a
+   second simulator. */
+[data-target-kind="live"][data-state="writes"] > .ctc-dot,
+[data-target-kind="standin"][data-state="writes"] > .ctc-dot {
+  --dot: var(--color-error);
+}
+
+[data-target-kind="live"][data-state="sandbox"] > .ctc-dot,
+[data-target-kind="standin"][data-state="sandbox"] > .ctc-dot {
+  --dot: var(--color-warning);
+}
+
+[data-target-kind="va"][data-state="writes"] > .ctc-dot {
+  --dot: var(--color-success);
+}
+
+/* Stand-in with writes armed: an outline, not a fill. It is a real machine —
+   the colour says so — but it is not the facility's own, and the open centre
+   is what separates the two at a glance in a header the eye only skims. */
+[data-target-kind="standin"][data-state="writes"] > .ctc-dot {
+  background: transparent;
+  border-width: 2px;
+}
+
+/* A switch request is out: the dot breathes until the answer lands. Motion is
+   the only channel free here — colour and shape are both already spoken for —
+   and it is dropped entirely for a viewer who asked for no motion, where the
+   italic `switching…` word carries it alone. */
+[data-pending="true"] > .ctc-dot {
+  animation: ctc-breathe 1.2s ease-in-out infinite; /* hygiene-allow-scale: a breathing cycle is a perception constant, not a UI timing step — the emitted duration scale stops well short of it */
+}
+
+@keyframes ctc-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@keyframes ctc-menu-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-pending="true"] > .ctc-dot { animation: none; }
+  .ctc-popover.open { animation: none; }
+}
+
+/* ---- The popover ----
+
+   Right-anchored, unlike the identity menu: it hangs under a header-right
+   action. Same --z-sticky reasoning as that menu — header chrome outranks a
+   body-level callout — and the confirm overlay sits a full layer above it
+   (--z-modal, at the bottom of this file), so a confirm never hides the rows
+   it is about and the popover can stay open beneath it. */
+.ctc-popover {
+  display: none;
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  width: 500px;
+  padding: var(--space-3);
+  flex-direction: column;
+  gap: var(--space-2);
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-dropdown);
+  z-index: var(--z-sticky);
+}
+
+.ctc-popover.open {
+  display: flex;
+  animation: ctc-menu-in var(--wt-transition-fast);
+}
+
+.ctc-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 0 2px 6px;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.ctc-head-title {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+/* The right of the head is empty in the plain case and only fills when the
+   session is not plain — nothing enforceable behind it, a readonly run, an
+   execution in flight. Absence is the good news. */
+.ctc-head-note {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+
+.ctc-head-note[data-tone="warn"] {
+  color: var(--color-warning);
+}
+
+.ctc-head-note[data-tone="error"] {
+  color: var(--color-error);
+}
+
+.ctc-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Four columns: the dot, who the target is, the posture this session holds on
+   it, and the one action available. Status and action stay in separate
+   columns — reading the popover and changing it are different gestures. */
+.ctc-row {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto auto;
+  column-gap: 10px;
+  align-items: center;
+  padding: 8px 2px;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.ctc-row:last-child {
+  border-bottom: 0;
+}
+
+/* The row this session is on, bled past the popover's padding so the tint
+   reads as a highlighted row rather than an inset card. */
+.ctc-row[data-active="true"] {
+  margin: 0 -6px;
+  padding-left: 8px;
+  padding-right: 8px;
+  background: var(--accent-tint-04);
+  border-radius: var(--radius-md);
+}
+
+/* The dot aligns with the name line, not with the middle of a three-line
+   identity block. */
+.ctc-row > .ctc-dot {
+  align-self: start;
+  margin-top: 5px;
+}
+
+.ctc-ident {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ctc-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ctc-label {
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ctc-row[data-target-kind="simulated"] .ctc-label {
+  color: var(--text-secondary);
+  font-weight: var(--weight-regular);
+}
+
+/* The plain-language kind word under the name — simple mode's replacement for
+   the endpoint and gateway role. An operator who does not think in endpoints
+   still needs to know a row is the real machine. Hidden in expert, which has
+   the meta line instead. */
+.ctc-kind {
+  display: none;
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ctc-tag {
+  padding: 1px 5px;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xs);
+}
+
+.ctc-tag-current {
+  color: var(--color-accent-light);
+  border-color: var(--border-accent);
+  background: var(--accent-tint-08);
+}
+
+.ctc-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.ctc-endpoint {
+  white-space: nowrap;
+}
+
+.ctc-role,
+.ctc-baseline {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.ctc-role::before,
+.ctc-baseline::before {
+  content: "·";
+  margin-right: 8px;
+}
+
+/* Reachability, as the prober last saw it. The LED is the constant; the word
+   and the age beside it are what simple mode drops. */
+.ctc-reach {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.ctc-reach-dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  background: var(--text-muted);
+  border: 1px solid var(--text-muted);
+  border-radius: var(--radius-full);
+}
+
+.ctc-reach[data-state="reached"] .ctc-reach-dot {
+  background: var(--color-success);
+  border-color: var(--color-success);
+}
+
+.ctc-reach[data-state="down"] {
+  color: var(--color-error);
+}
+
+.ctc-reach[data-state="down"] .ctc-reach-dot {
+  background: var(--color-error);
+  border-color: var(--color-error);
+}
+
+.ctc-reach[data-state="stale"] {
+  color: var(--color-warning);
+}
+
+.ctc-reach[data-state="stale"] .ctc-reach-dot {
+  background: var(--color-warning);
+  border-color: var(--color-warning);
+}
+
+/* Never probed: a hollow LED, the same "nothing is holding this" shape the
+   target dot uses for read-only. */
+.ctc-reach[data-state="unknown"] .ctc-reach-dot {
+  background: transparent;
+}
+
+/* A target reachability does not apply to loses the LED entirely rather than
+   showing an unlit one, which would read as "down". */
+.ctc-reach[data-state="not_applicable"] .ctc-reach-dot {
+  display: none;
+}
+
+/* What the last switch or posture request on this row did. Feedback, so it
+   survives into simple mode unchanged. */
+.ctc-outcome {
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.ctc-outcome[data-status="pending"] {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.ctc-outcome[data-status="success"] {
+  color: var(--color-success);
+}
+
+.ctc-outcome[data-status="refused"],
+.ctc-outcome[data-status="expired"] {
+  color: var(--color-error);
+}
+
+.ctc-outcome[data-status="realign"] {
+  color: var(--color-warning);
+}
+
+/* ---- Posture toggle (column 3) ----
+
+   Two named segments rather than a switch, so the row says what it is as well
+   as what it would become. */
+.ctc-posture {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+}
+
+.ctc-toggle {
+  display: inline-flex;
+  overflow: hidden;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+}
+
+.ctc-seg {
+  height: 22px;
+  padding: 0 9px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition: color var(--wt-transition-fast), background var(--wt-transition-fast);
+}
+
+.ctc-seg + .ctc-seg {
+  border-left: 1px solid var(--border-default);
+}
+
+.ctc-seg:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--neutral-tint-06);
+}
+
+.ctc-seg[aria-pressed="true"] {
+  color: var(--text-primary);
+  background: var(--neutral-tint-12);
+}
+
+/* Pressed `writes` takes the colour of what a write there would mean: the
+   error tone on a real machine, the success tone on the simulator, where
+   writing is simply the tool working. */
+.ctc-row[data-real="true"] .ctc-seg[data-seg="writes"][aria-pressed="true"] {
+  color: var(--color-error);
+  background: var(--error-tint-10);
+}
+
+.ctc-row[data-real="false"] .ctc-seg[data-seg="writes"][aria-pressed="true"] {
+  color: var(--color-success);
+  background: var(--success-tint-08);
+}
+
+.ctc-seg[data-seg="read-only"][aria-pressed="true"] {
+  color: var(--color-warning);
+}
+
+/* Locked: the toggle still shows which state holds — it is the readout too —
+   and only loses its affordance. The reason sits under it. */
+.ctc-toggle[data-locked="true"] {
+  opacity: 0.45;
+}
+
+.ctc-toggle[data-locked="true"] .ctc-seg {
+  cursor: not-allowed;
+}
+
+.ctc-lock {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* ---- Action (column 4) ----
+
+   Either a Switch button or, where a button cannot be, the tool's own refusal
+   word in its place — so the gap where the action would be is explained
+   rather than merely empty. */
+.ctc-action {
+  min-width: 64px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.ctc-switch {
+  height: 22px;
+  padding: 0 10px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast),
+    background var(--wt-transition-fast);
+}
+
+.ctc-switch:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--border-accent);
+  background: var(--accent-tint-08);
+}
+
+/* Switching onto a real machine hovers to the error tone: the confirm that
+   follows is the safety gesture, and the button that opens it should already
+   look like the one that does. */
+.ctc-row[data-real="true"] .ctc-switch:hover:not(:disabled) {
+  border-color: var(--error-tint-40);
+  background: var(--error-tint-08);
+}
+
+.ctc-reason {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+
+.ctc-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 8px 2px 0;
+  border-top: 1px solid var(--border-default);
+}
+
+/* The one-gesture narrowing: it only ever removes reach, so it applies on
+   click without a confirm, and it hovers warning rather than error. */
+.ctc-sandbox-all {
+  height: 22px;
+  padding: 0 10px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.ctc-sandbox-all:hover:not(:disabled) {
+  color: var(--color-warning);
+  border-color: var(--color-warning);
+}
+
+.ctc-sandbox-all:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ctc-foot-note {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  text-align: right;
+}
+
+/* ---- Popover density: simple vs expert ----
+
+   One DOM and one JS path; only what is SHOWN differs, gated on the shell's
+   existing html[data-ui-mode] exactly like the simple-mode shell rules below.
+   Expert (the attribute absent, or `expert`) is the resting state and shows
+   everything above.
+
+   Simple keeps the four things an operator acts on — which target, whether it
+   is reachable, the posture, and Switch — and drops the detail that belongs to
+   whoever runs the deployment: endpoints, gateway roles, probe ages, the head
+   note, the config disclaimer, and the lock wording (which survives in the
+   `title`). The chip itself, and both confirms, are identical in either mode:
+   a readout and a safety gesture do not get a density. */
+html[data-ui-mode="simple"] .ctc-popover {
+  width: 380px;
+}
+
+html[data-ui-mode="simple"] .ctc-popover .ctc-meta,
+html[data-ui-mode="simple"] .ctc-popover .ctc-endpoint,
+html[data-ui-mode="simple"] .ctc-popover .ctc-role,
+html[data-ui-mode="simple"] .ctc-popover .ctc-head-note,
+html[data-ui-mode="simple"] .ctc-popover .ctc-foot-note,
+html[data-ui-mode="simple"] .ctc-popover .ctc-lock,
+html[data-ui-mode="simple"] .ctc-popover .ctc-baseline {
+  display: none;
+}
+
+html[data-ui-mode="simple"] .ctc-popover .ctc-kind {
+  display: block;
+}
+
+/* Reachability collapses to the LED alone. The word and the age beside the dot
+   are a bare text node rather than an element of their own, so the text is
+   collapsed by zeroing the line's font size — the dot keeps its own explicit
+   6px box — and the full phrase stays on the element's `title`. */
+html[data-ui-mode="simple"] .ctc-popover .ctc-reach {
+  font-size: 0; /* hygiene-allow-scale: collapses an unwrappable text node, not a type-scale choice */
+  gap: var(--space-0);
+}
+
+html[data-ui-mode="simple"] .ctc-popover .ctc-reach-text {
+  display: none;
+}
+
 /* ---- Simple-mode shell density (frame 2b) ----
 
    Density deltas are pure `display` gating off html[data-ui-mode="simple"] so
@@ -1348,151 +2045,11 @@ html[data-ui-mode="simple"] #terminal-container {
   50% { box-shadow: 0 0 8px currentColor; }
 }
 
-/* ---- Session posture badge + its confirm dialog ----
-   The per-session runtime sandbox toggle (posture-badge.js). The badge is a
-   header chip in the "+ New" idiom — bg-elevated fill, hairline border,
-   radius-xs — and, like .session-led, lets a DOT carry the state colour
-   rather than tinting the label (warning is not gated for body text in every
-   theme). It sits left of the session selector, so it rides along when
-   dock-tab.js adopts .terminal-header into the tile strip. */
-
-.posture-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-family: var(--font-display);
-  font-size: var(--text-base);
-  font-weight: var(--weight-regular);
-  color: var(--text-secondary);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-xs);
-  padding: 3px 9px;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast),
-    background var(--wt-transition-fast);
-}
-
-/* `display: inline-flex` above outranks the user-agent [hidden] rule, so the
-   hidden state (no session yet) needs saying explicitly — the same trap
-   `.status-item[hidden]` in files.css documents. */
-.posture-badge[hidden] {
-  display: none;
-}
-
-.posture-badge:hover:not(:disabled) {
-  color: var(--text-primary);
-  border-color: var(--text-secondary);
-  background: var(--accent-tint-08);
-}
-
-/* Sandboxed is the state worth noticing at a glance: the label goes primary
-   and the border picks up the dot's colour. Unqualified, so it still holds for
-   a badge with no target at all — there, posture is the only fact there is. */
-.posture-badge[data-posture="sandbox"] {
-  color: var(--text-primary);
-  border-color: var(--color-warning);
-}
-
-/* …except on the simulator, which is unalarming in whichever posture it is in.
-   Its dot is muted grey (see the colour map below), and a border still shouting
-   amber would have the badge's two colour channels contradict each other. The
-   label stays primary: legibility is not an alarm. Only the simulator opts out:
-   `live` and `standin` are both real-machine postures and keep the amber border
-   from the unqualified rule above. */
-.posture-badge[data-target="va"][data-posture="sandbox"] {
-  border-color: var(--border-default);
-}
-
-/* Nothing to click: a sandboxed session on a render that has writes off. The
-   badge stays fully legible — it is still the state readout — and only loses
-   its affordance. */
-.posture-badge:disabled {
-  cursor: default;
-  opacity: 0.75;
-}
-
-/* Inside the adopted tile bar the badge joins the bar's 24px control
-   geometry, exactly as "+ New" does. */
-.tile-tab .posture-badge {
-  height: 24px;
-  padding: 0 9px;
-}
-
-.posture-badge-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: var(--radius-full);
-  background: var(--color-success);
-  flex-shrink: 0;
-}
-
-.posture-badge[data-posture="sandbox"] .posture-badge-dot {
-  background: var(--color-warning);
-}
-
-/* The dot's colour is the pair (which target, which posture) — the two facts an
-   operator reads together and must never read apart. A simulator is unalarming
-   whichever posture it is in; a real machine is the opposite, and its writes
-   posture is the loudest state this interface has. `standin` is a real machine
-   for this purpose — a stand-in soft-IOC is a live target the operator drives
-   like the facility's own — so it shares `live`'s colours exactly rather than
-   getting a third palette that would invite reading it as a second simulator.
-   The words beside the dot say all of it too (see .posture-badge-target), so
-   the colour is a second channel rather than the only one. Keyed off the data
-   attributes posture-badge.js already sets, so no colour name lives in the
-   JS. */
-
-/* Virtual accelerator, sandboxed: nothing to notice. */
-.posture-badge[data-target="va"][data-posture="sandbox"] .posture-badge-dot {
-  background: var(--text-muted);
-}
-
-/* Virtual accelerator, writes: working normally on a machine nobody has to be
-   careful around. */
-.posture-badge[data-target="va"][data-posture="writes"] .posture-badge-dot {
-  background: var(--color-success);
-}
-
-/* Live machine — the facility's own or a stand-in for it — sandboxed: pointed
-   at the real thing, but refusing writes. */
-.posture-badge[data-target="live"][data-posture="sandbox"] .posture-badge-dot,
-.posture-badge[data-target="standin"][data-posture="sandbox"] .posture-badge-dot {
-  background: var(--color-warning);
-}
-
-/* Live machine, writes: this session can move real hardware. */
-.posture-badge[data-target="live"][data-posture="writes"] .posture-badge-dot,
-.posture-badge[data-target="standin"][data-posture="writes"] .posture-badge-dot {
-  background: var(--color-error);
-}
-
-/* The control target this session is on, and whether THAT target is armed.
-   Secondary to the posture word beside it — it qualifies the posture rather
-   than competing with it — and set off by a hairline so the two facts do not
-   read as one phrase. */
-.posture-badge-target {
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-  padding-left: 7px;
-  border-left: 1px solid var(--border-default);
-  white-space: nowrap;
-}
-
-.posture-badge-target[hidden] {
-  display: none;
-}
-
-/* An unarmed current target is the case the whole line exists for: the render
-   may well permit writes SOMEWHERE, and this is the operator's cue that it is
-   not here. Carried by weight and colour on top of the words "not armed", so
-   the meaning survives a colour-blind reader and a monochrome screenshot
-   alike. */
-.posture-badge[data-target-armed="false"] .posture-badge-target {
-  color: var(--color-warning);
-  font-weight: var(--weight-medium);
-}
+/* ---- Control-target confirm dialog ----
+   The confirm raised over the control-target popover (control-target-popover.js)
+   before a posture change or a target switch. Mounted on document.body through
+   modal-overlay.js; the class names are `posture-modal*` for continuity with the
+   dialog this feature inherited them from. */
 
 /* The confirm dialog. Same geometry and motion as the settings drawer's
    warning dialog, in this feature's own neutral tone: a posture switch is a
@@ -1505,7 +2062,12 @@ html[data-ui-mode="simple"] #terminal-container {
   right: 0;
   bottom: 0;
   background: var(--overlay-black-70);
-  z-index: var(--z-sticky);
+  /* A full layer above --z-sticky, where the control-target popover lives: the
+     confirm is raised BY that popover and must mount over it, and the popover
+     deliberately stays open underneath so an operator changing several rows
+     never has to reopen it. Ties with the command palette and the feedback
+     dialog, which is harmless — only one of the three is ever open. */
+  z-index: var(--z-modal);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1572,6 +2134,25 @@ html[data-ui-mode="simple"] #terminal-container {
   margin-bottom: var(--space-3);
 }
 
+/* The one sentence that makes a confirm about the facility's own machine
+   different from every other confirm: arming writes there, or switching onto
+   it with writes already armed, means the next write moves hardware. Same box
+   as the error notice above — it is the same kind of thing to read before
+   clicking — but it sits under the body rather than above it, because it
+   qualifies what the operator is about to do rather than reporting what
+   already failed. */
+.posture-modal-live {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--color-error);
+  background: var(--error-tint-15);
+  border: 1px solid var(--error-tint-40);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  margin: 10px 0 0;
+}
+
 .posture-modal-actions {
   display: flex;
   gap: 10px;
@@ -1611,6 +2192,19 @@ html[data-ui-mode="simple"] #terminal-container {
 .posture-modal-confirm:hover:not(:disabled) {
   background: var(--accent-tint-12);
   border-color: var(--color-accent);
+}
+
+/* The confirm button takes the error tone only when the thing being confirmed
+   reaches the facility's own machine — the same single-loud-cell rule the chip
+   follows, so the colour still means one thing across the whole feature. */
+.posture-modal-confirm[data-live="true"] {
+  background: var(--error-tint-15);
+  border-color: var(--error-tint-40);
+}
+
+.posture-modal-confirm[data-live="true"]:hover:not(:disabled) {
+  background: var(--error-tint-25);
+  border-color: var(--color-error);
 }
 
 .posture-modal-cancel:disabled,
