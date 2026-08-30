@@ -25,7 +25,11 @@ from osprey.cli.build_profile_emit import (
     _FIELD_TO_YAML,
     emit_standalone_profile_yaml,
 )
-from osprey.cli.build_profile_load import _PROFILE_SCHEMA_MIN_OSPREY, CONNECTOR_PROFILE_KEY
+from osprey.cli.build_profile_load import (
+    _PROFILE_SCHEMA_MIN_OSPREY,
+    CONNECTOR_PROFILE_KEY,
+    PORT_BASE_PROFILE_KEY,
+)
 
 _FIELDS = frozenset(f.name for f in dataclasses.fields(BuildProfile))
 
@@ -297,11 +301,14 @@ def test_known_profile_keys_equals_the_partition_plus_inheritance_keys() -> None
     fourth cannot be added without a reader deciding it belongs: the
     inheritance keys, consumed by ``extends`` resolution; the YAML-surface
     spellings of fields the loader renames; and the top-level shorthands
-    (``connector``), folded into ``config:`` before parsing and therefore never
-    emitted as keys of their own.
+    (``connector``, ``port_base``), folded into ``config:`` before parsing and
+    therefore never emitted as keys of their own.
     """
     expected = (
-        _FIELDS | {"extends", "exclude"} | set(_FIELD_TO_YAML.values()) | {CONNECTOR_PROFILE_KEY}
+        _FIELDS
+        | {"extends", "exclude"}
+        | set(_FIELD_TO_YAML.values())
+        | {CONNECTOR_PROFILE_KEY, PORT_BASE_PROFILE_KEY}
     )
 
     assert set(_KNOWN_PROFILE_KEYS) == expected
