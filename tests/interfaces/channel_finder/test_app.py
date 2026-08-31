@@ -283,7 +283,17 @@ class TestGraphParadigmState:
                 assert stats.json()["error_type"]
                 assert stats.json()["suggestions"]
 
-                assert c.post("/api/validate", json={"channels": []}).status_code == 501
+                # This config names a store and stages no corpus, so the two
+                # routes that enumerate channels have no roster to answer from
+                # and say which key would give them one.
+                for enumeration in (
+                    c.post("/api/validate", json={"channels": []}),
+                    c.get("/api/channels"),
+                ):
+                    assert enumeration.status_code == 503
+                    body = enumeration.json()
+                    assert "services.graphdb.ttl_path" in " ".join(body["suggestions"])
+
                 switched = c.put("/api/pipeline", json={"pipeline_type": "in_context"})
                 assert switched.status_code == 400
                 assert "read_cypher" in switched.json()["detail"]
@@ -291,4 +301,3 @@ class TestGraphParadigmState:
                 # Every explorer gate is closed, one route per gate.
                 assert c.get("/api/explore/options?level=system").status_code == 404
                 assert c.get("/api/explore/systems").status_code == 404
-                assert c.get("/api/channels").status_code == 404
