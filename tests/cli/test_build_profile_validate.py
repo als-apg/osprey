@@ -985,10 +985,10 @@ def test_build_refuses_a_profile_writing_only_one_limits_leaf(tmp_path: Path) ->
 
 
 def test_build_refuses_a_flat_dotted_custom_type(tmp_path: Path) -> None:
-    """Flattened, the dots in ``mypkg.TangoConnector`` are indistinguishable
+    """Flattened, the dots in ``mypkg.MoatConnector`` are indistinguishable
     from path separators, so the emitter renders a key no connector reads. The
     build names the offending key instead of rendering the dead spelling."""
-    key = "control_system.connector.mypkg.TangoConnector.limits_checking.enabled"
+    key = "control_system.connector.mypkg.MoatConnector.limits_checking.enabled"
 
     result = _build_with_config(tmp_path, {key: True}, "dotted-type")
 

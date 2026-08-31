@@ -122,7 +122,7 @@ Otherwise write the report to `upstream/<short-id>.md` in the deployment repo
 line. The entry itself stays four short lines; the write-up never goes inline.
 
 ```markdown
-## <Short imperative title, e.g. "Support Tango as a control-system connector">
+## <Short imperative title, e.g. "Support OPC-UA as a control-system connector">
 
 **Facility:** <name> · **Control system:** <type> · **Found during:** OSPREY build interview
 

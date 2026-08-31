@@ -1,9 +1,9 @@
 """Every connector confirms a write the same way.
 
 The write contract's claim is not that each connector *has* a confirm flow —
-it is that the three of them report the **same word** for the same situation.
+it is that the four of them report the **same word** for the same situation.
 A caller that reads ``result.outcome`` must not have to know whether the
-channel behind it is EPICS, DOOCS, or the simulator.
+channel behind it is EPICS, DOOCS, TANGO, or the simulator.
 
 That claim only holds if it is written down once. So the five scenarios below
 each name their expected outcome exactly once, in ``_SCENARIOS``, and every
@@ -20,6 +20,8 @@ deliberately the ones the connector authors left:
   confirming read does differently.
 - **DOOCS** — a fake ``doocs4py`` module whose ``set``/``get`` are the put and
   the confirming read.
+- **TANGO** — a fake ``tango`` module whose ``DeviceProxy`` carries the put
+  (``write_attribute``) and the confirming read (``read_attribute``).
 
 Writes are enabled through each file's existing config-patch idiom, and no
 limits validator is installed anywhere: limits are a different contract, and
@@ -289,10 +291,74 @@ async def _run_doocs(scenario: Scenario, monkeypatch) -> WriteRun:
     return WriteRun(result=result, confirming_reads=mock_d4py.get.call_count)
 
 
+# ---------------------------------------------------------------------------
+# TANGO — seam: a fake tango module serving one DeviceProxy
+# ---------------------------------------------------------------------------
+
+_TANGO_LIMITS_PATCH = "osprey.connectors.control_system.tango_connector.LimitsValidator.from_config"
+_TANGO_TZ_PATCH = "osprey.connectors.control_system.tango_connector.get_facility_timezone"
+
+
+def _device_attribute(value):
+    """A mock DeviceAttribute as returned by ``DeviceProxy.read_attribute()``."""
+    time_val = MagicMock()
+    time_val.tv_sec = 1_700_000_000
+    time_val.tv_usec = 500_000
+
+    attr = MagicMock()
+    attr.value = value
+    attr.quality = None
+    attr.time = time_val
+    attr.type = "DevDouble"
+    return attr
+
+
+def _fake_tango(observed):
+    proxy = MagicMock()
+    proxy.read_attribute.return_value = _device_attribute(observed)
+    proxy.write_attribute.return_value = None
+
+    t = MagicMock()
+    t.__version__ = "10.0.0"
+    t.DeviceProxy.return_value = proxy
+    database = MagicMock()
+    database.get_info.return_value = "TANGO Database sys/database/2"
+    t.Database.return_value = database
+    return t, proxy
+
+
+async def _run_tango(scenario: Scenario, monkeypatch) -> WriteRun:
+    """Drive TangoConnector through ``scenario`` against a fake tango module."""
+    observed = VALUE_HELD_INSTEAD if scenario is VALUE_DIFFERS else VALUE_SENT
+    mock_tango, proxy = _fake_tango(observed)
+    if scenario is READ_RAISES:
+        proxy.read_attribute.side_effect = RuntimeError(READ_ERROR)
+    if scenario is PUT_FAILS:
+        proxy.write_attribute.side_effect = RuntimeError(PUT_ERROR)
+
+    with (
+        patch.dict(sys.modules, {"tango": mock_tango}),
+        patch(_TANGO_LIMITS_PATCH, return_value=None),
+        patch(_TANGO_TZ_PATCH, return_value=UTC),
+        patch("osprey.utils.config.get_config_value", side_effect=_writes_enabled),
+    ):
+        from osprey.connectors.control_system.tango_connector import TangoConnector
+
+        conn = TangoConnector()
+        await conn.connect({})
+        result = await conn.write_channel(
+            "sr/power_supply/ps01/Current", VALUE_SENT, confirm=_confirm_argument(scenario)
+        )
+        await conn.disconnect()
+
+    return WriteRun(result=result, confirming_reads=proxy.read_attribute.call_count)
+
+
 _DRIVERS = {
     "mock": _run_mock,
     "epics": _run_epics,
     "doocs": _run_doocs,
+    "tango": _run_tango,
 }
 
 
@@ -304,7 +370,7 @@ _DRIVERS = {
 @pytest.mark.parametrize("connector_name", list(_DRIVERS), ids=list(_DRIVERS))
 @pytest.mark.parametrize("scenario", _SCENARIOS, ids=[s.name for s in _SCENARIOS])
 class TestWriteOutcomeParity:
-    """The same situation gets the same outcome word from all three connectors."""
+    """The same situation gets the same outcome word from all four connectors."""
 
     async def test_the_outcome_word_is_the_same_for_every_connector(
         self, connector_name, scenario, monkeypatch
@@ -370,11 +436,12 @@ class TestEpicsOnlyConfirmation:
     async def test_an_enum_label_written_as_text_is_confirmed_by_its_index(self, monkeypatch):
         """An mbbo takes "ON" and reads back 1; that is the same state.
 
-        EPICS is the only connector that reports an ``enum_label``, and without
-        it the comparison would see ``"ON" != 1`` and call a write the machine
-        took exactly as sent a mismatch. DOOCS, which has no labels, would
-        report that same pairing as a mismatch — so this is deliberately not a
-        parity row.
+        EPICS reports an ``enum_label`` for the reading, and without it the
+        comparison would see ``"ON" != 1`` and call a write the machine took
+        exactly as sent a mismatch. TANGO resolves labels the same way (its
+        own unit tests pin it); DOOCS and Mock report no labels and would call
+        that same pairing a mismatch — so this is deliberately not a parity
+        row.
         """
         pv = _fake_pv(1, pv_type="time_enum", labels=("OFF", "ON"))
         connector = _epics_connector(monkeypatch, pv=pv)

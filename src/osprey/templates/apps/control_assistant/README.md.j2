@@ -18,7 +18,7 @@ This application shows how to build an AI assistant for an accelerator control s
 - **Historical Data Analysis** - Retrieve and analyze time-series data from archiver
 - **Benchmarking** - Evaluate channel finder performance
 - **Development Mode** - Works with mock connectors (no hardware required)
-- **Real Hardware** - Switch to EPICS or DOOCS systems by changing config; other stacks connect through custom connectors
+- **Real Hardware** - Switch to EPICS, DOOCS, or TANGO systems by changing config; other stacks connect through custom connectors
 
 {% if channel_finder_mode == 'in_context' %}
 **Channel Finder Mode:** In-Context (Semantic Search)
@@ -368,7 +368,7 @@ This template uses **pluggable connectors**, so moving from development to produ
 
 The template uses the **Osprey Connector Abstraction**, which provides:
 - **Development Mode**: Mock connectors work with any channel names (no hardware required)
-- **Production Mode**: Real connectors (EPICS, DOOCS) with the same API; LabVIEW, Tango and other stacks are supported via custom connectors
+- **Production Mode**: Real connectors (EPICS, DOOCS, TANGO) with the same API; LabVIEW and other stacks are supported via custom connectors
 - **Zero Code Changes**: Switch modes by editing `profile.yml` and running `osprey build`
 
 ### Migration to Production
@@ -456,7 +456,7 @@ await connector.disconnect()
 
 ### Advanced: Custom Connectors
 
-Need to support a different control system (LabVIEW, Tango, etc.)?
+Need to support a different control system (LabVIEW, OPC-UA, etc.)?
 
 **Step 1: Implement your custom connector**
 
