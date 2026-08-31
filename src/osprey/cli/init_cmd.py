@@ -1215,8 +1215,8 @@ def _reject_shorthand_flags(command: Callable) -> Callable:
     help="Inline scalar/list override baked into the emitted profile (repeatable). "
     "RHS parsed as YAML. Top-level shorthands: provider, model, "
     "channel_finder_mode, connector (the control system to talk to — mock, "
-    "epics, virtual_accelerator, doocs; a deployment being pointed at its "
-    "stand-in may also set live_standin), port_base (move the whole "
+    "epics, virtual_accelerator, doocs, tango; a deployment being pointed at "
+    "its stand-in may also set live_standin), port_base (move the whole "
     "deployment off the default 10000 port block, e.g. --set port_base=42000).",
 )
 @click.option(

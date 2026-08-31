@@ -15,6 +15,7 @@ from osprey.connectors.types import (
     MOCK,
     MOCK_ARCHIVER,
     MONGODB_ARCHIVER,
+    TANGO,
     VIRTUAL_ACCELERATOR,
 )
 
@@ -86,6 +87,13 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     module_path="osprey.connectors.control_system.doocs_connector",
                     class_name="DOOCSConnector",
                     description="DOOCS control system connector (requires doocs4py)",
+                ),
+                ConnectorRegistration(
+                    name=TANGO,
+                    connector_type="control_system",
+                    module_path="osprey.connectors.control_system.tango_connector",
+                    class_name="TangoConnector",
+                    description="TANGO Controls control system connector (requires PyTango)",
                 ),
                 # The live stand-in is a soft IOC, so the EPICS connector is
                 # what reaches it — but it is registered under its own name,
