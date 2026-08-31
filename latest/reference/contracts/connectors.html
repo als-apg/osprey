@@ -632,7 +632,7 @@ connector type:</p>
 never falls back. Both default to blocked when omitted, and <strong>only a literal</strong>
 <code class="docutils literal notranslate"><span class="pre">true</span></code> <strong>arms writes</strong> — the quoted string <code class="docutils literal notranslate"><span class="pre">'true'</span></code> and the number <code class="docutils literal notranslate"><span class="pre">1</span></code> do
 not. A custom connector’s block is keyed by the same dotted module path that
-selects it, so <code class="docutils literal notranslate"><span class="pre">mypackage.TangoConnector</span></code> names one block and is never split
+selects it, so <code class="docutils literal notranslate"><span class="pre">mypackage.MoatConnector</span></code> names one block and is never split
 on its dots.</p>
 <p>Write posture is a <strong>launch-time deployment posture, not a live kill-switch</strong>:
 read from config and process-cached, so flipping it in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> does not

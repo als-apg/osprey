@@ -694,7 +694,48 @@ plain equality.</p>
 </div>
 </div>
 <input id="sd-tab-item-3" name="sd-tab-set-0" type="radio">
-<label class="sd-tab-label" data-sync-group="cs" data-sync-id="va" for="sd-tab-item-3">
+<label class="sd-tab-label" data-sync-group="cs" data-sync-id="tango" for="sd-tab-item-3">
+TANGO</label><div class="sd-tab-content docutils">
+<p>TANGO Controls. A channel address is a TANGO device name plus the
+attribute served by it (<code class="docutils literal notranslate"><span class="pre">domain/family/member/attribute</span></code>, e.g.
+<code class="docutils literal notranslate"><span class="pre">sr/power_supply/ps01/Current</span></code>), optionally prefixed with an explicit
+database as <code class="docutils literal notranslate"><span class="pre">tango://host:port/domain/family/member/attribute</span></code>.
+Without a prefix the connector reaches the database named by
+<code class="docutils literal notranslate"><span class="pre">TANGO_HOST</span></code>, exactly as every other TANGO client does; <code class="docutils literal notranslate"><span class="pre">tango_host</span></code>
+in the connector block overrides that environment for this connector
+alone:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">tango</span>
+<span class="w">  </span><span class="nt">connector</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">tango</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">tango_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">db.facility.edu:10000</span><span class="w">   </span><span class="c1"># optional; default TANGO_HOST</span>
+<span class="w">      </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5.0</span><span class="w">                        </span><span class="c1"># seconds per device call</span>
+</pre></div>
+</div>
+<p>Only <strong>attributes</strong> are exposed. TANGO <em>commands</em> (<code class="docutils literal notranslate"><span class="pre">command_inout</span></code>)
+carry arbitrary payloads the limits database cannot bound, so they have
+no seam in the connector contract – the same reason the EPICS connector
+refuses PVA RPC.</p>
+<p>Reads report the attribute quality as the channel’s alarm state
+(<code class="docutils literal notranslate"><span class="pre">ATTR_WARNING</span></code> → <code class="docutils literal notranslate"><span class="pre">WARNING</span></code>, <code class="docutils literal notranslate"><span class="pre">ATTR_ALARM</span></code> → <code class="docutils literal notranslate"><span class="pre">ALARM</span></code>, and so on),
+and a <code class="docutils literal notranslate"><span class="pre">DevEnum</span></code> attribute reads as its integer index with the state
+labels alongside it, like an EPICS <code class="docutils literal notranslate"><span class="pre">mbbi</span></code>.</p>
+<p>The connector requires PyTango (the <code class="docutils literal notranslate"><span class="pre">pytango</span></code> package). The import is
+deferred to <code class="docutils literal notranslate"><span class="pre">connect()</span></code>, so the name registers everywhere and only
+fails – with a clear <code class="docutils literal notranslate"><span class="pre">ImportError</span></code> instead of a silent degradation –
+where a TANGO environment is genuinely absent.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>TANGO confirms a write the way every connector does: one fresh read
+of the attribute, compared exactly against the value that was sent.
+An <code class="docutils literal notranslate"><span class="pre">ATTR_CHANGING</span></code> quality on the readback never softens the
+verdict – a readback that does not yet hold the value sent is a
+<code class="docutils literal notranslate"><span class="pre">mismatch</span></code>, and the quality rides on the result’s alarm fields for
+the operator to interpret.</p>
+</div>
+</div>
+<input id="sd-tab-item-4" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" data-sync-group="cs" data-sync-id="va" for="sd-tab-item-4">
 Virtual Accelerator</label><div class="sd-tab-content docutils">
 <p>The containerized simulator, over real EPICS Channel Access – it behaves
 like <code class="docutils literal notranslate"><span class="pre">epics</span></code> but tracks setpoints through the simulator’s LUME-backed
@@ -707,10 +748,10 @@ mock connector can’t do that):</p>
 <p>See <a class="reference internal" href="use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a> for running it and
 <a class="reference internal" href="../../architecture/virtual-accelerator.html"><span class="doc">Virtual Accelerator</span></a> for how it works.</p>
 </div>
-<input id="sd-tab-item-4" name="sd-tab-set-0" type="radio">
-<label class="sd-tab-label" data-sync-group="cs" data-sync-id="custom" for="sd-tab-item-4">
+<input id="sd-tab-item-5" name="sd-tab-set-0" type="radio">
+<label class="sd-tab-label" data-sync-group="cs" data-sync-id="custom" for="sd-tab-item-5">
 Your own</label><div class="sd-tab-content docutils">
-<p>LabVIEW, Tango, MOAT, or any other stack OSPREY does not ship a
+<p>LabVIEW, MOAT, or any other stack OSPREY does not ship a
 connector for: write a custom connector against the same interface and
 register it with <code class="docutils literal notranslate"><span class="pre">ConnectorFactory</span></code>. It then selects by name exactly
 like the in-tree ones. The seam – the class to subclass, the pinning
@@ -724,8 +765,8 @@ test, and how registration works – is documented in
 <p>Historical data goes through a parallel <code class="docutils literal notranslate"><span class="pre">archiver:</span></code> block, chosen
 independently of the control system:</p>
 <div class="sd-tab-set docutils">
-<input checked="checked" id="sd-tab-item-5" name="sd-tab-set-1" type="radio">
-<label class="sd-tab-label" data-sync-group="cs" data-sync-id="mock" for="sd-tab-item-5">
+<input checked="checked" id="sd-tab-item-6" name="sd-tab-set-1" type="radio">
+<label class="sd-tab-label" data-sync-group="cs" data-sync-id="mock" for="sd-tab-item-6">
 Mock</label><div class="sd-tab-content docutils">
 <p>Synthetic history for any channel — the development default:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">archiver</span><span class="p">:</span>
@@ -733,8 +774,8 @@ Mock</label><div class="sd-tab-content docutils">
 </pre></div>
 </div>
 </div>
-<input id="sd-tab-item-6" name="sd-tab-set-1" type="radio">
-<label class="sd-tab-label" data-sync-group="cs" data-sync-id="epics" for="sd-tab-item-6">
+<input id="sd-tab-item-7" name="sd-tab-set-1" type="radio">
+<label class="sd-tab-label" data-sync-group="cs" data-sync-id="epics" for="sd-tab-item-7">
 EPICS</label><div class="sd-tab-content docutils">
 <p>The EPICS Archiver Appliance:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">archiver</span><span class="p">:</span>
@@ -745,8 +786,8 @@ EPICS</label><div class="sd-tab-content docutils">
 </pre></div>
 </div>
 </div>
-<input id="sd-tab-item-7" name="sd-tab-set-1" type="radio">
-<label class="sd-tab-label" data-sync-group="cs" data-sync-id="doocs" for="sd-tab-item-7">
+<input id="sd-tab-item-8" name="sd-tab-set-1" type="radio">
+<label class="sd-tab-label" data-sync-group="cs" data-sync-id="doocs" for="sd-tab-item-8">
 DOOCS</label><div class="sd-tab-content docutils">
 <p>DOOCS <em>local histories</em> — only meaningful alongside <code class="docutils literal notranslate"><span class="pre">type:</span> <span class="pre">doocs</span></code>, and
 needing the same environment-supplied <code class="docutils literal notranslate"><span class="pre">doocs4py</span></code>:</p>
@@ -757,8 +798,8 @@ needing the same environment-supplied <code class="docutils literal notranslate"
 </pre></div>
 </div>
 </div>
-<input id="sd-tab-item-8" name="sd-tab-set-1" type="radio">
-<label class="sd-tab-label" data-sync-group="cs" data-sync-id="mongodb" for="sd-tab-item-8">
+<input id="sd-tab-item-9" name="sd-tab-set-1" type="radio">
+<label class="sd-tab-label" data-sync-group="cs" data-sync-id="mongodb" for="sd-tab-item-9">
 MongoDB</label><div class="sd-tab-content docutils">
 <p>For facilities that store time-series PV data in MongoDB rather than an
 EPICS Archiver Appliance:</p>
