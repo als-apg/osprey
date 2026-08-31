@@ -122,7 +122,8 @@ and a refused control-system write alike. One JSON object per line:
    * - ``detail``
      - Surface-specific context: for a protected-set refusal, the file the
        write was aimed at (``target=``) and the channel that owns it, named
-       the same way the refusal message names it
+       the same way the refusal message names it; on the web surfaces, the
+       login the request came from --- see :ref:`audit-trail-identity-keys`
 
 A ``PUT`` that would have changed many protected keys at once names the first
 ten and counts the rest in the message, but **every changed key gets its own
@@ -137,6 +138,51 @@ again.
    unreachable activity feed degrades the trail and never turns a refusal into
    a server error --- an error that reads like the gate malfunctioned is the one
    shape an operator could mistake for a gate that failed open.
+
+.. _audit-trail-identity-keys:
+
+The login behind the record
+---------------------------
+
+Where a deployment has a login wall, the two web surfaces ---
+``http_mutation.jsonl`` and ``web_auth.jsonl`` --- record who the request came
+from in ``detail``, as up to three keys. Which of them are present is itself
+part of the message:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 75
+
+   * - Key
+     - What it holds
+   * - ``account=``
+     - The roster account the request is on --- the card named in the URL, and
+       the name the login service checked the session against. Present on
+       every record where the request carried a login at all
+   * - ``expected_account=``
+     - The account this container serves, written **only when the forwarded
+       account is not it**. Its presence is the whole signal: one person's
+       authorization arrived at another person's container. A request on the
+       right card never writes the key. The same case logs a warning, and it
+       is recorded rather than refused
+   * - ``oidc_subject=``
+     - Who proved the login, as the provider asserted it --- an opaque id or an
+       email. Written only where that differs from the account, so a password
+       deployment never sees this key, and a shared card records the person
+       beside the card they opened
+
+Two forwarded headers carry that from the login service through nginx:
+``X-Osprey-Auth-Account`` names the card, ``X-Osprey-Auth-Subject`` names the
+login that proved it. Under ``auth.method: password`` they hold the same value,
+because the roster username *is* the proof; under ``oidc`` they part, and only
+the account is a name a container can compare itself against.
+
+A deployment that pins an older login-service image with ``auth.image`` gets no
+account header. The container then falls back to comparing the subject, as it
+did before this release. Where the mapped subject is not the roster name --- an
+opaque ``sub`` or an email, the usual case --- it never matches, so
+``expected_account=`` and a warning ride every audited request. Building against
+this release's image is what clears it.
 
 Who can read it
 ===============

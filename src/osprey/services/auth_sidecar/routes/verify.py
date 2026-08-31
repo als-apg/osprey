@@ -5,10 +5,12 @@ calls, websocket handshakes alike — and turns any non-2xx answer into a denial
 It is therefore on the hot path of the whole deployment and says as little as
 possible: a bodyless 200 or a bare 401, with no redirect and no
 ``WWW-Authenticate``. The only things an authorized answer may carry are the
-three identity headers of
-:mod:`~osprey.services.auth_sidecar.identity_headers` — the account behind the
-request, the role it holds and where that role came from, all opaque
-identifiers and never a credential — and each only when the session holds one.
+four identity headers of
+:mod:`~osprey.services.auth_sidecar.identity_headers` — the roster card the
+request is on, who proved the login, the role that holds and where the role
+came from, all opaque identifiers and never a credential. The card rides every
+authorized answer, because an authorized request always has one; the other
+three ride only when the session holds them.
 Where an unauthenticated browser should be *sent* is
 nginx's decision (``error_page 401``, content-negotiated), not this route's; a
 redirect issued here would be followed by the subrequest instead of the user.
@@ -40,7 +42,13 @@ from fastapi import APIRouter, Cookie, Depends, Query, Response
 
 from ..app import AuthSettings, get_revocation_store, get_session_codec, get_settings
 from ..exceptions import InvalidSessionError
-from ..identity_headers import ROLE_HEADER, ROLE_SOURCE_HEADER, SUBJECT_HEADER, is_header_safe
+from ..identity_headers import (
+    ACCOUNT_HEADER,
+    ROLE_HEADER,
+    ROLE_SOURCE_HEADER,
+    SUBJECT_HEADER,
+    is_header_safe,
+)
 from ..passwords import verify_generation_tag
 from ..revocation import RevocationStore
 from ..sessions import SESSION_COOKIE_NAME, SessionCodec, UnlockedUser
@@ -129,9 +137,9 @@ async def verify(
 
     Returns:
         An empty 200 when the request is authorized, a bare 401 otherwise. An
-        authorized answer additionally carries the identity headers the session
-        can fill — the account behind the request and the role it holds (see
-        :func:`_authorized`).
+        authorized answer additionally carries the identity headers — always the
+        roster card the request is on, plus whichever of the login's subject,
+        role and role source the session can fill (see :func:`_authorized`).
     """
     requested = user or []
     if len(requested) != 1:
@@ -220,19 +228,29 @@ def _subject_for(username: str, entry: UnlockedUser | None, settings: AuthSettin
 
 
 def _authorized(username: str, entry: UnlockedUser | None, settings: AuthSettings) -> Response:
-    """The bare 200, carrying whichever identity headers the session can fill.
+    """The bare 200, carrying the account and whatever else the session can fill.
 
     ``is_unlocked`` has already established that ``entry`` exists, so ``None`` is
     only a defensive guard.
 
-    Three headers may ride the 200. ``X-Osprey-Auth-Subject`` names the account —
-    the provider subject under OIDC, the roster username otherwise — so a later
-    layer can tell who is behind the request without re-reading the cookie.
-    ``X-Osprey-Auth-Role`` names the role that account holds. Each is *omitted*
-    rather than emitted empty when the session has nothing to put in it, so a
-    present header always means a known value and no consumer has to tell blank
-    from absent: presence of the subject means a known account, and absence of
-    the role means no privileges.
+    Four headers may ride the 200. ``X-Osprey-Auth-Account`` names the roster
+    card the request is on — the username this subrequest authorized, which a
+    consumer can compare against the account it believes it is serving.
+    ``X-Osprey-Auth-Subject`` names who proved the login — the provider subject
+    under OIDC, the roster username otherwise — so a later layer can tell who is
+    behind the request without re-reading the cookie. The two coincide in
+    password mode and diverge on a shared card under OIDC, which is the case
+    they exist separately for. ``X-Osprey-Auth-Role`` names the role that
+    account holds.
+
+    **The account is the one header that always rides.** An authorized request
+    is by definition on a card, so there is no session state that can leave it
+    empty; the other three are *omitted* rather than emitted empty when the
+    session has nothing to put in them, so a present header always means a known
+    value and no consumer has to tell blank from absent: presence of the subject
+    means a known login, and absence of the role means no privileges. An
+    authorized answer with no account header therefore means a sidecar older
+    than this release, not a request without an account.
 
     **The role is the one the login granted, not the roster's current answer.**
     It is read off the session and never re-derived here, so a retired role
@@ -282,11 +300,15 @@ def _authorized(username: str, entry: UnlockedUser | None, settings: AuthSetting
         settings: The deployment's frozen settings.
 
     Returns:
-        A 200 carrying as many of the three identity headers as this session
-        can fill — or a 401 if an identity this deployment cannot carry was
-        about to be reported.
+        A 200 carrying the account and as many of the other three identity
+        headers as this session can fill — or a 401 if an identity this
+        deployment cannot carry was about to be reported.
     """
     headers: dict[str, str] = {}
+    if not is_header_safe(username):
+        return _deny(username, "the roster account cannot be carried in an identity header")
+    headers[ACCOUNT_HEADER] = username
+
     subject = _subject_for(username, entry, settings)
     if subject:
         if not is_header_safe(subject):

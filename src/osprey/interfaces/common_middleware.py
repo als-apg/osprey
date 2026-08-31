@@ -34,7 +34,7 @@ import json
 import logging
 import os
 from collections.abc import Callable, Iterable, Mapping
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 from urllib.parse import parse_qs, parse_qsl, urlencode
 
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -52,8 +52,10 @@ logger = logging.getLogger("osprey.interfaces.middleware")
 
 __all__ = [
     "AUDITED_REFUSAL_STATUSES",
+    "AUDIT_ACCOUNT_HEADER",
     "AUDIT_ACCOUNT_KEY",
     "AUDIT_EXPECTED_ACCOUNT_KEY",
+    "AUDIT_OIDC_SUBJECT_KEY",
     "AUDIT_ROLE_HEADER",
     "AUDIT_ROLE_SOURCE_HEADER",
     "AUDIT_SUBJECT_HEADER",
@@ -80,6 +82,7 @@ __all__ = [
     "WEB_AUTH_SURFACE",
     "WEB_PORT_ENV",
     "ExceptionLoggingMiddleware",
+    "ForwardedIdentity",
     "HttpAuditMiddleware",
     "NoCacheStaticMiddleware",
     "WebAuthMiddleware",
@@ -321,16 +324,27 @@ REASON_ROUTE_REFUSED: str = "route_refused"
 #: should not require also parsing ``detail`` for ``status=none``.
 REASON_MUTATION_UNANSWERED: str = "mutation_unanswered"
 
-#: Names the account behind an authorized request, as nginx forwards it from
-#: the auth sidecar's ``auth_request`` answer.
+#: Names *who proved* the login behind an authorized request, as nginx forwards
+#: it from the auth sidecar's ``auth_request`` answer. In a password session
+#: that is the roster username; in an OIDC session it is the provider's
+#: subject, which names a person and not a roster card — see
+#: :data:`AUDIT_ACCOUNT_HEADER` for the card itself.
 #:
 #: Spelled here rather than imported from
 #: :mod:`osprey.services.auth_sidecar.identity_headers`, which owns it: an
 #: interface app has no business pulling a service package into its import
-#: closure for three string constants. ``tests/interfaces/test_http_audit_emitters.py``
-#: pins the three spellings against each other, the same trade the rest of the
+#: closure for four string constants. ``tests/interfaces/test_http_audit_emitters.py``
+#: pins the four spellings against each other, the same trade the rest of the
 #: audit work makes for a cross-package constant.
 AUDIT_SUBJECT_HEADER: str = "X-Osprey-Auth-Subject"
+
+#: Names the roster account an authorized request is on — the card ``/verify``
+#: checked the session against, and the one this container can compare with the
+#: user it believes it is serving. Coincides with :data:`AUDIT_SUBJECT_HEADER`
+#: in a password session, where the roster username *is* the proof, and
+#: diverges in an OIDC session, where a shared card may be opened by any of
+#: several people. Absent from an older sidecar image that does not emit it.
+AUDIT_ACCOUNT_HEADER: str = "X-Osprey-Auth-Account"
 
 #: Names the role that account holds. Absent means *no* role, never a default
 #: one — the deny-safe reading the sidecar documents.
@@ -357,6 +371,18 @@ AUDIT_ACCOUNT_KEY: str = "account"
 #: The ``detail`` key naming this container's own user, present **only** when
 #: the forwarded account is not it. Its presence *is* the mismatch signal.
 AUDIT_EXPECTED_ACCOUNT_KEY: str = "expected_account"
+
+#: The ``detail`` key naming *who proved* the login, when that is not the
+#: account itself — the OIDC subject on a shared card.
+#:
+#: Spelled ``oidc_subject`` and deliberately **not** ``identity``. The audit
+#: writer owns ``identity`` for the ledger's directory component, so a key of
+#: that name inside ``detail`` would put one word on two different things in
+#: the same record — the folder a record is filed under, and a person named
+#: inside it. ``subject`` was unavailable for the reason
+#: :data:`AUDIT_ACCOUNT_KEY` records: the envelope's top-level ``subject`` on
+#: these surfaces is the route.
+AUDIT_OIDC_SUBJECT_KEY: str = "oidc_subject"
 
 #: The longest forwarded identity value that may be recorded verbatim.
 #:
@@ -562,7 +588,7 @@ def _recordable(value: str) -> bool:
 
     Printable ASCII, no space anywhere, and at most
     :data:`MAX_FORWARDED_VALUE_CHARS` characters. The first two are the
-    sidecar's own contract for all three identity headers (see
+    sidecar's own contract for all four identity headers (see
     :mod:`osprey.services.auth_sidecar.identity_headers`, which refuses to mint
     or emit anything outside printable ASCII, or anything space-padded); two
     rules are added for this ledger. A value carrying an *interior* space
@@ -571,9 +597,9 @@ def _recordable(value: str) -> bool:
     the keys appended after it past the envelope's silent truncation — so the
     one input a forger fully controls would be the one that erases the mismatch
     marker from the record. Nothing real is lost by either: an OIDC ``sub`` is
-    a short URL-safe identifier, a role name is constrained to
-    ``USERNAME_CHARSET_RE`` by the render-time lint, and a role source is one
-    of two framework constants.
+    a short URL-safe identifier, a roster account and a role name are both
+    constrained to ``USERNAME_CHARSET_RE`` by the render-time lint, and a role
+    source is one of two framework constants.
 
     A value that fails this did not come from the sidecar, or cannot be written
     down unambiguously; either way, copying it verbatim would put a forged or
@@ -586,23 +612,54 @@ def _recordable(value: str) -> bool:
     )
 
 
-def forwarded_identity(headers: Mapping[str, str]) -> tuple[str | None, str | None, str | None]:
-    """The ``(subject, role, role_source)`` nginx forwarded on this request, if any.
+class ForwardedIdentity(NamedTuple):
+    """What nginx forwarded about the login behind one request.
 
-    Each is ``None`` when the header is absent or empty — the sidecar omits a
-    header it has no value for, so absence is a state of its own and must not
-    be flattened into a blank string. A value that fails :func:`_recordable`
-    becomes :data:`UNSAFE_FORWARDED_VALUE`: present, and named as unusable.
+    A named tuple rather than four positional values because ``subject`` and
+    ``account`` answer two questions that read alike and are not the same one:
+    *who proved the login* and *whose roster card the request is on*. Every
+    reader here says which it meant.
+
+    Attributes:
+        subject: Who proved the login — the OIDC provider's subject, or the
+            roster username in a password session.
+        account: The roster account the request is on. ``None`` from a sidecar
+            image that predates the header; readers fall back to ``subject``.
+        role: The privilege that account holds, or ``None`` for no role.
+        role_source: ``roster`` or ``claim``, present only beside a role.
+    """
+
+    subject: str | None
+    account: str | None
+    role: str | None
+    role_source: str | None
+
+
+def forwarded_identity(headers: Mapping[str, str]) -> ForwardedIdentity:
+    """The :class:`ForwardedIdentity` nginx forwarded on this request, if any.
+
+    Each field is ``None`` when its header is absent or empty — the sidecar
+    omits a header it has no value for, so absence is a state of its own and
+    must not be flattened into a blank string. ``account`` is additionally
+    ``None`` against a sidecar image built before that header existed, which is
+    why a reader comparing accounts has to keep a subject fallback. A value
+    that fails :func:`_recordable` becomes :data:`UNSAFE_FORWARDED_VALUE`:
+    present, and named as unusable.
 
     Public because it is the ONE decoder for these headers: the audit emitters
-    record the subject and the role it returns, and the web terminal's page
+    record the account and the role it returns, and the web terminal's page
     shows the role and where it came from. A second reader with its own bound
     would let a value the ledger refuses reach the screen, or the reverse.
     ``headers`` is read by lower-cased name, so a plain dict of lower-cased
     keys and Starlette's case-insensitive ``Headers`` both work.
     """
     resolved: list[str | None] = []
-    for header in (AUDIT_SUBJECT_HEADER, AUDIT_ROLE_HEADER, AUDIT_ROLE_SOURCE_HEADER):
+    for header in (
+        AUDIT_SUBJECT_HEADER,
+        AUDIT_ACCOUNT_HEADER,
+        AUDIT_ROLE_HEADER,
+        AUDIT_ROLE_SOURCE_HEADER,
+    ):
         raw = (headers.get(header.lower()) or "").strip()
         if not raw:
             resolved.append(None)
@@ -610,7 +667,7 @@ def forwarded_identity(headers: Mapping[str, str]) -> tuple[str | None, str | No
             resolved.append(raw)
         else:
             resolved.append(UNSAFE_FORWARDED_VALUE)
-    return resolved[0], resolved[1], resolved[2]
+    return ForwardedIdentity(*resolved)
 
 
 def _container_user() -> str:
@@ -627,39 +684,62 @@ def _audit_detail(scope: Scope, headers: dict[str, str], **extra: str) -> tuple[
     """The record's ``detail`` string and the role to put in its own field.
 
     ``detail`` is a space-separated run of ``key=value`` identifiers, which is
-    what makes it greppable without being parsed. Two keys are conditional and
-    both say something by being there:
+    what makes it greppable without being parsed. Three keys come from the
+    forwarded identity, and each says something by being there — or by not:
 
-    * :data:`AUDIT_ACCOUNT_KEY` — the forwarded account, present whenever nginx
-      named one. Not spelled ``subject``: on these surfaces the envelope's own
-      ``subject`` field is the route.
+    * :data:`AUDIT_ACCOUNT_KEY` — the roster **account** the request is on,
+      present whenever nginx named an identity at all. Not spelled ``subject``:
+      on these surfaces the envelope's own ``subject`` field is the route.
     * :data:`AUDIT_EXPECTED_ACCOUNT_KEY` — this container's own user, present
       **only** when the forwarded account is not it. Its presence *is* the
       mismatch: one user's authorization arrived at another user's container.
+    * :data:`AUDIT_OIDC_SUBJECT_KEY` — *who proved* the login, present only
+      when that is not the account itself. A password session, where the roster
+      username is the proof, therefore gains no key at all; an OIDC session
+      records the provider's subject beside the card it opened.
 
-    The mismatch key is written *before* the account it disagrees with. The
-    account is bounded at :data:`MAX_FORWARDED_VALUE_CHARS`, so nothing a
-    caller sends can reach the envelope's ``detail`` truncation today; writing
-    the marker first means that stays true however the ``extra`` keys grow.
+    **The comparison is on the account, never on the subject.** Under
+    ``auth.method: oidc`` the subject is the IdP's assertion about a person —
+    an opaque id or an email — while ``OSPREY_TERMINAL_USER`` is the roster
+    name of the card, so comparing those two disagreed by construction and
+    marked every request of every card as a mismatch. Only
+    :data:`AUDIT_ACCOUNT_HEADER` names something this container can be the
+    container *for*. When that header is absent — a deployment pinning a
+    sidecar image built before it existed — the subject is compared exactly as
+    it was before, so such a deployment keeps its old behaviour rather than
+    losing the check altogether.
+
+    The mismatch key is written *before* the account it disagrees with. Each
+    forwarded value is bounded at :data:`MAX_FORWARDED_VALUE_CHARS`, so nothing
+    a caller sends can reach the envelope's ``detail`` truncation today;
+    writing the marker first means that stays true however the ``extra`` keys
+    grow, and putting the subject *last* keeps the same true of the account.
 
     The mismatch is recorded and logged, never enforced. Refusing on it would
     be a behaviour change smuggled in under an audit heading, and the gate has
     never treated these headers as a credential.
     """
-    subject, role, _ = forwarded_identity(headers)
+    forwarded = forwarded_identity(headers)
+    subject, role = forwarded.subject, forwarded.role
+    # The account when the sidecar named one, else the subject — which is what
+    # the account header carries in a password session anyway, and is the whole
+    # of the fallback against an older image.
+    account = forwarded.account if forwarded.account is not None else subject
     parts = [f"{key}={value}" for key, value in extra.items()]
-    if subject is not None:
+    if account is not None:
         container_user = _container_user()
-        if container_user and subject != container_user:
+        if container_user and account != container_user:
             parts.append(f"{AUDIT_EXPECTED_ACCOUNT_KEY}={container_user}")
             logger.warning(
-                "Forwarded subject %r does not name this container's user %r on %s; "
+                "Forwarded account %r does not name this container's user %r on %s; "
                 "recorded, not refused",
-                subject,
+                account,
                 container_user,
                 _audit_subject(scope),
             )
-        parts.append(f"{AUDIT_ACCOUNT_KEY}={subject}")
+        parts.append(f"{AUDIT_ACCOUNT_KEY}={account}")
+        if subject is not None and subject != account:
+            parts.append(f"{AUDIT_OIDC_SUBJECT_KEY}={subject}")
     return " ".join(parts), role
 
 
@@ -1456,11 +1536,13 @@ class WebAuthMiddleware:
 
         The record's *actor* is this container's own audit identity, filled in
         by the writer from :func:`~osprey.utils.identity.acting_identity` (this
-        layer names none) — never the forwarded subject. The two are different questions: the actor says which
-        deployment identity's ledger this belongs in (and which file it can be
-        written to), while the subject is a claim that arrived on the request
-        and is recorded as such, inside ``detail``. Letting a header choose the
-        actor would let a caller file records under somebody else's name.
+        layer names none) — never the forwarded account. The two are different
+        questions: the actor says which deployment identity's ledger this
+        belongs in (and which file it can be written to), while the account is
+        a claim that arrived on the request and is recorded as such, inside
+        ``detail`` — with the provider's subject beside it as ``oidc_subject=``
+        only where it differs. Letting a header choose the actor would let a
+        caller file records under somebody else's name.
 
         ``session`` is ``None`` and stays that way: no posture-store key exists
         for a request that never reached a session, and inventing one would

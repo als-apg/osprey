@@ -9,10 +9,14 @@ identity this sidecar will authorise with.*
   gained a ``role`` and then a ``role_source``, both additively and deny-safe:
   absent means ``""``, a cookie minted before either field existed still
   decodes, and no payload version was burned for either.
-* **All three identity headers are emitted, or no value is invented.** A
-  password session names the roster user in ``X-Osprey-Auth-Subject`` (presence
-  still means a known account); an OIDC session names the provider subject; a
-  session that holds neither leaves the header absent rather than blank.
+* **All four identity headers are emitted, or no value is invented.** The
+  account is the one that always rides — an authorized request is by definition
+  on a roster card — so an answer without it means a sidecar older than this
+  release, not a session with nothing to say. The rest are omitted rather than
+  blank: a password session names the roster user in ``X-Osprey-Auth-Subject``
+  (presence still means a known account); an OIDC session names the provider
+  subject; a session that holds neither leaves the header absent rather than
+  blank.
 * **Only header-safe values ever exist.** The mint path refuses to store a
   non-ASCII subject or role, the decode path refuses to return one, and the
   verify path refuses to authorise on one. A non-ASCII OIDC subject therefore
