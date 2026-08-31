@@ -14,7 +14,14 @@ from osprey.deployment.web_terminals.lint import (
     lint_web_terminals,
     profile_config_errors,
 )
-from osprey.port_layout import DEFAULT_PORT_BASE, INDEX_MAX, SLOTS_BY_NAME, default_port
+from osprey.deployment.web_terminals.render import TLS_LISTEN_PORT
+from osprey.port_layout import (
+    _MAX_PORT,
+    DEFAULT_PORT_BASE,
+    INDEX_MAX,
+    SLOTS_BY_NAME,
+    default_port,
+)
 
 # A second, non-default base whose block the explicit per-family overrides
 # below sit in — proves the lint reads a config override rather than assuming
@@ -2508,6 +2515,166 @@ def test_lint_auth_port_absent_from_overlap_set_when_method_is_none() -> None:
     # Assert
     overlap_findings = [f for f in _errors(findings) if f.code == "web_terminals.port_overlap"]
     assert not any("web_terminals.auth.port" in f.message for f in overlap_findings)
+
+
+# --- tls.port / auth.port: the listener-port range rule and the collision set -
+
+
+def _tls_config(tls: dict[str, object]) -> dict:
+    """A clean config with an enabled `tls` stanza carrying the given keys."""
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["deploy"] = {"fqdn": "web.example.org"}
+    config["modules"]["web_terminals"]["tls"] = {
+        "enabled": True,
+        "cert": "/etc/osprey/tls/facility.crt",
+        "key": "/etc/osprey/tls/facility.key",
+        **tls,
+    }
+    return config
+
+
+def _listener_port_findings(findings: list[Finding]) -> list[Finding]:
+    return [f for f in _errors(findings) if f.code == "web_terminals.invalid_listener_port"]
+
+
+#: The whole domain `render._port_int` substitutes a default for: a negative,
+#: zero, a `bool` (which passes `isinstance(..., int)`), a port written as a
+#: string, and one past the top of the TCP range. Spelled once because the two
+#: listener keys are held to ONE rule — a shape added to only one of the two
+#: lists would leave the other key's silent fallback unreported.
+_UNUSABLE_PORTS = [-1, 0, True, "8443", _MAX_PORT + 1]
+
+
+@pytest.mark.parametrize("value", _UNUSABLE_PORTS)
+def test_lint_unusable_tls_port_is_an_error(value: object) -> None:
+    """render substitutes 443 for anything that is not a real TCP port, so a
+    deployment that meant to move its listener silently stays on 443."""
+    # Arrange
+    config = _tls_config({"port": value})
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _listener_port_findings(findings)
+    assert errors, [f.code for f in findings]
+    assert "modules.web_terminals.tls.port" in errors[0].message
+    assert repr(value) in errors[0].message
+    assert str(TLS_LISTEN_PORT) in errors[0].message
+
+
+@pytest.mark.parametrize("value", _UNUSABLE_PORTS)
+def test_lint_unusable_auth_port_is_an_error(value: object) -> None:
+    """The same rule covers the sidecar's listener, whose silent fallback is the
+    port layout's `auth` slot rather than 443."""
+    # Arrange
+    config = _auth_config({"method": "password", "port": value})
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _listener_port_findings(findings)
+    assert errors, [f.code for f in findings]
+    assert "modules.web_terminals.auth.port" in errors[0].message
+    assert repr(value) in errors[0].message
+    assert str(_DEFAULT_AUTH_PORT) in errors[0].message
+
+
+def test_lint_valid_listener_ports_report_no_findings() -> None:
+    """A rootless deployment on unprivileged ports is exactly what the keys are
+    for, and must lint clean."""
+    # Arrange
+    config = _tls_config({"port": 8443})
+    config["modules"]["web_terminals"]["auth"] = {"method": "password", "port": 8444}
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _errors(findings) == []
+
+
+@pytest.mark.parametrize("spelling", [{}, {"port": None}], ids=["absent", "empty"])
+def test_lint_unset_listener_ports_report_no_findings(spelling: dict[str, object]) -> None:
+    """An absent key, and a `port:` written with no value, are the documented
+    defaults rather than type mistakes."""
+    # Arrange
+    config = _tls_config(spelling)
+    config["modules"]["web_terminals"]["auth"] = {"method": "password", **spelling}
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _listener_port_findings(findings) == []
+    assert _errors(findings) == []
+
+
+def test_lint_tls_port_collides_with_the_plain_listener() -> None:
+    """nginx cannot bind its HTTP listener and its TLS listener to one port; the
+    collision names `tls.port` rather than a literal 443."""
+    # Arrange
+    nginx_port = default_port("nginx", base=_OVERRIDE_PORT_BASE)
+    config = _tls_config({"port": nginx_port})
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    overlap_findings = [f for f in _errors(findings) if f.code == "web_terminals.port_overlap"]
+    assert any("web_terminals.tls.port" in f.message for f in overlap_findings)
+    assert any("web_terminals.nginx_port" in f.message for f in overlap_findings)
+
+
+def test_lint_tls_port_collides_with_the_auth_sidecar_port() -> None:
+    """Both listeners in the same seam, both published on the host: putting them
+    on one port is a collision reported by both names."""
+    # Arrange
+    config = _tls_config({"port": _DEFAULT_AUTH_PORT})
+    config["modules"]["web_terminals"]["auth"] = {"method": "password"}
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    overlap_findings = [f for f in _errors(findings) if f.code == "web_terminals.port_overlap"]
+    assert any("web_terminals.tls.port" in f.message for f in overlap_findings)
+    assert any("web_terminals.auth.port" in f.message for f in overlap_findings)
+
+
+def test_lint_tls_port_joins_the_overlap_set_when_the_auth_method_is_unknown() -> None:
+    """`_auth_context` degrades to None for a method render cannot parse, but
+    nginx still binds the TLS listener — so the entry is read off the raw stanza
+    and survives."""
+    # Arrange
+    config = _tls_config({"port": 8443})
+    config["modules"]["web_terminals"]["auth"] = {"method": "basic"}
+    config["services"]["conflicting"] = {"port": 8443}
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    overlap_findings = [f for f in _errors(findings) if f.code == "web_terminals.port_overlap"]
+    assert any("web_terminals.tls.port" in f.message for f in overlap_findings)
+    assert any("services.conflicting.port" in f.message for f in overlap_findings)
+
+
+def test_lint_unusable_tls_port_reserves_the_port_render_falls_back_to() -> None:
+    """The collision entry is resolved the way render resolves it, so a value
+    nginx would never listen on reserves 443 rather than itself."""
+    # Arrange
+    config = _tls_config({"port": _MAX_PORT + 1})
+    config["services"]["conflicting"] = {"port": TLS_LISTEN_PORT}
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    overlap_findings = [f for f in _errors(findings) if f.code == "web_terminals.port_overlap"]
+    assert any(f"Port {TLS_LISTEN_PORT} " in f.message for f in overlap_findings)
+    assert any("web_terminals.tls.port" in f.message for f in overlap_findings)
 
 
 def test_lint_auth_without_tls_is_an_error() -> None:

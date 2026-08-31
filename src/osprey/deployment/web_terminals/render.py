@@ -60,7 +60,7 @@ from osprey.deployment.web_terminals.ports import (
 # The one definition of the session-lifetime default lives in web_auth, which is
 # stdlib-only, so importing it here cannot cycle.
 from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
-from osprey.port_layout import default_port, resolve_port_base
+from osprey.port_layout import _MAX_PORT, default_port, resolve_port_base
 from osprey.utils.facility import resolve_facility_name
 from osprey.utils.workspace import AUDIT_DIR_RELPATH, agent_data_base_dir
 
@@ -93,13 +93,18 @@ _LOOPBACK_BIND_HOST = "127.0.0.1"
 # an absent config value renders the same image from either side.
 _DEFAULT_NGINX_IMAGE = "nginx:1.27-alpine"
 
-#: The TLS seam's listener port. A literal because the template makes it one:
-#: there is no ``tls.port`` key to read, the ``443`` is spelled inside
-#: nginx.conf.j2's block gated on ``tls_enabled``. Defined here, beside the
-#: render that stamps it into the perimeter deny-list, and imported by ``lint``
-#: for its port-collision check — never restated there, since two spellings of
-#: one hard-coded listener is exactly how a collision check comes to reserve a
-#: port the template does not use.
+#: The TLS seam's listener port when ``modules.web_terminals.tls.port`` is
+#: unset: HTTPS's own default rather than a slot in this deployment's port
+#: block, since a facility serving the standard port should not have to
+#: configure one. A host that cannot bind 443 — unprivileged, or already
+#: carrying another deployment's perimeter — names its own port instead, and
+#: every consumer of the seam follows the ``tls_port`` value
+#: :func:`_auth_tls_context` derives: both ``listen`` lines, the cleartext
+#: redirect, the external origin the IdP is registered against and the
+#: perimeter deny-list. Defined here, beside the render that stamps it, and
+#: imported by ``lint`` for its port-collision check — never restated there,
+#: since two spellings of one default is exactly how a collision check comes to
+#: reserve a port the template does not use.
 TLS_LISTEN_PORT = 443
 
 #: The authentication methods this deployment can actually serve: ``none``
@@ -1119,8 +1124,8 @@ def render_web_terminals(
     if auth_tls_ctx["tls_enabled"] and not (auth_tls_ctx["tls_cert"] and auth_tls_ctx["tls_key"]):
         raise ValueError(
             "modules.web_terminals.tls.enabled is true but tls.cert/tls.key are not both "
-            "set — the gated `listen 443 ssl` seam needs both paths to emit a "
-            "coherent ssl_certificate/ssl_certificate_key pair"
+            f"set — the gated `listen {auth_tls_ctx['tls_port']} ssl` seam needs both "
+            "paths to emit a coherent ssl_certificate/ssl_certificate_key pair"
         )
     _check_tls_host_cert_dir(auth_tls_ctx)
     if (
@@ -1166,16 +1171,21 @@ def render_web_terminals(
     )
 
     tls_enabled = auth_tls_ctx["tls_enabled"]
+    tls_port = auth_tls_ctx["tls_port"]
     # The one origin every absolute URL in this deployment is built from (see
     # _external_origin). Derived only when something actually needs it: a
     # roster-less config with no sidecar has no absolute URL to build, and must
     # keep rendering without a deploy.fqdn.
     external_origin = (
-        _external_origin(root, nginx_port, tls_enabled=tls_enabled)
+        _external_origin(root, nginx_port, tls_enabled=tls_enabled, tls_port=tls_port)
         if services or auth_tls_ctx["sidecar_active"]
         else ""
     )
-    landing_url = _landing_url(root, nginx_port, tls_enabled=tls_enabled) if services else ""
+    landing_url = (
+        _landing_url(root, nginx_port, tls_enabled=tls_enabled, tls_port=tls_port)
+        if services
+        else ""
+    )
 
     # Every service is told the deployment's external origin, because the app
     # inside each container checks a mutating request's `Origin` against it —
@@ -1218,13 +1228,16 @@ def render_web_terminals(
     # addresses them legitimately, and none of them fronts a terminal, an agent
     # session, or an approval prompt, which is what this deny-list guards.
     perimeter_open = auth_tls_ctx["open_perimeter"]
-    # The TLS seam's listener (`TLS_LISTEN_PORT`) joins the set only when
-    # `tls.enabled` is on. There nginx.conf.j2 renders `listen 443 ssl` as the
-    # SOLE content server and demotes `nginx_port` to a redirect — so a list
-    # carrying only `nginx_port` would name the door that redirects and miss the
-    # one that serves. `nginx_port` stays in either way: the redirect listener
-    # still accepts the connection, and the redirect it answers with is the map
-    # to everything else.
+    # The TLS seam's listener (`tls.port`, default `TLS_LISTEN_PORT`) joins the
+    # set only when `tls.enabled` is on. There nginx.conf.j2 renders that port's
+    # `listen ... ssl` as the SOLE content server and demotes `nginx_port` to a
+    # redirect — so a list carrying only `nginx_port` would name the door that
+    # redirects and miss the one that serves. The parsed port is used rather
+    # than the constant, because a deployment on a non-default TLS port would
+    # otherwise deny 443 (which serves nothing) and leave its real content
+    # listener reachable from inside a container. `nginx_port` stays in either
+    # way: the redirect listener still accepts the connection, and the redirect
+    # it answers with is the map to everything else.
     #
     # Sorted and de-duplicated, so the rendered line is a function of the
     # roster and not of dict iteration order — this file is diffed between
@@ -1232,7 +1245,7 @@ def render_web_terminals(
     perimeter_deny_ports = sorted(
         {
             nginx_port,
-            *([TLS_LISTEN_PORT] if tls_enabled else []),
+            *([tls_port] if tls_enabled else []),
             *(service["web"] for service in services),
         }
     )
@@ -1514,7 +1527,13 @@ def _configured_external_origin(root: dict[str, Any]) -> str:
     return origin
 
 
-def _external_origin(root: dict[str, Any], nginx_port: int, *, tls_enabled: bool) -> str:
+def _external_origin(
+    root: dict[str, Any],
+    nginx_port: int,
+    *,
+    tls_enabled: bool,
+    tls_port: int = TLS_LISTEN_PORT,
+) -> str:
     """Build the one origin every absolute URL this deployment emits is derived from.
 
     Three consumers need an absolute URL that a browser will actually resolve:
@@ -1538,12 +1557,15 @@ def _external_origin(root: dict[str, Any], nginx_port: int, *, tls_enabled: bool
     configuration gap.
 
     Otherwise the origin is derived. Scheme and port follow ``tls.enabled``:
-    with TLS on, the 443 server is the sole content server (the plain listener
-    only redirects to it), and 443 is left implicit, which is both the canonical
-    origin serialization and the form an IdP client registration is normally
-    written in. With TLS off the origin is plain HTTP on the published
-    ``nginx_port``. A default port left explicit here is not a mismatch: both
-    ends of the ``Origin`` check normalize it away
+    with TLS on, the TLS server is the sole content server (the plain listener
+    only redirects to it), so the origin is ``https`` on ``tls.port``. The
+    default 443 is left implicit — both the canonical origin serialization and
+    the form an IdP client registration is normally written in — while any other
+    ``tls.port`` is spelled out, because a browser reaching a non-default port
+    sends it in the ``Origin`` header and an IdP would reject a
+    ``redirect_uri`` that omitted it. With TLS off the origin is plain HTTP on
+    the published ``nginx_port``. A default port left explicit here is not a
+    mismatch: both ends of the ``Origin`` check normalize it away
     (:func:`osprey.interfaces.common_middleware._normalize_origin`).
 
     The derived host comes from ``deploy.fqdn``: the schema documents that field
@@ -1557,6 +1579,9 @@ def _external_origin(root: dict[str, Any], nginx_port: int, *, tls_enabled: bool
         nginx_port: The published plain-HTTP port, used only when TLS is off and
             no origin is configured.
         tls_enabled: The parsed ``tls.enabled`` (see :func:`_auth_tls_context`).
+        tls_port: The parsed ``tls.port`` (see :func:`_auth_tls_context`), used
+            only when TLS is on and no origin is configured. Left out of the
+            origin when it is :data:`TLS_LISTEN_PORT`.
 
     Raises:
         ValueError: If ``modules.web_terminals.external_origin`` is set to
@@ -1577,7 +1602,9 @@ def _external_origin(root: dict[str, Any], nginx_port: int, *, tls_enabled: bool
             "front of this nginx is what browsers actually reach — set "
             "modules.web_terminals.external_origin to that address"
         )
-    return f"https://{host}" if tls_enabled else f"http://{host}:{nginx_port}"
+    if not tls_enabled:
+        return f"http://{host}:{nginx_port}"
+    return f"https://{host}" if tls_port == TLS_LISTEN_PORT else f"https://{host}:{tls_port}"
 
 
 def deployment_external_origin(config: Any) -> str:
@@ -1595,7 +1622,8 @@ def deployment_external_origin(config: Any) -> str:
 
     Returns:
         ``modules.web_terminals.external_origin`` verbatim when it is set;
-        otherwise ``https://<fqdn>`` with TLS on and
+        otherwise ``https://<fqdn>`` with TLS on (``https://<fqdn>:<tls_port>``
+        when ``tls.port`` is not the default 443) and
         ``http://<fqdn>:<nginx_port>`` without.
 
     Raises:
@@ -1608,8 +1636,13 @@ def deployment_external_origin(config: Any) -> str:
     root = as_dict(config)
     web_terminals = as_dict(as_dict(root.get("modules")).get("web_terminals"))
     nginx_port = resolve_nginx_port(root)
-    tls_enabled = bool(_auth_tls_context(web_terminals)["tls_enabled"])
-    return _external_origin(root, nginx_port, tls_enabled=tls_enabled)
+    auth_tls_ctx = _auth_tls_context(web_terminals)
+    return _external_origin(
+        root,
+        nginx_port,
+        tls_enabled=bool(auth_tls_ctx["tls_enabled"]),
+        tls_port=int(auth_tls_ctx["tls_port"]),
+    )
 
 
 def terminal_login_url(config: Any, username: str, secret: str) -> str:
@@ -1647,7 +1680,13 @@ def terminal_login_url(config: Any, username: str, secret: str) -> str:
     return f"{origin}/u/{username}/?token={quote(secret, safe='')}"
 
 
-def _landing_url(root: dict[str, Any], nginx_port: int, *, tls_enabled: bool = False) -> str:
+def _landing_url(
+    root: dict[str, Any],
+    nginx_port: int,
+    *,
+    tls_enabled: bool = False,
+    tls_port: int = TLS_LISTEN_PORT,
+) -> str:
     """The absolute origin baked into every service's ``OSPREY_TERMINAL_LANDING_URL``.
 
     Per-user containers only get this value once, at container start (env vars, not
@@ -1656,7 +1695,7 @@ def _landing_url(root: dict[str, Any], nginx_port: int, *, tls_enabled: bool = F
     origin verbatim (:func:`_external_origin`), which is what keeps a "back to
     landing" link and an OIDC ``redirect_uri`` on the same origin by construction.
     """
-    return _external_origin(root, nginx_port, tls_enabled=tls_enabled)
+    return _external_origin(root, nginx_port, tls_enabled=tls_enabled, tls_port=tls_port)
 
 
 def _user_card(resolved_user: dict[str, Any]) -> dict[str, Any]:
@@ -1806,8 +1845,8 @@ def _auth_tls_context(web_terminals: dict[str, Any], *, base: int | None = None)
     template, the compose overlay and the lint rules all read the keys returned
     here rather than the raw config, so there is one definition of what an
     ``auth`` stanza means. **This function renders nothing** — it derives values;
-    the templates turn ``tls_enabled``/``auth_method`` into actual `listen 443
-    ssl` / `auth_request` directives.
+    the templates turn ``tls_enabled``/``tls_port``/``auth_method`` into the
+    actual `listen <tls_port> ssl` / `auth_request` directives.
 
     Both stanzas remain entirely optional. ``tls`` defaults to off; ``auth``
     defaults to ``token``, today's magic-link posture. Every value is read defensively (wrong-typed entries
@@ -1870,7 +1909,11 @@ def _auth_tls_context(web_terminals: dict[str, Any], *, base: int | None = None)
         *names* the sidecar reads its OIDC client credentials from — never the
         credentials themselves) and ``auth_oidc_claim`` (str or ``None``, the
         ID-token claim carrying the identity to map onto a roster user); plus
-        the TLS keys ``tls_enabled`` (bool) and
+        the TLS keys ``tls_enabled`` (bool), ``tls_port`` (int, the listener
+        both nginx ``listen`` lines and the derived external origin follow,
+        defaulting to :data:`TLS_LISTEN_PORT`), ``tls_default_port`` (that
+        constant itself, so the template's port-in-redirect test and
+        :func:`_external_origin` compare against one value) and
         ``tls_cert``/``tls_key`` (str path or ``None``, read only when
         ``tls_enabled``).
 
@@ -1899,7 +1942,7 @@ def _auth_tls_context(web_terminals: dict[str, Any], *, base: int | None = None)
         "walled": sidecar_active,
         "token_exchange": auth_method == "token",
         "open_perimeter": auth_method == "none",
-        "auth_port": _positive_int(auth.get("port"), default_port(_AUTH_PORT_SLOT, base=base)),
+        "auth_port": _port_int(auth.get("port"), default_port(_AUTH_PORT_SLOT, base=base)),
         "auth_session_lifetime": _positive_int(
             auth.get("session_lifetime"), DEFAULT_SESSION_LIFETIME
         ),
@@ -1918,6 +1961,11 @@ def _auth_tls_context(web_terminals: dict[str, Any], *, base: int | None = None)
         # sidecar's own documented default applies — one default, in one place.
         "auth_oidc_claim": _non_empty_str(oidc.get("claim"), "") or None,
         "tls_enabled": bool(tls.get("enabled", False)),
+        "tls_port": _port_int(tls.get("port"), TLS_LISTEN_PORT),
+        # Carried alongside so the template's "is this the port a browser
+        # assumes for https://" test reads the same constant `_external_origin`
+        # does, rather than restating 443 as a literal.
+        "tls_default_port": TLS_LISTEN_PORT,
         "tls_cert": tls.get("cert"),
         "tls_key": tls.get("key"),
         # The HOST directory holding the certificate and key. Optional, and the
@@ -2160,6 +2208,20 @@ def _positive_int(value: Any, default: int) -> int:
     if isinstance(value, int) and not isinstance(value, bool) and value > 0:
         return value
     return default
+
+
+def _port_int(value: Any, default: int) -> int:
+    """A config value read as a TCP port, falling back to ``default``.
+
+    :func:`_positive_int` bounded above by the highest port there is, so the
+    whole invalid domain — non-int, ``bool``, ``0``, negative, and anything past
+    :data:`osprey.port_layout._MAX_PORT` — lands on the same default. That is
+    what makes lint's finding for a bad ``tls.port``/``auth.port`` honest when it
+    says the render falls back: a value of ``70000`` would otherwise reach a
+    ``listen`` directive nginx refuses at startup.
+    """
+    port = _positive_int(value, 0)
+    return port if 0 < port <= _MAX_PORT else default
 
 
 def _non_empty_str(value: Any, default: str) -> str:

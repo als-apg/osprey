@@ -45,6 +45,10 @@ _ARIEL_BASE_PORT = default_port("ariel", base=_MOVED_BASE) + 1
 _LATTICE_BASE_PORT = default_port("lattice", base=_MOVED_BASE) + 1
 #: A web base UNDER the front door, for the ordering test below.
 _BELOW_NGINX_WEB_BASE = _NGINX_PORT - 1000
+#: A TLS listener a rootless nginx can bind, for the non-default-`tls.port`
+#: case. Below this deployment's block numerically and above it lexically, so
+#: the deny-list's ordering assertion fails on a list sorted as strings.
+_ALT_TLS_PORT = 8443
 
 #: The marker and list names, spelled once. The executor reads these back from
 #: the container's environment; a rename on either side is a stamp nobody reads.
@@ -209,6 +213,36 @@ def test_tls_deployment_denies_the_tls_listener() -> None:
 
     # Assert
     assert denied == f"443,{_NGINX_PORT},{_WEB_BASE_PORT}"
+
+
+def test_tls_deployment_on_a_non_default_port_denies_that_listener_and_not_443() -> None:
+    """The list names the port that serves, which is `tls.port` when one is set.
+
+    A deny-list built from the 443 constant rather than the parsed port would
+    deny a port this deployment never binds while leaving the real content
+    listener — the one that injects the operator secret — reachable from inside
+    a sandbox that shares the host network namespace.
+
+    The exact string is asserted, and the TLS port here is numerically below the
+    deployment's block while lexically above it: a list sorted as strings would
+    put it last, so this pins ascending NUMERIC order rather than sortedness by
+    luck.
+    """
+    # Arrange
+    config = _config(["alice"], method="none")
+    config["modules"]["web_terminals"]["tls"] = {
+        "enabled": True,
+        "port": _ALT_TLS_PORT,
+        "cert": "/etc/nginx/certs/tls.crt",
+        "key": "/etc/nginx/certs/tls.key",
+    }
+
+    # Act
+    denied = _env(_user_services(config)["web-alice"])[_DENY_PORTS_VAR]
+
+    # Assert
+    assert denied == f"{_ALT_TLS_PORT},{_NGINX_PORT},{_WEB_BASE_PORT}"
+    assert "443" not in denied.split(",")
 
 
 def test_plain_http_deployment_does_not_deny_443() -> None:
