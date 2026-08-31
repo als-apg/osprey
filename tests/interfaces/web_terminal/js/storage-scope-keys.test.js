@@ -30,7 +30,10 @@ import {
   followThemeFamily,
   initRailThemeCoupling,
 } from '../../../../src/osprey/interfaces/web_terminal/static/js/rail-position.js';
-import { maybeShowRailHint } from '../../../../src/osprey/interfaces/web_terminal/static/js/rail-hint.js';
+import {
+  applyTourConfig,
+  INVITE_DELAY_MS,
+} from '../../../../src/osprey/interfaces/web_terminal/static/js/tour.js';
 import { clearStoredSessionId } from '../../../../src/osprey/interfaces/web_terminal/static/js/terminal.js';
 import {
   initAgentAttention,
@@ -112,13 +115,18 @@ describe('rail-position.js (the writer half of the rail-boot pair)', () => {
   });
 });
 
-describe('rail-hint.js', () => {
-  const BASE = 'osprey-rail-hint-dismissed-v1';
+describe('tour.js', () => {
+  const BASE = 'osprey-tour-dismissed-v1';
 
-  /** Mount the anchor the hint attaches to, rail in its (new) left column. */
-  function mountRail() {
-    document.body.innerHTML = '<div class="shell-body"><div class="panel-rail-region"></div></div>';
-    document.documentElement.setAttribute('data-rail-position', 'left');
+  /** Mount the one anchor the tour minimally needs (the terminal card). */
+  function mountShell() {
+    document.body.innerHTML = '<div class="terminal-card"></div>';
+  }
+
+  /** Arm the automatic invite and let its delay elapse. */
+  function inviteNow() {
+    applyTourConfig({ tour: { policy: 'once', capabilities: [] } });
+    vi.advanceTimersByTime(INVITE_DELAY_MS + 1);
   }
 
   /** @param {string} selector */
@@ -128,31 +136,56 @@ describe('rail-hint.js', () => {
     el.click();
   }
 
-  test('a persona still gets the one-time hint another persona dismissed', () => {
+  /** Close whatever the tour has open so the next test starts clean. */
+  function escapeTour() {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    escapeTour();
+    vi.useRealTimers();
+  });
+
+  /** Dismiss via the invite's "Don't show this again" checkbox + Skip. */
+  function dismissInvite() {
+    const box = document.querySelector('.tour-remember input');
+    if (!(box instanceof HTMLInputElement)) throw new Error('expected the remember checkbox');
+    box.checked = true;
+    click('.tour-invite-actions .tour-btn:not(.primary)');
+  }
+
+  test('a persona still gets the invite another persona dismissed', () => {
     localStorage.setItem(BASE, '1');
     serveAs('bob');
-    mountRail();
+    mountShell();
 
-    expect(maybeShowRailHint()).toBe(true);
+    inviteNow();
+
+    expect(document.querySelector('.tour-card')).not.toBe(null);
   });
 
   test('dismissing marks only this persona as having seen it', () => {
     serveAs('bob');
-    mountRail();
-    maybeShowRailHint();
+    mountShell();
+    inviteNow();
 
-    click('.rail-hint-dismiss');
+    dismissInvite();
 
     expect(localStorage.getItem(`${BASE}--bob`)).toBe('1');
     expect(localStorage.getItem(BASE)).toBe(null);
-    expect(maybeShowRailHint()).toBe(false);
+    inviteNow();
+    expect(document.querySelector('.tour-card')).toBe(null);
   });
 
   test('unscoped serving keeps writing the legacy flag', () => {
-    mountRail();
-    maybeShowRailHint();
+    mountShell();
+    inviteNow();
 
-    click('.rail-hint-dismiss');
+    dismissInvite();
 
     expect(localStorage.getItem(BASE)).toBe('1');
   });

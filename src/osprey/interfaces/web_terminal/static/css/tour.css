@@ -1,0 +1,276 @@
+/* OSPREY Web Terminal — Onboarding tour overlay (tour.js).
+ *
+ * Styling rides the design-system tokens so the cards inherit every theme;
+ * no colors of its own beyond the scrim.
+ */
+
+/* The spotlight ring: positioned over the anchor, and its box-shadow paints
+   the page-wide scrim, so the hole and the dimming can never disagree. */
+.tour-spot {
+  position: fixed;
+  z-index: 900;
+  pointer-events: none;
+  border-radius: var(--radius-xl);
+  box-shadow:
+    0 0 0 2px var(--color-accent),
+    0 0 0 7px color-mix(in srgb, var(--color-accent) 25%, transparent),
+    0 0 0 9999px rgba(0, 0, 0, 0.55);
+  transition: all var(--wt-transition-normal);
+}
+
+/* Invisible click-shield while the tour is up. */
+.tour-blocker {
+  position: fixed;
+  inset: 0;
+  z-index: 901;
+}
+
+/* Full-screen dim behind the centered invite card (no spotlight there). */
+.tour-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 899;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.tour-card {
+  position: fixed;
+  z-index: 902;
+  width: 372px;
+  box-sizing: border-box;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-2xl);
+  padding: 20px 22px 16px;
+  box-shadow: var(--shadow-dialog);
+  font-family: var(--font-display);
+  transition: top var(--wt-transition-normal), left var(--wt-transition-normal);
+  animation: tour-card-in 180ms ease-out;
+}
+
+@keyframes tour-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.tour-card.centered {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 420px;
+  animation: tour-invite-in 200ms ease-out;
+}
+
+@keyframes tour-invite-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -48%) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-spot,
+  .tour-card {
+    transition: none;
+    animation: none;
+  }
+}
+
+.tour-x {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  border: none;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-muted);
+  transition: color var(--wt-transition-fast), background var(--wt-transition-fast);
+}
+
+.tour-x:hover {
+  color: var(--text-primary);
+  background: var(--bg-panel);
+}
+
+.tour-kicker {
+  font-size: 10.5px;
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+  margin-bottom: 7px;
+}
+
+.tour-title {
+  font-size: 17px;
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.01em;
+  margin: 0 0 8px;
+}
+
+.tour-body {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.tour-body strong {
+  color: var(--text-primary);
+  font-weight: var(--weight-semibold);
+}
+
+.tour-foot {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 10px;
+}
+
+.tour-nav {
+  display: flex;
+  align-items: center;
+  margin-top: 16px;
+  gap: 10px;
+}
+
+.tour-dots {
+  display: flex;
+  gap: 5px;
+  flex: 1;
+  justify-content: center;
+  align-items: center;
+}
+
+.tour-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--border-default);
+  transition: width var(--wt-transition-fast), background var(--wt-transition-fast);
+}
+
+.tour-dot.on {
+  width: 18px;
+  background: var(--color-accent);
+}
+
+.tour-btn {
+  font: inherit;
+  font-size: 13px;
+  font-weight: var(--weight-medium);
+  padding: 7px 16px;
+  cursor: pointer;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-default);
+  background: var(--bg-panel);
+  color: var(--text-secondary);
+  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast),
+    background var(--wt-transition-fast);
+}
+
+.tour-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--border-accent);
+}
+
+.tour-btn.primary {
+  background: var(--color-accent);
+  color: #fff;
+  border-color: transparent;
+}
+
+.tour-btn.primary:hover {
+  filter: brightness(1.1);
+}
+
+.tour-btn.ghost {
+  border-color: transparent;
+  background: transparent;
+}
+
+.tour-btn[disabled] {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.tour-invite-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.tour-invite-actions .tour-btn {
+  flex: 1;
+  padding: 10px 0;
+  text-align: center;
+}
+
+/* "Don't show this again" row on the invite card. */
+.tour-remember {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 12px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.tour-remember input {
+  accent-color: var(--color-accent);
+  margin: 0;
+}
+
+.tour-remember:hover {
+  color: var(--text-secondary);
+}
+
+.tour-chips {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.tour-chip {
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  padding: 9px 13px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-default);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  transition: border-color var(--wt-transition-fast), background var(--wt-transition-fast);
+}
+
+.tour-chip:hover {
+  border-color: var(--color-accent);
+  background: var(--bg-primary);
+}
+
+.tour-chip::before {
+  content: "\2192\00a0";
+  color: var(--color-accent);
+}

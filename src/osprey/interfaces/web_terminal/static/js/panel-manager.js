@@ -39,6 +39,7 @@ import { applyPreset, wirePanelHeaderControls } from './panel-presets.js';
 import { setPanelVisibility, setPanelFocus, registerUrlPanel } from './panel-commands.js';
 import { applyConfigTabGate } from './config-tab.js';
 import { applyScaffoldWriteGate } from './scaffold/write-gate.js';
+import { applyTourConfig } from './tour.js';
 import {
   initDockIframeAdapter, focusPanel, hidePanel, concealPanel,
   setKnownServicePanels, setServerVisiblePanels,
@@ -403,6 +404,11 @@ export async function initPanelManager(panelId) {
   // failed fetch (null) leaves the posture alone, matching every other
   // server-config read in this function.
   applyScaffoldWriteGate(panelConfig);
+
+  // Hand the onboarding tour its server-derived facts (invite policy +
+  // capability list) on the same single /api/panels round trip. tour.js owns
+  // the policy; a failed fetch (null) leaves the tour on-demand only.
+  applyTourConfig(panelConfig);
 
   // A human closing a dock tile is a LOCAL vacate (occupancy is per-client
   // layout state; the panel keeps its rail membership) — reconcile the local

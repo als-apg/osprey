@@ -36,6 +36,7 @@ import { openDrawerTab, revealSetting } from './settings.js';
 import { CONFIG_TAB_ID } from './config-tab.js';
 import { startNewSession } from './sessions.js';
 import { setRailPosition } from './rail-position.js';
+import { startTour } from './tour.js';
 import { openPalette, closePalette, isOpen } from './palette.js';
 import { isFeedbackModalOpen } from './feedback-modal.js';
 
@@ -118,6 +119,8 @@ function buildPaletteDeps() {
   }
   actions.push({ label: 'Open Memory gallery', run: () => { openDrawerTab('tab-memory'); } });
   actions.push({ label: 'Open Prompt gallery', run: () => { openDrawerTab('tab-behavior'); } });
+  // On-demand tour entry — works regardless of the web.tour invite policy.
+  actions.push({ label: 'Take the tour', run: () => startTour() });
   // Logout only exists in multi-user deployments (the button is server-gated).
   if (document.getElementById('logout-btn')) {
     actions.push({ label: 'Log out', run: () => document.getElementById('logout-btn')?.click() });
