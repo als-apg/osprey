@@ -1164,9 +1164,9 @@ def test_only_a_literal_true_arms_the_deployment_wide_key(reader, value, expecte
 def test_a_dotted_custom_type_is_one_key_and_not_a_path(reader):
     """A custom connector's module path names a single block, dots and all."""
     section = {
-        "type": "mypackage.TangoConnector",
+        "type": "mypackage.MoatConnector",
         "writes_enabled": False,
-        "connector": {"mypackage.TangoConnector": {"writes_enabled": True}},
+        "connector": {"mypackage.MoatConnector": {"writes_enabled": True}},
     }
 
     assert reader.writes_posture(section, "live") is True

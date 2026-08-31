@@ -45,7 +45,7 @@ from osprey_connectors.types import (
     writes_enabled_key,
 )
 
-CUSTOM_TYPE = "mypackage.TangoConnector"
+CUSTOM_TYPE = "mypackage.MoatConnector"
 
 
 def _section(
@@ -81,7 +81,7 @@ def test_a_type_names_its_own_block_key():
     assert writes_enabled_key(EPICS) == "control_system.connector.epics.writes_enabled"
     assert (
         writes_enabled_key(CUSTOM_TYPE)
-        == "control_system.connector.mypackage.TangoConnector.writes_enabled"
+        == "control_system.connector.mypackage.MoatConnector.writes_enabled"
     )
 
 
@@ -265,14 +265,14 @@ def test_a_config_with_no_posture_anywhere_is_unarmed_for_every_type():
 
 @pytest.mark.unit
 def test_a_dotted_custom_type_is_one_key_and_not_a_path():
-    """``mypackage.TangoConnector`` names one block; the dots are part of it."""
+    """``mypackage.MoatConnector`` names one block; the dots are part of it."""
     # Arrange
     section = _section(
         CUSTOM_TYPE,
         writes_enabled=False,
         connector={
             CUSTOM_TYPE: {"writes_enabled": True},
-            "mypackage": {"TangoConnector": {"writes_enabled": False}},
+            "mypackage": {"MoatConnector": {"writes_enabled": False}},
         },
     )
 
@@ -287,7 +287,7 @@ def test_a_dotted_custom_type_with_no_block_of_its_own_inherits():
     section = _section(
         CUSTOM_TYPE,
         writes_enabled=True,
-        connector={"mypackage": {"TangoConnector": {"writes_enabled": False}}},
+        connector={"mypackage": {"MoatConnector": {"writes_enabled": False}}},
     )
 
     # Act / Assert
