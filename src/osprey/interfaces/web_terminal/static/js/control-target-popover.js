@@ -30,6 +30,13 @@
  * for approval or what limits apply — that is deployment configuration this
  * module cannot see. Confirms state scope, endpoint and consequence only.
  *
+ * **A confirm can be waived, mostly.** Both confirms carry a "don't ask
+ * again" checkbox — per gesture, per machine, per persona (scopedStorageKey),
+ * remembered only when the operator confirms. The one exception is turning
+ * writes ON for a live machine, which keeps asking always: it is the gesture
+ * after which hardware can move. A waived dialog is re-shown by holding Shift
+ * on the gesture, which is also where the waiver is undone.
+ *
  * **The popover stays open beneath a confirm.** Both confirms raise a
  * `.posture-modal-overlay` at `--z-modal`, a full layer above the popover's
  * `--z-sticky`. The outside-click handler ignores clicks inside that overlay,
@@ -46,6 +53,8 @@
 import {
   REASON_STORE_UNAVAILABLE,
   bannerNote,
+  confirmSkipKeyBase,
+  confirmSkippable,
   descriptor,
   descriptorTone,
   displayName,
@@ -58,7 +67,8 @@ import {
   switchConfirm,
   turnOnConfirm,
 } from './control-target-facts.js';
-import { fadeOutOverlay, mountOverlay } from './modal-overlay.js';
+import { confirmSkipped } from './confirm-skip.js';
+import { dismissConfirm, isConfirmUp, showConfirm } from './posture-confirm.js';
 
 // Re-exported so the popover's public surface stays what it was before the
 // derived-facts split; the wording itself lives in control-target-facts.js.
@@ -105,14 +115,6 @@ let unsubscribe = null;
 let open = false;
 
 /**
- * The confirm currently on screen, if any. One at a time: both confirms are
- * raised from the same popover, and a second overlay would bury the first
- * without dismissing it.
- * @type {HTMLElement|null}
- */
-let activeConfirm = null;
-
-/**
  * The target this browser's outstanding switch request named.
  *
  * The chip owns whether a request is outstanding ({@link isPending}); which
@@ -150,13 +152,9 @@ let posting = false;
 let confirmingTarget = null;
 
 /**
- * The handles a confirm hands to the gesture it raised: where a refusal goes,
- * the two buttons to lock while the POST is out, and the one dismissal path.
- * @typedef {object} ConfirmUi
- * @property {HTMLElement} error
- * @property {HTMLButtonElement} confirm
- * @property {HTMLButtonElement} cancel
- * @property {() => void} done
+ * The handles a confirm hands to the gesture it raised — see
+ * posture-confirm.js, which owns the dialog itself.
+ * @typedef {import('./posture-confirm.js').ConfirmUi} ConfirmUi
  */
 
 /* ---- mount ---- */
@@ -246,7 +244,7 @@ function onDocumentClick(event) {
  */
 function onDocumentKeydown(event) {
   if (event.key !== 'Escape') return;
-  if (activeConfirm) {
+  if (isConfirmUp()) {
     event.stopPropagation();
     dismissConfirm();
     return;
@@ -572,7 +570,7 @@ function renderSwitch(row, state, word, lock) {
     toggle.addEventListener('click', (event) => {
       event.stopPropagation();
       if (on) void setPosture(row.target, 'sandbox', state);
-      else confirmTurnOn(row, state);
+      else confirmTurnOn(row, state, event.shiftKey);
     });
   }
   wrap.append(toggle);
@@ -604,7 +602,7 @@ function renderAction(row, state, rows) {
     swap.title = `Move this session's reads and writes to ${displayName(row, kindAttr(row))}`;
     swap.addEventListener('click', (event) => {
       event.stopPropagation();
-      confirmSwitchTo(row, state);
+      confirmSwitchTo(row, state, event.shiftKey);
     });
     action.append(swap);
     return action;
@@ -708,14 +706,20 @@ async function setPosture(target, posture, state, ui) {
  * switched yet. The chip owns what happens next — the 500 ms poll, matching
  * the outcome by that id, and calling it expired if nothing ever answers — so
  * all this does is record which row is waiting.
+ * A gesture whose confirm was waived arrives with no `ui`; a refusal then
+ * lands on the row instead — the same home a verb click's refusal has in
+ * {@link setPosture}.
  * @param {any} row
  * @param {any} state
- * @param {ConfirmUi} ui
+ * @param {ConfirmUi} [ui]  the confirm this gesture was raised from, if any
  * @returns {Promise<void>}
  */
 async function requestSwitch(row, state, ui) {
-  ui.confirm.disabled = true;
-  ui.cancel.disabled = true;
+  if (posting) return;
+  if (ui) {
+    ui.confirm.disabled = true;
+    ui.cancel.disabled = true;
+  }
   posting = true;
   gestureNotes.clear();
   let body;
@@ -726,106 +730,38 @@ async function requestSwitch(row, state, ui) {
     });
   } catch (err) {
     posting = false;
-    // The refusal stays in the dialog: it is where the operator is looking,
-    // and nothing was requested, so there is nothing to watch for.
-    ui.error.textContent = err instanceof Error ? err.message : String(err);
-    ui.error.hidden = false;
-    ui.confirm.disabled = false;
-    ui.cancel.disabled = false;
+    const message = err instanceof Error ? err.message : String(err);
+    if (ui) {
+      // The refusal stays in the dialog: it is where the operator is looking,
+      // and nothing was requested, so there is nothing to watch for.
+      ui.error.textContent = message;
+      ui.error.hidden = false;
+      ui.confirm.disabled = false;
+      ui.cancel.disabled = false;
+    } else {
+      gestureNotes.set(row.target, message);
+    }
     await refetch();
+    render();
     return;
   }
   posting = false;
-  ui.done();
+  ui?.done();
   pendingTarget = row.target;
   markPending(String(body?.request_id || ''), row.target);
   await refetch();
   render();
 }
 
-/* ---- confirms ---- */
-
-/** @param {string} text */
-function strong(text) {
-  return el('strong', undefined, text);
-}
+/* ---- confirms (the dialog itself lives in posture-confirm.js) ---- */
 
 /**
- * Build and show one confirm over the popover, which stays open beneath it.
- *
- * Structure and lifecycle mirror the badge-era dialog (posture-badge.js): the
- * overlay is appended to `document.body`, `.visible` lands on the next frame,
- * and one `done()` runs on every dismissal path. What differs is where Escape
- * is handled — this popover owns it, so a confirm and the rows behind it are
- * dismissed in the order they were opened.
- * @param {{title: string,
- *          body: (import('./control-target-facts.js').ConfirmRun)[][],
- *          live: string|null, confirmLabel: string,
- *          onConfirm: (ui: ConfirmUi) => void}} spec
+ * Release the parked switch on every dismissal path: cancel, Escape, a
+ * confirmed gesture's done(), the popover closing over it. Registered as the
+ * turn-on confirm's `onDismiss`, which posture-confirm.js runs exactly once
+ * per dialog.
  */
-function showConfirm(spec) {
-  dismissConfirm();
-  // A dialog dismissed a moment ago is still in the DOM, fading out. Drop it
-  // now rather than stacking a second overlay on top of it.
-  for (const stale of document.querySelectorAll('.posture-modal-overlay[data-closing]')) {
-    stale.remove();
-  }
-
-  const overlay = el('div', 'posture-modal-overlay');
-  const dialog = el('div', 'posture-modal');
-  dialog.setAttribute('role', 'dialog');
-  dialog.setAttribute('aria-modal', 'true');
-  dialog.setAttribute('aria-labelledby', 'posture-modal-title');
-
-  const heading = el('div', 'posture-modal-title', spec.title);
-  heading.id = 'posture-modal-title';
-
-  const body = el('div', 'posture-modal-body');
-  // Assembled node by node (no innerHTML) so the emphasis can sit on the name
-  // and the state word without any string ever being parsed as markup. An
-  // `{em}` run is the facts module's DOM-free spelling of a `<strong>`.
-  for (const line of spec.body) {
-    const paragraph = el('p');
-    for (const run of line) {
-      paragraph.append(typeof run === 'string' ? run : strong(run.em));
-    }
-    body.append(paragraph);
-  }
-  if (spec.live) body.append(el('div', 'posture-modal-live', spec.live));
-
-  const error = el('div', 'posture-modal-error');
-  error.setAttribute('role', 'alert');
-  error.hidden = true;
-
-  const actions = el('div', 'posture-modal-actions');
-  const cancel = button('posture-modal-cancel', 'Cancel');
-  const confirm = button('posture-modal-confirm', spec.confirmLabel);
-  if (spec.live) confirm.dataset.live = 'true';
-  actions.append(cancel, confirm);
-
-  dialog.append(heading, body, error, actions);
-  overlay.append(dialog);
-  activeConfirm = overlay;
-  mountOverlay(overlay);
-
-  cancel.addEventListener('click', () => dismissConfirm());
-  confirm.addEventListener('click', () =>
-    spec.onConfirm({ error, confirm, cancel, done: dismissConfirm })
-  );
-  confirm.focus();
-}
-
-/** Take the confirm off the screen, if one is up. Idempotent. */
-function dismissConfirm() {
-  const overlay = activeConfirm;
-  activeConfirm = null;
-  if (!overlay) return;
-  // `data-closing` is what tells "still up" from "on its way out" — to a
-  // reader, to a test, and to the stale sweep in showConfirm.
-  overlay.dataset.closing = '1';
-  fadeOutOverlay(overlay);
-  // Release the parked switch on every dismissal path: cancel, Escape, a
-  // confirmed gesture's done(), the popover closing over it.
+function releaseParkedSwitch() {
   if (confirmingTarget) {
     confirmingTarget = null;
     render();
@@ -833,33 +769,55 @@ function dismissConfirm() {
 }
 
 /**
- * The confirm for turning one machine's writes on. Wording lives in
- * control-target-facts.js ({@link turnOnConfirm}); this only wires the
- * gesture.
+ * The confirm for turning one machine's writes on — or, when its waiver is
+ * recorded and Shift is not held, the gesture applied directly. A live
+ * machine never takes the waiver ({@link confirmSkippable}): its dialog is
+ * the one gate that must not be muted.
+ * Wording lives in control-target-facts.js ({@link turnOnConfirm}); this
+ * only wires the gesture.
  * @param {any} row
  * @param {any} state
+ * @param {boolean} [reshow]  Shift was held: show the dialog even when waived
  */
-function confirmTurnOn(row, state) {
+function confirmTurnOn(row, state, reshow = false) {
+  const kind = kindAttr(row);
+  const skippable = confirmSkippable('writes-on', kind);
+  const keyBase = confirmSkipKeyBase('writes-on', row);
+  if (skippable && !reshow && confirmSkipped(keyBase)) {
+    void setPosture(row.target, 'writes', state);
+    return;
+  }
   showConfirm({
-    ...turnOnConfirm(row, kindAttr(row)),
+    ...turnOnConfirm(row, kind),
+    skipKeyBase: skippable ? keyBase : null,
     onConfirm: (ui) => void setPosture(row.target, 'writes', state, ui),
+    onDismiss: releaseParkedSwitch,
   });
-  // After showConfirm: its stale-dialog sweep runs dismissConfirm, which
-  // clears this. The render is what parks the switch beneath the dialog.
+  // After showConfirm: its stale-dialog sweep dismisses (and releases) any
+  // previous confirm first. The render is what parks the switch beneath the
+  // dialog.
   confirmingTarget = row.target;
   render();
 }
 
 /**
- * The confirm for switching this session onto another machine. Wording lives
- * in control-target-facts.js ({@link switchConfirm}); this only wires the
- * gesture.
+ * The confirm for switching this session onto another machine — or, when its
+ * waiver is recorded and Shift is not held, the request posted directly.
+ * Wording lives in control-target-facts.js ({@link switchConfirm}); this
+ * only wires the gesture.
  * @param {any} row
  * @param {any} state
+ * @param {boolean} [reshow]  Shift was held: show the dialog even when waived
  */
-function confirmSwitchTo(row, state) {
+function confirmSwitchTo(row, state, reshow = false) {
+  const keyBase = confirmSkipKeyBase('switch', row);
+  if (!reshow && confirmSkipped(keyBase)) {
+    void requestSwitch(row, state);
+    return;
+  }
   showConfirm({
     ...switchConfirm(row, kindAttr(row), stateWord(row)),
+    skipKeyBase: keyBase,
     onConfirm: (ui) => void requestSwitch(row, state, ui),
   });
 }

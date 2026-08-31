@@ -286,6 +286,9 @@ beforeEach(async () => {
   served = viewOf();
   stubFetch();
   mountFixture();
+  // The don't-ask-again waivers persist in localStorage; no test inherits
+  // another's.
+  localStorage.clear();
   document.documentElement.removeAttribute('data-ui-mode');
   delete (/** @type {any} */ (window)).__OSPREY_PREFIX__;
   chipModule = await import(CHIP);
@@ -1048,6 +1051,129 @@ describe('switching', () => {
       'This session has no running control-system server yet.'
     );
     expect(chipModule.isPending()).toBe(false);
+  });
+});
+
+/* ---- don't ask again ----------------------------------------------------- */
+
+describe("don't ask again", () => {
+  /** The checkbox in the confirm that is up, or null. */
+  const skipBox = () =>
+    /** @type {HTMLInputElement|null} */ (
+      confirmEl()?.querySelector('.posture-modal-skip input') ?? null
+    );
+  /** Click with Shift held — the waived dialog's re-show gesture. */
+  const shiftClick = (/** @type {HTMLElement|null|undefined} */ node) =>
+    node?.dispatchEvent(new MouseEvent('click', { shiftKey: true, bubbles: true, cancelable: true }));
+
+  test('ticking it on a switch confirm mutes the NEXT switch to that machine only', async () => {
+    await bootOpen();
+    switchEl('va')?.click();
+    await flush();
+    /** @type {HTMLInputElement} */ (skipBox()).click();
+    postAnswers.push({ ok: true, body: { request_id: 'req-1', target: 'va' } });
+    confirmBtn()?.click();
+    await flush();
+
+    // The waiver is per gesture per machine, persona-scoped (bare key here:
+    // no data-osprey-storage-scope on a single-user page).
+    expect(localStorage.getItem('osprey-ctc-skip-confirm:switch:va')).toBe('1');
+    expect(localStorage.getItem('osprey-ctc-skip-confirm:switch:live')).toBeNull();
+
+    // The outcome lands (clearing the pending request), the session comes
+    // back; then switch to va again: no dialog, straight to the POST.
+    served = viewOf({
+      last_switch: { request_id: 'req-1', target: 'va', status: 'success', reason: null, age_s: 2 },
+    });
+    await chipModule.refetch();
+    await flush();
+    postAnswers.push({ ok: true, body: { request_id: 'req-2', target: 'va' } });
+    switchEl('va')?.click();
+    await flush();
+
+    expect(confirmEl()).toBeNull();
+    expect(posts()).toHaveLength(2);
+    expect(posts()[1].body).toEqual({ session_id: SESSION, target: 'va' });
+    expect(outcomes('va')).toContain('switching…');
+  });
+
+  test('a waived switch to ANOTHER machine still asks', async () => {
+    localStorage.setItem('osprey-ctc-skip-confirm:switch:va', '1');
+    await bootOpen();
+    switchEl('live')?.click();
+    await flush();
+    expect(confirmTitle()).toBe('Switch to Real machine?');
+  });
+
+  test('cancelling with the box ticked records nothing', async () => {
+    await bootOpen();
+    switchEl('va')?.click();
+    await flush();
+    /** @type {HTMLInputElement} */ (skipBox()).click();
+    inConfirm('.posture-modal-cancel').click();
+    await flush();
+
+    expect(localStorage.getItem('osprey-ctc-skip-confirm:switch:va')).toBeNull();
+    switchEl('va')?.click();
+    await flush();
+    expect(confirmTitle()).toBe('Switch to Simulator?');
+  });
+
+  test('Shift re-shows a waived dialog, pre-ticked, and unticking there is the undo', async () => {
+    localStorage.setItem('osprey-ctc-skip-confirm:switch:va', '1');
+    await bootOpen();
+    shiftClick(switchEl('va'));
+    await flush();
+
+    expect(confirmTitle()).toBe('Switch to Simulator?');
+    expect(skipBox()?.checked).toBe(true);
+
+    /** @type {HTMLInputElement} */ (skipBox()).click();
+    postAnswers.push({ ok: true, body: { request_id: 'req-1', target: 'va' } });
+    confirmBtn()?.click();
+    await flush();
+    expect(localStorage.getItem('osprey-ctc-skip-confirm:switch:va')).toBeNull();
+  });
+
+  test('a waived turn-on applies directly on a machine that moves nothing', async () => {
+    localStorage.setItem('osprey-ctc-skip-confirm:writes-on:va', '1');
+    await bootOpen(viewOf({ targets: [rowOf(KINDS.va, { ...STATES.sandbox })] }));
+    postAnswers.push({ ok: true, body: { entry: { va: 'writes' }, skipped: [] } });
+    toggleEl('va')?.click();
+    await flush();
+
+    expect(confirmEl()).toBeNull();
+    expect(posts()[0].body).toEqual({ session_id: SESSION, target: 'va', posture: 'writes' });
+  });
+
+  test('turning writes on for the live machine offers no waiver and ignores a stale one', async () => {
+    // The gesture after which hardware can move keeps asking, always — even a
+    // hand-planted waiver key changes nothing.
+    localStorage.setItem('osprey-ctc-skip-confirm:writes-on:live', '1');
+    await bootOpen();
+    toggleEl('live')?.click();
+    await flush();
+
+    expect(confirmTitle()).toBe('Turn writes on for Real machine?');
+    expect(skipBox()).toBeNull();
+    expect(posts()).toHaveLength(0);
+  });
+
+  test('a waived switch that is refused puts the server sentence on the row', async () => {
+    // With no dialog up, the refusal's home is the row — same as a verb
+    // click's.
+    localStorage.setItem('osprey-ctc-skip-confirm:switch:va', '1');
+    await bootOpen();
+    postAnswers.push({
+      ok: false,
+      status: 409,
+      body: { detail: { error: 'session_not_started', message: 'No controls server yet.' } },
+    });
+    switchEl('va')?.click();
+    await flush();
+
+    expect(confirmEl()).toBeNull();
+    expect(outcomes('va')).toContain('✗ No controls server yet.');
   });
 });
 

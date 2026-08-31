@@ -2189,6 +2189,27 @@ html[data-ui-mode="simple"] #terminal-container {
   margin: 10px 0 0;
 }
 
+/* The "don't ask again" waiver. Quiet on purpose — secondary text, no box or
+   tint: it is a convenience beside the decision, never part of it. Absent
+   entirely from the one dialog that must keep asking (writes on, live
+   machine). */
+.posture-modal-skip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin: 12px 0 16px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.posture-modal-skip input {
+  accent-color: var(--color-accent);
+  margin: 0;
+}
+
 .posture-modal-actions {
   display: flex;
   gap: 10px;

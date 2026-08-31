@@ -156,9 +156,10 @@ machine you are worried about out of reach without giving up the one you are
 working on.
 
 Taking writes away applies as you click --- it needs no ceremony. Turning
-writes back on asks you to confirm first, every time and with nothing
-remembered between clicks, and the confirmation names the machine and the
-endpoint the agent would then be able to write to.
+writes back on asks you to confirm first, and the confirmation names the
+machine and the endpoint the agent would then be able to write to. Tick
+*Don't ask again for this machine* to skip the dialog from then on
+(Shift-click brings it back). The real machine always asks.
 
 **Nothing is restarted.** Every gate reads the write state at the moment of
 the write, so the change lands on the conversation that is already running:
@@ -209,7 +210,8 @@ Switch this session to another machine
 **Switch to** on a row moves the session onto that machine, after a
 confirmation that says where every control read and write goes next and
 whether writes are on or off for you there --- the write state is per
-machine, and it does not travel with you. The browser does not perform the
+machine, and it does not travel with you. This dialog too can be skipped
+with *Don't ask again for this machine*. The browser does not perform the
 switch: it records the request, and the part of the deployment that owns the
 connection to the machines picks it up, re-checks at that moment that the
 move is allowed and the machine answers, and reports the outcome back. The
