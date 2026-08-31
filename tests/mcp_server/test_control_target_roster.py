@@ -21,7 +21,10 @@ import json
 import pytest
 
 from osprey.mcp_server.control_system import target_state
-from osprey.mcp_server.control_system.connector_host_manager import target_display_metadata
+from osprey.mcp_server.control_system.connector_host_manager import (
+    _display_name,
+    target_display_metadata,
+)
 from osprey.mcp_server.control_system.target_eligibility import (
     ACK_LEAF,
     REASON_ALREADY_ACTIVE,
@@ -917,6 +920,87 @@ class TestLiveStandinLabel:
         assert metadata["live"]["real_machine"] is True
         assert metadata["standin"]["real_machine"] is True
         assert metadata["va"]["real_machine"] is False
+
+
+class TestDisplayName:
+    """The operator-facing word minted beside each label, and who may rename it.
+
+    ``display_name`` walks the same branches as the label, from the same
+    inputs, at the same single writer — so the word on the chip and the
+    identity line the prompt hook renders cannot describe different machines.
+    Unlike the label, a deployment may rename it per target via
+    ``control_system.target_display_names``; only a non-empty string does,
+    because an empty name on the chip is a target the operator cannot tell
+    apart from the others.
+    """
+
+    def test_defaults_follow_the_label_branches(self):
+        """Real machine, Rehearsal, Simulator — one word per derivation."""
+        metadata = target_display_metadata(standin_config())
+
+        assert metadata["live"]["display_name"] == "Real machine"
+        assert metadata["standin"]["display_name"] == "Rehearsal"
+        assert metadata["va"]["display_name"] == "Simulator"
+
+    def test_an_underivable_live_target_is_still_the_real_machine(self):
+        """The "not set up" nuance is the reader's to render, not the name's."""
+        metadata = target_display_metadata({"control_system": {"type": "virtual_accelerator"}})
+
+        assert metadata["live"]["label"] == "live machine (not configured)"
+        assert metadata["live"]["display_name"] == "Real machine"
+
+    def test_a_simulated_connector_is_a_demo(self):
+        """The branch mirrors the label's "live target on a simulated connector".
+
+        Asserted on the helper directly: :func:`resolve_target` never answers a
+        live-family target with a simulated type today, so the branch is
+        reachable only the way the label's own simulated branch is — kept so
+        the two names cannot diverge if that ever changes.
+        """
+        assert _display_name({}, "live", "mock") == "Demo"
+        assert _display_name({}, "live", "virtual_accelerator") == "Demo"
+
+    def test_a_standin_that_fails_the_predicate_is_the_real_machine(self):
+        """Same conjuncts as the parenthesis: no deployed stand-in, no Rehearsal."""
+        metadata = target_display_metadata(standin_config(standin_port=None))
+
+        assert metadata["standin"]["label"] == "LIVE MACHINE"
+        assert metadata["standin"]["display_name"] == "Real machine"
+
+    def test_a_configured_name_wins_verbatim_stripped(self):
+        raw = standin_config()
+        raw["control_system"]["target_display_names"] = {
+            "live": "  Storage ring ",
+            "standin": "Shadow ring",
+            "va": "Digital twin",
+        }
+
+        metadata = target_display_metadata(raw)
+
+        assert metadata["live"]["display_name"] == "Storage ring"
+        assert metadata["standin"]["display_name"] == "Shadow ring"
+        assert metadata["va"]["display_name"] == "Digital twin"
+
+    def test_an_empty_or_blank_override_falls_back_to_the_default(self):
+        raw = standin_config()
+        raw["control_system"]["target_display_names"] = {"live": "", "standin": "   ", "va": None}
+
+        metadata = target_display_metadata(raw)
+
+        assert metadata["live"]["display_name"] == "Real machine"
+        assert metadata["standin"]["display_name"] == "Rehearsal"
+        assert metadata["va"]["display_name"] == "Simulator"
+
+    def test_an_override_never_touches_the_label(self):
+        """The identity line is the safety surface; the name is cosmetic."""
+        raw = standin_config()
+        raw["control_system"]["target_display_names"] = {"standin": "Shadow ring"}
+
+        metadata = target_display_metadata(raw)
+
+        assert metadata["standin"]["display_name"] == "Shadow ring"
+        assert metadata["standin"]["label"] == "LIVE MACHINE (stand-in)"
+        assert metadata["standin"]["real_machine"] is True
 
 
 # ------------------------------------------------------ the limits posture

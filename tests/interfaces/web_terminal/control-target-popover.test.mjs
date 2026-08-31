@@ -3,36 +3,37 @@
  * Unit tests for the control-target popover (control-target-popover.js):
  *   npx vitest run tests/interfaces/web_terminal/control-target-popover.test.mjs
  *
- * The popover is the panel behind the header chip: one row per configured
- * control target, and every gesture that CHANGES where this session writes. It
- * fetches nothing of its own — it subscribes to the chip and renders
- * `getState()` — so these tests drive it the way the page does: stub the
- * roster route, boot the chip, click the chip.
+ * The popover is the panel behind the header chip: a card for the machine the
+ * agent stands on, a row per other configured target, and every gesture that
+ * CHANGES where this session writes. It fetches nothing of its own — it
+ * subscribes to the chip and renders `getState()` — so these tests drive it
+ * the way the page does: stub the roster route, boot the chip, click the chip.
  *
  * What they pin down, in the order a reviewer would ask about it:
  *
- * - the toggle LOCKS for each of the five reasons, in the documented order,
- *   and the reason reaches both `.ctc-lock` and the `title` (simple mode drops
- *   the line and keeps the tooltip);
- * - arming (read-only → writes) raises a confirm and narrowing does NOT: only
- *   a gesture that can end with a write landing somewhere new asks;
- * - a confirmed change leaves the popover OPEN and re-renders the row in
- *   place, so an operator changing several rows never reopens it;
+ * - machines are named by consequence (`Real machine`, `Rehearsal`,
+ *   `Simulator`), the deployment's configured `display_name` wins, and the
+ *   server's implementation label survives only on the tooltip;
+ * - NO PROCESS CLAIMS: nothing rendered — rows, card, either confirm — states
+ *   whether a write asks for approval or what limits apply, because that is
+ *   deployment configuration the browser cannot see;
+ * - the verb locks for each of the five reasons, in the documented order, and
+ *   the reason reaches the `title` in operator words;
+ * - turning writes on raises a confirm and turning them off does NOT: only a
+ *   gesture that can end with a write landing somewhere new asks;
+ * - a confirmed change leaves the popover OPEN and re-renders in place, so an
+ *   operator changing several machines never reopens it;
  * - Escape dismisses an open confirm BEFORE it closes the popover, and a click
  *   inside the confirm is not an outside click;
- * - Switch POSTs, shows `switching…` on that row, and renders the outcome the
- *   route publishes for the `request_id` — success, refusal, and the expiry a
- *   dead controls server never answers;
- * - a refusal code renders as its operator phrase, never raw: the machine code
- *   keys the presentation map, the route's `reason_detail` sentence rides on
- *   the `title`, and a code the map does not know renders verbatim;
- * - a chat session's rows offer no Switch and live toggles;
- * - `Sandbox everything` POSTs `all` and renders every target the store
+ * - Switch to confirms, POSTs, shows `switching…` on that row, and renders the
+ *   outcome the route publishes for the `request_id` — success, refusal, and
+ *   the expiry a dead controls server never answers;
+ * - a refusal code renders as its operator phrase, never raw; a code the map
+ *   does not know renders verbatim;
+ * - a chat session's rows offer no Switch and live verbs;
+ * - `Turn all writes off` POSTs `all` and renders every target the store
  *   `skipped`;
- * - FR5b: ONE DOM for both `ui_mode`s. The same markup is produced with
- *   `html[data-ui-mode]` set to `simple` and to `expert` — the density lives
- *   entirely in terminal.css, and a JS branch on it would be a second place
- *   for the rule to drift.
+ * - ONE DOM for both `ui_mode`s: the same markup under `simple` and `expert`.
  *
  * Seams: terminal.js is mocked (it owns the session id); `fetch` is stubbed
  * the way the other suites here stub it; the chip's SSE factory is injected,
@@ -76,6 +77,7 @@ const KINDS = {
     label: 'LIVE MACHINE',
     short_label: 'LIVE',
     kind: 'live machine',
+    display_name: '',
     endpoint: 'als-gw.lbl.gov:5064',
     real_machine: true,
   },
@@ -84,6 +86,7 @@ const KINDS = {
     label: 'LIVE MACHINE (stand-in)',
     short_label: 'STAND-IN',
     kind: 'stand-in',
+    display_name: '',
     endpoint: '127.0.0.1:10090',
     real_machine: true,
   },
@@ -92,6 +95,7 @@ const KINDS = {
     label: 'virtual accelerator (simulation)',
     short_label: 'VIRTUAL',
     kind: 'virtual accelerator',
+    display_name: '',
     endpoint: '127.0.0.1:10064',
     real_machine: false,
   },
@@ -99,7 +103,7 @@ const KINDS = {
 
 /**
  * The three effective states in the route's columns. `read-only` and `sandbox`
- * are the same "no"; which one it is decides whether a toggle can undo it.
+ * are the same "no"; which one it is decides whether a verb can undo it.
  */
 const STATES = {
   writes: { effective: true, posture: 'writes' },
@@ -230,20 +234,35 @@ const chipEl = () =>
   /** @type {HTMLButtonElement|null} */ (document.querySelector('.control-target-chip'));
 const popEl = () => /** @type {HTMLElement|null} */ (document.querySelector('.ctc-popover'));
 const isOpen = () => Boolean(popEl()?.classList.contains('open'));
+const cardEl = () => /** @type {HTMLElement|null} */ (document.querySelector('.ctc-card'));
+const cardVerb = () =>
+  /** @type {HTMLButtonElement|null} */ (document.querySelector('.ctc-card-verb'));
+const bannerEl = () => /** @type {HTMLElement|null} */ (document.querySelector('.ctc-banner'));
 /** @param {string} target */
 const rowEl = (target) =>
   /** @type {HTMLElement|null} */ (document.querySelector(`.ctc-row[data-target="${target}"]`));
-/** @param {string} target @param {string} seg */
-const segEl = (target, seg) =>
-  /** @type {HTMLButtonElement|null} */ (
-    rowEl(target)?.querySelector(`.ctc-seg[data-seg="${seg}"]`) ?? null
+/** The card or the row that carries this target. @param {string} target */
+const surfaceEl = (target) => {
+  const card = cardEl();
+  if (card?.dataset.target === target) return card;
+  return rowEl(target);
+};
+/** @param {string} target */
+const verbEl = (target) => {
+  const surface = surfaceEl(target);
+  return /** @type {HTMLButtonElement|null} */ (
+    surface?.querySelector('.ctc-verb, .ctc-card-verb') ?? null
   );
+};
+/** @param {string} target */
+const pillEl = (target) =>
+  /** @type {HTMLElement|null} */ (rowEl(target)?.querySelector('.ctc-pill') ?? null);
 /** @param {string} target */
 const switchEl = (target) =>
   /** @type {HTMLButtonElement|null} */ (rowEl(target)?.querySelector('.ctc-switch') ?? null);
 /** @param {string} target */
 const outcomes = (target) =>
-  [...(rowEl(target)?.querySelectorAll('.ctc-outcome') ?? [])].map((n) => n.textContent);
+  [...(surfaceEl(target)?.querySelectorAll('.ctc-outcome') ?? [])].map((n) => n.textContent);
 /** A confirm that is up — one on its way out carries `data-closing`. */
 const confirmEl = () =>
   /** @type {HTMLElement|null} */ (
@@ -328,7 +347,7 @@ describe('open and close', () => {
 
   test('a click inside the popover does not close it', async () => {
     await bootOpen();
-    /** @type {HTMLElement} */ (document.querySelector('.ctc-head-title')).click();
+    /** @type {HTMLElement} */ (document.querySelector('.ctc-list-title')).click();
     expect(isOpen()).toBe(true);
   });
 
@@ -340,210 +359,256 @@ describe('open and close', () => {
   });
 });
 
-/* ---- rows --------------------------------------------------------------- */
+/* ---- the card ------------------------------------------------------------ */
 
-describe('rows', () => {
-  test('one row per configured target, keyed on kind, state and realness', async () => {
+describe('the card', () => {
+  test('the machine the agent stands on is the card, not a row', async () => {
     await bootOpen();
-    expect(document.querySelectorAll('.ctc-row')).toHaveLength(3);
-
-    const live = /** @type {HTMLElement} */ (rowEl('live'));
-    expect(live.dataset.targetKind).toBe('live');
-    expect(live.dataset.state).toBe('sandbox');
-    expect(live.dataset.real).toBe('true');
-    expect(live.dataset.active).toBe('false');
-
-    const standin = /** @type {HTMLElement} */ (rowEl('standin'));
-    expect(standin.dataset.targetKind).toBe('standin');
-    expect(standin.dataset.active).toBe('true');
-    expect(standin.querySelector('.ctc-tag-current')?.textContent).toBe('current');
-
-    const va = /** @type {HTMLElement} */ (rowEl('va'));
-    expect(va.dataset.targetKind).toBe('va');
-    expect(va.dataset.real).toBe('false');
-    expect(va.dataset.state).toBe('writes');
+    const card = /** @type {HTMLElement} */ (cardEl());
+    expect(card.dataset.target).toBe('standin');
+    expect(card.dataset.targetKind).toBe('standin');
+    expect(card.dataset.state).toBe('writes');
+    expect(card.dataset.real).toBe('true');
+    expect(rowEl('standin')).toBeNull();
+    expect(card.querySelector('.ctc-card-eyebrow')?.textContent).toBe('The agent is on');
   });
 
-  test('a row names the machine, where it points and what reached it', async () => {
+  test('the card names the machine by consequence and keeps the label on hover', async () => {
     await bootOpen();
-    const va = /** @type {HTMLElement} */ (rowEl('va'));
-    expect(va.querySelector('.ctc-label')?.textContent).toBe('virtual accelerator (simulation)');
-    // ONE identity line: the label already says what kind of machine it names,
-    // and the retired `.ctc-kind` subtitle must not come back to restate it.
-    expect(va.querySelector('.ctc-kind')).toBeNull();
-    expect(va.querySelector('.ctc-endpoint')?.textContent).toBe('127.0.0.1:10064');
-    expect(va.querySelector('.ctc-role')?.textContent).toBe('write_access');
-
-    const reach = /** @type {HTMLElement} */ (va.querySelector('.ctc-reach'));
-    expect(reach.dataset.state).toBe('reached');
-    expect(reach.querySelector('.ctc-reach-text')?.textContent).toBe('connected · 3 s');
-    // The measured word and the role stay on the title, which is the whole of
-    // what simple mode's LED-only row carries.
-    expect(reach.title).toContain('reached · 3 s');
-    expect(reach.title).toContain('write_access endpoint');
+    const title = /** @type {HTMLElement} */ (cardEl()?.querySelector('.ctc-card-title'));
+    expect(title.querySelector('.ctc-name')?.textContent).toBe('Rehearsal');
+    // The implementation vocabulary lives on the tooltip, never at rest.
+    expect(title.title).toContain('LIVE MACHINE (stand-in)');
+    expect(title.title).toContain('127.0.0.1:10090');
+    expect(cardEl()?.querySelector('.ctc-desc')?.textContent).toBe(
+      "Copy of the real machine's controls · nothing moves"
+    );
+    expect(cardEl()?.querySelector('.ctc-state-phrase')?.textContent).toBe('writes on');
   });
 
-  test('the reach LED is a direct child of .ctc-ident, never inside .ctc-meta', async () => {
-    // FR5b hangs on this. Simple mode hides `.ctc-meta` WHOLESALE (terminal.css
-    // "simple-mode gating") and keeps `.ctc-reach` as the row's LED — nested
-    // inside the meta line the LED would vanish with it, silently, and simple
-    // mode would lose the one signal that says whether the machine is there.
-    // The word and age live in `.ctc-reach-text`, which is the supported shape:
-    // a bare text node would only collapse through the `font-size: 0` rule.
-    await bootOpen();
-    for (const row of document.querySelectorAll('.ctc-row')) {
-      const ident = /** @type {HTMLElement} */ (row.querySelector('.ctc-ident'));
-      const reach = /** @type {HTMLElement} */ (row.querySelector('.ctc-reach'));
-      expect(reach.parentElement).toBe(ident);
-      expect(row.querySelector('.ctc-meta')?.contains(reach)).toBe(false);
-      expect(reach.querySelector('.ctc-reach-dot')).not.toBeNull();
-      expect(reach.querySelector('.ctc-reach-text')).not.toBeNull();
-    }
-  });
-
-  test('no row ever claims the kind that never renders', async () => {
-    // `_label()` can produce "live machine (not configured)", but
-    // `configured_targets()` never lists such a target and no session can sit
-    // on one, so `unconfigured` is a stylesheet fallback with no data behind it.
-    await bootOpen();
-    expect(document.querySelectorAll('[data-target-kind="unconfigured"]')).toHaveLength(0);
-    for (const row of document.querySelectorAll('.ctc-row')) {
-      expect(['live', 'standin', 'va', 'simulated']).toContain(
-        /** @type {HTMLElement} */ (row).dataset.targetKind
-      );
-    }
-  });
-
-  test('down and stale collapse to the plain words, keeping the measured state', async () => {
+  test('writes off on the card says whose doing it was', async () => {
     await bootOpen(
       viewOf({
         targets: [
-          rowOf(KINDS.live, { reachability: { state: 'down', role: 'read_only', age_s: 12 } }),
+          rowOf(KINDS.live, { ...STATES.sandbox }),
+          rowOf(KINDS.standin, {
+            ...STATES.sandbox,
+            active: true,
+            available_now: false,
+            reason: 'already_active',
+          }),
+          rowOf(KINDS.va),
+        ],
+      })
+    );
+    expect(cardEl()?.querySelector('.ctc-state-phrase')?.textContent).toBe('writes off');
+    expect(cardEl()?.querySelector('.ctc-state-note')?.textContent).toBe('— you turned them off');
+    expect(cardVerb()?.textContent).toBe('Turn writes on');
+  });
+});
+
+/* ---- names and descriptors ----------------------------------------------- */
+
+describe('names', () => {
+  test('every machine is named by what it is, not how it is wired', async () => {
+    await bootOpen();
+    expect(rowEl('live')?.querySelector('.ctc-name')?.textContent).toBe('Real machine');
+    expect(rowEl('va')?.querySelector('.ctc-name')?.textContent).toBe('Simulator');
+    // No raw server label reaches a resting surface.
+    expect(popEl()?.textContent).not.toContain('LIVE MACHINE');
+    expect(popEl()?.textContent).not.toContain('virtual accelerator');
+  });
+
+  test("the deployment's configured display_name wins over the default", async () => {
+    await bootOpen(
+      viewOf({
+        targets: [
+          rowOf(KINDS.live, { ...STATES.sandbox, display_name: 'ALS storage ring' }),
+          rowOf(KINDS.standin, { active: true, available_now: false, reason: 'already_active' }),
+          rowOf(KINDS.va),
+        ],
+      })
+    );
+    expect(rowEl('live')?.querySelector('.ctc-name')?.textContent).toBe('ALS storage ring');
+  });
+
+  test('the live machine carries the one hazard descriptor', async () => {
+    await bootOpen();
+    const desc = /** @type {HTMLElement} */ (rowEl('live')?.querySelector('.ctc-desc'));
+    expect(desc.textContent).toBe('Writes move hardware');
+    expect(desc.dataset.tone).toBe('hazard');
+    // Nothing-moves machines never carry the tone.
+    const va = /** @type {HTMLElement} */ (rowEl('va')?.querySelector('.ctc-desc'));
+    expect(va.textContent).toBe('Physics model · nothing moves');
+    expect(va.dataset.tone).toBeUndefined();
+  });
+
+  test('a live machine nothing has authored reads not set up, without the hazard tone', async () => {
+    await bootOpen(
+      viewOf({
+        targets: [
+          rowOf(KINDS.live, {
+            ...STATES['read-only'],
+            available_now: false,
+            reason: 'gateways_missing',
+          }),
+          rowOf(KINDS.standin, { active: true, available_now: false, reason: 'already_active' }),
+        ],
+      })
+    );
+    const desc = /** @type {HTMLElement} */ (rowEl('live')?.querySelector('.ctc-desc'));
+    expect(desc.textContent).toBe('Not set up yet');
+    expect(desc.dataset.tone).toBeUndefined();
+  });
+});
+
+/* ---- reachability -------------------------------------------------------- */
+
+describe('reachability', () => {
+  test('a machine that answers says nothing about it', async () => {
+    await bootOpen();
+    expect(document.querySelectorAll('.ctc-reach-word')).toHaveLength(0);
+  });
+
+  test('down renders as not answering, with the measured detail on the title', async () => {
+    await bootOpen(
+      viewOf({
+        targets: [
+          rowOf(KINDS.live, {
+            ...STATES.sandbox,
+            reachability: { state: 'down', role: 'read_only', age_s: 12 },
+          }),
+          rowOf(KINDS.standin, { active: true, available_now: false, reason: 'already_active' }),
           rowOf(KINDS.va, { reachability: { state: 'stale', role: null, age_s: 90 } }),
         ],
       })
     );
-    const live = /** @type {HTMLElement} */ (rowEl('live')?.querySelector('.ctc-reach'));
-    expect(live.dataset.state).toBe('down');
-    expect(live.querySelector('.ctc-reach-text')?.textContent).toBe('unreachable · 12 s');
+    const down = /** @type {HTMLElement} */ (rowEl('live')?.querySelector('.ctc-reach-word'));
+    expect(down.textContent).toBe('not answering');
+    expect(down.dataset.state).toBe('down');
+    expect(down.title).toContain('down · 12 s');
+    expect(down.title).toContain('read_only endpoint');
 
-    const va = /** @type {HTMLElement} */ (rowEl('va')?.querySelector('.ctc-reach'));
-    expect(va.dataset.state).toBe('stale');
-    expect(va.querySelector('.ctc-reach-text')?.textContent).toBe('unknown · 90 s');
-    expect(va.title).toContain('last probe older than the prober interval');
-  });
-
-  test('the baseline row is tagged on the reach line', async () => {
-    await bootOpen();
-    expect(rowEl('standin')?.querySelector('.ctc-baseline')?.textContent).toBe('baseline');
-    expect(rowEl('va')?.querySelector('.ctc-baseline')).toBeNull();
-  });
-
-  test('the head note is empty in the plain case', async () => {
-    await bootOpen();
-    expect(document.querySelector('.ctc-head-title')?.textContent).toBe(
-      'Control target · this session'
-    );
-    const note = /** @type {HTMLElement} */ (document.querySelector('.ctc-head-note'));
-    expect(note.textContent).toBe('');
-    expect(note.dataset.tone).toBeUndefined();
-  });
-
-  test('the foot carries the one-gesture narrowing and the config sentence', async () => {
-    await bootOpen();
-    expect(document.querySelector('.ctc-sandbox-all')?.textContent).toBe('Sandbox everything');
-    expect(document.querySelector('.ctc-foot-note')?.textContent).toBe(
-      "Nothing here changes the deployment's config."
-    );
+    const stale = /** @type {HTMLElement} */ (rowEl('va')?.querySelector('.ctc-reach-word'));
+    expect(stale.textContent).toBe('may be stale');
+    expect(stale.title).toContain('last probe older than the prober interval');
   });
 });
 
-/* ---- locks -------------------------------------------------------------- */
+/* ---- the banner ---------------------------------------------------------- */
 
-describe('the toggle locks, one reason at a time', () => {
+describe('the banner', () => {
+  test('absent in the plain case — absence is the good news', async () => {
+    await bootOpen();
+    expect(bannerEl()).toBeNull();
+  });
+
+  test('an unavailable store speaks first, in the error tone', async () => {
+    await bootOpen(viewOf({ store_available: false, enforceable: false }));
+    expect(bannerEl()?.textContent).toContain('cannot be recorded');
+    expect(bannerEl()?.dataset.tone).toBe('error');
+  });
+
+  test('a session nothing enforces warns that changes will not reach the agent', async () => {
+    await bootOpen(viewOf({ enforceable: false, enforceable_reason: 'no_session_record' }));
+    expect(bannerEl()?.textContent).toBe('Changes here will not reach the agent yet.');
+    expect(bannerEl()?.dataset.tone).toBe('warn');
+  });
+
+  test('a readonly run is named deployment-wide', async () => {
+    const readonly = { ceiling_writes: true, posture: 'writes', effective: false };
+    await bootOpen(
+      viewOf({
+        targets: [
+          rowOf(KINDS.live, readonly),
+          rowOf(KINDS.standin, {
+            ...readonly,
+            active: true,
+            available_now: false,
+            reason: 'already_active',
+          }),
+          rowOf(KINDS.va, readonly),
+        ],
+      })
+    );
+    expect(bannerEl()?.textContent).toBe('The whole deployment is running read-only.');
+    expect(bannerEl()?.dataset.tone).toBe('warn');
+  });
+});
+
+/* ---- locks --------------------------------------------------------------- */
+
+describe('the verb locks, one reason at a time', () => {
   /** @param {any} view @param {string} target */
   async function lockOn(view, target) {
     await bootOpen(view);
-    const toggle = /** @type {HTMLElement} */ (rowEl(target)?.querySelector('.ctc-toggle'));
-    return {
-      toggle,
-      lock: rowEl(target)?.querySelector('.ctc-lock')?.textContent ?? null,
-    };
+    const verb = verbEl(target);
+    return { verb, reason: verb?.title ?? '' };
   }
 
-  test('store unavailable outranks everything else', async () => {
-    const { toggle, lock } = await lockOn(
+  test('an unrecordable store outranks everything else', async () => {
+    const { verb, reason } = await lockOn(
       viewOf({ store_available: false, enforceable: false }),
       'va'
     );
-    expect(lock).toBe('store unavailable');
-    expect(toggle.dataset.locked).toBe('true');
-    expect(toggle.title).toBe('store unavailable');
-    expect(segEl('va', 'writes')?.disabled).toBe(true);
-    expect(segEl('va', 'read-only')?.disabled).toBe(true);
-    // The reason reaches the title too: simple mode drops the line and keeps
-    // the tooltip.
-    expect(segEl('va', 'writes')?.title).toBe('store unavailable');
+    expect(verb?.disabled).toBe(true);
+    expect(reason).toBe('changes cannot be recorded right now');
   });
 
   test('not enforceable, when the store is there but nothing reads it', async () => {
-    const { lock } = await lockOn(
+    const { reason } = await lockOn(
       viewOf({ enforceable: false, enforceable_reason: 'no_session_record' }),
       'va'
     );
-    expect(lock).toBe('not enforceable');
-    expect(document.querySelector('.ctc-head-note')?.textContent).toBe(
-      'not enforceable · no_session_record'
-    );
+    expect(reason).toBe('changes here would not reach the agent');
   });
 
   test('a readonly run: the ceiling is up, nothing is narrowed, writes are still off', async () => {
     const readonly = { ceiling_writes: true, posture: 'writes', effective: false };
-    const { lock } = await lockOn(
-      viewOf({
-        targets: [rowOf(KINDS.live, readonly), rowOf(KINDS.va, readonly)],
-      }),
+    const { reason } = await lockOn(
+      viewOf({ targets: [rowOf(KINDS.live, readonly), rowOf(KINDS.va, readonly)] }),
       'va'
     );
-    expect(lock).toBe('readonly run');
-    expect(document.querySelector('.ctc-head-note')?.textContent).toBe(
-      'readonly run · deployment-wide'
-    );
+    expect(reason).toBe('the whole deployment is running read-only');
   });
 
-  test('a persona ceiling that never armed the target', async () => {
-    const { lock } = await lockOn(
+  test('a ceiling that never armed the target reads as the deployment holding it', async () => {
+    const { verb, reason } = await lockOn(
       viewOf({ targets: [rowOf(KINDS.va, { ...STATES['read-only'] })] }),
       'va'
     );
-    expect(lock).toBe('persona ceiling');
+    expect(reason).toBe('kept read-only by the deployment');
+    expect(verb?.disabled).toBe(true);
+    // The pill says locked, not off: nothing this session did holds it.
+    expect(pillEl('va')?.textContent).toBe('locked');
+    expect(pillEl('va')?.title).toBe('kept read-only by the deployment');
   });
 
   test('no read-only endpoint: narrowing would select a role nothing configures', async () => {
-    const { lock } = await lockOn(
+    const { reason } = await lockOn(
       viewOf({ targets: [rowOf(KINDS.va, { narrowing_refusal: 'selected_role_missing' })] }),
       'va'
     );
-    expect(lock).toBe('no read-only endpoint');
+    expect(reason).toBe('no read-only endpoint configured');
   });
 
-  test('an unlocked toggle carries no lock line and stays live', async () => {
+  test('an unlocked verb stays live and names its outcome', async () => {
     await bootOpen();
-    const toggle = /** @type {HTMLElement} */ (rowEl('va')?.querySelector('.ctc-toggle'));
-    expect(toggle.dataset.locked).toBe('false');
-    expect(rowEl('va')?.querySelector('.ctc-lock')).toBeNull();
-    expect(segEl('va', 'writes')?.getAttribute('aria-pressed')).toBe('true');
-    expect(segEl('va', 'read-only')?.getAttribute('aria-pressed')).toBe('false');
+    const verb = /** @type {HTMLButtonElement} */ (verbEl('va'));
+    expect(verb.disabled).toBe(false);
+    expect(verb.textContent).toBe('Turn writes off');
+    expect(verb.dataset.direction).toBe('off');
+    expect(pillEl('va')?.textContent).toBe('writes on');
   });
 });
 
-/* ---- posture gestures --------------------------------------------------- */
+/* ---- write-state gestures ------------------------------------------------ */
 
-describe('narrowing and arming', () => {
-  test('narrowing applies on click, with no confirm', async () => {
+describe('turning writes off and on', () => {
+  test('turning writes off applies on click, with no confirm', async () => {
     await bootOpen();
     postAnswers.push({ ok: true, body: { entry: { va: 'sandbox' }, skipped: [] } });
-    segEl('va', 'read-only')?.click();
+    verbEl('va')?.click();
     await flush();
 
     expect(confirmEl()).toBeNull();
@@ -552,44 +617,52 @@ describe('narrowing and arming', () => {
     expect(posts()[0].body).toEqual({ session_id: SESSION, target: 'va', posture: 'sandbox' });
   });
 
-  test('arming raises a confirm and POSTs nothing until it is confirmed', async () => {
+  test('turning writes on raises a confirm and POSTs nothing until it is confirmed', async () => {
     await bootOpen();
-    segEl('live', 'writes')?.click();
+    verbEl('live')?.click();
     await flush();
 
-    expect(confirmTitle()).toBe('Allow writes on LIVE MACHINE?');
+    expect(confirmTitle()).toBe('Turn writes on for Real machine?');
     expect(posts()).toHaveLength(0);
     // The facility's own machine, and only it, carries the hardware notice.
     expect(confirmEl()?.querySelector('.posture-modal-live')?.textContent).toBe(
-      'Real machine. A confirmed write moves hardware.'
+      'Real machine — writes move hardware.'
     );
     expect(confirmBtn()?.dataset.live).toBe('true');
-    expect(confirmBtn()?.textContent).toBe('Allow writes');
+    expect(confirmBtn()?.textContent).toBe('Turn writes on');
   });
 
-  test('the arming body says each fact once and never repeats the title', async () => {
-    // The title names the machine; the body carries what the title does not —
-    // the scope, the endpoint, the guards that stay up, when it takes hold.
+  test('the confirm body states scope and endpoint, and claims nothing about process', async () => {
+    // Whether a write prompts for approval, and what limits apply, are
+    // deployment configuration the browser cannot see — the dialog must not
+    // state either as fact.
     await bootOpen();
-    segEl('live', 'writes')?.click();
+    verbEl('live')?.click();
     await flush();
 
     const body = inConfirm('.posture-modal-body').textContent ?? '';
-    expect(body).toContain('Arms writes for this session · als-gw.lbl.gov:5064.');
-    expect(body).toContain('Per-write approval and channel limits still apply.');
-    expect(body).not.toContain('LIVE MACHINE');
+    expect(body).toContain('For your session · als-gw.lbl.gov:5064.');
+    expect(body).toContain('Takes effect at the next write — nothing restarts.');
+    expect(body).not.toMatch(/approval|asks you|limits/i);
+    // The title names the machine; the body's own sentences do not repeat it.
+    // (The hardware notice below them is the one deliberate exception.)
+    const paragraphs = [...(confirmEl()?.querySelectorAll('.posture-modal-body p') ?? [])]
+      .map((n) => n.textContent)
+      .join(' ');
+    expect(paragraphs).not.toContain('Real machine');
   });
 
-  test('the simulator arms without the hardware notice', async () => {
+  test('the simulator turns on without the hardware notice', async () => {
     await bootOpen(viewOf({ targets: [rowOf(KINDS.va, { ...STATES.sandbox })] }));
-    segEl('va', 'writes')?.click();
+    verbEl('va')?.click();
     await flush();
+    expect(confirmTitle()).toBe('Turn writes on for Simulator?');
     expect(confirmEl()?.querySelector('.posture-modal-live')).toBeNull();
   });
 
   test('cancelling the confirm changes nothing and leaves the popover open', async () => {
     await bootOpen();
-    segEl('live', 'writes')?.click();
+    verbEl('live')?.click();
     await flush();
     inConfirm('.posture-modal-cancel').click();
     await flush();
@@ -599,9 +672,9 @@ describe('narrowing and arming', () => {
     expect(isOpen()).toBe(true);
   });
 
-  test('confirming POSTs, keeps the popover open, and re-renders the row in place', async () => {
+  test('confirming POSTs, keeps the popover open, and re-renders in place', async () => {
     await bootOpen();
-    segEl('live', 'writes')?.click();
+    verbEl('live')?.click();
     await flush();
 
     postAnswers.push({ ok: true, body: { entry: {}, skipped: [] } });
@@ -621,7 +694,7 @@ describe('narrowing and arming', () => {
     expect(confirmEl()).toBeNull();
     expect(isOpen()).toBe(true);
     expect(rowEl('live')?.dataset.state).toBe('writes');
-    expect(segEl('live', 'writes')?.getAttribute('aria-pressed')).toBe('true');
+    expect(pillEl('live')?.textContent).toBe('writes on');
   });
 
   test('a refused narrowing keeps the server sentence on the row', async () => {
@@ -631,15 +704,15 @@ describe('narrowing and arming', () => {
       status: 409,
       body: { detail: { error: 'execution_in_flight', message: 'An execution is running.' } },
     });
-    segEl('va', 'read-only')?.click();
+    verbEl('va')?.click();
     await flush();
 
     expect(outcomes('va')).toContain('✗ An execution is running.');
   });
 
-  test('a refused arming keeps the dialog up carrying the reason', async () => {
+  test('a refused turn-on keeps the dialog up carrying the reason', async () => {
     await bootOpen();
-    segEl('live', 'writes')?.click();
+    verbEl('live')?.click();
     await flush();
     postAnswers.push({
       ok: false,
@@ -659,14 +732,14 @@ describe('narrowing and arming', () => {
   });
 });
 
-describe('Sandbox everything', () => {
+describe('Turn all writes off', () => {
   test('POSTs the all-targets narrowing and renders what the store skipped', async () => {
     await bootOpen();
     postAnswers.push({
       ok: true,
       body: { entry: {}, skipped: [{ target: 'va', reason: 'selected_role_missing' }] },
     });
-    /** @type {HTMLButtonElement} */ (document.querySelector('.ctc-sandbox-all')).click();
+    /** @type {HTMLButtonElement} */ (document.querySelector('.ctc-all-off')).click();
     await flush();
 
     expect(posts()[0].body).toEqual({ session_id: SESSION, target: 'all', posture: 'sandbox' });
@@ -674,36 +747,41 @@ describe('Sandbox everything', () => {
     expect(outcomes('va')).toContain('✗ no endpoint for role');
   });
 
-  test('it is disabled when there is nothing left to lift', async () => {
+  test('it is disabled when there is nothing left to turn off', async () => {
     await bootOpen(
       viewOf({
         targets: [rowOf(KINDS.live, { ...STATES.sandbox }), rowOf(KINDS.va, { ...STATES.sandbox })],
       })
     );
     expect(
-      /** @type {HTMLButtonElement} */ (document.querySelector('.ctc-sandbox-all')).disabled
+      /** @type {HTMLButtonElement} */ (document.querySelector('.ctc-all-off')).disabled
     ).toBe(true);
+  });
+
+  test('the foot bounds the popover to the session, once', async () => {
+    await bootOpen();
+    expect(document.querySelector('.ctc-all-off')?.textContent).toBe('Turn all writes off');
+    expect(document.querySelector('.ctc-foot-note')?.textContent).toBe('Your session only');
   });
 });
 
-/* ---- switching ---------------------------------------------------------- */
+/* ---- switching ----------------------------------------------------------- */
 
 describe('switching', () => {
-  test('Switch confirms, POSTs, and shows switching… on that row', async () => {
+  test('Switch to confirms, POSTs, and shows switching… on that row', async () => {
     await bootOpen();
     switchEl('va')?.click();
     await flush();
 
-    expect(confirmTitle()).toBe('Switch to virtual accelerator (simulation)?');
+    expect(confirmTitle()).toBe('Switch to Simulator?');
     expect(confirmBtn()?.textContent).toBe('Switch');
 
-    // The title names the machine; the body carries the fact an operator is
-    // most likely to get wrong — the posture the session ARRIVES in (posture
-    // is per-target and does not travel) — and does not repeat the label.
+    // The first line states the consequence; the second names the write state
+    // the session ARRIVES in — it is per machine and does not travel.
     const body = inConfirm('.posture-modal-body').textContent ?? '';
-    expect(body).toContain('Arrives in the writes posture · 127.0.0.1:10064.');
-    expect(body).toContain('The conversation continues.');
-    expect(body).not.toContain('virtual accelerator');
+    expect(body).toContain('All control reads and writes go to 127.0.0.1:10064.');
+    expect(body).toContain('Writes are on there for your session.');
+    expect(body).not.toMatch(/approval|asks you/i);
 
     postAnswers.push({ ok: true, body: { request_id: 'req-1', target: 'va' } });
     confirmBtn()?.click();
@@ -716,6 +794,27 @@ describe('switching', () => {
     // One outstanding gesture at a time: no row offers a second Switch.
     expect(document.querySelectorAll('.ctc-switch')).toHaveLength(0);
     expect(isOpen()).toBe(true);
+  });
+
+  test('arriving with writes off is said as the nothing-moves sentence', async () => {
+    await bootOpen();
+    switchEl('live')?.click();
+    await flush();
+    const body = inConfirm('.posture-modal-body').textContent ?? '';
+    expect(body).toContain(
+      'Writes are off there for your session — nothing moves until you turn them on.'
+    );
+    // Off means off: no hardware notice until writes are actually on there.
+    expect(confirmEl()?.querySelector('.posture-modal-live')).toBeNull();
+  });
+
+  test('switching onto the live machine with writes on carries the hardware notice', async () => {
+    await bootOpen(viewOf({ targets: [rowOf(KINDS.live)] }));
+    switchEl('live')?.click();
+    await flush();
+    expect(confirmEl()?.querySelector('.posture-modal-live')?.textContent).toBe(
+      'Real machine — writes move hardware.'
+    );
   });
 
   test('the outcome the route publishes for that request lands on the row', async () => {
@@ -765,7 +864,7 @@ describe('switching', () => {
     expect(line.dataset.status).toBe('refused');
   });
 
-  test('an outcome that names no target renders on no row', async () => {
+  test('an outcome that names no target renders on no surface', async () => {
     // The other half of the contract. The reconciler publishes `target` with
     // every terminus, and a block that arrives without one is not spread over
     // the roster as a guess about which machine it meant.
@@ -812,16 +911,15 @@ describe('switching', () => {
     expect(outcomes('va')).toHaveLength(0);
   });
 
-  test('no Switch where the route offers none; the refusal phrase takes its place', async () => {
-    await bootOpen();
-    // The active row says `current` and offers nothing.
-    expect(switchEl('standin')).toBeNull();
-    expect(rowEl('standin')?.querySelector('.ctc-reason')).toBeNull();
-
-    // A code the presentation map does not know renders verbatim — failing
-    // informative — and stands in for its own tooltip.
+  test('a code the phrase map does not know renders verbatim', async () => {
+    // Failing informative: the raw code stands in for its own tooltip.
     await bootOpen(
-      viewOf({ targets: [rowOf(KINDS.live, { available_now: false, reason: 'unreachable' })] })
+      viewOf({
+        targets: [
+          rowOf(KINDS.live, { ...STATES.sandbox, available_now: false, reason: 'unreachable' }),
+          rowOf(KINDS.standin, { active: true, available_now: false, reason: 'already_active' }),
+        ],
+      })
     );
     expect(switchEl('live')).toBeNull();
     const reason = /** @type {HTMLElement} */ (rowEl('live')?.querySelector('.ctc-reason'));
@@ -829,24 +927,26 @@ describe('switching', () => {
     expect(reason.title).toBe('unreachable');
   });
 
-  test('an unconfigured target reads as a quiet phrase, with the sentence on the title', async () => {
-    // The three not-configured codes are one phrase: on a stock deployment the
-    // live target is deliberately unconfigured (authoring it is the go-live
+  test('an unauthored target reads as a quiet phrase, with the sentence on the title', async () => {
+    // The three not-set-up codes are one phrase: on a stock deployment the
+    // live target is deliberately unauthored (authoring it is the go-live
     // edit), and a raw `gateways_missing` would read as a fault.
     for (const code of ['connector_block_missing', 'gateways_missing', 'probe_channel_missing']) {
       await bootOpen(
         viewOf({
           targets: [
             rowOf(KINDS.live, {
+              ...STATES.sandbox,
               available_now: false,
               reason: code,
               reason_detail: 'The epics block configures no gateways.',
             }),
+            rowOf(KINDS.standin, { active: true, available_now: false, reason: 'already_active' }),
           ],
         })
       );
       const reason = /** @type {HTMLElement} */ (rowEl('live')?.querySelector('.ctc-reason'));
-      expect(reason.textContent).toBe('not configured');
+      expect(reason.textContent).toBe('not set up');
       expect(reason.title).toBe('The epics block configures no gateways.');
       popoverModule.teardownControlTargetPopover();
       chipModule.teardownControlTargetChip();
@@ -865,7 +965,12 @@ describe('switching', () => {
     };
     for (const [code, phrase] of Object.entries(phrases)) {
       await bootOpen(
-        viewOf({ targets: [rowOf(KINDS.live, { available_now: false, reason: code })] })
+        viewOf({
+          targets: [
+            rowOf(KINDS.live, { ...STATES.sandbox, available_now: false, reason: code }),
+            rowOf(KINDS.standin, { active: true, available_now: false, reason: 'already_active' }),
+          ],
+        })
       );
       expect(rowEl('live')?.querySelector('.ctc-reason')?.textContent).toBe(phrase);
       popoverModule.teardownControlTargetPopover();
@@ -875,25 +980,15 @@ describe('switching', () => {
 
   test('a store that cannot be resolved explains the missing Switch', async () => {
     await bootOpen(
-      viewOf({ store_available: false, targets: [rowOf(KINDS.live, { reason: null })] })
+      viewOf({
+        store_available: false,
+        targets: [
+          rowOf(KINDS.live, { ...STATES.sandbox, reason: null }),
+          rowOf(KINDS.standin, { active: true, available_now: false, reason: 'already_active' }),
+        ],
+      })
     );
     expect(rowEl('live')?.querySelector('.ctc-reason')?.textContent).toBe('store unavailable');
-  });
-
-  test('switching onto the facility machine says what a write would do there', async () => {
-    await bootOpen(viewOf({ targets: [rowOf(KINDS.live)] }));
-    switchEl('live')?.click();
-    await flush();
-    expect(confirmEl()?.querySelector('.posture-modal-live')?.textContent).toBe(
-      'Real machine, writes armed. The next write the agent makes lands on hardware.'
-    );
-
-    await bootOpen(viewOf({ targets: [rowOf(KINDS.live, { ...STATES.sandbox })] }));
-    switchEl('live')?.click();
-    await flush();
-    expect(confirmEl()?.querySelector('.posture-modal-live')?.textContent).toBe(
-      'Real machine. Writes are sandboxed on it for this session.'
-    );
   });
 
   test('a refused switch keeps the dialog up carrying the server sentence', async () => {
@@ -926,7 +1021,7 @@ describe('switching', () => {
 describe('a confirm and the popover beneath it', () => {
   test('a click inside the confirm is not an outside click', async () => {
     await bootOpen();
-    segEl('live', 'writes')?.click();
+    verbEl('live')?.click();
     await flush();
 
     inConfirm('.posture-modal-body').click();
@@ -936,7 +1031,7 @@ describe('a confirm and the popover beneath it', () => {
 
   test('Escape dismisses the confirm first and the popover only after', async () => {
     await bootOpen();
-    segEl('live', 'writes')?.click();
+    verbEl('live')?.click();
     await flush();
 
     pressEscape();
@@ -959,7 +1054,7 @@ describe('a confirm and the popover beneath it', () => {
   });
 });
 
-/* ---- chat sessions ------------------------------------------------------ */
+/* ---- chat sessions ------------------------------------------------------- */
 
 describe('a chat session', () => {
   const chatView = () =>
@@ -974,36 +1069,55 @@ describe('a chat session', () => {
     await bootOpen(chatView());
     expect(document.querySelectorAll('.ctc-switch')).toHaveLength(0);
     expect(document.querySelectorAll('.ctc-reason')).toHaveLength(0);
-    expect(document.querySelector('.ctc-head-note')?.textContent).toBe('chat session');
+    expect(bannerEl()).toBeNull();
   });
 
-  test('keeps its toggles live — posture is keyed on the session, not the topology', async () => {
+  test('keeps its verbs live — the write state is keyed on the session, not the topology', async () => {
     await bootOpen(chatView());
-    expect(segEl('live', 'read-only')?.disabled).toBe(false);
+    expect(verbEl('live')?.disabled).toBe(false);
 
     postAnswers.push({ ok: true, body: { entry: { live: 'sandbox' }, skipped: [] } });
-    segEl('live', 'read-only')?.click();
+    verbEl('live')?.click();
     await flush();
     expect(posts()[0].body).toEqual({ session_id: SESSION, target: 'live', posture: 'sandbox' });
   });
 });
 
-/* ---- realign and the execution in flight --------------------------------- */
+/* ---- realign and the execution in flight ---------------------------------- */
 
 describe('a narrowing that has not reached the agent yet', () => {
-  test('the active row says the read-only applies after the run', async () => {
+  test('the card says it takes effect after the run', async () => {
     await bootOpen(
       viewOf({ execution_in_flight: true, last_posture_realign: { state: 'pending' } })
     );
-    expect(outcomes('standin')).toContain(
-      'read-only applies after the running execution finishes'
-    );
+    expect(outcomes('standin')).toContain('takes effect when the running execution finishes');
     expect(outcomes('va')).toHaveLength(0);
-    expect(document.querySelector('.ctc-head-note')?.textContent).toBe('execution running');
   });
 });
 
-/* ---- FR5b: one DOM for both densities ------------------------------------ */
+/* ---- no process claims, anywhere ------------------------------------------ */
+
+describe('no process claims', () => {
+  test('no resting surface and neither confirm states approval behavior', async () => {
+    // Whether a write prompts for approval is deployment configuration the
+    // browser cannot see; a blanket sentence about it is false for some
+    // configurations. The popover states consequence only.
+    await bootOpen();
+    const forbidden = /approval|asks you|ask for permission|still apply/i;
+    expect(popEl()?.textContent ?? '').not.toMatch(forbidden);
+
+    verbEl('live')?.click();
+    await flush();
+    expect(confirmEl()?.textContent ?? '').not.toMatch(forbidden);
+    pressEscape();
+
+    switchEl('va')?.click();
+    await flush();
+    expect(confirmEl()?.textContent ?? '').not.toMatch(forbidden);
+  });
+});
+
+/* ---- one DOM for both densities ------------------------------------------- */
 
 describe('simple and expert are one DOM', () => {
   /**
@@ -1023,11 +1137,6 @@ describe('simple and expert are one DOM', () => {
     const simple = await markupUnder('simple', viewOf());
     const expert = await markupUnder('expert', viewOf());
     expect(simple).toBe(expert);
-    // And every expert-only piece is present in BOTH: terminal.css hides them.
-    expect(simple).toContain('ctc-meta');
-    expect(simple).toContain('ctc-reach-text');
-    expect(simple).toContain('ctc-baseline');
-    expect(simple).toContain('ctc-foot-note');
   });
 
   test('a locked, unreachable, not-enforceable roster is identical too', async () => {
@@ -1046,19 +1155,17 @@ describe('simple and expert are one DOM', () => {
     const simple = await markupUnder('simple', view());
     const expert = await markupUnder('expert', view());
     expect(simple).toBe(expert);
-    expect(simple).toContain('ctc-lock');
-    expect(simple).toContain('ctc-head-note');
   });
 });
 
-/* ---- request plumbing ---------------------------------------------------- */
+/* ---- request plumbing ----------------------------------------------------- */
 
 describe('request plumbing', () => {
   test('every request goes through the per-user mount prefix', async () => {
     /** @type {any} */ (window).__OSPREY_PREFIX__ = '/u/alice';
     await bootOpen();
     postAnswers.push({ ok: true, body: { entry: {}, skipped: [] } });
-    segEl('va', 'read-only')?.click();
+    verbEl('va')?.click();
     await flush();
 
     expect(fetchCalls.length).toBeGreaterThan(0);

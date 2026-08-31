@@ -2668,6 +2668,7 @@ def _posture_view(app: Any, session_key: str, config_path: Path | None) -> dict[
             {
                 "target": target,
                 "label": label,
+                "display_name": str(meta.get("display_name") or ""),
                 "short_label": short_label,
                 "kind": kind,
                 "endpoint": str(meta.get("endpoint") or ""),
@@ -2717,12 +2718,15 @@ async def get_terminal_posture(session_id: str, request: Request):
     configured control target, each answering the whole of what the operator
     needs about that machine:
 
-    * ``label`` / ``short_label`` / ``kind`` / ``endpoint`` / ``real_machine`` —
-      what to call it and what it is. The label is the one the controls server
-      published for the target it is running, or the one this render derives for
-      a session that has not started one; ``short_label`` and ``kind`` come from
-      ``real_machine`` and the label's shape, never from the target name, so a
-      stand-in never renders as the facility's own machine.
+    * ``label`` / ``display_name`` / ``short_label`` / ``kind`` / ``endpoint``
+      / ``real_machine`` — what to call it and what it is. The label is the one
+      the controls server published for the target it is running, or the one
+      this render derives for a session that has not started one;
+      ``display_name`` is the operator-facing name minted beside it
+      (``control_system.target_display_names`` renames it per deployment);
+      ``short_label`` and ``kind`` come from ``real_machine`` and the label's
+      shape, never from the target name, so a stand-in never renders as the
+      facility's own machine.
     * ``ceiling_writes`` / ``posture`` / ``effective`` — the three terms of the
       write decision, kept separate on purpose. The ceiling is the deployment's
       (``session_posture``); the posture is this session's own narrowing; the

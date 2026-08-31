@@ -172,6 +172,21 @@ REASON_NO_CHILD = "no_connector_host"
 #: only to label the state file's per-target display metadata.
 _SIMULATED_TYPES = (MOCK, VIRTUAL_ACCELERATOR)
 
+#: The operator-facing name each display branch defaults to — one word per way
+#: a target can be derived, not per target name, because that is what the name
+#: describes: the simulator is a Simulator whichever target selected it, and a
+#: ``live`` target with no connector configured is still the Real machine (the
+#: "not set up" nuance is the reader's to render, never the name's to carry).
+#: A deployment renames any of them per target via
+#: ``control_system.target_display_names``; these words are what a config that
+#: says nothing gets.
+_DISPLAY_NAME_DEFAULTS = {
+    "machine": "Real machine",
+    "standin": "Rehearsal",
+    "simulated": "Demo",
+    "va": "Simulator",
+}
+
 
 class SwitchError(RuntimeError):
     """A switch that did not happen, and the stage it stopped at.
@@ -432,9 +447,10 @@ def target_display_metadata(config: Any) -> dict[str, dict[str, Any]]:
     render the identity line straight from the state file and never re-derive
     it, so this is the only place the three targets get described.
 
-    Each entry carries ``label``, ``endpoint``, ``real_machine`` and
-    ``probe_channel`` — the destination's probe channel travels with the
-    metadata so a describer can name it without opening ``config.yml``.
+    Each entry carries ``label``, ``display_name``, ``endpoint``,
+    ``real_machine`` and ``probe_channel`` — the destination's probe channel
+    travels with the metadata so a describer can name it without opening
+    ``config.yml``.
 
     One entry per name in :data:`~osprey.mcp_server.control_system.target_state.TARGET_NAMES`,
     walked from that tuple rather than from a list spelled again here: the
@@ -451,6 +467,7 @@ def target_display_metadata(config: Any) -> dict[str, dict[str, Any]]:
             # slot: "unknown" is a truthful rendering, an absent key is not.
             metadata[target] = {
                 "label": _label(target, None),
+                "display_name": _display_name(config, target, None),
                 "endpoint": "",
                 "real_machine": False,
                 "probe_channel": "",
@@ -458,11 +475,11 @@ def target_display_metadata(config: Any) -> dict[str, dict[str, Any]]:
             continue
         endpoint = derivation.selected_endpoint()
         block = _connector_block(config, derivation.connector_type)
+        standin = _is_live_standin(config, target, endpoint)
         metadata[target] = {
-            "label": _label(
-                target,
-                derivation.connector_type,
-                standin=_is_live_standin(config, target, endpoint),
+            "label": _label(target, derivation.connector_type, standin=standin),
+            "display_name": _display_name(
+                config, target, derivation.connector_type, standin=standin
             ),
             "endpoint": f"{endpoint.host}:{endpoint.port}" if endpoint else "",
             # True for the stand-in as well as the facility's machine, and the
@@ -527,6 +544,34 @@ def _label(target: str, connector_type: str | None, *, standin: bool = False) ->
     # is the direction this stack must never fail in: telling an operator the
     # machine in front of them is only a stand-in when it is not.
     return "LIVE MACHINE (stand-in)" if (target == TARGET_STANDIN and standin) else "LIVE MACHINE"
+
+
+def _display_name(
+    config: Any, target: str, connector_type: str | None, *, standin: bool = False
+) -> str:
+    """The operator-facing name for *target*: configured, or the branch default.
+
+    Walks the same branches as :func:`_label`, from the same inputs, so the two
+    names cannot describe different machines — the label is the identity line's
+    truth, this is the word an operator reads on the chip. A non-empty
+    ``control_system.target_display_names.<target>`` string wins verbatim
+    (stripped); empty or absent falls to :data:`_DISPLAY_NAME_DEFAULTS`. The
+    override is per target name rather than per branch on purpose: the operator
+    names the thing they select, and the derivation still decides what that
+    thing defaults to.
+    """
+    section = _control_system_section(config)
+    configured = section.get("target_display_names") if isinstance(section, dict) else None
+    override = configured.get(target) if isinstance(configured, dict) else None
+    if isinstance(override, str) and override.strip():
+        return override.strip()
+    if target == TARGET_VA:
+        return _DISPLAY_NAME_DEFAULTS["va"]
+    if connector_type in _SIMULATED_TYPES:
+        return _DISPLAY_NAME_DEFAULTS["simulated"]
+    if target == TARGET_STANDIN and standin:
+        return _DISPLAY_NAME_DEFAULTS["standin"]
+    return _DISPLAY_NAME_DEFAULTS["machine"]
 
 
 # ---------------------------------------------------------------------------

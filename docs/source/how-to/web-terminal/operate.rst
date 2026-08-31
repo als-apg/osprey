@@ -84,155 +84,161 @@ The control-target chip
 -----------------------
 
 The header carries a chip that answers, at a glance, the question every write
-depends on: *if the agent writes now, which machine does it land on, and will
-it be refused?* It reads like this::
+depends on: *if the agent writes now, which machine does it land on, and may
+it?* It reads like this::
 
-   ● STAND-IN · writes ▾
+   ● Rehearsal · writes on ▾
 
-The first word is the machine this session stands on --- ``LIVE`` for the
-facility's own machine, ``STAND-IN`` for a rehearsal machine that is operated
-like one, ``VIRTUAL`` for the virtual accelerator, ``SIMULATED`` for anything
-else simulated. The second is the write state **on that machine**:
+The first part names the machine this session stands on, by what it **is**:
 
-- **writes** --- the agent may write there, under the deployment's usual
-  approval and write-safety rules. This is the baseline.
-- **read-only** --- the deployment does not arm writes on that target, or the
-  whole deployment is running read-only. Nothing in the browser lifts this.
-- **sandbox** --- *you* narrowed that target for this session. Reads are
+- **Real machine** --- the facility's own. Writes move hardware.
+- **Rehearsal** --- a copy of the real machine's controls, same channel names,
+  no hardware behind it. Nothing moves.
+- **Simulator** --- the virtual accelerator: a physics model with beam in it.
+  Nothing moves.
+- **Demo** --- mock data. Nothing moves.
+
+A deployment can put its own names on its machines
+(``control_system.target_display_names`` in ``config.yml`` --- *ALS storage
+ring* rather than *Real machine*); what the machine is stays on the popover's
+descriptor line and the tooltips either way, and the tooltip also keeps the
+controls server's own technical label.
+
+The second part is the write state **on that machine**, for **your session**:
+
+- **writes on** --- the agent may write there, under whatever write gates the
+  deployment configures.
+- **writes off** --- *you* turned writes off for this session. Reads are
   untouched: the agent keeps its full view of the control system and of the
-  project, and can still run analysis, plots and readonly Python.
+  project, and can still run analysis, plots and read-only Python. One click
+  turns writes back on.
+- **writes locked** --- the deployment does not arm writes on that target, or
+  the whole deployment is running read-only. Nothing in the browser lifts
+  this.
 
 Click the chip and a popover opens on **every** control target the deployment
 configures, not only the one you are standing on.
 
-One row per machine
-~~~~~~~~~~~~~~~~~~~
+The machine you are on, and the others
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Each row names a machine and carries the two things you can do to it:
+The machine the agent stands on is a card at the top: its name, what writing
+there means (*Writes move hardware*, or one of the *nothing moves* lines), the
+write state, and the one button that changes it. Every other machine is a row
+below the card, carrying the same two facts, its write-state pill, and the
+actions:
 
-- **What it is** --- the name the deployment gave it, which already says what
-  kind of machine it names (*LIVE MACHINE*, *LIVE MACHINE (stand-in)*,
-  *virtual accelerator (simulation)*). That label comes from what the
-  connector actually is, so a stand-in never renders as the facility's own
-  machine. The row you are on is tagged ``current``.
-- **Whether it is answering** --- ``connected``, ``unreachable`` or ``unknown``,
-  with how long ago that was measured. ``unknown`` means nothing has vouched for
-  it yet, not that it is down.
-- **writes | read-only** --- the posture *this session* holds on that target, as
-  a two-segment toggle. It is the readout as well as the control: where it
-  cannot move it still shows which state holds, with the reason beside it.
-- **Switch** --- moves this session onto that machine. Where a switch is not
-  available the button is replaced by a short phrase for the reason ---
-  ``not configured``, ``needs gateway ack`` --- so the gap is explained rather
-  than merely empty, and the server's full sentence sits on the tooltip. On a
-  fresh deployment the live machine reading ``not configured`` is the normal
-  state, not a fault: authoring its gateways is the go-live edit.
+- **Turn writes off / Turn writes on** --- per machine, for your session.
+- **Switch to** --- moves this session onto that machine. Where a switch is
+  not available, the button's place is taken by a short phrase for the reason
+  --- ``not set up``, ``needs gateway ack`` --- with the server's full
+  sentence on the tooltip. On a fresh deployment the real machine reading
+  ``not set up`` is the normal state, not a fault: authoring its gateways is
+  the go-live edit.
 
-The foot of the popover has **Sandbox everything**, which puts every target it
-can into the sandbox in one click, and a reminder of the boundary: nothing here
-changes the deployment's config.
+A machine that stops answering says so --- ``not answering``, in red, next to
+its name. A machine that answers says nothing about it. Endpoints, gateway
+roles and the age of the last probe stay on the tooltips and in the
+confirmation dialogs, where the decision is actually made.
+
+The foot has **Turn all writes off**, which takes writes away from every
+machine it can in one click, and the popover's scope, said once: *your
+session only*.
 
 Take writes away, or give them back
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The posture is **per target**. Sandbox the live machine and the session keeps
-working on the virtual accelerator, which is the point: you put the machine you
-are worried about out of reach without giving up the one you are working on.
+The write state is **per machine**. Turn writes off on the real machine and
+the session keeps working on the simulator, which is the point: you put the
+machine you are worried about out of reach without giving up the one you are
+working on.
 
 Taking writes away applies as you click --- it needs no ceremony. Turning
 writes back on asks you to confirm first, every time and with nothing
 remembered between clicks, and the confirmation names the machine and the
 endpoint the agent would then be able to write to.
 
-**Nothing is restarted.** Every gate reads the posture at the moment of the
-write, so the change lands on the conversation that is already running: the
-agent obeys it on its very next write, and the turn in flight is not
-interrupted. One lag is worth knowing about: sandbox the target the session is
-*on* and the change reaches the agent when the connector is rebuilt, which
-waits for a running execution to finish, and the row says so rather than
-leaving a toggle that appears to have done nothing.
+**Nothing is restarted.** Every gate reads the write state at the moment of
+the write, so the change lands on the conversation that is already running:
+the agent obeys it on its very next write, and the turn in flight is not
+interrupted. One lag is worth knowing about: turn writes off on the machine
+the session is *on* and the change reaches the agent when the connector is
+rebuilt, which waits for a running execution to finish --- and the card says
+so rather than leaving a button that appears to have done nothing.
 
 **The chip only takes writes away.** What you set here tightens what the
 deployment permits; it can never hand out writes the deployment did not arm.
-Where the toggle cannot move it is locked and carries the reason:
+Where the state is locked the button stays on screen, disabled, and the
+reason is on its tooltip:
 
 .. list-table::
    :header-rows: 1
-   :widths: 30 70
+   :widths: 35 65
 
-   * - Reason
+   * - Reason (on the tooltip)
      - What it means
-   * - ``persona ceiling``
-     - This deployment does not arm writes on that target at all. Only a
+   * - *kept read-only by the deployment*
+     - This deployment does not arm writes on that machine at all. Only a
        rebuild changes that, not a click.
-   * - ``readonly run``
-     - The whole deployment is running read-only
-       (``OSPREY_EXECUTION_MODE=readonly``), which sits above any one session.
-   * - ``not enforceable``
-     - This page has no way to deliver a posture change to this session's
-       control-system server, so a toggle set here would be read by nobody. The
-       roster still renders --- it is worth reading --- but the toggles govern
-       nothing.
-   * - ``store unavailable``
-     - The folder where postures are recorded is missing or unreadable, so
-       there is nowhere to keep a setting the agent would read back. Nothing
-       was changed.
-   * - ``no read-only endpoint``
-     - Read-only on this target would route it through a gateway the deployment
-       has not configured, leaving the target unusable. You are told before you
-       act, not after.
+   * - *the whole deployment is running read-only*
+     - ``OSPREY_EXECUTION_MODE=readonly`` is set, which sits above any one
+       session.
+   * - *changes here would not reach the agent*
+     - This page has no way to deliver a change to this session's
+       control-system server, so a state set here would be read by nobody.
+       The roster still renders --- it is worth reading --- but the buttons
+       govern nothing, and a banner across the top of the popover says so.
+   * - *changes cannot be recorded right now*
+     - The folder where write states are recorded is missing or unreadable,
+       so there is nowhere to keep a setting the agent would read back.
+       Nothing was changed.
+   * - *no read-only endpoint configured*
+     - Read-only on this machine would route it through a gateway the
+       deployment has not configured, leaving the machine unusable. You are
+       told before you act, not after.
 
 One more refusal can meet the click itself: you cannot turn writes back on
-while the agent is still running something. The run keeps the posture it
+while the agent is still running something. The run keeps the write state it
 started with, so wait for it to finish, or stop it, and try again.
 
 Switch this session to another machine
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-**Switch** on a row moves the session onto that machine, after a confirmation
-that names it and says which write posture the session arrives in there ---
-posture is per target, and it does not travel with you. The browser does not
-perform the switch: it records the request, and the part of the deployment that
-owns the connection to the machines picks it up, re-checks at that moment that
-the move is allowed and the machine answers, and reports the outcome back. The
+**Switch to** on a row moves the session onto that machine, after a
+confirmation that says where every control read and write goes next and
+whether writes are on or off for you there --- the write state is per
+machine, and it does not travel with you. The browser does not perform the
+switch: it records the request, and the part of the deployment that owns the
+connection to the machines picks it up, re-checks at that moment that the
+move is allowed and the machine answers, and reports the outcome back. The
 row then reads ``✓ switched``, or ``✗`` with the phrase for the refusal ---
 the same refusal, for the same reason, the agent is given. While a request is
-out the chip reads ``switching…``, and one request is outstanding at a time. If
-nothing answers within 30 seconds the row reads ``request_expired``: nothing
-that could carry out the switch was alive to pick it up.
+out the chip reads ``switching…``, and one request is outstanding at a time.
+If nothing answers within 30 seconds the row reads ``request_expired``:
+nothing that could carry out the switch was alive to pick it up.
 
-What the switch itself is gated on --- the approval prompt, the limits posture,
-the archive --- is :doc:`../control-systems/switch-control-target`.
+What the switch itself is gated on --- the approval prompt, the limits
+posture, the archive --- is :doc:`../control-systems/switch-control-target`.
 
-Simple and Expert
-~~~~~~~~~~~~~~~~~
+Where the write state lives
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The popover follows the session's density setting (the Simple/Expert control in
-the display menu; see :doc:`theming`). Simple mode shows the machine's name,
-whether it is answering, the toggle and **Switch**. Expert mode adds
-the endpoint, the gateway role, the age of the last probe, and the notes under a
-locked toggle. The controls and the confirmations are the same in both: the
-density changes what is on screen, never what a click does.
-
-Where the posture lives
-~~~~~~~~~~~~~~~~~~~~~~~
-
-The posture belongs to **one session**, not to the deployment. Nothing is
+The write state belongs to **one session**, not to the deployment. Nothing is
 written to ``config.yml``. Two people working in two sessions of the same
-deployment hold their own postures, and one of them sandboxing a target does
-not touch the other.
+deployment hold their own settings, and one of them turning writes off on a
+machine does not touch the other.
 
 Your settings are recorded in
-``var/agent_data/control_target/session-postures.json``, written as soon as you
-click and read back when the server starts, so restarting the container never
-quietly returns a sandboxed session to writes.
+``var/agent_data/control_target/session-postures.json``, written as soon as
+you click and read back when the server starts, so restarting the container
+never quietly turns a session's writes back on.
 
 What refuses a write, and how firmly
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Nothing about the posture is a single choke point --- each write route is
-refused by the layer that owns it. The difference between those layers is worth
-knowing, because one of them is best-effort rather than enforced:
+Turning writes off is not a single choke point --- each write route is
+refused by the layer that owns it. The difference between those layers is
+worth knowing, because one of them is best-effort rather than enforced:
 
 .. list-table::
    :header-rows: 1
@@ -247,84 +253,82 @@ knowing, because one of them is best-effort rather than enforced:
        connector is the layer that holds if the hook does not run.
    * - ``execute`` with ``execution_mode="readwrite"``
      - The Python executor's own gate
-     - **Enforced.** The run is refused outright; a ``readonly`` ``execute`` is
-       unaffected and runs normally.
+     - **Enforced.** The run is refused outright; a ``readonly`` ``execute``
+       is unaffected and runs normally.
    * - Any other write tool the writes-check hook covers --- for example the
        Bluesky queue's arming tools, where that server is enabled
      - The writes-check hook
      - **Best-effort.** It is the first hook in the chain and the only
-       posture-aware layer those tools have; a hook that fails to run does not
+       state-aware layer those tools have; a hook that fails to run does not
        refuse.
 
 Each layer says which gate refused, in its own words, so the message never
 sends you to the wrong control:
 
-- The hook --- *"SANDBOX POSTURE --- this session refuses control-system writes
-  to the <target> target. Switch it back to writes on the control-target chip in
+- The hook --- *"WRITES OFF --- this session refuses control-system writes
+  to the <target> target. Turn writes back on from the control-target chip in
   the header; config.yml is not the gate here."*
-- The connector --- *"Write to '<channel>' blocked: this session's posture for
-  the '<target>' control target is read-only --- set from the control-target
-  chip in the header, and in force for this session only. Set '<target>' back to
-  writes from the chip if the write is intended; config.yml is not the gate
-  here."*
-- The executor --- *"This session's write posture for the '<target>' control
-  target is read-only --- set from the control-target chip in the header, and in
+- The connector --- *"Write to '<channel>' blocked: writes are off for the
+  '<target>' control target in this session --- turned off from the
+  control-target chip in the header, and in force for this session only. Turn
+  writes back on for '<target>' from the chip if the write is intended;
+  config.yml is not the gate here."*
+- The executor --- *"Writes are off for the '<target>' control target in this
+  session --- turned off from the control-target chip in the header, and in
   force for this session only."* --- offering a re-run as ``readonly``, and
-  saying to set that target back to writes from the chip if the write is
-  intended.
+  saying to turn writes back on from the chip if the write is intended.
 
-Those three are what a posture you set from the chip sounds like, and the
-chip is where you lift it. A **deployment-wide read-only run** is a different
-story and says so, because no click lifts that one:
+Those three are what writes you turned off from the chip sound like, and the
+chip is where you turn them back on. A **deployment-wide read-only run** is a
+different story and says so, because no click lifts that one:
 
 - The connector --- *"Write to '<channel>' blocked: this deployment is running
   in readonly execution mode (OSPREY_EXECUTION_MODE=readonly), which refuses
   control-system writes for every session. The control-target chip in the
   header cannot lift it."*
 - The executor --- *"This deployment is running in readonly execution mode,
-  which refuses control-system writes regardless of what the run asks for."* ---
-  offering the same re-run as ``readonly``, and saying that writes need the
-  deployment started without the variable.
+  which refuses control-system writes regardless of what the run asks for."*
+  --- offering the same re-run as ``readonly``, and saying that writes need
+  the deployment started without the variable.
 
-The chip shows the same thing: every toggle locked, with ``readonly run`` as the
-reason.
+The chip shows the same thing: every button locked, with *the whole
+deployment is running read-only* as the reason.
 
-No posture refusal mentions the deployment's ``writes_enabled`` keys,
-deliberately: changing one would not lift a posture refusal, and a message that
-pointed at one would send an operator to rebuild a deployment when a single
-click was the remedy. The reverse holds too --- a write refused because this
-target is not armed says so in its own words, names the key that would arm it,
-and says nothing about postures.
+No writes-off refusal mentions the deployment's ``writes_enabled`` keys,
+deliberately: changing one would not lift it, and a message that pointed at
+one would send an operator to rebuild a deployment when a single click was
+the remedy. The reverse holds too --- a write refused because this target is
+not armed says so in its own words, names the key that would arm it, and
+says nothing about the chip.
 
 .. note::
 
    **The other two surfaces.** Simple mode's chat and the operator websocket run
    their agent through the Agent SDK rather than a terminal. Both read the same
-   record at write time, so a posture you set reaches them exactly as it reaches
+   record at write time, so a write state you set reaches them exactly as it reaches
    a terminal session. Where they differ is in what the chip can do for them.
 
-   A **chat session's toggles work** --- its writes meet the same ceiling and
-   the same read-only setting a terminal's do --- but it is offered no
-   **Switch**: a chat has no machine connection of its own to move, and every
-   row says ``chat_session`` where the button would be. Know one thing before
-   relying on a chat's posture: the chat page starts a fresh chat every time it
-   loads, so a posture you set for it lasts as long as that page does rather
-   than following the conversation.
+   A **chat session's write controls work** --- its writes meet the same ceiling
+   and the same locks a terminal's do --- but it is offered no **Switch to**: a
+   chat has no machine connection of its own to move. Know one thing before
+   relying on a chat's write state: the chat page starts a fresh chat every
+   time it loads, so a state you set for it lasts as long as that page does
+   rather than following the conversation.
 
-   An **operator websocket session's toggles govern nothing**: the chip has no
-   way to hand a posture to that kind of session, so what you set here never
-   reaches it.
+   An **operator websocket session's write controls govern nothing**: the chip
+   has no way to hand a write state to that kind of session, so what you set
+   here never reaches it.
 
 .. dropdown:: Why the websocket session is out of the chip's reach
    :icon: gear
 
    The websocket session's identifier is created when the connection is
-   accepted and identifies nothing once the connection ends, so no posture can
-   be recorded against it and there is nothing to restore across a restart.
+   accepted and identifies nothing once the connection ends, so no write state
+   can be recorded against it and there is nothing to restore across a restart.
    That stays true until an operator client exists to define its reconnect
    protocol. Every audit record such a session emits is labelled
-   ``posture_source=spawn`` --- the trail's way of saying the posture was fixed
-   when the session started rather than read from a live setting; see the
+   ``posture_source=spawn`` --- the trail's way of saying the write state was
+   fixed when the session started rather than read from a live setting; see the
    record fields in :ref:`the audit trail contract <audit-trail-record>`.
 
 Documentation and feedback settings

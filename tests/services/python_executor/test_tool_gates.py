@@ -334,10 +334,10 @@ POSTURE_REMEDIES = {
         "the control-target chip in the header cannot lift a deployment-wide read-only run",
         # A live discriminator, not a dead string: this is how BOTH store-derived
         # wordings open, so borrowing either one here fails.
-        "this session's write posture",
+        "writes are off for",
     ),
     "store": (
-        "set 'live' back to writes from the control-target chip in the header",
+        "turn writes back on for 'live' from the control-target chip in the header",
         "cannot lift a deployment-wide read-only run",
     ),
 }

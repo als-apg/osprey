@@ -72,6 +72,7 @@ TARGET_META = {
 ROW_FIELDS = {
     "target",
     "label",
+    "display_name",
     "short_label",
     "kind",
     "endpoint",
@@ -157,6 +158,7 @@ def render(
     global_writes=False,
     va_writes=None,
     standin_roles=("read_only", "write_access"),
+    display_names=None,
     name="config.yml",
     tmp_path=None,
 ):
@@ -171,6 +173,10 @@ def render(
     ``read_only`` from it is the deployment shape that makes narrowing that
     target cost something: the session would select a role the config does not
     configure and the target would stop being usable at all.
+
+    ``display_names`` is written verbatim as
+    ``control_system.target_display_names``, the deployment's renaming of the
+    chip's per-target words.
     """
     gateway = {"address": "gw", "port": 5064, "use_name_server": True}
     standin_gateway = {"address": "localhost", "port": STANDIN_PORT, "use_name_server": True}
@@ -181,41 +187,39 @@ def render(
     }
     if va_writes is not None:
         va["writes_enabled"] = va_writes
-    path = tmp_path / name
-    path.write_text(
-        yaml.safe_dump(
-            {
-                "control_system": {
-                    "type": "live_standin",
-                    "writes_enabled": global_writes,
-                    # The keys a switch is judged on besides the gateways: a
-                    # channel to probe, strict limits (required toward the live
-                    # family) and the operator's acknowledgement of the live
-                    # gateway. Without them every row would answer with an
-                    # eligibility refusal and the roster could not be exercised.
-                    "limits_checking": {"enabled": True, "allow_unlisted_channels": False},
-                    "target_switch": {"live_gateway_acknowledged": "operator@example"},
-                    "connector": {
-                        "epics": {
-                            "probe_channel": "SR:PROBE",
-                            "gateways": {
-                                "read_only": dict(gateway),
-                                "write_access": dict(gateway),
-                            },
-                        },
-                        "live_standin": {
-                            "probe_channel": "SR:PROBE",
-                            "gateways": {role: dict(standin_gateway) for role in standin_roles},
-                        },
-                        "virtual_accelerator": va,
+    config = {
+        "control_system": {
+            "type": "live_standin",
+            "writes_enabled": global_writes,
+            # The keys a switch is judged on besides the gateways: a
+            # channel to probe, strict limits (required toward the live
+            # family) and the operator's acknowledgement of the live
+            # gateway. Without them every row would answer with an
+            # eligibility refusal and the roster could not be exercised.
+            "limits_checking": {"enabled": True, "allow_unlisted_channels": False},
+            "target_switch": {"live_gateway_acknowledged": "operator@example"},
+            "connector": {
+                "epics": {
+                    "probe_channel": "SR:PROBE",
+                    "gateways": {
+                        "read_only": dict(gateway),
+                        "write_access": dict(gateway),
                     },
                 },
-                "services": {"live_standin": {"port": STANDIN_PORT}},
-                "deployed_services": ["virtual_accelerator", "live_standin"],
-            }
-        ),
-        encoding="utf-8",
-    )
+                "live_standin": {
+                    "probe_channel": "SR:PROBE",
+                    "gateways": {role: dict(standin_gateway) for role in standin_roles},
+                },
+                "virtual_accelerator": va,
+            },
+        },
+        "services": {"live_standin": {"port": STANDIN_PORT}},
+        "deployed_services": ["virtual_accelerator", "live_standin"],
+    }
+    if display_names is not None:
+        config["control_system"]["target_display_names"] = display_names
+    path = tmp_path / name
+    path.write_text(yaml.safe_dump(config), encoding="utf-8")
     return path
 
 
@@ -462,6 +466,40 @@ class TestIdentity:
         assert row_for(payload, "standin")["label"] == "LIVE MACHINE (stand-in)"
         assert row_for(payload, "live")["label"] == "LIVE MACHINE"
         assert row_for(payload, "va")["label"] == "virtual accelerator (simulation)"
+        assert row_for(payload, "live")["display_name"] == "Real machine"
+        assert row_for(payload, "standin")["display_name"] == "Rehearsal"
+        assert row_for(payload, "va")["display_name"] == "Simulator"
+
+    def test_an_older_published_record_does_not_erase_the_display_name(self, client):
+        """``TARGET_META`` predates the key; the derived word must survive it.
+
+        A record's fields win where they exist — the label above proves that —
+        but a writer from an older build publishes no ``display_name`` at all,
+        and the merge in ``_target_display`` keeps the derived one rather than
+        rendering an unnamed chip.
+        """
+        with live_session(client):
+            payload = get_posture(client)
+
+        assert row_for(payload, "standin")["display_name"] == "Rehearsal"
+        assert row_for(payload, "live")["display_name"] == "Real machine"
+        assert row_for(payload, "va")["display_name"] == "Simulator"
+
+    def test_a_configured_display_name_reaches_the_row(self, make_client, tmp_path):
+        """``control_system.target_display_names`` renames the chip's word only."""
+        path = render(
+            tmp_path=tmp_path,
+            display_names={"standin": "Shadow ring", "va": ""},
+        )
+        with make_client(path) as client:
+            payload = get_posture(client)
+
+        assert row_for(payload, "standin")["display_name"] == "Shadow ring"
+        # The label the safety surfaces render is not the operator's to rename.
+        assert row_for(payload, "standin")["label"] == "LIVE MACHINE (stand-in)"
+        # An empty override is no name at all: the default answers.
+        assert row_for(payload, "va")["display_name"] == "Simulator"
+        assert row_for(payload, "live")["display_name"] == "Real machine"
 
     def test_active_follows_the_published_target_and_baseline_does_not(self, client):
         with live_session(client, target="va"):

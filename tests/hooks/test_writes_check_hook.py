@@ -376,7 +376,7 @@ def test_posture_message_names_the_posture_not_writes_enabled(
     )
 
     reason = result["hookSpecificOutput"]["permissionDecisionReason"]
-    assert "SANDBOX POSTURE" in reason
+    assert "WRITES OFF" in reason
     assert "writes_enabled" not in reason
     assert "WRITES DISABLED" not in reason
     assert "control-target chip in the header" in reason
@@ -384,7 +384,7 @@ def test_posture_message_names_the_posture_not_writes_enabled(
     # The two sentences the operator needs, verbatim.
     assert "this session refuses control-system writes." in reason
     assert (
-        "Switch it back to writes on the control-target chip in the header; "
+        "Turn writes back on from the control-target chip in the header; "
         "config.yml is not the gate here." in reason
     )
 
@@ -506,7 +506,7 @@ def test_posture_deny_survives_an_unreadable_config(tmp_path, hook_runner_raw, m
     assert "Traceback" not in stderr
     decision = json.loads(stdout.strip().split("\n")[-1])
     assert decision["hookSpecificOutput"]["permissionDecision"] == "deny"
-    assert "SANDBOX POSTURE" in decision["hookSpecificOutput"]["permissionDecisionReason"]
+    assert "WRITES OFF" in decision["hookSpecificOutput"]["permissionDecisionReason"]
 
 
 @pytest.mark.unit
@@ -524,7 +524,7 @@ def test_posture_deny_survives_an_absent_config(tmp_path, hook_runner, monkeypat
 
     assert result is not None
     assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
-    assert "SANDBOX POSTURE" in result["hookSpecificOutput"]["permissionDecisionReason"]
+    assert "WRITES OFF" in result["hookSpecificOutput"]["permissionDecisionReason"]
 
 
 # -- Deployment posture, per target (stage 2) --
@@ -840,7 +840,7 @@ def test_sandbox_posture_denies_a_queue_tool_on_an_armed_deployment(
     assert result is not None
     output = result["hookSpecificOutput"]
     assert output["permissionDecision"] == "deny"
-    assert "SANDBOX POSTURE" in output["permissionDecisionReason"]
+    assert "WRITES OFF" in output["permissionDecisionReason"]
 
 
 @pytest.mark.unit

@@ -459,11 +459,11 @@ def _writes_disabled_result(
       to lift: the remedy is to re-run the script. Asked BEFORE the store
       clause, because ``store_permits`` already includes the launch pin, so
       without this fork the refusal would point at a chip that already reads
-      writes. Its two wordings separate "this target was read-only when the run
-      started" from "nothing could be resolved at launch, so the run was pinned
-      everywhere" — the second is nobody's decision and must not be reported as
-      one.
-    * this **session's posture for one control target** is read-only. The
+      writes. Its two wordings separate "writes were off for this target when
+      the run started" from "nothing could be resolved at launch, so the run
+      was pinned everywhere" — the second is nobody's decision and must not be
+      reported as one.
+    * this **session has writes off for one control target**. The
       deployment arms this connector and no readonly run is in force; an
       operator narrowed this one machine for this one session from the
       control-target chip in the header, and the chip is where it lifts.
@@ -519,8 +519,8 @@ def _writes_disabled_result(
         deployment_arms = _deployment_writes_enabled(connector_type)
         # The launch pin is asked FIRST, because ``store_permits`` above already
         # includes it and a run refused by the pin would otherwise be reported
-        # as a live narrowing — telling an operator to set a target back to
-        # writes that already reads writes. Re-read rather than handed down:
+        # as a live narrowing — telling an operator to turn writes back on for
+        # a target whose writes are already on. Re-read rather than handed down:
         # ``launch_permits`` is one environment read and touches no file, so the
         # one-store-read-per-write memo is untouched.
         if not launch_permits(control_target) and deployment_arms:
@@ -532,36 +532,36 @@ def _writes_disabled_result(
                 # a decision they never made.
                 message = (
                     f"Write to '{channel_address}' blocked: this run launched under the "
-                    "most restrictive write posture — at launch neither its control "
-                    "target nor this session's posture for it could be resolved, so the "
-                    "run was pinned read-only for every target. A posture set since "
-                    "applies to the next run, not to one already in flight. Re-run the "
-                    "script to pick up the current posture."
+                    "most restrictive write state — at launch neither its control "
+                    "target nor this session's write state for it could be resolved, "
+                    "so the run was pinned with writes off for every target. A write "
+                    "state set since applies to the next run, not to one already in "
+                    "flight. Re-run the script to pick up the current write state."
                 )
             else:
                 message = (
                     f"Write to '{channel_address}' blocked: this run launched while "
-                    f"'{launched}' was read-only for this session; the posture set since "
-                    "applies to the next run, not to one already in flight. Re-run the "
-                    "script to pick it up."
+                    f"writes were off for '{launched}' in this session; a write state "
+                    "set since applies to the next run, not to one already in flight. "
+                    "Re-run the script to pick it up."
                 )
         elif not store_permits and deployment_arms:
             if control_target:
-                where = f"the '{control_target}' control target"
-                remedy = f"Set '{control_target}' back to writes from the chip"
+                where = f"the '{control_target}' control target in this session"
+                remedy = f"Turn writes back on for '{control_target}' from the chip"
             else:
                 # No stamp, so the most restrictive entry decided and this
                 # connector genuinely cannot say which target that was. Naming
                 # one would be a guess an operator then acts on.
                 where = (
-                    "at least one control target (this connector was built without one, "
-                    "so the most restrictive of them decides)"
+                    "at least one control target in this session (this connector was "
+                    "built without one, so the most restrictive of them decides)"
                 )
-                remedy = "Lift that narrowing from the chip"
+                remedy = "Turn writes back on from the chip"
             message = (
-                f"Write to '{channel_address}' blocked: this session's posture for "
-                f"{where} is read-only — set from the control-target chip in the header, "
-                f"and in force for this session only. {remedy} if the write is intended; "
+                f"Write to '{channel_address}' blocked: writes are off for {where} — "
+                f"turned off from the control-target chip in the header, and in force "
+                f"for this session only. {remedy} if the write is intended; "
                 "config.yml is not the gate here."
             )
         else:

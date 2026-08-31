@@ -27,7 +27,7 @@ stdin ──► Parse JSON
               │◄────────────────────────┘
               ▼
   STAGE 1  Deployment-wide
-           read-only run?   ──YES──► DENY: sandbox posture
+           read-only run?   ──YES──► DENY: writes off
               │
              NO
               │
@@ -147,9 +147,9 @@ _LANE_ADDRESSED_KEY = "lane_addressed_tools"
 #: one machine, and a refusal that named none would describe the session-wide
 #: sandbox this deployment may not be in.
 _POSTURE_DENY_REASON = (
-    "\U0001f512 SANDBOX POSTURE — this session refuses control-system "
+    "\U0001f512 WRITES OFF — this session refuses control-system "
     "writes{scope}.\n\n"
-    "Switch it back to writes on the control-target chip in the header; "
+    "Turn writes back on from the control-target chip in the header; "
     "config.yml is not the gate here."
 )
 
@@ -162,9 +162,10 @@ _POSTURE_DENY_SCOPE = " to the {target} target"
 #: read there proves nothing, and an unreadable posture is not a permissive one.
 #: See ``osprey_target_state.posture_unknown``.
 _POSTURE_UNKNOWN_DENY_REASON = (
-    "\U0001f512 POSTURE UNKNOWN — this session carries a posture key, but no "
-    "live control-target state was found where this hook looks, so the posture "
-    "set on the control-target chip in the header cannot be read.\n\n"
+    "\U0001f512 WRITE STATE UNKNOWN — this session carries a posture key, but "
+    "no live control-target state was found where this hook looks, so the "
+    "write state set on the control-target chip in the header cannot be "
+    "read.\n\n"
     "Writes stay refused until the controls MCP server is running; config.yml "
     "is not the gate here."
 )

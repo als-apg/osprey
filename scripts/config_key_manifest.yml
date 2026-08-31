@@ -585,6 +585,19 @@ keys:
       hook reads it from there. Tools named here are refused per call and never
       enter `permissions.deny`, which is why a mixed-posture render can gate
       them at all.
+  control_system.target_display_names:
+    rendered: false
+    evidence: 'section\.get\("target_display_names"\)'
+    note: >-
+      Operator-facing display names for the web terminal's control-target chip,
+      commented in the three templates that carry a control_system block. The
+      one reader is `_display_name` in connector_host_manager, which folds a
+      non-empty per-target string over the derived default at the
+      display-metadata mint point; state-file and roster readers render the
+      name they are handed and never read this key again.
+  control_system.target_display_names.live: {covered-by: control_system.target_display_names, rendered: false}
+  control_system.target_display_names.standin: {covered-by: control_system.target_display_names, rendered: false}
+  control_system.target_display_names.va: {covered-by: control_system.target_display_names, rendered: false}
   control_system.read_inline_max_elements:
     evidence: '"control_system\.read_inline_max_elements"'
   control_system.channel_read_artifact_retention:

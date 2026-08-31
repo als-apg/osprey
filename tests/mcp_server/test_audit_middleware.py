@@ -1250,14 +1250,14 @@ def session(project, monkeypatch):
 POSTURE_REMEDIES = {
     "deployment": (
         "the control-target chip in the header cannot lift a deployment-wide read-only run",
-        "this session's write posture",
+        "writes are off for",
     ),
     "store": (
-        "set 'live' back to writes from the control-target chip in the header",
+        "turn writes back on for 'live' from the control-target chip in the header",
         "cannot lift a deployment-wide read-only run",
     ),
     "store_unknown_target": (
-        "lift that narrowing from the control-target chip in the header",
+        "turn writes back on from the control-target chip in the header",
         "cannot lift a deployment-wide read-only run",
     ),
 }
