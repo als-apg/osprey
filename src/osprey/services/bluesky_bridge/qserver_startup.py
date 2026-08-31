@@ -365,23 +365,39 @@ def _make_plan_function(spec: Any, devices: Mapping[str, Any]) -> Callable[..., 
     two reasons applies — the worker never built it, or the parameter naming it
     declares no channel role — and listing what this worker actually has,
     rather than a bare key.
+
+    Those declared channels are also what the run's pre-flight probes: the last
+    thing the wrapper does before the plan is built is ask the connector
+    whether every address they touch answers, and refuse the run if any does
+    not (``preflight.probe_before_motion``, shared with the session-plan
+    wrapper so the two cannot refuse an operator differently).
     """
+    # Absolute, not relative — see the module docstring. Imported at wrapper
+    # build time rather than inside the generator so a missing pre-flight is a
+    # startup failure, not a surprise on the first run.
+    from osprey.services.bluesky_bridge.preflight import (
+        available_devices_phrase,
+        probe_before_motion,
+    )
 
     def plan_function(**kwargs: Any) -> Iterator[Any]:
         params = spec.schema.model_validate(kwargs)
+        declared = _declared_devices(spec.schema, params, devices)
+        yield from probe_before_motion(spec.name, declared)
         try:
-            plan = spec.plan(_declared_devices(spec.schema, params, devices), params)
+            plan = spec.plan(declared, params)
         except KeyError as exc:
             missing = exc.args[0] if exc.args else "<unknown>"
             if missing in devices:
                 raise KeyError(
                     f"plan {spec.name!r} referenced device {missing!r}, which its parameters "
                     f"do not declare as a movable or readable channel — a plan resolves only "
-                    f"the channels it declares; available devices: {sorted(devices)}"
+                    f"the channels it declares; available devices: "
+                    f"{available_devices_phrase(devices)}"
                 ) from exc
             raise KeyError(
                 f"plan {spec.name!r} referenced device {missing!r}, which this worker "
-                f"did not build; available devices: {sorted(devices)}"
+                f"did not build; available devices: {available_devices_phrase(devices)}"
             ) from exc
         return (yield from plan)
 

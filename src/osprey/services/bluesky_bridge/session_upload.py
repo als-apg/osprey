@@ -62,6 +62,7 @@ from typing import Any
 
 from .plan_fields import declared_channels
 from .plan_validation import hash_plan_body
+from .preflight import available_devices_phrase, probe_before_motion
 from .session_dir import resolve_session_plan_dir
 from .validation_record import ValidationRecordStore, validation_records
 
@@ -197,6 +198,14 @@ def install_session_plan(
     absent from that mapping — a legible ``KeyError`` naming both the reason and
     the worker's devices, not a silent resolution.
 
+    Those same declared channels are probed before the run starts: a session
+    plan drives the machine through the same connector-mediated devices as a
+    catalog plan, so it gets the same pre-flight
+    (``preflight.probe_before_motion``) and is refused before anything moves
+    when an address it declares does not answer. Sharing that seam, rather than
+    restating it, is what keeps a session plan from being the quiet way past a
+    gate the catalog path enforces.
+
     Args:
         namespace: The worker namespace (``globals()`` inside the script).
         name: The plan name, which is also the namespace key.
@@ -245,19 +254,22 @@ def install_session_plan(
 
     def plan_function(**kwargs: Any) -> Iterator[Any]:
         params = params_model.model_validate(kwargs)
+        declared = _declared_devices(params_model, params, devices)
+        yield from probe_before_motion(name, declared)
         try:
-            plan = build_plan(_declared_devices(params_model, params, devices), params)
+            plan = build_plan(declared, params)
         except KeyError as exc:
             missing = exc.args[0] if exc.args else "<unknown>"
             if missing in devices:
                 raise KeyError(
                     f"session plan {name!r} referenced device {missing!r}, which its parameters "
                     f"do not declare as a movable or readable channel — a plan resolves only "
-                    f"the channels it declares; available devices: {sorted(devices)}"
+                    f"the channels it declares; available devices: "
+                    f"{available_devices_phrase(devices)}"
                 ) from exc
             raise KeyError(
                 f"session plan {name!r} referenced device {missing!r}, which this worker "
-                f"did not build; available devices: {sorted(devices)}"
+                f"did not build; available devices: {available_devices_phrase(devices)}"
             ) from exc
         return (yield from plan)
 

@@ -5,8 +5,10 @@ Transport shape mirrors `draft.py`: an `APIRouter` of REST routes plus a
 hello/heartbeat/disconnect-on-overflow semantics. Unlike the draft, the state
 itself lives in the RE manager (and the Redis it persists to) — this module
 owns NO queue state beyond `_last_summary`, the last-status cache the SSE
-poller diffs against. Everything the routes report is fetched through the
-stateless :class:`~.queue_backend.QueueBackend` at request time.
+poller diffs against, and `_devices_allowed_cache`, the add-time pre-check's
+device-name set keyed on the manager's own `devices_allowed_uid`. Everything
+the routes report is fetched through the stateless
+:class:`~.queue_backend.QueueBackend` at request time.
 
 **Arming policy.** Nothing here moves hardware directly, but two
 operations arm hardware motion and are gated on the launch token
@@ -71,6 +73,7 @@ import json
 import logging
 import os
 import uuid
+from collections.abc import Set as AbstractSet
 from typing import Any, NoReturn
 
 from fastapi import APIRouter, Header, HTTPException
@@ -150,6 +153,11 @@ _poller_task: asyncio.Task[None] | None = None
 _change_event = asyncio.Event()
 _last_summary: dict[str, Any] | None = None
 
+# The add-time pre-check's device names, as ``(devices_allowed_uid, names)``.
+# Not queue state: the worker's namespace, which the manager itself versions
+# with that uid. See `_built_device_names` for why it is cached at all.
+_devices_allowed_cache: tuple[str, frozenset[str]] | None = None
+
 
 def _get_backend() -> QueueBackend:
     """The process's single `QueueBackend`, via `app.py`'s shared accessor.
@@ -170,9 +178,10 @@ def _clear() -> None:
     it, and the next test may run on a fresh loop. The backend singleton
     lives in `app.py` (`set_queue_backend(None)` resets it) — not here.
     """
-    global _last_summary, _arming_lock, _change_event
+    global _last_summary, _arming_lock, _change_event, _devices_allowed_cache
     _stop_poller()
     _last_summary = None
+    _devices_allowed_cache = None
     _subscribers.clear()
     _arming_lock = asyncio.Lock()
     _change_event = asyncio.Event()
@@ -505,7 +514,7 @@ def device_page_size() -> int:
     return value
 
 
-def _available_devices_phrase(available: set[str], page_size: int) -> str:
+def _available_devices_phrase(available: AbstractSet[str], page_size: int) -> str:
     """The refusal sentence's device list, capped for readability.
 
     The cap is `_SENTENCE_DEVICE_LIMIT` or *page_size*, whichever is smaller —
@@ -528,7 +537,7 @@ def _refuse_unknown_devices(
     plan_name: str,
     unknown_movable: set[str],
     unknown_readable: set[str],
-    available: set[str],
+    available: AbstractSet[str],
     *,
     session_tier: bool,
 ) -> NoReturn:
@@ -580,6 +589,72 @@ def _refuse_unknown_devices(
     raise HTTPException(status_code=400, detail=detail)
 
 
+async def _built_device_names(backend: QueueBackend) -> frozenset[str] | None:
+    """The names the worker's namespace holds, refetched only when they change.
+
+    ``devices_allowed`` returns the whole device tree — one entry per built
+    device, with its description — and a facility whose roster comes from its
+    channel authority ships thousands of them, so fetching it on every enqueue
+    would put a large, entirely redundant round trip in the add path. The
+    manager versions that tree itself: `devices_allowed_uid` moves whenever the
+    worker rebuilds the namespace, and it rides in the status document. So the
+    per-enqueue cost is a status read, and the tree is refetched only when the
+    uid says the cached names are no longer the worker's.
+
+    ``reload=True`` because the client caches status for ~0.5 s and, more to
+    the point, the SSE poller that would otherwise keep it warm runs only while
+    a subscriber is connected — an enqueue from an agent with no panel open
+    would read whatever the last subscriber left behind. The round trip is
+    bounded and subscriber-independent; the tree fetch it replaces is neither.
+
+    Returns the built names, or ``None`` when there is nothing certain to check
+    against: an unreadable status is not fatal (the uid is simply unknown and
+    the tree is fetched, exactly as before this cache existed), but an
+    unreadable or empty tree leaves the pre-check with no opinion at all.
+    """
+    global _devices_allowed_cache
+
+    uid: str | None = None
+    try:
+        status = await backend.status(reload=True)
+    except Exception as exc:
+        # Not a skip: an unknown uid only costs the fetch this cache saves.
+        logger.warning("device-list cache bypassed; manager status is unreadable: %s", exc)
+    else:
+        status_uid = status.get("devices_allowed_uid")
+        uid = status_uid if isinstance(status_uid, str) else None
+
+    cached = _devices_allowed_cache
+    if uid is not None and cached is not None and cached[0] == uid:
+        return cached[1]
+
+    try:
+        reply = await backend.devices_allowed()
+    except Exception as exc:
+        # Availability over the pre-check: the manager being unreachable is
+        # already reported by the add itself, and a convenience gate must not
+        # be the thing that refuses an enqueue.
+        logger.warning("device pre-check skipped; the worker's device list is unreadable: %s", exc)
+        return None
+
+    allowed = reply.get("devices_allowed")
+    if not isinstance(allowed, dict) or not allowed:
+        # A worker reporting no devices at all is a worker whose environment is
+        # not up yet, not a worker on which every name is wrong. Not cached:
+        # there is nothing here worth serving a later enqueue.
+        return None
+
+    built = frozenset(allowed)
+    # The tree's own uid names the tree that came back; the status uid only
+    # names what the manager held a moment earlier, so a rebuild racing this
+    # fetch would key the new names under the old uid.
+    reply_uid = reply.get("devices_allowed_uid")
+    key = reply_uid if isinstance(reply_uid, str) else uid
+    if key is not None:
+        _devices_allowed_cache = (key, built)
+    return built
+
+
 async def _check_devices_exist(backend: QueueBackend, plan_name: str, plan_args: Any) -> None:
     """Refuse the enqueue if it names a device the worker's namespace lacks.
 
@@ -599,6 +674,10 @@ async def _check_devices_exist(backend: QueueBackend, plan_name: str, plan_args:
     so nothing is loosened here and nothing is tightened. The two sets stay
     apart because the refusal sentence leads with a movable name when there is
     one; see `_refuse_unknown_devices`.
+
+    The names themselves come from `_built_device_names`, which keeps the
+    worker's device tree across enqueues and refetches it only when the
+    manager's `devices_allowed_uid` says it changed.
     """
     from .plan_loader import get_facility_plans
 
@@ -624,22 +703,10 @@ async def _check_devices_exist(backend: QueueBackend, plan_name: str, plan_args:
     if not movable and not readable:
         return
 
-    try:
-        reply = await backend.devices_allowed()
-    except Exception as exc:
-        # Availability over the pre-check: the manager being unreachable is
-        # already reported by the add itself, and a convenience gate must not
-        # be the thing that refuses an enqueue.
-        logger.warning("device pre-check skipped; the worker's device list is unreadable: %s", exc)
+    built = await _built_device_names(backend)
+    if built is None:
         return
 
-    allowed = reply.get("devices_allowed")
-    if not isinstance(allowed, dict) or not allowed:
-        # A worker reporting no devices at all is a worker whose environment is
-        # not up yet, not a worker on which every name is wrong.
-        return
-
-    built = set(allowed)
     unknown_movable = movable - built
     unknown_readable = readable - built
     if unknown_movable or unknown_readable:
