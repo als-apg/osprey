@@ -358,7 +358,10 @@ def live_endpoint():
         "-p",
         f"127.0.0.1:{port}:{port}/tcp",
         "-v",
-        f"{e2e_conftest.PRESET_SIM_DIR}:/data/simulation:ro",
+        f"{e2e_conftest.demo_data_dir()}:/data/simulation:ro",
+        # The namespace, named: the IOC refuses to boot without one rather
+        # than picking the framework's demo channels on its own.
+        *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
         e2e_conftest.IMAGE,
         timeout=120,
     )

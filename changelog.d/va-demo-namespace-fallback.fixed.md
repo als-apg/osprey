@@ -5,4 +5,7 @@ missing from the data tree, so an operator never drives a simulator quietly
 serving the framework's tutorial channels instead of the facility's own. A
 channel database that is present but cannot be read is reported by name at
 build time and contributes no channels; the build refuses only when no
-readable database remains.
+readable database remains. A hand-run virtual accelerator container given no
+channel manifest now refuses to start, naming the variable it needs, instead
+of quietly serving the demo namespace; the demo itself stays available by
+passing the packaged manifest explicitly, which the tutorial scripts do.

@@ -200,6 +200,7 @@ from osprey.services.virtual_accelerator.serving.pvdb import (  # noqa: E402
     ANALOG_PRECISION,
     BINARY_ENUM_STATES,
 )
+from tests.va.e2e import conftest as e2e_conftest  # noqa: E402
 
 # Floor for this module's own test count -- a guard against a refactor that
 # leaves the file importable but empty, which would otherwise pass silently.
@@ -215,7 +216,6 @@ CONTAINER_SEEDED = "osprey-va-e2e-parity"
 CONTAINER_TRUTH = "osprey-va-e2e-parity-truth"
 
 BOOT_TIMEOUT_S = 120.0
-DATA_DIR = "src/osprey/templates/apps/control_assistant/data/simulation"
 
 # Device ids claimed by this module alone. The rest of this directory works on
 # HCM 01-03; nothing here touches those, and nothing there touches these.
@@ -365,7 +365,6 @@ def _serving(prefix: str, *, seeded: bool):
     construction, and that number also names the container; see the module
     docstring for both.
     """
-    repository_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
     port = _free_port()
     name = f"{prefix}-{port}"
     # Stale-cleanup only. The port is this run's alone, so this can name
@@ -382,7 +381,10 @@ def _serving(prefix: str, *, seeded: bool):
         "-p",
         f"127.0.0.1:{port}:{port}/tcp",
         "-v",
-        f"{os.path.join(repository_root, DATA_DIR)}:/data/simulation:ro",
+        f"{e2e_conftest.demo_data_dir()}:/data/simulation:ro",
+        # The namespace, named: the IOC refuses to boot without one rather
+        # than picking the framework's demo channels on its own.
+        *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
     ]
     if seeded:
         arguments += ["-e", f"VA_BPM_ERRORS={VA_BPM_ERRORS}"]
