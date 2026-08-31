@@ -16,6 +16,13 @@
     "setpoint_count": 396,
     "machine_json_channel_count": 1036,
     "machine_json_novel_addresses": [],
+    "source_paradigms": [
+      "hierarchical",
+      "in_context",
+      "middle_layer"
+    ],
+    "absent_paradigms": [],
+    "corrupt_paradigms": [],
     "machine_state_reconciliation": {
       "candidates_checked": 6,
       "valid": [

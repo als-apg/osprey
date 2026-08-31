@@ -10,6 +10,7 @@ arrives.
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
@@ -27,9 +28,18 @@ from osprey.utils.dotenv import (
 
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
-    """A deployment repo whose build produced a channel manifest."""
+    """A deployment repo whose build produced a channel manifest.
+
+    The manifest carries a partition census because ``VA_LATTICE`` is DERIVED
+    from it: the built-in lattice moves pyat-coupled channels and nothing else,
+    so a manifest declaring some is what earns ``builtin`` here. A censusless
+    stub would be a manifest claiming no lattice, which is a different case and
+    is covered on its own in ``tests/cli/test_build_va_manifest_honesty.py``.
+    """
     (tmp_path / "build" / "data" / "simulation").mkdir(parents=True)
-    (tmp_path / "build" / "data" / "simulation" / MANIFEST_FILENAME).write_text('{"channels": []}')
+    (tmp_path / "build" / "data" / "simulation" / MANIFEST_FILENAME).write_text(
+        json.dumps({"_metadata": {"by_partition": {"pyat-coupled": 1}}, "channels": []})
+    )
     return tmp_path
 
 

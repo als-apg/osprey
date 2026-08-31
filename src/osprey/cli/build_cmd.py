@@ -1177,6 +1177,17 @@ class _SharedRenderInputs(NamedTuple):
     inputs that decide it, so a delta that *does* move either still gets its own.
     """
 
+    va_reported: set[tuple[str, int]]
+    """``(data root, tier)`` keys whose manifest outcome has already been reported.
+
+    The manifest is prepared once per key and every render sharing that key
+    reuses it, so what the virtual accelerator will actually serve is one fact
+    about the build rather than one per project. Kept apart from
+    :attr:`va_manifests` because the outcome is reported only by a render that
+    deploys the virtual accelerator, which need not be the render that prepared
+    the manifest.
+    """
+
     profile_overlays: tuple[Path, ...] = ()
     """Profile layers merged over EVERY profile this build resolves.
 
@@ -1344,6 +1355,121 @@ def _template_host_config(
         return _rendered_config(scratch_dir)
 
 
+def _named_in_prose(names: Sequence[str]) -> str:
+    """Join a NON-EMPTY *names* the way a sentence does: "a", "a and b",
+    "a, b and c". Both callers are guarded -- the manifest build refuses a tree
+    with no staged paradigm, and the absent list is only named when there is
+    one -- so an empty sequence never reaches here."""
+    names = list(names)
+    if len(names) == 1:
+        return names[0]
+    return f"{', '.join(names[:-1])} and {names[-1]}"
+
+
+def _report_va_manifest_outcome(
+    shared: _SharedRenderInputs,
+    build_profile: Any,
+    *,
+    data_root: Path,
+    tier: int,
+    prepared: Any,
+) -> None:
+    """Report the channel set a deployed virtual accelerator will serve.
+
+    A project's accelerator serves the project's own channels. It is built from
+    whatever paradigm channel databases the project's data tree stages, and
+    when the tree names no channels at all the build REFUSES: the alternative
+    is a container serving the framework's demo namespace while its operators
+    read their own facility's name on it, and for a control system that is
+    worse than failing the build. There is no third outcome, and in particular
+    no fallback.
+
+    Two facts, both once per ``(data root, tier)`` because that is the key the
+    prepared manifest is memoized under and one build renders the deployment
+    and every persona from the same tree: which databases fed the channel set
+    (which the tree did not stage, and which it staged but could not read), and
+    how the machine-state list reconciled against it.
+
+    Args:
+        shared: The build's shared render inputs, holding what has been said.
+        build_profile: The profile this render came from.
+        data_root: The ``data/`` tree this build sourced from.
+        tier: The build-resolved tier whose channel databases were expanded.
+        prepared: The prepared manifest, or ``None`` when the tree backs none.
+
+    Raises:
+        BuildProfileError: when a deployed virtual accelerator has no channels
+            of the project's to serve.
+    """
+    from osprey.services.virtual_accelerator.manifest.build import manifest_gap_reason
+
+    if not build_profile.deploy_services or build_profile.virtual_accelerator is None:
+        return
+    key = (str(data_root), tier)
+    if key in shared.va_reported:
+        return
+
+    if prepared is None:
+        raise BuildProfileError(
+            f"this deployment runs a virtual accelerator, but no channel manifest could "
+            f"be built from its data tree {data_root} at tier {tier}: "
+            f"{manifest_gap_reason(data_root, tier)}. The accelerator serves the "
+            f"project's own channels or the build stops here. Add what is named above to "
+            f"the data tree, or remove the `virtual_accelerator:` block from the profile."
+        )
+
+    shared.va_reported.add(key)
+    metadata = prepared.manifest["_metadata"]
+    fed = _named_in_prose(metadata["source_paradigms"])
+    absent = metadata["absent_paradigms"]
+    novel = metadata["machine_json_novel_addresses"]
+    from_databases = metadata["total_channels"] - len(novel)
+    # The tree is named by what it is rather than by its absolute path: the
+    # operator is being told what the accelerator will serve, not sent to a
+    # path they would have to retype.
+    line = (
+        f"Virtual-accelerator channel set built from this project's own data tree at "
+        f"tier {tier}: {from_databases} channel(s) from its {fed} channel database(s)"
+    )
+    if novel:
+        # Not all of the count came from the databases the sentence just named,
+        # and a scenario seed is a different kind of source from a channel
+        # database. Naming the file is what lets an operator find the addresses
+        # that exist nowhere else.
+        line += f", plus {len(novel)} address(es) seeded only by simulation/machine.json"
+    line += "."
+    if absent:
+        line += f" Not staged at that tier: {_named_in_prose(absent)}."
+    corrupt = metadata["corrupt_paradigms"]
+    if corrupt:
+        # A staged database that could not be read is neither absent nor a
+        # source: it contributed nothing to the count above, and the operator
+        # is handed the file rather than left to work out why the census is
+        # short a database they shipped.
+        line += " Staged but unreadable, contributing no channels: " + _named_in_prose(
+            [f"{entry['paradigm']} ({entry['path']}) -- {entry['detail']}" for entry in corrupt]
+        )
+        line += "."
+    if "hierarchical" not in metadata["source_paradigms"]:
+        # The one absence that changes what the accelerator can DO, so it is
+        # spelled out rather than left to be inferred from the list above: the
+        # hierarchical database is the only paradigm carrying a hierarchy path,
+        # and the identity keys read from it are what pair a setpoint with its
+        # readback and what every partition rule reads.
+        line += (
+            " Without a hierarchical database the channels carry no identity keys, so this"
+            " accelerator serves 0 setpoints, pairs no readback with a setpoint, and drives"
+            " every channel as static-noisy."
+        )
+    _report_fact(line)
+    reconciliation = metadata["machine_state_reconciliation"]
+    _report_fact(
+        "Virtual-accelerator machine-state channels reconciled against that channel set: "
+        f"{reconciliation['candidates_checked']} checked, "
+        f"{len(reconciliation['valid'])} valid, {len(reconciliation['invalid'])} invalid."
+    )
+
+
 def _render_project(
     shared: _SharedRenderInputs,
     resolved: Any,
@@ -1460,6 +1586,16 @@ def _render_project(
     if va_key not in shared.va_manifests:
         shared.va_manifests[va_key] = prepare_project_manifest(va_data_root, va_key[1])
     prepared_va_manifest = shared.va_manifests[va_key]
+    # Prepared unconditionally above (the memoization is the build's, not the
+    # virtual accelerator's); only what is SAID about it is gated on the
+    # virtual accelerator actually being deployed.
+    _report_va_manifest_outcome(
+        shared,
+        build_profile,
+        data_root=va_data_root,
+        tier=va_key[1],
+        prepared=prepared_va_manifest,
+    )
 
     # ``create_project``'s ``tier`` argument means "the tier the profile PINNED",
     # not "the tier to use": given ``None`` it applies the same paradigm-aware
@@ -2282,6 +2418,41 @@ def _render_container_projects(
     return contexts
 
 
+#: The ``VA_LATTICE`` value naming no lattice at all. Respelled from the
+#: container entrypoint's ``LATTICE_NONE`` for the reason
+#: ``manifest.standin_defaults`` respells ``LATTICE_BUILTIN``: that module pulls
+#: in the whole serving stack, which a build must not import. Pinned by test
+#: against the entrypoint's own.
+_VA_LATTICE_NONE = "none"
+
+
+def _manifest_has_lattice_channels(manifest_path: Path) -> bool:
+    """Whether a generated manifest carries channels the built-in lattice moves.
+
+    The PyAT model behind ``VA_LATTICE=builtin`` acts on the ``pyat-coupled``
+    partition and nothing else, so its presence in the manifest's own partition
+    census is the whole question. Read from the written file rather than passed
+    down from the render: this runs after the swap, on the tree that was
+    actually published, which is the manifest the container will mount.
+
+    Args:
+        manifest_path: The generated ``channel_manifest.json`` in the output zone.
+
+    Returns:
+        True when the manifest declares at least one pyat-coupled channel. False
+        when it declares none, and also when the file cannot be read as the
+        expected shape: a lattice is the claim that needs evidence, so an
+        unreadable census answers no rather than guessing yes.
+    """
+    from osprey.services.virtual_accelerator.manifest.classify import PARTITION_PYAT_COUPLED
+
+    try:
+        census = json.loads(manifest_path.read_text())["_metadata"]["by_partition"]
+    except (json.JSONDecodeError, KeyError, OSError, TypeError):
+        return False
+    return bool(census.get(PARTITION_PYAT_COUPLED))
+
+
 def _wire_build_derived_env(repo_root: Path, build_dir: Path) -> None:
     """Point the deployment's ``.env`` at the manifest this build generated.
 
@@ -2353,20 +2524,31 @@ def _wire_build_derived_env(repo_root: Path, build_dir: Path) -> None:
     # against its data mount, which is the directory the manifest was just
     # written into.
     #
-    # VA_LATTICE is stated rather than left to default, and stated
-    # unconditionally, because the entrypoint's default for a FILE-backed
-    # source is `none` — it assumes a facility manifest has no PyAT model
-    # behind it. A generated manifest is the other case: it is only ever built
-    # from a tree carrying the paradigm channel databases, whose machine is the
-    # lattice-backed one, so defaulting here would drop the physics bridge on
-    # exactly the projects that have a lattice to run.
+    # VA_LATTICE is DERIVED from that manifest rather than asserted, and the
+    # rule is the same one that governs the channel set itself: a project's
+    # accelerator runs on what the project actually has. `builtin` names the
+    # framework's PyAT model of the tutorial machine, which can only move
+    # channels the manifest classifies as pyat-coupled. A manifest carrying
+    # none of those has nothing for that model to steer, and asserting
+    # `builtin` over it would put a lattice behind a namespace it does not
+    # describe -- the physics half of the fallback this feature removed. So a
+    # manifest with pyat-coupled channels keeps `builtin`, and every other one
+    # gets `none`, which is also the entrypoint's own default for a
+    # file-backed source.
     #
-    # Written from `VA_LATTICE_DEFAULT` rather than a literal: that constant is
-    # DEFINED as the value an unpinned chain resolves to, and this line is the
-    # only thing that makes it so. `resolved_va_lattice` answers every reader
-    # from it — the stand-in's lattice refusal, the render, the archive seed —
-    # so a literal here is the one place their shared answer could be wrong.
-    entries = {"VA_CHANNELS_FILE": MANIFEST_FILENAME, VA_LATTICE_KEY: VA_LATTICE_DEFAULT}
+    # `builtin` is written from `VA_LATTICE_DEFAULT` because that constant is
+    # DEFINED as the value an unpinned chain resolves to, and `resolved_va_lattice`
+    # answers every reader from it: the stand-in's lattice refusal, the render,
+    # the archive seed. `none` has no such constant outside the container's
+    # entrypoint, which the build cannot import (it pulls in the whole serving
+    # stack), so it is respelled below and pinned by test against
+    # `entrypoint.LATTICE_NONE`.
+    entries = {
+        "VA_CHANNELS_FILE": MANIFEST_FILENAME,
+        VA_LATTICE_KEY: (
+            VA_LATTICE_DEFAULT if _manifest_has_lattice_channels(manifest) else _VA_LATTICE_NONE
+        ),
+    }
     result = append_profile_env(env_path, entries, BUILD_DERIVED_BANNER)
 
     if result.added:
@@ -2592,6 +2774,7 @@ def _build_repo(
             skip_deps=skip_deps,
             manager=TemplateManager(),
             va_manifests={},
+            va_reported=set(),
             profile_overlays=profile_overlays,
         )
 
