@@ -641,10 +641,22 @@ one explicitly.</p>
 </section>
 <section id="container-runtime-selection">
 <h2>Container Runtime Selection<a class="headerlink" href="#container-runtime-selection" title="Link to this heading">#</a></h2>
-<p>The runtime is auto-detected: if Docker’s daemon is reachable it is
-preferred, otherwise Podman is used. Force a specific runtime with the
-<code class="docutils literal notranslate"><span class="pre">CONTAINER_RUNTIME</span></code> environment variable or by setting
-<code class="docutils literal notranslate"><span class="pre">container_runtime:</span> <span class="pre">docker|podman|auto</span></code> at the root of <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p>
+<p>The runtime is chosen once, by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>, and recorded in
+<code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code> as <code class="docutils literal notranslate"><span class="pre">container_runtime:</span> <span class="pre">docker</span></code> or <code class="docutils literal notranslate"><span class="pre">podman</span></code>. With the
+default <code class="docutils literal notranslate"><span class="pre">container_runtime:</span> <span class="pre">auto</span></code> the build takes Docker when its daemon
+answers and Podman otherwise; an explicit <code class="docutils literal notranslate"><span class="pre">docker</span></code> or <code class="docutils literal notranslate"><span class="pre">podman</span></code> in the
+profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block is taken as written. Every later verb — <code class="docutils literal notranslate"><span class="pre">up</span></code>,
+<code class="docutils literal notranslate"><span class="pre">down</span></code>, <code class="docutils literal notranslate"><span class="pre">restart</span></code>, <code class="docutils literal notranslate"><span class="pre">reset</span></code>, the port preflight — reads the recorded
+runtime and talks only to it. If that runtime is not running, the verb refuses
+and says so; it never switches to the other runtime, because a stack started
+under Docker is invisible from Podman and a <code class="docutils literal notranslate"><span class="pre">down</span></code> served there would report
+it stopped while it keeps running.</p>
+<p>To move a deployment to the other runtime, stop it where it runs, then build
+again on the new runtime. <code class="docutils literal notranslate"><span class="pre">CONTAINER_RUNTIME=docker|podman</span></code> in the
+environment overrides the recorded value for one invocation; use it only for
+a stack you know runs there. When a host has both runtimes installed and
+<code class="docutils literal notranslate"><span class="pre">auto</span></code> skips one because its probe failed, the build logs a warning naming
+the probe.</p>
 <section id="supported-compose-providers">
 <span id="compose-provider-compatibility"></span><h3>Supported compose providers<a class="headerlink" href="#supported-compose-providers" title="Link to this heading">#</a></h3>
 <p>Choosing the runtime is only half the answer. Before it starts anything,
