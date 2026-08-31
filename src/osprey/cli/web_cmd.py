@@ -22,6 +22,7 @@ command serves.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import signal
 import socket
@@ -66,6 +67,99 @@ DECLARED_SESSION_LIFETIME_ENV = "OSPREY_TERMINAL_SESSION_LIFETIME"
 #: name the serving process reads. ``test_web_session_lifetime.py`` pins the two
 #: spellings equal so this copy cannot drift.
 DECLARED_SESSION_STORE_DIR_ENV = "OSPREY_TERMINAL_SESSION_STORE_DIR"
+#: The carrier for THIS user's audit directory. The multi-user compose sets it
+#: on every per-user web container (``docker-compose.web.yml.j2``) alongside the
+#: ``var/audit/<identity>`` bind mount it names, so the value is a real,
+#: host-visible, group-writable directory inside the container. Spelled
+#: literally for the same reason the carriers above are — this module keeps its
+#: ``osprey`` imports function-local — and deliberately read, never written,
+#: here: ``osprey web`` is a consumer of the deployment's declaration.
+AUDIT_DIR_ENV = "OSPREY_AUDIT_DIR"
+#: File name of the pre-flight refusal marker inside :data:`AUDIT_DIR_ENV`.
+#: Exported so ``osprey status`` reads the same name this writes instead of
+#: duplicating the literal; the format is deliberately trivial (line 1 = an
+#: ISO-8601 UTC timestamp, the rest = the refusal findings verbatim) so the
+#: reader needs no parser and no schema version.
+PREFLIGHT_REFUSED_MARKER = "preflight-refused"
+
+_LOGGER = logging.getLogger(__name__)
+
+
+def _preflight_marker_path() -> Path | None:
+    """Where this container's pre-flight refusal marker lives, or ``None``.
+
+    ``None`` means "nothing to record": no :data:`AUDIT_DIR_ENV` is declared,
+    which is the bare-laptop launch — no container, no supervisor restarting
+    the process, and so nobody downstream to explain a refusal to. Under
+    ``restart: unless-stopped`` the variable is always set, because the compose
+    that supervises the container is the same file that declares it.
+    """
+    declared = os.environ.get(AUDIT_DIR_ENV)
+    if not declared:
+        return None
+    return Path(declared) / PREFLIGHT_REFUSED_MARKER
+
+
+def _refusal_body(failures: list[str]) -> str:
+    """The refusal findings as the one bullet list both the report and the marker carry."""
+    return "\n".join(f"- {finding}" for finding in failures)
+
+
+def _write_preflight_marker(body: str) -> None:
+    """Record a pre-flight refusal for ``osprey status`` to render.
+
+    A supervised container that refuses pre-flight exits 1 and is restarted, so
+    the refusal text scrolls past in a log nobody is tailing and the only
+    outward sign is a service flapping. This marker is the durable half of that
+    story: ``osprey status`` turns it into a "restarting (pre-flight: ...)" row.
+
+    Rewritten in full on every attempt rather than appended to — each restart
+    re-runs pre-flight, and the operator needs to know what is failing *now*,
+    not the archaeology of every attempt since the deploy.
+
+    Strictly advisory. An audit directory that is absent, root-owned or on a
+    read-only mount must not turn one honest failure into a second, more
+    confusing one, so every filesystem error here is logged and swallowed; the
+    caller goes on to report the refusal and exit as it would have anyway.
+    """
+    marker = _preflight_marker_path()
+    if marker is None:
+        _LOGGER.debug("no %s declared; skipping pre-flight refusal marker", AUDIT_DIR_ENV)
+        return
+
+    from datetime import UTC, datetime
+
+    # `osprey status` reads this file from the host while a supervised container
+    # rewrites it on every restart attempt; swap it in whole so a concurrent
+    # reader never sees a truncated timestamp line.
+    staging = marker.with_name(marker.name + ".tmp")
+    try:
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        staging.write_text(f"{datetime.now(UTC).isoformat()}\n{body}\n", encoding="utf-8")
+        os.replace(staging, marker)
+    except OSError as e:
+        _LOGGER.debug("could not write pre-flight refusal marker %s: %s", marker, e)
+
+
+def _clear_preflight_marker() -> None:
+    """Remove a marker left by an earlier refusal, now that pre-flight passed.
+
+    Called ONLY on a real pass. ``--skip-preflight`` deliberately leaves any
+    marker standing: it forces past checks it never re-ran, so clearing there
+    would erase the record of the very refusal the operator is overriding while
+    the underlying fault is still present. The staleness that costs — a marker
+    outliving the refusal it describes — is bounded on the reading side, where
+    ``osprey status`` ignores markers older than the container's ``StartedAt``.
+
+    Swallows filesystem errors for the same reason the writer does.
+    """
+    marker = _preflight_marker_path()
+    if marker is None:
+        return
+    try:
+        marker.unlink(missing_ok=True)
+    except OSError as e:
+        _LOGGER.debug("could not clear pre-flight refusal marker %s: %s", marker, e)
 
 
 def resolve_bind_host(
@@ -942,12 +1036,19 @@ def web(
         for warning in warnings:
             output.warn(warning)
         if failures:
+            # Record BEFORE the exit, not after the report: under container
+            # supervision this process is about to be killed and restarted, and
+            # the marker is the only thing that survives to tell `osprey status`
+            # why the service is flapping.
+            body = _refusal_body(failures)
+            _write_preflight_marker(body)
             output.fail(
                 "Pre-flight checks failed",
-                "\n".join(f"- {finding}" for finding in failures),
+                body,
                 "fix the findings above, or pass --skip-preflight to start anyway",
             )
             raise SystemExit(1)
+        _clear_preflight_marker()
 
     if detach:
         _start_detached(host, port, user_shell_override, repo_root)
