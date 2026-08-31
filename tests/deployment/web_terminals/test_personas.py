@@ -180,6 +180,32 @@ def test_normalize_users_drops_non_string_theme() -> None:
     assert result == [{"name": "alice", "index": 0}]
 
 
+def test_normalize_users_carries_string_tour_through() -> None:
+    """An object entry's string `tour` (onboarding-tour invite policy) is
+    carried onto the normalized entry on the same terms as `theme`."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "tour": "always"}]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert
+    assert result == [{"name": "alice", "index": 0, "tour": "always"}]
+
+
+def test_normalize_users_drops_non_string_tour() -> None:
+    """A non-string `tour` (a config typo) is dropped defensively; the rest of
+    a well-formed entry still normalizes."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "tour": True}]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert — entry survives (name/index valid), tour omitted
+    assert result == [{"name": "alice", "index": 0}]
+
+
 def test_normalize_users_carries_display_name_and_theme_together() -> None:
     """The two optional per-user fields are independent — declaring both keeps
     both."""
@@ -788,6 +814,25 @@ def test_resolve_personas_exposes_theme_when_set() -> None:
             "theme": "desy-light",
         }
     ]
+
+
+def test_resolve_personas_exposes_tour_when_set() -> None:
+    """A roster entry's `tour` is threaded onto the resolved svc dict (the
+    render emits it as OSPREY_WEB_TOUR); entries without one carry no key."""
+    # Arrange
+    web_terminals = {
+        "users": [
+            {"name": "alice", "index": 0, "tour": "always"},
+            {"name": "bob", "index": 1},
+        ]
+    }
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result[0]["tour"] == "always"
+    assert "tour" not in result[1]
 
 
 def test_resolve_personas_theme_threads_through_persona_branch() -> None:

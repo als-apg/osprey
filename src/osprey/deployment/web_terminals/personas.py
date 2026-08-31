@@ -993,6 +993,12 @@ def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
     web terminal resolves it at startup and warns+falls back on an unknown one,
     and lint reports a non-string separately.
 
+    An object entry's optional ``tour`` (that user's onboarding-tour invite
+    policy -- ``once``, ``always`` or ``never``, surfaced downstream as the
+    per-user ``OSPREY_WEB_TOUR``) is carried through on the same terms as
+    ``theme``, with the same division of labour: the web terminal owns the
+    vocabulary and warns+falls back on an unknown value.
+
     An object entry's optional ``oidc_subject`` (the value of the configured OIDC
     claim -- ``sub`` by default -- that identifies this roster user at the IdP) is
     carried through on the same terms, with one deliberate difference: an *empty*
@@ -1060,6 +1066,13 @@ def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
                 theme = entry.get("theme")
                 if isinstance(theme, str):
                     normalized_entry["theme"] = theme
+                # Per-user onboarding-tour invite policy (once/always/never),
+                # carried on the same terms as `theme`: surfaced downstream as
+                # OSPREY_WEB_TOUR, and the web terminal warns + falls back on
+                # an unknown value, so only the type is checked here.
+                tour = entry.get("tour")
+                if isinstance(tour, str):
+                    normalized_entry["tour"] = tour
                 oidc_subject = entry.get("oidc_subject")
                 if isinstance(oidc_subject, str) and oidc_subject:
                     normalized_entry["oidc_subject"] = oidc_subject
@@ -2015,12 +2028,12 @@ def resolve_personas(
         ``seed_base`` (a bool; anything else is defensively coerced to
         ``True``), and always ``True`` for the zero-migration / lenient-degrade
         paths — it controls whether the shared base context is prepended when
-        seeding this entry's ``CLAUDE.md``. Optional ``"display_name"`` and
-        ``"theme"`` keys are added — carried through from
+        seeding this entry's ``CLAUDE.md``. Optional ``"display_name"``,
+        ``"theme"`` and ``"tour"`` keys are added — carried through from
         :func:`normalize_users` — only when the entry declared a non-empty string
-        one (render emits them as ``OSPREY_WEB_APP_NAME`` and
-        ``OSPREY_WEB_THEME``); each is omitted entirely otherwise, so a roster
-        declaring neither resolves byte-identically to before these fields
+        one (render emits them as ``OSPREY_WEB_APP_NAME``, ``OSPREY_WEB_THEME``
+        and ``OSPREY_WEB_TOUR``); each is omitted entirely otherwise, so a roster
+        declaring none resolves byte-identically to before these fields
         existed. An optional ``"oidc_subject"`` key rides through on the same
         terms, so the auth sidecar's roster→identity mapping is read off the same
         resolved entry as everything else rather than re-derived from the raw
@@ -2089,7 +2102,7 @@ def resolve_personas(
         render.py's conditional-``sublabel`` convention: a key is present only
         for a non-empty string, so a roster declaring none leaves the entry
         byte-identical to a resolution from before these fields existed."""
-        for field in ("display_name", "theme", "oidc_subject"):
+        for field in ("display_name", "theme", "tour", "oidc_subject"):
             value = source.get(field)
             if isinstance(value, str) and value:
                 entry[field] = value
