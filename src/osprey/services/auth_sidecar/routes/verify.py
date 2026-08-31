@@ -233,12 +233,23 @@ async def verify(
         # holder of the signing secret could have put a tag there in the first
         # place — a session that survives that check has already proved more
         # than the tag could.
-        stored = settings.password_hash(username)
+        # On a shared card the session's tag was minted from the *opener's*
+        # hash, so that is the hash the tag is checked against; the card's own
+        # hash — which may exist as a stale leftover from before the card was
+        # shared — is deliberately not consulted. On an own card the opener is
+        # empty and the owner is the username itself, unchanged.
+        hash_owner = entry.opener or username
+        stored = settings.password_hash(hash_owner)
         if stored is None:
             # A roster user with no provisioned credential. An individual
             # denial, not a deployment-wide fault: the other users still
-            # authenticate, so this is a 401 rather than the guard's 503.
-            return _deny(username, "user has no stored credential")
+            # authenticate, so this is a 401 rather than the guard's 503. Two
+            # reasons, one per fault, so the log names whose credential is
+            # missing — the card's own, or its opener's (which also covers an
+            # opener taken off the roster: the hashes are roster-scoped).
+            if hash_owner == username:
+                return _deny(username, "user has no stored credential")
+            return _deny(username, "the opener has no stored credential")
 
         if not verify_generation_tag(entry.generation_tag, stored):
             # A tag that no longer matches means the password was rotated under

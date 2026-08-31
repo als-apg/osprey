@@ -14,7 +14,8 @@ The matrix, one row per posture:
 method               subject                                role                   source
 ===================  =====================================  =====================  ==========
 ``none``             — (no session is minted)               — (no login events)    — (none)
-``password``         the roster username                    the roster ``role:``   ``roster``
+``password``         the roster username, or the opener     the roster ``role:``   ``roster``
+                     on a shared card
 ``oidc``, unbound    the asserted IdP subject               the roster ``role:``   ``roster``
 ``oidc``, bound      the asserted IdP subject               the claim's role,      ``claim``
                                                             cross-checked
@@ -439,20 +440,24 @@ def session_subject(*, method: str, username: str, entry: UnlockedUser | None) -
     account this login never asserted.
 
     Written as "not OIDC" so the fallback branch is the one naming an identity
-    this service verified itself, never a stored claim.
+    this service verified itself, never a stored claim. On a shared card that
+    identity is the entry's ``opener`` — the roster user whose password proved
+    the login — so the header names who opened the card, not the card itself.
 
     Args:
         method: The deployment's auth method.
         username: The roster user this subrequest authorized, already checked
             against the roster and byte-identical to the entry's own username.
-        entry: The unlocked entry, or ``None`` on the defensive path.
+        entry: The unlocked entry — carrying the opener on a shared card — or
+            ``None`` on the defensive path.
 
     Returns:
-        The subject to report, or ``""`` when this session names no account.
+        The subject to report — the opener, on a shared card — or ``""`` when
+        this session names no account.
     """
     if method == METHOD_OIDC:
         return entry.oidc_subject if entry is not None else ""
-    return username
+    return entry.opener if entry is not None and entry.opener else username
 
 
 def session_role(*, method: str, entry: UnlockedUser | None) -> str:
