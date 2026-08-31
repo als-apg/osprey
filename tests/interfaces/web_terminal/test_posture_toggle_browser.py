@@ -386,6 +386,14 @@ def _pty_pid(app: Any, session_id: str) -> int:
     return pid
 
 
+#: Seeded into every page before load: marks the onboarding tour as already
+#: dismissed. Under the default `once` policy the invite card (scrim + modal)
+#: would otherwise overlay the shell on the fresh profile these tests run
+#: under and swallow every chip and popover click this suite drives. The tour
+#: has its own dedicated coverage (tour.test.mjs).
+_DISMISS_TOUR = "try { localStorage.setItem('osprey-tour-dismissed-v1', '1') } catch (e) {}"
+
+
 def _row(page: Page, target: str) -> Any:
     """The popover row for *target*.
 
@@ -426,6 +434,7 @@ def _settled_chip(
         (page, session_id, pty_pid).
     """
     page = browser.new_page()
+    page.add_init_script(_DISMISS_TOUR)
     page.goto(base_url, wait_until="domcontentloaded")
 
     expect(page.locator(CHIP)).to_be_visible(timeout=TIMEOUT)
@@ -711,6 +720,7 @@ def test_an_unstarted_session_accepts_a_narrowing_the_moment_it_opens(
         # Deliberately NOT _settled_chip: that helper makes the session
         # addressable, and working WITHOUT that fact is the case.
         page = chromium_browser.new_page()
+        page.add_init_script(_DISMISS_TOUR)
         page.goto(base_url, wait_until="domcontentloaded")
         try:
             expect(page.locator(CHIP)).to_be_visible(timeout=TIMEOUT)

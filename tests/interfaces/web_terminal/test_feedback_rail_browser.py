@@ -1,6 +1,6 @@
 """Browser tests: where the rail's utility cluster actually lands.
 
-``#panel-utility`` (Documentation + Feedback) is pinned to the far end of the
+``#panel-utility`` (Documentation + Feedback + Tour) is pinned to the far end of the
 rail by nothing but ``margin-top: auto`` in the left column and
 ``margin-left: auto`` under a top rail — ``.panel-rail`` has no ``flex: 1``, so
 those two declarations are the whole mechanism. A stylesheet edit that drops
@@ -256,7 +256,7 @@ def test_utility_labels_fit_their_cells_uncut(tmp_path, chromium_browser):
             page = _open_hub_page(chromium_browser, url)
             try:
                 labels = page.locator("#panel-utility .panel-utility-label")
-                assert labels.count() == 2, "the cluster lost a label"
+                assert labels.count() == 3, "the cluster lost a label"
 
                 overflow = page.evaluate(
                     "() => Array.from("
