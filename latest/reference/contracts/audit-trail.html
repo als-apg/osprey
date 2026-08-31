@@ -604,7 +604,8 @@ the MCP server and the Python executor all spell it the same way)</p></td>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">detail</span></code></p></td>
 <td><p>Surface-specific context: for a protected-set refusal, the file the
 write was aimed at (<code class="docutils literal notranslate"><span class="pre">target=</span></code>) and the channel that owns it, named
-the same way the refusal message names it</p></td>
+the same way the refusal message names it; on the web surfaces, the
+login the request came from — see <a class="reference internal" href="#audit-trail-identity-keys"><span class="std std-ref">The login behind the record</span></a></p></td>
 </tr>
 </tbody>
 </table>
@@ -622,6 +623,56 @@ unreachable activity feed degrades the trail and never turns a refusal into
 a server error — an error that reads like the gate malfunctioned is the one
 shape an operator could mistake for a gate that failed open.</p>
 </div>
+<section id="the-login-behind-the-record">
+<span id="audit-trail-identity-keys"></span><h3>The login behind the record<a class="headerlink" href="#the-login-behind-the-record" title="Link to this heading">#</a></h3>
+<p>Where a deployment has a login wall, the two web surfaces —
+<code class="docutils literal notranslate"><span class="pre">http_mutation.jsonl</span></code> and <code class="docutils literal notranslate"><span class="pre">web_auth.jsonl</span></code> — record who the request came
+from in <code class="docutils literal notranslate"><span class="pre">detail</span></code>, as up to three keys. Which of them are present is itself
+part of the message:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 75.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>What it holds</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">account=</span></code></p></td>
+<td><p>The roster account the request is on — the card named in the URL, and
+the name the login service checked the session against. Present on
+every record where the request carried a login at all</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">expected_account=</span></code></p></td>
+<td><p>The account this container serves, written <strong>only when the forwarded
+account is not it</strong>. Its presence is the whole signal: one person’s
+authorization arrived at another person’s container. A request on the
+right card never writes the key. The same case logs a warning, and it
+is recorded rather than refused</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">oidc_subject=</span></code></p></td>
+<td><p>Who proved the login, as the provider asserted it — an opaque id or an
+email. Written only where that differs from the account, so a password
+deployment never sees this key, and a shared card records the person
+beside the card they opened</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Two forwarded headers carry that from the login service through nginx:
+<code class="docutils literal notranslate"><span class="pre">X-Osprey-Auth-Account</span></code> names the card, <code class="docutils literal notranslate"><span class="pre">X-Osprey-Auth-Subject</span></code> names the
+login that proved it. Under <code class="docutils literal notranslate"><span class="pre">auth.method:</span> <span class="pre">password</span></code> they hold the same value,
+because the roster username <em>is</em> the proof; under <code class="docutils literal notranslate"><span class="pre">oidc</span></code> they part, and only
+the account is a name a container can compare itself against.</p>
+<p>A deployment that pins an older login-service image with <code class="docutils literal notranslate"><span class="pre">auth.image</span></code> gets no
+account header. The container then falls back to comparing the subject, as it
+did before this release. Where the mapped subject is not the roster name — an
+opaque <code class="docutils literal notranslate"><span class="pre">sub</span></code> or an email, the usual case — it never matches, so
+<code class="docutils literal notranslate"><span class="pre">expected_account=</span></code> and a warning ride every audited request. Building against
+this release’s image is what clears it.</p>
+</section>
 </section>
 <section id="who-can-read-it">
 <h2>Who can read it<a class="headerlink" href="#who-can-read-it" title="Link to this heading">#</a></h2>
@@ -715,7 +766,10 @@ be the file that grows.</p>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#files-by-surface">Files, by surface</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-record">The record</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-record">The record</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-login-behind-the-record">The login behind the record</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#who-can-read-it">Who can read it</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-trail-is-not">What the trail is not</a></li>
 </ul>
