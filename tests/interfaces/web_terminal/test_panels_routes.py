@@ -126,6 +126,7 @@ def test_project_key_does_not_disturb_existing_fields(tmp_path):
         "feedback_email",
         "config_panel_enabled",
         "scaffold_write_enabled",
+        "tour",
     }
 
 
