@@ -42,7 +42,7 @@
       could not bind. render.py follows the same value into `external_origin`
       and into the perimeter deny list, so the listener, the render-time links
       and the deny-list are one number and not three.
-    tls_default_port: int, required (render.py's TLS_LISTEN_PORT, 443)
+    https_default_port: int, required (render.py's _HTTPS_DEFAULT_PORT, 443)
       The port a browser already goes to for an `https://` URL with no port in
       it. At that port the redirect below stays a bare `$host`; on any other
       port the redirect must name it (`$host:<tls_port>`), or the bounce lands
@@ -401,7 +401,7 @@ server {
     # sanitizing next door.
     access_log /dev/stdout osprey_sanitized;
 
-    return 301 https://$host{% if tls_port != tls_default_port %}:{{ tls_port }}{% endif %}$request_uri;
+    return 301 https://$host{% if tls_port != https_default_port %}:{{ tls_port }}{% endif %}$request_uri;
 }
 {% endif %}
 server {
