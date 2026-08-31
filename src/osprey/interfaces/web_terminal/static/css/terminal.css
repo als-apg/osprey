@@ -435,9 +435,15 @@ osprey-display-menu .display-menu-logout-icon {
   opacity: 0.72;
 }
 
-/* The short label — derived from the target's own kind and label, never the
-   raw target name, so the chip cannot grow with a long deployment string. */
+/* The machine's name — the kind's own word (Real machine, Rehearsal,
+   Simulator, Demo) or the deployment's configured display name. A configured
+   name is free text, so the chip caps it with an ellipsis rather than letting
+   one long name push the header's other actions off screen; the full name
+   stays on the chip's title. */
 .ctc-short {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-weight: var(--weight-medium);
   letter-spacing: 0.04em;
   color: var(--text-primary);
@@ -593,16 +599,162 @@ osprey-display-menu .display-menu-logout-icon {
   animation: ctc-menu-in var(--wt-transition-fast);
 }
 
-.ctc-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-2);
-  padding: 0 2px 6px;
-  border-bottom: 1px solid var(--border-default);
+/* The one abnormal banner across the top. Absent in the plain case — absence
+   is the good news — and worded in control-target-facts.js, whose bannerNote
+   picks the widest abnormal fact about the session. */
+.ctc-banner {
+  padding: 6px 8px;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  border-radius: var(--radius-sm);
 }
 
-.ctc-head-title {
+.ctc-banner[data-tone="warn"] {
+  color: var(--color-warning);
+  background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+}
+
+.ctc-banner[data-tone="error"] {
+  color: var(--color-error);
+  background: var(--error-tint-08);
+}
+
+/* ---- The card: the machine the agent stands on ----
+
+   "Where am I" is the first thing read, so it is not the middle row of an
+   equal list: it is a card, with the name, the consequence line, the write
+   state, and the one verb that changes it. The accent tint is the same one
+   the old active row wore — quiet, not a warning. */
+.ctc-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  row-gap: 3px;
+  column-gap: 10px;
+  align-items: center;
+  padding: 9px 10px 10px;
+  background: var(--accent-tint-04);
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius-md);
+}
+
+.ctc-card-eyebrow {
+  grid-column: 1 / -1;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--color-accent-light);
+}
+
+.ctc-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+}
+
+.ctc-card-title .ctc-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ctc-card-verb {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.ctc-card > .ctc-desc,
+.ctc-card-state,
+.ctc-card > .ctc-outcome {
+  grid-column: 1 / -1;
+}
+
+/* The consequence line under a name: what writing to this machine does.
+   Wording in control-target-facts.js (KIND_DESCRIPTORS); the live machine's
+   line carries the error tone because it is the one sentence in the popover
+   that names hardware moving. */
+.ctc-desc {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ctc-desc[data-tone="hazard"] {
+  color: var(--color-error);
+}
+
+.ctc-card-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+/* The state phrase: on takes the colour of what a write here would mean (the
+   error tone on a real machine, success on a simulator), off is the warning
+   the operator can lift, locked stays muted — no gesture here moves it. */
+.ctc-card[data-real="true"] .ctc-state-phrase[data-state="writes"] {
+  color: var(--color-error);
+}
+
+.ctc-card[data-real="false"] .ctc-state-phrase[data-state="writes"] {
+  color: var(--color-success);
+}
+
+.ctc-state-phrase[data-state="sandbox"] {
+  color: var(--color-warning);
+}
+
+.ctc-state-phrase[data-state="read-only"] {
+  color: var(--text-muted);
+}
+
+.ctc-state-note {
+  color: var(--text-muted);
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
+/* The reachability exception. "Connected" is never rendered — the only
+   reachability fact that changes a decision is that a machine is not
+   answering, and the measured detail stays on the title. */
+.ctc-reach-word {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.ctc-reach-word[data-state="down"] {
+  color: var(--color-error);
+}
+
+.ctc-reach-word[data-state="stale"] {
+  color: var(--color-warning);
+}
+
+/* ---- The other machines ----
+
+   Four columns owned by the list, subgridded per row so the pills and verbs
+   line up as columns: who it is and what writing there means, the state pill,
+   the verb that changes it, and Switch to. */
+.ctc-list-title {
+  padding: 2px 2px 0;
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   font-weight: var(--weight-medium);
@@ -611,46 +763,19 @@ osprey-display-menu .display-menu-logout-icon {
   color: var(--text-muted);
 }
 
-/* The right of the head is empty in the plain case and only fills when the
-   session is not plain — nothing enforceable behind it, a readonly run, an
-   execution in flight. Absence is the good news. */
-.ctc-head-note {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  letter-spacing: 0.02em;
-  color: var(--text-muted);
-}
-
-.ctc-head-note[data-tone="warn"] {
-  color: var(--color-warning);
-}
-
-.ctc-head-note[data-tone="error"] {
-  color: var(--color-error);
-}
-
-/* Four columns: the dot, who the target is, the posture this session holds on
-   it, and the one action available. Status and action stay in separate
-   columns — reading the popover and changing it are different gestures.
-
-   The COLUMNS belong to the list, not to the row: `.ctc-rows` owns the track
-   sizing and each row subgrids into it, so the posture and action columns
-   share one width across every row and the toggles line up as a column
-   instead of ragged per-row boxes. */
 .ctc-rows {
   display: grid;
-  grid-template-columns: 10px minmax(0, 1fr) max-content max-content;
-  column-gap: 10px;
+  grid-template-columns: minmax(0, 1fr) max-content max-content max-content;
+  column-gap: 8px;
 }
 
 .ctc-row {
   display: grid;
   grid-template-columns: subgrid;
   grid-column: 1 / -1;
-  /* Start, not center: the toggle and Switch align with the row's first
-     (label) line, and stay put when a row grows an outcome line below it. */
-  align-items: start;
-  padding: 8px 2px;
+  align-items: center;
+  min-height: 40px;
+  padding: 4px 2px;
   border-bottom: 1px solid var(--border-default);
 }
 
@@ -658,41 +783,21 @@ osprey-display-menu .display-menu-logout-icon {
   border-bottom: 0;
 }
 
-/* The row this session is on, bled past the popover's padding so the tint
-   reads as a highlighted row rather than an inset card. The -6px/8px pair
-   nets to the 2px inset every other row has, and subgrid keeps that
-   arithmetic: a subgridded row's own margin and padding are taken out of its
-   edge tracks, so the content still lands on the shared columns. */
-.ctc-row[data-active="true"] {
-  margin: 0 -6px;
-  padding-left: 8px;
-  padding-right: 8px;
-  background: var(--accent-tint-04);
-  border-radius: var(--radius-md);
-}
-
-/* The dot aligns with the name line, not with the middle of a three-line
-   identity block. */
-.ctc-row > .ctc-dot {
-  align-self: start;
-  margin-top: 5px;
-}
-
 .ctc-ident {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
-.ctc-name {
+.ctc-name-line {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
 }
 
-.ctc-label {
+.ctc-name {
   color: var(--text-primary);
   font-weight: var(--weight-medium);
   white-space: nowrap;
@@ -700,114 +805,111 @@ osprey-display-menu .display-menu-logout-icon {
   text-overflow: ellipsis;
 }
 
-.ctc-row[data-target-kind="simulated"] .ctc-label {
+/* A simulator is the unremarkable case: it drops to the secondary weight so
+   the eye skips it, exactly as the chip's short label does. */
+.ctc-row[data-target-kind="va"] .ctc-name,
+.ctc-row[data-target-kind="simulated"] .ctc-name {
   color: var(--text-secondary);
   font-weight: var(--weight-regular);
 }
 
-.ctc-tag {
-  padding: 1px 5px;
-  font-family: var(--font-mono);
-  font-size: var(--text-2xs);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-xs);
-}
-
-.ctc-tag-current {
-  color: var(--color-accent-light);
-  border-color: var(--border-accent);
-  background: var(--accent-tint-08);
-}
-
-.ctc-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: nowrap;
-  min-width: 0;
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-}
-
-.ctc-endpoint {
-  white-space: nowrap;
-}
-
-.ctc-role,
-.ctc-baseline {
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-
-.ctc-role::before,
-.ctc-baseline::before {
-  content: "·";
-  margin-right: 8px;
-}
-
-/* Reachability, as the prober last saw it. The LED is the constant; the word
-   and the age beside it are what simple mode drops. */
-.ctc-reach {
+/* The state pill: the same colour map as the card's state phrase. */
+.ctc-pill {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  white-space: nowrap;
+  height: 18px;
+  padding: 0 7px;
   font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-}
-
-.ctc-reach-dot {
-  width: 6px;
-  height: 6px;
-  flex-shrink: 0;
-  background: var(--text-muted);
-  border: 1px solid var(--text-muted);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
   border-radius: var(--radius-full);
+  white-space: nowrap;
 }
 
-.ctc-reach[data-state="reached"] .ctc-reach-dot {
-  background: var(--color-success);
-  border-color: var(--color-success);
-}
-
-.ctc-reach[data-state="down"] {
+.ctc-row[data-real="true"] .ctc-pill[data-state="writes"] {
   color: var(--color-error);
+  background: var(--error-tint-10);
 }
 
-.ctc-reach[data-state="down"] .ctc-reach-dot {
-  background: var(--color-error);
-  border-color: var(--color-error);
+.ctc-row[data-real="false"] .ctc-pill[data-state="writes"] {
+  color: var(--color-success);
+  background: var(--success-tint-08);
 }
 
-.ctc-reach[data-state="stale"] {
+.ctc-pill[data-state="sandbox"] {
   color: var(--color-warning);
+  background: color-mix(in srgb, var(--color-warning) 10%, transparent);
 }
 
-.ctc-reach[data-state="stale"] .ctc-reach-dot {
-  background: var(--color-warning);
+.ctc-pill[data-state="read-only"] {
+  color: var(--text-muted);
+  background: var(--neutral-tint-06);
+}
+
+/* ---- Verbs ----
+
+   Named for their outcome, so the asymmetry — off applies on click, on
+   confirms first — is visible before the click. Locked, the verb stays on
+   screen, disabled, with the reason on hover: the gap where the control would
+   be is explained rather than merely empty. */
+.ctc-verb,
+.ctc-card-verb {
+  height: 22px;
+  padding: 0 10px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast),
+    background var(--wt-transition-fast);
+}
+
+/* Row verbs are quiet — the pill beside them already carries the state. */
+.ctc-verb {
+  color: var(--text-muted);
+  border-color: transparent;
+  padding: 0 4px;
+}
+
+.ctc-verb:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+/* The card's verb is the popover's one prominent control. Off hovers to the
+   warning it applies; on hovers to the error tone the confirm will carry. */
+.ctc-card-verb {
+  color: var(--text-secondary);
+}
+
+.ctc-card-verb[data-direction="off"]:hover:not(:disabled) {
+  color: var(--color-warning);
   border-color: var(--color-warning);
 }
 
-/* Never probed: a hollow LED, the same "nothing is holding this" shape the
-   target dot uses for read-only. */
-.ctc-reach[data-state="unknown"] .ctc-reach-dot {
-  background: transparent;
+.ctc-card-verb[data-direction="on"],
+.ctc-verb[data-direction="on"]:not(:disabled) {
+  color: var(--color-error);
 }
 
-/* A target reachability does not apply to loses the LED entirely rather than
-   showing an unlit one, which would read as "down" — but keeps its box, so
-   the reach text starts on the same column as every other row's. */
-.ctc-reach[data-state="not_applicable"] .ctc-reach-dot {
-  visibility: hidden;
+.ctc-card-verb[data-direction="on"]:hover:not(:disabled) {
+  border-color: var(--error-tint-40);
+  background: var(--error-tint-08);
 }
 
-/* What the last switch or posture request on this row did. Feedback, so it
-   survives into simple mode unchanged. */
+.ctc-verb:disabled,
+.ctc-card-verb:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* What the last switch or write-state request on this row did. */
 .ctc-outcome {
   margin-top: 2px;
   font-family: var(--font-mono);
@@ -832,93 +934,12 @@ osprey-display-menu .display-menu-logout-icon {
   color: var(--color-warning);
 }
 
-/* ---- Posture toggle (column 3) ----
+/* ---- Switch (column 4) ----
 
-   Two named segments rather than a switch, so the row says what it is as well
-   as what it would become. */
-.ctc-posture {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 3px;
-}
-
-.ctc-toggle {
-  display: inline-flex;
-  overflow: hidden;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-}
-
-.ctc-seg {
-  height: 22px;
-  padding: 0 9px;
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-  transition: color var(--wt-transition-fast), background var(--wt-transition-fast);
-}
-
-.ctc-seg + .ctc-seg {
-  border-left: 1px solid var(--border-default);
-}
-
-.ctc-seg:hover:not(:disabled) {
-  color: var(--text-primary);
-  background: var(--neutral-tint-06);
-}
-
-.ctc-seg[aria-pressed="true"] {
-  color: var(--text-primary);
-  background: var(--neutral-tint-12);
-}
-
-/* Pressed `writes` takes the colour of what a write there would mean: the
-   error tone on a real machine, the success tone on the simulator, where
-   writing is simply the tool working. */
-.ctc-row[data-real="true"] .ctc-seg[data-seg="writes"][aria-pressed="true"] {
-  color: var(--color-error);
-  background: var(--error-tint-10);
-}
-
-.ctc-row[data-real="false"] .ctc-seg[data-seg="writes"][aria-pressed="true"] {
-  color: var(--color-success);
-  background: var(--success-tint-08);
-}
-
-.ctc-seg[data-seg="read-only"][aria-pressed="true"] {
-  color: var(--color-warning);
-}
-
-/* Locked: the toggle still shows which state holds — it is the readout too —
-   and only loses its affordance. The reason sits under it. */
-.ctc-toggle[data-locked="true"] {
-  opacity: 0.45;
-}
-
-.ctc-toggle[data-locked="true"] .ctc-seg {
-  cursor: not-allowed;
-}
-
-.ctc-lock {
-  font-family: var(--font-mono);
-  font-size: var(--text-2xs);
-  letter-spacing: 0.04em;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-
-/* ---- Action (column 4) ----
-
-   Either a Switch button or, where a button cannot be, the tool's own refusal
-   word in its place — so the gap where the action would be is explained
-   rather than merely empty. */
+   Either the button or, where a switch cannot be offered, the tool's own
+   refusal in the operator phrase — so the gap where the action would be is
+   explained rather than merely empty, and never in a vocabulary only the
+   tool speaks. */
 .ctc-action {
   min-width: 64px;
   display: flex;
@@ -956,9 +977,9 @@ osprey-display-menu .display-menu-logout-icon {
   background: var(--error-tint-08);
 }
 
-/* Deliberately quiet, `not configured` above all: on a stock deployment the
-   live target is unconfigured on purpose — authoring it is the go-live edit —
-   and an error tone here would flag a healthy render as broken. */
+/* Deliberately quiet, `not set up` above all: on a stock deployment the live
+   machine is unauthored on purpose — authoring it is the go-live edit — and
+   an error tone here would flag a healthy render as broken. */
 .ctc-reason {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
@@ -971,13 +992,13 @@ osprey-display-menu .display-menu-logout-icon {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  padding: 8px 2px 0;
+  padding: 6px 2px 0;
   border-top: 1px solid var(--border-default);
 }
 
 /* The one-gesture narrowing: it only ever removes reach, so it applies on
    click without a confirm, and it hovers warning rather than error. */
-.ctc-sandbox-all {
+.ctc-all-off {
   height: 22px;
   padding: 0 10px;
   font-family: var(--font-mono);
@@ -991,62 +1012,23 @@ osprey-display-menu .display-menu-logout-icon {
   cursor: pointer;
 }
 
-.ctc-sandbox-all:hover:not(:disabled) {
+.ctc-all-off:hover:not(:disabled) {
   color: var(--color-warning);
   border-color: var(--color-warning);
 }
 
-.ctc-sandbox-all:disabled {
+.ctc-all-off:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
 
+/* The popover's scope, said once. Everything above is per session and per
+   machine; the deployment's own config is not reachable from here. */
 .ctc-foot-note {
+  font-family: var(--font-mono);
   font-size: var(--text-sm);
   color: var(--text-muted);
   text-align: right;
-}
-
-/* ---- Popover density: simple vs expert ----
-
-   One DOM and one JS path; only what is SHOWN differs, gated on the shell's
-   existing html[data-ui-mode] exactly like the simple-mode shell rules below.
-   Expert (the attribute absent, or `expert`) is the resting state and shows
-   everything above.
-
-   Simple keeps the four things an operator acts on — which target (the label
-   is the row's one identity line, and it already says what kind of machine it
-   names), whether it is reachable, the posture, and Switch — and drops the
-   detail that belongs to whoever runs the deployment: endpoints, gateway
-   roles, probe ages, the head note, the config disclaimer, and the lock
-   wording (which survives in the `title`). The chip itself, and both
-   confirms, are identical in either mode: a readout and a safety gesture do
-   not get a density. */
-html[data-ui-mode="simple"] .ctc-popover {
-  width: 380px;
-}
-
-html[data-ui-mode="simple"] .ctc-popover .ctc-meta,
-html[data-ui-mode="simple"] .ctc-popover .ctc-endpoint,
-html[data-ui-mode="simple"] .ctc-popover .ctc-role,
-html[data-ui-mode="simple"] .ctc-popover .ctc-head-note,
-html[data-ui-mode="simple"] .ctc-popover .ctc-foot-note,
-html[data-ui-mode="simple"] .ctc-popover .ctc-lock,
-html[data-ui-mode="simple"] .ctc-popover .ctc-baseline {
-  display: none;
-}
-
-/* Reachability collapses to the LED alone. The word and the age beside the dot
-   are a bare text node rather than an element of their own, so the text is
-   collapsed by zeroing the line's font size — the dot keeps its own explicit
-   6px box — and the full phrase stays on the element's `title`. */
-html[data-ui-mode="simple"] .ctc-popover .ctc-reach {
-  font-size: 0; /* hygiene-allow-scale: collapses an unwrappable text node, not a type-scale choice */
-  gap: var(--space-0);
-}
-
-html[data-ui-mode="simple"] .ctc-popover .ctc-reach-text {
-  display: none;
 }
 
 /* ---- Simple-mode shell density (frame 2b) ----
