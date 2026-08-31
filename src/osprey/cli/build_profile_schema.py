@@ -440,6 +440,60 @@ def _off_slot_refusal(slot_name: str, derived: int, lane_one_port: int) -> str:
 
 
 @dataclass
+class BlueskyExternalConfig:
+    """An externally-run RE Manager this deployment's bridge fronts (``bluesky.external:``).
+
+    External-worker mode: the bridge, the bluesky-web sidecar, and the MCP
+    server deploy as usual, but no queueserver, Redis, or Tiled containers are
+    rendered — the plan lane attaches to a facility-run bluesky-queueserver
+    that some other system owns (its RunEngine, devices, startup profile, and
+    permissions are that system's). The bridge is a *client* of that manager:
+    it never opens, closes, or rebuilds the worker environment, and live rows
+    are unavailable unless the facility exposes a document stream (run data
+    then comes from Tiled, when :attr:`tiled_uri` names one).
+
+    Mutually exclusive with :attr:`BlueskyConfig.second_lane` and with
+    :attr:`BlueskyConfig.tiled_enabled` — an external lane fronts exactly one
+    external manager and reads the facility's Tiled, not its own.
+    """
+
+    zmq_control_addr: str = ""
+    """The external RE Manager's 0MQ control socket, as the bridge container
+    dials it (e.g. ``tcp://qserver-host:60615``). Required. ``localhost`` here
+    is the *container's* loopback — name the manager's host as this
+    deployment's containers reach it."""
+
+    zmq_public_key_env: str | None = None
+    """Name of the environment variable (project ``.env``) holding the external
+    manager's CURVE public key. TREAT THAT KEY AS A SECRET: upstream's client
+    authenticates with a fixed package-shipped keypair and the manager runs
+    CURVE with no client allowlist, so the server public key alone authorizes
+    driving the queue. The variable is referenced with a ``:?`` guard — an
+    unset value fails the deploy rather than silently downgrading the control
+    socket to plaintext."""
+
+    insecure_plaintext: bool = False
+    """Explicit acknowledgment that the external manager runs its control
+    socket UNENCRYPTED. Required (``true``) whenever
+    :attr:`zmq_public_key_env` is unset — attaching to a plaintext manager is
+    the facility's call to make, never a silent default. With OSPREY's own
+    deployed worker, plaintext is not a supported mode at all; an external
+    manager is a different trust domain (typically a facility control network)
+    and its transport posture is owned there."""
+
+    tiled_uri: str | None = None
+    """The facility Tiled server the bridge reads run data from (e.g.
+    ``http://qserver-host:8000``), when the facility persists documents to
+    one. ``None`` leaves the bridge without a durable read path — queue and
+    status still work; ``GET /runs/{id}/data`` will not."""
+
+    tiled_api_key_env: str | None = None
+    """Name of the environment variable holding the facility Tiled API key.
+    Only meaningful with :attr:`tiled_uri`; ``None`` connects without a key
+    (a Tiled served with ``--public``)."""
+
+
+@dataclass
 class BlueskyConfig:
     """Bluesky bridge configuration for a build profile (opt-in via the ``bluesky:`` key).
 
@@ -536,6 +590,11 @@ class BlueskyConfig:
     authors a value that differs, and the bridge falls back to the same default
     when the env var is absent.
     """
+
+    external: BlueskyExternalConfig | None = None
+    """Attach this lane to an externally-run RE Manager instead of deploying
+    one (``bluesky.external:``) — see :class:`BlueskyExternalConfig`. ``None``
+    (default) deploys the full stack exactly as every prior build did."""
 
     def second_lane_port(self, base: int | None = None) -> int:
         """Host port lane 2's bridge publishes, derived from lane 1's.

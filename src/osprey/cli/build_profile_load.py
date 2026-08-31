@@ -34,6 +34,7 @@ from .build_profile_merge import resolve_profile_document
 from .build_profile_model import BuildProfile
 from .build_profile_schema import (
     BlueskyConfig,
+    BlueskyExternalConfig,
     BlueskyWebConfig,
     DispatchConfig,
     EnvConfig,
@@ -212,6 +213,10 @@ _KNOWN_ENVIRONMENT_KEYS = frozenset({"python", "packages", "inherit_exclude"})
 # for, and a knob a release removed (e.g. `demo_runner:`) has to announce its
 # removal instead of being silently ignored.
 _KNOWN_BLUESKY_KEYS = frozenset(f.name for f in fields(BlueskyConfig))
+
+# Keys recognized inside the ``bluesky.external:`` block, derived from its
+# dataclass exactly as the parent block's are, and for the same reason.
+_KNOWN_BLUESKY_EXTERNAL_KEYS = frozenset(f.name for f in fields(BlueskyExternalConfig))
 
 
 # Keys recognized inside the ``dispatch:`` block, derived from its dataclass for
@@ -933,6 +938,21 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             raise BuildProfileError(
                 f"bluesky.device_page_size must be an integer >= 1 (got {device_page_size!r})"
             )
+        external_raw = bluesky_raw.get("external")
+        external = None
+        if external_raw is not None:
+            if not isinstance(external_raw, dict):
+                raise BuildProfileError("bluesky.external must be a mapping")
+            _reject_unknown_block_keys(
+                external_raw, _KNOWN_BLUESKY_EXTERNAL_KEYS, "bluesky.external"
+            )
+            external = BlueskyExternalConfig(
+                zmq_control_addr=external_raw.get("zmq_control_addr", ""),
+                zmq_public_key_env=external_raw.get("zmq_public_key_env"),
+                insecure_plaintext=bool(external_raw.get("insecure_plaintext", False)),
+                tiled_uri=external_raw.get("tiled_uri"),
+                tiled_api_key_env=external_raw.get("tiled_api_key_env"),
+            )
         bluesky = BlueskyConfig(
             port=bluesky_raw.get("port", default_port("bluesky", base=port_base)),
             tiled_enabled=bluesky_raw.get("tiled_enabled", False),
@@ -942,6 +962,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             excluded_plans=excluded_plans,
             devices_file=devices_file,
             device_page_size=device_page_size,
+            external=external,
         )
 
     va_raw = raw.get("virtual_accelerator")

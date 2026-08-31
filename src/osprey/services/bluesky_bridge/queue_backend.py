@@ -61,6 +61,20 @@ logger = logging.getLogger("osprey.services.bluesky_bridge.queue_backend")
 # different — and differently actionable — failure than a deployed manager that
 # will not answer.
 QSERVER_CONTROL_ADDRESS_ENV = "QSERVER_ZMQ_CONTROL_ADDRESS"
+
+EXTERNAL_WORKER_ENV = "BLUESKY_EXTERNAL_WORKER"
+"""Set (to ``"1"``) by the compose render when this lane fronts a facility-run
+RE Manager (``bluesky.external:`` in the profile). Environment ownership
+follows the flag: an external worker's environment is opened, closed, and
+rebuilt by whoever runs it — never by this bridge, whose role there is a
+client of the manager, not its supervisor."""
+
+
+def _external_worker_from_env() -> bool:
+    """Whether the compose render declared this lane's worker external."""
+    return os.environ.get(EXTERNAL_WORKER_ENV, "").strip() not in ("", "0")
+
+
 QSERVER_PUBLIC_KEY_ENV = "QSERVER_ZMQ_PUBLIC_KEY"
 
 # The item-metadata key carrying OSPREY's own run id through queueserver and
@@ -557,8 +571,10 @@ class QueueBackend:
         abort_poll_interval: float = 0.5,
         function_timeout: float = FUNCTION_TIMEOUT_S,
         function_poll_interval: float = FUNCTION_POLL_INTERVAL_S,
+        external_worker: bool = False,
     ) -> None:
         self._manager = manager
+        self._external_worker = external_worker
         self._env_open_attempts = env_open_attempts
         self._env_open_polls = env_open_polls
         self._env_poll_interval = env_poll_interval
@@ -577,6 +593,8 @@ class QueueBackend:
         no queue server at all. The address and CurveZMQ public key are read by
         ``REManagerAPI`` itself from the environment.
         """
+        kwargs.setdefault("external_worker", _external_worker_from_env())
+
         if not os.environ.get(QSERVER_CONTROL_ADDRESS_ENV):
             logger.info(
                 "%s unset - queue backend running without a manager (browse-only)",
@@ -586,6 +604,13 @@ class QueueBackend:
 
         from bluesky_queueserver_api.zmq.aio import REManagerAPI
 
+        if kwargs.get("external_worker"):
+            logger.info(
+                "%s set - fronting an externally-run RE Manager at %s; this bridge "
+                "will not open, close, or rebuild its worker environment",
+                EXTERNAL_WORKER_ENV,
+                os.environ.get(QSERVER_CONTROL_ADDRESS_ENV),
+            )
         return cls(REManagerAPI(), **kwargs)
 
     # ---------------------------------------------------------------- plumbing
@@ -1005,7 +1030,18 @@ class QueueBackend:
 
         Refused while the queue is active: closing the environment mid-plan
         would abort work the operator is watching. Stop the queue first.
+
+        Refused outright on an external worker: environment ownership belongs
+        to whoever runs the manager, and every caller — the session uploader's
+        reload cycle included — is refused here rather than each carrying its
+        own copy of the rule.
         """
+        if self._external_worker:
+            raise QueueRequestRejectedError(
+                "Refusing to close the worker environment: this bridge fronts an "
+                "externally-run RE Manager, whose environment is owned and cycled "
+                "on the facility side."
+            )
         status = await self.status(reload=True)
         if is_queue_active(status):
             raise QueueRequestRejectedError(
@@ -1039,6 +1075,20 @@ class QueueBackend:
                 capability.detail,
             )
             return False
+
+        if self._external_worker:
+            # Environment ownership stays with whoever runs the manager: an
+            # external worker's environment is never opened from here. Report
+            # the state as it stands — a closed environment is the facility's
+            # to open, and the armed path's guard says so to the operator.
+            status = await self.status(reload=True)
+            open_now = is_environment_open(status)
+            if not open_now:
+                logger.info(
+                    "external worker environment is closed; waiting for the "
+                    "facility side to open it (this bridge never will)"
+                )
+            return open_now
 
         for attempt in range(1, self._env_open_attempts + 1):
             status = await self.status(reload=True)
@@ -1079,6 +1129,13 @@ class QueueBackend:
         if not capability.can_execute:
             raise ExecutionUnavailableError(capability)
         if not await self.ensure_environment():
+            if self._external_worker:
+                raise EnvironmentUnavailableError(
+                    "The external worker's environment is not open. This bridge "
+                    "fronts a facility-run RE Manager and never opens its "
+                    "environment — open it on the facility side (e.g. `qserver "
+                    "environment open` against that manager) and retry."
+                )
             raise EnvironmentUnavailableError("The worker environment is not open.")
 
     async def _await_environment(self) -> bool:

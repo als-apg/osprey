@@ -26,6 +26,7 @@ from click.testing import CliRunner, Result
 
 from osprey.cli.build_profile import (
     BlueskyConfig,
+    BlueskyExternalConfig,
     BuildProfile,
     DispatchConfig,
     EnvConfig,
@@ -556,6 +557,75 @@ def test_bluesky_tiled_port_colliding_with_bridge_port_is_rejected(tmp_path: Pat
 def test_out_of_range_tiled_port_is_ignored_when_tiled_disabled(tmp_path: Path) -> None:
     """With tiled disabled the tiled_port value is inert."""
     BuildProfile(name="x", bluesky=BlueskyConfig(tiled_port=70000)).validate(tmp_path)
+
+
+# --- bluesky.external (external-worker mode) --------------------------------
+
+
+def _external(**overrides: object) -> BlueskyExternalConfig:
+    """A valid plaintext external block, with per-test overrides."""
+    base: dict[str, object] = {
+        "zmq_control_addr": "tcp://qserver-host:60615",
+        "insecure_plaintext": True,
+    }
+    base.update(overrides)
+    return BlueskyExternalConfig(**base)  # type: ignore[arg-type]
+
+
+def test_external_with_a_valid_plaintext_block_validates(tmp_path: Path) -> None:
+    """Address plus the explicit plaintext acknowledgment is a complete block."""
+    BuildProfile(name="x", bluesky=BlueskyConfig(external=_external())).validate(tmp_path)
+
+
+def test_external_refuses_second_lane(tmp_path: Path) -> None:
+    """An external lane fronts exactly one facility manager."""
+    profile = BuildProfile(name="x", bluesky=BlueskyConfig(second_lane=True, external=_external()))
+    assert any("mutually exclusive" in e for e in _errors(profile, tmp_path))
+
+
+def test_external_refuses_a_deployed_tiled(tmp_path: Path) -> None:
+    """The facility's Tiled is named with tiled_uri, not deployed beside it."""
+    profile = BuildProfile(
+        name="x", bluesky=BlueskyConfig(tiled_enabled=True, external=_external())
+    )
+    assert any("bluesky.external.tiled_uri" in e for e in _errors(profile, tmp_path))
+
+
+def test_external_requires_a_tcp_control_address(tmp_path: Path) -> None:
+    """The manager address is the whole point of the block."""
+    profile = BuildProfile(
+        name="x", bluesky=BlueskyConfig(external=_external(zmq_control_addr="qserver-host:60615"))
+    )
+    assert any("tcp://" in e for e in _errors(profile, tmp_path))
+
+
+def test_external_without_key_or_acknowledgment_is_refused(tmp_path: Path) -> None:
+    """Silence about transport security is never read as plaintext consent."""
+    profile = BuildProfile(
+        name="x",
+        bluesky=BlueskyConfig(external=_external(insecure_plaintext=False)),
+    )
+    assert any("insecure_plaintext" in e for e in _errors(profile, tmp_path))
+
+
+def test_external_key_env_must_be_a_variable_name(tmp_path: Path) -> None:
+    """The key rides in .env under an operator-named variable, so the name must be one."""
+    profile = BuildProfile(
+        name="x",
+        bluesky=BlueskyConfig(
+            external=_external(insecure_plaintext=False, zmq_public_key_env="not a var!")
+        ),
+    )
+    assert any("zmq_public_key_env" in e for e in _errors(profile, tmp_path))
+
+
+def test_external_tiled_key_without_a_tiled_uri_is_refused(tmp_path: Path) -> None:
+    """A key for a Tiled the profile never dials is a latent misconfiguration."""
+    profile = BuildProfile(
+        name="x",
+        bluesky=BlueskyConfig(external=_external(tiled_api_key_env="FACILITY_TILED_API_KEY")),
+    )
+    assert any("tiled_api_key_env without tiled_uri" in e for e in _errors(profile, tmp_path))
 
 
 def test_virtual_accelerator_port_out_of_range_is_rejected(tmp_path: Path) -> None:

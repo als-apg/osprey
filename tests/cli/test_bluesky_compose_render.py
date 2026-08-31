@@ -88,6 +88,7 @@ def _render(
     device_page_size: int | None = None,
     devices_present: bool = False,
     limits_mount: dict[str, str] | None = None,
+    external: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Render the packaged bluesky compose template and parse the result.
 
@@ -124,6 +125,8 @@ def _render(
         bluesky["excluded_plans"] = excluded_plans
     if device_page_size is not None:
         bluesky["device_page_size"] = device_page_size
+    if external is not None:
+        bluesky["external"] = external
 
     # ``lane_keys`` is seeded with 'bluesky' unconditionally (the template's
     # lane axis), so every render defines lane 1's containers whatever
@@ -1260,3 +1263,86 @@ def test_the_real_render_context_always_carries_a_boolean_bluesky_devices(
         )
     # And the flag is not bookkeeping: it is what put the mount in the file.
     assert DEVICES_MOUNT in rendered["services"]["queueserver"]["volumes"]
+
+
+# ---------------------------------------------------------------------------
+# External-worker mode (`bluesky.external:`): the bridge as a client of a
+# facility-run RE Manager — no queueserver, Redis, Tiled, lane network, or
+# queue volume of this deployment's own.
+# ---------------------------------------------------------------------------
+
+_EXTERNAL_PLAINTEXT: dict[str, Any] = {
+    "zmq_control_addr": "tcp://qserver-host:60615",
+    "insecure_plaintext": True,
+}
+
+
+def test_external_lane_renders_the_bridge_and_nothing_it_does_not_own() -> None:
+    doc = _render(external=_EXTERNAL_PLAINTEXT)
+    assert "bluesky-bridge" in doc["services"]
+    assert "queueserver" not in doc["services"]
+    assert "bluesky-redis" not in doc["services"]
+    assert "tiled" not in doc["services"]
+    # No lane-internal network, no queue volume — and no null `volumes:` key,
+    # which compose refuses outright ("volumes must be a mapping").
+    assert doc["networks"] == {"osprey-network": None}
+    assert "volumes" not in doc
+
+
+def test_external_bridge_dials_the_operator_declared_manager() -> None:
+    env = _render(external=_EXTERNAL_PLAINTEXT)["services"]["bluesky-bridge"]["environment"]
+    assert env["QSERVER_ZMQ_CONTROL_ADDRESS"] == "tcp://qserver-host:60615"
+    assert env["BLUESKY_EXTERNAL_WORKER"] == "1"
+    # Plaintext was explicitly acknowledged in the profile, so no key variable
+    # is referenced at all.
+    assert "QSERVER_ZMQ_PUBLIC_KEY" not in env
+
+
+def test_external_bridge_has_no_worker_to_depend_on_and_no_curve_mount() -> None:
+    bridge = _render(external=_EXTERNAL_PLAINTEXT)["services"]["bluesky-bridge"]
+    assert "depends_on" not in bridge
+    assert bridge["networks"] == ["osprey-network"]
+    assert not any("curve" in v for v in bridge["volumes"])
+    # The document-plane proxy is not run: no bind addresses, no certificates.
+    env = bridge["environment"]
+    for key in (
+        "BLUESKY_ZMQ_PUBLISH_ADDR",
+        "BLUESKY_ZMQ_SUBSCRIBE_ADDR",
+        "BLUESKY_ZMQ_CURVE_SECRET_KEY",
+        "BLUESKY_ZMQ_CURVE_CLIENT_PUBLIC_KEYS",
+    ):
+        assert key not in env, key
+
+
+def test_external_manager_key_arrives_through_the_operator_named_variable() -> None:
+    env = _render(
+        external={
+            "zmq_control_addr": "tcp://qserver-host:60615",
+            "zmq_public_key_env": "FACILITY_QSERVER_PUBLIC_KEY",
+        }
+    )["services"]["bluesky-bridge"]["environment"]
+    ref = env["QSERVER_ZMQ_PUBLIC_KEY"]
+    assert ref.startswith("${FACILITY_QSERVER_PUBLIC_KEY:?"), ref
+
+
+def test_external_tiled_is_the_facilitys_own() -> None:
+    env = _render(
+        external={
+            "zmq_control_addr": "tcp://qserver-host:60615",
+            "insecure_plaintext": True,
+            "tiled_uri": "http://qserver-host:8000",
+            "tiled_api_key_env": "FACILITY_TILED_API_KEY",
+        }
+    )["services"]["bluesky-bridge"]["environment"]
+    assert env["BLUESKY_TILED_URI"] == "http://qserver-host:8000"
+    assert env["BLUESKY_TILED_API_KEY"] == "${FACILITY_TILED_API_KEY}"
+
+
+def test_external_lane_beside_a_deployed_va_still_renders_no_ordering() -> None:
+    # A VA can be co-deployed for other reasons; the external bridge builds no
+    # devices and orders against nothing.
+    doc = _render(
+        external=_EXTERNAL_PLAINTEXT,
+        deployed_services=["bluesky", "virtual_accelerator"],
+    )
+    assert "depends_on" not in doc["services"]["bluesky-bridge"]

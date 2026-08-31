@@ -1137,6 +1137,25 @@ def _inject_bluesky(
         "tiled_port": bluesky.tiled_port,
     }
     svc_config.update(_facility_plan_keys(bluesky))
+    if bluesky.external is not None:
+        # External-worker mode: the compose template reads this block and
+        # renders the bridge as a CLIENT of a facility-run RE Manager — no
+        # queueserver, Redis, or Tiled containers, no lane-internal network,
+        # and no control-plane key mint to depend on. Only the keys the
+        # profile actually set are written, so the rendered block reads as
+        # the operator's own declaration rather than a schema dump.
+        external_block: dict[str, Any] = {
+            "zmq_control_addr": bluesky.external.zmq_control_addr,
+        }
+        if bluesky.external.zmq_public_key_env:
+            external_block["zmq_public_key_env"] = bluesky.external.zmq_public_key_env
+        if bluesky.external.insecure_plaintext:
+            external_block["insecure_plaintext"] = True
+        if bluesky.external.tiled_uri:
+            external_block["tiled_uri"] = bluesky.external.tiled_uri
+        if bluesky.external.tiled_api_key_env:
+            external_block["tiled_api_key_env"] = bluesky.external.tiled_api_key_env
+        svc_config["external"] = external_block
 
     lanes: list[tuple[str, dict[str, Any]]] = [("bluesky", svc_config)]
     # Addressing is by TARGET, not by lane index — which lane serves which

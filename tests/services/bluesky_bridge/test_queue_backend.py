@@ -788,3 +788,60 @@ def test_module_stays_import_clean_of_the_bluesky_stack() -> None:
     )
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
+
+
+# ------------------------------------------------- external worker (ownership)
+
+
+async def test_external_backend_reports_but_never_opens_the_environment(
+    connector, fast_backend
+) -> None:
+    """Environment ownership stays with whoever runs the external manager."""
+    connector("epics")
+    manager = FakeManager(status=status_doc(worker_environment_exists=False))
+    backend = fast_backend(manager, external_worker=True)
+
+    assert await backend.ensure_environment() is False
+    assert "environment_open" not in manager.method_names()
+
+
+async def test_external_backend_follows_an_environment_the_facility_opened(
+    connector, fast_backend
+) -> None:
+    connector("epics")
+    manager = FakeManager(status=status_doc(worker_environment_exists=True))
+
+    assert await fast_backend(manager, external_worker=True).ensure_environment() is True
+    assert "environment_open" not in manager.method_names()
+
+
+async def test_external_backend_refuses_to_close_the_environment(connector, fast_backend) -> None:
+    """Every close path — the session uploader's reload cycle included — lands here."""
+    connector("epics")
+    manager = FakeManager(status=status_doc())
+    backend = fast_backend(manager, external_worker=True)
+
+    with pytest.raises(QueueRequestRejectedError, match="externally-run"):
+        await backend.close_environment()
+    assert "environment_close" not in manager.method_names()
+
+
+async def test_external_execute_guard_names_the_facility_side(connector, fast_backend) -> None:
+    """The armed path's refusal says WHO can open the environment, not just that it is closed."""
+    connector("epics")
+    manager = FakeManager(status=status_doc(worker_environment_exists=False))
+    backend = fast_backend(manager, external_worker=True)
+
+    with pytest.raises(EnvironmentUnavailableError, match="facility side"):
+        await backend.ensure_environment_for_execute()
+
+
+def test_from_env_reads_the_external_worker_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The compose render's flag reaches the backend without a manager in the way."""
+    monkeypatch.delenv(qb.QSERVER_CONTROL_ADDRESS_ENV, raising=False)
+    monkeypatch.setenv(qb.EXTERNAL_WORKER_ENV, "1")
+    backend = QueueBackend.from_env()
+    assert backend._external_worker is True
+
+    monkeypatch.setenv(qb.EXTERNAL_WORKER_ENV, "0")
+    assert QueueBackend.from_env()._external_worker is False
