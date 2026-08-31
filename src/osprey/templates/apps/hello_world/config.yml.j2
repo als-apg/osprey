@@ -152,6 +152,15 @@ control_system:
   # write_tools:
   #   - "mcp__my_server__dangerous_write"
 
+  # Operator-facing names for the control targets, shown on the web terminal's
+  # control-target chip. Defaults come from what each target is — real machine
+  # "Real machine" ("Demo" on a simulated connector), stand-in "Rehearsal",
+  # virtual accelerator "Simulator". Uncomment to rename any of them.
+  # target_display_names:
+  #   live: "Real machine"
+  #   standin: "Rehearsal"
+  #   va: "Simulator"
+
   # Channel limits — the SECOND guard. Every write is checked against
   # data/channel_limits.json (relative to this file's directory) —
   # per-channel min/max values and writable flags. That file is a build
