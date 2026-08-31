@@ -182,7 +182,7 @@ import pytest
 import yaml
 
 from osprey.audit.protected import SURFACE_HTTP_CONFIG
-from osprey.port_layout import default_port
+from osprey.port_layout import DEFAULT_PORT_BASE, PORT_BASE_CONFIG_KEY, default_port
 from osprey.services.auth_sidecar.identity_headers import (
     ACCOUNT_HEADER,
     ROLE_HEADER,
@@ -198,6 +198,16 @@ from tests.e2e._volumes import remove_project_volumes
 #: of the layout, which ``Dockerfile.j2`` renders into its ``EXPOSE`` line. The
 #: image is built from a config that never moves ``deployment.port_base``, so
 #: the layout's default base is the right one to derive it at.
+#:
+#: Still true after the DEPLOYMENT moved to :data:`PORT_BASE` below, for two
+#: independent reasons, and it is worth knowing both: the persona image comes
+#: from :func:`_render_reference_project`, whose own override sets no base at
+#: all, so its ``EXPOSE`` really is at the default base; and nothing binds this
+#: number anyway, because the per-user compose service sets
+#: ``OSPREY_TERMINAL_WEB_PORT``/``OSPREY_WEB_PORT`` explicitly to that user's
+#: port off the DEPLOYMENT's base (``docker-compose.web.yml.j2``, which is also
+#: what the healthcheck probes). This is the stub's fallback for the case that
+#: never happens here, not the port it serves on.
 _WEB_SLOT = default_port("web")
 
 pytestmark = [pytest.mark.e2e, pytest.mark.dockerbuild]
@@ -250,20 +260,28 @@ USERS = (REAL_USER, HEADER_USER, NO_ROLE_USER, EXEMPT_USER, UNSAFE_ROLE_USER)
 #: provisioning mints none for a ``login: false`` entry.
 LOGIN_USERS = (REAL_USER, HEADER_USER, NO_ROLE_USER, UNSAFE_ROLE_USER)
 
-#: Ports in a band no other stack in the suite touches (the tutorial stacks hold
-#: 5064/5080/5432, the lifecycle fixtures the 9000s/19081, the auth perimeter
-#: lane the 191xx–195xx band and the auth-off multiuser lane the 196xx–199xx
-#: one). Five roster users take five consecutive ports per family, so the
-#: families are spaced by ten.
-NGINX_PORT = 20080
-AUTH_PORT = 20070
-BASE_PORTS = {
-    "web": 20001,
-    "artifact": 20011,
-    "ariel": 20021,
-    "lattice": 20031,
-    "channel_finder": 20041,
-}
+#: This module's own thousand-port block (see test_dispatch_deploy.py's 20700
+#: note): everything not pinned explicitly follows it instead of landing on a
+#: real deployment's default 10000 block. Set once at render, as
+#: ``deployment.port_base`` in this lane's ``-O`` overlay, and read back here to
+#: derive every host port the assertions reach for — so a slot that moves in the
+#: layout moves here without an edit, and no number below is a hand-assigned
+#: literal that could drift from what the render actually binds.
+#:
+#: One knob replaces the old hand-pinned 200xx list, and the family spacing
+#: changes with it: those families were spaced by TEN (20001/20011/20021…),
+#: which held only because this roster is five users long. The layout spaces
+#: per-user families by ONE HUNDRED — ``INDEX_MAX`` is 99 — so the five roster
+#: users occupy the first five ports of each family's band and the bands cannot
+#: run into each other however long a roster gets.
+PORT_BASE = 23000
+
+#: The two gateway ports this lane drives from the host, derived the same way
+#: the render derives them: nginx at the base and the auth sidecar one above it.
+#: The per-user families (``web``, ``artifact``, ``ariel``, ``lattice``,
+#: ``channel_finder``) are NOT listed — nothing here reaches them directly, and
+#: the render places them off the same base.
+HOST_PORTS = {slot: default_port(slot, base=PORT_BASE) for slot in ("nginx", "auth")}
 
 AUTH_IMAGE_TAG = f"{PREFIX}-assistant-auth:local"
 # `<catalog project>:local`, exactly as resolve_personas derives a local-mode
@@ -717,6 +735,13 @@ def _override_text() -> str:
     with a nested value, so it sets that subtree without replacing the rendered
     ``modules:`` mapping around it.
 
+    ``deployment.port_base`` is the ONE port knob: nginx, the auth sidecar and
+    every per-user family follow it, so this lane's whole stack moves into
+    :data:`PORT_BASE`'s block with nothing else renumbered. Nothing here pins an
+    individual port — a pinned port is a second source of truth for a number the
+    render already derives, and the pair silently disagrees the moment the
+    layout moves.
+
     ``allow_insecure_http`` is what lets ``auth.method: password`` render
     without TLS. That is the documented posture for a deployment behind a TLS
     terminator, and here it keeps the lane off certificate management — the TLS
@@ -739,6 +764,7 @@ def _override_text() -> str:
                 "deploy.fqdn": "127.0.0.1",
                 "deployed_services": [],
                 "claude_code.telemetry.enabled": False,
+                PORT_BASE_CONFIG_KEY: PORT_BASE,
                 "modules.web_terminals": {
                     "enabled": True,
                     "image_source": "local",
@@ -746,16 +772,9 @@ def _override_text() -> str:
                     # persona is the default and the expensive one is reached
                     # only through a role.
                     "default_persona": PROBE_PERSONA,
-                    "nginx_port": NGINX_PORT,
-                    "web_base_port": BASE_PORTS["web"],
-                    "artifact_base_port": BASE_PORTS["artifact"],
-                    "ariel_base_port": BASE_PORTS["ariel"],
-                    "lattice_base_port": BASE_PORTS["lattice"],
-                    "channel_finder_base_port": BASE_PORTS["channel_finder"],
                     "users": _roster(),
                     "auth": {
                         "method": "password",
-                        "port": AUTH_PORT,
                         "allow_insecure_http": True,
                     },
                     # The static half of the authorization stanza. No `claims:`
@@ -881,6 +900,33 @@ def _make_repo(tmp_path: Path, osprey_bin: Path) -> Path:
     )
     assert build.returncode == 0, _fmt("osprey build (full-chain auth)", build)
 
+    # The one knob, read back off the render before anything binds. Every host
+    # port this lane reaches is `default_port(slot, base=PORT_BASE)`, and that
+    # derivation is only true if the render actually resolved the same base: an
+    # overlay key that failed to land leaves the deploy on the default 10000
+    # block, where it collides with a real deployment and every assertion below
+    # then fails as a connection error thirty minutes into a container build.
+    # Cheaper to fail here, naming the cause.
+    rendered = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
+    resolved_base = (rendered.get("deployment") or {}).get("port_base")
+    # Stricter than the shared `_orm_stack.assert_off_default_block` floor (which
+    # only refuses the default block): this lane knows its own band, so it says
+    # so. The two messages are written to read the same way on purpose.
+    on_default_block = (
+        " — they would be in the framework DEFAULT block, shared with every real "
+        "deployment on this host"
+        if resolved_base in (None, DEFAULT_PORT_BASE)
+        else ""
+    )
+    assert resolved_base == PORT_BASE, (
+        f"{PROJECT_NAME} (built by {__name__}) resolved "
+        f"{PORT_BASE_CONFIG_KEY}={resolved_base!r}, not {PORT_BASE}: this lane's ports would "
+        f"not be in its own block{on_default_block}.\n"
+        f"Fix in {__name__}: `_override_text` sets `{PORT_BASE_CONFIG_KEY}=<band>` in this "
+        f"lane's --override config block and PORT_BASE is the band it books — that key "
+        f"failing to land is what this reads back."
+    )
+
     # The repo root's .env is this deployment's secret store: the auth
     # provisioning reads each user's chosen OSPREY_AUTH_PW_<USER> from it, the
     # provider-secret gate reads the key, and `osprey up` refuses to start
@@ -960,7 +1006,7 @@ def _request(
     method: str = "GET",
     headers: dict[str, str] | None = None,
     data: bytes | None = None,
-    port: int = NGINX_PORT,
+    port: int = HOST_PORTS["nginx"],
     opener: urllib.request.OpenerDirector | None = None,
 ) -> tuple[int, dict[str, str], str]:
     """One HTTP request, returning (status, headers, body); never raises on 4xx/5xx.
@@ -1008,7 +1054,7 @@ def _login(user: str) -> tuple[urllib.request.OpenerDirector, http.cookiejar.Coo
         headers={
             "Content-Type": "application/x-www-form-urlencoded",
             # The sidecar refuses a submission declaring no origin at all.
-            "Origin": f"http://127.0.0.1:{NGINX_PORT}",
+            "Origin": f"http://127.0.0.1:{HOST_PORTS['nginx']}",
             **_navigation(),
         },
         opener=client,
@@ -1093,7 +1139,7 @@ def _wait_for_health(timeout: float) -> dict[str, Any]:
     last = "(no attempt yet)"
     while time.monotonic() < deadline:
         try:
-            status, _, body = _request("/health", port=AUTH_PORT)
+            status, _, body = _request("/health", port=HOST_PORTS["auth"])
             if status == 200:
                 return json.loads(body)
             last = f"HTTP {status}: {body[:200]}"
@@ -1344,7 +1390,7 @@ def test_a_password_login_reaches_that_users_own_terminal(deployment: dict[str, 
         headers={
             "Content-Type": "application/json",
             "Accept": "application/json",
-            "Origin": f"http://127.0.0.1:{NGINX_PORT}",
+            "Origin": f"http://127.0.0.1:{HOST_PORTS['nginx']}",
         },
         opener=deployment["sessions"][REAL_USER],
     )
@@ -1678,7 +1724,7 @@ def test_the_protected_key_refusal_lands_in_that_users_own_ledger(
         headers={
             "Content-Type": "application/json",
             "Accept": "application/json",
-            "Origin": f"http://127.0.0.1:{NGINX_PORT}",
+            "Origin": f"http://127.0.0.1:{HOST_PORTS['nginx']}",
         },
         opener=deployment["sessions"][REAL_USER],
     )
@@ -1825,3 +1871,97 @@ def test_no_record_carries_a_value_only_an_identifier(deployment: dict[str, Any]
     assert _PROTECTED_VALUE not in haystack, "a refused write's VALUE was recorded"
     for password in _PASSWORDS.values():
         assert password not in haystack, "a password reached the audit trail"
+
+
+# ---------------------------------------------------------------------------
+# The shared default-block guard — no deploy, no Docker
+# ---------------------------------------------------------------------------
+#
+# This lane pins its OWN base by asserting `deployment.port_base == PORT_BASE`
+# in `_make_repo` (stricter than the shared guard, which only refuses the
+# default block). The shared guard covers the lanes that render through
+# `tests/e2e/_orm_stack.build_project_subprocess` instead, and its unit
+# coverage lives here because this is the module whose render-time check it is
+# modelled on — the two failure messages are deliberately written to read the
+# same way, and keeping them in one file is what stops one from drifting.
+#
+# Nothing below builds, renders or starts anything: the guard reads one file,
+# so a synthetic `build/config.yml` in `tmp_path` is the whole fixture.
+
+
+def _synthetic_render(tmp_path: Path, port_base: int | None) -> Path:
+    """A repo whose ``build/config.yml`` names ``port_base`` — the one file the
+    shared guard reads back.
+
+    ``None`` writes a ``deployment:`` block that sets no base at all, which is
+    exactly how a dropped overlay or a forgotten ``port_base=`` argument looks
+    on disk: the key is simply absent and the deployment resolves the
+    framework default.
+    """
+    repo = tmp_path / "synthetic-render"
+    build = repo / "build"
+    build.mkdir(parents=True)
+    deployment: dict[str, Any] = {} if port_base is None else {"port_base": port_base}
+    build.joinpath("config.yml").write_text(
+        yaml.safe_dump({"deployment": deployment}), encoding="utf-8"
+    )
+    return repo
+
+
+@pytest.mark.parametrize(
+    "port_base",
+    [
+        pytest.param(DEFAULT_PORT_BASE, id="explicit-default"),
+        pytest.param(None, id="unset"),
+    ],
+)
+def test_the_shared_guard_refuses_a_render_on_the_default_block(
+    tmp_path: Path, port_base: int | None
+) -> None:
+    """A stack rendered on the default block is refused before anything binds.
+
+    Both spellings are the same fault and must both fail: a lane that never
+    passed a base, and a lane that passed the default one. Whichever it is, the
+    render would bind 10000-10999 — the block a real deployment on the host
+    already claims — and the first symptom without this guard is a connection
+    error deep inside a container build.
+    """
+    from tests.e2e import _orm_stack
+
+    repo = _synthetic_render(tmp_path, port_base)
+
+    with pytest.raises(AssertionError) as excinfo:
+        _orm_stack.assert_off_default_block(repo, "some-e2e-lane")
+
+    message = str(excinfo.value)
+    # The three things the message must carry to be actionable: WHICH stack,
+    # WHO built it, and the one-line fix.
+    assert "some-e2e-lane" in message, message
+    assert "test_full_chain_auth" in message, message
+    assert f"{PORT_BASE_CONFIG_KEY}=<band>" in message, message
+    assert str(DEFAULT_PORT_BASE) in message, message
+
+
+def test_the_shared_guard_passes_a_render_in_its_own_band(tmp_path: Path) -> None:
+    """A render that moved off the default block is accepted.
+
+    The negative half: without it the guard could refuse everything and the
+    test above would still pass.
+    """
+    from tests.e2e import _orm_stack
+
+    _orm_stack.assert_off_default_block(_synthetic_render(tmp_path, PORT_BASE), "some-e2e-lane")
+
+
+def test_the_shared_guard_refuses_a_render_that_never_happened(tmp_path: Path) -> None:
+    """No ``build/config.yml`` at all fails as a missing render, not as a
+    crash — a build that silently produced nothing is its own fault, and
+    reading the base off a file that is not there must not surface as a
+    ``FileNotFoundError`` from inside a helper."""
+    from tests.e2e import _orm_stack
+
+    repo = tmp_path / "never-rendered"
+    repo.mkdir()
+
+    with pytest.raises(AssertionError, match="rendered no config"):
+        _orm_stack.assert_off_default_block(repo, "some-e2e-lane")

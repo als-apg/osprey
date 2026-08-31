@@ -3,7 +3,13 @@
     i.e. the deployment pinned light/dark rather than just a palette. Its
     absence is meaningful: it tells theme-manager.js's hub to leave the mode on
     'auto' and follow the operator's OS. Never emit it empty. -#}
-<html lang="en" data-theme="{{ web_theme_id }}"{% if web_theme_mode %} data-theme-mode="{{ web_theme_mode }}"{% endif %} data-ui-mode="{{ web_ui_mode }}" data-rail-position="{{ web_rail_position }}">
+{#- data-osprey-storage-scope is likewise present ONLY on a multi-user mount
+    (/u/<user>/), where every user shares one origin and therefore one
+    localStorage. It is THE source of truth for the storage namespace — JS
+    storage sites read this attribute and never parse the URL. Its absence
+    means single-user: keys stay unscoped, exactly as they were. Never emit
+    it empty. See resolve_storage_scope() in app.py. -#}
+<html lang="en" data-theme="{{ web_theme_id }}"{% if web_theme_mode %} data-theme-mode="{{ web_theme_mode }}"{% endif %} data-ui-mode="{{ web_ui_mode }}" data-rail-position="{{ web_rail_position }}"{% if storage_scope %} data-osprey-storage-scope="{{ storage_scope }}"{% endif %}>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">

@@ -54,6 +54,7 @@ from osprey.interfaces.design_system.generator.validate import VALID_THEME_MODES
 
 __all__ = [
     "GENERATED_HEADER_LINES",
+    "SCOPE_ATTRIBUTE",
     "STORAGE_KEY",
     "ThemeManifestEntry",
     "ThemeFamilyDefaultsError",
@@ -64,11 +65,33 @@ __all__ = [
     "render_theme_boot_js",
 ]
 
-#: localStorage key theme-manager.js (hub role) persists the user's choice
-#: under. Duplicated here (not imported from anywhere) because it must be
-#: baked into theme-boot.js as a literal; kept as a named constant so the
-#: two occurrences below can't drift from each other.
+#: Base localStorage key theme-manager.js (hub role) persists the user's
+#: choice under. Duplicated here (not imported from anywhere) because it must
+#: be baked into theme-boot.js as a literal; kept as a named constant so the
+#: two occurrences below can't drift from each other. theme-manager.js's
+#: module-level ``const STORAGE_KEY`` declares the SAME literal a third time,
+#: deliberately — it is a hand-written
+#: ES module and this is a Python constant, so neither can import the other.
+#: Keep the pair in sync, INCLUDING the scoping rule: both sides derive the
+#: real key from this base plus :data:`SCOPE_ATTRIBUTE` (see below), so a
+#: change to either the base or the rule has to land on both.
 STORAGE_KEY = "osprey-theme"
+
+#: The ``<html>`` attribute the server stamps on a multi-user mount, naming the
+#: persona a page is served for. localStorage is origin-scoped, not
+#: path-scoped, so on such a deployment (every persona under ``/u/<user>/`` on
+#: one origin) the bare :data:`STORAGE_KEY` is a single shared slot and the last
+#: picker decides what everybody else boots into. When the attribute is present,
+#: theme-boot.js reads ``osprey-theme--<scope>`` instead — and never falls back
+#: to the bare key, which is precisely the polluted slot the scoping exists to
+#: escape. When it is absent (single-user serving, and every other interface
+#: that loads this script) the bare key is used unchanged.
+#:
+#: ``static/js/storage-scope.js`` is the written-down definition of this rule;
+#: theme-boot.js is a pre-paint IIFE that cannot import it, so the generated
+#: source below inlines a mirror of its ``scopedStorageKey()``, exactly as the
+#: hand-written mode-boot.js does. Change the rule there and here together.
+SCOPE_ATTRIBUTE = "data-osprey-storage-scope"
 
 #: Shared do-not-edit preamble for both generated files, as ``//`` line
 #: comments (both outputs are plain JS/ESM, so ``//`` works for either).
@@ -376,6 +399,24 @@ def render_theme_boot_js(tree: TokenTree) -> str:
     concrete valid id) — a URL carries a single value, never the
     structured pair.
 
+    Both storage rungs are read under a PER-PERSONA key when the server
+    stamped :data:`SCOPE_ATTRIBUTE` on ``<html>``: ``osprey-theme--<scope>``
+    rather than the bare ``osprey-theme``, with no fallback to the bare key
+    when the scoped one is missing. localStorage is origin-scoped, so on a
+    multi-user mount the bare key is one slot shared by every persona and
+    falling back to it would hand the last writer's theme to everyone who has
+    not yet picked — the exact cross-persona bug the scoping closes. A scoped
+    page with no scoped value simply has no stored preference, and resolution
+    falls through to the server attribute and then to ``'auto'``. With the
+    attribute absent (single-user serving, and every other interface that
+    loads this script) both rungs read the bare key exactly as before, legacy
+    bare token included. The stored VALUE shape is untouched by any of this.
+
+    The emitted ``storageKey()`` inlines ``storage-scope.js``'s
+    ``scopedStorageKey()`` rather than importing it — this script imports
+    nothing — mirroring what the hand-written ``mode-boot.js`` does for the
+    UI-mode axis.
+
     Server-attribute contract (for whoever renders ``<html>`` server-side,
     e.g. the web_terminal server): the boot script reads
     ``document.documentElement.getAttribute("data-theme")`` — i.e. the
@@ -424,6 +465,7 @@ def render_theme_boot_js(tree: TokenTree) -> str:
         json.dumps(family_by_id, indent=2, ensure_ascii=True), "  "
     )
     storage_key_json = json.dumps(STORAGE_KEY, ensure_ascii=True)
+    scope_attribute_json = json.dumps(SCOPE_ATTRIBUTE, ensure_ascii=True)
     default_family_json = json.dumps(default_family, ensure_ascii=True)
 
     body = f"""\
@@ -431,10 +473,22 @@ def render_theme_boot_js(tree: TokenTree) -> str:
 // module scripts are deferred, which would let a pre-theme flash slip
 // through. Duplicates THEMES/DEFAULTS identity from tokens.js as inline
 // literals for the same reason: this script must not import anything.
+//
+// Storage rungs, scoped: localStorage is origin-scoped, so on a multi-user
+// deployment (every persona served from one origin under `/u/<user>/`) a bare
+// key is a single shared slot and the last picker decides what everyone else
+// boots into. When the server stamps data-osprey-storage-scope on <html>, the
+// storage rungs read `osprey-theme--<scope>` instead — and do NOT fall back to
+// the bare key, since that polluted slot is the very thing being escaped; a
+// scoped page with no scoped value simply falls through to the server rung.
+// With the attribute absent (single-user serving, and every non-web_terminal
+// interface that loads this script) the legacy bare key is used unchanged,
+// legacy bare-token format included.
 (function () {{
   "use strict";
 
   const STORAGE_KEY = {storage_key_json};
+  const SCOPE_ATTRIBUTE = {scope_attribute_json};
   const VALID_IDS = {valid_ids_json};
   // Per-family {{mode: id}} map: DEFAULTS[family][mode]. Typed as a
   // Record (not the narrower literal shape object-literal inference would
@@ -481,9 +535,22 @@ def render_theme_boot_js(tree: TokenTree) -> str:
     }}
   }}
 
+  // Inline mirror of storage-scope.js's `scopedStorageKey()`. An empty
+  // attribute value counts as unscoped: the server omits the attribute rather
+  // than rendering `=""`, so this only guards against a key ending in a bare
+  // "--" that would belong to no persona.
+  function storageKey() {{
+    try {{
+      const scope = document.documentElement.getAttribute(SCOPE_ATTRIBUTE);
+      return scope ? STORAGE_KEY + "--" + scope : STORAGE_KEY;
+    }} catch {{
+      return STORAGE_KEY;
+    }}
+  }}
+
   function readStoredTheme() {{
     try {{
-      return window.localStorage.getItem(STORAGE_KEY);
+      return window.localStorage.getItem(storageKey());
     }} catch {{
       return null;
     }}

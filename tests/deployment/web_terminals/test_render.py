@@ -11,6 +11,7 @@ import pytest
 import yaml
 from jinja2 import Environment, Template
 
+from osprey.deployment.web_terminals import render as render_module
 from osprey.deployment.web_terminals.artifacts import web_artifacts_dir
 from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
 from osprey.deployment.web_terminals.personas import env_var_suffix
@@ -5614,3 +5615,95 @@ def test_envsubst_output_tmpfs_is_not_world_readable() -> None:
     assert all(isinstance(volume, str) for volume in compose["services"]["nginx"]["volumes"]), (
         compose["services"]["nginx"]["volumes"]
     )
+
+
+# --- Landing cards carry each user's auth posture -----------------------------
+
+
+def _landing_cards(config: dict) -> dict[str, dict]:
+    """Every auto-populated user card `render_web_terminals` put in the landing context.
+
+    Captured off the real `_build_groups` (wrapped, not replaced) instead of
+    being rebuilt by the test, so the threading through `render_web_terminals`
+    is itself under test: the posture is a property of the deployment, and a
+    render that derived it from the wrong config would still produce
+    self-consistent cards if the test built them itself. Read from the context
+    rather than from the markup, which is a separate question with its own
+    module (`test_landing_token_badge.py` pins what the page does with the flag;
+    these two pin what the flag is).
+
+    Returns:
+        The cards of every section, keyed by label.
+    """
+    real = render_module._build_groups
+    captured: list[list[dict]] = []
+
+    def _spy(*args: object, **kwargs: object) -> list[dict]:
+        groups = real(*args, **kwargs)  # type: ignore[arg-type]
+        captured.append(groups)
+        return groups
+
+    with patch.object(render_module, "_build_groups", _spy):
+        render_web_terminals(config)
+    return {item["label"]: item for group in captured[0] for item in group["items"]}
+
+
+def test_landing_cards_mark_every_user_token_login_under_the_default_posture() -> None:
+    """With `auth.method` left at its `token` default, nginx vouches for nobody, so
+    every terminal is entered by opening its own `?token=` URL — and every card
+    says so.
+    """
+    # Act
+    cards = _landing_cards(copy.deepcopy(_MULTI_USER_CONFIG))
+
+    # Assert
+    assert {label: card["token_login"] for label, card in cards.items()} == {
+        "alice": True,
+        "bob": True,
+        "carol": True,
+    }
+
+
+def test_landing_cards_mark_a_login_exempt_user_token_login_behind_a_password_wall() -> None:
+    """Under `auth.method: password` the roster signs in — except the `login: false`
+    entry, which sits outside nginx's vouching and still reaches its terminal
+    through its `?token=` URL. The two postures coexist on one page, which is
+    exactly why the flag is per card and not per deployment.
+    """
+    # Arrange
+    config = copy.deepcopy(
+        _config([{"name": "alice", "index": 0}, {"name": "ariel", "index": 1, "login": False}])
+    )
+    config["modules"]["web_terminals"]["auth"] = {
+        "method": "password",
+        "allow_insecure_http": True,
+    }
+
+    # Act
+    cards = _landing_cards(config)
+
+    # Assert
+    assert cards["alice"]["token_login"] is False
+    assert cards["ariel"]["token_login"] is True
+
+
+def test_token_login_reaches_the_rendered_page_as_a_badge() -> None:
+    """The key is no longer inert data: landing.html.j2 now reads it.
+
+    This assertion used to pin the opposite — that no rendered byte mentioned
+    the key — which was true only while the page had no reader for it. That pin
+    existed to hand ownership to the badge, so the badge inherits it: the two
+    marks a token-login card carries must reach the page for every card the
+    context flagged, or the page is back to claiming a terminal is one click
+    away when it needs a URL nobody has.
+
+    The postures behind the flag, the hint's wording and the card's continued
+    navigability are pinned in `test_landing_token_badge.py`; what is checked
+    here is only that the threading reaches the markup at all.
+    """
+    # Act
+    landing_html = render_web_terminals(copy.deepcopy(_MULTI_USER_CONFIG))["nginx/landing.html"]
+
+    # Assert
+    assert _body(landing_html).count('class="landing-card-token"') == 3
+    assert _body(landing_html).count('class="landing-card-token-hint"') == 3

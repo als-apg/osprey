@@ -198,6 +198,41 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+    /* The two marks a card carries when its terminal is entered by opening
+       that user's own `?token=` URL rather than through a login the perimeter
+       serves. Deliberately quieter than the persona chip beside it — muted
+       border and text rather than the accent — because it is a fact about how
+       the door opens, not a category the page is sorting people into. Both
+       colors are theme tokens, so the mark follows the page into either mode.
+       The card itself stays a live link and is styled as one: the `?token=`
+       exchange leaves a session cookie, so this IS the return path for anyone
+       who has opened the URL once. */
+    .landing-card-token {
+      align-self: flex-start;
+      max-width: 100%;
+      margin: 0.05rem 0 0.1rem;
+      padding: 0.12rem 0.55rem;
+      border: 1px solid var(--border-default);
+      border-radius: 999px;
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .landing-card-token-hint {
+      max-width: 100%;
+      color: var(--text-secondary);
+      font-size: 0.72rem;
+      line-height: 1.35;
+    }
+    .landing-card-token-hint code {
+      font-family: ui-monospace, "JetBrains Mono", monospace;
+      word-break: break-all;
+    }
     .landing-card-url {
       font-family: ui-monospace, "JetBrains Mono", monospace;
       font-size: 0.78rem;
@@ -298,6 +333,8 @@
           
           <a class="landing-card" href="/u/alice/">
             <span class="landing-card-label">alice</span>
+            <span class="landing-card-token">login link</span>
+            <span class="landing-card-token-hint">entered via a login link — <code>osprey users login-url alice</code></span>
             <span class="landing-card-url">/u/alice/</span>
           </a>
           
@@ -309,6 +346,8 @@
           
           <a class="landing-card" href="/u/bob/">
             <span class="landing-card-label">bob</span>
+            <span class="landing-card-token">login link</span>
+            <span class="landing-card-token-hint">entered via a login link — <code>osprey users login-url bob</code></span>
             <span class="landing-card-url">/u/bob/</span>
           </a>
           

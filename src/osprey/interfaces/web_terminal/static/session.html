@@ -1,5 +1,12 @@
 <!DOCTYPE html>
-<html lang="en">
+{# data-osprey-storage-scope is present ONLY on a multi-user mount
+    (/u/<user>/), where every user shares one origin and therefore one
+    localStorage. It is THE source of truth for the storage namespace — this
+    page's module closure reaches the PTY-session, dock-layout and
+    rail-position keys, and those readers take the namespace from here rather
+    than parsing the URL. Absent means single-user: keys stay unscoped. Never
+    emit it empty. See resolve_storage_scope() in app.py. -#}
+<html lang="en"{% if storage_scope %} data-osprey-storage-scope="{{ storage_scope }}"{% endif %}>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">

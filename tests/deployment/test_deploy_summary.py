@@ -24,6 +24,7 @@ import logging
 import re
 
 import pytest
+import yaml
 from rich.console import Console
 from rich.logging import RichHandler
 
@@ -758,6 +759,12 @@ def test_a_single_user_deployment_shows_every_panel_band(tmp_path, base):
     ``services.<name>``, so neither binding source can see them. Without a third
     derivation the seven largest bands of the block are simply missing from
     ``osprey up`` and ``osprey status``.
+
+    EVERY band, deliberately: this roster names no persona, so nothing on disk
+    says which panels its user actually serves, and the whole-roster reading is
+    the honest one. The bands are narrowed to who serves them only where a
+    persona project answers the question — see
+    ``test_a_band_lists_only_the_users_whose_persona_serves_it``.
     """
     empty = tmp_path / "docker-compose.yml"
     empty.write_text("services: {}\n", encoding="utf-8")
@@ -795,6 +802,10 @@ def test_a_roster_shows_each_family_as_one_band_not_one_row_per_user(tmp_path, b
     No ``http://`` on a range: the renderer linkifies a whitespace-delimited
     address, so a scheme here would hand the operator a link that 404s on the
     dash — the same rule that keeps a URL off the graph store's bolt address.
+
+    All three users on every band, deliberately: a bare-string roster names no
+    persona, so no rendered project says which panels any of them serves and
+    the whole roster is what this deployment can honestly claim.
     """
     empty = tmp_path / "docker-compose.yml"
     empty.write_text("services: {}\n", encoding="utf-8")
@@ -855,6 +866,386 @@ def test_a_roster_index_past_its_band_costs_the_panels_not_the_summary(tmp_path)
 
     assert _panel_rows(entries) == {}
     assert any(service == "web terminal" for _tier, service, _address in entries)
+
+
+# ---------------------------------------------------------------------------
+# Whose band it is: the panels a persona actually serves
+# ---------------------------------------------------------------------------
+
+
+def _persona_deployment(tmp_path, personas, users, base=DEFAULT_PORT_BASE):
+    """A deploy repo whose personas' rendered projects are on disk.
+
+    The shape ``osprey build`` leaves behind: a catalog under
+    ``modules.web_terminals.personas`` whose ``project_path`` names a rendered
+    project inside ``build/``, and each of those projects carrying the
+    ``web.panels`` block its own profile asked for.
+
+    Args:
+        tmp_path: The deploy repo root.
+        personas: ``{persona: [panel_id, ...]}`` — the panels that persona's
+            rendered project declares. An empty list is a project that declares
+            none, which still serves the universal WORKSPACE panel.
+        users: The roster, raw, exactly as ``modules.web_terminals.users``.
+        base: The deployment's port base.
+
+    Returns:
+        ``(config, compose_file_path)`` ready for :func:`endpoint_entries`.
+    """
+    for persona, panel_ids in personas.items():
+        project_dir = tmp_path / "build" / f"demo-{persona}"
+        project_dir.mkdir(parents=True)
+        (project_dir / "config.yml").write_text(
+            yaml.safe_dump({"web": {"panels": dict.fromkeys(panel_ids, True)}}),
+            encoding="utf-8",
+        )
+    empty = tmp_path / "docker-compose.yml"
+    empty.write_text("services: {}\n", encoding="utf-8")
+    config = {
+        "project_name": "demo",
+        # What `osprey build` writes into the rendered config, and the only
+        # anchor `osprey status` has for the persona projects: it hands
+        # `endpoint_entries` a config and compose files, never a root.
+        "project_root": str(tmp_path),
+        "deployment": {"port_base": base},
+        "modules": {
+            "web_terminals": {
+                "enabled": True,
+                "users": users,
+                "personas": {
+                    persona: {
+                        "project": f"demo-{persona}",
+                        "project_path": f"build/demo-{persona}",
+                    }
+                    for persona in personas
+                },
+            }
+        },
+    }
+    return config, str(empty)
+
+
+#: The two-persona roster every test below shares: alice runs a persona whose
+#: project declares only the ARIEL panel, bob one that declares the channel
+#: finder and the health dashboard. Neither declares LATTICE or KNOWLEDGE.
+_SPLIT_PERSONAS = {"ariel": ["ariel"], "readonly": ["channel-finder", "system-health"]}
+_SPLIT_ROSTER = [
+    {"name": "alice", "index": 0, "persona": "ariel"},
+    {"name": "bob", "index": 1, "persona": "readonly"},
+]
+
+
+@pytest.mark.parametrize("base", [DEFAULT_PORT_BASE, 20000])
+def test_a_band_lists_only_the_users_whose_persona_serves_it(tmp_path, base):
+    """A band names the users who answer on it, not everyone who has a port there.
+
+    Every user is allocated a port in every family — the allocator reserves the
+    whole block whatever the roster runs — but only the users whose persona
+    declares that panel ever listen on theirs. Naming the whole roster beside
+    the ARIEL band told an operator that bob answers there, and he does not:
+    his container never starts the server.
+    """
+    config, compose = _persona_deployment(tmp_path, _SPLIT_PERSONAS, _SPLIT_ROSTER, base)
+
+    panels = _panel_rows(deploy_summary.endpoint_entries(config, [compose]))
+
+    ports = layout_ports(base)
+    # One user on the band, so one port to open — and the scheme goes back on,
+    # by the same rule that keeps it off a range.
+    assert panels["ariel"] == f"http://127.0.0.1:{ports['ariel']}  (alice)"
+    assert panels["channel_finder"] == f"http://127.0.0.1:{ports['channel_finder'] + 1}  (bob)"
+    assert panels["system_health"] == f"http://127.0.0.1:{ports['system_health'] + 1}  (bob)"
+    # The terminal itself and the universal WORKSPACE panel are served by
+    # everyone: no persona can switch off the tab it cannot switch off.
+    assert panels["web"] == f"127.0.0.1:{ports['web']}-{ports['web'] + 1}  (alice, bob)"
+    assert panels["artifact"] == (
+        f"127.0.0.1:{ports['artifact']}-{ports['artifact'] + 1}  (alice, bob)"
+    )
+
+
+def test_a_family_no_persona_serves_prints_no_band_at_all(tmp_path):
+    """A band nothing listens on is not a quieter row — it is not a row.
+
+    LATTICE and KNOWLEDGE are reserved by the layout for every deployment, and
+    neither persona here declares them. Printing their bands with a hedge
+    beside them would be the same claim in smaller type: the address would
+    still be there to copy, and nothing answers at it.
+    """
+    config, compose = _persona_deployment(tmp_path, _SPLIT_PERSONAS, _SPLIT_ROSTER)
+
+    panels = _panel_rows(deploy_summary.endpoint_entries(config, [compose]))
+
+    assert "lattice" not in panels
+    assert "okf" not in panels
+    assert str(layout_ports(DEFAULT_PORT_BASE)["lattice"]) not in "".join(panels.values())
+
+
+def test_the_reserved_but_unserved_bands_are_one_note_not_a_row_each(tmp_path):
+    """Said once, at the end of the tier: the block still reserves them.
+
+    An operator who reads six families where the layout has seven needs to know
+    the seventh was not lost — but a per-family row for each would re-introduce
+    exactly the addresses the rows above deliberately dropped.
+    """
+    config, compose = _persona_deployment(tmp_path, _SPLIT_PERSONAS, _SPLIT_ROSTER)
+
+    entries = deploy_summary.endpoint_entries(config, [compose])
+    notes = [
+        address
+        for tier, service, address in entries
+        if tier == "panels" and service == deploy_summary.RESERVED_BANDS_LABEL
+    ]
+
+    assert len(notes) == 1
+    assert notes[0].startswith("lattice, okf ")
+    # Last in its tier, so it reads as a footnote to the bands above it rather
+    # than as a band between them.
+    panel_services = [service for tier, service, _address in entries if tier == "panels"]
+    assert panel_services[-1] == deploy_summary.RESERVED_BANDS_LABEL
+
+
+def test_a_deployment_every_persona_serves_carries_no_note(tmp_path):
+    """Nothing reserved-and-unserved is nothing to say; a note would be noise."""
+    every_panel = ["ariel", "channel-finder", "lattice", "okf", "system-health"]
+    config, compose = _persona_deployment(
+        tmp_path,
+        {"admin": every_panel},
+        [{"name": "alice", "index": 0, "persona": "admin"}],
+    )
+
+    entries = deploy_summary.endpoint_entries(config, [compose])
+    panels = _panel_rows(entries)
+
+    assert deploy_summary.RESERVED_BANDS_LABEL not in panels
+    assert len(panels) == 7
+
+
+def test_an_unbuilt_persona_project_degrades_to_the_whole_roster(tmp_path):
+    """Advisory to the end: an unreadable persona costs the narrowing, not the summary.
+
+    A catalog naming a project that has not been rendered — a repo cloned but
+    not built, a persona added since the last build — leaves nothing on disk to
+    read. Guessing which panels its users serve would be worse than the wide
+    answer, and failing the summary would be worse than both.
+    """
+    config, compose = _persona_deployment(tmp_path, _SPLIT_PERSONAS, _SPLIT_ROSTER)
+    (tmp_path / "build" / "demo-readonly" / "config.yml").unlink()
+
+    panels = _panel_rows(deploy_summary.endpoint_entries(config, [compose]))
+
+    ports = layout_ports(DEFAULT_PORT_BASE)
+    assert len(panels) == 7
+    assert panels["lattice"] == f"127.0.0.1:{ports['lattice']}-{ports['lattice'] + 1}  (alice, bob)"
+    assert deploy_summary.RESERVED_BANDS_LABEL not in panels
+
+
+def test_a_persona_whose_project_declares_no_panels_still_serves_the_universal_one(tmp_path):
+    """WORKSPACE is not a panel a project can decline, so its band is always served."""
+    config, compose = _persona_deployment(
+        tmp_path,
+        {"minimal": []},
+        [{"name": "alice", "index": 0, "persona": "minimal"}],
+    )
+
+    panels = _panel_rows(deploy_summary.endpoint_entries(config, [compose]))
+
+    ports = layout_ports(DEFAULT_PORT_BASE)
+    assert panels["artifact"] == f"http://127.0.0.1:{ports['artifact']}  (alice)"
+    assert panels["web"] == f"http://127.0.0.1:{ports['web']}  (alice)"
+    assert set(panels) == {"web", "artifact", deploy_summary.RESERVED_BANDS_LABEL}
+
+
+def test_a_panel_switched_off_by_a_persona_is_not_served(tmp_path):
+    """``enabled: false`` is a declaration too, and it is a declaration of absence."""
+    tmp_path.joinpath("build", "demo-readonly").mkdir(parents=True)
+    tmp_path.joinpath("build", "demo-readonly", "config.yml").write_text(
+        yaml.safe_dump({"web": {"panels": {"ariel": True, "okf": {"enabled": False}}}}),
+        encoding="utf-8",
+    )
+    empty = tmp_path / "docker-compose.yml"
+    empty.write_text("services: {}\n", encoding="utf-8")
+    config = {
+        "project_name": "demo",
+        "project_root": str(tmp_path),
+        "modules": {
+            "web_terminals": {
+                "enabled": True,
+                "users": [{"name": "alice", "index": 0, "persona": "readonly"}],
+                "personas": {"readonly": {"project_path": "build/demo-readonly"}},
+            }
+        },
+    }
+
+    panels = _panel_rows(deploy_summary.endpoint_entries(config, [str(empty)]))
+
+    assert "ariel" in panels
+    assert "okf" not in panels
+
+
+def test_the_narrowing_reaches_status_through_the_entries_it_shares(tmp_path):
+    """``osprey status`` and the deploy summary move together, or they contradict.
+
+    Status hands :func:`endpoint_entries` a config and compose files and no
+    root, so the persona projects are found through the rendered config's own
+    ``project_root``. If that anchor were dropped, the deploy that printed the
+    narrow bands would be followed by a status printing the wide ones, and the
+    operator would have no way to tell which surface was lying.
+    """
+    config, compose = _persona_deployment(tmp_path, _SPLIT_PERSONAS, _SPLIT_ROSTER)
+
+    entries = deploy_summary.endpoint_entries(config, [compose])
+    rows = dict(deploy_summary.summary_rows(entries))
+
+    ports = layout_ports(DEFAULT_PORT_BASE)
+    assert rows["  ariel"] == f"http://127.0.0.1:{ports['ariel']}  (alice)"
+    assert "  lattice" not in rows
+
+
+def test_a_root_in_hand_beats_the_one_the_config_declares(tmp_path):
+    """A moved repo is read where it IS, for a caller that knows where that is.
+
+    ``as_built_endpoint_entries`` holds the repo it was pointed at; the
+    ``project_root`` inside a rendered config was written wherever the build
+    happened to run. When the two disagree the caller's is the live one — a
+    deployment copied to another host would otherwise resolve its personas
+    against a path that belongs to a different machine.
+    """
+    config, _compose = _persona_deployment(tmp_path, _SPLIT_PERSONAS, _SPLIT_ROSTER)
+    config["project_root"] = str(tmp_path / "somewhere-else")
+    (tmp_path / "build" / "config.yml").write_text(yaml.safe_dump(config), encoding="utf-8")
+
+    panels = _panel_rows(deploy_summary.as_built_endpoint_entries(tmp_path))
+
+    ports = layout_ports(DEFAULT_PORT_BASE)
+    assert panels["ariel"] == f"http://127.0.0.1:{ports['ariel']}  (alice)"
+    assert "lattice" not in panels
+
+
+def test_a_roster_user_the_catalog_cannot_place_degrades_the_whole_tier(tmp_path):
+    """One unplaceable user is not narrowed around — the tier goes wide.
+
+    Reporting the bands the OTHER users serve would silently drop this one from
+    every band he might be on, which reads as "carol serves nothing" rather
+    than as "nothing here knows what carol serves".
+    """
+    config, compose = _persona_deployment(
+        tmp_path,
+        _SPLIT_PERSONAS,
+        [*_SPLIT_ROSTER, {"name": "carol", "index": 2}],
+    )
+
+    panels = _panel_rows(deploy_summary.endpoint_entries(config, [compose]))
+
+    ports = layout_ports(DEFAULT_PORT_BASE)
+    assert len(panels) == 7
+    assert panels["lattice"] == (
+        f"127.0.0.1:{ports['lattice']}-{ports['lattice'] + 2}  (alice, bob, carol)"
+    )
+
+
+def _unparseable_persona_config(tmp_path, config):
+    """A rendered ``config.yml`` that is not YAML — a build interrupted mid-write."""
+    path = tmp_path / "build" / "demo-readonly" / "config.yml"
+    path.write_text("web: [unclosed\n", encoding="utf-8")
+
+
+def _catalog_entry_without_a_project_path(tmp_path, config):
+    """A persona declared but never pointed at a project."""
+    config["modules"]["web_terminals"]["personas"]["readonly"].pop("project_path")
+
+
+def _roster_entry_that_is_not_a_user(tmp_path, config):
+    """A bare scalar where a roster entry belongs — a hand-edited config, or ``--no-lint``."""
+    config["modules"]["web_terminals"]["users"] = [*_SPLIT_ROSTER, 42]
+
+
+def _authorization_stanza_that_does_not_parse(tmp_path, config):
+    """A declared role that names no persona — one of the parser's refusals.
+
+    Not a scalar ``authorization: 42``: that one parses to the inert defaults
+    (``as_dict`` reads a non-mapping as empty), so it degrades nothing and is
+    not a case. What the parser genuinely refuses is a binding it cannot
+    resolve, and a personaless role is the shortest of the three.
+    """
+    config["modules"]["web_terminals"]["authorization"] = {"roles": {"operator": {}}}
+
+
+@pytest.mark.parametrize(
+    "break_it",
+    [
+        _unparseable_persona_config,
+        _catalog_entry_without_a_project_path,
+        _roster_entry_that_is_not_a_user,
+        _authorization_stanza_that_does_not_parse,
+    ],
+    ids=["unparseable-project", "no-project-path", "roster-entry-is-a-scalar", "bad-authorization"],
+)
+def test_anything_that_cannot_be_read_degrades_the_tier_rather_than_narrowing(tmp_path, break_it):
+    """Every way the persona walk can fail ends in the wide bands, not in a traceback.
+
+    The narrowing reads config the deploy has already accepted and a directory
+    tree it does not own, so each step has a way to come back with nothing:
+    an unparseable rendered project, a catalog entry pointing nowhere, a roster
+    entry that is not a user, a role table that is not a table. All four are
+    reachable past ``--no-lint`` or by hand-editing ``build/config.yml``, and
+    all four must cost the *claim about who answers where* — never the summary
+    that a successful deploy ends with.
+    """
+    config, compose = _persona_deployment(tmp_path, _SPLIT_PERSONAS, _SPLIT_ROSTER)
+    break_it(tmp_path, config)
+
+    panels = _panel_rows(deploy_summary.endpoint_entries(config, [compose]))
+
+    ports = layout_ports(DEFAULT_PORT_BASE)
+    assert len(panels) == 7
+    assert deploy_summary.RESERVED_BANDS_LABEL not in panels
+    assert panels["lattice"] == f"127.0.0.1:{ports['lattice']}-{ports['lattice'] + 1}  (alice, bob)"
+
+
+def test_a_roster_entry_that_is_not_a_user_reaches_no_caller_as_an_exception(tmp_path):
+    """The two surfaces that do not wrap this call are the ones that must not raise.
+
+    ``format_endpoint_summary`` and the closing card's
+    ``as_built_endpoint_entries`` both call the derivation bare, so an
+    exception out of it replaces a finished deploy's report with a traceback
+    and tells the operator the deploy failed when it did not. Asserted through
+    both, because the crash was in a helper neither of them can see.
+    """
+    config, compose = _persona_deployment(
+        tmp_path, _SPLIT_PERSONAS, [*_SPLIT_ROSTER, 42], base=DEFAULT_PORT_BASE
+    )
+    (tmp_path / "build" / "config.yml").write_text(yaml.safe_dump(config), encoding="utf-8")
+
+    text = deploy_summary.format_endpoint_summary(config, [compose])
+    card_rows = deploy_summary.as_built_endpoint_entries(tmp_path)
+
+    ports = layout_ports(DEFAULT_PORT_BASE)
+    # Degraded, and degraded to something that still says where the block is.
+    assert f"127.0.0.1:{ports['lattice']}-{ports['lattice'] + 1}  (alice, bob)" in text
+    assert len(_panel_rows(card_rows)) == 7
+
+
+def test_a_persona_project_with_no_web_block_serves_the_universal_bands(tmp_path):
+    """A project that declares nothing is an ANSWER, not a failure to read one.
+
+    ``web:`` missing entirely is what a rendered project without any panel
+    configuration looks like, and the terminal's own reading of that is
+    unambiguous: it starts the WORKSPACE panel and nothing else. So this narrows
+    to two bands rather than degrading to seven — degrading here would report
+    five addresses that this deployment genuinely does not answer on.
+    """
+    config, compose = _persona_deployment(
+        tmp_path, {"minimal": []}, [{"name": "alice", "index": 0, "persona": "minimal"}]
+    )
+    (tmp_path / "build" / "demo-minimal" / "config.yml").write_text(
+        yaml.safe_dump({"project_name": "demo-minimal"}), encoding="utf-8"
+    )
+
+    panels = _panel_rows(deploy_summary.endpoint_entries(config, [compose]))
+
+    ports = layout_ports(DEFAULT_PORT_BASE)
+    assert set(panels) == {"web", "artifact", deploy_summary.RESERVED_BANDS_LABEL}
+    assert panels["artifact"] == f"http://127.0.0.1:{ports['artifact']}  (alice)"
 
 
 # ---------------------------------------------------------------------------

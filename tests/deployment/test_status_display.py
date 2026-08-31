@@ -383,3 +383,29 @@ services:
     assert output.index("stores") < output.index("postgresql")
     assert f"http://127.0.0.1:{ports['openobserve']}" in output
     assert f"127.0.0.1:{ports['postgres']}" in output
+
+
+def test_the_endpoints_section_resolves_personas_against_the_live_checkout(
+    tmp_path, monkeypatch, rendered
+):
+    """Status hands ``endpoint_entries`` the repo it is reporting on.
+
+    The panel rows are narrowed per persona by reading each persona's rendered
+    project, and a checkout that was moved or copied records a ``project_root``
+    pointing at the OTHER copy — which would narrow this deployment's bands
+    against somebody else's roster. The compose files in the same call are
+    already anchored on the live root; the persona lookup has to be too.
+    """
+    from osprey.deployment import deploy_summary
+
+    seen = {}
+
+    def _fake_endpoint_entries(config, compose_files, *, project_root=None):
+        seen["project_root"] = project_root
+        return []
+
+    monkeypatch.setattr(deploy_summary, "endpoint_entries", _fake_endpoint_entries)
+
+    status_display._print_endpoints_section({"project_name": "demo"}, [], tmp_path)
+
+    assert seen["project_root"] == tmp_path

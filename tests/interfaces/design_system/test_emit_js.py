@@ -26,6 +26,7 @@ import pytest
 import osprey.interfaces.design_system as design_system_pkg
 from osprey.interfaces.design_system.generator.emit_js import (
     GENERATED_HEADER_LINES,
+    SCOPE_ATTRIBUTE,
     STORAGE_KEY,
     ThemeFamilyDefaultsError,
     ThemeManifestEntry,
@@ -486,6 +487,29 @@ def test_render_theme_boot_js_bakes_in_storage_key_and_manifest() -> None:
     assert literals["DEFAULTS"] == {"main": {"dark": "dark", "light": "light"}}
     assert literals["FAMILY_BY_ID"] == {"dark": "main", "light": "main"}
     assert literals["DEFAULT_FAMILY"] == "main"
+
+
+def test_render_theme_boot_js_bakes_in_the_storage_scope_rule() -> None:
+    # The behavior is pinned in js/theme-boot-scope.test.mjs against the
+    # generated file; this pins that the GENERATOR is what puts it there --
+    # the scope attribute name, the "--" separator, and a storage read that
+    # goes through the derived key rather than the bare STORAGE_KEY.
+    tree = _tree(
+        {
+            "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "main"},
+            "light": {"id": "light", "label": "Light", "mode": "light", "family": "main"},
+        }
+    )
+
+    content = render_theme_boot_js(tree)
+
+    assert SCOPE_ATTRIBUTE == "data-osprey-storage-scope"
+    baked = re.search(r'const SCOPE_ATTRIBUTE = ("(?:[^"\\]|\\.)*");', content)
+    assert baked and json.loads(baked.group(1)) == SCOPE_ATTRIBUTE
+    # The separator, however the emitter spells the concatenation.
+    assert re.search(r'STORAGE_KEY\s*\+\s*"--"|\$\{STORAGE_KEY\}--', content)
+    assert "window.localStorage.getItem(storageKey())" in content
+    assert "window.localStorage.getItem(STORAGE_KEY)" not in content
 
 
 def test_render_theme_boot_js_default_family_is_first_declared_family() -> None:

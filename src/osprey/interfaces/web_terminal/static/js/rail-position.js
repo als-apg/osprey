@@ -19,9 +19,20 @@
  *     switching back to another family moves the rail back. The coupling
  *     itself is served by GET /api/panels (app.FAMILY_RAIL_DEFAULTS), so
  *     this module holds no opinion about which family implies which rail.
+ *
+ * The pin is per persona. localStorage is origin-scoped, so on a multi-user
+ * mount one bare key would be a single shared slot: the last persona to flip
+ * the rail would pin it for everyone. Both ends here go through
+ * `scopedStorageKey()`, resolved per call so the key always reflects the
+ * document actually being served. This module is the WRITER half of a pair —
+ * the design system's rail-boot.js reads the same key before first paint from
+ * its own inline mirror of the rule, so the two derivations must agree
+ * byte-for-byte.
  */
 
-const STORAGE_KEY = 'osprey-rail-position';
+import { scopedStorageKey } from '/design-system/js/storage-scope.js';
+
+const STORAGE_KEY_BASE = 'osprey-rail-position';
 const VALID_POSITIONS = ['left', 'top'];
 const DEFAULT_POSITION = 'left';
 
@@ -49,7 +60,7 @@ export function setRailPosition(position) {
   if (!VALID_POSITIONS.includes(position)) return;
   document.documentElement.setAttribute('data-rail-position', position);
   try {
-    localStorage.setItem(STORAGE_KEY, position);
+    localStorage.setItem(scopedStorageKey(STORAGE_KEY_BASE), position);
   } catch { /* storage blocked — the flip still applies for this session */ }
   stripQueryRail();
   window.dispatchEvent(new Event('resize'));
@@ -76,7 +87,7 @@ export function initRailThemeCoupling(payload) {
  */
 function hasUserPin() {
   try {
-    return VALID_POSITIONS.includes(String(localStorage.getItem(STORAGE_KEY)));
+    return VALID_POSITIONS.includes(String(localStorage.getItem(scopedStorageKey(STORAGE_KEY_BASE))));
   } catch {
     return false; // storage blocked — treat as unpinned
   }
