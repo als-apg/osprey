@@ -1267,6 +1267,56 @@ def _resolve_rendered_execution_method(render_dir: Path) -> list[str]:
     return []
 
 
+def _resolve_rendered_container_runtime(render_dir: Path, progress: Any) -> None:
+    """Answer ``container_runtime: auto`` in a render with the runtime that served it.
+
+    ``auto`` is a question, and every deployment template ships it as the
+    default. Left in ``build/config.yml`` — the as-built config every lifecycle
+    verb reads — it is asked again, from scratch, by ``down``, ``reset``,
+    ``restart`` and the port preflight on every invocation. Detection is
+    docker-then-podman with a short probe timeout, so on a host with both
+    installed one slow ``docker ps`` is enough for a ``down`` to run under
+    podman, find nothing, exit 0, and report the still-running docker stack as
+    stopped.
+
+    So the build answers it once, here, and writes the answer into the render.
+    Every later verb then reads a pinned runtime, and
+    :func:`~osprey.deployment.runtime_helper.get_runtime_command` narrows its
+    probe to that one: a pinned runtime that does not answer is a refusal
+    naming that runtime, never a switch to the other. The same seam as
+    :func:`_resolve_rendered_execution_method`, for the same reason — it is the
+    render, not the profile, that the verbs load.
+
+    An explicit ``docker``/``podman`` is the operator's answer and is left as
+    written. A host where no runtime answers keeps ``auto``: there is nothing
+    to pin to, such a host cannot start anything, and a build there is still
+    a valid thing to do.
+    """
+    from osprey.deployment import runtime_helper
+
+    config_path = render_dir / "config.yml"
+    config = _rendered_config(render_dir)
+    written = str(config.get("container_runtime") or "auto").lower()
+    if written in ("docker", "podman"):
+        return
+
+    try:
+        runtime = runtime_helper.get_runtime_command(config)[0]
+    except RuntimeError as e:
+        logger.debug("Leaving container_runtime: auto in the render — %s", e)
+        return
+
+    from ruamel.yaml import YAML
+
+    yaml = YAML()
+    with config_path.open("r", encoding="utf-8") as fh:
+        document = yaml.load(fh)
+    document["container_runtime"] = runtime
+    with config_path.open("w", encoding="utf-8") as fh:
+        yaml.dump(document, fh)
+    progress("  ✓ container_runtime: %s (resolved from auto; the runtime this build used)", runtime)
+
+
 def _incomplete_limits_errors(render_dir: Path) -> list[str]:
     """Every ``limits_checking`` block in a render that fails to state a leaf, named.
 
@@ -1618,6 +1668,10 @@ def _render_project(
     ]
     if unrunnable:
         raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(unrunnable))
+    # And the runtime, for the same reason once more: the verbs that stop,
+    # restart and preflight this deployment read the render, and must act on
+    # the runtime that owns the containers rather than re-detect one.
+    _resolve_rendered_container_runtime(render_dir, progress)
 
     applied = _apply_conventions(
         repo_root,

@@ -144,10 +144,23 @@ one explicitly.
 Container Runtime Selection
 ===========================
 
-The runtime is auto-detected: if Docker's daemon is reachable it is
-preferred, otherwise Podman is used. Force a specific runtime with the
-``CONTAINER_RUNTIME`` environment variable or by setting
-``container_runtime: docker|podman|auto`` at the root of ``config.yml``.
+The runtime is chosen once, by ``osprey build``, and recorded in
+``build/config.yml`` as ``container_runtime: docker`` or ``podman``. With the
+default ``container_runtime: auto`` the build takes Docker when its daemon
+answers and Podman otherwise; an explicit ``docker`` or ``podman`` in the
+profile's ``config:`` block is taken as written. Every later verb — ``up``,
+``down``, ``restart``, ``reset``, the port preflight — reads the recorded
+runtime and talks only to it. If that runtime is not running, the verb refuses
+and says so; it never switches to the other runtime, because a stack started
+under Docker is invisible from Podman and a ``down`` served there would report
+it stopped while it keeps running.
+
+To move a deployment to the other runtime, stop it where it runs, then build
+again on the new runtime. ``CONTAINER_RUNTIME=docker|podman`` in the
+environment overrides the recorded value for one invocation; use it only for
+a stack you know runs there. When a host has both runtimes installed and
+``auto`` skips one because its probe failed, the build logs a warning naming
+the probe.
 
 .. _compose-provider-compatibility:
 
