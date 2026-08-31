@@ -373,10 +373,11 @@ describe('the card', () => {
     await bootOpen();
     const title = /** @type {HTMLElement} */ (cardEl()?.querySelector('.ctc-card-title'));
     expect(title.querySelector('.ctc-name')?.textContent).toBe('Rehearsal');
-    // The implementation vocabulary lives on the tooltip, never at rest.
-    expect(title.title).toContain('LIVE MACHINE (stand-in)');
-    expect(title.title).toContain('127.0.0.1:10090');
-    expect(cardEl()?.querySelector('.ctc-desc')?.textContent).toBe(
+    // The implementation vocabulary lives on the ⓘ tooltip, never at rest.
+    const tip = /** @type {HTMLElement} */ (cardEl()?.querySelector('.ctc-tip'));
+    expect(tip.textContent).toContain('LIVE MACHINE (stand-in)');
+    expect(tip.textContent).toContain('127.0.0.1:10090');
+    expect(tip.querySelector('.ctc-tip-what')?.textContent).toBe(
       "Copy of the real machine's controls · nothing moves"
     );
     const toggle = /** @type {HTMLButtonElement} */ (toggleEl('standin'));
@@ -415,9 +416,12 @@ describe('names', () => {
     await bootOpen();
     expect(rowEl('live')?.querySelector('.ctc-name')?.textContent).toBe('Real machine');
     expect(rowEl('va')?.querySelector('.ctc-name')?.textContent).toBe('Simulator');
-    // No raw server label reaches a resting surface.
-    expect(popEl()?.textContent).not.toContain('LIVE MACHINE');
-    expect(popEl()?.textContent).not.toContain('virtual accelerator');
+    // No raw server label reaches a resting surface — the labels live only
+    // inside the ⓘ tooltips.
+    const atRest = /** @type {HTMLElement} */ (popEl()?.cloneNode(true));
+    for (const tip of atRest.querySelectorAll('.ctc-tip')) tip.remove();
+    expect(atRest.textContent).not.toContain('LIVE MACHINE');
+    expect(atRest.textContent).not.toContain('virtual accelerator');
   });
 
   test("the deployment's configured display_name wins over the default", async () => {
@@ -433,15 +437,26 @@ describe('names', () => {
     expect(rowEl('live')?.querySelector('.ctc-name')?.textContent).toBe('ALS storage ring');
   });
 
-  test('the live machine carries the one hazard descriptor', async () => {
+  test('the live machine carries the one hazard descriptor, inside its tooltip', async () => {
     await bootOpen();
-    const desc = /** @type {HTMLElement} */ (rowEl('live')?.querySelector('.ctc-desc'));
+    const desc = /** @type {HTMLElement} */ (rowEl('live')?.querySelector('.ctc-tip-what'));
     expect(desc.textContent).toBe('Writes move hardware');
     expect(desc.dataset.tone).toBe('hazard');
     // Nothing-moves machines never carry the tone.
-    const va = /** @type {HTMLElement} */ (rowEl('va')?.querySelector('.ctc-desc'));
+    const va = /** @type {HTMLElement} */ (rowEl('va')?.querySelector('.ctc-tip-what'));
     expect(va.textContent).toBe('Physics model · nothing moves');
     expect(va.dataset.tone).toBeUndefined();
+  });
+
+  test('the ⓘ is a keyboard-reachable button carrying both hidden facts', async () => {
+    await bootOpen();
+    const info = /** @type {HTMLButtonElement} */ (rowEl('va')?.querySelector('.ctc-info'));
+    expect(info.getAttribute('aria-label')).toBe('About Simulator');
+    const tip = /** @type {HTMLElement} */ (info.querySelector('.ctc-tip'));
+    expect(tip.getAttribute('role')).toBe('tooltip');
+    // Consequence first, then identity — one place for "what is this?".
+    expect(tip.querySelector('.ctc-tip-what')?.textContent).toBe('Physics model · nothing moves');
+    expect(tip.querySelector('.ctc-tip-ident')?.textContent).toContain('127.0.0.1:10064');
   });
 
   test('a live machine nothing has authored reads not set up, without the hazard tone', async () => {
@@ -457,7 +472,7 @@ describe('names', () => {
         ],
       })
     );
-    const desc = /** @type {HTMLElement} */ (rowEl('live')?.querySelector('.ctc-desc'));
+    const desc = /** @type {HTMLElement} */ (rowEl('live')?.querySelector('.ctc-tip-what'));
     expect(desc.textContent).toBe('Not set up yet');
     expect(desc.dataset.tone).toBeUndefined();
   });

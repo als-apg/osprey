@@ -580,7 +580,7 @@ osprey-display-menu .display-menu-logout-icon {
   position: absolute;
   top: calc(100% + var(--space-2));
   right: 0;
-  width: 500px;
+  width: 420px;
   padding: var(--space-3);
   flex-direction: column;
   gap: var(--space-2);
@@ -668,28 +668,100 @@ osprey-display-menu .display-menu-logout-icon {
   grid-row: 2;
 }
 
-.ctc-card > .ctc-desc,
 .ctc-card > .ctc-outcome {
   grid-column: 1 / -1;
 }
 
-/* The consequence line under a name: what writing to this machine does.
-   Wording in control-target-facts.js (KIND_DESCRIPTORS); the live machine's
-   line carries the error tone because it is the one sentence in the popover
-   that names hardware moving. */
-.ctc-desc {
-  min-width: 0;
+/* ---- The ⓘ and its tooltip ----
+
+   What a machine is and what writing there does live behind a small ⓘ after
+   the name: the consequence line (KIND_DESCRIPTORS in
+   control-target-facts.js — the one naming hardware moving keeps its error
+   tone), then the machine vocabulary the name's `title` used to carry. A
+   real element shown on hover and keyboard focus, not the native `title`
+   bubble: that one is delayed, unstyled and mouse-only. */
+.ctc-info {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  padding: 0;
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-  letter-spacing: 0.02em;
+  font-weight: var(--weight-medium);
   color: var(--text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: 50%;
+  cursor: help;
 }
 
-.ctc-desc[data-tone="hazard"] {
+.ctc-info:hover,
+.ctc-info:focus-visible {
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+  outline: none;
+}
+
+.ctc-tip {
+  position: absolute;
+  left: -6px;
+  top: calc(100% + 7px);
+  z-index: calc(var(--z-sticky) + 1);
+  display: none;
+  flex-direction: column;
+  gap: 3px;
+  width: max-content;
+  max-width: 320px;
+  padding: 7px 9px;
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-regular);
+  line-height: var(--leading-normal);
+  letter-spacing: 0.01em;
+  text-transform: none;
+  white-space: normal;
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-dropdown);
+  pointer-events: none;
+  cursor: auto;
+}
+
+.ctc-tip::before {
+  content: "";
+  position: absolute;
+  left: 9px;
+  top: -5px;
+  width: 8px;
+  height: 8px;
+  transform: rotate(45deg);
+  background: var(--bg-elevated);
+  border-left: 1px solid var(--border-default);
+  border-top: 1px solid var(--border-default);
+}
+
+.ctc-info:hover .ctc-tip,
+.ctc-info:focus-visible .ctc-tip {
+  display: flex;
+}
+
+.ctc-tip-what {
+  color: var(--text-primary);
+}
+
+.ctc-tip-what[data-tone="hazard"] {
   color: var(--color-error);
+}
+
+.ctc-tip-ident {
+  color: var(--text-muted);
 }
 
 /* The reachability exception. "Connected" is never rendered — the only
@@ -736,7 +808,7 @@ osprey-display-menu .display-menu-logout-icon {
   grid-template-columns: subgrid;
   grid-column: 1 / -1;
   align-items: center;
-  min-height: 40px;
+  min-height: 32px;
   padding: 4px 2px;
   border-bottom: 1px solid var(--border-default);
 }

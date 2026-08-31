@@ -100,9 +100,9 @@ The first part names the machine this session stands on, by what it **is**:
 
 A deployment can put its own names on its machines
 (``control_system.target_display_names`` in ``config.yml`` --- *ALS storage
-ring* rather than *Real machine*); what the machine is stays on the popover's
-descriptor line and the tooltips either way, and the tooltip also keeps the
-controls server's own technical label.
+ring* rather than *Real machine*); what the machine is stays behind the small
+ⓘ beside its name either way, and that tooltip also keeps the controls
+server's own technical label.
 
 The second part is the write state **on that machine**, for **your session**:
 
@@ -122,10 +122,11 @@ configures, not only the one you are standing on.
 The machine you are on, and the others
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The machine the agent stands on is a card at the top: its name, what writing
-there means (*Writes move hardware*, or one of the *nothing moves* lines), and
-its writes switch. Every other machine is a row below the card, carrying the
-same two facts and the actions:
+The machine the agent stands on is a card at the top: its name and its writes
+switch. Every other machine is a row below the card with the same shape and
+the actions. What writing to a machine means (*Writes move hardware*, or one
+of the *nothing moves* lines) sits with its endpoint and the server's own
+label behind the small ⓘ beside each name, on hover or keyboard focus:
 
 - **The writes switch** --- per machine, for your session. The switch position
   is the write state and clicking it is the gesture that changes it; where

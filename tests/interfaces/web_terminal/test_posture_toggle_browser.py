@@ -507,9 +507,9 @@ def test_the_chip_names_the_session_target_and_lists_every_row(
                 row = _row(page, target)
                 expect(row.locator(".ctc-name")).to_have_text(NAMES[target])
                 expect(row.locator(".ctc-switch-state")).to_have_text("on")
-                # The server's own label is hover vocabulary now, not rest copy.
-                title = row.locator(".ctc-name-line").get_attribute("title")
-                assert title and LABELS[target] in title, title
+                # The server's own label lives inside the ⓘ tooltip, not at rest.
+                tip = row.locator(".ctc-tip").text_content()
+                assert tip and LABELS[target] in tip, tip
 
             expect(card.locator(".ctc-switch")).to_have_count(0)
             # The one target this render will switch onto.
@@ -790,7 +790,7 @@ def test_both_ui_modes_render_the_same_row_and_differ_only_in_density(
     this design leaves it nothing in the popover to gate. The endpoint and the
     server's own label are hover vocabulary in BOTH modes, reachability only
     speaks when a machine is not answering, and what remains at rest — the
-    name, the consequence line, the writes switch, Switch — is what an
+    name, its ⓘ, the writes switch, Switch — is what an
     operator acts on and is shown in either density. So the invariant pinned
     here is the stronger one: same DOM, same visibility, and the confirms
     identical, whichever mode the deployment renders.
@@ -814,15 +814,15 @@ def test_both_ui_modes_render_the_same_row_and_differ_only_in_density(
 
             # --- what an operator acts on, at rest, in either density ---
             expect(row.locator(".ctc-name")).to_have_text(NAMES[SWITCH_TARGET])
-            expect(row.locator(".ctc-desc")).to_have_text("Writes move hardware")
+            assert row.locator(".ctc-tip-what").text_content() == "Writes move hardware"
             expect(row.locator(".ctc-switch-state")).to_have_text("on")
             expect(row.locator(".ctc-toggle")).to_be_visible()
             expect(row.locator(".ctc-switch")).to_be_visible()
             expect(page.locator(FOOT_NOTE)).to_have_text("Your session only")
 
-            # --- the machine vocabulary stays on hover, in either density ---
-            title = row.locator(".ctc-name-line").get_attribute("title")
-            assert title and LABELS[SWITCH_TARGET] in title, title
+            # --- the machine vocabulary stays behind the ⓘ, in either density ---
+            tip = row.locator(".ctc-tip").text_content()
+            assert tip and LABELS[SWITCH_TARGET] in tip, tip
             # No endpoint/role line exists at rest for a stylesheet to gate.
             assert row.locator(".ctc-meta").count() == 0
 

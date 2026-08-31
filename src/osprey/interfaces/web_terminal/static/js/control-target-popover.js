@@ -12,11 +12,11 @@
  * machine.
  *
  * **Two shapes, not one list.** The machine the agent stands on is a card —
- * name, consequence line, and its writes switch. Every other machine is a
- * row: name and consequence, its writes switch, and Switch to. Where a
- * control cannot act it stays visible and says why on hover; the machine
- * vocabulary (lock codes, endpoints, the server's own label) lives on
- * tooltips, never at rest.
+ * name, ⓘ, and its writes switch. Every other machine is a row: name, ⓘ,
+ * its writes switch, and Switch to. Where a control cannot act it stays
+ * visible and says why on hover; what a machine is and what writing there
+ * does — the consequence line, the server's own label, the endpoint — live
+ * behind the name's ⓘ tooltip, never at rest.
  *
  * **One switch per machine.** The write state is a switch: position and
  * control are the same widget, so nothing says "writes on" twice. The old
@@ -408,13 +408,11 @@ function renderCard(row, state) {
   title.dataset.state = word;
   title.append(el('span', 'ctc-dot'));
   title.append(el('span', 'ctc-name', displayName(row, kind)));
-  title.title = identTitle(row);
+  const info = infoAffordance(row, kind);
+  if (info) title.append(info);
   card.append(title);
 
   card.append(renderSwitch(row, state, word, lock));
-
-  const desc = descriptor(row, kind);
-  if (desc) card.append(descLine(row, kind, desc));
 
   // The reach exception sits on the title line: the switch carries the write
   // state, so the card has no separate state line to put it on.
@@ -458,7 +456,8 @@ function renderRow(row, state, rows) {
   const ident = el('div', 'ctc-ident');
   const name = el('div', 'ctc-name-line');
   name.append(el('span', 'ctc-name', displayName(row, kind)));
-  name.title = identTitle(row);
+  const info = infoAffordance(row, kind);
+  if (info) name.append(info);
   const reach = reachException(row.reachability);
   if (reach) {
     const bad = el('span', 'ctc-reach-word', reach.text);
@@ -467,8 +466,6 @@ function renderRow(row, state, rows) {
     name.append(bad);
   }
   ident.append(name);
-  const desc = descriptor(row, kind);
-  if (desc) ident.append(descLine(row, kind, desc));
   for (const line of outcomeLines(row, state)) ident.append(line);
   node.append(ident);
 
@@ -478,19 +475,36 @@ function renderRow(row, state, rows) {
 }
 
 /**
- * The consequence line, toned: the one descriptor that names hardware moving
- * carries the error tone; every "nothing moves" (and "not set up") stays
- * muted.
+ * The ⓘ beside a name, and the tooltip behind it.
+ *
+ * Two facts in one place: what writing to this machine does (the consequence
+ * line — the one that names hardware moving keeps its error tone), then the
+ * machine vocabulary the name's `title` used to carry (the server's own
+ * label, the endpoint, the measured reachability). A real element shown on
+ * hover and keyboard focus rather than the browser's `title` bubble, which
+ * is delayed, unstyled and mouse-only. Returns `null` for a row with
+ * nothing to say.
  * @param {any} row
  * @param {string} kind
- * @param {string} desc
- * @returns {HTMLElement}
+ * @returns {HTMLElement|null}
  */
-function descLine(row, kind, desc) {
-  const line = el('div', 'ctc-desc', desc);
-  const tone = descriptorTone(row, kind);
-  if (tone) line.dataset.tone = tone;
-  return line;
+function infoAffordance(row, kind) {
+  const what = descriptor(row, kind);
+  const ident = identTitle(row);
+  if (!what && !ident) return null;
+  const info = button('ctc-info', 'i');
+  info.setAttribute('aria-label', `About ${displayName(row, kind)}`);
+  const tip = el('span', 'ctc-tip');
+  tip.setAttribute('role', 'tooltip');
+  if (what) {
+    const line = el('span', 'ctc-tip-what', what);
+    const tone = descriptorTone(row, kind);
+    if (tone) line.dataset.tone = tone;
+    tip.append(line);
+  }
+  if (ident) tip.append(el('span', 'ctc-tip-ident', ident));
+  info.append(tip);
+  return info;
 }
 
 /**
