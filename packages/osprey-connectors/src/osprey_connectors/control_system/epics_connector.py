@@ -130,6 +130,21 @@ def _ca_enum_labels(pv: Any, index: Any) -> tuple[list[str] | None, str | None]:
     return _enum_label_fields(labels, index)
 
 
+def _severity_int(severity: Any) -> int | None:
+    """Coerce a reported alarm severity to ``int``, or ``None`` if unreported.
+
+    ``None`` means "the protocol carried no severity" and is deliberately
+    distinct from a reported healthy ``0``, so a consumer can tell "no alarm"
+    from "no information".
+    """
+    if severity is None:
+        return None
+    try:
+        return int(severity)
+    except (TypeError, ValueError):
+        return None
+
+
 def _readback_alarm_fields(readback: Any) -> tuple[str | None, int | None]:
     """Alarm name and severity of a readback, or ``(None, None)`` if unreported.
 
@@ -143,12 +158,7 @@ def _readback_alarm_fields(readback: Any) -> tuple[str | None, int | None]:
 
     status = getattr(metadata, "alarm_status", None)
     raw = getattr(metadata, "raw_metadata", None) or {}
-    severity = raw.get("severity") if isinstance(raw, dict) else None
-    if severity is not None:
-        try:
-            severity = int(severity)
-        except (TypeError, ValueError):
-            severity = None
+    severity = _severity_int(raw.get("severity") if isinstance(raw, dict) else None)
 
     return (str(status) if status is not None else None, severity)
 
@@ -616,6 +626,7 @@ class EPICSConnector(ControlSystemConnector):
             units=getattr(pv, "units", "") or "",
             precision=getattr(pv, "precision", None),
             alarm_status=_alarm_name(alarm_code),
+            alarm_severity=_severity_int(getattr(pv, "severity", None)),
             timestamp=timestamp,
             enum_labels=labels,
             enum_label=label,
@@ -743,6 +754,7 @@ class EPICSConnector(ControlSystemConnector):
             units=str(units),
             precision=int(precision) if isinstance(precision, int | float) else None,
             alarm_status=raw_metadata.get("alarm_message") or None,
+            alarm_severity=_severity_int(raw_metadata.get("severity")),
             timestamp=timestamp,
             description=str(description) if description else None,
             display_low=float(display_low) if isinstance(display_low, int | float) else None,
@@ -1141,6 +1153,7 @@ class EPICSConnector(ControlSystemConnector):
                 metadata=ChannelMetadata(
                     units=kwargs.get("units", ""),
                     alarm_status=_alarm_name(alarm_code),
+                    alarm_severity=_severity_int(kwargs.get("severity")),
                     enum_labels=labels,
                     enum_label=label,
                     raw_metadata={
