@@ -139,7 +139,7 @@ def test_a_narrowed_target_denies_and_names_the_chip_and_the_target(
     reason = reason_of(channel_write(tmp_path, hook_runner, config))
 
     # Assert
-    assert "SANDBOX POSTURE" in reason
+    assert "WRITES OFF" in reason
     assert "control-target chip in the header" in reason
     assert f"to the {target} target" in reason
     assert "writes_enabled" not in reason
@@ -162,9 +162,9 @@ def test_the_verbatim_sentences_of_the_per_target_refusal(
 
     # Assert
     assert reason == (
-        "\U0001f512 SANDBOX POSTURE — this session refuses control-system "
+        "\U0001f512 WRITES OFF — this session refuses control-system "
         "writes to the va target.\n\n"
-        "Switch it back to writes on the control-target chip in the header; "
+        "Turn writes back on from the control-target chip in the header; "
         "config.yml is not the gate here."
     )
 
@@ -232,7 +232,7 @@ def test_the_legacy_bare_sandbox_narrows_the_session_target(
     reason = reason_of(channel_write(tmp_path, hook_runner, config))
 
     # Assert
-    assert "SANDBOX POSTURE" in reason
+    assert "WRITES OFF" in reason
     assert "to the live target" in reason
 
 
@@ -269,7 +269,7 @@ def test_an_operator_key_narrows_like_any_other(tmp_path, hook_runner, make_conf
     reason = reason_of(channel_write(tmp_path, hook_runner, config))
 
     # Assert
-    assert "SANDBOX POSTURE" in reason
+    assert "WRITES OFF" in reason
     assert "to the live target" in reason
 
 
@@ -304,9 +304,9 @@ def test_an_unidentified_target_takes_the_most_restrictive_entry(
 
     # Assert — the scope phrase is absent, because no target was decided
     assert reason == (
-        "\U0001f512 SANDBOX POSTURE — this session refuses control-system "
+        "\U0001f512 WRITES OFF — this session refuses control-system "
         "writes.\n\n"
-        "Switch it back to writes on the control-target chip in the header; "
+        "Turn writes back on from the control-target chip in the header; "
         "config.yml is not the gate here."
     )
 
@@ -332,7 +332,7 @@ def test_an_unarmed_deployment_still_names_the_config_key(
     # Assert
     assert "WRITES DISABLED" in reason
     assert "control_system.connector.epics.writes_enabled: true" in reason
-    assert "SANDBOX POSTURE" not in reason
+    assert "WRITES OFF" not in reason
     assert "control-target chip" not in reason
 
 
@@ -356,7 +356,7 @@ def test_a_narrowing_wins_the_wording_over_an_unarmed_deployment(
     reason = reason_of(channel_write(tmp_path, hook_runner, config))
 
     # Assert
-    assert "SANDBOX POSTURE" in reason
+    assert "WRITES OFF" in reason
     assert "to the live target" in reason
     assert "WRITES DISABLED" not in reason
 
@@ -385,10 +385,10 @@ def test_posture_unknown_fires_unstamped_with_no_live_record(
 
     # Assert
     assert reason == (
-        "\U0001f512 POSTURE UNKNOWN — this session carries a posture key, but "
-        "no live control-target state was found where this hook looks, so the "
-        "posture set on the control-target chip in the header cannot be "
-        "read.\n\n"
+        "\U0001f512 WRITE STATE UNKNOWN — this session carries a posture key, "
+        "but no live control-target state was found where this hook looks, so "
+        "the write state set on the control-target chip in the header cannot "
+        "be read.\n\n"
         "Writes stay refused until the controls MCP server is running; "
         "config.yml is not the gate here."
     )
@@ -458,7 +458,7 @@ def test_posture_unknown_outranks_an_unarmed_deployment(
     reason = reason_of(channel_write(tmp_path, hook_runner, config))
 
     # Assert
-    assert "POSTURE UNKNOWN" in reason
+    assert "WRITE STATE UNKNOWN" in reason
     assert "WRITES DISABLED" not in reason
 
 
@@ -481,7 +481,7 @@ def test_a_readonly_run_still_refuses_before_stage_two(
     reason = reason_of(channel_write(tmp_path, hook_runner, config))
 
     # Assert
-    assert "SANDBOX POSTURE" in reason
+    assert "WRITES OFF" in reason
     assert "control-target chip in the header" in reason
     assert "target." not in reason
 

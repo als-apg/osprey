@@ -607,23 +607,23 @@ def _posture_refusal_wording() -> tuple[str, list[str]]:
 
     if target is None:
         return (
-            "this session's write posture is read-only for at least one control "
-            "target (this call's target could not be identified, so the most "
-            "restrictive decides) — set from the control-target chip in the header.",
+            "writes are off for at least one control target in this session (this "
+            "call's target could not be identified, so the most restrictive "
+            "decides) — turned off from the control-target chip in the header.",
             [
-                "Lift that narrowing from the control-target chip in the header if "
+                "Turn writes back on from the control-target chip in the header if "
                 "the write is intended; the deployment config is not the gate here.",
             ],
         )
 
     return (
-        f"this session's write posture for the '{target}' control target is "
-        "read-only — set from the control-target chip in the header, and in "
-        "force for this session only.",
+        f"writes are off for the '{target}' control target in this session — "
+        "turned off from the control-target chip in the header, and in force "
+        "for this session only.",
         [
-            f"Set '{target}' back to writes from the control-target chip in the "
-            "header if the write is intended; the deployment config is not the "
-            "gate here.",
+            f"Turn writes back on for '{target}' from the control-target chip in "
+            "the header if the write is intended; the deployment config is not "
+            "the gate here.",
         ],
     )
 
