@@ -318,6 +318,48 @@ export function abortControl(state) {
 }
 
 /**
+ * Whether the status strip may fold the two halts behind its disclosure.
+ *
+ * This gates VISIBILITY, never function — the halts stay undisabled and
+ * always-sendable whenever they are on screen (see `queueControls` /
+ * `abortControl` for why they have no disabled state). What this predicate
+ * decides is whether the strip is allowed to rest in its collapsed shape at
+ * all, and it answers yes only when the panel affirmatively knows the halts
+ * are dormant. The default for every other state — no frame yet, a dropped
+ * stream, an unreadable manager, a state string this bundle has never heard
+ * of — is EXPANDED. Reasons to stay visible are enumerated; hiding is what
+ * has to be earned.
+ *
+ * Two members of the list are easy to miss:
+ *
+ * - A pending stop keeps the strip open even though nothing is "running" in
+ *   the dangerous sense: the stop button is in its withdrawal mode, and a
+ *   control an operator armed must not fold away under them.
+ * - Autostart keeps it open even at idle: an autostarting manager drains
+ *   itself the moment an item lands, so "idle" there is not dormant.
+ *
+ * The states that permit collapse are, deliberately, a subset of the states
+ * that already clear both confirm-armed flags in queue-view.js (no running
+ * item clears the abort arm; no pending stop means the stop is not in its
+ * arming branch) — so a half-armed confirm can never be folded off screen.
+ *
+ * @param {QueueState} state
+ * @returns {boolean}
+ */
+export function haltsCollapsible(state) {
+  if (!state.connected) return false;
+  const status = state.status;
+  if (!status || status.available !== true) return false;
+  const managerState = typeof status.manager_state === 'string' ? status.manager_state : null;
+  if (managerState === null) return false;
+  if (QUEUE_ACTIVE_MANAGER_STATES.includes(managerState)) return false;
+  if (status.queue_stop_pending === true) return false;
+  if (status.queue_autostart_enabled === true) return false;
+  if (state.runningItem !== null) return false;
+  return true;
+}
+
+/**
  * The abort button's label across its two-step confirm.
  *
  * The plain stop is one click on purpose (friction in front of a halt is

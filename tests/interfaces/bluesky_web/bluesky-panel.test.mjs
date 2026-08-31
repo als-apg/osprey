@@ -39,6 +39,7 @@ import {
   createQueueStream,
   describeProgress,
   describeQueueStatus,
+  haltsCollapsible,
   finishedRunId,
   historyChanged,
   historyEmptyState,
@@ -346,6 +347,61 @@ describe('queueControls', () => {
     expect(controls.stop.arming).toBe(true);
     // The consequence, spelled out: this un-halts a queue a human halted.
     expect(controls.stop.note).toContain('keep draining');
+  });
+});
+
+describe('haltsCollapsible', () => {
+  /**
+   * @param {any} status
+   * @param {any} [runningItem]
+   * @param {boolean} [connected]
+   */
+  function stateWith(status, runningItem = null, connected = true) {
+    return { status, items: [], runningItem, connected, frames: connected ? 1 : 0 };
+  }
+
+  test('a provably dormant queue may fold its halts', () => {
+    expect(haltsCollapsible(stateWith(summary()))).toBe(true);
+  });
+
+  test('no frame yet keeps the halts pinned open', () => {
+    // First paint is exactly when a queue may already be executing; folding
+    // is earned by knowledge, and before the first frame there is none.
+    expect(haltsCollapsible(createInitialQueueState())).toBe(false);
+  });
+
+  test('a dropped stream keeps them open even with a stale idle summary', () => {
+    expect(haltsCollapsible(stateWith(summary(), null, false))).toBe(false);
+  });
+
+  test('an unreadable manager keeps them open', () => {
+    expect(haltsCollapsible(stateWith({ available: false, reason: 'x' }))).toBe(false);
+    expect(haltsCollapsible(stateWith(null))).toBe(false);
+  });
+
+  test('a missing or unrecognized manager state keeps them open', () => {
+    // An unknown state string is doubt, and doubt shows the halts — the
+    // default direction is EXPANDED, so only states this predicate can
+    // positively call dormant may fold.
+    expect(haltsCollapsible(stateWith(summary({ manager_state: null })))).toBe(false);
+  });
+
+  test('every active manager state keeps them open', () => {
+    for (const managerState of QUEUE_ACTIVE_MANAGER_STATES) {
+      expect(haltsCollapsible(stateWith(summary({ manager_state: managerState })))).toBe(false);
+    }
+  });
+
+  test('a pending stop keeps them open — the withdrawal must stay visible', () => {
+    expect(haltsCollapsible(stateWith(summary({ queue_stop_pending: true })))).toBe(false);
+  });
+
+  test('autostart keeps them open — an idle autostarting queue is not dormant', () => {
+    expect(haltsCollapsible(stateWith(summary({ queue_autostart_enabled: true })))).toBe(false);
+  });
+
+  test('a running item keeps them open regardless of the summary', () => {
+    expect(haltsCollapsible(stateWith(summary(), item()))).toBe(false);
   });
 });
 

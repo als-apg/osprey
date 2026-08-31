@@ -48,6 +48,7 @@ import {
   describeProgress,
   describeQueueStatus,
   finishedRunId,
+  haltsCollapsible,
   historyChanged,
   historyEmptyState,
   historyRecords,
@@ -106,6 +107,7 @@ export function createQueueView({ root, api, onSelectRun }) {
   const queueBanner = byId('queue-banner');
   const startBtn = /** @type {HTMLButtonElement} */ (byId('start-btn'));
   const stopBtn = /** @type {HTMLButtonElement} */ (byId('stop-btn'));
+  const haltsToggle = /** @type {HTMLButtonElement} */ (byId('halts-toggle'));
   const stopNote = byId('stop-note');
   const abortBtn = /** @type {HTMLButtonElement} */ (byId('abort-btn'));
   const abortNote = byId('abort-note');
@@ -163,6 +165,16 @@ export function createQueueView({ root, api, onSelectRun }) {
    * second click, it never fires an abort nobody asked for.
    */
   let abortConfirmArmed = false;
+
+  /**
+   * The operator opened the folded halts by hand — panel-local UI state, like
+   * the two confirm flags above. Only consulted while `haltsCollapsible` says
+   * folding is allowed at all: an active or unreadable queue shows the halts
+   * regardless, and this flag then records nothing but the operator's resting
+   * preference for the next time the queue goes dormant. Never persisted — a
+   * fresh document starts folded, which is the calm default this exists for.
+   */
+  let haltsManualOpen = false;
 
   // -------------------------------------------------------------------------
   // Banner
@@ -289,6 +301,20 @@ export function createQueueView({ root, api, onSelectRun }) {
     abortBtn.className = abortButtonClass(abortConfirmArmed);
     abortBtn.title = abort.note || '';
     setNote(abortNote, abortConfirmArmed ? abort.note : null);
+
+    // Fold the halts only while the panel affirmatively knows they are
+    // dormant (`haltsCollapsible`); every doubtful state pins them open and
+    // hides the toggle, so an active queue's halts cannot be folded at all.
+    // This is `hidden`, never `disabled` — a visible halt is always live, and
+    // the states that permit folding are a subset of the states that already
+    // cleared both confirm-armed flags, so no half-armed confirm can vanish.
+    const collapsible = haltsCollapsible(queue);
+    const haltsShown = !collapsible || haltsManualOpen;
+    stopBtn.hidden = !haltsShown;
+    abortBtn.hidden = !haltsShown;
+    haltsToggle.hidden = !collapsible;
+    haltsToggle.textContent = haltsManualOpen ? 'Queue controls ▾' : 'Queue controls ▸';
+    haltsToggle.setAttribute('aria-expanded', haltsManualOpen ? 'true' : 'false');
 
     renderRunningItem();
     renderPendingItems();
@@ -548,6 +574,11 @@ export function createQueueView({ root, api, onSelectRun }) {
   historyList.addEventListener('click', (event) => onListClick(event, historyList));
   runningSelect.addEventListener('click', () => {
     if (runningSelect.dataset.runId) onSelectRun(runningSelect.dataset.runId, true);
+  });
+
+  haltsToggle.addEventListener('click', () => {
+    haltsManualOpen = !haltsManualOpen;
+    renderQueue();
   });
 
   startBtn.addEventListener('click', () => {

@@ -207,6 +207,23 @@ html:not([data-ui-mode="simple"]) body.embedded .panel-tabs { display: none; }
   min-width: 18ch; /* 'Abort running plan' — the resting label */
 }
 
+/* The folded resting state's disclosure (queue-view.js shows it only while
+ * haltsCollapsible allows folding at all). A ghost, deliberately: at idle the
+ * strip should read as a status line, not as a row of actions, and the solid
+ * accent fill of `.btn` is reserved for the halts themselves. It keeps the
+ * `.btn` box metrics so the strip's height does not change as the halts and
+ * the toggle swap places. */
+.halts-toggle {
+  color: var(--text-muted);
+  background: transparent;
+  border-color: var(--border-default);
+}
+.halts-toggle:hover:not(:disabled),
+.halts-toggle:focus-visible:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-inset, transparent);
+}
+
 /* `body.embedded` zeroes the body padding so the scrolling views can meet the
    tile edges — but this strip is a fixed header band, not scrolling content,
    and it had no inset of its own: standalone, the body padding was quietly
