@@ -764,7 +764,15 @@ lasts wherever that cookie is used — <code class="docutils literal notranslate
 through the login page, nginx rather than that cookie is what lets them
 through, so here the key sets the login page’s cookie.</p>
 </div>
-</details><div class="admonition warning">
+</details><p><code class="docutils literal notranslate"><span class="pre">tls.port</span></code> is optional in the same way: nginx serves HTTPS on 443 unless you
+name another port, for a host that cannot bind 443 or already carries another
+deployment’s HTTPS. It is HTTPS’s own default rather than a port-layout slot,
+so <a class="reference internal" href="../../../reference/ports.html#reference-ports"><span class="std std-ref">Ports</span></a> does not list it, and a non-default value changes the
+address browsers reach — see <a class="reference internal" href="#multi-user-https"><span class="std std-ref">Serve it over HTTPS</span></a>. A <code class="docutils literal notranslate"><span class="pre">tls.port</span></code> or
+<code class="docutils literal notranslate"><span class="pre">auth.port</span></code> that is not a whole number between 1 and 65535 falls back to that
+key’s default, which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span></code> reports as
+<code class="docutils literal notranslate"><span class="pre">web_terminals.invalid_listener_port</span></code>.</p>
+<div class="admonition warning">
 <p class="admonition-title">Warning</p>
 <p>No secret may contain a <code class="docutils literal notranslate"><span class="pre">$</span></code> — not in <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code>, <code class="docutils literal notranslate"><span class="pre">.env</span></code> or
 <code class="docutils literal notranslate"><span class="pre">.env.users</span></code>, and not in an <code class="docutils literal notranslate"><span class="pre">oidc_subject</span></code>. Container stacks substitute
@@ -841,11 +849,23 @@ login URL. A <code class="docutils literal notranslate"><span class="pre">login:
 render with <code class="docutils literal notranslate"><span class="pre">tls.enabled:</span> <span class="pre">false</span></code> unless something else encrypts the
 connection. Two shapes:</p>
 <p><strong>This nginx terminates TLS.</strong> Set <code class="docutils literal notranslate"><span class="pre">tls.enabled:</span> <span class="pre">true</span></code> with a certificate
-and key; nginx serves HTTPS on 443 and redirects the plain port.
-<code class="docutils literal notranslate"><span class="pre">host_cert_dir</span></code> is the only key that names a path on the deploy host — it is
-bind-mounted, read-only, where <code class="docutils literal notranslate"><span class="pre">cert</span></code> and <code class="docutils literal notranslate"><span class="pre">key</span></code> (paths inside the
-container) sit, so both must be in that one directory and the path must be
-absolute. Leave <code class="docutils literal notranslate"><span class="pre">host_cert_dir</span></code> out to mount the certificate your own way.</p>
+and key; nginx serves HTTPS on 443 — or on <code class="docutils literal notranslate"><span class="pre">tls.port</span></code> when you set one — and
+redirects the plain port to it. <code class="docutils literal notranslate"><span class="pre">host_cert_dir</span></code> is the only key that names a
+path on the deploy host — it is bind-mounted, read-only, where <code class="docutils literal notranslate"><span class="pre">cert</span></code> and
+<code class="docutils literal notranslate"><span class="pre">key</span></code> (paths inside the container) sit, so both must be in that one directory
+and the path must be absolute. Leave <code class="docutils literal notranslate"><span class="pre">host_cert_dir</span></code> out to mount the
+certificate your own way.</p>
+<p>A non-default <code class="docutils literal notranslate"><span class="pre">tls.port</span></code> also becomes part of the address browsers reach.
+The deployment’s origin is then <code class="docutils literal notranslate"><span class="pre">https://&lt;fqdn&gt;:&lt;port&gt;</span></code>, built from
+<code class="docutils literal notranslate"><span class="pre">deploy.fqdn</span></code> unless <code class="docutils literal notranslate"><span class="pre">external_origin</span></code> names the address itself, and
+everything derived from it carries the port: the landing
+link, the address each terminal checks a state-changing request came from, and
+under <code class="docutils literal notranslate"><span class="pre">oidc</span></code> the callback the authentication service sends to your provider.
+Register <code class="docutils literal notranslate"><span class="pre">https://&lt;fqdn&gt;:&lt;port&gt;/auth/oidc/callback</span></code> with the identity
+provider, or change an existing registration to match — a provider refuses a
+callback that is not character-for-character the registered one. On 443 the
+port stays out of the origin and the callback is
+<code class="docutils literal notranslate"><span class="pre">https://&lt;fqdn&gt;/auth/oidc/callback</span></code>.</p>
 <p><strong>Something in front terminates TLS</strong> — a facility load balancer or ingress:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>

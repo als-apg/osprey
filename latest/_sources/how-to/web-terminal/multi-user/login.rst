@@ -131,6 +131,15 @@ set it — see :ref:`reference-ports`),
    through the login page, nginx rather than that cookie is what lets them
    through, so here the key sets the login page's cookie.
 
+``tls.port`` is optional in the same way: nginx serves HTTPS on 443 unless you
+name another port, for a host that cannot bind 443 or already carries another
+deployment's HTTPS. It is HTTPS's own default rather than a port-layout slot,
+so :ref:`reference-ports` does not list it, and a non-default value changes the
+address browsers reach — see :ref:`multi-user-https`. A ``tls.port`` or
+``auth.port`` that is not a whole number between 1 and 65535 falls back to that
+key's default, which ``osprey scaffold web-terminals lint`` reports as
+``web_terminals.invalid_listener_port``.
+
 .. warning::
 
    No secret may contain a ``$`` — not in ``.env.auth``, ``.env`` or
@@ -219,11 +228,24 @@ render with ``tls.enabled: false`` unless something else encrypts the
 connection. Two shapes:
 
 **This nginx terminates TLS.** Set ``tls.enabled: true`` with a certificate
-and key; nginx serves HTTPS on 443 and redirects the plain port.
-``host_cert_dir`` is the only key that names a path on the deploy host — it is
-bind-mounted, read-only, where ``cert`` and ``key`` (paths inside the
-container) sit, so both must be in that one directory and the path must be
-absolute. Leave ``host_cert_dir`` out to mount the certificate your own way.
+and key; nginx serves HTTPS on 443 — or on ``tls.port`` when you set one — and
+redirects the plain port to it. ``host_cert_dir`` is the only key that names a
+path on the deploy host — it is bind-mounted, read-only, where ``cert`` and
+``key`` (paths inside the container) sit, so both must be in that one directory
+and the path must be absolute. Leave ``host_cert_dir`` out to mount the
+certificate your own way.
+
+A non-default ``tls.port`` also becomes part of the address browsers reach.
+The deployment's origin is then ``https://<fqdn>:<port>``, built from
+``deploy.fqdn`` unless ``external_origin`` names the address itself, and
+everything derived from it carries the port: the landing
+link, the address each terminal checks a state-changing request came from, and
+under ``oidc`` the callback the authentication service sends to your provider.
+Register ``https://<fqdn>:<port>/auth/oidc/callback`` with the identity
+provider, or change an existing registration to match — a provider refuses a
+callback that is not character-for-character the registered one. On 443 the
+port stays out of the origin and the callback is
+``https://<fqdn>/auth/oidc/callback``.
 
 **Something in front terminates TLS** — a facility load balancer or ingress:
 
