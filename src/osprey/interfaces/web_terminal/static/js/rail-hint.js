@@ -10,11 +10,18 @@
  * Self-registering module, wired like activity-strip.js: the template loads
  * it, it finds its own anchor (.panel-rail-region) and no-ops harmlessly on
  * pages without one.
+ *
+ * "Once EVER" means once per PERSONA. localStorage is origin-scoped, so on a
+ * multi-user mount a bare flag would be one shared slot and the first operator
+ * to dismiss the hint would silently swallow it for everyone else arriving
+ * from the old UI — see storage-scope.js for the rule and why a scoped read
+ * never falls back to the bare key.
  */
 
 import { getRailPosition, setRailPosition } from './rail-position.js';
+import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 
-const FLAG = 'osprey-rail-hint-dismissed-v1';
+const FLAG_BASE = 'osprey-rail-hint-dismissed-v1';
 
 /**
  * Show the hint if this browser has never seen it and the rail is still the
@@ -25,7 +32,7 @@ const FLAG = 'osprey-rail-hint-dismissed-v1';
 export function maybeShowRailHint() {
   let seen = null;
   try {
-    seen = localStorage.getItem(FLAG);
+    seen = localStorage.getItem(scopedStorageKey(FLAG_BASE));
   } catch {
     // Storage unavailable: never show rather than nag on every load.
     return false;
@@ -49,7 +56,7 @@ export function maybeShowRailHint() {
 
   const dismissHint = () => {
     try {
-      localStorage.setItem(FLAG, '1');
+      localStorage.setItem(scopedStorageKey(FLAG_BASE), '1');
     } catch { /* storage blocked — the hint may reappear next load, harmless */ }
     hint.remove();
   };

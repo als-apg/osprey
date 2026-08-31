@@ -13,10 +13,16 @@ frontend JS nor persists ``localStorage`` across navigations:
     client's stored PTY session id, THEN navigates to the configured landing
     origin;
   * returning to the terminal origin does NOT resume the prior warm PTY —
-    ``localStorage['osprey-pty-session']`` stays empty across the round trip and
-    the client opens a brand-new WebSocket (no ``mode=resume``, no stale
+    this persona's stored pointer stays empty across the round trip and the
+    client opens a brand-new WebSocket (no ``mode=resume``, no stale
     ``session_id``) rather than reconnecting to the old session. This is M2:
     logout is a real station reset, not just a client-side navigation.
+  * the pointer is the PER-PERSONA key. On a multi-user mount every ``/u/<user>/``
+    shares one origin and so one ``localStorage``; the server stamps
+    ``data-osprey-storage-scope`` on ``<html>`` and terminal.js reads, writes
+    and clears ``osprey-pty-session--<user>`` (design_system/storage-scope.js),
+    never the bare shared slot. This is the only multi-user browser suite, so it
+    is also the live proof that the scoped clear is what logout performs.
   * plain ``osprey web`` (no landing_url) omits the logout control entirely.
 
 Scope note — no live model turn. A genuinely live PTY session id is minted by
@@ -207,8 +213,15 @@ def test_logout_and_return_starts_fresh_session(tmp_path, monkeypatch, chromium_
         expect(logout).to_be_hidden()
 
         # --- Represent an established (warm) PTY session (see module docstring) ---
-        page.evaluate("(id) => localStorage.setItem('osprey-pty-session', id)", stored_id)
-        captured = page.evaluate("() => localStorage.getItem('osprey-pty-session')")
+        # Seed the key the client actually reads: derived from the scope the
+        # server stamped for this persona, exactly as storage-scope.js derives it.
+        scope = page.evaluate(
+            "() => document.documentElement.getAttribute('data-osprey-storage-scope')"
+        )
+        assert scope == user, f"multi-user page must be stamped with its persona, got {scope!r}"
+        session_key = f"osprey-pty-session--{scope}"
+        page.evaluate("([k, id]) => localStorage.setItem(k, id)", [session_key, stored_id])
+        captured = page.evaluate("(k) => localStorage.getItem(k)", session_key)
         assert captured == stored_id
 
         # Record the auth-sidecar chaining request. This deployment has NO
@@ -274,7 +287,10 @@ def test_logout_and_return_starts_fresh_session(tmp_path, monkeypatch, chromium_
         assert f"session_id={stored_id}" not in fresh_url
 
         # No re-adoption of the old id: the prior warm PTY is not inherited.
-        assert page.evaluate("() => localStorage.getItem('osprey-pty-session')") != stored_id
+        assert page.evaluate("(k) => localStorage.getItem(k)", session_key) != stored_id
+        # And a scoped page never touches the shared slot — neither the seed nor
+        # the fresh session's confirmation lands under the bare key.
+        assert page.evaluate("() => localStorage.getItem('osprey-pty-session')") is None
 
         page.close()
 

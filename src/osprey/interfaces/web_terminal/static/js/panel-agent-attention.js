@@ -21,6 +21,7 @@ import { fetchJSON } from './api.js';
 import { getEntry, setEntryAttention } from './panel-rail.js';
 import { glowPanel } from './dock-iframe.js';
 import { flashElement } from '/design-system/js/highlight.js';
+import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 
 /** @type {HTMLElement} */
 let railEl = /** @type {HTMLElement} */ (/** @type {unknown} */ (null));
@@ -54,7 +55,17 @@ export function flashAgentTile(panelId) { flashAgentGlow(panelId); glowPanel(pan
  *  @type {Map<string, number>} */
 const badgeTs = new Map();
 
+/** Key prefix for a panel's acknowledged ts. Panel ids are deployment-wide, so
+ *  on a multi-user mount (one origin, one localStorage) the prefix alone would
+ *  make one operator's acknowledgement suppress another's badge for the same
+ *  panel. The resolved key is scoped per persona — see storage-scope.js. */
 const ACK_KEY_PREFIX = 'agent-ack:';
+
+/** This document's ack key for `panelId`, resolved at the point of use.
+ *  @param {string} panelId @returns {string} */
+function ackStorageKey(panelId) {
+  return scopedStorageKey(ACK_KEY_PREFIX + panelId);
+}
 
 /**
  * Record a badge's server ts, keeping the newest. The history ring replays a
@@ -77,7 +88,7 @@ function noteBadgeTs(panelId, ts) {
  */
 function ackedTs(panelId) {
   let raw = null;
-  try { raw = localStorage.getItem(ACK_KEY_PREFIX + panelId); } catch { return -Infinity; }
+  try { raw = localStorage.getItem(ackStorageKey(panelId)); } catch { return -Infinity; }
   const ts = raw === null ? NaN : Number(raw);
   return Number.isFinite(ts) ? ts : -Infinity;
 }
@@ -92,7 +103,7 @@ export function clearBadge(panelId) {
   setEntryAttention(railEl, panelId, false);
   const ts = badgeTs.get(panelId);
   if (ts === undefined) return;
-  try { localStorage.setItem(ACK_KEY_PREFIX + panelId, String(ts)); } catch { /* storage denied */ }
+  try { localStorage.setItem(ackStorageKey(panelId), String(ts)); } catch { /* storage denied */ }
 }
 
 /**

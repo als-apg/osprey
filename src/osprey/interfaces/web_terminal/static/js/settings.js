@@ -4,6 +4,7 @@ import { fetchJSON, apiRequest } from './api.js';
 import { restartTerminal, startTerminal } from './terminal.js';
 import { showSettingsNotice } from './settings-notice.js';
 import { mountOverlay, fadeOutOverlay } from './modal-overlay.js';
+import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 
 /**
  * The config document returned by GET /api/config.
@@ -38,8 +39,12 @@ let agentPanel = null;
 /** @type {DrawerElement|null} */
 let settingsDrawer = null;
 
-// Per-session warning for the settings drawer (resets on server restart)
-const SETTINGS_WARNING_KEY = 'osprey-settings-warning-ack';
+// Per-session warning for the settings drawer (resets on server restart), and
+// per PERSONA: localStorage is origin-scoped, so on a multi-user mount a bare
+// key would let whoever acknowledged the safety warning first wave it away for
+// everyone else on the box. Resolved through scopedStorageKey() at each use —
+// see storage-scope.js.
+const SETTINGS_WARNING_KEY_BASE = 'osprey-settings-warning-ack';
 
 // True from the moment a trigger click starts the gate (health check in
 // flight, or the warning dialog itself is up) until it resolves one way or
@@ -171,7 +176,7 @@ async function runWarningGate() {
     clearTimeout(timeoutId);
     serverSession = health.session_id ?? null;
     // Already acknowledged this server session — proceed without the dialog.
-    if (serverSession && localStorage.getItem(SETTINGS_WARNING_KEY) === serverSession) {
+    if (serverSession && localStorage.getItem(scopedStorageKey(SETTINGS_WARNING_KEY_BASE)) === serverSession) {
       warningGatePending = false;
       return true;
     }
@@ -251,7 +256,7 @@ function showSettingsWarning(serverSession) {
 
     /** @type {HTMLElement} */ (dialog.querySelector('.settings-warning-proceed')).addEventListener('click', () => {
       if (serverSession) {
-        localStorage.setItem(SETTINGS_WARNING_KEY, serverSession);
+        localStorage.setItem(scopedStorageKey(SETTINGS_WARNING_KEY_BASE), serverSession);
       }
       cleanup();
       resolve(true);

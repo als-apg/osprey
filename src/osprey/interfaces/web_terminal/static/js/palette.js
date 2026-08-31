@@ -36,6 +36,7 @@ import { buildRegistry } from './palette-registry.js';
 import { fetchJSON } from './api.js';
 import { fuzzyMatch } from '/design-system/js/fuzzy.js';
 import { el } from '/design-system/js/dom.js';
+import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 
 /** @typedef {import('./palette-registry.js').Item} Item */
 
@@ -76,8 +77,11 @@ import { el } from '/design-system/js/dom.js';
 /** Fixed outer group order — matches the registry and the stylesheet. */
 const GROUP_ORDER = /** @type {const} */ (['Settings', 'Panels', 'Layouts', 'Actions']);
 
-/** localStorage key + cap for the most-recently-executed item keys. */
-const RECENT_STORAGE_KEY = 'osprey-palette-recent-v1';
+/** localStorage key base + cap for the most-recently-executed item keys. The
+ *  list is per persona: localStorage is origin-scoped, so on a multi-user mount
+ *  a bare key would show every operator whatever the last one ran. Resolved
+ *  through scopedStorageKey() at each use — see storage-scope.js. */
+const RECENT_STORAGE_KEY_BASE = 'osprey-palette-recent-v1'; // gitleaks:allow - a localStorage key name, not a secret
 const RECENT_LIMIT = 5;
 
 /** Namespace prefix keeping a Recent row's nav key distinct from its original. */
@@ -132,7 +136,7 @@ function itemKey(/** @type {NavItem} */ item) {
 function readRecent() {
   let raw = null;
   try {
-    raw = localStorage.getItem(RECENT_STORAGE_KEY);
+    raw = localStorage.getItem(scopedStorageKey(RECENT_STORAGE_KEY_BASE));
   } catch {
     return [];
   }
@@ -155,7 +159,7 @@ function readRecent() {
 function recordRecent(key) {
   const next = [key, ...readRecent().filter((k) => k !== key)].slice(0, RECENT_LIMIT);
   try {
-    localStorage.setItem(RECENT_STORAGE_KEY, JSON.stringify(next));
+    localStorage.setItem(scopedStorageKey(RECENT_STORAGE_KEY_BASE), JSON.stringify(next));
   } catch { /* storage blocked — Recent stays empty, execution is unaffected */ }
 }
 

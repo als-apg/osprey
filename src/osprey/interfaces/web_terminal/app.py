@@ -187,6 +187,40 @@ def resolve_ui_mode(configured: str) -> str:
     return DEFAULT_UI_MODE
 
 
+def resolve_storage_scope(terminal_user: str | None) -> str:
+    """Resolve the per-user namespace for the browser's ``localStorage``.
+
+    Multi-user deployments put one container per user behind a shared nginx
+    front door at ``/u/<user>/`` — **same origin**, so every user shares one
+    ``localStorage``. Without a namespace, one user's dock layout, rail
+    position, palette history and active PTY session id are read and
+    overwritten by the next user to log in on that browser.
+
+    The namespace is decided here rather than in the browser: the served
+    documents stamp it onto ``<html data-osprey-storage-scope>`` and every JS
+    storage site reads it from there, so no client-side code has to parse
+    ``location.pathname`` to work out which mount it is running under (a page
+    fetched through a rewriting proxy, or opened at a path nginx normalised,
+    would parse the wrong answer out of it).
+
+    Reads the same value :func:`~osprey.interfaces.common_middleware.compute_url_prefix`
+    reads, with the same blank-means-unset rule, so the scope and the
+    ``/u/<user>`` prefix can never name different users.
+
+    Args:
+        terminal_user: The deployment's mount user (``OSPREY_TERMINAL_USER``,
+            as captured on ``app.state.terminal_user``). ``None``, empty or
+            blank is a single-user/dev deployment.
+
+    Returns:
+        The namespace token, or ``""`` when there is no mount user. Callers
+        must render the attribute **only** for a truthy result: an empty
+        ``data-osprey-storage-scope=""`` reads as "scoped to nothing" rather
+        than "unscoped", and single-user markup must stay exactly as it was.
+    """
+    return str(terminal_user or "").strip()
+
+
 #: The two supported rail positions. ``left`` is the icon-rail column;
 #: ``top`` renders the same rail as a horizontal strip under the header.
 RAIL_POSITIONS = ("left", "top")
@@ -1434,6 +1468,11 @@ def create_app(
                 "web_ui_mode": web_ui_mode,
                 "web_rail_position": web_rail_position,
                 "terminal_user": terminal_user,
+                # Namespace for everything this page keeps in localStorage.
+                # Empty on a single-user deployment, and the template omits
+                # the attribute entirely in that case — see
+                # resolve_storage_scope().
+                "storage_scope": resolve_storage_scope(terminal_user),
                 "landing_url": landing_url,
                 "auth_role": auth_role or "",
                 "auth_role_source_label": auth_role_source_label,
@@ -1453,7 +1492,21 @@ def create_app(
     # so the handler only ever renders the page.
     @app.get("/static/session.html")
     async def session_page(request: Request):
-        return templates.TemplateResponse(request, "session.html", {"url_prefix": url_prefix})
+        # The storage scope travels with this page too, not just the index:
+        # session.js's import closure reaches the modules that own the PTY
+        # session id, the dock layout and the rail position, so an unstamped
+        # session page would write those keys unscoped and collide with the
+        # neighbouring user's on the shared origin.
+        return templates.TemplateResponse(
+            request,
+            "session.html",
+            {
+                "url_prefix": url_prefix,
+                "storage_scope": resolve_storage_scope(
+                    getattr(request.app.state, "terminal_user", "")
+                ),
+            },
+        )
 
     configure_interface_app(app, static_dir=STATIC_DIR)
 
