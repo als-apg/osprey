@@ -844,7 +844,10 @@ describe('switching', () => {
     await flush();
 
     expect(chipModule.isPending()).toBe(false);
-    expect(outcomes('va')).toContain('✓ switched · 4 s ago');
+    // The outcome, with no counter: the age decides whether the line renders,
+    // never what it says.
+    expect(outcomes('va')).toContain('✓ switched');
+    expect(outcomes('va').join(' ')).not.toMatch(/s ago/);
   });
 
   test('a refusal renders the gate word, not the status', async () => {

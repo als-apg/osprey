@@ -289,10 +289,11 @@ function switchOutcome(row, state) {
   const last = state.last_switch;
   if (!last || last.target !== row.target) return null;
   if (typeof last.age_s === 'number' && last.age_s > OUTCOME_MAX_AGE_S) return null;
-  if (last.status === 'success') {
-    const age = typeof last.age_s === 'number' ? ` · ${last.age_s} s ago` : '';
-    return { status: 'success', text: `✓ switched${age}` };
-  }
+  // No age in the copy: `age_s` decides WHETHER the line renders (the
+  // freshness window above), never what it says. A ticking counter would
+  // restate the mechanism, and every re-render — the 5 s poll, every
+  // gesture's re-read — would bump it in front of the operator.
+  if (last.status === 'success') return { status: 'success', text: '✓ switched' };
   // refused / failed / expired render the operator phrase for the word the
   // gate (or the client's own deadline, for a request nothing ever answered)
   // put on them, with the gate's own sentence on the title where it sent one.
