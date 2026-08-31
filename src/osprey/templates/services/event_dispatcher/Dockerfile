@@ -54,6 +54,10 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
     # OSPREY documents in config.yml). Bump deliberately.
     && npm install -g @anthropic-ai/claude-code@2.1.146 \
     && rm -rf /var/lib/apt/lists/*
+# The pin is the point, so the CLI's background self-updater is off: a
+# successful update would silently replace the pinned version. Same rationale
+# as the project image (Dockerfile.j2); bump the pin and rebuild instead.
+ENV DISABLE_AUTOUPDATER=1
 
 WORKDIR /app
 
