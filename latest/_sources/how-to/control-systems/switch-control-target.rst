@@ -434,7 +434,10 @@ The switch would be a hazard if it were quiet. It is not:
   ``LIVE MACHINE`` with the gateway the session actually holds; the stand-in as
   ``LIVE MACHINE (stand-in)``; the simulator as
   ``virtual accelerator (simulation)``. If the target cannot be read at all, the
-  line says so explicitly instead of disappearing.
+  line says so explicitly instead of disappearing. (The web terminal names the
+  same machines by what they are --- *Real machine*, *Rehearsal*, *Simulator*,
+  or the deployment's own configured names --- and keeps these technical labels
+  on its tooltips.)
 - **Results and artifacts are stamped.** Archive reads carry the session's
   target and the archiver that served them, so a saved plot still says what it
   is about a week later.
@@ -442,12 +445,11 @@ The switch would be a hazard if it were quiet. It is not:
   work happens, and on the :ref:`control-target chip
   <web-terminal-session-posture>` in the header, which names the machine the
   session stands on and the write state on *that* machine ---
-  ``● VIRTUAL · writes``, ``● LIVE · read-only``. Write posture is per target, so
-  a deployment can arm its simulator and leave the live machine read-only; the
-  chip is where that shows. It catches up with a switch a few seconds after one
-  is made, whoever made it. The popover tags the deployment's default row
-  ``baseline``, and the chip falls back to that row when no target can be
-  resolved for the session.
+  ``● Simulator · writes on``, ``● Real machine · writes locked``. The write
+  state is per machine, so a deployment can arm its simulator and leave the
+  live machine read-only; the chip is where that shows. It catches up with a
+  switch a few seconds after one is made, whoever made it, and falls back to
+  the deployment's default target when none can be resolved for the session.
 - **Nothing survives the session.** Every controls-server start returns to the
   deployment baseline. There is no saved preference that could quietly point a
   later session at the real machine.
