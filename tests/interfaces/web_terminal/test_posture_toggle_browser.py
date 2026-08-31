@@ -396,9 +396,9 @@ def _row(page: Page, target: str) -> Any:
     return page.locator(f'{POPOVER} .ctc-row[data-target="{target}"]')
 
 
-def _verb(page: Page, target: str) -> Any:
-    """The row's one write verb — reads ``Turn writes off`` or ``Turn writes on``."""
-    return _row(page, target).locator(".ctc-verb")
+def _toggle(page: Page, target: str) -> Any:
+    """The row's writes switch — ``aria-checked`` is the readout."""
+    return _row(page, target).locator(".ctc-toggle")
 
 
 def _settled_chip(
@@ -455,7 +455,7 @@ def _narrow(page: Page, target: str) -> None:
     Applies on click — turning off only ever removes reach, so no confirm is
     in the way, and the row's ``data-state`` flipping is the re-read landing.
     """
-    _verb(page, target).click()
+    _toggle(page, target).click()
     expect(_row(page, target)).to_have_attribute("data-state", "sandbox", timeout=TIMEOUT)
 
 
@@ -506,10 +506,10 @@ def test_the_chip_names_the_session_target_and_lists_every_row(
             for target in (SWITCH_TARGET, POSTURE_TARGET):
                 row = _row(page, target)
                 expect(row.locator(".ctc-name")).to_have_text(NAMES[target])
-                expect(row.locator(".ctc-pill")).to_have_text("writes on")
-                # The server's own label is hover vocabulary now, not rest copy.
-                title = row.locator(".ctc-name-line").get_attribute("title")
-                assert title and LABELS[target] in title, title
+                expect(row.locator(".ctc-switch-state")).to_have_text("on")
+                # The server's own label lives inside the ⓘ tooltip, not at rest.
+                tip = row.locator(".ctc-tip").text_content()
+                assert tip and LABELS[target] in tip, tip
 
             expect(card.locator(".ctc-switch")).to_have_count(0)
             # The one target this render will switch onto.
@@ -548,15 +548,15 @@ def test_narrowing_asks_nothing_lands_in_the_store_and_respawns_nothing(
             _open_popover(page)
             row = _row(page, POSTURE_TARGET)
             expect(row).to_have_attribute("data-state", "writes")
-            expect(_verb(page, POSTURE_TARGET)).to_have_text("Turn writes off")
+            expect(_toggle(page, POSTURE_TARGET)).to_have_attribute("aria-checked", "true")
 
             _narrow(page, POSTURE_TARGET)
 
-            # Nothing asked, and the row is the readout as well as the
-            # control: the pill flipped and the verb reversed.
+            # Nothing asked, and the switch is the readout as well as the
+            # control: it flipped to off.
             expect(page.locator(OPEN_MODAL)).to_have_count(0)
-            expect(_row(page, POSTURE_TARGET).locator(".ctc-pill")).to_have_text("writes off")
-            expect(_verb(page, POSTURE_TARGET)).to_have_text("Turn writes on")
+            expect(_row(page, POSTURE_TARGET).locator(".ctc-switch-state")).to_have_text("off")
+            expect(_toggle(page, POSTURE_TARGET)).to_have_attribute("aria-checked", "false")
             # The card is untouched: a posture is per target.
             expect(page.locator(CARD)).to_have_attribute("data-state", "writes")
 
@@ -601,7 +601,7 @@ def test_arming_confirms_and_cancel_changes_nothing(tmp_path, monkeypatch, chrom
             _narrow(page, POSTURE_TARGET)
 
             # --- turning on, cancelled ---
-            _verb(page, POSTURE_TARGET).click()
+            _toggle(page, POSTURE_TARGET).click()
             expect(page.locator(MODAL_TITLE)).to_have_text(
                 f"Turn writes on for {NAMES[POSTURE_TARGET]}?", timeout=TIMEOUT
             )
@@ -615,7 +615,7 @@ def test_arming_confirms_and_cancel_changes_nothing(tmp_path, monkeypatch, chrom
             assert _stored_postures()[session_id] == {POSTURE_TARGET: "sandbox"}
 
             # --- turning on, confirmed ---
-            _verb(page, POSTURE_TARGET).click()
+            _toggle(page, POSTURE_TARGET).click()
             expect(page.locator(MODAL_CONFIRM)).to_have_text("Turn writes on", timeout=TIMEOUT)
             page.locator(MODAL_CONFIRM).click()
 
@@ -722,7 +722,7 @@ def test_an_unstarted_session_accepts_a_narrowing_the_moment_it_opens(
             )
 
             _open_popover(page)
-            _verb(page, POSTURE_TARGET).click()
+            _toggle(page, POSTURE_TARGET).click()
 
             expect(_row(page, POSTURE_TARGET)).to_have_attribute(
                 "data-state", "sandbox", timeout=TIMEOUT
@@ -790,7 +790,7 @@ def test_both_ui_modes_render_the_same_row_and_differ_only_in_density(
     this design leaves it nothing in the popover to gate. The endpoint and the
     server's own label are hover vocabulary in BOTH modes, reachability only
     speaks when a machine is not answering, and what remains at rest — the
-    name, the consequence line, the pill, the verb, Switch — is what an
+    name, its ⓘ, the writes switch, Switch — is what an
     operator acts on and is shown in either density. So the invariant pinned
     here is the stronger one: same DOM, same visibility, and the confirms
     identical, whichever mode the deployment renders.
@@ -814,15 +814,15 @@ def test_both_ui_modes_render_the_same_row_and_differ_only_in_density(
 
             # --- what an operator acts on, at rest, in either density ---
             expect(row.locator(".ctc-name")).to_have_text(NAMES[SWITCH_TARGET])
-            expect(row.locator(".ctc-desc")).to_have_text("Writes move hardware")
-            expect(row.locator(".ctc-pill")).to_have_text("writes on")
-            expect(row.locator(".ctc-verb")).to_be_visible()
+            assert row.locator(".ctc-tip-what").text_content() == "Writes move hardware"
+            expect(row.locator(".ctc-switch-state")).to_have_text("on")
+            expect(row.locator(".ctc-toggle")).to_be_visible()
             expect(row.locator(".ctc-switch")).to_be_visible()
             expect(page.locator(FOOT_NOTE)).to_have_text("Your session only")
 
-            # --- the machine vocabulary stays on hover, in either density ---
-            title = row.locator(".ctc-name-line").get_attribute("title")
-            assert title and LABELS[SWITCH_TARGET] in title, title
+            # --- the machine vocabulary stays behind the ⓘ, in either density ---
+            tip = row.locator(".ctc-tip").text_content()
+            assert tip and LABELS[SWITCH_TARGET] in tip, tip
             # No endpoint/role line exists at rest for a stylesheet to gate.
             assert row.locator(".ctc-meta").count() == 0
 
