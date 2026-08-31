@@ -1,7 +1,7 @@
 /* OSPREY Web Terminal — Onboarding tour overlay (tour.js).
  *
  * Styling rides the design-system tokens so the cards inherit every theme;
- * no colors of its own beyond the scrim.
+ * scrims included (--overlay-black-*).
  */
 
 /* The spotlight ring: positioned over the anchor, and its box-shadow paints
@@ -14,7 +14,7 @@
   box-shadow:
     0 0 0 2px var(--color-accent),
     0 0 0 7px color-mix(in srgb, var(--color-accent) 25%, transparent),
-    0 0 0 9999px rgba(0, 0, 0, 0.55);
+    0 0 0 9999px var(--overlay-black-50);
   transition: all var(--wt-transition-normal);
 }
 
@@ -30,7 +30,7 @@
   position: fixed;
   inset: 0;
   z-index: 899;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--overlay-black-40);
 }
 
 .tour-card {
@@ -46,7 +46,7 @@
   box-shadow: var(--shadow-dialog);
   font-family: var(--font-display);
   transition: top var(--wt-transition-normal), left var(--wt-transition-normal);
-  animation: tour-card-in 180ms ease-out;
+  animation: tour-card-in var(--duration-base) ease-out;
 }
 
 @keyframes tour-card-in {
@@ -65,7 +65,7 @@
   left: 50%;
   transform: translate(-50%, -50%);
   width: 420px;
-  animation: tour-invite-in 200ms ease-out;
+  animation: tour-invite-in var(--duration-base) ease-out;
 }
 
 @keyframes tour-invite-in {
@@ -97,7 +97,7 @@
   align-items: center;
   justify-content: center;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--text-md);
   cursor: pointer;
   border: none;
   border-radius: var(--radius-full);
@@ -112,7 +112,7 @@
 }
 
 .tour-kicker {
-  font-size: 10.5px;
+  font-size: var(--text-sm);
   font-weight: var(--weight-semibold);
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -121,15 +121,15 @@
 }
 
 .tour-title {
-  font-size: 17px;
+  font-size: var(--text-2xl);
   font-weight: var(--weight-semibold);
   letter-spacing: -0.01em;
   margin: 0 0 8px;
 }
 
 .tour-body {
-  font-size: 13.5px;
-  line-height: 1.55;
+  font-size: var(--text-lg);
+  line-height: var(--leading-relaxed);
   color: var(--text-secondary);
   margin: 0;
 }
@@ -140,7 +140,7 @@
 }
 
 .tour-foot {
-  font-size: 12px;
+  font-size: var(--text-md);
   color: var(--text-muted);
   margin-top: 10px;
 }
@@ -175,7 +175,7 @@
 
 .tour-btn {
   font: inherit;
-  font-size: 13px;
+  font-size: var(--text-lg);
   font-weight: var(--weight-medium);
   padding: 7px 16px;
   cursor: pointer;
@@ -194,7 +194,7 @@
 
 .tour-btn.primary {
   background: var(--color-accent);
-  color: #fff;
+  color: var(--color-on-accent);
   border-color: transparent;
 }
 
@@ -230,7 +230,7 @@
   align-items: center;
   gap: 7px;
   margin-top: 12px;
-  font-size: 12.5px;
+  font-size: var(--text-md);
   color: var(--text-muted);
   cursor: pointer;
   user-select: none;
@@ -254,7 +254,7 @@
 
 .tour-chip {
   font: inherit;
-  font-size: 13px;
+  font-size: var(--text-lg);
   text-align: left;
   cursor: pointer;
   padding: 9px 13px;
