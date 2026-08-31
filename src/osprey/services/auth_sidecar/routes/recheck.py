@@ -85,6 +85,13 @@ refusal, never in somebody else's terminal. Pinned structurally rather than by
 spelling: :data:`__all__` declares the whole public surface and a test asserts
 it equals what the module defines, so a reverse lookup cannot arrive under a
 name nobody predicted.
+
+The single exception lives in :mod:`.oidc`, not here: on a card whose rendered
+access rule is ``any``, the callback reverse-matches the asserted identity
+against every configured subject — gated on
+:meth:`~osprey.services.auth_sidecar.app.AuthSettings.shared`, with an identity
+matching more than one entry refused as ambiguous. Nothing in THIS module
+searches; the matrix is still asked by the username whose card was clicked.
 """
 
 from __future__ import annotations

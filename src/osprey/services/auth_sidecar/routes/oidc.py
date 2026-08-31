@@ -15,7 +15,13 @@ The identity the IdP asserts is compared against
 user and nothing else: an identity that maps to no roster user, or to a
 different one, is refused with 403. Searching the roster for whichever user the
 subject happens to match would turn a mis-click into someone else's terminal,
-which is exactly the isolation this sidecar exists to establish.
+which is exactly the isolation this sidecar exists to establish. The one
+deliberate exception is a *shared* card — a roster entry whose rendered access
+rule is ``any`` (:meth:`~osprey.services.auth_sidecar.app.AuthSettings.shared`):
+any roster entry's mapped identity may open it, so the callback reverse-matches
+the asserted identity against every configured subject, refuses an identity
+matching none or more than one, and records who opened the card. The card's
+role still rides the card: the claims binding decides nothing on a shared card.
 
 **Which user was clicked is server-side state.** It travels in the pinned
 Starlette session cookie (:data:`PENDING_FLOW_SESSION_KEY`) alongside Authlib's
@@ -64,7 +70,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import secrets
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -83,7 +88,7 @@ from ..app import (
     get_settings,
 )
 from ..exceptions import InvalidSessionError
-from ..identity_headers import is_header_safe
+from ..identity_headers import is_header_safe, same_value
 from ..return_to import safe_return_to
 from ..sessions import SESSION_COOKIE_NAME, SessionState
 from ..throttle import AttemptThrottle
@@ -614,19 +619,6 @@ def _oauth_client(request: Request) -> Any:
     return client
 
 
-def _same_value(left: str, right: str) -> bool:
-    """Whether two text values are equal, compared in constant time.
-
-    As UTF-8 bytes, never as ``str``: :func:`secrets.compare_digest` raises
-    ``TypeError`` the moment either side carries a non-ASCII character, and both
-    things compared here can. A ``state`` parameter is unauthenticated input, so
-    one accented character in it would be an unhandled 500 rather than a
-    refusal; a mapped identity like ``jörg@example.org`` would raise on the
-    comparison that was about to *succeed*, locking that operator out for good.
-    """
-    return secrets.compare_digest(left.encode("utf-8"), right.encode("utf-8"))
-
-
 def _claims_options(settings: AuthSettings) -> dict[str, dict[str, list[str]]]:
     """Which ID-token claims Authlib must check, and against what.
 
@@ -723,7 +715,8 @@ async def oidc_login(
     Raises:
         HTTPException: 404 when this deployment is not in OIDC mode or ``user``
             is not on the roster; 403 when ``user`` has no mapped IdP identity
-            (the handshake could only end in a refusal, so it does not start);
+            — for a shared card, when no roster entry has one — because the
+            handshake could only end in a refusal, so it does not start;
             502 when the issuer's discovery document cannot be fetched or read.
     """
     settings = get_settings(request)
@@ -738,7 +731,25 @@ async def oidc_login(
         # credential was evaluated, and refusing to say which of three reasons
         # applied is what keeps the ledger from enumerating accounts.
         raise HTTPException(status_code=404, detail="no such user")
-    if settings.oidc_subject(user) is None:
+    if settings.shared(user):
+        # A shared card is opened by whichever roster entry's mapped identity
+        # the IdP asserts, so its own mapping is not what decides whether the
+        # handshake is worth starting — one mapped entry anywhere on the
+        # roster is. Only a roster with no mapped identity at all could end
+        # nowhere but in a refusal.
+        if not settings.oidc_subjects:
+            logger.warning(
+                "oidc login refused for shared card %r: no roster entry carries a mapped identity",
+                user,
+            )
+            raise _refuse_login(
+                user,
+                reason=REASON_UNMAPPED_USER,
+                message="no roster entry carries a mapped identity",
+                # Reachable by an unauthenticated GET, one request per record.
+                bound=_ledger_bound(request),
+            )
+    elif settings.oidc_subject(user) is None:
         logger.warning("oidc login refused for %r: no IdP identity is mapped to that user", user)
         raise _refuse_login(
             user,
@@ -802,7 +813,9 @@ async def oidc_callback(request: Request) -> Response:
             that started it, or when the IdP reports an error; 403 when the
             clicked user has no mapped identity, when that identity cannot be
             carried in an identity header, when the asserted identity is not the
-            one mapped to the clicked user, or when a bound role cannot be
+            one mapped to the clicked user (on a shared card: matches no roster
+            entry, more than one, or one whose identity cannot be carried), or
+            when a bound role cannot be
             resolved to exactly one carryable role; 502 when the IdP is
             unreachable or its response does not validate. Every 403 is recorded
             under its own audited category.
@@ -827,50 +840,59 @@ async def oidc_callback(request: Request) -> Response:
     # user. Without it a browser holding two half-finished flows could complete
     # one of them under the other's username.
     returned_state = request.query_params.get("state") or ""
-    if not _same_value(str(pending["state"]), returned_state):
+    if not same_value(str(pending["state"]), returned_state):
         logger.warning("oidc callback rejected: returned state does not match the login in flight")
         raise HTTPException(status_code=400, detail="login state mismatch")
 
     user = str(pending["user"])
+    # A shared card's own mapping decides nothing — not even whether it has
+    # one. Which entry's identity opened it is settled AFTER the token
+    # exchange, by the reverse match below, so both pre-exchange gates on
+    # `expected_subject` are the own-card path's alone.
+    shared = settings.shared(user)
     expected_subject = settings.oidc_subject(user)
-    if expected_subject is None:
-        # Unreachable through the login route, which refuses first; re-checked
-        # because this is the decision that must never fall through to "some
-        # other user's subject matched".
-        logger.warning("oidc callback refused for %r: no IdP identity is mapped to that user", user)
-        raise _refuse_login(
-            user,
-            reason=REASON_UNMAPPED_USER,
-            message="this user has no mapped identity provider",
-            # Pre-exchange, and the state cookie that gets here is minted by a
-            # free GET — two requests per record without the bound.
-            bound=_ledger_bound(request),
-        )
+    if not shared:
+        if expected_subject is None:
+            # Unreachable through the login route, which refuses first;
+            # re-checked because this is the decision that must never fall
+            # through to "some other user's subject matched".
+            logger.warning(
+                "oidc callback refused for %r: no IdP identity is mapped to that user", user
+            )
+            raise _refuse_login(
+                user,
+                reason=REASON_UNMAPPED_USER,
+                message="this user has no mapped identity provider",
+                # Pre-exchange, and the state cookie that gets here is minted
+                # by a free GET — two requests per record without the bound.
+                bound=_ledger_bound(request),
+            )
 
-    if not is_header_safe(expected_subject):
-        # The mapped identity has to reach the terminal as an
-        # `X-Osprey-Auth-Subject` header, which is latin-1 on the wire and
-        # ASCII by this deployment's stricter rule. A subject that cannot make
-        # that trip is refused *here*, before the token exchange: the login
-        # could only have ended in a mangled identity or a dropped header, and
-        # a login that silently grants less identity than it says is worse than
-        # one that does not happen. An OIDC `sub` is ASCII by specification, so
-        # this is a configuration fault — the deployment mapped a claim
-        # spelling the boundary cannot carry — and the audited category says
-        # exactly that. The value itself stays out of both the record and the
-        # log line; the operator has it in their own config.
-        logger.warning(
-            "oidc callback refused for %r: the mapped identity cannot be carried in an "
-            "identity header",
-            user,
-        )
-        raise _refuse_login(
-            user,
-            reason=audit.REASON_NON_ASCII_SUBJECT,
-            message="this user's mapped identity cannot be carried",
-            # Pre-exchange, same bound as the refusal above.
-            bound=_ledger_bound(request),
-        )
+        if not is_header_safe(expected_subject):
+            # The mapped identity has to reach the terminal as an
+            # `X-Osprey-Auth-Subject` header, which is latin-1 on the wire and
+            # ASCII by this deployment's stricter rule. A subject that cannot
+            # make that trip is refused *here*, before the token exchange: the
+            # login could only have ended in a mangled identity or a dropped
+            # header, and a login that silently grants less identity than it
+            # says is worse than one that does not happen. An OIDC `sub` is
+            # ASCII by specification, so this is a configuration fault — the
+            # deployment mapped a claim spelling the boundary cannot carry —
+            # and the audited category says exactly that. The value itself
+            # stays out of both the record and the log line; the operator has
+            # it in their own config.
+            logger.warning(
+                "oidc callback refused for %r: the mapped identity cannot be carried in an "
+                "identity header",
+                user,
+            )
+            raise _refuse_login(
+                user,
+                reason=audit.REASON_NON_ASCII_SUBJECT,
+                message="this user's mapped identity cannot be carried",
+                # Pre-exchange, same bound as the refusal above.
+                bound=_ledger_bound(request),
+            )
 
     client = _oauth_client(request)
     try:
@@ -947,41 +969,125 @@ async def oidc_callback(request: Request) -> Response:
             detail=settings.oidc_claim,
         )
 
-    if not _same_value(asserted, expected_subject):
-        # No search of the roster for a user this identity *would* match: the
-        # card that was clicked is the only user this login can unlock.
-        logger.warning(
-            "oidc callback refused for %r: the asserted identity is mapped to a different user "
-            "or to none",
-            user,
-        )
-        raise _refuse_login(
-            user,
-            reason=REASON_IDENTITY_MISMATCH,
-            message="this identity is not permitted for this user",
-        )
+    if shared:
+        # The one deliberate exception to the anti-lookup rule in the branch
+        # below: a shared card may be opened by ANY roster entry whose
+        # configured subject the IdP asserted, so this is a reverse match over
+        # the configured subjects — gated on `settings.shared`, and living
+        # nowhere else in this service. Every entry is compared, each in
+        # constant time, with no early break: stopping at the first hit would
+        # let the comparison count say which entry matched and how early it
+        # sits in the roster, and a subject two entries share must surface as
+        # ambiguity rather than be resolved by declaration order. The card's
+        # own subject, when it carries one, participates like every other
+        # entry's.
+        matches = [
+            (name, configured)
+            for name, configured in settings.oidc_subjects.items()
+            if same_value(asserted, configured)
+        ]
+        if not matches:
+            logger.warning(
+                "oidc callback refused for shared card %r: the asserted identity is mapped to "
+                "no roster entry",
+                user,
+            )
+            raise _refuse_login(
+                user,
+                reason=REASON_IDENTITY_MISMATCH,
+                message="this identity is not permitted for this user",
+            )
+        if len(matches) > 1:
+            # Two entries mapped to one identity is a configuration fault, and
+            # picking either would make who-opened-this-card depend on roster
+            # declaration order. Refused under its own category so the ledger
+            # says what the operator has to fix.
+            logger.warning(
+                "oidc callback refused for shared card %r: the asserted identity is mapped to "
+                "more than one roster entry",
+                user,
+            )
+            raise _refuse_login(
+                user,
+                reason=audit.REASON_AMBIGUOUS_IDENTITY,
+                message="this identity matches more than one roster entry",
+            )
+        opener_name, matched_subject = matches[0]
+        if not is_header_safe(matched_subject):
+            # The own-card path refuses this before the token exchange; here
+            # the entry it belongs to is only known now, so it is refused
+            # post-match — and refused HERE rather than left to `with_user`,
+            # whose ValueError would surface as a 500 on what is a denial.
+            logger.warning(
+                "oidc callback refused for shared card %r: the matched identity cannot be "
+                "carried in an identity header",
+                user,
+            )
+            raise _refuse_login(
+                user,
+                reason=audit.REASON_NON_ASCII_SUBJECT,
+                message="the matched identity cannot be carried",
+            )
 
-    # Identity first, privilege second, and both from the same validated token:
-    # the role question is only worth asking about a login that already proved
-    # it is the user whose card was clicked.
-    claim_role = _resolved_role(request, user=user, claims=claims)
+        # The claims binding is not consulted on a shared card: the card's
+        # role rides the card, so a person the binding would refuse for their
+        # own card can still open a shared one. Membership gating and shared
+        # cards do not compose — the binding answers "which role is THIS
+        # person's terminal built as", and a shared card's terminal is only
+        # ever its own. `claim_role=""` is the matrix's binds-no-roles row,
+        # which grants the card's roster role with source `roster`.
+        try:
+            grant = recheck_login(
+                method=settings.method,
+                user=user,
+                roster_roles=roster_roles(request),
+                asserted_subject=matched_subject,
+                claim_role="",
+            )
+        except RecheckRefused as refused:
+            logger.warning("oidc callback refused for %r: %s", user, refused.reason)
+            raise _refuse_login(user, reason=refused.reason, message=refused.message) from None
+    else:
+        opener_name = ""
+        if not same_value(asserted, expected_subject):
+            # No search of the roster for a user this identity *would* match:
+            # on an own card, the clicked card is the only user this login can
+            # unlock, so the asserted identity is compared against that user's
+            # mapped subject and nothing else. The one deliberate exception is
+            # the shared branch above — a reverse match over the configured
+            # subjects, gated on `settings.shared`, with ambiguity refused.
+            logger.warning(
+                "oidc callback refused for %r: the asserted identity is mapped to a different "
+                "user or to none",
+                user,
+            )
+            raise _refuse_login(
+                user,
+                reason=REASON_IDENTITY_MISMATCH,
+                message="this identity is not permitted for this user",
+            )
 
-    # The same matrix the password path is held to, asked the same way and
-    # before anything is minted. `expected_subject` and `claim_role` are what
-    # this method is *allowed* to supply; a deployment that binds no roles
-    # supplies `""`, which is an answer, and the re-check refuses a caller that
-    # supplies neither.
-    try:
-        grant = recheck_login(
-            method=settings.method,
-            user=user,
-            roster_roles=roster_roles(request),
-            asserted_subject=expected_subject,
-            claim_role=claim_role,
-        )
-    except RecheckRefused as refused:
-        logger.warning("oidc callback refused for %r: %s", user, refused.reason)
-        raise _refuse_login(user, reason=refused.reason, message=refused.message) from None
+        # Identity first, privilege second, and both from the same validated
+        # token: the role question is only worth asking about a login that
+        # already proved it is the user whose card was clicked.
+        claim_role = _resolved_role(request, user=user, claims=claims)
+
+        # The same matrix the password path is held to, asked the same way and
+        # before anything is minted. `expected_subject` and `claim_role` are
+        # what this method is *allowed* to supply; a deployment that binds no
+        # roles supplies `""`, which is an answer, and the re-check refuses a
+        # caller that supplies neither.
+        try:
+            grant = recheck_login(
+                method=settings.method,
+                user=user,
+                roster_roles=roster_roles(request),
+                asserted_subject=expected_subject,
+                claim_role=claim_role,
+            )
+        except RecheckRefused as refused:
+            logger.warning("oidc callback refused for %r: %s", user, refused.reason)
+            raise _refuse_login(user, reason=refused.reason, message=refused.message) from None
     role = grant.role
 
     codec = get_session_codec(request)
@@ -991,14 +1097,23 @@ async def oidc_callback(request: Request) -> Response:
     # expiry and by logout alone. It carries the asserted subject instead — an
     # opaque account identifier, not a credential — so a later verify subrequest
     # can name which provider account is behind this unlocked user without
-    # re-contacting the IdP. `expected_subject` and `asserted` are byte-equal
-    # here (the constant-time check above just proved it); the configured value
-    # is stored so the cookie carries the deployment's own canonical spelling.
+    # re-contacting the IdP. `grant.subject` and `asserted` are byte-equal here
+    # (the constant-time check above just proved it, against the clicked card's
+    # own mapping or against the matched entry's on a shared card); the
+    # configured value is stored so the cookie carries the deployment's own
+    # canonical spelling.
     session = _current_session(request).with_user(
         user,
         expires_at=now + settings.session_lifetime,
         generation_tag="",
         oidc_subject=grant.subject,
+        # The roster entry whose mapped identity opened a shared card — the
+        # card itself when its own subject matched — and `""` on an own card,
+        # exactly as the password path sets it. Verify re-validates it per
+        # request; under OIDC the subject header still names the provider
+        # account (`oidc_subject`), so the opener is the session's record of
+        # WHICH roster entry that account was matched to.
+        opener=opener_name,
         # The matrix's answer, not this route's: the claim's role where this
         # deployment binds claims (cross-checked there against the role the
         # render bound for this user), and the roster's own where it binds
@@ -1029,9 +1144,17 @@ async def oidc_callback(request: Request) -> Response:
     # a credential (the cookie already carries it, signed not encrypted), so it
     # is recorded on this success line. `%r` quotes it, so a value carrying a
     # newline cannot forge a second log line.
-    logger.info("oidc login succeeded for %r (subject %r)", user, expected_subject)
+    logger.info("oidc login succeeded for %r (subject %r)", user, grant.subject)
     # The counterpart of `_refuse_login`: the same seam, one record, the roster
     # user as the subject. The asserted subject stays out of it — it is a claim
-    # value, and the record names the roster user the login unlocked.
-    audit.record_login_success(user=user, method=settings.method, role=role)
+    # value, and the record names the roster user the login unlocked. A shared
+    # card additionally names its opener in `detail`: a roster name, not a
+    # claim value, and the one fact "who is in this deployment" needs on a
+    # card the whole roster can open.
+    audit.record_login_success(
+        user=user,
+        method=settings.method,
+        role=role,
+        detail=f"opener={opener_name}" if shared else None,
+    )
     return response

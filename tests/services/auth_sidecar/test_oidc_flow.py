@@ -27,6 +27,7 @@ import json
 import logging
 from base64 import b64decode
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -35,7 +36,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from osprey.deployment.web_terminals.personas import env_var_suffix
 from osprey.interfaces._serving import run_app_server
+from osprey.services.auth_sidecar import audit
 from osprey.services.auth_sidecar.app import STATE_COOKIE_NAME, create_app
 from osprey.services.auth_sidecar.routes.oidc import (
     CALLBACK_PATH,
@@ -44,7 +47,9 @@ from osprey.services.auth_sidecar.routes.oidc import (
     LOGIN_PATH,
     PENDING_FLOW_SESSION_KEY,
 )
+from osprey.services.auth_sidecar.routes.recheck import ENV_ROSTER_ROLE_PREFIX, ROLE_SOURCE_ROSTER
 from osprey.services.auth_sidecar.sessions import SESSION_COOKIE_NAME, SessionCodec, SessionState
+from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from tests.services.auth_sidecar.mock_idp import (
     DISCOVERY_AS_HTML,
     DISCOVERY_WITHOUT_AUTHORIZATION_ENDPOINT,
@@ -95,6 +100,39 @@ def _reset_idp(idp: MockIdP) -> Iterator[None]:
     """Give every test an unmodified provider with no recorded requests."""
     idp.reset()
     yield
+
+
+@pytest.fixture
+def zone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """The sidecar's own bound audit subdirectory, as compose gives it.
+
+    Only the shared-card tests ask for it: they pin the *categories* the ledger
+    files a refusal under, which no assertion on the response alone can see.
+    """
+    directory = tmp_path / "var" / "audit" / "sidecar"
+    directory.mkdir(parents=True)
+    monkeypatch.setenv(audit.AUDIT_DIR_ENV, str(directory))
+    monkeypatch.setenv(AUDIT_IDENTITY_ENV, "sidecar")
+    monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
+    return directory
+
+
+def _records(zone: Path) -> list[dict[str, Any]]:
+    path = zone / f"{audit.SURFACE}.jsonl"
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text("utf-8").splitlines() if line]
+
+
+def _bind_roster_role(monkeypatch: pytest.MonkeyPatch, user: str, role: str) -> None:
+    """Bind a static role to ``user`` the way the container's environment does.
+
+    On the process environment, like the role binding: the sidecar reads this
+    table from ``os.environ``, not from the mapping ``create_app`` was handed.
+    The suffix comes from ``env_var_suffix`` — the one derivation the render
+    emits the variable under — never a re-spelled ``upper()``.
+    """
+    monkeypatch.setenv(f"{ENV_ROSTER_ROLE_PREFIX}{env_var_suffix(user)}", role)
 
 
 # --- the sidecar -------------------------------------------------------------
@@ -639,3 +677,205 @@ def test_a_refusal_never_echoes_the_token_or_the_client_secret(
     for value in (idp.client_secret, issued, CAROL_SUBJECT):
         assert value not in response.text
         assert value not in _osprey_log(caplog)
+
+
+# --- shared cards: the access rule is `any` ----------------------------------
+#
+# `OSPREY_AUTH_ROSTER_ACCESS_<SUFFIX>=any` is the rendered access rule. A card
+# carrying it may be opened by ANY roster entry whose configured subject the
+# IdP asserts — the one deliberate exception to "the clicked card is the only
+# user a login can unlock", so these walk real handshakes for both halves:
+# who gets in, and every way the reverse match refuses.
+
+
+def test_an_opener_with_a_mapped_identity_opens_a_shared_card(
+    idp: MockIdP, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """alice's real, verified identity opens bob's shared card — as bob.
+
+    bob has no mapped identity of his own, which is exactly the case the
+    own-card rule refuses as ``unmapped_user``: a shared card never asks for
+    one. The entry is keyed by the card; the opener records whose identity
+    proved the login; the role is the CARD's roster role, from the roster.
+    """
+    _bind_roster_role(monkeypatch, "bob", "observer")
+    app = _sidecar(idp, OSPREY_AUTH_ROSTER_ACCESS_BOB="any")
+    with _browser(app) as client:
+        response = _log_in(client, "bob", next_target="/u/bob/")
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/u/bob/"
+    session = _session_from(response)
+    assert session.unlocked_usernames(now=0.0) == ("bob",)
+    entry = session.entry("bob")
+    assert entry is not None
+    assert entry.oidc_subject == ALICE_SUBJECT
+    assert entry.opener == "alice"
+    assert entry.role == "observer"
+    assert entry.role_source == ROLE_SOURCE_ROSTER
+
+
+@pytest.mark.parametrize(
+    ("asserted", "opener"),
+    [("idp|alice", "alice"), ("idp|carol", "carol")],
+    ids=["another-entry", "the-card-itself"],
+)
+def test_a_shared_card_with_its_own_identity_admits_any_mapped_entry(
+    idp: MockIdP, asserted: str, opener: str
+) -> None:
+    """carol's shared card carries a subject of its own, and that changes
+    nothing: another entry's identity still opens it, and carol's own identity
+    opens it too — matched through the same reverse match as everybody else's,
+    so the opener is then the card itself."""
+    idp.subject = asserted
+    app = _sidecar(idp, OSPREY_AUTH_ROSTER_ACCESS_CAROL="any")
+    with _browser(app) as client:
+        response = _log_in(client, "carol")
+
+    assert response.status_code == 303
+    entry = _session_from(response).entry("carol")
+    assert entry is not None
+    assert entry.oidc_subject == asserted
+    assert entry.opener == opener
+
+
+def test_an_entry_that_never_logs_into_its_own_card_can_open_a_shared_one(idp: MockIdP) -> None:
+    """A ``login: false`` roster entry keeps its mapped identity.
+
+    From this service's side such an entry is simply a mapped roster user with
+    no card of its own on the landing page — dave here — and its identity
+    participates in the reverse match like every other entry's.
+    """
+    idp.subject = "idp|dave"
+    app = _sidecar(
+        idp,
+        OSPREY_AUTH_USERS="alice,bob,carol,dave",
+        OSPREY_AUTH_OIDC_SUBJECT_DAVE="idp|dave",
+        OSPREY_AUTH_ROSTER_ACCESS_BOB="any",
+    )
+    with _browser(app) as client:
+        response = _log_in(client, "bob")
+
+    assert response.status_code == 303
+    entry = _session_from(response).entry("bob")
+    assert entry is not None
+    assert entry.opener == "dave"
+
+
+def test_an_identity_matching_no_entry_is_refused_on_a_shared_card(
+    idp: MockIdP, zone: Path
+) -> None:
+    """A verified stranger is still a stranger: zero matches is the same
+    ``identity_mismatch`` an own card refuses with, filed post-exchange."""
+    idp.subject = "idp|stranger"
+    app = _sidecar(idp, OSPREY_AUTH_ROSTER_ACCESS_BOB="any")
+    with _browser(app) as client:
+        response = _log_in(client, "bob")
+
+    assert response.status_code == 403
+    assert SESSION_COOKIE_NAME not in response.cookies
+    assert [(r["subject"], r["reason"]) for r in _records(zone)] == [
+        ("bob", audit.REASON_IDENTITY_MISMATCH)
+    ]
+
+
+def test_an_identity_mapped_to_two_entries_is_refused_as_ambiguous(
+    idp: MockIdP, zone: Path
+) -> None:
+    """alice and carol both mapped to one identity: opening a shared card with
+    it must not be resolved by roster order, so it is refused under its own
+    category — the configuration fault the ledger has to name."""
+    app = _sidecar(
+        idp,
+        OSPREY_AUTH_ROSTER_ACCESS_BOB="any",
+        OSPREY_AUTH_OIDC_SUBJECT_CAROL=ALICE_SUBJECT,
+    )
+    with _browser(app) as client:
+        response = _log_in(client, "bob")
+
+    assert response.status_code == 403
+    assert SESSION_COOKIE_NAME not in response.cookies
+    assert [(r["subject"], r["reason"]) for r in _records(zone)] == [
+        ("bob", audit.REASON_AMBIGUOUS_IDENTITY)
+    ]
+
+
+def test_a_matched_identity_that_cannot_be_carried_is_refused_not_a_crash(
+    idp: MockIdP, zone: Path
+) -> None:
+    """The uncarryable-subject refusal moves post-match on a shared card.
+
+    An own card refuses this before the token exchange; a shared card only
+    knows WHICH entry matched afterwards, so the handshake completes and the
+    matched value is then refused under the same category — a clean 403, never
+    the 500 ``with_user`` would raise on it.
+    """
+    idp.subject = "jörg@example.org"
+    app = _sidecar(
+        idp,
+        OSPREY_AUTH_ROSTER_ACCESS_BOB="any",
+        OSPREY_AUTH_OIDC_SUBJECT_ALICE="jörg@example.org",
+    )
+    with _browser(app) as client:
+        response = _log_in(client, "bob")
+
+    assert response.status_code == 403
+    assert SESSION_COOKIE_NAME not in response.cookies
+    # Post-exchange: the token endpoint was genuinely reached first.
+    assert idp.token_requests
+    assert [(r["subject"], r["reason"]) for r in _records(zone)] == [
+        ("bob", audit.REASON_NON_ASCII_SUBJECT)
+    ]
+
+
+def test_a_shared_card_on_an_unmapped_roster_never_reaches_the_provider(idp: MockIdP) -> None:
+    """Nobody on the roster is mapped, so nobody could open the shared card:
+    the handshake could only end in a refusal and does not start."""
+    app = _sidecar(
+        idp,
+        OSPREY_AUTH_ROSTER_ACCESS_BOB="any",
+        OSPREY_AUTH_OIDC_SUBJECT_ALICE="",
+        OSPREY_AUTH_OIDC_SUBJECT_CAROL="",
+    )
+    with _browser(app) as client:
+        response = _start_login(client, "bob")
+
+    assert response.status_code == 403
+    assert idp.authorize_requests == []
+
+
+def test_the_claims_binding_is_not_consulted_on_a_shared_card(
+    idp: MockIdP, zone: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Membership gating and shared cards do not compose.
+
+    A bound deployment; alice's groups map to NO role. On her OWN card that is
+    the ``unmapped_role_claim`` refusal — the binding answers "which role is
+    this person's terminal built as", and hers resolves to none. The shared
+    card's terminal is only ever its own: the card's role rides the card, so
+    the same alice opens it and the binding is never asked.
+    """
+    monkeypatch.setenv("OSPREY_AUTH_ROLE_CLAIM", "groups")
+    monkeypatch.setenv("OSPREY_AUTH_ROLE_MAP", '{"als-operators":"operator"}')
+    _bind_roster_role(monkeypatch, "bob", "observer")
+    idp.extra_claims = {"groups": ["als-visitors"]}
+
+    shared = _sidecar(idp, OSPREY_AUTH_ROSTER_ACCESS_BOB="any")
+    with _browser(shared) as client:
+        opened = _log_in(client, "bob")
+    assert opened.status_code == 303
+    entry = _session_from(opened).entry("bob")
+    assert entry is not None
+    assert entry.opener == "alice"
+    assert entry.role == "observer"
+    assert entry.role_source == ROLE_SOURCE_ROSTER
+
+    own = _sidecar(idp)
+    with _browser(own) as client:
+        refused = _log_in(client, "alice")
+    assert refused.status_code == 403
+
+    assert [(r["subject"], r["reason"]) for r in _records(zone)] == [
+        ("bob", audit.REASON_OIDC_LOGIN),
+        ("alice", audit.REASON_UNMAPPED_ROLE_CLAIM),
+    ]

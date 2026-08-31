@@ -905,6 +905,13 @@ class ClosingFacts:
     #: them instead. See
     #: :func:`~osprey.deployment.web_terminals.auth_credentials.seeded_logins_report`.
     stale_logins: tuple[str, ...] = ()
+    #: Roster entries marked ``access: any`` — shared cards, in roster order.
+    #: A shared card carries no credential of its own: it is opened with
+    #: another roster user's name and credential, so it appears in neither
+    #: ``logins`` nor ``token_login_users`` and the card has to say how it IS
+    #: reached. Populated only when the auth method stands a login wall;
+    #: names, never URLs, as everywhere on this card.
+    shared_cards: tuple[str, ...] = ()
 
 
 def as_built_closing_facts(repo_root: Path | str) -> ClosingFacts:
@@ -931,6 +938,7 @@ def as_built_closing_facts(repo_root: Path | str) -> ClosingFacts:
             token_login_users=tuple(token_login_users(config)),
             landing_url_is_external_origin=_external_origin_is_derivable(config),
             stale_logins=seeded.stale,
+            shared_cards=tuple(_shared_cards(config)),
         )
     except Exception as exc:
         logger.debug(f"Closing facts skipped: {exc}")
@@ -963,13 +971,20 @@ def _seeded_logins(root: Path, config: dict) -> SeededLoginsReport:
     them), so a password
     named here would be one nothing ever checks. Roster entries carrying
     ``login: false`` sit outside the wall and are skipped for the same reason --
-    the same predicate credential provisioning itself uses.
+    the same predicate credential provisioning itself uses. Shared entries
+    (``access: any``) are skipped too: a shared card holds no password of its
+    own -- it is opened with another roster user's credential -- so no login
+    exists under its name for this report to print.
     """
     from osprey.deployment.web_terminals.auth_credentials import (
         SeededLoginsReport,
         seeded_logins_report,
     )
-    from osprey.deployment.web_terminals.personas import entry_requires_login, normalize_users
+    from osprey.deployment.web_terminals.personas import (
+        entry_is_shared,
+        entry_requires_login,
+        normalize_users,
+    )
     from osprey.deployment.web_terminals.render import _auth_tls_context
 
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
@@ -980,7 +995,7 @@ def _seeded_logins(root: Path, config: dict) -> SeededLoginsReport:
     names = [
         entry["name"]
         for entry in normalize_users(web_terminals.get("users"))
-        if entry_requires_login(entry)
+        if entry_requires_login(entry) and not entry_is_shared(entry)
     ]
     return seeded_logins_report(root, names)
 
@@ -988,9 +1003,14 @@ def _seeded_logins(root: Path, config: dict) -> SeededLoginsReport:
 def token_login_users(config: dict) -> list[str]:
     """The roster users whose terminal is entered through its ``?token=`` URL.
 
-    The complement of :func:`_seeded_logins`, and derived from the same
-    predicates nginx renders under so the two cannot disagree about who needs a
-    login URL. Public because ``osprey users login-url`` asks the same question
+    Derived from the same predicates nginx renders under as
+    :func:`_seeded_logins`, so the two cannot disagree about who needs a login
+    URL — but not its complement: a walled roster splits three ways. Entries
+    with their own required login go to the seeded-logins report; ``login:
+    false`` entries land here, reached through their ``?token=`` URL; shared
+    entries (``access: any``) appear in neither, because they hold no
+    credential of their own and are opened with another roster user's
+    credential. Public because ``osprey users login-url`` asks the same question
     before it prints anything: the URL is inert for a user nginx vouches for, so
     the verb refuses there, and a second spelling of "who has a login page"
     could send an operator a live secret the deployment would then ignore.
@@ -1017,6 +1037,34 @@ def token_login_users(config: dict) -> list[str]:
         entry["name"]
         for entry in normalize_users(web_terminals.get("users"))
         if not (inject_secret and entry_requires_login(entry))
+    ]
+
+
+def _shared_cards(config: dict) -> list[str]:
+    """The roster's shared cards (``access: any``), in roster order.
+
+    The third leg of the roster split :func:`_seeded_logins` and
+    :func:`token_login_users` carry between them: a shared card has no seeded
+    login (it holds no credential of its own) and no ``?token=`` URL (it sits
+    behind the wall like any other gated entry) — it is opened with another
+    roster user's name and credential, and the closing card has to say so or
+    the entry looks unreachable. Gated on the wall standing (``walled``:
+    ``password``/``oidc``): without one the sharing marker changes nothing
+    about how the entry is reached, so naming it would be noise. Names, never
+    URLs, for the same reason :func:`token_login_users` gives.
+    """
+    from osprey.deployment.web_terminals.personas import entry_is_shared, normalize_users
+    from osprey.deployment.web_terminals.render import _auth_tls_context
+
+    web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
+    if not web_terminals.get("enabled"):
+        return []
+    if not _auth_tls_context(web_terminals)["walled"]:
+        return []
+    return [
+        entry["name"]
+        for entry in normalize_users(web_terminals.get("users"))
+        if entry_is_shared(entry)
     ]
 
 
