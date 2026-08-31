@@ -539,7 +539,7 @@ def _refuse_writes_disabled(
                 "The deployment config is not the gate here: what refused is the "
                 "narrowing an operator set for THIS session, so no config edit, "
                 "rebuild or redeploy lifts it.",
-                f"An operator setting {machine} back to writes on the header chip "
+                f"An operator turning writes back on for {machine} on the header chip "
                 f"does lift it, and it reaches this session immediately — the session "
                 f"does not have to be restarted.",
                 f"Until then, hand the action to the operator, who can perform "
@@ -1335,7 +1335,7 @@ async def queue_add(draft_revision: int, lane: str | None = None) -> str:
                     f"posture (header chip) is read-only for the {bound.target!r} "
                     f"target that this deployment's {bound.key!r} plan lane serves. "
                     f"No config edit and no different token unblocks it; an operator "
-                    f"setting that target back to writes on the header chip does, and "
+                    f"turning writes back on for that target on the header chip does, and "
                     f"it reaches this session immediately.",
                 ]
             else:

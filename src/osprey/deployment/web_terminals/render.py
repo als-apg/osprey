@@ -60,7 +60,7 @@ from osprey.deployment.web_terminals.ports import (
 # The one definition of the session-lifetime default lives in web_auth, which is
 # stdlib-only, so importing it here cannot cycle.
 from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
-from osprey.port_layout import default_port, resolve_port_base
+from osprey.port_layout import _MAX_PORT, default_port, resolve_port_base
 from osprey.utils.facility import resolve_facility_name
 from osprey.utils.workspace import AUDIT_DIR_RELPATH, agent_data_base_dir
 
@@ -93,14 +93,29 @@ _LOOPBACK_BIND_HOST = "127.0.0.1"
 # an absent config value renders the same image from either side.
 _DEFAULT_NGINX_IMAGE = "nginx:1.27-alpine"
 
-#: The TLS seam's listener port. A literal because the template makes it one:
-#: there is no ``tls.port`` key to read, the ``443`` is spelled inside
-#: nginx.conf.j2's block gated on ``tls_enabled``. Defined here, beside the
-#: render that stamps it into the perimeter deny-list, and imported by ``lint``
-#: for its port-collision check — never restated there, since two spellings of
-#: one hard-coded listener is exactly how a collision check comes to reserve a
-#: port the template does not use.
+#: The TLS seam's listener port when ``modules.web_terminals.tls.port`` is
+#: unset: HTTPS's own default rather than a slot in this deployment's port
+#: block, since a facility serving the standard port should not have to
+#: configure one. A host that cannot bind 443 — unprivileged, or already
+#: carrying another deployment's perimeter — names its own port instead, and
+#: every consumer of the seam follows the ``tls_port`` value
+#: :func:`_auth_tls_context` derives: both ``listen`` lines, the cleartext
+#: redirect, the external origin the IdP is registered against and the
+#: perimeter deny-list. Defined here, beside the render that stamps it, and
+#: imported by ``lint`` for its port-collision check — never restated there,
+#: since two spellings of one default is exactly how a collision check comes to
+#: reserve a port the template does not use.
 TLS_LISTEN_PORT = 443
+
+#: The port the ``https`` scheme itself implies, which a URL therefore omits.
+#: Spelled apart from :data:`TLS_LISTEN_PORT` even though both are 443 today:
+#: that one is this framework's default for an unset ``tls.port`` and is a
+#: choice, while this one is what the scheme means and cannot be chosen.
+#: Collapsing them would let a change to the default silently rewrite every
+#: derived origin's serialization — a deployment defaulted to 8443 would still
+#: advertise ``https://<fqdn>``, an address pointing at 443 where nothing
+#: listens.
+_HTTPS_DEFAULT_PORT = 443
 
 #: The authentication methods this deployment can actually serve: ``none``
 #: (open — every terminal is navigation-only, nginx vouches for every request),
@@ -1119,8 +1134,8 @@ def render_web_terminals(
     if auth_tls_ctx["tls_enabled"] and not (auth_tls_ctx["tls_cert"] and auth_tls_ctx["tls_key"]):
         raise ValueError(
             "modules.web_terminals.tls.enabled is true but tls.cert/tls.key are not both "
-            "set — the gated `listen 443 ssl` seam needs both paths to emit a "
-            "coherent ssl_certificate/ssl_certificate_key pair"
+            f"set — the gated `listen {auth_tls_ctx['tls_port']} ssl` seam needs both "
+            "paths to emit a coherent ssl_certificate/ssl_certificate_key pair"
         )
     _check_tls_host_cert_dir(auth_tls_ctx)
     if (
@@ -1166,16 +1181,21 @@ def render_web_terminals(
     )
 
     tls_enabled = auth_tls_ctx["tls_enabled"]
+    tls_port = auth_tls_ctx["tls_port"]
     # The one origin every absolute URL in this deployment is built from (see
     # _external_origin). Derived only when something actually needs it: a
     # roster-less config with no sidecar has no absolute URL to build, and must
     # keep rendering without a deploy.fqdn.
     external_origin = (
-        _external_origin(root, nginx_port, tls_enabled=tls_enabled)
+        _external_origin(root, nginx_port, tls_enabled=tls_enabled, tls_port=tls_port)
         if services or auth_tls_ctx["sidecar_active"]
         else ""
     )
-    landing_url = _landing_url(root, nginx_port, tls_enabled=tls_enabled) if services else ""
+    landing_url = (
+        _landing_url(root, nginx_port, tls_enabled=tls_enabled, tls_port=tls_port)
+        if services
+        else ""
+    )
 
     # Every service is told the deployment's external origin, because the app
     # inside each container checks a mutating request's `Origin` against it —
@@ -1218,13 +1238,16 @@ def render_web_terminals(
     # addresses them legitimately, and none of them fronts a terminal, an agent
     # session, or an approval prompt, which is what this deny-list guards.
     perimeter_open = auth_tls_ctx["open_perimeter"]
-    # The TLS seam's listener (`TLS_LISTEN_PORT`) joins the set only when
-    # `tls.enabled` is on. There nginx.conf.j2 renders `listen 443 ssl` as the
-    # SOLE content server and demotes `nginx_port` to a redirect — so a list
-    # carrying only `nginx_port` would name the door that redirects and miss the
-    # one that serves. `nginx_port` stays in either way: the redirect listener
-    # still accepts the connection, and the redirect it answers with is the map
-    # to everything else.
+    # The TLS seam's listener (`tls.port`, default `TLS_LISTEN_PORT`) joins the
+    # set only when `tls.enabled` is on. There nginx.conf.j2 renders that port's
+    # `listen ... ssl` as the SOLE content server and demotes `nginx_port` to a
+    # redirect — so a list carrying only `nginx_port` would name the door that
+    # redirects and miss the one that serves. The parsed port is used rather
+    # than the constant, because a deployment on a non-default TLS port would
+    # otherwise deny 443 (which serves nothing) and leave its real content
+    # listener reachable from inside a container. `nginx_port` stays in either
+    # way: the redirect listener still accepts the connection, and the redirect
+    # it answers with is the map to everything else.
     #
     # Sorted and de-duplicated, so the rendered line is a function of the
     # roster and not of dict iteration order — this file is diffed between
@@ -1232,7 +1255,7 @@ def render_web_terminals(
     perimeter_deny_ports = sorted(
         {
             nginx_port,
-            *([TLS_LISTEN_PORT] if tls_enabled else []),
+            *([tls_port] if tls_enabled else []),
             *(service["web"] for service in services),
         }
     )
@@ -1326,9 +1349,23 @@ def render_web_terminals(
         **auth_tls_ctx,
     }
     landing_cfg = as_dict(web_terminals.get("landing"))
+    # Which users reach their terminal by opening a `?token=` URL rather than by
+    # signing in — the auth posture, per user, that the landing cards carry.
+    # Derived by the ONE function that answers that question, the same one
+    # `osprey users login-url` refuses on the complement of, so the page and the
+    # CLI cannot end up disagreeing about who has a login. Resolved once for the
+    # whole roster here and threaded down as a name set, because the answer is a
+    # property of the deployment's posture, not of the card being built.
+    #
+    # Imported function-locally: deploy_summary reaches back into this module
+    # for `_auth_tls_context` (function-locally, for the same reason), so a
+    # module-level import here would close that loop.
+    from osprey.deployment.deploy_summary import token_login_users
+
+    token_login_names = frozenset(token_login_users(root))
     landing_ctx = {
         "facility_name": resolve_facility_name(root, ""),
-        "groups": _build_groups(landing_cfg, resolved_users),
+        "groups": _build_groups(landing_cfg, resolved_users, token_login_names),
         "theme_blocks": _landing_theme_blocks(root),
         "notices": _build_notices(landing_cfg, root),
         "footer": _landing_footer(landing_cfg),
@@ -1514,7 +1551,13 @@ def _configured_external_origin(root: dict[str, Any]) -> str:
     return origin
 
 
-def _external_origin(root: dict[str, Any], nginx_port: int, *, tls_enabled: bool) -> str:
+def _external_origin(
+    root: dict[str, Any],
+    nginx_port: int,
+    *,
+    tls_enabled: bool,
+    tls_port: int,
+) -> str:
     """Build the one origin every absolute URL this deployment emits is derived from.
 
     Three consumers need an absolute URL that a browser will actually resolve:
@@ -1538,12 +1581,15 @@ def _external_origin(root: dict[str, Any], nginx_port: int, *, tls_enabled: bool
     configuration gap.
 
     Otherwise the origin is derived. Scheme and port follow ``tls.enabled``:
-    with TLS on, the 443 server is the sole content server (the plain listener
-    only redirects to it), and 443 is left implicit, which is both the canonical
-    origin serialization and the form an IdP client registration is normally
-    written in. With TLS off the origin is plain HTTP on the published
-    ``nginx_port``. A default port left explicit here is not a mismatch: both
-    ends of the ``Origin`` check normalize it away
+    with TLS on, the TLS server is the sole content server (the plain listener
+    only redirects to it), so the origin is ``https`` on ``tls.port``. The
+    default 443 is left implicit — both the canonical origin serialization and
+    the form an IdP client registration is normally written in — while any other
+    ``tls.port`` is spelled out, because a browser reaching a non-default port
+    sends it in the ``Origin`` header and an IdP would reject a
+    ``redirect_uri`` that omitted it. With TLS off the origin is plain HTTP on
+    the published ``nginx_port``. A default port left explicit here is not a
+    mismatch: both ends of the ``Origin`` check normalize it away
     (:func:`osprey.interfaces.common_middleware._normalize_origin`).
 
     The derived host comes from ``deploy.fqdn``: the schema documents that field
@@ -1557,6 +1603,13 @@ def _external_origin(root: dict[str, Any], nginx_port: int, *, tls_enabled: bool
         nginx_port: The published plain-HTTP port, used only when TLS is off and
             no origin is configured.
         tls_enabled: The parsed ``tls.enabled`` (see :func:`_auth_tls_context`).
+        tls_port: The parsed ``tls.port`` (see :func:`_auth_tls_context`), used
+            only when TLS is on and no origin is configured. Left out of the
+            origin when it is :data:`_HTTPS_DEFAULT_PORT`. Required rather than
+            defaulted: a caller that forgot it would silently derive the 443
+            origin for a deployment listening somewhere else, and the symptom —
+            every write refused while every page loads — points at neither this
+            function nor the caller.
 
     Raises:
         ValueError: If ``modules.web_terminals.external_origin`` is set to
@@ -1577,7 +1630,11 @@ def _external_origin(root: dict[str, Any], nginx_port: int, *, tls_enabled: bool
             "front of this nginx is what browsers actually reach — set "
             "modules.web_terminals.external_origin to that address"
         )
-    return f"https://{host}" if tls_enabled else f"http://{host}:{nginx_port}"
+    if not tls_enabled:
+        return f"http://{host}:{nginx_port}"
+    if tls_port == _HTTPS_DEFAULT_PORT:
+        return f"https://{host}"
+    return f"https://{host}:{tls_port}"
 
 
 def deployment_external_origin(config: Any) -> str:
@@ -1595,7 +1652,8 @@ def deployment_external_origin(config: Any) -> str:
 
     Returns:
         ``modules.web_terminals.external_origin`` verbatim when it is set;
-        otherwise ``https://<fqdn>`` with TLS on and
+        otherwise ``https://<fqdn>`` with TLS on (``https://<fqdn>:<tls_port>``
+        when ``tls.port`` is not the default 443) and
         ``http://<fqdn>:<nginx_port>`` without.
 
     Raises:
@@ -1608,8 +1666,13 @@ def deployment_external_origin(config: Any) -> str:
     root = as_dict(config)
     web_terminals = as_dict(as_dict(root.get("modules")).get("web_terminals"))
     nginx_port = resolve_nginx_port(root)
-    tls_enabled = bool(_auth_tls_context(web_terminals)["tls_enabled"])
-    return _external_origin(root, nginx_port, tls_enabled=tls_enabled)
+    auth_tls_ctx = _auth_tls_context(web_terminals)
+    return _external_origin(
+        root,
+        nginx_port,
+        tls_enabled=bool(auth_tls_ctx["tls_enabled"]),
+        tls_port=int(auth_tls_ctx["tls_port"]),
+    )
 
 
 def terminal_login_url(config: Any, username: str, secret: str) -> str:
@@ -1647,7 +1710,13 @@ def terminal_login_url(config: Any, username: str, secret: str) -> str:
     return f"{origin}/u/{username}/?token={quote(secret, safe='')}"
 
 
-def _landing_url(root: dict[str, Any], nginx_port: int, *, tls_enabled: bool = False) -> str:
+def _landing_url(
+    root: dict[str, Any],
+    nginx_port: int,
+    *,
+    tls_enabled: bool = False,
+    tls_port: int,
+) -> str:
     """The absolute origin baked into every service's ``OSPREY_TERMINAL_LANDING_URL``.
 
     Per-user containers only get this value once, at container start (env vars, not
@@ -1656,15 +1725,22 @@ def _landing_url(root: dict[str, Any], nginx_port: int, *, tls_enabled: bool = F
     origin verbatim (:func:`_external_origin`), which is what keeps a "back to
     landing" link and an OIDC ``redirect_uri`` on the same origin by construction.
     """
-    return _external_origin(root, nginx_port, tls_enabled=tls_enabled)
+    return _external_origin(root, nginx_port, tls_enabled=tls_enabled, tls_port=tls_port)
 
 
-def _user_card(resolved_user: dict[str, Any]) -> dict[str, Any]:
+def _user_card(resolved_user: dict[str, Any], token_login_names: frozenset[str]) -> dict[str, Any]:
     """Build one auto-populated ``users``-group landing card from a resolved roster entry.
 
-    The base shape is unchanged (``{label, url}``); a ``sublabel`` key is added
-    only when the entry resolved to a persona, so a no-persona roster keeps
-    producing exactly the same two-key items landing.html.j2 rendered before.
+    Every card carries ``token_login``, the auth posture this user's terminal is
+    entered under: ``True`` when the way in is that user's ``?token=`` URL,
+    ``False`` when a login page stands in front of it. Unlike ``sublabel`` it is
+    always present rather than added-when-set, because it answers a question
+    every card has an answer to — an absent key would read as "no posture"
+    rather than "signs in".
+
+    A ``sublabel`` key is added only when the entry resolved to a persona, so a
+    no-persona roster keeps producing exactly the same optional-key shape
+    landing.html.j2 rendered before.
 
     One case drops the badge even though a persona is in effect: when the
     persona name and the roster name are the same word. The badge exists to say
@@ -1679,14 +1755,21 @@ def _user_card(resolved_user: dict[str, Any]) -> dict[str, Any]:
     Args:
         resolved_user: One :func:`osprey.deployment.web_terminals.personas.resolve_personas`
             entry (``name`` and ``persona`` are read).
+        token_login_names: The roster names
+            :func:`osprey.deployment.deploy_summary.token_login_users` returned for
+            this deployment, membership in which is this card's ``token_login``.
 
     Returns:
-        ``{"label", "url"}`` for a persona-less user, plus ``"sublabel"`` (the
-        persona name) when ``persona`` is a non-empty string that differs from
-        the user's own name.
+        ``{"label", "url", "token_login"}`` for a persona-less user, plus
+        ``"sublabel"`` (the persona name) when ``persona`` is a non-empty string
+        that differs from the user's own name.
     """
     name = resolved_user["name"]
-    card: dict[str, Any] = {"label": name, "url": f"/u/{name}/"}
+    card: dict[str, Any] = {
+        "label": name,
+        "url": f"/u/{name}/",
+        "token_login": name in token_login_names,
+    }
     persona = resolved_user.get("persona")
     if isinstance(persona, str) and persona and persona.casefold() != name.casefold():
         card["sublabel"] = persona
@@ -1694,7 +1777,9 @@ def _user_card(resolved_user: dict[str, Any]) -> dict[str, Any]:
 
 
 def _build_groups(
-    landing_cfg: dict[str, Any], resolved_users: list[dict[str, Any]]
+    landing_cfg: dict[str, Any],
+    resolved_users: list[dict[str, Any]],
+    token_login_names: frozenset[str],
 ) -> list[dict[str, Any]]:
     """Transform config ``landing.groups`` into the template's ``groups`` shape:
     plain dicts with a ``label`` and an ``items`` key, since landing.html.j2
@@ -1709,8 +1794,10 @@ def _build_groups(
     persona name, shown as a secondary badge on the card; users with no persona
     in effect (every bare-string roster) omit the key entirely, so
     landing.html.j2's ``{% if item["sublabel"] %}`` guard renders them without
-    one. ``{type: "links", label, links}`` passes ``links`` straight through as
-    ``items`` (link cards never carry a ``sublabel``). Unrecognized/malformed
+    one. Every user card also carries ``token_login`` (see :func:`_user_card`),
+    the auth posture that user's terminal is entered under.
+    ``{type: "links", label, links}`` passes ``links`` straight through as
+    ``items`` (link cards carry neither a ``sublabel`` nor a posture). Unrecognized/malformed
     group entries are dropped rather than raising: lint is the authoritative
     gate on schema well-formedness, this is just the render-time adapter.
 
@@ -1740,6 +1827,11 @@ def _build_groups(
             and ``/u/<name>/`` url, its ``persona`` (when not ``None``) the
             optional ``sublabel``, and its ``landing_group`` (when present) the
             section it is lifted into.
+        token_login_names: The roster names
+            :func:`osprey.deployment.deploy_summary.token_login_users` returned for
+            this deployment, threaded down onto each user card as ``token_login``.
+            ``links`` groups get no posture — a link is not a terminal — so this
+            reaches ``users`` groups only.
     """
     groups_raw = landing_cfg.get("groups")
     if not isinstance(groups_raw, list) or not groups_raw:
@@ -1750,7 +1842,7 @@ def _build_groups(
         entry = as_dict(entry)
         group_type = entry.get("type")
         if group_type == "users":
-            groups.extend(_user_groups(resolved_users, entry.get("label")))
+            groups.extend(_user_groups(resolved_users, entry.get("label"), token_login_names))
         elif group_type == "links":
             links = entry.get("links")
             items = [as_dict(link) for link in links] if isinstance(links, list) else []
@@ -1758,7 +1850,11 @@ def _build_groups(
     return groups
 
 
-def _user_groups(resolved_users: list[dict[str, Any]], default_label: Any) -> list[dict[str, Any]]:
+def _user_groups(
+    resolved_users: list[dict[str, Any]],
+    default_label: Any,
+    token_login_names: frozenset[str],
+) -> list[dict[str, Any]]:
     """Split one ``{type: "users"}`` entry into its default section plus a tray
     section per distinct persona ``landing_group``.
 
@@ -1774,6 +1870,9 @@ def _user_groups(resolved_users: list[dict[str, Any]], default_label: Any) -> li
         default_label: The ``{type: "users"}`` entry's own ``label``, used as the
             heading for the ungrouped users. Anything that is not a non-empty
             string falls back to ``"Terminals"``.
+        token_login_names: Passed straight to :func:`_user_card`, which turns
+            membership into that card's ``token_login``. Sectioning is
+            presentation; the posture is the same wherever a user's card lands.
 
     Returns:
         ``[{label, items}, {label, items, variant: "tray"}, ...]``.
@@ -1785,7 +1884,7 @@ def _user_groups(resolved_users: list[dict[str, Any]], default_label: Any) -> li
     trays: dict[str, list[dict[str, Any]]] = {}
     for user in resolved_users:
         group = user.get("landing_group")
-        card = _user_card(user)
+        card = _user_card(user, token_login_names)
         if isinstance(group, str) and group:
             trays.setdefault(group, []).append(card)
         else:
@@ -1806,8 +1905,8 @@ def _auth_tls_context(web_terminals: dict[str, Any], *, base: int | None = None)
     template, the compose overlay and the lint rules all read the keys returned
     here rather than the raw config, so there is one definition of what an
     ``auth`` stanza means. **This function renders nothing** — it derives values;
-    the templates turn ``tls_enabled``/``auth_method`` into actual `listen 443
-    ssl` / `auth_request` directives.
+    the templates turn ``tls_enabled``/``tls_port``/``auth_method`` into the
+    actual `listen <tls_port> ssl` / `auth_request` directives.
 
     Both stanzas remain entirely optional. ``tls`` defaults to off; ``auth``
     defaults to ``token``, today's magic-link posture. Every value is read defensively (wrong-typed entries
@@ -1870,7 +1969,11 @@ def _auth_tls_context(web_terminals: dict[str, Any], *, base: int | None = None)
         *names* the sidecar reads its OIDC client credentials from — never the
         credentials themselves) and ``auth_oidc_claim`` (str or ``None``, the
         ID-token claim carrying the identity to map onto a roster user); plus
-        the TLS keys ``tls_enabled`` (bool) and
+        the TLS keys ``tls_enabled`` (bool), ``tls_port`` (int, the listener
+        both nginx ``listen`` lines and the derived external origin follow,
+        defaulting to :data:`TLS_LISTEN_PORT`), ``https_default_port``
+        (:data:`_HTTPS_DEFAULT_PORT`, so the template's port-in-redirect test
+        and :func:`_external_origin` compare against one value) and
         ``tls_cert``/``tls_key`` (str path or ``None``, read only when
         ``tls_enabled``).
 
@@ -1899,7 +2002,7 @@ def _auth_tls_context(web_terminals: dict[str, Any], *, base: int | None = None)
         "walled": sidecar_active,
         "token_exchange": auth_method == "token",
         "open_perimeter": auth_method == "none",
-        "auth_port": _positive_int(auth.get("port"), default_port(_AUTH_PORT_SLOT, base=base)),
+        "auth_port": _port_int(auth.get("port"), default_port(_AUTH_PORT_SLOT, base=base)),
         "auth_session_lifetime": _positive_int(
             auth.get("session_lifetime"), DEFAULT_SESSION_LIFETIME
         ),
@@ -1918,6 +2021,13 @@ def _auth_tls_context(web_terminals: dict[str, Any], *, base: int | None = None)
         # sidecar's own documented default applies — one default, in one place.
         "auth_oidc_claim": _non_empty_str(oidc.get("claim"), "") or None,
         "tls_enabled": bool(tls.get("enabled", False)),
+        "tls_port": _port_int(tls.get("port"), TLS_LISTEN_PORT),
+        # Carried alongside so the template's "is this the port a browser
+        # assumes for https://" test reads the same constant `_external_origin`
+        # does, rather than restating 443 as a literal. It is the scheme's port,
+        # not this framework's default for an unset `tls.port` — the two are
+        # equal today and mean different things.
+        "https_default_port": _HTTPS_DEFAULT_PORT,
         "tls_cert": tls.get("cert"),
         "tls_key": tls.get("key"),
         # The HOST directory holding the certificate and key. Optional, and the
@@ -2160,6 +2270,20 @@ def _positive_int(value: Any, default: int) -> int:
     if isinstance(value, int) and not isinstance(value, bool) and value > 0:
         return value
     return default
+
+
+def _port_int(value: Any, default: int) -> int:
+    """A config value read as a TCP port, falling back to ``default``.
+
+    :func:`_positive_int` bounded above by the highest port there is, so the
+    whole invalid domain — non-int, ``bool``, ``0``, negative, and anything past
+    :data:`osprey.port_layout._MAX_PORT` — lands on the same default. That is
+    what makes lint's finding for a bad ``tls.port``/``auth.port`` honest when it
+    says the render falls back: a value of ``70000`` would otherwise reach a
+    ``listen`` directive nginx refuses at startup.
+    """
+    port = _positive_int(value, 0)
+    return port if 0 < port <= _MAX_PORT else default
 
 
 def _non_empty_str(value: Any, default: str) -> str:

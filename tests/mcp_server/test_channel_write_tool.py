@@ -718,9 +718,9 @@ async def test_a_single_refusal_envelope_says_what_the_refusal_said(tmp_path, mo
     _prepare(tmp_path, monkeypatch)
 
     refusal = (
-        "Write to 'PV:A' blocked: this session's posture for the 'standin' control "
-        "target is read-only — set from the control-target chip in the header, and "
-        "in force for this session only."
+        "Write to 'PV:A' blocked: writes are off for the 'standin' control target "
+        "in this session — turned off from the control-target chip in the header, "
+        "and in force for this session only."
     )
     result = _make_write_result(
         channel="PV:A",

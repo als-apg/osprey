@@ -1023,7 +1023,7 @@ class TestTheConnectorReferenceMonitor:
         # Assert
         message = result.error_message
         assert TARGET_STANDIN in message
-        assert "read-only" in message
+        assert "writes are off" in message
         assert "control-target chip in the header" in message
         assert "writes_enabled" not in message
         assert "resubmit" not in message.lower()
@@ -1426,11 +1426,11 @@ class TestALaunchPinnedRunSaysSoInsteadOfBlamingTheChip:
         assert result.outcome is WriteOutcome.REFUSED
         assert result.refusal_reason == "WRITES_DISABLED"
         # ...and a story about the RUN, with a remedy that exists
-        assert f"launched while '{TARGET_STANDIN}' was read-only" in result.error_message
+        assert f"launched while writes were off for '{TARGET_STANDIN}'" in result.error_message
         assert "not to one already in flight" in result.error_message
         assert "Re-run the script" in result.error_message
         # The message an operator could not act on is exactly what must be gone.
-        assert "back to writes from the chip" not in result.error_message
+        assert "Turn writes back on" not in result.error_message
 
     @pytest.mark.unit
     @pytest.mark.asyncio
@@ -1457,8 +1457,8 @@ class TestALaunchPinnedRunSaysSoInsteadOfBlamingTheChip:
 
         # Assert
         assert result.outcome is WriteOutcome.REFUSED
-        assert "most restrictive write posture" in result.error_message
-        assert "neither its control target nor this session's posture" in result.error_message
+        assert "most restrictive write state" in result.error_message
+        assert "neither its control target nor this session's write state" in result.error_message
         assert "could be resolved" in result.error_message
         assert "Re-run the script" in result.error_message
         assert "chip" not in result.error_message

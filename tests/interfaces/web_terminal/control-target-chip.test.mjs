@@ -323,6 +323,11 @@ describe('mount', () => {
 describe('state matrix', () => {
   /** @type {Record<string, string>} */
   const KIND_ATTR = { live: 'live', standin: 'standin', va: 'va', simulated: 'simulated' };
+  /** The consequence word each kind renders when no display_name is configured. */
+  /** @type {Record<string, string>} */
+  const WORDS = { live: 'Real machine', standin: 'Rehearsal', va: 'Simulator', simulated: 'Demo' };
+  /** @type {Record<string, string>} */
+  const PHRASES = { writes: 'writes on', sandbox: 'writes off', 'read-only': 'writes locked' };
 
   for (const [kindName, kind] of Object.entries(KINDS)) {
     for (const [stateName, state] of Object.entries(STATES)) {
@@ -337,8 +342,8 @@ describe('state matrix', () => {
         expect(chip.hidden).toBe(false);
         expect(chip.dataset.targetKind).toBe(KIND_ATTR[kindName]);
         expect(chip.dataset.state).toBe(stateName);
-        expect(shortText()).toBe(kind.short_label);
-        expect(stateText()).toBe(stateName);
+        expect(shortText()).toBe(WORDS[kindName]);
+        expect(stateText()).toBe(PHRASES[stateName]);
         // The tooltip is the FULL label; the chip's own word is the short one.
         expect(chip.title).toBe(kind.label);
       });
@@ -349,13 +354,13 @@ describe('state matrix', () => {
     await boot(
       viewOf({ targets: [rowOf({ ...KINDS.va, ...STATES.sandbox, active: true })] })
     );
-    expect(stateText()).toBe('sandbox');
+    expect(stateText()).toBe('writes off');
 
     served = viewOf({
       targets: [rowOf({ ...KINDS.va, ...STATES['read-only'], ceiling_writes: false, active: true })],
     });
     await chipModule.refetch();
-    expect(stateText()).toBe('read-only');
+    expect(stateText()).toBe('writes locked');
   });
 
   test('kind falls back to real_machine + the label shape when the route sends none', async () => {
@@ -391,6 +396,18 @@ describe('state matrix', () => {
     expect(chipEl()?.dataset.targetKind).toBe('live');
   });
 
+  test("the deployment's configured display_name wins over the kind default", async () => {
+    await boot(
+      viewOf({
+        targets: [
+          rowOf({ ...KINDS.live, display_name: 'ALS storage ring', active: true }),
+        ],
+      })
+    );
+    expect(shortText()).toBe('ALS storage ring');
+    expect(chipEl()?.dataset.targetKind).toBe('live');
+  });
+
   test('data-enforceable folds in the store, and a dimmed chip still renders', async () => {
     await boot();
     expect(chipEl()?.dataset.enforceable).toBe('true');
@@ -419,7 +436,7 @@ describe('active row', () => {
         ],
       })
     );
-    expect(shortText()).toBe('VIRTUAL');
+    expect(shortText()).toBe('Simulator');
     expect(chipEl()?.dataset.targetKind).toBe('va');
   });
 
@@ -430,7 +447,7 @@ describe('active row', () => {
         targets: [rowOf(KINDS.live), rowOf({ ...KINDS.standin, is_baseline: true })],
       })
     );
-    expect(shortText()).toBe('STAND-IN');
+    expect(shortText()).toBe('Rehearsal');
   });
 
   test('hides itself rather than guessing when the roster is empty', async () => {
@@ -460,7 +477,7 @@ describe('agent-activity hint', () => {
     await boot(
       viewOf({ targets: [rowOf({ ...KINDS.standin, active: true, is_baseline: true })] })
     );
-    expect(shortText()).toBe('STAND-IN');
+    expect(shortText()).toBe('Rehearsal');
     // The frame narrates a switch to the facility's own machine, and the route
     // — the only truth — still says stand-in. A chip that read the prose would
     // now claim LIVE on a session that never moved.
@@ -471,7 +488,7 @@ describe('agent-activity hint', () => {
       ts: Date.now(),
     });
     await flush();
-    expect(shortText()).toBe('STAND-IN');
+    expect(shortText()).toBe('Rehearsal');
     expect(chipEl()?.dataset.targetKind).toBe('standin');
   });
 
@@ -530,8 +547,8 @@ describe('polling', () => {
 
     expect(chipModule.isPending()).toBe(false);
     expect(chipEl()?.dataset.pending).toBeUndefined();
-    expect(stateText()).toBe('writes');
-    expect(shortText()).toBe('LIVE');
+    expect(stateText()).toBe('writes on');
+    expect(shortText()).toBe('Real machine');
 
     const settled = getCount();
     vi.advanceTimersByTime(chipModule.FAST_POLL_MS * 4);
@@ -613,7 +630,7 @@ describe('polling', () => {
 describe('read ordering', () => {
   test('a slow read cannot repaint over a newer one', async () => {
     await boot();
-    expect(shortText()).toBe('STAND-IN');
+    expect(shortText()).toBe('Rehearsal');
 
     // Park a read carrying the CURRENT (stand-in) roster.
     holdNextGet = true;
@@ -626,13 +643,13 @@ describe('read ordering', () => {
       targets: [rowOf({ ...KINDS.live, active: true })],
     });
     await chipModule.refetch();
-    expect(shortText()).toBe('LIVE');
+    expect(shortText()).toBe('Real machine');
 
     // The parked read finally resolves, carrying history.
     heldGets.shift()?.();
     await slow;
     await flush();
-    expect(shortText()).toBe('LIVE');
+    expect(shortText()).toBe('Real machine');
     expect(chipEl()?.dataset.targetKind).toBe('live');
   });
 

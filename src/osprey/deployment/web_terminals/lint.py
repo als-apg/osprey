@@ -56,6 +56,7 @@ from osprey.deployment.web_terminals.ports import (
     resolve_nginx_port,
 )
 from osprey.deployment.web_terminals.render import (
+    _AUTH_PORT_SLOT,
     _RESERVED_AUDIT_IDENTITY_RE,
     AUTH_SIDECAR_AUDIT_IDENTITY,
     SUPPORTED_AUTH_METHODS,
@@ -64,18 +65,23 @@ from osprey.deployment.web_terminals.render import (
     _authorization_context,
     _configured_external_origin,
     _external_origin,
+    _port_int,
 )
 from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
-from osprey.port_layout import resolve_port_base
+from osprey.port_layout import _MAX_PORT, default_port, resolve_port_base
 from osprey_connectors.types import TYPE_WRITES_ENABLED_LEAF, WRITES_ENABLED_KEY
 
-# The TLS seam's listener port (`listen 443 ssl` in the gated nginx block) is
-# `render.TLS_LISTEN_PORT`, imported above rather than restated: the render
-# stamps the same port into the perimeter deny-list, and a second literal here
-# could come to reserve a port the template does not listen on. The auth
-# sidecar's listener needs no constant at all: it is config-driven
-# (`auth.port`), and its effective value is read from render's parsed auth
-# context.
+# Both listeners in the gated auth/TLS seam are config-driven: nginx's TLS
+# listener is `tls.port` and the auth sidecar's is `auth.port`. Neither default
+# is restated here. `render.TLS_LISTEN_PORT` is imported because the render
+# stamps that same fallback into both `listen` lines and the perimeter
+# deny-list, and a second literal here could come to reserve a port the template
+# does not listen on; the sidecar's default is the port layout's `auth` slot,
+# read off render's parsed auth context or derived from the same layout. So is
+# `render._port_int`, the one reader that says which values reach a `listen`
+# directive at all — the checks below resolve a configured port exactly as
+# render resolves it, which is what makes a finding that says "render falls
+# back" true across the whole invalid domain.
 
 # The credential env-var stem a roster username is keyed into
 # (`OSPREY_AUTH_PW_HASH_<SUFFIX>`), quoted only inside this module's collision
@@ -238,6 +244,7 @@ def lint_web_terminals(
     findings.extend(_check_external_origin(web_terminals))
     findings.extend(_check_auth_method(web_terminals))
     findings.extend(_check_auth_session_lifetime(web_terminals))
+    findings.extend(_check_listener_ports(root, web_terminals))
     findings.extend(_check_auth_transport(root, web_terminals))
     findings.extend(_check_auth_oidc(root, web_terminals))
     findings.extend(_check_auth_credential_collisions(web_terminals, users))
@@ -740,7 +747,8 @@ def _check_port_overlap(
     with each other but with every port the ``services:`` block publishes. The
     collision set is therefore: the per-user port families over the N configured
     users, nginx's own listener, every published service port, and the TLS
-    listener when that seam is enabled.
+    listener (``tls.port``, defaulting to :data:`TLS_LISTEN_PORT`) when that
+    seam is enabled.
     """
     entries: list[tuple[int, str]] = []
 
@@ -790,10 +798,18 @@ def _check_port_overlap(
 
     # S5: the gated auth/TLS seam's port(s) — only join the collision set when
     # the seam is actually enabled by config; the default (tls disabled, no
-    # sidecar) must not reserve 443 or the sidecar port against ordinary configs.
+    # sidecar) must not reserve the TLS listener or the sidecar port against
+    # ordinary configs.
+    #
+    # The TLS listener is read straight off the raw stanza rather than through
+    # `_auth_context`: that context is None for a config whose `auth.method`
+    # names no method, and a port this deployment's nginx will bind belongs in
+    # the collision set whether or not the auth stanza parses. `_port_int`
+    # resolves it the way render does, so an unusable `tls.port` reserves the
+    # default nginx will actually listen on rather than a port nothing binds.
     tls = as_dict(web_terminals.get("tls"))
     if bool(tls.get("enabled", False)):
-        entries.append((TLS_LISTEN_PORT, "web_terminals.tls (listen 443 ssl)"))
+        entries.append((_port_int(tls.get("port"), TLS_LISTEN_PORT), "web_terminals.tls.port"))
     # The deployment's own base, the same one the port families above were
     # allocated at: a sidecar port resolved at the layout default would land in
     # a different block and make this collision set mixed-base — missing a real
@@ -2878,6 +2894,73 @@ def _check_auth_session_lifetime(web_terminals: dict[str, Any]) -> list[Finding]
     ]
 
 
+def _check_listener_ports(root: dict[str, Any], web_terminals: dict[str, Any]) -> list[Finding]:
+    """``tls.port`` and ``auth.port`` must name a TCP port that exists.
+
+    The two listeners the gated auth/TLS seam binds are both config-driven, and
+    render reads both defensively (see
+    :func:`~osprey.deployment.web_terminals.render._port_int`): anything that is
+    not a whole number in ``1..65535`` — ``0``, a negative, ``true``, ``'8443'``
+    as a string, ``70000`` — is substituted with the default. A deployment that
+    meant to move nginx off 443, or the sidecar off its layout slot, therefore
+    comes up on the port it was trying to leave, and nothing downstream sees
+    the mistake: the render is well-formed, nginx starts, and the only symptom
+    is a listener in the wrong place. Like :func:`_check_auth_method` and
+    :func:`_check_auth_session_lifetime` this module is the only surface that
+    can report it, so the rule reads the raw stanzas rather than render's
+    parsed context — by the time that context exists the bad value is gone.
+
+    An absent key, and a ``port:`` written with no value at all (``None`` after
+    YAML load), are the documented default and are not flagged. A non-mapping
+    ``tls`` or ``auth`` stanza has no keys to read and is passed over; the
+    ``auth`` case is :func:`_check_auth_method`'s finding rather than this
+    one's.
+
+    Both ports are checked whether or not their seam is enabled. An unusable
+    value is an authoring mistake in either case, and the config that turns the
+    seam on is often the next edit.
+
+    Args:
+        root: The whole config, for the port base the sidecar's layout default
+            is derived at — quoting the default block's port for a deployment
+            that resolved another base would name a port it never binds.
+        web_terminals: The ``modules.web_terminals`` block being linted.
+
+    Returns:
+        One finding per unusable port value.
+    """
+    base = resolve_port_base(root)
+    stanzas = (
+        ("tls", "tls.port", TLS_LISTEN_PORT),
+        ("auth", "auth.port", default_port(_AUTH_PORT_SLOT, base=base)),
+    )
+    findings: list[Finding] = []
+    for stanza_key, dotted, default in stanzas:
+        stanza = web_terminals.get(stanza_key)
+        if not isinstance(stanza, dict) or "port" not in stanza:
+            continue
+        port = stanza["port"]
+        if port is None:
+            continue
+        # `bool` is excluded for render's reason (see `render._positive_int`):
+        # it passes `isinstance(..., int)`, and `tls.port: true` becoming a
+        # listener on port 1 would be a baffling deployment.
+        if isinstance(port, int) and not isinstance(port, bool) and 0 < port <= _MAX_PORT:
+            continue
+        findings.append(
+            Finding(
+                severity="error",
+                code="web_terminals.invalid_listener_port",
+                message=(
+                    f"modules.web_terminals.{dotted} {port!r} is not a whole number "
+                    f"between 1 and {_MAX_PORT}; render would silently fall back to the "
+                    f"default ({default})"
+                ),
+            )
+        )
+    return findings
+
+
 def _check_auth_transport(root: dict[str, Any], web_terminals: dict[str, Any]) -> list[Finding]:
     """Authentication over cleartext HTTP: an ERROR, or a WARN once accepted.
 
@@ -3044,6 +3127,7 @@ def _check_auth_oidc(root: dict[str, Any], web_terminals: dict[str, Any]) -> lis
             root,
             nginx_port,
             tls_enabled=bool(context["tls_enabled"]),
+            tls_port=int(context["tls_port"]),
         )
     except ValueError as exc:
         findings.append(

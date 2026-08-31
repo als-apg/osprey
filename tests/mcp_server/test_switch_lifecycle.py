@@ -1451,6 +1451,7 @@ class TestConfigDerivedFacts:
 
         assert metadata["live"] == {
             "label": "live machine (not configured)",
+            "display_name": "Real machine",
             "endpoint": "",
             "real_machine": False,
             "probe_channel": "",

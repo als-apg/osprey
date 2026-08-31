@@ -21,6 +21,19 @@ stores, facility — in ascending offset order. Sorting the same addresses by
 service name would have hidden that shape behind a spelling, and left an
 operator with no way to see that the port they do not recognise is simply the
 next slot along.
+
+Reserved is not served
+----------------------
+The panel bands are the exception the block's own arithmetic creates: every
+roster user is allocated a port in every family whether or not the persona
+they run ever starts that server. Listing the whole roster beside every band —
+and listing a band no persona serves at all — told an operator that people
+answer at addresses nothing listens on. So each band names only the users whose
+rendered project declares that panel, a family nobody serves gets no row, and
+one closing note says which bands the block still reserves. Where the personas
+cannot be read the wide, pre-persona reading comes back: it is the honest
+answer when nothing on disk says otherwise, and this module never fails a
+deploy that otherwise succeeded.
 """
 
 from __future__ import annotations
@@ -334,6 +347,24 @@ def _service_address(service: str, bindings: list[HostPortBinding]) -> str:
 #: facility would push the row past any width and say nothing a count does not.
 _ROSTER_NAMES_SHOWN = 4
 
+#: The port family the terminal itself takes, as
+#: :data:`~osprey.deployment.web_terminals.ports.FAMILY_BASE_FIELDS` names it.
+#: The one family with no companion server behind it and no panel id to declare:
+#: every roster user has a terminal, which is what having a roster entry MEANS,
+#: so no persona's ``web.panels`` can add or remove it.
+_TERMINAL_FAMILY = "web"
+
+#: The service column of the one row that reports the bands nothing serves.
+#: Public because the tests key on it rather than on its spelling, and because
+#: a reader filtering the entries (the summary card keeps only ``http://``
+#: addresses) should be able to name it rather than pattern-match the text.
+RESERVED_BANDS_LABEL = "(reserved)"
+
+#: Sort position of that row inside the panels tier. Above every real family
+#: offset, so the note trails the bands it is a footnote to rather than landing
+#: among them.
+_RESERVED_SORT = 1_000_000_000
+
 
 def _roster(config: dict) -> list[tuple[str, int]]:
     """This deployment's web-terminal roster as ``(name, index)``, in order.
@@ -362,8 +393,179 @@ def _roster(config: dict) -> list[tuple[str, int]]:
     return roster or [("", 0)]
 
 
-def _panel_entries(config: dict) -> list[tuple[tuple[int, int, int, str], str, str, str]]:
-    """One row per port family, covering the whole roster's band.
+def _who_serves(names: list[str]) -> str:
+    """The ``(who)`` suffix of one band: the names, or how many there are.
+
+    Args:
+        names: The roster names on this band, in roster order. Empty for the
+            single-user deployment, whose one entry has no name to print.
+
+    Returns:
+        The names joined, a count past :data:`_ROSTER_NAMES_SHOWN`, or ``""``.
+    """
+    if len(names) > _ROSTER_NAMES_SHOWN:
+        return f"{len(names)} users"
+    return ", ".join(names)
+
+
+def _families_a_project_serves(project_config: object) -> set[str]:
+    """The port families one rendered project's panels actually listen on.
+
+    Read off ``web.panels`` exactly as the terminal reads it
+    (``web_terminal.app._load_panel_config``, and the health probe's
+    :func:`~osprey.health.core.web_panels._resolve_targets` beside it): a
+    built-in id is on when it is ``true`` or a mapping that has not switched
+    itself off, and :data:`~osprey.profiles.web_panels.UNIVERSAL_PANELS` is on
+    whatever the config says. A fourth reading of that block here would let the
+    summary claim a panel the container never starts.
+
+    Panel ids and port families are two namespaces (``artifacts`` is served by
+    registry key ``artifact`` on family ``artifact``; ``lattice`` by
+    ``lattice_dashboard`` on family ``lattice``), so the crossing goes through
+    :data:`~osprey.registry.web.PANEL_ID_TO_REGISTRY_KEY` and the definition's
+    own ``port_family`` rather than through a table kept here.
+
+    Args:
+        project_config: A persona's parsed rendered ``config.yml``. Anything
+            that is not a mapping reads as a project declaring no panels.
+
+    Returns:
+        Family names, always including :data:`_TERMINAL_FAMILY` — a project
+        that declares nothing still has the terminal the roster entry IS.
+    """
+    from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS
+    from osprey.registry.web import FRAMEWORK_WEB_SERVERS, PANEL_ID_TO_REGISTRY_KEY
+
+    web = project_config.get("web") if isinstance(project_config, dict) else None
+    declared = web.get("panels") if isinstance(web, dict) else None
+
+    enabled = set(UNIVERSAL_PANELS)
+    for panel_id, spec in (declared if isinstance(declared, dict) else {}).items():
+        if panel_id in BUILTIN_PANELS and (
+            spec is True or (isinstance(spec, dict) and spec.get("enabled", True))
+        ):
+            enabled.add(panel_id)
+
+    families = {_TERMINAL_FAMILY}
+    for panel_id in enabled:
+        key = PANEL_ID_TO_REGISTRY_KEY.get(panel_id)
+        if key is not None:
+            definition = FRAMEWORK_WEB_SERVERS[key]
+            families.add(definition.port_family or key)
+    return families
+
+
+def _families_by_user(config: dict, project_root: Path | str | None) -> dict[str, set[str]] | None:
+    """Which port families each roster user actually serves, or ``None``.
+
+    The narrowing behind :func:`_panel_entries`: a user's persona names a
+    rendered project, and that project's ``web.panels`` says which companion
+    servers its container starts. Every user is allocated a port in every
+    family regardless — the allocator reserves the whole block whatever the
+    roster runs — so without this walk the summary names every user beside
+    every band and tells an operator that people answer where they do not.
+
+    ALL OR NOTHING, deliberately. ``None`` means "nothing on disk answers this
+    question", and the caller then reports the wide, pre-persona bands. A
+    partial answer would be worse than either: a user whose persona could not
+    be resolved would silently vanish from every band he might be on, which
+    reads as "he serves nothing" rather than as "nothing here knows".
+
+    Advisory at every step, like everything else this module derives — an
+    unbuilt persona project, a catalog entry with no ``project_path``, an
+    ``authorization`` stanza that does not parse, a roster entry
+    :func:`~osprey.deployment.web_terminals.personas.normalize_users` cannot
+    place — each degrades to ``None`` rather than failing the summary that a
+    successful deploy ends with. Nothing here raises: two of this module's
+    three entry points call it without a guard, and a summary that crashes
+    after a deploy has already succeeded reports a failure that did not happen.
+
+    Args:
+        config: Loaded configuration dictionary.
+        project_root: The deployment repo, against which a catalog entry's
+            ``project_path`` resolves. ``None`` falls back to the rendered
+            config's own ``project_root``, which is the only anchor
+            ``osprey status`` has — it is handed a config and compose files and
+            no root at all.
+
+    Returns:
+        ``{user: families}`` covering the whole roster, or ``None`` when any
+        part of the roster cannot be placed.
+    """
+    from osprey.deployment.web_terminals.personas import (
+        effective_persona,
+        freeze_user_indices,
+        rendered_persona_configs,
+        resolve_authorization_roles,
+    )
+
+    root = project_root if project_root is not None else config.get("project_root")
+    if not root:
+        return None
+    web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
+    users = web_terminals.get("users")
+    if not isinstance(users, list) or not users:
+        return None
+
+    # ONE reader of this roster's shape, shared with `_roster`.
+    # `freeze_user_indices` IS `normalize_users`' output with the keys the
+    # author wrote re-attached, which is what this walk needs and the bare
+    # normalizer cannot give it: `normalize_users` carries `role` through but
+    # drops `persona:`, and `effective_persona` reads both. Walking the raw
+    # list here instead would be a second spelling of "what a roster entry
+    # looks like" — one that could drift from the normalizer, and did: an
+    # entry the normalizer drops but a raw `.get("name")` chokes on (`- 42`)
+    # raised out of an advisory summary instead of degrading.
+    entries = freeze_user_indices(users)
+    if len(entries) != len(users):
+        # Some entry the file declares could not be placed at all. The roster
+        # this walk can describe is then not the roster that was written, and
+        # the all-or-nothing rule above says so rather than narrowing around
+        # the gap.
+        logger.debug("Panel bands not narrowed to their personas: unplaceable roster entry")
+        return None
+
+    try:
+        roles = resolve_authorization_roles(web_terminals)
+        serves = {
+            persona: _families_a_project_serves(project_config)
+            for persona, project_config in rendered_persona_configs(config, root).items()
+        }
+    except Exception as exc:
+        logger.debug(f"Panel bands not narrowed to their personas: {exc}")
+        return None
+
+    default_persona = web_terminals.get("default_persona")
+    by_user: dict[str, set[str]] = {}
+    for entry in entries:
+        name = entry["name"]
+        if not name:
+            # A nameless entry is the single-user shape, which reaches this
+            # walk only as a roster that spells it out; nothing here can say
+            # whose panels those are.
+            return None
+        try:
+            persona = effective_persona(entry, roles, default_persona, strict=False)
+        except Exception as exc:
+            logger.debug(f"Panel bands not narrowed to their personas: {exc}")
+            return None
+        if persona not in serves:
+            # No persona in effect (every pre-catalog roster), or one whose
+            # project is unset, unrendered or unreadable. Either way nothing
+            # says what this user serves, and a guess is not an answer.
+            return None
+        if name in by_user:
+            # Two entries under one name (lint refuses it; reachable past
+            # --no-lint) cannot be placed on their bands as written.
+            return None
+        by_user[name] = serves[persona]
+    return by_user
+
+
+def _panel_entries(
+    config: dict, project_root: Path | str | None = None
+) -> list[tuple[tuple[int, int, int, str], str, str, str]]:
+    """One row per port family, covering the band of the users who serve it.
 
     The panels are the largest stretch of the block and reach neither of the
     two binding sources: the per-user containers run on the host namespace, so
@@ -377,8 +579,20 @@ def _panel_entries(config: dict) -> list[tuple[tuple[int, int, int, str], str, s
     contribute twenty-eight rows to a list whose whole point is to show the
     shape of the block at a glance.
 
+    But only the users who SERVE it, wherever the personas can be read
+    (:func:`_families_by_user`). A band's address is a thing to open, and the
+    names beside it are the claim about who answers there; a persona that never
+    starts the LATTICE server has a port reserved in that band and nothing
+    listening on it. A family no persona serves gets no row at all, because a
+    row hedged with "reserved" would still carry the address that does not
+    answer — the same claim in smaller type. What the whole tier owes instead is
+    one closing note naming those bands, so a reader who counts six families
+    where the layout has seven knows the seventh was not lost.
+
     Args:
         config: Loaded configuration dictionary.
+        project_root: The deployment repo, for resolving the persona projects;
+            see :func:`_families_by_user`.
 
     Returns:
         Sortable rows in :func:`endpoint_entries`' own shape. Empty when the
@@ -399,29 +613,53 @@ def _panel_entries(config: dict) -> list[tuple[tuple[int, int, int, str], str, s
         # panel rows rather than the whole summary.
         return []
 
-    names = [name for name, _index in roster if name]
-    if len(names) > _ROSTER_NAMES_SHOWN:
-        who = f"{len(names)} users"
-    else:
-        who = ", ".join(names)
+    served = _families_by_user(config, project_root)
+    if served is not None and any(name not in served for name, _index in roster):
+        # `_roster` normalizes the raw list this walk read; a name that survived
+        # one and not the other leaves part of the roster unplaced, which is the
+        # all-or-nothing case _families_by_user documents.
+        served = None
 
     rows: list[tuple[tuple[int, int, int, str], str, str, str]] = []
+    unserved: list[str] = []
     for family in base_ports:
-        ports = sorted(user[family] for user in allocated)
-        first, last = ports[0], ports[-1]
+        members = [
+            (name, ports[family])
+            for (name, _index), ports in zip(roster, allocated, strict=True)
+            if served is None or family in served[name]
+        ]
+        if not members:
+            unserved.append(family)
+            continue
+        ports_on_band = sorted(port for _name, port in members)
+        first, last = ports_on_band[0], ports_on_band[-1]
         # A range is not an address anything can open, and the renderer would
         # linkify it into a URL that 404s on the dash. So the scheme goes on
         # only where there is one port to open — the same rule that keeps
         # `http://` off the graph store's bolt address.
         address = f"http://127.0.0.1:{first}" if first == last else f"127.0.0.1:{first}-{last}"
+        who = _who_serves([name for name, _port in members if name])
         if who:
             address = f"{address}  ({who})"
         tier, offset = _placement(family, first, None)
         rows.append(((_TIER_ORDER.index(tier), offset, first, family), tier, family, address))
+
+    if unserved:
+        tier, _offset = _placement(_TERMINAL_FAMILY)
+        rows.append(
+            (
+                (_TIER_ORDER.index(tier), _RESERVED_SORT, _RESERVED_SORT, ""),
+                tier,
+                RESERVED_BANDS_LABEL,
+                f"{', '.join(unserved)} — reserved by the block, served by no user",
+            )
+        )
     return rows
 
 
-def endpoint_entries(config: dict, compose_files: list[str]) -> list[tuple[str, str, str]]:
+def endpoint_entries(
+    config: dict, compose_files: list[str], *, project_root: Path | str | None = None
+) -> list[tuple[str, str, str]]:
     """Where a deployment's services are reachable, as ``(tier, service, address)``.
 
     The single derivation of "what answers where": the text summary below lays
@@ -450,6 +688,14 @@ def endpoint_entries(config: dict, compose_files: list[str]) -> list[tuple[str, 
         config: Loaded configuration dictionary.
         compose_files: Rendered compose file paths, spelled absolutely or
             resolvable from the working directory — they are opened here.
+        project_root: The deployment repo, for resolving the persona projects
+            that say which panel bands each roster user actually serves
+            (:func:`_families_by_user`). Optional because the caller that has
+            it (:func:`as_built_endpoint_entries`) and the caller that does not
+            (``osprey status``, which is handed a config and compose files)
+            must reach the same rows: unset falls back to the rendered config's
+            own ``project_root``, so both surfaces narrow the bands the same
+            way.
 
     Returns:
         One row per service, in block order, each ``(tier, service, address)``.
@@ -475,7 +721,9 @@ def endpoint_entries(config: dict, compose_files: list[str]) -> list[tuple[str, 
         # job; see `summary_title`.
         base = None
 
-    rows: list[tuple[tuple[int, int, int, str], str, str, str]] = _panel_entries(config)
+    rows: list[tuple[tuple[int, int, int, str], str, str, str]] = _panel_entries(
+        config, project_root
+    )
     for service, service_bindings in by_service.items():
         first_port = min(binding.host_port for binding in service_bindings)
         tier, offset = _placement(service, first_port, base)
@@ -562,6 +810,12 @@ def as_built_endpoint_entries(repo_root: Path | str) -> list[tuple[str, str, str
 
     Compose paths come back relative to the repo root and are anchored on it
     here, because :func:`endpoint_entries` opens them itself.
+
+    The repo is handed down as the persona root too, rather than left to the
+    ``project_root`` the rendered config declares: this caller was POINTED at a
+    deployment, and a build that ran somewhere else — a repo copied to another
+    host, a checkout moved — wrote a path belonging to a machine this one is
+    not. The live answer wins over the recorded one.
     """
     from osprey.deployment.container_lifecycle import as_built_compose_files
 
@@ -573,7 +827,7 @@ def as_built_endpoint_entries(repo_root: Path | str) -> list[tuple[str, str, str
         str(path if path.is_absolute() else root / path)
         for path in (Path(name) for name in as_built_compose_files(config, root))
     ]
-    return endpoint_entries(config, files)
+    return endpoint_entries(config, files, project_root=root)
 
 
 def _as_built_config(root: Path) -> dict | None:

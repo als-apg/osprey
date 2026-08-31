@@ -138,6 +138,7 @@ import {
   installFocusTrap,
   removeFocusTrap,
 } from '/design-system/js/focus-trap.js';
+import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 
 const BACKDROP_ID = 'drawer-backdrop';
 
@@ -507,7 +508,9 @@ export class OspreyDrawer extends HTMLElement {
     this._splitter = initSplitter({
       handle,
       pane: this,
-      storageKey: DRAWER_WIDTH_STORAGE_KEY,
+      // Per-persona on a multi-user mount: the drawer lives in the shell page,
+      // which shares one origin (and one localStorage) across every user.
+      storageKey: scopedStorageKey(DRAWER_WIDTH_STORAGE_KEY),
       axis: 'x',
       anchor: 'end',
       sizing: 'box',

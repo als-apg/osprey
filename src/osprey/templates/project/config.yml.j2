@@ -210,6 +210,15 @@ control_system:
   # write_tools:                # Additional tools blocked by writes kill switch
   #   - "mcp__my_server__dangerous_write"
 
+  # Operator-facing names for the control targets, shown on the web terminal's
+  # control-target chip. Defaults come from what each target is - real machine
+  # "Real machine" ("Demo" on a simulated connector), stand-in "Rehearsal",
+  # virtual accelerator "Simulator". Uncomment to rename any of them.
+  # target_display_names:
+  #   live: "Real machine"
+  #   standin: "Rehearsal"
+  #   va: "Simulator"
+
   # Runtime Channel Limits Checking
   limits_checking:
     enabled: false  # Enable for production safety

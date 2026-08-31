@@ -5,6 +5,7 @@ import { fetchJSON } from './api.js';
 import { reconcile, PLACEHOLDER_PREFIX } from './dock-reconcile.js';
 import { createTileTab, OSPREY_TAB_COMPONENT, setTerminalHeaderSource } from './dock-tab.js';
 import { subscribe } from '/design-system/js/theme-manager.js';
+import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 
 /** @typedef {import('./dock-reconcile.js').PanelDescriptor} PanelDescriptor */
 
@@ -35,10 +36,18 @@ const TERMINAL_TITLE = 'SESSION';
  *  so one browser origin persists a separate expert layout per project. */
 const LAYOUT_KEY_PREFIX = 'osprey-dock-layout-';
 
-/** Resolved localStorage key (prefix + project_key), or null until initPersistence
- *  has fetched the project key. No key ⇒ persistence is inert this session.
+/** Per-project layout key BASE (prefix + project_key), or null until
+ *  initPersistence has fetched the project key. No key ⇒ persistence is inert
+ *  this session.
+ *
+ *  Never used bare: every read and write suffixes it per persona through
+ *  `scopedStorageKey()`. Project key alone is not enough on a multi-user mount,
+ *  where every persona shares one origin and would otherwise inherit — and
+ *  overwrite — whichever arrangement another operator left behind for the same
+ *  project. Resolved at each use, never stored resolved, so the key always
+ *  reflects the document actually being served (see storage-scope.js).
  *  @type {string|null} */
-let layoutStorageKey = null;
+let layoutStorageKeyBase = null;
 
 /** Pending debounce handle for a persist write (see schedulePersist).
  *  @type {ReturnType<typeof setTimeout>|null} */
@@ -490,9 +499,9 @@ function currentUiMode() {
  * expert layout, so a reload in simple mode restores the arrangement intact.
  */
 function persistCurrentLayout() {
-  if (!dockApi || !layoutStorageKey || currentUiMode() !== 'expert') return;
+  if (!dockApi || !layoutStorageKeyBase || currentUiMode() !== 'expert') return;
   try {
-    localStorage.setItem(layoutStorageKey, JSON.stringify(dockApi.toJSON()));
+    localStorage.setItem(scopedStorageKey(layoutStorageKeyBase), JSON.stringify(dockApi.toJSON()));
   } catch { /* storage blocked/full — the layout still lives for this session */ }
 }
 
@@ -517,10 +526,10 @@ function schedulePersist() {
  * @param {any} api
  */
 function applyStoredLayout(api) {
-  if (!layoutStorageKey) return;
+  if (!layoutStorageKeyBase) return;
   let raw;
   try {
-    raw = localStorage.getItem(layoutStorageKey);
+    raw = localStorage.getItem(scopedStorageKey(layoutStorageKeyBase));
   } catch {
     return;
   }
@@ -538,7 +547,7 @@ function applyStoredLayout(api) {
   } catch (err) {
     console.error('dock: stored layout failed to apply; keeping default', err);
     try {
-      localStorage.removeItem(layoutStorageKey);
+      localStorage.removeItem(scopedStorageKey(layoutStorageKeyBase));
     } catch { /* non-fatal */ }
   }
 }
@@ -568,7 +577,7 @@ async function initPersistence(api) {
     announceLayoutRestored();
     return;
   }
-  layoutStorageKey = LAYOUT_KEY_PREFIX + projectKey;
+  layoutStorageKeyBase = LAYOUT_KEY_PREFIX + projectKey;
 
   // Boot into the mode the server rendered. In simple mode the locked layout is
   // synthesized fresh (leaving the stored EXPERT value untouched for a later flip
@@ -590,9 +599,9 @@ async function initPersistence(api) {
  * exercises it as the canonical reset path.
  */
 export function resetDockLayout() {
-  if (layoutStorageKey) {
+  if (layoutStorageKeyBase) {
     try {
-      localStorage.removeItem(layoutStorageKey);
+      localStorage.removeItem(scopedStorageKey(layoutStorageKeyBase));
     } catch { /* non-fatal */ }
   }
   if (dockApi) arrangeDefaultLayout(dockApi);
@@ -631,9 +640,9 @@ export function applyDockMode(mode) {
  * @param {any} api
  */
 function stashExpertLayout(api) {
-  if (!layoutStorageKey) return;
+  if (!layoutStorageKeyBase) return;
   try {
-    localStorage.setItem(layoutStorageKey, JSON.stringify(api.toJSON()));
+    localStorage.setItem(scopedStorageKey(layoutStorageKeyBase), JSON.stringify(api.toJSON()));
   } catch { /* storage blocked — simple→expert will fall back to the default */ }
 }
 
@@ -680,9 +689,9 @@ function applySimpleLayout(api) {
  */
 function restoreExpertLayout(api) {
   let raw = null;
-  if (layoutStorageKey) {
+  if (layoutStorageKeyBase) {
     try {
-      raw = localStorage.getItem(layoutStorageKey);
+      raw = localStorage.getItem(scopedStorageKey(layoutStorageKeyBase));
     } catch { /* storage blocked — fall through to default */ }
   }
   const next = raw ? reconcile(raw, currentRegisteredPanels(api)) : null;

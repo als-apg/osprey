@@ -134,8 +134,41 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  document.documentElement.removeAttribute('data-osprey-storage-scope');
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+});
+
+describe('per-persona pointer scope', () => {
+  // On a multi-user mount every `/u/<user>/` shares one origin, so the bare
+  // key is a slot any persona may have written. The server stamps the persona
+  // on <html>; auto-resume must read only that persona's key — a stale id in
+  // the shared slot would attach this terminal to a PTY that is not theirs.
+  // (The clear half of this contract is pinned in js/storage-scope-keys.test.js.)
+  const SCOPE_ATTR = 'data-osprey-storage-scope';
+
+  test("a bare id left by another persona does not become bob's auto-resume", () => {
+    localStorage.setItem(STORAGE_KEY, 'someone-elses-session');
+    document.documentElement.setAttribute(SCOPE_ATTR, 'bob');
+
+    terminal.initTerminal('terminal-container');
+
+    const url = /** @type {FakeWebSocket} */ (FakeWebSocket.last).url;
+    expect(url).not.toContain('mode=resume');
+    expect(url).not.toContain('session_id=');
+  });
+
+  test("bob's own scoped id is what auto-resume asks for", () => {
+    localStorage.setItem(STORAGE_KEY, 'someone-elses-session');
+    localStorage.setItem(`${STORAGE_KEY}--bob`, 'bobs-session');
+    document.documentElement.setAttribute(SCOPE_ATTR, 'bob');
+
+    terminal.initTerminal('terminal-container');
+
+    const url = /** @type {FakeWebSocket} */ (FakeWebSocket.last).url;
+    expect(url).toContain('mode=resume');
+    expect(url).toContain('session_id=bobs-session');
+  });
 });
 
 describe('resume confirmation: stale id self-correction', () => {

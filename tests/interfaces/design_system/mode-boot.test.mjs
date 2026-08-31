@@ -12,32 +12,22 @@
  * generated theme-boot.js) — it exports nothing and runs on load — so
  * rather than importing it, each scenario sets up
  * window.location/localStorage/data-ui-mode and then re-executes the exact
- * on-disk source against those happy-dom globals. Pure DOM/logic guard,
- * happy-dom environment (configured globally in vitest.config.js):
+ * on-disk source against those happy-dom globals, via the shared
+ * ./js/boot-harness.mjs. Pure DOM/logic guard, happy-dom environment
+ * (configured globally in vitest.config.js):
  *   npx vitest run tests/interfaces/design_system/mode-boot.test.mjs
+ *
+ * The per-persona scoping of the storage rung is pinned separately, in
+ * ./js/mode-boot-scope.test.mjs.
  */
 
 import { test, expect, describe, beforeEach, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 
-// Resolve the on-disk source relative to this test file. `import.meta.dirname`
-// is a plain string, so it sidesteps happy-dom's override of the global URL
-// (which breaks `fileURLToPath(new URL(...))` under this environment).
-const MODE_BOOT_PATH = join(
-  import.meta.dirname,
-  '../../../src/osprey/interfaces/design_system/static/js/mode-boot.js'
-);
-const modeBootSource = readFileSync(MODE_BOOT_PATH, 'utf8');
+import { runBootScript } from './js/boot-harness.mjs';
 
-/**
- * Execute the pre-paint boot IIFE against the current happy-dom globals.
- * `window`/`document` are passed as explicit parameters so the source's
- * free references bind to the test's DOM without a global `eval`.
- */
+/** Execute the pre-paint boot IIFE against the current happy-dom globals. */
 function runBoot() {
-  const boot = new Function('window', 'document', modeBootSource);
-  boot(globalThis.window, globalThis.document);
+  runBootScript('mode-boot.js');
 }
 
 /** @param {string} search e.g. '' or '?mode=simple' */

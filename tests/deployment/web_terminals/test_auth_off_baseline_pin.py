@@ -18,7 +18,7 @@ describes ``none``; its render is pinned by ``test_nginx_auth_surface.py``.
 
 So: a facility whose ``modules.web_terminals`` declares ``auth.method: token``
 (or no ``auth:`` block at all) and no ``authorization:`` block must render
-byte-for-byte what it rendered before this feature, with exactly three
+byte-for-byte what it rendered before this feature, with exactly four
 exceptions:
 
   1. **the audit emitters and mounts** — ``OSPREY_AUDIT_IDENTITY``,
@@ -27,12 +27,14 @@ exceptions:
      records what its agents did, and a posture that only writes a trail when
      someone opted into logins would have the trail missing exactly where it is
      least supervised.
-  2. **the identity-header clears** — ``proxy_set_header X-Osprey-Auth-Subject
-     ""``/``X-Osprey-Auth-Role ""`` in every proxying location. Under ``token``
-     there is no sidecar to answer for a subject, so nginx must claim both names
-     anyway: a location that names neither would hand a client's own
-     ``X-Osprey-Auth-Subject: root`` straight to a terminal container, which
-     reads that header to learn who is on the other end.
+  2. **the identity-header clears** — ``proxy_set_header X-Osprey-Auth-Account
+     ""``/``X-Osprey-Auth-Subject ""``/``X-Osprey-Auth-Role ""``/
+     ``X-Osprey-Auth-Role-Source ""`` in every proxying location. Under
+     ``token`` there is no sidecar to answer for an account or a subject, so
+     nginx must claim all four names anyway: a location that names none of them
+     would hand a client's own ``X-Osprey-Auth-Subject: root`` straight to a
+     terminal container, which reads that header to learn who is on the other
+     end.
   3. **the terminal session lifetime** — ``OSPREY_TERMINAL_SESSION_LIFETIME``
      on every per-user container. ``token`` mints a session cookie of its own
      (the ``?token=`` exchange trades the magic link for one), so the setting
@@ -43,6 +45,19 @@ exceptions:
      re-renders would otherwise see nothing change. The value emitted here is
      the default an absent ``auth:`` block already resolved to, so nothing
      about a baseline deployment's behaviour moves.
+  4. **the landing page's token-login badge** — a chip and one hint line on
+     every user card, naming ``osprey users login-url <name>``. This is the one
+     exception that changes what an operator SEES, and it is here because under
+     ``token`` the page was making a claim it could not keep: every card looked
+     like a door you could walk through, when every one of them needs a URL that
+     is minted by a verb nobody guesses and appears nowhere on the page. The
+     posture did not move — nginx vouches for nobody under ``token`` before and
+     after — only the page's honesty about it. The cards keep their hrefs (the
+     ``?token=`` exchange leaves a session cookie, so the link is a real return
+     path), so nothing about navigation changes either. Under ``password``, the
+     posture whose cards this baseline does not cover, the marks appear on the
+     ``login: false`` entries alone; ``test_landing_token_badge.py`` pins that
+     split.
 
 Everything else — every volume, header, ``location`` block, comment and blank
 line, and every port *site* (see the mask below) — must be untouched, with one
@@ -304,20 +319,66 @@ _REWORDED_COMPOSE_LINES = frozenset(
     }
 )
 
-#: Task 4.7 (nginx-identity-headers), ungated arm. Three clears per `/u/<user>/`
+#: Task 4.7 (nginx-identity-headers), ungated arm. Four clears per `/u/<user>/`
 #: location, and NOTHING else: no `auth_request_set`, no forward, no `/auth/`
 #: location — those render only with authentication on.
 _ALLOWED_NGINX_LINES = Counter(
     {
+        '        proxy_set_header X-Osprey-Auth-Account "";': 2,
         '        proxy_set_header X-Osprey-Auth-Subject "";': 2,
         '        proxy_set_header X-Osprey-Auth-Role "";': 2,
         '        proxy_set_header X-Osprey-Auth-Role-Source "";': 2,
     }
 )
 
-#: Landing page: no exception at all. The audit trail and the identity headers
-#: are both invisible to it, so it must match the baseline byte for byte.
-_ALLOWED_LANDING_LINES: Counter[str] = Counter()
+#: The token-login badge — SC6 exception 4, and the only one an operator sees.
+#: The audit trail and the identity headers are still invisible to this page;
+#: what is added is the badge's three style rules and the two spans each user
+#: card renders (EXAMPLE_CONFIG's roster is alice + bob, and under `token` every
+#: card is a token-login card, which is the whole reason the badge exists).
+#:
+#: The declaration lines are pinned as difflib aligns them, which is why a few
+#: read oddly: `max-width: 100%;` and `color: var(--text-secondary);` appear
+#: twice and `}` three times, while `overflow`/`text-overflow`/`white-space`
+#: appear once each — the rest matched identical declarations already in the
+#: stylesheet and are not insertions at all. That is a property of the edit
+#: script, not of the rules; the rules themselves are readable in
+#: `landing.html.j2` and in `golden/landing.html`.
+_ALLOWED_LANDING_LINES: Counter[str] = Counter(
+    {
+        "    .landing-card-token {": 1,
+        "      align-self: flex-start;": 1,
+        "      max-width: 100%;": 2,
+        "      margin: 0.05rem 0 0.1rem;": 1,
+        "      padding: 0.12rem 0.55rem;": 1,
+        "      border: 1px solid var(--border-default);": 1,
+        "      border-radius: 999px;": 1,
+        "      font-size: 0.68rem;": 1,
+        "      font-weight: 600;": 1,
+        "      letter-spacing: 0.05em;": 1,
+        "      text-transform: uppercase;": 1,
+        "      color: var(--text-secondary);": 2,
+        "      overflow: hidden;": 1,
+        "      text-overflow: ellipsis;": 1,
+        "      white-space: nowrap;": 1,
+        "    }": 3,
+        "    .landing-card-token-hint {": 1,
+        "      font-size: 0.72rem;": 1,
+        "      line-height: 1.35;": 1,
+        "    .landing-card-token-hint code {": 1,
+        '      font-family: ui-monospace, "JetBrains Mono", monospace;': 1,
+        "      word-break: break-all;": 1,
+        '            <span class="landing-card-token">login link</span>': 2,
+        (
+            '            <span class="landing-card-token-hint">entered via a login link'
+            " — <code>osprey users login-url alice</code></span>"
+        ): 1,
+        (
+            '            <span class="landing-card-token-hint">entered via a login link'
+            " — <code>osprey users login-url bob</code></span>"
+        ): 1,
+    }
+)
 
 _ALLOWED = {
     "docker-compose.web.yml": _ALLOWED_COMPOSE_LINES,
@@ -349,9 +410,44 @@ def _explicit_token_render() -> dict[str, str]:
 
 
 def _is_comment(line: str) -> bool:
-    """True for a comment or blank line in either dialect (both use ``#``)."""
+    """True for a comment or blank line in the two ``#`` dialects (compose, nginx)."""
     stripped = line.strip()
     return not stripped or stripped.startswith("#")
+
+
+def _comment_mask(lines: list[str]) -> list[bool]:
+    """Which of *lines* are comment or blank, for the artifact they came from.
+
+    The third artifact is a stylesheet inside a page, and CSS comments SPAN
+    lines: ``/*`` opens one and ``*/`` closes it, with prose in between that
+    starts with an ordinary word. A per-line predicate cannot see that, so the
+    block state is carried down the artifact here instead. Without it the
+    interior of a rule's explanatory comment reads as inserted directives, and
+    the allowlist below would have to pin prose line by line — the one thing
+    :func:`_assert_added_directives_are_exactly_allowed` exists to avoid.
+
+    Args:
+        lines: One whole artifact's lines, in order — not a slice, since the
+            state is only correct when the opener was seen.
+
+    Returns:
+        One boolean per input line, true where the line is blank, a ``#``
+        comment, or any part of a ``/* … */`` block including its delimiters.
+    """
+    mask: list[bool] = []
+    in_block = False
+    for line in lines:
+        stripped = line.strip()
+        if in_block:
+            mask.append(True)
+            in_block = "*/" not in stripped
+            continue
+        if stripped.startswith("/*"):
+            mask.append(True)
+            in_block = "*/" not in stripped[2:]
+            continue
+        mask.append(_is_comment(line))
+    return mask
 
 
 def _opcodes(
@@ -496,10 +592,24 @@ def test_no_pre_feature_line_is_removed_or_reworded() -> None:
         )
 
 
-def test_landing_page_is_byte_identical_to_the_pre_feature_render() -> None:
-    """The strictest form of SC6, available for the one artifact with no
-    exception: an operator's landing page must not have moved by one byte."""
-    assert _token_render()["nginx/landing.html"] == _baseline("landing.html")
+def test_landing_page_adds_exactly_the_token_login_badge() -> None:
+    """The landing page's whole SC6 exception: the badge, and nothing else.
+
+    This assertion used to be byte identity — the strictest form of SC6, back
+    when this artifact had no exception at all. It has one now (exception 4 in
+    the module docstring), and the change was deliberate: the page's silence
+    about `token` was not fidelity to the pre-feature render, it was the page
+    telling an operator that every terminal is one click away when not one of
+    them is reachable without a URL `osprey users login-url` mints. The bytes it
+    was pinned to were dishonest bytes.
+
+    What the pin becomes is the same guarantee one step weaker and stated
+    exactly: today's `token` landing page is the frozen one PLUS the badge's
+    style rules and the two spans per user card, and nothing at all besides.
+    Anything else that appears on this page — a role, a login form, a claim —
+    still fails here, which is what SC6 was ever protecting.
+    """
+    _assert_added_directives_are_exactly_allowed("landing.html")
 
 
 def test_compose_adds_exactly_the_audit_emitters_and_mounts() -> None:
@@ -509,8 +619,8 @@ def test_compose_adds_exactly_the_audit_emitters_and_mounts() -> None:
     _assert_added_directives_are_exactly_allowed("docker-compose.web.yml")
 
 
-def test_nginx_adds_exactly_the_three_identity_header_clears() -> None:
-    """The nginx config's whole SC6 exception: the three clears, once each in
+def test_nginx_adds_exactly_the_four_identity_header_clears() -> None:
+    """The nginx config's whole SC6 exception: the four clears, once each in
     each of the two ungated `/u/<user>/` locations, from task 4.7. Nothing from
     the gated arm may appear here — no `auth_request_set`, no forward — and the
     count catches a clear that reached only one of the two locations."""
@@ -579,12 +689,13 @@ def _assert_added_directives_are_exactly_allowed(
     (which reads the comment text for the vocabulary that must not appear).
     """
     _old, new, opcodes = _opcodes(name, artifacts)
+    is_comment = _comment_mask(new)
     inserted = Counter(
-        line
+        new[j]
         for tag, _i1, _i2, j1, j2 in opcodes
         if tag in ("insert", "replace")
-        for line in new[j1:j2]
-        if not _is_comment(line)
+        for j in range(j1, j2)
+        if not is_comment[j]
     )
 
     unexpected = inserted - _ALLOWED[name]

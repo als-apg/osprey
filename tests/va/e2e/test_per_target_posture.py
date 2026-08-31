@@ -1059,7 +1059,7 @@ class TestTheNarrowingLandsWithoutARespawn:
         assert row["outcome"] == "refused"
         assert row["refusal_reason"] == "WRITES_DISABLED"
         assert f"'{TARGET_STANDIN}' control target" in row["error"]
-        assert "read-only" in row["error"]
+        assert "writes are off" in row["error"]
         assert "control-target chip in the header" in row["error"]
 
     def test_the_raised_envelope_carries_that_sentence_too(self, session) -> None:

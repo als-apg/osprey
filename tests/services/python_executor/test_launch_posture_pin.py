@@ -127,7 +127,7 @@ class TestLaunchPinAnddedWithTheStore:
         """The whole point: the operator widened, the running script did not follow."""
         # Arrange — the run launched while standin was narrowed...
         monkeypatch.setenv(session_store.LAUNCH_POSTURE_ENV_VAR, "standin=sandbox")
-        # ...and the operator has since flipped it back to writes (an entry that
+        # ...and the operator has since turned writes back on (an entry that
         # is gone IS the writes posture — nothing is ever stored to widen).
         write_store(data_root, {SESSION_KEY: {"live": "sandbox"}})
 
@@ -320,7 +320,7 @@ class TestDeploymentGateStoreTerm:
             gates.enforce_deployment_writes_gate("readwrite", None)
 
         message = str(excinfo.value)
-        assert "read-only" in message
+        assert "Writes are off" in message
         assert "control-target chip in the header" in message
         assert "could not be identified" in message
 

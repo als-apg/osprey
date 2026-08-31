@@ -18,27 +18,10 @@
  */
 
 import { test, expect, describe, beforeEach, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { runBootScript } from './js/boot-harness.mjs';
 
-// Resolve the on-disk source relative to this test file. `import.meta.dirname`
-// is a plain string, so it sidesteps happy-dom's override of the global URL
-// (which breaks `fileURLToPath(new URL(...))` under this environment).
-const RAIL_BOOT_PATH = join(
-  import.meta.dirname,
-  '../../../src/osprey/interfaces/design_system/static/js/rail-boot.js'
-);
-const railBootSource = readFileSync(RAIL_BOOT_PATH, 'utf8');
-
-/**
- * Execute the pre-paint boot IIFE against the current happy-dom globals.
- * `window`/`document` are passed as explicit parameters so the source's
- * free references bind to the test's DOM without a global `eval`.
- */
-function runBoot() {
-  const boot = new Function('window', 'document', railBootSource);
-  boot(globalThis.window, globalThis.document);
-}
+/** Re-execute the on-disk rail-boot.js against the current happy-dom globals. */
+const runBoot = () => runBootScript('rail-boot.js');
 
 /** @param {string} search e.g. '' or '?rail=top' */
 function setSearch(search) {

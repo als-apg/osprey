@@ -831,11 +831,14 @@ class TestTokenLoginClosingLine:
     def test_an_auth_off_roster_is_told_the_verb(
         self, repo_with_token_logins: Path, recorder: Recorded
     ) -> None:
+        """Two token-login users get the plural phrasing: `each need`."""
         print_summary_card(repo_with_token_logins, "running")
 
         printed = "\n".join(recorder.lines)
         assert "osprey users login-url alice" in printed
         assert "alice, bob" in printed
+        assert "these terminals have no login page" in printed
+        assert "alice, bob each need their own login URL" in printed
 
     def test_the_urls_themselves_are_never_printed(
         self, repo_with_token_logins: Path, recorder: Recorded
@@ -865,7 +868,7 @@ class TestTokenLoginClosingLine:
         self, repo_with_logins: Path, recorder: Recorded
     ) -> None:
         """`login: false` puts one entry outside the wall, and that terminal is
-        reached exactly the way an auth-off one is."""
+        reached exactly the way an auth-off one is -- singular phrasing: `needs`."""
         config = repo_with_logins / "build" / "config.yml"
         config.write_text(
             config.read_text() + "      - name: kiosk\n        index: 2\n        login: false\n"
@@ -875,6 +878,8 @@ class TestTokenLoginClosingLine:
 
         printed = "\n".join(recorder.lines)
         assert "osprey users login-url kiosk" in printed
+        assert "this terminal has no login page" in printed
+        assert "kiosk needs its own login URL" in printed
         # ...and only that entry: alice and bob still have a login page.
         assert "alice" not in printed.split("no login page")[1]
 

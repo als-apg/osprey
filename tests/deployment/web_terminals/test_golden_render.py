@@ -24,7 +24,22 @@ runtime surprise in a downstream lifecycle/e2e test.
     below) and overwrite `golden/docker-compose.web.yml`,
     `golden/nginx.conf`, and `golden/landing.html` with the three returned
     values (`docker-compose.web.yml`, `nginx/nginx.conf`, and
-    `nginx/landing.html` respectively). Do not hand-edit the golden files.
+    `nginx/landing.html` respectively). The `golden/tls_custom_port/`
+    variant regenerates the same way from `_tls_custom_port_config()`, and
+    holds `nginx.conf` alone. Do not hand-edit the golden files.
+
+`golden/tls_custom_port/` is the ONE variant this module keeps: the same
+facility with TLS terminated on a non-default port. It exists because the
+listener port is the one value that reaches three separate places in the
+rendered nginx.conf at once — both `listen ... ssl` lines and the cleartext
+server's `301` target — and a default-port baseline pins none of them (at 443
+the redirect deliberately names no port at all, so the redirect's port arm is
+invisible to the default golden). Only `nginx.conf` is committed for the
+variant: `tls.port` changes nothing in the landing output, and the two places
+it does reach in the compose output — each user's `OSPREY_TERMINAL_LANDING_URL`
+and `OSPREY_TERMINAL_EXTERNAL_ORIGIN` — are already pinned by `test_render.py`'s
+non-default-TLS-port origin tests, so a second compose golden would only be
+another file to regenerate.
 
 ``EXAMPLE_CONFIG`` is the reference "no-personas" shape a facility profile's
 web-terminals section is patterned on: two bare-string users, the `users` +
@@ -100,7 +115,13 @@ EXAMPLE_CONFIG: dict = {
 
 
 def _read_golden(name: str) -> str:
-    """The committed baseline, with its one per-checkout sentinel resolved."""
+    """The committed baseline, with its one per-checkout sentinel resolved.
+
+    `name` is relative to `golden/`, so a variant subdirectory's file is read
+    through the SAME sentinel substitution as the default baseline
+    (``_read_golden("tls_custom_port/nginx.conf")``) rather than through a
+    second reader that could drift from this one.
+    """
     return (_GOLDEN_DIR / name).read_text().replace(_REPO_ID_SENTINEL, _rendered_repo_id())
 
 
@@ -136,6 +157,67 @@ def test_golden_compose_is_valid_yaml_with_expected_services() -> None:
     the byte-equality checks above by accident (e.g. both sides empty)."""
     compose = yaml.safe_load(_read_golden("docker-compose.web.yml"))
     assert set(compose["services"].keys()) == {"nginx", "web-alice", "web-bob"}
+
+
+#: The variant's TLS listener. 8443 is the conventional unprivileged HTTPS
+#: alternate — the port a rootless deployment actually terminates on — and it is
+#: deliberately outside every band OSPREY owns: it is not in the port-block
+#: layout (a default deployment's block is `port_base`..`port_base + 999`, and
+#: `tls.port` is not a layout slot at all), and it is not one of the retired
+#: framework literals `tests/test_port_literals.py` guards (the 8085-8097 and
+#: 9070-9100 bands, the 9x00 family anchors, the loose bluesky/qmd/VA numbers).
+#: So at the default base the number is outside every band OSPREY owns, and
+#: `tls.port` is not a layout slot at any base.
+_TLS_CUSTOM_PORT = 8443
+
+#: Where the variant's single rendered file lives, relative to `golden/`.
+_TLS_CUSTOM_PORT_GOLDEN = "tls_custom_port/nginx.conf"
+
+
+def _tls_custom_port_config() -> dict:
+    """EXAMPLE_CONFIG with TLS terminated on a NON-default port.
+
+    Everything else is the baseline facility, so a diff between this variant's
+    golden and the default one is exactly what `tls.port` moves and nothing
+    else. The cert/key paths are the in-container mount points the TLS seam
+    tests use; they are rendered as literal strings and no file is read.
+    """
+    config = copy.deepcopy(EXAMPLE_CONFIG)
+    config["modules"]["web_terminals"]["tls"] = {
+        "enabled": True,
+        "port": _TLS_CUSTOM_PORT,
+        "cert": "/etc/nginx/certs/dls.crt",
+        "key": "/etc/nginx/certs/dls.key",
+    }
+    return config
+
+
+def test_golden_tls_custom_port_fixture_exists() -> None:
+    """The variant baseline is present before the comparison below runs — a
+    missing file must fail loudly here rather than be misread as a byte-match
+    against an empty string."""
+    assert (_GOLDEN_DIR / _TLS_CUSTOM_PORT_GOLDEN).is_file(), (
+        f"missing golden fixture: {_TLS_CUSTOM_PORT_GOLDEN}"
+    )
+
+
+def test_render_matches_golden_tls_custom_port_nginx_conf_byte_for_byte() -> None:
+    """`nginx/nginx.conf` for the non-default-TLS-port facility is byte-identical
+    to its committed variant baseline."""
+    artifacts = render_web_terminals(_tls_custom_port_config())
+    assert artifacts["nginx/nginx.conf"] == _read_golden(_TLS_CUSTOM_PORT_GOLDEN)
+
+
+def test_golden_tls_custom_port_binds_and_redirects_to_the_custom_port() -> None:
+    """The committed variant itself must still carry the three places the custom
+    port lands — both `listen ... ssl` lines and the cleartext server's 301
+    target. Guards against a truncated or stale variant passing the byte-equality
+    check above by matching an equally wrong render."""
+    conf = _read_golden(_TLS_CUSTOM_PORT_GOLDEN)
+
+    assert f"listen {_TLS_CUSTOM_PORT} ssl;" in conf
+    assert f"listen [::]:{_TLS_CUSTOM_PORT} ssl;" in conf
+    assert f"return 301 https://$host:{_TLS_CUSTOM_PORT}$request_uri;" in conf
 
 
 def _persona_config() -> dict:

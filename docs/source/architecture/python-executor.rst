@@ -293,28 +293,28 @@ Two layers enforce the set:
 Session posture
 ---------------
 
-An operator can narrow a Web Terminal session's write posture on one control
+An operator can turn a Web Terminal session's writes off on one control
 target from the control-target chip in the header (see
-:ref:`web-terminal-session-posture`). This server reads that narrowing at the
+:ref:`web-terminal-session-posture`). This server reads that setting at the
 moment a run asks for writes --- not from the environment it was started with,
-so a narrowing made mid-conversation applies to the next run --- and a
-``readwrite`` ``execute`` on a narrowed target is refused by the executor's own
+so a change made mid-conversation applies to the next run --- and a
+``readwrite`` ``execute`` on such a target is refused by the executor's own
 posture gate, whatever the deployment itself permits:
 
-   This session's write posture for the '<target>' control target is read-only
-   --- set from the control-target chip in the header, and in force for this
+   Writes are off for the '<target>' control target in this session --- turned
+   off from the control-target chip in the header, and in force for this
    session only.
 
-Where the run's target cannot be identified, the most restrictive posture
-recorded for the session decides, and the message says so --- *"This session's
-write posture is read-only for at least one control target (the run's target
-could not be identified, so the most restrictive decides) --- set from the
+Where the run's target cannot be identified, the most restrictive state
+recorded for the session decides, and the message says so --- *"Writes are off
+for at least one control target in this session (the run's target could not be
+identified, so the most restrictive decides) --- turned off from the
 control-target chip in the header."* --- rather than granting the run the most
 permissive answer.
 
-The agent is told to re-run as ``readonly`` --- reads are untouched by the
-posture --- or to set that target back to writes from the chip. The deployment's
-``config.yml`` is not the gate here and the message says so.
+The agent is told to re-run as ``readonly`` --- reads are untouched --- or to
+turn writes back on from the chip. The deployment's ``config.yml`` is not the
+gate here and the message says so.
 
 A run that has already started cannot be *widened*: it keeps the launch pin it
 started under, so a script cannot gain write access to a machine the operator

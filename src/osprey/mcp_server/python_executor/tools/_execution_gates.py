@@ -262,26 +262,26 @@ def _enforce_session_store_term(target: str | None) -> None:
     if target is None:
         make_error(
             "safety_error",
-            "This session's write posture is read-only for at least one control "
-            "target (the run's target could not be identified, so the most "
-            "restrictive decides) — set from the control-target chip in the header.",
+            "Writes are off for at least one control target in this session (the "
+            "run's target could not be identified, so the most restrictive "
+            "decides) — turned off from the control-target chip in the header.",
             [
                 'Re-run with execution_mode="readonly" — reads are unaffected by the posture.',
-                "Lift that narrowing from the control-target chip in the header if "
+                "Turn writes back on from the control-target chip in the header if "
                 "the write is intended; the deployment config is not the gate here.",
             ],
             details={"active_target": target},
         )
     make_error(
         "safety_error",
-        f"This session's write posture for the '{target}' control target is "
-        "read-only — set from the control-target chip in the header, and in "
-        "force for this session only.",
+        f"Writes are off for the '{target}' control target in this session — "
+        "turned off from the control-target chip in the header, and in force "
+        "for this session only.",
         [
             'Re-run with execution_mode="readonly" — reads are unaffected by the posture.',
-            f"Set '{target}' back to writes from the control-target chip in the "
-            "header if the write is intended; the deployment config is not the "
-            "gate here.",
+            f"Turn writes back on for '{target}' from the control-target chip in "
+            "the header if the write is intended; the deployment config is not "
+            "the gate here.",
         ],
         details={"active_target": target},
     )
@@ -433,26 +433,26 @@ def enforce_posture_clamp(execution_mode: str, *, tool: str) -> None:
     if target is None:
         make_error(
             "safety_error",
-            "This session's write posture is read-only for at least one control "
-            "target (the run's target could not be identified, so the most "
-            "restrictive decides) — set from the control-target chip in the header.",
+            "Writes are off for at least one control target in this session (the "
+            "run's target could not be identified, so the most restrictive "
+            "decides) — turned off from the control-target chip in the header.",
             [
                 'Re-run with execution_mode="readonly" — reads are unaffected by the posture.',
-                "Lift that narrowing from the control-target chip in the header if "
+                "Turn writes back on from the control-target chip in the header if "
                 "the write is intended; the deployment config is not the gate here.",
             ],
         )
 
     make_error(
         "safety_error",
-        f"This session's write posture for the '{target}' control target is "
-        "read-only — set from the control-target chip in the header, and in "
-        "force for this session only.",
+        f"Writes are off for the '{target}' control target in this session — "
+        "turned off from the control-target chip in the header, and in force "
+        "for this session only.",
         [
             'Re-run with execution_mode="readonly" — reads are unaffected by the posture.',
-            f"Set '{target}' back to writes from the control-target chip in the "
-            "header if the write is intended; the deployment config is not the "
-            "gate here.",
+            f"Turn writes back on for '{target}' from the control-target chip in "
+            "the header if the write is intended; the deployment config is not "
+            "the gate here.",
         ],
     )
 

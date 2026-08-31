@@ -245,8 +245,15 @@ def print_call_to_action(repo_root: Path | str, state: str) -> None:
             "",
             [("open a terminal with", f"osprey users login-url {facts.token_login_users[0]}")],
         )
-        output.note(
-            "these terminals have no login page: "
-            f"{', '.join(facts.token_login_users)} each need their own "
-            "login URL, which carries that user's secret -- treat it like a password"
-        )
+        if len(facts.token_login_users) == 1:
+            output.note(
+                "this terminal has no login page: "
+                f"{facts.token_login_users[0]} needs its own login URL, which carries "
+                "that user's secret -- treat it like a password"
+            )
+        else:
+            output.note(
+                "these terminals have no login page: "
+                f"{', '.join(facts.token_login_users)} each need their own "
+                "login URL, which carries that user's secret -- treat it like a password"
+            )

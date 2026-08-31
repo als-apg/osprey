@@ -20,7 +20,8 @@
  *     `getTheme()`/`getFamily()` + `subscribe()`.
  *   - **View** (Expert/Simple) — the mechanism app.js's `initModeToggle()`
  *     uses, minus the hub-only dock/panel follow-ups: persist the explicit
- *     choice under `localStorage['osprey-ui-mode']`, call frame-params.js's
+ *     choice under the per-persona `osprey-ui-mode` key (scoped through
+ *     storage-scope.js's `scopedStorageKey()`), call frame-params.js's
  *     `stripQueryMode()` so a leftover one-shot `?mode=` deep-link cannot
  *     out-rank that choice on the next reload, then post
  *     `{type: 'osprey-mode-change', mode}` to this element's OWN window.
@@ -98,6 +99,7 @@
  */
 
 import { onModeChange, stripQueryMode } from '/design-system/js/frame-params.js';
+import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 import {
   getFamily,
   getTheme,
@@ -110,7 +112,12 @@ import {
 
 const STYLE_ID = 'osprey-display-menu-style';
 
-/** Shared, origin-scoped Expert/Simple key — the one mode-boot.js resolves from. */
+/**
+ * Base Expert/Simple key — the one mode-boot.js resolves from. Never used
+ * bare: it goes through `scopedStorageKey()` so that on a multi-user mount the
+ * pick lands in this persona's own slot instead of the shared origin-wide one
+ * every persona would otherwise overwrite in turn.
+ */
 const MODE_STORAGE_KEY = 'osprey-ui-mode';
 
 /**
@@ -601,7 +608,9 @@ export class OspreyDisplayMenu extends HTMLElement {
     if (mode !== 'expert' && mode !== 'simple') return;
 
     try {
-      window.localStorage.setItem(MODE_STORAGE_KEY, mode);
+      // Key resolved at write time, not at module load: the scope attribute is
+      // a property of the document this element ended up in.
+      window.localStorage.setItem(scopedStorageKey(MODE_STORAGE_KEY), mode);
     } catch { /* storage blocked — the mode still applies for this session */ }
     stripQueryMode();
     window.postMessage({ type: 'osprey-mode-change', mode }, window.location.origin);

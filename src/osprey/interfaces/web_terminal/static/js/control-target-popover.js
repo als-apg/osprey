@@ -1,39 +1,38 @@
 // @ts-check
 /* OSPREY Web Terminal — Control-Target Popover
  *
- * The panel behind the header chip: one row per configured control target,
- * and every gesture that CHANGES where this session writes. The chip
- * (control-target-chip.js) owns the read, the poll and the state; this module
- * owns the rows and the actions, and never fetches the roster itself — it
- * subscribes to the chip and re-renders from `getState()`, so the popover and
- * the chip can never disagree about the same machine.
+ * The panel behind the header chip, answering the three questions an operator
+ * opens it with: which machine is the agent on and does writing there move
+ * anything real; are writes on, off (their own doing, one click undoes it) or
+ * locked (the deployment's, no click here moves it); and where else can the
+ * session go. The chip (control-target-chip.js) owns the read, the poll and
+ * the state; this module owns the card, the rows and the actions, and never
+ * fetches the roster itself — it subscribes to the chip and re-renders from
+ * `getState()`, so the popover and the chip can never disagree about the same
+ * machine.
  *
- * Each row answers the whole of what an operator needs to act on it: which
- * machine, where it points, whether anything is reaching it, the ceiling the
- * deployment rendered, this session's own narrowing, and what a switch would
- * do. Status and action stay in separate columns because reading the popover
- * and changing it are different gestures — and every element carries one fact,
- * once: the row's single identity line is the server's label, which already
- * says what kind of machine it names.
+ * **Two shapes, not one list.** The machine the agent stands on is a card —
+ * name, consequence line, write state, and the one button that changes it.
+ * Every other machine is a row: name and consequence, a state pill, a verb,
+ * and Switch to. Where a control cannot act it stays visible and says why on
+ * hover; the machine vocabulary (lock codes, endpoints, the server's own
+ * label) lives on tooltips, never at rest.
  *
- * **One DOM, two densities.** `html[data-ui-mode]` is a CSS concern and only a
- * CSS concern: every row renders the endpoint and role line, the reachability
- * word and age, the baseline tag, the lock reason and the foot note, in both
- * modes, and terminal.css hides what simple mode drops. Nothing here reads
- * `data-ui-mode` — a JS branch on it would make a live toggle-back rebuild the
- * DOM, and would put the density rule in two files that could drift.
+ * **Verbs, not toggles.** Turning writes off applies on click — it only ever
+ * removes reach. Turning writes on confirms first, because it is the gesture
+ * after which a write can land somewhere new. The button names the outcome,
+ * so that asymmetry is visible before the click.
  *
- * **The popover stays open beneath a confirm.** Arming writes and switching
- * both raise a `.posture-modal-overlay` at `--z-modal`, a full layer above the
- * popover's `--z-sticky`. The outside-click handler ignores clicks inside that
- * overlay, Escape dismisses an open confirm before it closes the popover, and
- * a confirmed change re-renders the rows in place. An operator changing
- * several rows never has to reopen it.
+ * **No process claims.** Nothing rendered here says whether a write will ask
+ * for approval or what limits apply — that is deployment configuration this
+ * module cannot see. Confirms state scope, endpoint and consequence only.
  *
- * **Only widening confirms.** Arming a target (read-only → writes) and
- * switching onto one are the two gestures that can end with a write landing
- * somewhere new, so both ask. Narrowing and `Sandbox everything` only ever
- * remove reach and apply on click.
+ * **The popover stays open beneath a confirm.** Both confirms raise a
+ * `.posture-modal-overlay` at `--z-modal`, a full layer above the popover's
+ * `--z-sticky`. The outside-click handler ignores clicks inside that overlay,
+ * Escape dismisses an open confirm before it closes the popover, and a
+ * confirmed change re-renders in place. An operator changing several rows
+ * never has to reopen it.
  *
  * Every request goes through the chip's `targetRequest`, which unwraps this
  * route family's dict-detail refusals and runs through api.js's `withPrefix`
@@ -43,11 +42,18 @@
 
 import {
   REASON_STORE_UNAVAILABLE,
-  headNote,
+  bannerNote,
+  descriptor,
+  descriptorTone,
+  displayName,
+  identTitle,
   isChatSession,
   lockReason,
-  reachText,
+  reachException,
   reasonPhrase,
+  statePhrase,
+  switchConfirm,
+  turnOnConfirm,
 } from './control-target-facts.js';
 import { fadeOutOverlay, mountOverlay } from './modal-overlay.js';
 
@@ -72,7 +78,7 @@ import {
 /**
  * The `target` value that narrows every configured target at once. Mirrors
  * `ALL_TARGETS` in routes/websocket.py; there is deliberately no matching
- * "arm everything", because each target's ceiling is its own.
+ * "turn everything on", because each target's ceiling is its own.
  */
 export const ALL_TARGETS = 'all';
 
@@ -97,8 +103,8 @@ let open = false;
 
 /**
  * The confirm currently on screen, if any. One at a time: both confirms are
- * raised from a row of the same popover, and a second overlay would bury the
- * first without dismissing it.
+ * raised from the same popover, and a second overlay would bury the first
+ * without dismissing it.
  * @type {HTMLElement|null}
  */
 let activeConfirm = null;
@@ -118,7 +124,7 @@ let pendingTarget = null;
  *
  * Two things live here and nothing else: a refusal the POST came back with
  * (the operator clicked something and is owed the server's own sentence), and
- * a target `Sandbox everything` reported in `skipped`. Both are facts about a
+ * a target `Turn all writes off` reported in `skipped`. Both are facts about a
  * click, not about the session, so they are cleared by the next gesture rather
  * than by the next read — a re-render from the 5 s poll must not silently
  * swallow the reason a click did nothing.
@@ -322,10 +328,10 @@ function button(cls, text) {
 /**
  * Repaint the popover from the chip's current answer.
  *
- * Whole-subtree, on every render: the rows are a projection of one payload and
- * nothing in them is worth diffing, and rebuilding is what lets a confirmed
- * change land in place without the popover closing. Rendering while closed is
- * cheap and keeps the first frame after an open correct.
+ * Whole-subtree, on every render: the card and rows are a projection of one
+ * payload and nothing in them is worth diffing, and rebuilding is what lets a
+ * confirmed change land in place without the popover closing. Rendering while
+ * closed is cheap and keeps the first frame after an open correct.
  */
 function render() {
   if (!popover) return;
@@ -334,21 +340,23 @@ function render() {
   if (!state) return;
   const rows = Array.isArray(state.targets) ? state.targets : [];
 
-  const head = el('div', 'ctc-head');
-  const title = el('span', 'ctc-head-title', 'Control target · this session');
-  title.id = 'ctc-head-title';
-  head.append(title);
-  popover.setAttribute('aria-labelledby', title.id);
-  const note = el('span', 'ctc-head-note');
-  const { text: noteText, tone } = headNote(state, rows);
-  note.textContent = noteText;
-  if (tone) note.dataset.tone = tone;
-  head.append(note);
-  popover.append(head);
+  const banner = bannerNote(state, rows);
+  if (banner) {
+    const note = el('div', 'ctc-banner', banner.text);
+    note.dataset.tone = banner.tone;
+    popover.append(note);
+  }
 
-  const list = el('div', 'ctc-rows');
-  for (const row of rows) list.append(renderRow(row, state, rows));
-  popover.append(list);
+  const active = rows.find((row) => row.active) || null;
+  if (active) popover.append(renderCard(active, state));
+
+  const others = rows.filter((row) => row !== active);
+  if (others.length > 0) {
+    popover.append(el('div', 'ctc-list-title', active ? 'Other machines' : 'Machines'));
+    const list = el('div', 'ctc-rows');
+    for (const row of others) list.append(renderRow(row, state, rows));
+    popover.append(list);
+  }
 
   // A gesture that named every target has no row of its own to report on.
   const allNote = gestureNotes.get(ALL_TARGETS);
@@ -362,143 +370,201 @@ function render() {
 }
 
 /**
- * One target's row: the dot, who it is, the posture this session holds on it,
- * and the one action available.
+ * The card: the machine the agent stands on. Name, consequence line, the
+ * write state in a sentence, and the one button that changes it.
+ * @param {any} row
+ * @param {any} state
+ */
+function renderCard(row, state) {
+  const kind = kindAttr(row);
+  const word = stateWord(row);
+  const lock = lockReason(row, state);
+  const card = el('div', 'ctc-card');
+  card.dataset.target = row.target;
+  card.dataset.targetKind = kind;
+  card.dataset.state = word;
+  card.dataset.real = String(Boolean(row.real_machine));
+
+  card.append(el('div', 'ctc-card-eyebrow', 'The agent is on'));
+
+  const title = el('div', 'ctc-card-title');
+  title.dataset.targetKind = kind;
+  title.dataset.state = word;
+  title.append(el('span', 'ctc-dot'));
+  title.append(el('span', 'ctc-name', displayName(row, kind)));
+  title.title = identTitle(row);
+  card.append(title);
+
+  card.append(renderVerb(row, state, word, lock, 'ctc-card-verb'));
+
+  const desc = descriptor(row, kind);
+  if (desc) card.append(descLine(row, kind, desc));
+
+  const sub = el('div', 'ctc-card-state');
+  const phrase = el('span', 'ctc-state-phrase', statePhrase(word));
+  phrase.dataset.state = word;
+  if (lock) phrase.title = lock;
+  sub.append(phrase);
+  if (word === 'sandbox') sub.append(el('span', 'ctc-state-note', '— you turned them off'));
+  const reach = reachException(row.reachability);
+  if (reach) {
+    const bad = el('span', 'ctc-reach-word', reach.text);
+    bad.dataset.state = reach.state;
+    bad.title = reach.title;
+    sub.append(bad);
+  }
+  card.append(sub);
+
+  for (const line of outcomeLines(row, state)) card.append(line);
+  // Turning writes off on the machine the agent is ON only reaches it once
+  // the connector is rebuilt, and that waits for the run in flight. Said out
+  // loud, rather than leaving a button that appears to have done nothing.
+  if (state.last_posture_realign?.state === 'pending') {
+    const line = el('div', 'ctc-outcome', 'takes effect when the running execution finishes');
+    line.dataset.status = 'realign';
+    card.append(line);
+  }
+  return card;
+}
+
+/**
+ * One other machine's row: who it is and what writing there means, the state
+ * pill, the verb that changes it, and Switch to.
  * @param {any} row
  * @param {any} state
  * @param {any[]} rows
  */
 function renderRow(row, state, rows) {
+  const kind = kindAttr(row);
   const word = stateWord(row);
   const lock = lockReason(row, state);
   const node = el('div', 'ctc-row');
   node.dataset.target = row.target;
-  node.dataset.targetKind = kindAttr(row);
+  node.dataset.targetKind = kind;
   node.dataset.state = word;
   node.dataset.real = String(Boolean(row.real_machine));
-  node.dataset.active = String(Boolean(row.active));
-
-  node.append(el('span', 'ctc-dot'));
 
   const ident = el('div', 'ctc-ident');
-  // The row's ONE identity line: the server's label, which already carries the
-  // kind of machine it names ("LIVE MACHINE (stand-in)", "virtual accelerator
-  // (simulation)"). A subtitle restating it would be the same fact twice on
-  // the one surface whose job is to be read at a glance.
-  const name = el('div', 'ctc-name');
-  name.append(el('span', 'ctc-label', row.label || row.target));
-  if (row.active) name.append(el('span', 'ctc-tag ctc-tag-current', 'current'));
+  const name = el('div', 'ctc-name-line');
+  name.append(el('span', 'ctc-name', displayName(row, kind)));
+  name.title = identTitle(row);
+  const reach = reachException(row.reachability);
+  if (reach) {
+    const bad = el('span', 'ctc-reach-word', reach.text);
+    bad.dataset.state = reach.state;
+    bad.title = reach.title;
+    name.append(bad);
+  }
   ident.append(name);
-
-  const meta = el('div', 'ctc-meta');
-  meta.append(el('span', 'ctc-endpoint', row.endpoint || ''));
-  const reach = reachText(row.reachability);
-  if (row.reachability?.role) meta.append(el('span', 'ctc-role', String(row.reachability.role)));
-  ident.append(meta);
-
-  const reachNode = el('div', 'ctc-reach');
-  reachNode.dataset.state = reach.state;
-  reachNode.title = reach.title;
-  reachNode.append(el('i', 'ctc-reach-dot'));
-  reachNode.append(el('span', 'ctc-reach-text', reach.text));
-  if (row.is_baseline) reachNode.append(el('span', 'ctc-baseline', 'baseline'));
-  ident.append(reachNode);
-
-  const outcome = switchOutcome(row, state);
-  if (outcome) {
-    const line = el('div', 'ctc-outcome', outcome.text);
-    line.dataset.status = outcome.status;
-    if (outcome.title) line.title = outcome.title;
-    ident.append(line);
-  }
-  const gestureNote = gestureNotes.get(row.target);
-  if (gestureNote) {
-    const line = el('div', 'ctc-outcome', `✗ ${reasonPhrase(gestureNote)}`);
-    line.dataset.status = 'refused';
-    ident.append(line);
-  }
-  // A narrowing on the target the session is ON only reaches the agent once
-  // the connector is rebuilt, and that waits for the run in flight. Said out
-  // loud, rather than leaving a toggle that appears to have done nothing.
-  if (row.active && state.last_posture_realign?.state === 'pending') {
-    const line = el('div', 'ctc-outcome', 'read-only applies after the running execution finishes');
-    line.dataset.status = 'realign';
-    ident.append(line);
-  }
+  const desc = descriptor(row, kind);
+  if (desc) ident.append(descLine(row, kind, desc));
+  for (const line of outcomeLines(row, state)) ident.append(line);
   node.append(ident);
 
-  node.append(renderPosture(row, state, word, lock));
+  const pill = el('span', 'ctc-pill', word === 'writes' ? 'writes on' : word === 'sandbox' ? 'writes off' : 'locked');
+  pill.dataset.state = word;
+  if (lock) pill.title = lock;
+  node.append(pill);
+
+  node.append(renderVerb(row, state, word, lock, 'ctc-verb'));
   node.append(renderAction(row, state, rows));
   return node;
 }
 
 /**
- * Column 3: the two-segment posture toggle, and the reason it cannot move.
+ * The consequence line, toned: the one descriptor that names hardware moving
+ * carries the error tone; every "nothing moves" (and "not set up") stays
+ * muted.
+ * @param {any} row
+ * @param {string} kind
+ * @param {string} desc
+ * @returns {HTMLElement}
+ */
+function descLine(row, kind, desc) {
+  const line = el('div', 'ctc-desc', desc);
+  const tone = descriptorTone(row, kind);
+  if (tone) line.dataset.tone = tone;
+  return line;
+}
+
+/**
+ * The feedback lines a row or the card carries: the last switch's outcome
+ * while it is news, and the reason the last click did nothing.
+ * @param {any} row
+ * @param {any} state
+ * @returns {HTMLElement[]}
+ */
+function outcomeLines(row, state) {
+  const lines = [];
+  const outcome = switchOutcome(row, state);
+  if (outcome) {
+    const line = el('div', 'ctc-outcome', outcome.text);
+    line.dataset.status = outcome.status;
+    if (outcome.title) line.title = outcome.title;
+    lines.push(line);
+  }
+  const gestureNote = gestureNotes.get(row.target);
+  if (gestureNote) {
+    const line = el('div', 'ctc-outcome', `✗ ${reasonPhrase(gestureNote)}`);
+    line.dataset.status = 'refused';
+    lines.push(line);
+  }
+  return lines;
+}
+
+/**
+ * The verb that changes a machine's write state, named for its outcome.
  *
- * Locked, the toggle keeps showing which state holds — it is the readout as
- * well as the control — and only loses its affordance. The reason goes both
- * under it and on its `title`, because simple mode drops the line and keeps
- * the tooltip.
+ * Locked it stays on screen, disabled, with the reason on hover — the gap
+ * where the control would be is explained rather than merely empty. Turning
+ * off applies on click; turning on confirms first.
  * @param {any} row
  * @param {any} state
  * @param {string} word
  * @param {string|null} lock
+ * @param {string} cls
+ * @returns {HTMLButtonElement}
  */
-function renderPosture(row, state, word, lock) {
-  const posture = el('div', 'ctc-posture');
-  const toggle = el('div', 'ctc-toggle');
-  toggle.setAttribute('role', 'group');
-  toggle.setAttribute('aria-label', `Session posture on ${row.label || row.target}`);
-  toggle.dataset.locked = String(Boolean(lock));
-  if (lock) toggle.title = lock;
-
-  for (const seg of ['writes', 'read-only']) {
-    const segment = button('ctc-seg', seg);
-    segment.dataset.seg = seg;
-    const pressed = seg === 'writes' ? word === 'writes' : word !== 'writes';
-    segment.setAttribute('aria-pressed', String(pressed));
-    if (lock) {
-      segment.disabled = true;
-      segment.title = lock;
-    } else if (!pressed) {
-      segment.addEventListener('click', (event) => {
-        event.stopPropagation();
-        if (seg === 'writes') confirmArming(row, state);
-        else void setPosture(row.target, 'sandbox', state);
-      });
-    }
-    toggle.append(segment);
+function renderVerb(row, state, word, lock, cls) {
+  const on = word === 'writes';
+  const verb = button(cls, on ? 'Turn writes off' : 'Turn writes on');
+  verb.dataset.direction = on ? 'off' : 'on';
+  if (lock) {
+    verb.disabled = true;
+    verb.title = lock;
+    return verb;
   }
-  posture.append(toggle);
-  if (lock) posture.append(el('span', 'ctc-lock', lock));
-  return posture;
+  verb.addEventListener('click', (event) => {
+    event.stopPropagation();
+    if (on) void setPosture(row.target, 'sandbox', state);
+    else confirmTurnOn(row, state);
+  });
+  return verb;
 }
 
 /**
- * Column 4: Switch, or the phrase for why there is no Switch.
+ * The Switch slot: the button, or the phrase for why there is no button.
  *
  * The refusal is keyed on the switch tool's own machine code, published by the
  * route — so the popover and the agent agree about the same refusal — and
  * rendered as {@link REASON_PHRASES}' operator phrase, with the route's
- * `reason_detail` sentence (falling back to the code) on the `title`. The gap
- * where the button would be is explained rather than merely empty, and never
- * in a vocabulary only the tool speaks.
+ * `reason_detail` sentence (falling back to the code) on the `title`.
  * @param {any} row
  * @param {any} state
  * @param {any[]} rows
  */
 function renderAction(row, state, rows) {
   const action = el('div', 'ctc-action');
-  // The current row says so with its `current` tag; a chat session has no
-  // controls server to address a request to; and one request is outstanding at
-  // a time, so while it is out no row offers a second.
-  if (row.active || isChatSession(rows) || isPending()) return action;
+  // A chat session has no controls server to address a request to; and one
+  // request is outstanding at a time, so while it is out no row offers a
+  // second.
+  if (isChatSession(rows) || isPending()) return action;
   if (row.available_now && state.store_available) {
-    const swap = button('ctc-switch', 'Switch');
-    swap.title = `Switch this session to ${row.label || row.target}`;
+    const swap = button('ctc-switch', 'Switch to');
+    swap.title = `Move this session's reads and writes to ${displayName(row, kindAttr(row))}`;
     swap.addEventListener('click', (event) => {
       event.stopPropagation();
-      confirmSwitch(row, state);
+      confirmSwitchTo(row, state);
     });
     action.append(swap);
     return action;
@@ -512,15 +578,15 @@ function renderAction(row, state, rows) {
 }
 
 /**
- * The foot: the one-gesture narrowing, and the sentence that bounds the whole
- * popover. `Sandbox everything` only ever removes reach, so it applies on
- * click; it is disabled when there is nothing left to lift.
+ * The foot: the one-gesture narrowing, and the popover's scope said once.
+ * `Turn all writes off` only ever removes reach, so it applies on click; it is
+ * disabled when there is nothing left to turn off.
  * @param {any} state
  * @param {any[]} rows
  */
 function renderFoot(state, rows) {
   const foot = el('div', 'ctc-foot');
-  const all = button('ctc-sandbox-all', 'Sandbox everything');
+  const all = button('ctc-all-off', 'Turn all writes off');
   const liftable = rows.some((row) => !lockReason(row, state) && stateWord(row) === 'writes');
   all.disabled = !liftable;
   all.addEventListener('click', (event) => {
@@ -528,14 +594,14 @@ function renderFoot(state, rows) {
     void setPosture(ALL_TARGETS, 'sandbox', state);
   });
   foot.append(all);
-  foot.append(el('span', 'ctc-foot-note', "Nothing here changes the deployment's config."));
+  foot.append(el('span', 'ctc-foot-note', 'Your session only'));
   return foot;
 }
 
 /* ---- gestures ---- */
 
 /**
- * Narrow or widen one target (or every target), then re-read.
+ * Turn one target's writes off or on (or every target's off), then re-read.
  *
  * The re-read is the whole point: the store is shared by every tab and
  * survives a restart, so what the popover shows next is what the server says,
@@ -566,8 +632,9 @@ async function setPosture(target, posture, state, ui) {
       json: { session_id: state.session_id, target, posture },
     });
     // `all` narrows what it can and reports the rest rather than dropping it:
-    // a target that stayed writable is exactly what an operator who just
-    // clicked "Sandbox everything" must not be left believing otherwise about.
+    // a target whose writes stayed on is exactly what an operator who just
+    // clicked "Turn all writes off" must not be left believing otherwise
+    // about.
     for (const skip of Array.isArray(body?.skipped) ? body.skipped : []) {
       if (skip?.target) gestureNotes.set(String(skip.target), String(skip.reason || 'skipped'));
     }
@@ -651,8 +718,10 @@ function strong(text) {
  * and one `done()` runs on every dismissal path. What differs is where Escape
  * is handled — this popover owns it, so a confirm and the rows behind it are
  * dismissed in the order they were opened.
- * @param {{title: string, body: (string|Node)[][], live: string|null,
- *          confirmLabel: string, onConfirm: (ui: ConfirmUi) => void}} spec
+ * @param {{title: string,
+ *          body: (import('./control-target-facts.js').ConfirmRun)[][],
+ *          live: string|null, confirmLabel: string,
+ *          onConfirm: (ui: ConfirmUi) => void}} spec
  */
 function showConfirm(spec) {
   dismissConfirm();
@@ -672,11 +741,14 @@ function showConfirm(spec) {
   heading.id = 'posture-modal-title';
 
   const body = el('div', 'posture-modal-body');
-  // Assembled node by node (no innerHTML) so the emphasis can sit on the label
-  // and the state word without any string ever being parsed as markup.
+  // Assembled node by node (no innerHTML) so the emphasis can sit on the name
+  // and the state word without any string ever being parsed as markup. An
+  // `{em}` run is the facts module's DOM-free spelling of a `<strong>`.
   for (const line of spec.body) {
     const paragraph = el('p');
-    paragraph.append(...line);
+    for (const run of line) {
+      paragraph.append(typeof run === 'string' ? run : strong(run.em));
+    }
     body.append(paragraph);
   }
   if (spec.live) body.append(el('div', 'posture-modal-live', spec.live));
@@ -715,63 +787,29 @@ function dismissConfirm() {
 }
 
 /**
- * The confirm for arming one target.
- *
- * Only this direction asks. Narrowing removes reach and is undone by a click;
- * arming is the gesture after which a write the agent makes can land.
- *
- * The title already names the machine, so the body does not name it again:
- * each line is one fact the title does not carry — the scope and the endpoint,
- * then the guards that stay up and when it takes hold.
+ * The confirm for turning one machine's writes on. Wording lives in
+ * control-target-facts.js ({@link turnOnConfirm}); this only wires the
+ * gesture.
  * @param {any} row
  * @param {any} state
  */
-function confirmArming(row, state) {
-  const label = row.label || row.target;
+function confirmTurnOn(row, state) {
   showConfirm({
-    title: `Allow writes on ${label}?`,
-    body: [
-      ['Arms writes for ', strong('this session'), ` · ${row.endpoint}.`],
-      [
-        'Per-write approval and channel limits still apply. Takes effect on the next write — ' +
-          'no restart.',
-      ],
-    ],
-    live: kindAttr(row) === 'live' ? 'Real machine. A confirmed write moves hardware.' : null,
-    confirmLabel: 'Allow writes',
+    ...turnOnConfirm(row, kindAttr(row)),
     onConfirm: (ui) => void setPosture(row.target, 'writes', state, ui),
   });
 }
 
 /**
- * The confirm for switching this session onto another machine.
- *
- * It names the posture the session will ARRIVE in, because that is the fact
- * the chip will read a moment later and the one an operator is most likely to
- * assume travels with them: posture is per-target, and it does not. The word
- * is {@link stateWord}'s own, so the dialog and the chip a moment later can
- * never disagree. The title already names the machine, so the body does not
- * name it again.
+ * The confirm for switching this session onto another machine. Wording lives
+ * in control-target-facts.js ({@link switchConfirm}); this only wires the
+ * gesture.
  * @param {any} row
  * @param {any} state
  */
-function confirmSwitch(row, state) {
-  const label = row.label || row.target;
-  const word = stateWord(row);
-  const live =
-    kindAttr(row) === 'live'
-      ? word === 'writes'
-        ? 'Real machine, writes armed. The next write the agent makes lands on hardware.'
-        : 'Real machine. Writes are sandboxed on it for this session.'
-      : null;
+function confirmSwitchTo(row, state) {
   showConfirm({
-    title: `Switch to ${label}?`,
-    body: [
-      ['Arrives in the ', strong(word), ` posture · ${row.endpoint}.`],
-      ['The conversation continues.'],
-    ],
-    live,
-    confirmLabel: 'Switch',
+    ...switchConfirm(row, kindAttr(row), stateWord(row)),
     onConfirm: (ui) => void requestSwitch(row, state, ui),
   });
 }

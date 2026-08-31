@@ -7,7 +7,8 @@
  *
  * Two roles, chosen by the page at init time via initTheme({role}):
  *   'hub'      — web-terminal only. Persists the user's preference to
- *                localStorage['osprey-theme'], live-follows the OS
+ *                localStorage['osprey-theme'] (per-persona scoped on a
+ *                multi-user mount — see storage-scope.js), live-follows the OS
  *                color-scheme preference while that preference is 'auto',
  *                and broadcasts every resolved change to every same-origin
  *                <iframe> panel via postMessage.
@@ -67,6 +68,8 @@
  * silently returning colors it can't vouch for.
  */
 
+import { scopedStorageKey } from '/design-system/js/storage-scope.js';
+
 import {
   DEFAULT_FAMILY as _EMITTED_DEFAULT_FAMILY,
   DEFAULTS,
@@ -78,6 +81,12 @@ import {
 /** @typedef {'auto'|'dark'|'light'} ModePreference */
 /** @typedef {{family: string, mode: ModePreference}} Preference */
 
+// The BASE localStorage key, never used bare: every read and write resolves it
+// through scopedStorageKey() so a multi-user mount gets a per-persona slot (see
+// storage-scope.js). Deliberately duplicated in generator/emit_js.py's
+// STORAGE_KEY, which bakes the same literal — and the same scoping rule — into
+// the generated theme-boot.js that reads this slot pre-paint. Neither side can
+// import the other, so the two must be changed together.
 const STORAGE_KEY = 'osprey-theme';
 const MESSAGE_TYPE = 'osprey-theme-change';
 
@@ -365,13 +374,18 @@ function _parsePreferenceToken(token) {
  * ('auto' or a concrete id like 'dark') forward via _parsePreferenceToken.
  * Never throws -- storage errors, malformed JSON, and unrecognized values
  * all resolve to null (caller falls back to auto within DEFAULT_FAMILY).
+ *
+ * Reads the per-persona key on a scoped page, resolved here rather than at
+ * module load so the writer below and this reader always agree. A scoped page
+ * whose own key is empty has NO stored preference: it must not fall back to
+ * the bare key, which on a multi-user mount holds whichever persona wrote last.
  * @returns {Preference|null}
  */
 function _readStoredPreference() {
   /** @type {string|null} */
   let raw;
   try {
-    raw = window.localStorage.getItem(STORAGE_KEY);
+    raw = window.localStorage.getItem(scopedStorageKey(STORAGE_KEY));
   } catch {
     return null;
   }
@@ -396,13 +410,18 @@ function _readStoredPreference() {
 
 /**
  * Persist the (family, mode) preference as `{"family":..., "mode":...}`
- * JSON under STORAGE_KEY.
+ * JSON under STORAGE_KEY -- scoped per persona, resolved at write time through
+ * the same scopedStorageKey(STORAGE_KEY) the reader above uses. The stored
+ * VALUE shape is unaffected by scoping; only the key changes.
  * @param {string} family
  * @param {ModePreference} mode
  */
 function _persistPreference(family, mode) {
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ family, mode }));
+    window.localStorage.setItem(
+      scopedStorageKey(STORAGE_KEY),
+      JSON.stringify({ family, mode })
+    );
   } catch {
     // Storage unavailable (private browsing, quota) -- non-fatal; the
     // preference just won't survive a reload this session.

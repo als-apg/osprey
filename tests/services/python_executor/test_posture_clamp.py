@@ -251,7 +251,7 @@ def test_a_narrowed_target_refusal_names_that_target(session, _audit_zone):
     assert "'live' control target" in message
     assert "for this session only" in message
     assert "This terminal session is in the sandbox posture" not in message
-    assert "Set 'live' back to writes from the control-target chip in the header" in " ".join(
+    assert "Turn writes back on for 'live' from the control-target chip in the header" in " ".join(
         envelope["suggestions"]
     )
 
@@ -290,7 +290,7 @@ def test_a_target_lost_between_the_two_reads_names_no_machine(session, _audit_zo
     assert "most restrictive" in message
     assert "control-target chip in the header" in message
     assert "'live'" not in message
-    assert "Lift that narrowing from the control-target chip in the header" in " ".join(
+    assert "Turn writes back on from the control-target chip in the header" in " ".join(
         envelope["suggestions"]
     )
 

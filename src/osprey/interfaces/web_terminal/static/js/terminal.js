@@ -2,6 +2,7 @@
 
 import { createWebSocket, wsUrl, withPrefix } from './api.js';
 import { subscribe, xtermPalette } from '/design-system/js/theme-manager.js';
+import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 
 /** @type {any} */
 let term = null;
@@ -15,8 +16,25 @@ let currentSessionId = null;
 
 // localStorage key for persisting the active PTY session ID across page
 // loads, so a kept-warm session survives a logout -> landing page ->
-// return round trip. Scoped to the terminal origin.
-const PTY_SESSION_STORAGE_KEY = 'osprey-pty-session';
+// return round trip.
+//
+// Per persona, not per origin. localStorage is origin-scoped, so on a
+// multi-user mount (`/u/alice/`, `/u/bob/`) a bare key would be one shared
+// pointer — and a session id is not a preference that can be shared: replaying
+// one persona's id would attach another persona's terminal to a PTY that is
+// not theirs. Every read, write and clear resolves the key through
+// ptySessionStorageKey() below.
+const PTY_SESSION_STORAGE_KEY_BASE = 'osprey-pty-session';
+
+/**
+ * This document's PTY-pointer key. Resolved per call rather than once at
+ * module load: the scope lives on the served document, and reading it at the
+ * point of use is what keeps the key honest.
+ * @returns {string}
+ */
+function ptySessionStorageKey() {
+  return scopedStorageKey(PTY_SESSION_STORAGE_KEY_BASE);
+}
 
 // A resume connection gets a 'session_info' confirmation too —
 // routes/websocket.py discovers the attached id on the stale-resume path (a
@@ -63,7 +81,7 @@ let autoResumeFailoverId = null;
  */
 function loadStoredSessionId() {
   try {
-    return localStorage.getItem(PTY_SESSION_STORAGE_KEY);
+    return localStorage.getItem(ptySessionStorageKey());
   } catch {
     return null;
   }
@@ -75,7 +93,7 @@ function loadStoredSessionId() {
  */
 function storeSessionId(sessionId) {
   try {
-    localStorage.setItem(PTY_SESSION_STORAGE_KEY, sessionId);
+    localStorage.setItem(ptySessionStorageKey(), sessionId);
   } catch {
     // Ignore — private browsing / storage disabled. Persistence is a
     // convenience; the terminal still works without it.
@@ -90,7 +108,7 @@ function storeSessionId(sessionId) {
  */
 export function clearStoredSessionId() {
   try {
-    localStorage.removeItem(PTY_SESSION_STORAGE_KEY);
+    localStorage.removeItem(ptySessionStorageKey());
   } catch {
     // Ignore — see storeSessionId().
   }

@@ -3,7 +3,7 @@
  *
  * The one-glance answer to "if the agent writes now, where does it land, and
  * will it be refused?". A 28 px chip in the global header reading
- * `● STAND-IN · writes ▾`: the short word for the machine this session stands
+ * `● Rehearsal · writes on ▾`: the name of the machine this session stands
  * on, the effective write state on THAT machine, and a dot whose colour says
  * how much a write there matters and whose shape says who is holding writes
  * back. The popover behind it (control-target-popover.js) lists every
@@ -47,6 +47,7 @@
  * already handled.
  */
 
+import { displayName, statePhrase } from './control-target-facts.js';
 import { withPrefix, createEventSource } from './api.js';
 import { AGENT_ACTIVITY_FRAME } from './activity-format.js';
 import { getCurrentSessionId, onSessionChange } from './terminal.js';
@@ -747,15 +748,15 @@ function render() {
       chip.dataset.enforceable = String(Boolean(state.enforceable && state.store_available));
       if (pending) chip.dataset.pending = 'true';
       else chip.removeAttribute('data-pending');
-      shortEl.textContent = row.short_label || row.target;
+      shortEl.textContent = displayName(row, kindAttr(row));
       // `data-state` keeps the real state under a pending request: the dot and
       // the border still describe the machine the session is on until the
       // switch actually lands.
-      stateEl.textContent = pending ? 'switching…' : word;
+      stateEl.textContent = pending ? 'switching…' : statePhrase(word);
       chip.title = row.label || row.target;
       chip.setAttribute(
         'aria-label',
-        `Control target: ${row.label || row.target} · ${pending ? 'switching' : word}`
+        `Control target: ${displayName(row, kindAttr(row))} · ${pending ? 'switching' : statePhrase(word)}`
       );
     }
   }

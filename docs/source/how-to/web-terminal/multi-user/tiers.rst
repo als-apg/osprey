@@ -210,8 +210,8 @@ read-only tier.
         - 403 (read OK)
         - enabled
         - 403 (read OK)
-      * - Control-target chip: a target's toggle → *writes*
-        - locked (``persona ceiling``)
+      * - Control-target chip: *Turn writes on* for a machine
+        - locked (*kept read-only by the deployment*)
         - confirm modal
         - confirm modal
         - confirm modal

@@ -34,6 +34,7 @@ from osprey.cli import output
 from osprey.cli.styles import Styles, data_table
 from osprey.deployment.compose_generator import (
     REPO_ID_LABEL,
+    audit_identity_dir,
     repo_identity,
     resolve_project_name,
     resolve_user_volume_names,
@@ -54,8 +55,15 @@ logger = get_logger("deployment.status")
 #: containers filed under the wrong project.
 PROJECT_LABEL = "osprey.project.name"
 
+#: How much of a pre-flight refusal reason a state cell carries. The findings
+#: are written for a log line and can be a sentence each; the Container column
+#: shares a table with two volume columns, and a cell that grows without bound
+#: reflows the whole table. Long enough to name the refusal, short enough that
+#: it stays one line — ``osprey logs`` has the untruncated text.
+PREFLIGHT_REASON_MAX_CHARS = 60
 
-def _format_state(state):
+
+def _format_state(state, preflight_reason=None):
     """Format a container ``State`` value as a colored status label.
 
     Shared by the project/other container tables (``_add_container_to_table``)
@@ -67,19 +75,179 @@ def _format_state(state):
     renderable, so a cell holding ``"[success]● Running[/success]"`` would print
     those brackets literally and take the column widths with it.
 
+    *preflight_reason* appends why the container's ``osprey web`` refused to
+    start. It defaults to ``None`` — the label of a row with nothing to add is
+    byte-identical to what it always was.
+
     :param state: Raw ``State`` value from the container runtime's ps output
     :type state: str
+    :param preflight_reason: Refusal reason from a fresh pre-flight marker, or
+        ``None`` when this container has none
+    :type preflight_reason: str | None
     :return: The label, styled for the state
     :rtype: rich.text.Text
     """
     if state == "running":
-        return Text("● Running", style=Styles.SUCCESS)
+        label = Text("● Running", style=Styles.SUCCESS)
     elif state == "exited":
-        return Text("● Stopped", style=Styles.ERROR)
+        label = Text("● Stopped", style=Styles.ERROR)
     elif state == "restarting":
-        return Text("● Restarting", style=Styles.WARNING)
+        label = Text("● Restarting", style=Styles.WARNING)
     else:
-        return Text(f"● {state}", style=Styles.DIM)
+        label = Text(f"● {state}", style=Styles.DIM)
+    if preflight_reason:
+        label.append(f" (preflight: {preflight_reason})", style=Styles.ERROR)
+    return label
+
+
+# ---------------------------------------------------------------------------
+# The pre-flight refusal marker
+# ---------------------------------------------------------------------------
+
+
+def _parse_container_time(raw):
+    """A timezone-aware UTC datetime from a runtime or marker timestamp, or ``None``.
+
+    Three shapes reach this, and none of them is negotiable at the source:
+    podman's ``ps`` reports ``StartedAt`` as a Unix epoch, ``docker inspect``
+    reports ``.State.StartedAt`` as RFC 3339 with NANOsecond precision (which
+    :meth:`~datetime.datetime.fromisoformat` will not parse), and the refusal
+    marker's first line is a plain ``datetime.now(UTC).isoformat()``.
+
+    Fails to ``None`` on anything else rather than raising: every caller's
+    fallback is "say nothing extra", and a status verb must not break on a
+    timestamp it did not recognise.
+
+    :param raw: Epoch number, epoch string, or ISO-8601/RFC-3339 text
+    :return: The instant, in UTC, or ``None``
+    :rtype: datetime.datetime | None
+    """
+    from datetime import UTC, datetime
+
+    if isinstance(raw, bool) or raw is None:
+        return None
+    if isinstance(raw, int | float):
+        try:
+            return datetime.fromtimestamp(float(raw), UTC)
+        except (OSError, OverflowError, ValueError):
+            return None
+    if not isinstance(raw, str):
+        return None
+
+    text = raw.strip()
+    if not text:
+        return None
+    if text.lstrip("-").isdigit():
+        return _parse_container_time(int(text))
+
+    text = text.replace("Z", "+00:00")
+    # RFC 3339 nanoseconds -> microseconds. `fromisoformat` accepts 3 or 6
+    # fractional digits and nothing else, and docker emits 9.
+    if "." in text:
+        head, _, tail = text.partition(".")
+        digits = ""
+        for char in tail:
+            if char.isdigit():
+                digits += char
+            else:
+                break
+        text = f"{head}.{digits[:6]}{tail[len(digits) :]}" if digits else head + tail[len(digits) :]
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def _container_started_at(container, config):
+    """When this container's CURRENT incarnation started, or ``None``.
+
+    Free when the runtime already said so: podman's ``ps --format json`` carries
+    ``StartedAt``, and that record is already in hand. Docker's does not, so one
+    ``inspect`` is issued as a fallback — and only ever from the marker path
+    below, which asks after it exclusively for a container that HAS a refusal
+    marker. A healthy deployment therefore pays nothing for this.
+
+    :param container: One decoded ``ps`` record
+    :param config: Rendered config, for runtime selection; may be ``None``
+    :return: The start instant in UTC, or ``None`` when it could not be read
+    """
+    started = _parse_container_time(container.get("StartedAt"))
+    if started is not None:
+        return started
+
+    name = _container_display_name(container)
+    if name == "unknown":
+        return None
+    try:
+        runtime_bin = get_runtime_command(config)[0]
+        result = subprocess.run(
+            [runtime_bin, "inspect", "-f", "{{.State.StartedAt}}", name],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return None
+        return _parse_container_time(result.stdout.strip())
+    except Exception as exc:
+        logger.debug("Could not read StartedAt for %s: %s", name, exc)
+        return None
+
+
+def _preflight_refusal_reason(repo_root, identity, container, config):
+    """Why *identity*'s web terminal refused to start, when it just did.
+
+    The read half of the contract ``osprey web`` writes: on a pre-flight refusal
+    it writes ``<audit dir>/preflight-refused`` with an ISO-8601 UTC timestamp on
+    line 1 and the findings, ``- `` prefixed, below it. Under
+    ``restart: unless-stopped`` the container is then restarted forever, and a
+    status table that says only "Restarting" makes an operator go read logs to
+    learn something the deployment already wrote down.
+
+    Freshness is decided against the container's own start time, because
+    ``osprey web --skip-preflight`` deliberately leaves a stale marker in place:
+    a marker older than the incarnation on screen describes a launch that is no
+    longer running, and reporting it would attribute a refusal to a container
+    that did not refuse. A marker whose timestamp cannot be parsed is treated as
+    no marker at all.
+
+    Every failure — an unreadable audit zone, an identity that is not a legal
+    path segment, a runtime that will not answer — degrades to ``None``. This is
+    an annotation on a read-only report and must never be able to take it down.
+
+    :param repo_root: The deployment repo root, which the audit zone hangs off
+    :param identity: The roster username, which is also its audit identity
+    :param container: The user's decoded ``ps`` record
+    :param config: Rendered config, for runtime selection; may be ``None``
+    :return: The reason, truncated to :data:`PREFLIGHT_REASON_MAX_CHARS`, or ``None``
+    :rtype: str | None
+    """
+    # Function-local, like every other cross-package import in this module: the
+    # name is a constant on a click command module, and a deployment module that
+    # imports the CLI's verbs at module scope buys an import cycle for it.
+    from osprey.cli.web_cmd import PREFLIGHT_REFUSED_MARKER
+
+    try:
+        marker = audit_identity_dir(repo_root, identity) / PREFLIGHT_REFUSED_MARKER
+        if not marker.is_file():
+            return None
+        lines = marker.read_text(encoding="utf-8").splitlines()
+        written = _parse_container_time(lines[0]) if lines else None
+        if written is None:
+            return None
+        started = _container_started_at(container, config)
+        if started is not None and written < started:
+            return None
+
+        findings = [line.removeprefix("- ").strip() for line in lines[1:] if line.strip()]
+        reason = "; ".join(findings) if findings else "no reason recorded"
+        if len(reason) > PREFLIGHT_REASON_MAX_CHARS:
+            reason = reason[: PREFLIGHT_REASON_MAX_CHARS - 3] + "..."
+        return reason
+    except Exception as exc:
+        logger.debug("Could not read the pre-flight marker for %s: %s", identity, exc)
+        return None
 
 
 def _extract_web_terminal_user_names(users_raw):
@@ -289,7 +457,7 @@ def _container_table(containers):
     return table
 
 
-def _show_web_terminal_users(config, all_containers):
+def _show_web_terminal_users(config, all_containers, repo_root=None):
     """Print the per-user web terminal table, when this deployment has one.
 
     One row per rostered user: whether their container exists and what state it
@@ -298,6 +466,10 @@ def _show_web_terminal_users(config, all_containers):
 
     Silently does nothing when web terminals are off or the roster is empty:
     there is no table to draw, and an empty one would suggest otherwise.
+
+    :param repo_root: The deployment repo, whose ``var/audit/<user>`` holds the
+        pre-flight refusal markers. ``None`` means "not known here", and the
+        state cells are then exactly what they have always been.
     """
     modules_cfg = config.get("modules", {})
     web_terminals_cfg = (
@@ -340,11 +512,19 @@ def _show_web_terminal_users(config, all_containers):
     for user in user_names:
         container = by_name.get(web_container_name(facility_prefix, user))
         claude_config_volume, agent_data_volume = resolve_user_volume_names(config, user)
+        # Only for a container that EXISTS: a marker names why a launch refused,
+        # and there is no launch to explain for a user whose container was never
+        # created — nor any start time to date the marker against.
+        preflight_reason = (
+            _preflight_refusal_reason(repo_root, user, container, config)
+            if (container is not None and repo_root is not None)
+            else None
+        )
         table.add_row(
             user,
             Text("● Not created", style=Styles.DIM)
             if container is None
-            else _format_state(container.get("State", "unknown")),
+            else _format_state(container.get("State", "unknown"), preflight_reason),
             _format_volume_status(claude_config_volume),
             _format_volume_status(agent_data_volume),
         )
@@ -420,7 +600,10 @@ def show_status(config_path, *, console=None, styles=None):
         output.section("Other Osprey Containers:", ())
         output.table(_container_table(other_containers))
 
-    _show_web_terminal_users(config, all_containers)
+    # Same derivation of the repo root as the staleness check above: this legacy
+    # verb is handed the project's own config.yml, and the audit zone hangs off
+    # the directory holding it.
+    _show_web_terminal_users(config, all_containers, Path(config_path).resolve().parent)
 
     output.report("")
 
@@ -641,7 +824,7 @@ def _absolute_compose_files(compose_files, repo_root):
     ]
 
 
-def _print_endpoints_section(config, compose_files):
+def _print_endpoints_section(config, compose_files, repo_root=None):
     """Print where this deployment's services are reachable, as ``build/`` declares it.
 
     Derived from the published ports in the rendered compose files — the same
@@ -654,12 +837,19 @@ def _print_endpoints_section(config, compose_files):
     the renderer's section vocabulary rather than by a second one — and the
     heading and the tier grouping come from that module too, so status cannot
     section the same endpoints differently from the deploy that printed them.
+
+    *repo_root* is the LIVE checkout, and it is passed for the same reason
+    :func:`_absolute_compose_files` anchors the compose files on it: the panel
+    rows are narrowed against each persona's rendered project, and a checkout
+    that was moved or copied records a ``project_root`` pointing at the other
+    copy. ``None`` leaves ``endpoint_entries`` on that recorded key, which is
+    the right answer for a caller with no root to offer.
     """
     from osprey.deployment.deploy_summary import endpoint_entries, summary_rows, summary_title
 
     output.report("")
     try:
-        entries = endpoint_entries(config, compose_files)
+        entries = endpoint_entries(config, compose_files, project_root=repo_root)
     except Exception as exc:
         output.warn("The endpoint list could not be read from the build", str(exc))
         return
@@ -1021,9 +1211,9 @@ def show_repo_status(repo_root, *, console=None, styles=None, show_agents=False)
             as_built_compose_files(config, repo_root), repo_root
         )
         if compose_files:
-            _print_endpoints_section(config, compose_files)
+            _print_endpoints_section(config, compose_files, repo_root)
         if all_containers is not None:
-            _show_web_terminal_users(config, all_containers)
+            _show_web_terminal_users(config, all_containers, repo_root)
         _print_agent_section(repo_root, build_dir, config, show_agents=show_agents)
 
     output.report("")

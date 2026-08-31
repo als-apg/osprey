@@ -46,6 +46,7 @@ turn-key derived one from ever disagreeing about what the worker is handed.
 
 from __future__ import annotations
 
+import inspect
 import json
 import os
 import shutil
@@ -354,6 +355,97 @@ def init_args(
     return args
 
 
+def _calling_module() -> str:
+    """The module that called into this one — for a guard's failure message.
+
+    A shared helper's assertion is read by whoever owns the LANE, not by
+    whoever owns the helper, so the message has to say which lane it is
+    talking about. The stack is the only thing that knows: the first frame
+    outside this file is the caller's.
+    """
+    frame = inspect.currentframe()
+    try:
+        while frame is not None:
+            if frame.f_code.co_filename != __file__:
+                return str(frame.f_globals.get("__name__") or frame.f_code.co_filename)
+            frame = frame.f_back
+        return __name__
+    finally:
+        # Frames hold references to this one; dropping the local keeps the
+        # cycle off the collector's desk.
+        del frame
+
+
+def assert_off_default_block(repo: Path, project_name: str) -> None:
+    """Refuse a rendered deployment that would bind the framework's DEFAULT
+    thousand-port block.
+
+    ``deployment.port_base`` names the first port of the block a deployment
+    claims, and :data:`~osprey.port_layout.DEFAULT_PORT_BASE` (10000) is where
+    a deployment lands when nobody moves it — including the real deployment a
+    developer is already running on the host, and every e2e lane that forgot to
+    pick a band. Two stacks in one block do not fail cleanly: they fail as a
+    connection error or a wrong-service answer, minutes into a container build,
+    in a lane that looks broken rather than colliding.
+
+    So the check happens HERE, on the render, before anything binds. It reads
+    the base back out of ``<repo>/build/config.yml`` rather than trusting the
+    ``port_base=`` argument that was passed in: an overlay key that failed to
+    land looks identical at the call site and only differs on disk, and that is
+    precisely the failure this exists to catch.
+
+    Deliberately a ``!=`` default check and not an ``==`` some-expected-value
+    one: this is the shared seam, and it cannot know which band a given lane
+    booked. A lane that knows its own number should assert that number too (see
+    ``tests/e2e/test_full_chain_auth.py``'s ``_make_repo``) — the two checks
+    are complementary, and this one is the floor.
+
+    :param repo: The deployment REPO (the directory holding ``build/``), as
+        :func:`build_project_subprocess` returns.
+    :param project_name: The name the stack was built under, for the message.
+    :raises AssertionError: If the render produced no config, or resolved the
+        default base — whether by naming it or by never setting one.
+    """
+    from osprey.port_layout import (
+        BLOCK_SIZE,
+        DEFAULT_PORT_BASE,
+        PORT_BASE_CONFIG_KEY,
+        resolve_port_base,
+    )
+
+    caller = _calling_module()
+    config_path = repo / "build" / "config.yml"
+    if not config_path.is_file():
+        raise AssertionError(
+            f"{project_name} (built by {caller}) rendered no config at {config_path}, so "
+            f"nothing can say which port block this deployment would claim"
+        )
+
+    rendered = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    if not isinstance(rendered, dict):
+        raise AssertionError(f"{config_path} is not a config mapping: {rendered!r}")
+
+    declared = (rendered.get("deployment") or {}).get("port_base")
+    if resolve_port_base(rendered) != DEFAULT_PORT_BASE:
+        return
+
+    block_top = DEFAULT_PORT_BASE + BLOCK_SIZE - 1
+    raise AssertionError(
+        f"{project_name} (built by {caller}) resolved "
+        f"{PORT_BASE_CONFIG_KEY}={declared!r} — the framework DEFAULT block "
+        f"{DEFAULT_PORT_BASE}-{block_top}, which a real deployment on this host "
+        f"already claims and which every lane that books no band of its own lands "
+        f"in together. Starting this stack would collide with them, and the first "
+        f"symptom would be a connection error minutes into a container build.\n"
+        f"Fix in {caller}: give this lane its own thousand-port band — pass "
+        f"`port_base=<band>` to this module's builder (which emits "
+        f"`--set port_base=<band>`, the profile shorthand for "
+        f"`{PORT_BASE_CONFIG_KEY}=<band>`), or set `{PORT_BASE_CONFIG_KEY}=<band>` "
+        f"in the lane's --override config block. Bands in use are listed at the "
+        f"top of each e2e lane that pins one."
+    )
+
+
 def build_via_cli_runner(
     runner: CliRunner,
     tmp_path: Path,
@@ -519,6 +611,14 @@ def build_project_subprocess(
             "--dev",
         ],
     )
+
+    # The render is done and nothing is bound yet — the one moment a port-block
+    # mistake is still cheap. See :func:`assert_off_default_block`. Checked here
+    # rather than on the ``port_base=`` argument because only the render knows
+    # whether the override actually landed, and checked in THIS builder rather
+    # than in ``init_args`` because ``build_via_cli_runner`` renders without
+    # binding anything and may legitimately leave the base alone.
+    assert_off_default_block(repo, project_name)
     return repo
 
 

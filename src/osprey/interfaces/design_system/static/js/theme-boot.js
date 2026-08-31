@@ -7,10 +7,22 @@
 // module scripts are deferred, which would let a pre-theme flash slip
 // through. Duplicates THEMES/DEFAULTS identity from tokens.js as inline
 // literals for the same reason: this script must not import anything.
+//
+// Storage rungs, scoped: localStorage is origin-scoped, so on a multi-user
+// deployment (every persona served from one origin under `/u/<user>/`) a bare
+// key is a single shared slot and the last picker decides what everyone else
+// boots into. When the server stamps data-osprey-storage-scope on <html>, the
+// storage rungs read `osprey-theme--<scope>` instead — and do NOT fall back to
+// the bare key, since that polluted slot is the very thing being escaped; a
+// scoped page with no scoped value simply falls through to the server rung.
+// With the attribute absent (single-user serving, and every non-web_terminal
+// interface that loads this script) the legacy bare key is used unchanged,
+// legacy bare-token format included.
 (function () {
   "use strict";
 
   const STORAGE_KEY = "osprey-theme";
+  const SCOPE_ATTRIBUTE = "data-osprey-storage-scope";
   const VALID_IDS = ["dark", "desy-dark", "desy-light", "high-contrast-dark", "high-contrast-light", "light", "retro-dark", "retro-light"];
   // Per-family {mode: id} map: DEFAULTS[family][mode]. Typed as a
   // Record (not the narrower literal shape object-literal inference would
@@ -83,9 +95,22 @@
     }
   }
 
+  // Inline mirror of storage-scope.js's `scopedStorageKey()`. An empty
+  // attribute value counts as unscoped: the server omits the attribute rather
+  // than rendering `=""`, so this only guards against a key ending in a bare
+  // "--" that would belong to no persona.
+  function storageKey() {
+    try {
+      const scope = document.documentElement.getAttribute(SCOPE_ATTRIBUTE);
+      return scope ? STORAGE_KEY + "--" + scope : STORAGE_KEY;
+    } catch {
+      return STORAGE_KEY;
+    }
+  }
+
   function readStoredTheme() {
     try {
-      return window.localStorage.getItem(STORAGE_KEY);
+      return window.localStorage.getItem(storageKey());
     } catch {
       return null;
     }

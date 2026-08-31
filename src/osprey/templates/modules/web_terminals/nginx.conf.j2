@@ -30,10 +30,25 @@
     tls_enabled: bool, required (defaults to False)
       When true, emit TWO server blocks: a redirect-only one on nginx_port
       whose entire content is `return 301 https://$host$request_uri;`, and the
-      real content server on `listen 443 ssl` with
+      real content server on `listen <tls_port> ssl` with
       `ssl_certificate`/`ssl_certificate_key` pointing at tls_cert/tls_key.
       When false, nothing TLS-related is emitted and the single server listens
       on nginx_port — the plain-http posture.
+    tls_port: int, required (defaults to 443, render.py's TLS_LISTEN_PORT)
+      The port BOTH `listen ... ssl` lines bind, parsed from `tls.port`. Only
+      read when tls_enabled is true. A value render.py cannot use as a port
+      (non-integer, boolean, outside 1-65535) falls back to the default and
+      lint reports it, so the listener never renders a value the deploy chain
+      could not bind. render.py follows the same value into `external_origin`
+      and into the perimeter deny list, so the listener, the render-time links
+      and the deny-list are one number and not three.
+    https_default_port: int, required (render.py's _HTTPS_DEFAULT_PORT, 443)
+      The port a browser already goes to for an `https://` URL with no port in
+      it. At that port the redirect below stays a bare `$host`; on any other
+      port the redirect must name it (`$host:<tls_port>`), or the bounce lands
+      on a port nothing listens on. Passed in rather than restated here so the
+      redirect and render.py's `external_origin` decide "is a port needed"
+      against the same constant.
     tls_cert, tls_key: str | None
       Absolute paths inside the nginx container. Only read when tls_enabled
       is true; render.py already refuses to render (ValueError) if
@@ -127,10 +142,10 @@
       In neither case does the browser's whole jar — which names every other
       terminal it has unlocked, and the sidecar's origin-wide session — reach a
       container running agent-generated code.
-    * `X-Osprey-Auth-Subject` / `X-Osprey-Auth-Role` /
-      `X-Osprey-Auth-Role-Source` — who the request belongs to, what privilege
-      it holds and where that privilege came from — are written by EVERY
-      proxying location:
+    * `X-Osprey-Auth-Account` / `X-Osprey-Auth-Subject` /
+      `X-Osprey-Auth-Role` / `X-Osprey-Auth-Role-Source` — which roster card the
+      request is on, who proved the login, what privilege it holds and where
+      that privilege came from — are written by EVERY proxying location:
       a gated `/u/<user>/` SETS them from `auth_request_set` variables carrying
       what the sidecar returned, and every other proxying location CLEARS them
       — the ungated `/u/<user>/` branch, the internal `/_osprey_auth/<user>`
@@ -213,9 +228,11 @@
   The two seams are opt-in, and each is gated independently:
 
   - `tls_enabled` (default False) emits nothing. When true, the plain port
-    becomes a redirect-only server and a second `listen 443 ssl` server —
-    carrying `ssl_certificate`/`ssl_certificate_key` from the configured
-    paths — becomes the sole content server. render.py refuses to render at
+    becomes a redirect-only server and a second `listen <tls_port> ssl` server
+    — `tls_port` is 443 unless the deployment set `tls.port`, which is what a
+    rootless nginx needs — carrying `ssl_certificate`/`ssl_certificate_key`
+    from the configured paths, becomes the sole content server. The redirect
+    names that port too whenever it is not 443. render.py refuses to render at
     all if either path is missing, so this template never has to guard against
     an incoherent pair.
   - without `sidecar_active` ("token", the default, and "none") the login
@@ -367,6 +384,13 @@ map $uri $osprey_auth_next {
 # certificate they cannot match. `external_origin` is for values that must be
 # fixed at render time (env-baked links, an IdP-registered redirect_uri); a
 # per-request redirect is not one of them.
+#
+# The PORT, unlike the host, does come from render time: `$host` carries the
+# name a client asked for but never the port it should be sent to, and on a
+# non-default `tls.port` a bare `$host` would bounce every client to 443,
+# where this deployment has nothing listening. So the target names the TLS
+# listener whenever it is not 443 — and at 443 says nothing, because that is
+# the port an `https://` URL with no port already means.
 server {
     listen {{ nginx_port }};
     listen [::]:{{ nginx_port }};
@@ -377,15 +401,15 @@ server {
     # sanitizing next door.
     access_log /dev/stdout osprey_sanitized;
 
-    return 301 https://$host$request_uri;
+    return 301 https://$host{% if tls_port != https_default_port %}:{{ tls_port }}{% endif %}$request_uri;
 }
 {% endif %}
 server {
 {%- if tls_enabled %}
     # The sole content server: with TLS on, everything below is reachable only
     # over the encrypted listener.
-    listen 443 ssl;
-    listen [::]:443 ssl;
+    listen {{ tls_port }} ssl;
+    listen [::]:{{ tls_port }} ssl;
     ssl_certificate {{ tls_cert }};
     ssl_certificate_key {{ tls_key }};
 {% else %}
@@ -475,6 +499,7 @@ server {
         # the `proxy_set_header` below send nothing at all, which is the
         # deny-safe answer — a consumer reads an absent role as no privileges,
         # never as a default one.
+        auth_request_set $osprey_auth_account $upstream_http_x_osprey_auth_account;
         auth_request_set $osprey_auth_subject $upstream_http_x_osprey_auth_subject;
         auth_request_set $osprey_auth_role $upstream_http_x_osprey_auth_role;
         auth_request_set $osprey_auth_role_source $upstream_http_x_osprey_auth_role_source;
@@ -557,11 +582,12 @@ server {
         # and clearing the header costs it nothing. Unconditional, unlike the
         # two below: the header is never legitimate here in any auth mode.
         proxy_set_header Authorization "";
-        # The three identity headers — who the request belongs to, what
-        # privilege it holds and where that privilege came from. All three
-        # names are written into EVERY proxying location's own header set, by
-        # whichever arm of the branch below renders: gated, from the values the
-        # sidecar just returned; ungated, as an explicit clear.
+        # The four identity headers — which roster card the request is on, who
+        # proved the login, what privilege it holds and where that privilege
+        # came from. All four names are written into EVERY proxying location's
+        # own header set, by whichever arm of the branch below renders: gated,
+        # from the values the sidecar just returned; ungated, as an explicit
+        # clear.
         #
         # Naming them is what drops the client's own. nginx builds one
         # proxy-headers table per location and copies the client's remaining
@@ -594,6 +620,7 @@ server {
         # sidecar omits a header it has no value for — and an empty one is not
         # sent at all, which is the deny-safe answer and still not the
         # client's: the name is claimed by this directive either way.
+        proxy_set_header X-Osprey-Auth-Account $osprey_auth_account;
         proxy_set_header X-Osprey-Auth-Subject $osprey_auth_subject;
         proxy_set_header X-Osprey-Auth-Role $osprey_auth_role;
         proxy_set_header X-Osprey-Auth-Role-Source $osprey_auth_role_source;
@@ -627,17 +654,18 @@ server {
 {%- if inject_secret and not svc.login_exempt %}
         # No sidecar vouched for this request; nginx itself injects this
         # user's operator secret below. There is no authorization to speak
-        # for, so all three identity names are CLEARED here rather than
+        # for, so all four identity names are CLEARED here rather than
         # forwarded: forwarding would announce a subject the perimeter never
         # checked, and leaving the names unwritten would let the client supply
         # them itself.
 {%- else %}
         # Ungated — authentication is off, or this entry declared
-        # `login: false`. There is no authorization to speak for, so all three
+        # `login: false`. There is no authorization to speak for, so all four
         # identity names are CLEARED here rather than forwarded: forwarding
         # would announce a subject the perimeter never checked, and leaving the
         # names unwritten would let the client supply them itself.
 {%- endif %}
+        proxy_set_header X-Osprey-Auth-Account "";
         proxy_set_header X-Osprey-Auth-Subject "";
         proxy_set_header X-Osprey-Auth-Role "";
         proxy_set_header X-Osprey-Auth-Role-Source "";
@@ -735,6 +763,7 @@ server {
         # rather than at server level because a location-level
         # `proxy_set_header` — the ones below — replaces the whole inherited
         # set, so a server-level clear would be discarded right here.
+        proxy_set_header X-Osprey-Auth-Account "";
         proxy_set_header X-Osprey-Auth-Subject "";
         proxy_set_header X-Osprey-Auth-Role "";
         proxy_set_header X-Osprey-Auth-Role-Source "";
@@ -804,6 +833,7 @@ server {
         # always reach, and so the one it would forge an identity into. The
         # login flow establishes identity from credentials it verifies;
         # nothing it serves may read one out of the request.
+        proxy_set_header X-Osprey-Auth-Account "";
         proxy_set_header X-Osprey-Auth-Subject "";
         proxy_set_header X-Osprey-Auth-Role "";
         proxy_set_header X-Osprey-Auth-Role-Source "";

@@ -107,6 +107,7 @@ from ..return_to import safe_return_to
 from ..revocation import RevocationStore
 from ..sessions import SESSION_COOKIE_NAME, SessionCodec, SessionState
 from ..throttle import AttemptThrottle
+from .logout import LANDING_PATH
 from .recheck import RecheckRefused, recheck_login, roster_roles
 
 logger = logging.getLogger(__name__)
@@ -287,6 +288,28 @@ def _only(values: list[str] | None) -> str | None:
     if not values or len(values) != 1:
         return None
     return values[0] or None
+
+
+def _prefers_html(request: Request) -> bool:
+    """Whether this caller is a browser navigating rather than a client parsing.
+
+    Deliberately not a content negotiator. Only one distinction is drawn here —
+    a top-level navigation, which sends
+    ``text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8``, against
+    everything else: ``curl``'s ``*/*``, a client that asked for
+    ``application/json``, and a request that states no preference at all. So the
+    test is simply whether ``text/html`` is listed, and listed ahead of
+    ``application/json``. Quality values are not read, because nothing that
+    matters here distinguishes itself from the other by one, and a parser that
+    did read them would be a larger surface than the single question it answers.
+    """
+    header = request.headers.get("accept", "")
+    accepted = [part.split(";", 1)[0].strip().lower() for part in header.split(",")]
+    if "text/html" not in accepted:
+        return False
+    if "application/json" not in accepted:
+        return True
+    return accepted.index("text/html") < accepted.index("application/json")
 
 
 def _page(
@@ -488,6 +511,25 @@ async def login_page(
     ``Location`` — would otherwise let an anonymous link decide how much this
     service emits.
 
+    **A browser that names no user is sent to the landing page**, rather than
+    shown a JSON 400 it cannot act on. A person who arrives here without a
+    username has one useful destination — the page that lists the roster cards,
+    which is where the link they should have followed lives — and
+    :data:`~osprey.services.auth_sidecar.routes.logout.LANDING_PATH` is the same
+    origin-relative ``/`` logout already returns browsers to. That target is the
+    landing page **nginx serves in front of this sidecar**; reached on a bare
+    sidecar port, which is the dev-only ``allow_insecure_http`` shape, nothing
+    serves ``/`` and the browser meets a 404 there instead. The redirect is
+    written for the deployment nginx fronts, which is every deployment an
+    operator logs in to.
+
+    The redirect is emitted *before* the OIDC dispatch below, so it is the answer
+    under both methods — a lost browser has no user to hand the OIDC route
+    either. A link naming *two or more* users is a different thing and keeps its
+    400 for every caller, browser included: that request is ambiguous rather than
+    empty, and resolving it to a landing page would be the same guess this route
+    refuses to make when it picks neither of two names.
+
     Args:
         request: The inbound request.
         settings: The deployment's frozen settings.
@@ -496,23 +538,27 @@ async def login_page(
             usable one.
 
     Returns:
-        The rendered prompt in password mode, or a redirect to the OIDC login
-        route on a deployment that authenticates that way — nginx's 401 handler
-        sends every method's browsers here, and a password form is unanswerable
-        under OIDC.
+        The rendered prompt in password mode; a redirect to the OIDC login route
+        on a deployment that authenticates that way — nginx's 401 handler sends
+        every method's browsers here, and a password form is unanswerable under
+        OIDC; or a 302 to the landing page when a browser named no user at all.
 
     Raises:
-        HTTPException: 400 when the link does not name exactly one user; 404
-            when this deployment serves no password login, or when ``user`` is
-            not on the roster.
+        HTTPException: 400 when the link names two or more users, or names none
+            and the caller did not ask for HTML; 404 when this deployment serves
+            no password login, or when ``user`` is not on the roster.
     """
     username = _only(user)
     if username is None:
         # Counts and lengths, never values: this is the one part of the request a
         # client chose freely.
-        logger.warning(
-            "login page requested without exactly one user parameter (got %d)", len(user or [])
-        )
+        named = len(user or [])
+        logger.warning("login page requested without exactly one user parameter (got %d)", named)
+        if named < 2 and _prefers_html(request):
+            # Fewer than two values means the link named nobody — an empty
+            # `?user=` included. A browser gets the roster instead of a body it
+            # would render as text.
+            return RedirectResponse(LANDING_PATH, status_code=302, headers=_NO_STORE_HEADERS)
         raise HTTPException(
             status_code=400,
             detail="the login link must name exactly one user",
@@ -595,6 +641,23 @@ async def login_submit(
     exact-matches it against the roster — normalising it here would open the
     chain rather than close it.
 
+    **A browser whose form named no user is sent to the landing page**, the same
+    302 to :data:`~osprey.services.auth_sidecar.routes.logout.LANDING_PATH` the
+    ``GET`` above answers with, and for the same reason: there is no credential
+    to evaluate and nothing to render a prompt about, so the person belongs back
+    at the roster cards. As there, the target is the landing page nginx serves in
+    front of this sidecar — on a bare sidecar port, the dev-only
+    ``allow_insecure_http`` shape, that path is a 404 — and a form naming *two or
+    more* users keeps its 400 for every caller, browser included: that is an
+    ambiguous submission rather than an empty one. The origin check still runs
+    first, so a cross-site POST is refused before this is reached and cannot be
+    turned into a redirect.
+
+    None of this touches the credential-refusal path: a wrong password, an
+    uncredentialed roster user and a name that is not on the roster still produce
+    one status, one page and one message. A form that named no user was never a
+    credential attempt.
+
     Args:
         request: The inbound request, carrying the submitted form.
         settings: The deployment's frozen settings.
@@ -608,12 +671,13 @@ async def login_submit(
         A 303 to the validated return-to carrying the re-issued session cookie;
         the prompt again with 401 and one fixed message when the credential is
         refused; the prompt with 429 and ``Retry-After`` when the attempt
-        arrived inside an open window.
+        arrived inside an open window; a 302 to the landing page when a browser
+        submitted a form that named no user.
 
     Raises:
-        HTTPException: 400 when the form arrives from another origin or does not
-            name exactly one user; 404 when this deployment serves no password
-            login.
+        HTTPException: 400 when the form arrives from another origin, names two
+            or more users, or names none and the caller did not ask for HTML;
+            404 when this deployment serves no password login.
     """
     if settings.method != "password":
         raise HTTPException(
@@ -641,9 +705,13 @@ async def login_submit(
     submitted_users = _form_values(form, FIELD_USER)
     username = _only(submitted_users)
     if username is None:
-        logger.warning(
-            "login submitted without exactly one user field (got %d)", len(submitted_users)
-        )
+        named = len(submitted_users)
+        logger.warning("login submitted without exactly one user field (got %d)", named)
+        if named < 2 and _prefers_html(request):
+            # The GET's answer, for the same reason: a form that carried no user
+            # cannot be evaluated, and the browser that posted it belongs on the
+            # roster page rather than in front of a JSON body.
+            return RedirectResponse(LANDING_PATH, status_code=302, headers=_NO_STORE_HEADERS)
         raise HTTPException(
             status_code=400,
             detail="the login form must name exactly one user",

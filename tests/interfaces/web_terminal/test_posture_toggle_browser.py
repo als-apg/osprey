@@ -1,26 +1,28 @@
 """Browser tests: the control-target header chip, end to end.
 
-The chip in the page header — ``● VIRTUAL · writes ▾`` — and the popover behind
-it are the operator's only route between ``writes`` and ``read-only`` on a live
-session, and now the only route onto another control target. Every interesting
-part of that is client-side behavior a FastAPI TestClient cannot observe: the
-chip only exists once ``terminal.js`` has reported a session id, the rows and
-both confirms are built in the DOM by ``control-target-popover.js``, and every
+The chip in the page header — ``● Simulator · writes on ▾`` — and the popover
+behind it are the operator's only route between writes on and writes off on a
+live session, and now the only route onto another control target. Every
+interesting part of that is client-side behavior a FastAPI TestClient cannot
+observe: the chip only exists once ``terminal.js`` has reported a session id,
+the card, the rows and both confirms are built in the DOM by
+``control-target-popover.js``, and every
 one of them repaints from a *re-read* of ``GET /api/terminal/posture`` rather
 than from what the module last POSTed. A real browser is what proves the chip
 an operator looks at agrees with the store the connector will read.
 
 Coverage (one test each):
 
-  (a) the chip names the machine the session stands on, and its popover lists
-      every configured target with the identity the route published.
-  (b) narrowing a target to read-only asks nothing, lands in the server's own
+  (a) the chip names the machine the session stands on by its display name,
+      and the popover renders that machine as the card and every other
+      configured target as a row, the server's own label demoted to tooltips.
+  (b) turning a target's writes off asks nothing, lands in the server's own
       store under the key that session answers to, and respawns nothing — the
       posture is read live, so the PTY the operator is talking to is the same
       process afterwards.
-  (c) widening back is the direction that confirms: the dialog names the
-      target, Cancel is a true no-op on the row *and* in the store, and only a
-      confirmed dialog widens.
+  (c) turning writes back on is the direction that confirms: the dialog names
+      the machine, Cancel is a true no-op on the row *and* in the store, and
+      only a confirmed dialog widens.
   (d) Switch confirms, is accepted as ``202``, and puts the chip and the row
       into ``switching…`` with a request file addressed to the controls server
       — this route only *asks*; the reconciler that would answer is not running
@@ -30,10 +32,9 @@ Coverage (one test each):
       session the server has never seen, refused with "send one prompt first"),
       and inside the dialog for one raised from a confirm — which stays up to
       carry it.
-  (f) both UI modes render the SAME row DOM and differ only in what is shown:
-      simple keeps the dot, the name (the one identity line), the
-      reachability LED, the toggle and Switch; expert keeps the endpoint/role
-      line, the reachability word, the head note and the config sentence.
+  (f) both UI modes render the SAME popover DOM and show all of it: the
+      redesign leaves no popover node for the density stylesheet to gate —
+      endpoints and the server's label are hover vocabulary in both modes.
 
 Session bootstrapping. The chip needs a session id, and one arrives the way it
 does in production: a plain page load opens a NEW terminal WebSocket, and the
@@ -111,8 +112,8 @@ CHIP = "#control-target-chip"
 CHIP_SHORT = f"{CHIP} .ctc-short"
 CHIP_STATE = f"{CHIP} .ctc-state"
 POPOVER = ".ctc-popover.open"
+CARD = f"{POPOVER} .ctc-card"
 FOOT_NOTE = f"{POPOVER} .ctc-foot-note"
-HEAD_NOTE = f"{POPOVER} .ctc-head-note"
 
 # `:not([data-closing])` is the contract for "the dialog is OPEN". Dismissal is
 # marked by the attribute and the node is only detached after the fade (~300ms),
@@ -147,12 +148,21 @@ POSTURE_TARGET = "standin"
 #: The row Switch is exercised on — the only one this render offers it for.
 SWITCH_TARGET = "live"
 
-#: What the render names each target. The controls server mints these once and
-#: every reader renders that one string; the popover's confirm titles quote them.
+#: The server's own labels. The controls server mints these once, and this
+#: render keeps them where the machine vocabulary now lives: on tooltips.
 LABELS = {
     "live": "LIVE MACHINE",
     "va": "virtual accelerator (simulation)",
     "standin": "LIVE MACHINE (stand-in)",
+}
+
+#: What the popover and the chip NAME each target: the kind's own word, since
+#: this render configures no ``control_system.target_display_names``. The
+#: confirm titles quote these — never the labels above.
+NAMES = {
+    "live": "Real machine",
+    "va": "Simulator",
+    "standin": "Rehearsal",
 }
 
 
@@ -386,23 +396,9 @@ def _row(page: Page, target: str) -> Any:
     return page.locator(f'{POPOVER} .ctc-row[data-target="{target}"]')
 
 
-def _segment(page: Page, target: str, seg: str) -> Any:
-    return _row(page, target).locator(f'.ctc-seg[data-seg="{seg}"]')
-
-
-def _display(page: Page, selector: str) -> str | None:
-    """The computed ``display`` of the first match, or ``None`` when absent.
-
-    The density delta between the two UI modes is pure ``display`` gating, and
-    two of the gated nodes (the head note in the plain case) legitimately carry
-    no text — so "hidden" has to be read off the computed style rather than off
-    a bounding box that would be empty either way.
-    """
-    return page.evaluate(
-        "(sel) => { const el = document.querySelector(sel);"
-        " return el ? getComputedStyle(el).display : null; }",
-        selector,
-    )
+def _verb(page: Page, target: str) -> Any:
+    """The row's one write verb — reads ``Turn writes off`` or ``Turn writes on``."""
+    return _row(page, target).locator(".ctc-verb")
 
 
 def _settled_chip(
@@ -446,16 +442,20 @@ def _settled_chip(
 
 
 def _open_popover(page: Page) -> None:
-    """Click the chip open and wait for the rows to be on screen."""
+    """Click the chip open and wait for the card to be on screen."""
     page.locator(CHIP).click()
     expect(page.locator(POPOVER)).to_be_visible(timeout=TIMEOUT)
     expect(page.locator(CHIP)).to_have_attribute("aria-expanded", "true", timeout=TIMEOUT)
-    expect(_row(page, ACTIVE_TARGET)).to_be_visible(timeout=TIMEOUT)
+    expect(page.locator(CARD)).to_be_visible(timeout=TIMEOUT)
 
 
 def _narrow(page: Page, target: str) -> None:
-    """Narrow *target* to read-only through the popover, and wait for the row."""
-    _segment(page, target, "read-only").click()
+    """Turn *target*'s writes off through the popover, and wait for the row.
+
+    Applies on click — turning off only ever removes reach, so no confirm is
+    in the way, and the row's ``data-state`` flipping is the re-read landing.
+    """
+    _verb(page, target).click()
     expect(_row(page, target)).to_have_attribute("data-state", "sandbox", timeout=TIMEOUT)
 
 
@@ -470,9 +470,10 @@ def test_the_chip_names_the_session_target_and_lists_every_row(
     """The chip speaks for the machine the session stands on; the popover lists all.
 
     The record puts the session on the simulator, so the chip reads
-    ``VIRTUAL · writes`` — the short word the route derived, not the target
-    name — and the popover carries one row per configured target with the label
-    the render published. The active row is tagged ``current`` and offers no
+    ``Simulator · writes on`` — the display name the render minted, not the
+    target name — and the popover renders that machine as the card ("The agent
+    is on") and each other configured target as a row named the same way, the
+    server's own label demoted to the identity tooltip. The card offers no
     Switch; switching to the target you are on is a no-op.
     """
     known_ids: set[str] = set()
@@ -489,21 +490,28 @@ def test_the_chip_names_the_session_target_and_lists_every_row(
             expect(page.locator(".terminal-header .posture-badge")).to_have_count(0)
             expect(page.locator(f".terminal-header {CHIP}")).to_have_count(0)
 
-            expect(page.locator(CHIP_SHORT)).to_have_text("VIRTUAL", timeout=TIMEOUT)
-            expect(page.locator(CHIP_STATE)).to_have_text("writes", timeout=TIMEOUT)
+            expect(page.locator(CHIP_SHORT)).to_have_text(NAMES[ACTIVE_TARGET], timeout=TIMEOUT)
+            expect(page.locator(CHIP_STATE)).to_have_text("writes on", timeout=TIMEOUT)
             expect(page.locator(CHIP)).to_have_attribute("data-target-kind", "va")
             expect(page.locator(CHIP)).to_have_attribute("aria-expanded", "false")
 
             _open_popover(page)
 
-            expect(page.locator(f"{POPOVER} .ctc-row")).to_have_count(3, timeout=TIMEOUT)
-            for target, label in LABELS.items():
-                expect(_row(page, target).locator(".ctc-label")).to_have_text(label)
+            # The machine the agent is on is the card; every other machine a row.
+            card = page.locator(CARD)
+            expect(card).to_have_attribute("data-target", ACTIVE_TARGET)
+            expect(card.locator(".ctc-card-eyebrow")).to_have_text("The agent is on")
+            expect(card.locator(".ctc-name")).to_have_text(NAMES[ACTIVE_TARGET])
+            expect(page.locator(f"{POPOVER} .ctc-row")).to_have_count(2, timeout=TIMEOUT)
+            for target in (SWITCH_TARGET, POSTURE_TARGET):
+                row = _row(page, target)
+                expect(row.locator(".ctc-name")).to_have_text(NAMES[target])
+                expect(row.locator(".ctc-pill")).to_have_text("writes on")
+                # The server's own label is hover vocabulary now, not rest copy.
+                title = row.locator(".ctc-name-line").get_attribute("title")
+                assert title and LABELS[target] in title, title
 
-            active = _row(page, ACTIVE_TARGET)
-            expect(active).to_have_attribute("data-active", "true")
-            expect(active.locator(".ctc-tag-current")).to_have_text("current")
-            expect(active.locator(".ctc-switch")).to_have_count(0)
+            expect(card.locator(".ctc-switch")).to_have_count(0)
             # The one target this render will switch onto.
             expect(_row(page, SWITCH_TARGET).locator(".ctc-switch")).to_be_visible()
         finally:
@@ -540,20 +548,17 @@ def test_narrowing_asks_nothing_lands_in_the_store_and_respawns_nothing(
             _open_popover(page)
             row = _row(page, POSTURE_TARGET)
             expect(row).to_have_attribute("data-state", "writes")
+            expect(_verb(page, POSTURE_TARGET)).to_have_text("Turn writes off")
 
             _narrow(page, POSTURE_TARGET)
 
-            # Nothing asked, and the toggle is the readout as well as the
-            # control: both segments moved.
+            # Nothing asked, and the row is the readout as well as the
+            # control: the pill flipped and the verb reversed.
             expect(page.locator(OPEN_MODAL)).to_have_count(0)
-            expect(_segment(page, POSTURE_TARGET, "read-only")).to_have_attribute(
-                "aria-pressed", "true"
-            )
-            expect(_segment(page, POSTURE_TARGET, "writes")).to_have_attribute(
-                "aria-pressed", "false"
-            )
-            # The other rows are untouched: a posture is per target.
-            expect(_row(page, ACTIVE_TARGET)).to_have_attribute("data-state", "writes")
+            expect(_row(page, POSTURE_TARGET).locator(".ctc-pill")).to_have_text("writes off")
+            expect(_verb(page, POSTURE_TARGET)).to_have_text("Turn writes on")
+            # The card is untouched: a posture is per target.
+            expect(page.locator(CARD)).to_have_attribute("data-state", "writes")
 
             # A session that was never rekeyed answers to ONE key:
             # PtyRegistry.audit_session_key returns its argument unchanged.
@@ -595,10 +600,10 @@ def test_arming_confirms_and_cancel_changes_nothing(tmp_path, monkeypatch, chrom
             _open_popover(page)
             _narrow(page, POSTURE_TARGET)
 
-            # --- widening, cancelled ---
-            _segment(page, POSTURE_TARGET, "writes").click()
+            # --- turning on, cancelled ---
+            _verb(page, POSTURE_TARGET).click()
             expect(page.locator(MODAL_TITLE)).to_have_text(
-                f"Allow writes on {LABELS[POSTURE_TARGET]}?", timeout=TIMEOUT
+                f"Turn writes on for {NAMES[POSTURE_TARGET]}?", timeout=TIMEOUT
             )
             # The rows stay readable underneath: the confirm is a layer above
             # the popover, not a replacement for it.
@@ -609,9 +614,9 @@ def test_arming_confirms_and_cancel_changes_nothing(tmp_path, monkeypatch, chrom
             expect(_row(page, POSTURE_TARGET)).to_have_attribute("data-state", "sandbox")
             assert _stored_postures()[session_id] == {POSTURE_TARGET: "sandbox"}
 
-            # --- widening, confirmed ---
-            _segment(page, POSTURE_TARGET, "writes").click()
-            expect(page.locator(MODAL_CONFIRM)).to_have_text("Allow writes", timeout=TIMEOUT)
+            # --- turning on, confirmed ---
+            _verb(page, POSTURE_TARGET).click()
+            expect(page.locator(MODAL_CONFIRM)).to_have_text("Turn writes on", timeout=TIMEOUT)
             page.locator(MODAL_CONFIRM).click()
 
             expect(_row(page, POSTURE_TARGET)).to_have_attribute(
@@ -652,12 +657,16 @@ def test_switch_confirms_is_accepted_and_reads_switching(tmp_path, monkeypatch, 
             _row(page, SWITCH_TARGET).locator(".ctc-switch").click()
 
             expect(page.locator(MODAL_TITLE)).to_have_text(
-                f"Switch to {LABELS[SWITCH_TARGET]}?", timeout=TIMEOUT
+                f"Switch to {NAMES[SWITCH_TARGET]}?", timeout=TIMEOUT
             )
-            # The posture that travels is the one held on the target being
-            # switched TO, because posture is per target and does not follow.
+            # The write state named is the one held on the machine being
+            # switched TO, because writes on/off is per machine and does not
+            # follow — and only the real machine carries the hardware sentence.
             expect(page.locator(f"{OPEN_MODAL} .posture-modal-body")).to_contain_text(
-                "Arrives in the writes posture"
+                "Writes are on there for your session"
+            )
+            expect(page.locator(f"{OPEN_MODAL} .posture-modal-live")).to_have_text(
+                "Real machine — writes move hardware."
             )
             page.locator(MODAL_CONFIRM).click()
 
@@ -713,10 +722,10 @@ def test_an_unstarted_session_accepts_a_narrowing_the_moment_it_opens(
             )
 
             _open_popover(page)
-            _segment(page, POSTURE_TARGET, "read-only").click()
+            _verb(page, POSTURE_TARGET).click()
 
-            expect(_segment(page, POSTURE_TARGET, "read-only")).to_have_attribute(
-                "aria-pressed", "true", timeout=TIMEOUT
+            expect(_row(page, POSTURE_TARGET)).to_have_attribute(
+                "data-state", "sandbox", timeout=TIMEOUT
             )
             stored = _stored_postures()
             assert stored == {session_id: {POSTURE_TARGET: "sandbox"}}, stored
@@ -761,7 +770,7 @@ def test_a_refused_switch_keeps_its_sentence_inside_the_confirm(
             expect(error).to_contain_text("has not been answered yet", timeout=TIMEOUT)
             expect(page.locator(OPEN_MODAL)).to_have_count(1)
             expect(page.locator(CHIP)).not_to_have_attribute("data-pending", "true")
-            expect(page.locator(CHIP_STATE)).to_have_text("writes")
+            expect(page.locator(CHIP_STATE)).to_have_text("writes on")
         finally:
             page.close()
 
@@ -770,38 +779,27 @@ def test_a_refused_switch_keeps_its_sentence_inside_the_confirm(
 # (f) one DOM, two densities
 # ---------------------------------------------------------------------------
 
-#: Nodes simple mode drops and expert keeps. Every one is rendered in BOTH —
-#: the popover reads no `data-ui-mode` at all — so the whole delta is CSS, and
-#: a live mode flip rebuilds nothing.
-_EXPERT_ONLY = (
-    ".ctc-meta",  # the endpoint, and the gateway role beside it
-    ".ctc-reach-text",  # the reachability word and its age; the LED stays
-)
-
 
 @pytest.mark.parametrize("ui_mode", ["expert", "simple"])
 def test_both_ui_modes_render_the_same_row_and_differ_only_in_density(
     tmp_path, monkeypatch, chromium_browser, ui_mode
 ):
-    """Simple keeps what an operator acts on; expert adds the deployment detail.
+    """The popover renders one DOM and shows the whole of it in either mode.
 
-    The rule the popover is built on is that ``html[data-ui-mode]`` is a CSS
-    concern and only a CSS concern. So this asserts the same DOM in both modes
-    — every gated node is *attached* either way — and that the difference is
-    which of them the stylesheet shows:
-
-    * simple keeps the dot, the name (the row's one identity line — the label
-      already says what kind of machine it names), the reachability LED, the
-      posture toggle and Switch;
-    * expert keeps the endpoint/role line, the reachability word, the head note
-      and the sentence that bounds the popover.
+    ``html[data-ui-mode]`` stays a CSS concern and only a CSS concern — and
+    this design leaves it nothing in the popover to gate. The endpoint and the
+    server's own label are hover vocabulary in BOTH modes, reachability only
+    speaks when a machine is not answering, and what remains at rest — the
+    name, the consequence line, the pill, the verb, Switch — is what an
+    operator acts on and is shown in either density. So the invariant pinned
+    here is the stronger one: same DOM, same visibility, and the confirms
+    identical, whichever mode the deployment renders.
 
     The mode is driven the way the deployment drives it — ``web.ui_mode``
     reaching the page as the server-rendered ``<html data-ui-mode>`` attribute
     — not by poking the attribute from the test.
     """
     known_ids: set[str] = set()
-    simple = ui_mode == "simple"
 
     with _chip_hub(tmp_path, monkeypatch, known_ids=known_ids, ui_mode=ui_mode) as (
         base_url,
@@ -814,49 +812,25 @@ def test_both_ui_modes_render_the_same_row_and_differ_only_in_density(
 
             row = _row(page, SWITCH_TARGET)
 
-            # --- the same DOM in both modes ---
-            for selector in _EXPERT_ONLY:
-                assert row.locator(selector).count() == 1, f"{selector} missing in {ui_mode}"
-            # The retired kind subtitle stays retired: the label is the row's
-            # one identity line, in either density.
-            assert row.locator(".ctc-kind").count() == 0
-            expect(page.locator(HEAD_NOTE)).to_have_count(1)
-            expect(page.locator(FOOT_NOTE)).to_have_count(1)
-
-            # --- what every mode shows: the four things an operator acts on ---
-            expect(row.locator(".ctc-dot")).to_be_visible()
-            expect(row.locator(".ctc-label")).to_have_text(LABELS[SWITCH_TARGET])
-            expect(row.locator(".ctc-reach .ctc-reach-dot")).to_be_visible()
-            expect(row.locator('.ctc-seg[data-seg="writes"]')).to_be_visible()
-            expect(row.locator('.ctc-seg[data-seg="read-only"]')).to_be_visible()
+            # --- what an operator acts on, at rest, in either density ---
+            expect(row.locator(".ctc-name")).to_have_text(NAMES[SWITCH_TARGET])
+            expect(row.locator(".ctc-desc")).to_have_text("Writes move hardware")
+            expect(row.locator(".ctc-pill")).to_have_text("writes on")
+            expect(row.locator(".ctc-verb")).to_be_visible()
             expect(row.locator(".ctc-switch")).to_be_visible()
+            expect(page.locator(FOOT_NOTE)).to_have_text("Your session only")
 
-            # --- and the density delta ---
-            for selector in _EXPERT_ONLY:
-                node = row.locator(selector)
-                if simple:
-                    expect(node).to_be_hidden()
-                else:
-                    expect(node).to_be_visible()
-            # The head note carries no text in the plain case, so "dropped" is
-            # a question about the computed style rather than a bounding box.
-            head_note_display = _display(page, HEAD_NOTE)
-            if simple:
-                assert head_note_display == "none", head_note_display
-            else:
-                assert head_note_display != "none", head_note_display
-            if simple:
-                expect(page.locator(FOOT_NOTE)).to_be_hidden()
-            else:
-                expect(page.locator(FOOT_NOTE)).to_have_text(
-                    "Nothing here changes the deployment's config."
-                )
+            # --- the machine vocabulary stays on hover, in either density ---
+            title = row.locator(".ctc-name-line").get_attribute("title")
+            assert title and LABELS[SWITCH_TARGET] in title, title
+            # No endpoint/role line exists at rest for a stylesheet to gate.
+            assert row.locator(".ctc-meta").count() == 0
 
             # Both confirms are identical in either mode: a safety gesture does
             # not get a density.
             row.locator(".ctc-switch").click()
             expect(page.locator(MODAL_TITLE)).to_have_text(
-                f"Switch to {LABELS[SWITCH_TARGET]}?", timeout=TIMEOUT
+                f"Switch to {NAMES[SWITCH_TARGET]}?", timeout=TIMEOUT
             )
             page.locator(MODAL_CANCEL).click()
             expect(page.locator(OPEN_MODAL)).to_have_count(0, timeout=TIMEOUT)
