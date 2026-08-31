@@ -22,6 +22,7 @@ from osprey.deployment.web_terminals.ports import (
 from osprey.deployment.web_terminals.render import (
     AUTH_ENV_DIGEST_LABEL,
     TERMINAL_SECRET_HEADER,
+    TLS_LISTEN_PORT,
     _auth_tls_context,
     _terminal_secret_artifacts,
     clear_nginx_templates_dir,
@@ -833,13 +834,27 @@ def test_render_missing_deploy_fqdn_is_fine_with_zero_users() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _tls_config(users: list[str] | None = None) -> dict:
-    """A config with TLS terminated at nginx (cert/key set, as the render demands)."""
+#: A TLS listener a rootless nginx can actually bind, for the non-default-port
+#: cases below. Deliberately outside every deployment port block (the layout's
+#: default base is 10000 and this module's second base sits above it), so a
+#: number appearing in a render can only have come from `tls.port` — and, being
+#: numerically below those bases while lexically above them, it is also what
+#: makes the perimeter deny-list's ordering assertions non-vacuous.
+_ALT_TLS_PORT = 8443
+
+
+def _tls_config(users: list[str] | None = None, *, port: int | None = None) -> dict:
+    """A config with TLS terminated at nginx (cert/key set, as the render demands).
+
+    ``port`` names a non-default ``tls.port``; left out, the stanza carries no
+    port key at all, which is the shape every default-port test above renders.
+    """
     config = copy.deepcopy(_config(users) if users is not None else _MULTI_USER_CONFIG)
     config["modules"]["web_terminals"]["tls"] = {
         "enabled": True,
         "cert": "/etc/nginx/certs/dls.crt",
         "key": "/etc/nginx/certs/dls.key",
+        **({"port": port} if port is not None else {}),
     }
     return config
 
@@ -889,6 +904,48 @@ def test_external_origin_with_tls_is_https_with_443_left_implicit() -> None:
 
     # Assert — the nginx_port never appears in a TLS origin
     assert contexts["nginx.conf.j2"]["external_origin"] == "https://dls-deploy.dls.example.org"
+
+
+def test_external_origin_with_a_non_default_tls_port_spells_that_port_out() -> None:
+    """A `tls.port` other than 443 belongs IN the origin, unlike 443 itself.
+
+    443 is left implicit because that is what an `https://` URL with no port
+    already means; any other port is not implied by anything, and a browser that
+    reached this deployment on it sends it in the `Origin` header. An origin that
+    omitted it would be compared against a string no browser sends, and the
+    `redirect_uri` built from it would be one the IdP was never registered for.
+    """
+    # Arrange
+    config = _tls_config(port=_ALT_TLS_PORT)
+
+    # Act
+    contexts = _capture_render_contexts(config)
+
+    # Assert — one derivation, so every consumer carries the port
+    origin = f"https://dls-deploy.dls.example.org:{_ALT_TLS_PORT}"
+    assert contexts["nginx.conf.j2"]["external_origin"] == origin
+    assert contexts["docker-compose.web.yml.j2"]["external_origin"] == origin
+    assert deployment_external_origin(_tls_config(port=_ALT_TLS_PORT)) == origin
+
+
+def test_landing_url_baked_into_containers_carries_a_non_default_tls_port() -> None:
+    """The "back to landing" link has to name the port the content server is on.
+
+    It is baked in at container start and never recomputed, so an origin missing
+    the port ships every terminal a link to 443 — where this deployment listens
+    on nothing at all.
+    """
+    # Arrange
+    config = _tls_config(port=_ALT_TLS_PORT)
+
+    # Act
+    compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
+
+    # Assert
+    assert (
+        f"OSPREY_TERMINAL_LANDING_URL=https://dls-deploy.dls.example.org:{_ALT_TLS_PORT}"
+        in compose["services"]["web-alice"]["environment"]
+    )
 
 
 def test_external_origin_is_exported_to_both_the_nginx_and_compose_contexts() -> None:
@@ -1729,6 +1786,7 @@ def test_tls_default_off() -> None:
     assert context["tls_enabled"] is False
     assert context["tls_cert"] is None
     assert context["tls_key"] is None
+    assert context["tls_port"] == TLS_LISTEN_PORT
 
 
 def test_tls_default_off_reads_configured_stanza() -> None:
@@ -1748,6 +1806,25 @@ def test_tls_default_off_reads_configured_stanza() -> None:
     assert context["tls_enabled"] is True
     assert context["tls_cert"] == "/etc/nginx/certs/dls.crt"
     assert context["tls_key"] == "/etc/nginx/certs/dls.key"
+
+
+def test_tls_port_reads_a_configured_listener() -> None:
+    """A host that cannot bind 443 names its own TLS port; the parser reads it through,
+    and every consumer of the seam follows that value instead of the default."""
+    # Arrange
+    web_terminals = copy.deepcopy(_MULTI_USER_CONFIG)["modules"]["web_terminals"]
+    web_terminals["tls"] = {
+        "enabled": True,
+        "port": 8443,
+        "cert": "/etc/nginx/certs/dls.crt",
+        "key": "/etc/nginx/certs/dls.key",
+    }
+
+    # Act
+    context = _auth_tls_context(web_terminals)
+
+    # Assert
+    assert context["tls_port"] == 8443
 
 
 # ---------------------------------------------------------------------------
@@ -1883,6 +1960,29 @@ def test_auth_context_malformed_scalars_fall_back_to_defaults() -> None:
     assert context["auth_image"] is None
     assert context["auth_oidc_issuer"] is None
     assert context["auth_oidc_client_id_env"] == "OSPREY_AUTH_OIDC_CLIENT_ID"
+
+
+@pytest.mark.parametrize(
+    "bad_port",
+    [0, -1, 65536, 70000, True, "8443"],
+    ids=["zero", "negative", "one-past-the-top", "far-past-the-top", "bool", "string"],
+)
+def test_port_keys_outside_the_tcp_range_fall_back_to_their_defaults(bad_port: object) -> None:
+    """Both port keys read through the same bounded reader, so the whole invalid domain
+    — not an int, `bool`, zero, negative, or past 65535 — lands on the default rather
+    than reaching a `listen` directive nginx refuses at startup. That is what makes
+    lint's "the render falls back" finding true of `tls.port` and `auth.port` alike."""
+    # Arrange
+    web_terminals = copy.deepcopy(_MULTI_USER_CONFIG)["modules"]["web_terminals"]
+    web_terminals["auth"] = {"port": bad_port}
+    web_terminals["tls"] = {"enabled": True, "port": bad_port}
+
+    # Act
+    context = _auth_tls_context(web_terminals)
+
+    # Assert
+    assert context["auth_port"] == _DEFAULT_AUTH_PORT
+    assert context["tls_port"] == TLS_LISTEN_PORT
 
 
 def test_auth_context_never_reads_a_credential_out_of_config() -> None:
@@ -2969,6 +3069,60 @@ def test_tls_redirect_target_is_the_requested_host_not_the_render_time_origin() 
     # Assert
     assert "https://$host$request_uri" in redirect
     assert fqdn not in redirect
+
+
+def test_tls_content_server_listens_on_a_configured_non_default_port() -> None:
+    """`tls.port` moves BOTH `listen ... ssl` lines, IPv4 and IPv6 alike.
+
+    A host that cannot bind 443 — rootless, or already carrying another
+    deployment's perimeter — names its own port. One line following it and the
+    other left at 443 would render a server that either fails to start (443 is
+    privileged) or answers on a port nothing else in the deployment knows about.
+    """
+    # Act
+    redirect, content = _server_blocks(_render_nginx(_tls_config(port=_ALT_TLS_PORT)))
+
+    # Assert — the content server is entirely on the configured port
+    assert f"listen {_ALT_TLS_PORT} ssl;" in content
+    assert f"listen [::]:{_ALT_TLS_PORT} ssl;" in content
+    assert "listen 443 ssl;" not in content
+    assert "listen [::]:443 ssl;" not in content
+    # Assert — the plain listener is untouched by the TLS port, and still only redirects
+    assert f"listen {_NGINX_PORT};" in redirect
+    assert f"listen {_ALT_TLS_PORT}" not in redirect
+
+
+def test_tls_redirect_names_a_non_default_port_in_its_bounce_target() -> None:
+    """The 301 has to carry the port as well as the scheme.
+
+    `$host` is the name the client asked for and never the port it should be
+    sent to, so a bare `https://$host` bounces every cleartext client to 443 —
+    where a deployment serving on its own `tls.port` has nothing listening, and
+    the front door becomes a redirect into a connection refusal.
+    """
+    # Act
+    redirect = _server_blocks(_render_nginx(_tls_config(port=_ALT_TLS_PORT)))[0]
+
+    # Assert
+    assert f"return 301 https://$host:{_ALT_TLS_PORT}$request_uri;" in redirect
+    assert "return 301 https://$host$request_uri;" not in redirect
+    # Still the requested host, not the render-time fqdn: only the port is fixed here.
+    assert "dls-deploy.dls.example.org" not in redirect
+
+
+def test_tls_port_left_at_the_default_keeps_the_port_out_of_the_redirect() -> None:
+    """Explicitly configuring 443 renders exactly what configuring nothing does.
+
+    The redirect names a port only when a browser would not already assume it,
+    so the default spelled out by hand must not start emitting `:443` — the same
+    value, in the canonical form, from either config.
+    """
+    # Act
+    explicit = _render_nginx(_tls_config(port=TLS_LISTEN_PORT))
+
+    # Assert
+    assert explicit == _render_nginx(_tls_config())
+    assert "return 301 https://$host$request_uri;" in _server_blocks(explicit)[0]
 
 
 def test_tls_redirect_content_server_holds_the_cert_and_every_user_route() -> None:

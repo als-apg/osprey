@@ -49,6 +49,11 @@ _TLS_STANZA = {
     "key": "/etc/nginx/certs/dls.key",
 }
 
+#: The TLS listener a rootless nginx can bind, for the non-default-port seam
+#: case. Outside this deployment's port block, so a number in the rendered
+#: config can only have come from `tls.port`.
+_ALT_TLS_PORT = 8443
+
 
 def _config(users: list[str]) -> dict:
     """Minimal-but-complete facility config that exercises render_web_terminals()."""
@@ -436,6 +441,43 @@ def test_seam_tls_enabled_with_both_cert_and_key_emits_ssl_listen_and_paths() ->
     assert "ssl_certificate /etc/nginx/certs/dls.crt;" in content
     assert "ssl_certificate_key /etc/nginx/certs/dls.key;" in content
     assert "location = / {" in content
+
+
+def test_seam_tls_on_a_non_default_port_moves_the_whole_encrypted_seam() -> None:
+    """SEAM 2 (the seam survives a rootless listener): `tls.port` must move the
+    two `listen ... ssl` lines AND the cleartext server's redirect target
+    together.
+
+    Each half alone reopens the seam it was built to close. Listeners moved
+    without the redirect leave the front door bouncing every client to 443,
+    where this deployment listens on nothing — so the only reachable surface is
+    the cleartext one. A redirect moved without the listeners points at a port
+    nginx never binds. The encrypted server stays the sole content server either
+    way: the plain port keeps carrying nothing but the 301.
+    """
+    # Arrange
+    config = _auth_config(tls=True)
+    config["modules"]["web_terminals"]["tls"]["port"] = _ALT_TLS_PORT
+    users = config["modules"]["web_terminals"]["users"]
+
+    # Act
+    redirect, content = _server_blocks(_render_nginx(config))
+
+    # Assert — both listeners follow the configured port, and 443 is gone
+    assert f"listen {_ALT_TLS_PORT} ssl;" in content
+    assert f"listen [::]:{_ALT_TLS_PORT} ssl;" in content
+    assert "listen 443 ssl;" not in content
+    assert "listen [::]:443 ssl;" not in content
+
+    # Assert — the redirect names the port the content server is actually on
+    assert f"return 301 https://$host:{_ALT_TLS_PORT}$request_uri;" in redirect
+    assert "return 301 https://$host$request_uri;" not in redirect
+
+    # Assert — the split itself is unchanged: cleartext redirects, TLS serves
+    assert "location" not in redirect
+    assert _directives(content).count("auth_request ") == len(users)
+    assert "ssl_certificate /etc/nginx/certs/dls.crt;" in content
+    assert "ssl_certificate_key /etc/nginx/certs/dls.key;" in content
 
 
 def _nginx_volumes(config: dict) -> list[str]:

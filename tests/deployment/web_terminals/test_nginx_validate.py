@@ -14,6 +14,10 @@ uses) against each render shape the auth/TLS seams can produce:
   blocks, the plain port's `return 301 https://…`, `listen 443 ssl` +
   `ssl_certificate*`, the two `map`s, a per-user `auth_request` and `internal`
   verify target, the shared named 401 handler, and the public `/auth/` prefix.
+- that same enabled render moved off 443 by `tls.port` — the rootless shape,
+  where both `listen ... ssl` lines bind an unprivileged port and the cleartext
+  server's 301 has to name that port in its `Location` or the bounce lands
+  where nothing is serving.
 - the cleartext-auth render (`auth.method: password` with
   `allow_insecure_http`, the shape a facility behind its own TLS terminator
   deploys): the same auth surface inside a *single* server block.
@@ -45,6 +49,7 @@ import pytest
 from osprey.deployment.web_terminals.render import (
     NGINX_TEMPLATES_OUTPUT_DIR,
     TERMINAL_SECRET_HEADER,
+    TLS_LISTEN_PORT,
     render_web_terminals,
     terminal_secret_env_var,
 )
@@ -55,6 +60,11 @@ from osprey.port_layout import default_port
 #: proxy_pass target asserted further down follows a slot that moves.
 _BASE_PORTS = {slot: default_port(slot) for slot in ("web", "artifact", "ariel", "lattice")}
 _NGINX_IMAGE = "nginx:1.27-alpine"
+
+#: The `tls.port` a rootless deployment names: above 1024, so an unprivileged
+#: nginx can bind it, and pointedly not `TLS_LISTEN_PORT` — the whole point of
+#: the case below is the render shape the default never produces.
+_UNPRIVILEGED_TLS_PORT = 8443
 
 #: Where the base image's entrypoint writes the envsubst'd per-user snippets, and
 #: which variables it may substitute — kept byte-identical to the values the
@@ -377,6 +387,78 @@ def test_enabled_tls_and_auth_render_passes_nginx_t() -> None:
         assert f"ssl_certificate /etc/nginx/certs/{cert_path.name};" in nginx_conf
         assert f"ssl_certificate_key /etc/nginx/certs/{key_path.name};" in nginx_conf
         assert "return 301 https://$host$request_uri;" in nginx_conf
+
+        (conf_dir / "default.conf").write_text(nginx_conf)
+        _write_secret_templates(artifacts, templates_dir)
+        secret_env = {terminal_secret_env_var(user): value for user, value in secrets.items()}
+
+        # Act
+        result = _run_nginx_t(
+            conf_dir,
+            certs_dir=certs_dir,
+            templates_dir=templates_dir,
+            secret_env=secret_env,
+        )
+
+    # Assert
+    assert result.returncode == 0, result.stderr
+
+
+def test_tls_render_on_an_unprivileged_port_passes_nginx_t() -> None:
+    """C2b: the same enabled render with `tls.port: 8443` — the shape a host
+    that cannot bind 443 deploys — is a config nginx accepts, not a string match.
+
+    Three directives move together off the default and nothing else re-derives
+    them: both `listen ... ssl` lines (the IPv4 one and the IPv6 one, which is
+    where a port substituted into only one of a pair goes wrong), and the
+    cleartext server's `return 301`, which has to carry `:8443` in its
+    `Location` or every plain-http visitor is bounced to a port nothing serves.
+    Run through real nginx because a port stitched into a listener is exactly
+    the kind of edit that produces a plausible-looking string and an
+    unparseable directive.
+    """
+    assert _UNPRIVILEGED_TLS_PORT != TLS_LISTEN_PORT
+    users = ["alice", "bob"]
+    secrets = _terminal_secrets(users)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        conf_dir = tmp_path / "conf"
+        certs_dir = tmp_path / "certs"
+        templates_dir = tmp_path / "templates"
+        conf_dir.mkdir()
+        certs_dir.mkdir()
+        templates_dir.mkdir()
+
+        cert_path, key_path = _generate_self_signed_cert(certs_dir)
+
+        # Arrange — same cert/key discipline as the default-port TLS render:
+        # the paths are where the pair is MOUNTED in the container, and the
+        # per-user snippets are rendered so the authenticated locations'
+        # `include` resolves at start.
+        artifacts = render_web_terminals(
+            _config(
+                users=users,
+                tls={
+                    "enabled": True,
+                    "port": _UNPRIVILEGED_TLS_PORT,
+                    "cert": f"/etc/nginx/certs/{cert_path.name}",
+                    "key": f"/etc/nginx/certs/{key_path.name}",
+                },
+                auth={"method": "password"},
+            ),
+            terminal_secrets=secrets,
+        )
+        nginx_conf = artifacts["nginx/nginx.conf"]
+        # Guard against a vacuous green twice over: the gated surface is still
+        # there, and this really is the moved-port shape rather than the
+        # default one wearing a different config key.
+        _assert_auth_surface_present(nginx_conf, users)
+        assert f"listen {_UNPRIVILEGED_TLS_PORT} ssl;" in nginx_conf
+        assert f"listen [::]:{_UNPRIVILEGED_TLS_PORT} ssl;" in nginx_conf
+        assert f"listen {TLS_LISTEN_PORT} ssl;" not in nginx_conf
+        assert f"return 301 https://$host:{_UNPRIVILEGED_TLS_PORT}$request_uri;" in nginx_conf
+        assert "return 301 https://$host$request_uri;" not in nginx_conf
 
         (conf_dir / "default.conf").write_text(nginx_conf)
         _write_secret_templates(artifacts, templates_dir)

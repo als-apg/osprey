@@ -157,14 +157,15 @@
     perimeter_deny_ports: str, required (never empty — always contains at
     least the nginx port)
       The deployment's own web ports as a comma-separated, ascending list of
-      integers ("10000,10100,10101") — nginx's published port, 443 when
-      `tls.enabled` puts the real content server behind the TLS listener, and
-      every roster user's terminal port. Nothing else: companion panel families
-      are excluded because they are not what the injected secret opens, the
-      in-container panel proxy addresses them legitimately, and none of them
-      fronts a terminal, an agent session, or an approval prompt — which is
-      what this deny-list guards. Emitted as OSPREY_WEB_PERIMETER_DENY_PORTS
-      beside the OSPREY_WEB_PERIMETER=open marker, gated on `perimeter_open`.
+      integers ("10000,10100,10101") — nginx's published port, the TLS listener
+      (`tls.port`, default 443) when `tls.enabled` puts the real content server
+      behind it, and every roster user's terminal port. Nothing else: companion
+      panel families are excluded because they are not what the injected secret
+      opens, the in-container panel proxy addresses them legitimately, and none
+      of them fronts a terminal, an agent session, or an approval prompt —
+      which is what this deny-list guards. Emitted as
+      OSPREY_WEB_PERIMETER_DENY_PORTS beside the OSPREY_WEB_PERIMETER=open
+      marker, gated on `perimeter_open`.
 
       These are LITERALS, not credentials — a port list, held by a container
       that already knows its own port — so they travel as plain
