@@ -1,27 +1,42 @@
 """The build-time decision about emitting a channel-suggestions snapshot.
 
-Covers every pipeline backend the Channel Finder supports, the emission
-predicate (feature switch, absent database, empty database, size guard), the
-graph paradigm, whose snapshot is derived from the Turtle corpus, and the
-fail-soft behaviour that keeps an unreadable database from blocking a build.
+Covers the emission predicate (feature switch, absent database, empty database,
+size guard), the presentation the decision adds on top of membership (a sorted
+list, the path a skipped snapshot still names), and the one configuration
+mistake that stops a build rather than degrading a panel.
+
+Membership is NOT covered here. Which channels a facility has, and what happens
+when the source is missing, unparseable or unreadable, is
+:func:`~osprey.channel_roster.registered_channels`' answer and is tested against
+the readers themselves in ``tests/channel_roster/``. What these pin is the one
+thing that separates the snapshot from the roster: the presentation guards are
+the snapshot's alone, and switching the typeahead off or capping its size never
+shrinks the roster every other consumer reads.
 """
 
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 
 import pytest
 
+from osprey import channel_roster
+from osprey.channel_roster import registered_channels
 from osprey.deployment.channel_snapshot import (
     DEFAULT_MAX_CHANNELS,
     MAX_CHANNELS_CONFIG_KEY,
-    _load_channel_records,
-    _render_dir,
     compute_channel_snapshot,
 )
 from osprey.services.channel_finder.core.exceptions import PipelineModeError
+
+
+@pytest.fixture(autouse=True)
+def _cold_roster():
+    """Read every source afresh: the roster memoizes across callers by design."""
+    channel_roster._roster_cache.clear()
+    yield
+    channel_roster._roster_cache.clear()
 
 
 def _write_json(path: Path, data: object) -> Path:
@@ -48,17 +63,13 @@ def _config(
     return config
 
 
-def _write_ttl(path: Path, bindings: list[tuple[str, str]] | str) -> Path:
-    """Write a Turtle corpus fixture and return its path.
+def _write_ttl(path: Path, bindings: list[tuple[str, str]]) -> Path:
+    """Write a Turtle corpus fixture -- one ``ChannelBinding`` per
+    ``(binding id, address)`` pair -- and return its path.
 
-    A list of ``(binding id, address)`` pairs becomes one ``ChannelBinding`` per
-    pair; a string is written verbatim, for the corpora whose object terms are
-    the point of the test.
+    Only well-formed corpora: what a malformed or exotic one is read as is the
+    graph reader's business and is exercised in ``tests/channel_roster``.
     """
-    if isinstance(bindings, str):
-        path.write_text(bindings)
-        return path
-
     lines = [
         "@prefix narad_p: <https://narad.example.org/property/> .",
         "@prefix narad_sem: <https://narad.example.org/schema/shared_semantics/> .",
@@ -119,125 +130,6 @@ def flat_database(tmp_path):
             },
         ],
     )
-
-
-@pytest.fixture
-def hierarchical_database(tmp_path):
-    """A two-level hierarchical database expanding to three channels."""
-    return _write_json(
-        tmp_path / "hierarchical.json",
-        {
-            "hierarchy": {
-                "levels": [
-                    {"name": "system", "type": "tree"},
-                    {"name": "field", "type": "tree"},
-                ],
-                "naming_pattern": "{system}:{field}",
-            },
-            "tree": {
-                "SR": {
-                    "_description": "Storage ring",
-                    "CURRENT": {"_description": "Beam current"},
-                    "LIFETIME": {"_description": "Beam lifetime"},
-                },
-                "BR": {
-                    "_description": "Booster ring",
-                    "CURRENT": {"_description": "Beam current"},
-                },
-            },
-        },
-    )
-
-
-@pytest.fixture
-def middle_layer_database(tmp_path):
-    """A Middle Layer export: System -> Family -> Field -> ChannelNames."""
-    return _write_json(
-        tmp_path / "middle_layer.json",
-        {
-            "BPM": {
-                "x": {
-                    "Monitor": {
-                        # MML exports pad names, and the same address can appear
-                        # under more than one field.
-                        "ChannelNames": ["SR:BPM:02:X ", " SR:BPM:01:X"],
-                        "Units": "mm",
-                    },
-                    "Setpoint": {"ChannelNames": ["SR:BPM:01:X"]},
-                }
-            }
-        },
-    )
-
-
-class TestPipelineBackends:
-    """Every configured backend yields the same shape of address list."""
-
-    def test_a_flat_in_context_database_contributes_its_addresses(self, flat_database):
-        decision = compute_channel_snapshot(_config("in_context", flat_database, db_type="flat"))
-
-        assert decision.emit is True
-        assert decision.channels == [
-            "BR:DIAG:BPM:01:POSITION:X",
-            "BR:DIAG:BPM:02:POSITION:X",
-        ]
-        assert decision.count == 2
-        assert decision.source_path == flat_database
-
-    def test_an_in_context_database_defaults_to_the_template_backend(self, flat_database):
-        # No `type` key: detection defaults to 'template', which reads plain
-        # records verbatim alongside any template entries.
-        decision = compute_channel_snapshot(_config("in_context", flat_database))
-
-        assert decision.emit is True
-        assert decision.channels == [
-            "BR:DIAG:BPM:01:POSITION:X",
-            "BR:DIAG:BPM:02:POSITION:X",
-        ]
-
-    def test_a_hierarchical_database_contributes_its_expanded_channels(self, hierarchical_database):
-        decision = compute_channel_snapshot(_config("hierarchical", hierarchical_database))
-
-        assert decision.emit is True
-        # The hierarchical backend has no separate address field — it synthesizes
-        # one from the expanded channel name, so both are the same string here.
-        assert decision.channels == ["BR:CURRENT", "SR:CURRENT", "SR:LIFETIME"]
-        assert decision.count == 3
-
-    def test_a_middle_layer_database_contributes_its_channel_names(self, middle_layer_database):
-        decision = compute_channel_snapshot(_config("middle_layer", middle_layer_database))
-
-        assert decision.emit is True
-        assert decision.channels == ["SR:BPM:01:X", "SR:BPM:02:X"]
-
-    def test_the_address_wins_where_it_differs_from_the_channel_name(self, flat_database):
-        decision = compute_channel_snapshot(_config("in_context", flat_database, db_type="flat"))
-
-        # Panels write addresses, not the human-facing catalog names.
-        assert all(channel.startswith("BR:DIAG:") for channel in decision.channels)
-        assert not any("BoosterRing" in channel for channel in decision.channels)
-
-    def test_addresses_are_sorted_and_deduplicated(self, tmp_path):
-        db_path = _write_json(
-            tmp_path / "duplicates.json",
-            [
-                {"channel": "Zed", "address": "SR:Z"},
-                {"channel": "Alpha", "address": "SR:A"},
-                {"channel": "AlphaAlias", "address": "SR:A"},
-            ],
-        )
-
-        decision = compute_channel_snapshot(_config("in_context", db_path, db_type="flat"))
-
-        assert decision.channels == ["SR:A", "SR:Z"]
-        assert decision.count == 2
-
-    def test_a_record_without_an_address_falls_back_to_its_channel_name(self, tmp_path):
-        db_path = _write_json(tmp_path / "no_address.json", [{"channel": "SR:PLAIN"}])
-
-        decision = compute_channel_snapshot(_config("in_context", db_path, db_type="flat"))
-
-        assert decision.channels == ["SR:PLAIN"]
 
 
 class TestEmissionPredicate:
@@ -324,10 +216,6 @@ class TestUnknownPipelineMode:
         with pytest.raises(PipelineModeError, match="telepathy"):
             compute_channel_snapshot(config)
 
-    def test_loading_records_for_an_unknown_pipeline_raises_a_pipeline_mode_error(self, tmp_path):
-        with pytest.raises(PipelineModeError, match="telepathy"):
-            _load_channel_records("telepathy", {}, tmp_path / "unused.json")
-
 
 class TestGraphParadigm:
     """The graph paradigm snapshots the Turtle corpus the build host holds."""
@@ -349,37 +237,6 @@ class TestGraphParadigm:
         assert decision.channels == ["SR:BPM:01:X", "SR:BPM:02:X"]
         assert decision.count == 2
         assert decision.source_path == ttl
-
-    def test_a_corpus_whose_name_ends_in_rdf_is_still_read_as_turtle(self, tmp_path):
-        # The format is forced, so the extension rdflib would otherwise guess
-        # an XML parser from says nothing about how the corpus is read.
-        ttl = _write_ttl(
-            tmp_path / "corpus.rdf",
-            [("b1", "SR:BPM:01:X"), ("b2", "SR:BPM:02:X")],
-        )
-
-        decision = compute_channel_snapshot(_graph_config(ttl))
-
-        assert decision.emit is True
-        assert decision.count == 2
-
-    def test_an_iri_object_is_dropped_and_a_tagged_literal_keeps_its_lexical_form(self, tmp_path):
-        ttl = _write_ttl(
-            tmp_path / "mixed.ttl",
-            "@prefix narad_p: <https://narad.example.org/property/> .\n"
-            "@prefix narad_sem: <https://narad.example.org/schema/shared_semantics/> .\n"
-            "\n"
-            "<https://example.org/binding/b1> a narad_sem:ChannelBinding ;\n"
-            "    narad_p:fullPv <urn:not-a-literal> .\n"
-            "<https://example.org/binding/b2> a narad_sem:ChannelBinding ;\n"
-            '    narad_p:fullPv "SR:BPM:01:X"@en .\n',
-        )
-
-        decision = compute_channel_snapshot(_graph_config(ttl))
-
-        assert decision.emit is True
-        assert decision.channels == ["SR:BPM:01:X"]
-        assert not any("urn:not-a-literal" in channel for channel in decision.channels)
 
     @pytest.mark.parametrize(
         "config",
@@ -403,68 +260,17 @@ class TestGraphParadigm:
             for record in caplog.records
         )
 
-    def test_a_blank_ttl_path_warns_rather_than_raising(self, caplog):
-        config = _graph_config(graphdb_block={"ttl_path": ""})
-
-        with caplog.at_level("WARNING"):
-            decision = compute_channel_snapshot(config)
-
-        assert decision.emit is False
-        assert decision.source_path is None
-        assert "services.graphdb" in caplog.text
-
-    def test_a_missing_corpus_warns_with_the_path_and_emits_nothing(self, tmp_path, caplog):
+    def test_an_unreadable_corpus_is_still_named_by_the_skipped_snapshot(self, tmp_path):
+        # The corpus is missing, so the roster comes back as an absence — and
+        # the decision surfaces the path that absence names, so a build that
+        # emits nothing can still say which file it was looking for. Why the
+        # read failed, and its warning, are the reader's and are asserted there.
         missing = tmp_path / "gone.ttl"
 
-        with caplog.at_level("WARNING"):
-            decision = compute_channel_snapshot(_graph_config(missing))
+        decision = compute_channel_snapshot(_graph_config(missing))
 
         assert decision.emit is False
         assert decision.source_path == missing
-        assert str(missing) in caplog.text
-
-    def test_a_ttl_path_naming_a_directory_warns_and_emits_nothing(self, tmp_path, caplog):
-        directory = tmp_path / "corpus_dir"
-        directory.mkdir()
-
-        with caplog.at_level("WARNING"):
-            decision = compute_channel_snapshot(_graph_config(directory))
-
-        assert decision.emit is False
-        assert str(directory) in caplog.text
-
-    def test_non_turtle_bytes_warn_with_the_path_and_emit_nothing(self, tmp_path, caplog):
-        ttl = _write_ttl(tmp_path / "corpus.ttl", "this is not turtle")
-
-        with caplog.at_level("WARNING"):
-            decision = compute_channel_snapshot(_graph_config(ttl))
-
-        assert decision.emit is False
-        assert decision.channels == []
-        assert str(ttl) in caplog.text
-
-    def test_a_corpus_without_full_pv_literals_emits_nothing(self, tmp_path):
-        ttl = _write_ttl(tmp_path / "bare.ttl", [])
-
-        decision = compute_channel_snapshot(_graph_config(ttl))
-
-        assert decision.emit is False
-        assert decision.count == 0
-        assert decision.channels == []
-
-    def test_a_corpus_above_the_size_guard_emits_nothing_and_names_the_key(self, tmp_path, caplog):
-        ttl = _write_ttl(
-            tmp_path / "corpus.ttl",
-            [("b1", "SR:BPM:01:X"), ("b2", "SR:BPM:02:X")],
-        )
-        config = _graph_config(ttl, suggestions={"max_channels": 1})
-
-        with caplog.at_level("WARNING"):
-            decision = compute_channel_snapshot(config)
-
-        assert decision.emit is False
-        assert decision.count == 2
-        assert MAX_CHANNELS_CONFIG_KEY in caplog.text
 
     def test_switching_the_feature_off_never_opens_the_corpus(self, tmp_path, caplog):
         # The corpus does not exist: reaching it at all would warn.
@@ -477,23 +283,12 @@ class TestGraphParadigm:
         assert decision.source_path is None
         assert caplog.records == []
 
-    def test_an_unimportable_rdflib_warns_with_the_reinstall_hint(
-        self, tmp_path, monkeypatch, caplog
-    ):
-        ttl = _write_ttl(tmp_path / "corpus.ttl", [("b1", "SR:BPM:01:X")])
-        monkeypatch.setitem(sys.modules, "rdflib", None)
-
-        with caplog.at_level("WARNING"):
-            decision = compute_channel_snapshot(_graph_config(ttl))
-
-        assert decision.emit is False
-        assert decision.source_path == ttl
-        assert "rdflib" in caplog.text
-        assert "pip install --upgrade osprey-framework" in caplog.text
-
-    def test_a_relative_ttl_path_resolves_against_the_recorded_config_dir(
+    def test_a_relative_ttl_path_reaches_the_corpus_the_roster_resolved(
         self, tmp_path, monkeypatch
     ):
+        # The path rules themselves are the roster's (and are tested there);
+        # what this pins is that the decision reports the file that was read,
+        # so a snapshot and the roster can never name different corpora.
         render = tmp_path / "render"
         (render / "data").mkdir(parents=True)
         _write_ttl(render / "data" / "corpus.ttl", [("b1", "SR:BPM:01:X")])
@@ -506,108 +301,77 @@ class TestGraphParadigm:
         assert decision.emit is True
         assert decision.source_path == (render / "data" / "corpus.ttl").resolve()
 
-    def test_a_relative_ttl_path_without_a_config_dir_follows_the_running_config(
-        self, tmp_path, monkeypatch
-    ):
-        # No ``config_dir`` and no ``OSPREY_CONFIG`` (the suite clears it): the
-        # corpus is resolved against the config.yml this process runs against,
-        # which with no render in the working directory is that directory.
-        (tmp_path / "data").mkdir()
-        _write_ttl(tmp_path / "data" / "corpus.ttl", [("b1", "SR:BPM:01:X")])
-        monkeypatch.chdir(tmp_path)
 
-        decision = compute_channel_snapshot(_graph_config("data/corpus.ttl"))
+class TestSnapshotDerivesFromTheRoster:
+    """The snapshot is a view of the roster, and the guards are the view's.
+
+    Three facts, one per direction the two could drift: what is emitted is the
+    roster's own membership, and neither presentation guard reaches back into
+    the roster the rest of the build reads.
+    """
+
+    def test_an_emitted_snapshot_carries_exactly_the_rosters_addresses(self, flat_database):
+        config = _config("in_context", flat_database, db_type="flat")
+
+        decision = compute_channel_snapshot(config)
+        roster = registered_channels(config)
 
         assert decision.emit is True
-        assert decision.source_path == (tmp_path / "data" / "corpus.ttl").resolve()
+        assert set(decision.channels) == set(roster.addresses)
+        assert decision.source_path == roster.source.path
 
-        # With a render in place, ``build/config.yml`` is that config, so the
-        # same configured string now names the corpus inside the render.
-        build = tmp_path / "build"
-        (build / "data").mkdir(parents=True)
-        (build / "config.yml").write_text("")
-        _write_ttl(
-            build / "data" / "corpus.ttl",
-            [("b1", "SR:BPM:01:X"), ("b2", "SR:BPM:02:X")],
+    def test_the_snapshot_sorts_what_the_roster_enumerated_in_source_order(self, tmp_path):
+        # The roster hands back membership in the order the source lists it; a
+        # typeahead wants an order a reader can scan. The sort is the view's
+        # doing, so the two deliberately differ here.
+        db_path = _write_json(
+            tmp_path / "unsorted.json",
+            [
+                {"channel": "Zed", "address": "SR:Z"},
+                {"channel": "Alpha", "address": "SR:A"},
+            ],
         )
-
-        decision = compute_channel_snapshot(_graph_config("data/corpus.ttl"))
-
-        assert decision.source_path == (build / "data" / "corpus.ttl").resolve()
-        assert decision.count == 2
-
-
-class TestFailSoft:
-    """An unreadable database degrades the panel, never the build."""
-
-    def test_a_missing_database_file_warns_and_emits_nothing(self, tmp_path, caplog):
-        missing = tmp_path / "gone.json"
-        config = _config("in_context", missing, db_type="flat")
-
-        with caplog.at_level("WARNING"):
-            decision = compute_channel_snapshot(config)
-
-        assert decision.emit is False
-        assert str(missing) in caplog.text
-        assert "No such file" in caplog.text
-
-    def test_malformed_json_warns_with_the_path_and_the_error(self, tmp_path, caplog):
-        db_path = tmp_path / "malformed.json"
-        db_path.write_text("this is not json")
         config = _config("in_context", db_path, db_type="flat")
 
-        with caplog.at_level("WARNING"):
-            decision = compute_channel_snapshot(config)
+        decision = compute_channel_snapshot(config)
+
+        assert registered_channels(config).addresses == ("SR:Z", "SR:A")
+        assert decision.channels == ["SR:A", "SR:Z"]
+
+    def test_a_graph_snapshot_carries_exactly_the_rosters_addresses(self, tmp_path):
+        ttl = _write_ttl(
+            tmp_path / "corpus.ttl",
+            [("b1", "SR:BPM:02:X"), ("b2", "SR:BPM:01:X"), ("b3", "SR:BPM:02:X")],
+        )
+        config = _graph_config(ttl)
+
+        decision = compute_channel_snapshot(config)
+        roster = registered_channels(config)
+
+        assert decision.emit is True
+        assert set(decision.channels) == set(roster.addresses)
+
+    def test_switching_the_feature_off_leaves_the_roster_whole(self, flat_database):
+        # The typeahead is a panel affordance; the roster is what the facility
+        # has. Turning the first off must not shrink the second.
+        config = _config(
+            "in_context", flat_database, db_type="flat", suggestions={"enabled": False}
+        )
+
+        decision = compute_channel_snapshot(config)
 
         assert decision.emit is False
         assert decision.channels == []
-        assert str(db_path) in caplog.text
-        assert "Expecting value" in caplog.text
+        assert len(registered_channels(config).addresses) == 2
 
-    def test_a_malformed_hierarchical_database_warns_rather_than_raising(self, tmp_path, caplog):
-        # Valid JSON, invalid schema: the hierarchical loader raises on its own.
-        db_path = _write_json(tmp_path / "no_hierarchy.json", {"tree": {"SR": {}}})
+    def test_a_roster_over_the_size_guard_is_still_whole(self, flat_database):
+        config = _config(
+            "in_context", flat_database, db_type="flat", suggestions={"max_channels": 1}
+        )
 
-        with caplog.at_level("WARNING"):
-            decision = compute_channel_snapshot(_config("hierarchical", db_path))
-
-        assert decision.emit is False
-        assert str(db_path) in caplog.text
-
-    def test_a_relative_database_path_resolves_against_the_working_directory(
-        self, tmp_path, monkeypatch
-    ):
-        data_dir = tmp_path / "data" / "channel_databases"
-        data_dir.mkdir(parents=True)
-        _write_json(data_dir / "als.json", [{"channel": "SR:CURRENT", "address": "SR:CURRENT"}])
-        monkeypatch.chdir(tmp_path)
-
-        config = _config("in_context", "data/channel_databases/als.json", db_type="flat")
         decision = compute_channel_snapshot(config)
 
-        assert decision.emit is True
-        assert decision.source_path == tmp_path / "data" / "channel_databases" / "als.json"
-
-
-class TestRenderDir:
-    """The anchor a relative render-relative path is resolved against."""
-
-    def test_a_set_config_dir_is_returned_as_a_path(self, tmp_path):
-        assert _render_dir({"config_dir": str(tmp_path)}) == tmp_path
-
-    def test_an_empty_config_dir_is_no_anchor(self):
-        assert _render_dir({"config_dir": ""}) is None
-
-    def test_a_blank_config_dir_is_no_anchor(self):
-        assert _render_dir({"config_dir": "   "}) is None
-
-    def test_an_absent_config_dir_is_no_anchor(self):
-        assert _render_dir({}) is None
-
-    def test_a_non_string_config_dir_is_no_anchor(self, tmp_path):
-        assert _render_dir({"config_dir": 123}) is None
-        assert _render_dir({"config_dir": tmp_path}) is None
-
-    def test_project_root_is_not_consulted(self, tmp_path):
-        """``project_root`` is the repo root — the wrong anchor for this key."""
-        assert _render_dir({"project_root": str(tmp_path)}) is None
+        assert decision.emit is False
+        assert decision.channels == []
+        # The guard is a browser budget, not a claim about the facility.
+        assert len(registered_channels(config).addresses) == 2

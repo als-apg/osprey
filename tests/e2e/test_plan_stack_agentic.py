@@ -2429,7 +2429,6 @@ class DeployedScanStack:
     repo: Path
     correctors: dict[str, tuple[str, str]]
     bpms: dict[str, str]
-    limits: dict[str, Any]
     token: str
 
 
@@ -2477,21 +2476,21 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
     # for the queueserver worker, so a set written after the build would never
     # reach a container.
     #
-    # Correctors and BPMs come from the deployment repo's own
-    # channel_limits.json — the same bytes the build copies to build/data, and
-    # never a hardcoded preset channel. The default 4+4 slice is deliberate:
+    # Correctors and BPMs come from the deployment repo's own channel roster —
+    # the same channel database the build materializes for the deployed channel
+    # finder, and never a hardcoded preset channel. The default 4+4 slice is
+    # deliberate:
     # these scenarios ask for a measurement on a healthy stack, so no particular
     # device has to be in range, and a small device count keeps a real run to
     # seconds rather than minutes.
-    limits: dict[str, Any] = {}
     correctors: dict[str, tuple[str, str]] = {}
     bpms: dict[str, str] = {}
 
     def author_devices(repo: Path) -> None:
-        nonlocal limits, correctors, bpms
-        limits = _orm_stack.channel_limits(repo)
-        correctors = _orm_stack.select_correctors(limits)
-        bpms = _orm_stack.select_bpms(limits)
+        nonlocal correctors, bpms
+        records = _orm_stack.roster_records(repo)
+        correctors = _orm_stack.select_correctors(records)
+        bpms = _orm_stack.select_bpms(records)
         _orm_stack.write_devices_file(repo, correctors=correctors, bpms=bpms)
 
     repo = _orm_stack.build_project_subprocess(
@@ -2574,7 +2573,6 @@ def deployed_scan_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
             repo=repo,
             correctors=correctors,
             bpms=bpms,
-            limits=limits,
             token=_orm_stack.minted_launch_token(repo),
         )
     finally:
