@@ -81,6 +81,14 @@ OIDC_ENV = {
 }
 
 
+BROWSER_ACCEPT = {"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"}
+"""What a top-level navigation sends. The header Chrome, Firefox and Safari all
+put on a link click, which is the only thing the route's HTML branch keys on."""
+
+JSON_ACCEPT = {"Accept": "application/json"}
+"""What a client that will parse the answer sends, and must keep getting."""
+
+
 def _client(env: dict[str, str] | None = None) -> TestClient:
     """A test client over a sidecar built from ``env`` (password mode by default).
 
@@ -258,6 +266,61 @@ def test_an_off_origin_next_is_discarded(hostile: str) -> None:
 def test_a_link_without_exactly_one_user_is_refused(params: dict[str, object]) -> None:
     """Never a 422: a malformed link gets this route's own refusal."""
     response = _client().get(LOGIN_PATH, params=params)
+
+    assert response.status_code == 400
+
+
+@pytest.mark.parametrize("params", [{}, {"user": ""}])
+def test_a_browser_that_arrives_without_a_user_is_sent_to_the_landing_page(
+    params: dict[str, object],
+) -> None:
+    """A person cannot act on a JSON body; the roster cards are where they belong."""
+    response = _client().get(
+        LOGIN_PATH, params=params, headers=BROWSER_ACCEPT, follow_redirects=False
+    )
+
+    assert response.status_code == 302
+    # Origin-relative, matching what logout answers with: nginx serves the
+    # landing page at exactly this path in front of the sidecar.
+    assert response.headers["location"] == "/"
+    assert response.headers["cache-control"] == "no-store"
+
+
+def test_a_browser_link_naming_two_users_is_refused_rather_than_redirected() -> None:
+    """Ambiguous is not empty: a landing page here would be a guess between them."""
+    response = _client().get(
+        LOGIN_PATH,
+        params={"user": ["alice", "bob"]},
+        headers=BROWSER_ACCEPT,
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+
+
+@pytest.mark.parametrize("params", [{}, {"user": ["alice", "bob"]}])
+def test_a_client_that_did_not_ask_for_html_gets_the_unchanged_refusal(
+    params: dict[str, object],
+) -> None:
+    """The JSON 400 is byte-identical to what this route answered before."""
+    asked_for_json = _client().get(
+        LOGIN_PATH, params=params, headers=JSON_ACCEPT, follow_redirects=False
+    )
+    stated_no_preference = _client().get(
+        LOGIN_PATH, params=params, headers={"Accept": "*/*"}, follow_redirects=False
+    )
+
+    assert asked_for_json.status_code == 400
+    assert asked_for_json.json() == {"detail": "the login link must name exactly one user"}
+    assert (stated_no_preference.status_code, stated_no_preference.content) == (
+        asked_for_json.status_code,
+        asked_for_json.content,
+    )
+
+
+def test_a_request_that_states_no_media_preference_is_not_treated_as_a_browser() -> None:
+    """The HTML branch is opt-in: silence is not a navigation."""
+    response = _client().get(LOGIN_PATH, headers={"Accept": ""}, follow_redirects=False)
 
     assert response.status_code == 400
 
@@ -812,6 +875,62 @@ def test_a_form_without_exactly_one_user_is_refused(form: dict[str, object]) -> 
 
     assert response.status_code == 400
     assert "set-cookie" not in response.headers
+
+
+@pytest.mark.parametrize(
+    "form",
+    [{"password": ALICE_PASSWORD}, {"user": "", "password": ALICE_PASSWORD}],
+)
+def test_a_browser_posting_a_form_without_a_user_is_sent_to_the_landing_page(
+    form: dict[str, object],
+) -> None:
+    """No user means no credential to evaluate — the roster page, not a JSON body."""
+    response = _post(_client(), form, headers=BROWSER_ACCEPT)
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/"
+    assert response.headers["cache-control"] == "no-store"
+    # Nothing was evaluated, so nothing may be unlocked.
+    assert "set-cookie" not in response.headers
+
+
+def test_a_browser_posting_two_users_is_refused_rather_than_redirected() -> None:
+    """The form is ambiguous, and this route resolves neither name."""
+    response = _post(
+        _client(), {"user": ["alice", "bob"], "password": ALICE_PASSWORD}, headers=BROWSER_ACCEPT
+    )
+
+    assert response.status_code == 400
+
+
+@pytest.mark.parametrize(
+    "form",
+    [{"password": ALICE_PASSWORD}, {"user": ["alice", "bob"], "password": ALICE_PASSWORD}],
+)
+def test_a_json_client_posting_without_exactly_one_user_gets_the_unchanged_refusal(
+    form: dict[str, object],
+) -> None:
+    """The JSON 400 is byte-identical to what this route answered before."""
+    asked_for_json = _post(_client(), form, headers=JSON_ACCEPT)
+    stated_no_preference = _post(_client(), form, headers={"Accept": "*/*"})
+
+    assert asked_for_json.status_code == 400
+    assert asked_for_json.json() == {"detail": "the login form must name exactly one user"}
+    assert (stated_no_preference.status_code, stated_no_preference.content) == (
+        asked_for_json.status_code,
+        asked_for_json.content,
+    )
+
+
+def test_a_cross_site_post_is_still_refused_when_the_browser_asks_for_html() -> None:
+    """The origin check runs first: a hostile form cannot be answered with a redirect."""
+    response = _post(
+        _client(),
+        {"password": ALICE_PASSWORD},
+        headers={**BROWSER_ACCEPT, "Origin": "https://evil.example"},
+    )
+
+    assert response.status_code == 400
 
 
 # --- Logging ----------------------------------------------------------------
