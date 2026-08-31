@@ -49,6 +49,15 @@
       persona badge on the card; when absent the card renders exactly as a plain
       `{label, url}` card (bracket-subscripting a missing key yields Jinja
       `Undefined`, which is falsy — see the `{% if item["sublabel"] %}` guard).
+      `token_login` is present on every auto-populated user card and on no other
+      item: true when that user's terminal is entered by opening their own
+      `?token=` URL rather than through a login the perimeter serves. A true card
+      renders a badge and one hint line naming `osprey users login-url <name>`,
+      the verb that mints the URL, and KEEPS its href (the token exchange leaves
+      a session cookie, so the link is a real return path). Operator-supplied
+      `landing.groups` items carry no such key, and the same `Undefined`-is-falsy
+      reading that governs `sublabel` leaves them rendering as they always did.
+
       A group whose `items` list is empty renders nothing — no heading, no empty
       section. This is the ONLY suppression rule, and it is generic to every group:
       it's what makes the 0-user case disappear cleanly (an empty/omitted `users`
@@ -271,6 +280,41 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+    /* The two marks a card carries when its terminal is entered by opening
+       that user's own `?token=` URL rather than through a login the perimeter
+       serves. Deliberately quieter than the persona chip beside it — muted
+       border and text rather than the accent — because it is a fact about how
+       the door opens, not a category the page is sorting people into. Both
+       colors are theme tokens, so the mark follows the page into either mode.
+       The card itself stays a live link and is styled as one: the `?token=`
+       exchange leaves a session cookie, so this IS the return path for anyone
+       who has opened the URL once. */
+    .landing-card-token {
+      align-self: flex-start;
+      max-width: 100%;
+      margin: 0.05rem 0 0.1rem;
+      padding: 0.12rem 0.55rem;
+      border: 1px solid var(--border-default);
+      border-radius: 999px;
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .landing-card-token-hint {
+      max-width: 100%;
+      color: var(--text-secondary);
+      font-size: 0.72rem;
+      line-height: 1.35;
+    }
+    .landing-card-token-hint code {
+      font-family: ui-monospace, "JetBrains Mono", monospace;
+      word-break: break-all;
+    }
     .landing-card-url {
       font-family: ui-monospace, "JetBrains Mono", monospace;
       font-size: 0.78rem;
@@ -388,6 +432,29 @@
             <span class="landing-card-label">{{ item["label"]|e }}</span>
             {%- if item["sublabel"] %}
             <span class="landing-card-sublabel">{{ item["sublabel"]|e }}</span>
+            {%- endif %}
+            {#- The card is honest about how this terminal is entered. `token_login`
+               is true for a roster user whose way in is that user's own `?token=`
+               URL, and the URL is not on this page — it carries a live credential,
+               and it is minted by `osprey users login-url <name>`, which nobody
+               guesses. Without this line the card is indistinguishable from one
+               behind a login wall, and a first-time visitor clicks it, is refused,
+               and has no idea what to do next.
+               The href STAYS: the `?token=` exchange leaves a session cookie
+               behind, so this link is the return path for a browser that has
+               opened the URL once. Naming the verb is the fix; disabling the link
+               would be a different wrong answer.
+               Only on the navigable branch — an inert card's link cannot be
+               followed at all, so a note about which door it is would be noise
+               under a card whose real problem is its scheme.
+               `item["label"]` IS the roster name (`_user_card` builds the card
+               from it), so the command names this card's own user; escaped like
+               every other user-sourced value here. A `landing.groups` link item
+               carries no `token_login` key, so the subscript is Undefined —
+               falsy — and the group renders exactly as it did before. #}
+            {%- if item["token_login"] %}
+            <span class="landing-card-token">login link</span>
+            <span class="landing-card-token-hint">entered via a login link — <code>osprey users login-url {{ item["label"]|e }}</code></span>
             {%- endif %}
             <span class="landing-card-url">{{ safe_url|e }}</span>
           </a>

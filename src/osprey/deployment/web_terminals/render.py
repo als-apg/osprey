@@ -1339,9 +1339,23 @@ def render_web_terminals(
         **auth_tls_ctx,
     }
     landing_cfg = as_dict(web_terminals.get("landing"))
+    # Which users reach their terminal by opening a `?token=` URL rather than by
+    # signing in — the auth posture, per user, that the landing cards carry.
+    # Derived by the ONE function that answers that question, the same one
+    # `osprey users login-url` refuses on the complement of, so the page and the
+    # CLI cannot end up disagreeing about who has a login. Resolved once for the
+    # whole roster here and threaded down as a name set, because the answer is a
+    # property of the deployment's posture, not of the card being built.
+    #
+    # Imported function-locally: deploy_summary reaches back into this module
+    # for `_auth_tls_context` (function-locally, for the same reason), so a
+    # module-level import here would close that loop.
+    from osprey.deployment.deploy_summary import token_login_users
+
+    token_login_names = frozenset(token_login_users(root))
     landing_ctx = {
         "facility_name": resolve_facility_name(root, ""),
-        "groups": _build_groups(landing_cfg, resolved_users),
+        "groups": _build_groups(landing_cfg, resolved_users, token_login_names),
         "theme_blocks": _landing_theme_blocks(root),
         "notices": _build_notices(landing_cfg, root),
         "footer": _landing_footer(landing_cfg),
@@ -1698,12 +1712,19 @@ def _landing_url(
     return _external_origin(root, nginx_port, tls_enabled=tls_enabled, tls_port=tls_port)
 
 
-def _user_card(resolved_user: dict[str, Any]) -> dict[str, Any]:
+def _user_card(resolved_user: dict[str, Any], token_login_names: frozenset[str]) -> dict[str, Any]:
     """Build one auto-populated ``users``-group landing card from a resolved roster entry.
 
-    The base shape is unchanged (``{label, url}``); a ``sublabel`` key is added
-    only when the entry resolved to a persona, so a no-persona roster keeps
-    producing exactly the same two-key items landing.html.j2 rendered before.
+    Every card carries ``token_login``, the auth posture this user's terminal is
+    entered under: ``True`` when the way in is that user's ``?token=`` URL,
+    ``False`` when a login page stands in front of it. Unlike ``sublabel`` it is
+    always present rather than added-when-set, because it answers a question
+    every card has an answer to — an absent key would read as "no posture"
+    rather than "signs in".
+
+    A ``sublabel`` key is added only when the entry resolved to a persona, so a
+    no-persona roster keeps producing exactly the same optional-key shape
+    landing.html.j2 rendered before.
 
     One case drops the badge even though a persona is in effect: when the
     persona name and the roster name are the same word. The badge exists to say
@@ -1718,14 +1739,21 @@ def _user_card(resolved_user: dict[str, Any]) -> dict[str, Any]:
     Args:
         resolved_user: One :func:`osprey.deployment.web_terminals.personas.resolve_personas`
             entry (``name`` and ``persona`` are read).
+        token_login_names: The roster names
+            :func:`osprey.deployment.deploy_summary.token_login_users` returned for
+            this deployment, membership in which is this card's ``token_login``.
 
     Returns:
-        ``{"label", "url"}`` for a persona-less user, plus ``"sublabel"`` (the
-        persona name) when ``persona`` is a non-empty string that differs from
-        the user's own name.
+        ``{"label", "url", "token_login"}`` for a persona-less user, plus
+        ``"sublabel"`` (the persona name) when ``persona`` is a non-empty string
+        that differs from the user's own name.
     """
     name = resolved_user["name"]
-    card: dict[str, Any] = {"label": name, "url": f"/u/{name}/"}
+    card: dict[str, Any] = {
+        "label": name,
+        "url": f"/u/{name}/",
+        "token_login": name in token_login_names,
+    }
     persona = resolved_user.get("persona")
     if isinstance(persona, str) and persona and persona.casefold() != name.casefold():
         card["sublabel"] = persona
@@ -1733,7 +1761,9 @@ def _user_card(resolved_user: dict[str, Any]) -> dict[str, Any]:
 
 
 def _build_groups(
-    landing_cfg: dict[str, Any], resolved_users: list[dict[str, Any]]
+    landing_cfg: dict[str, Any],
+    resolved_users: list[dict[str, Any]],
+    token_login_names: frozenset[str],
 ) -> list[dict[str, Any]]:
     """Transform config ``landing.groups`` into the template's ``groups`` shape:
     plain dicts with a ``label`` and an ``items`` key, since landing.html.j2
@@ -1748,8 +1778,10 @@ def _build_groups(
     persona name, shown as a secondary badge on the card; users with no persona
     in effect (every bare-string roster) omit the key entirely, so
     landing.html.j2's ``{% if item["sublabel"] %}`` guard renders them without
-    one. ``{type: "links", label, links}`` passes ``links`` straight through as
-    ``items`` (link cards never carry a ``sublabel``). Unrecognized/malformed
+    one. Every user card also carries ``token_login`` (see :func:`_user_card`),
+    the auth posture that user's terminal is entered under.
+    ``{type: "links", label, links}`` passes ``links`` straight through as
+    ``items`` (link cards carry neither a ``sublabel`` nor a posture). Unrecognized/malformed
     group entries are dropped rather than raising: lint is the authoritative
     gate on schema well-formedness, this is just the render-time adapter.
 
@@ -1779,6 +1811,11 @@ def _build_groups(
             and ``/u/<name>/`` url, its ``persona`` (when not ``None``) the
             optional ``sublabel``, and its ``landing_group`` (when present) the
             section it is lifted into.
+        token_login_names: The roster names
+            :func:`osprey.deployment.deploy_summary.token_login_users` returned for
+            this deployment, threaded down onto each user card as ``token_login``.
+            ``links`` groups get no posture — a link is not a terminal — so this
+            reaches ``users`` groups only.
     """
     groups_raw = landing_cfg.get("groups")
     if not isinstance(groups_raw, list) or not groups_raw:
@@ -1789,7 +1826,7 @@ def _build_groups(
         entry = as_dict(entry)
         group_type = entry.get("type")
         if group_type == "users":
-            groups.extend(_user_groups(resolved_users, entry.get("label")))
+            groups.extend(_user_groups(resolved_users, entry.get("label"), token_login_names))
         elif group_type == "links":
             links = entry.get("links")
             items = [as_dict(link) for link in links] if isinstance(links, list) else []
@@ -1797,7 +1834,11 @@ def _build_groups(
     return groups
 
 
-def _user_groups(resolved_users: list[dict[str, Any]], default_label: Any) -> list[dict[str, Any]]:
+def _user_groups(
+    resolved_users: list[dict[str, Any]],
+    default_label: Any,
+    token_login_names: frozenset[str],
+) -> list[dict[str, Any]]:
     """Split one ``{type: "users"}`` entry into its default section plus a tray
     section per distinct persona ``landing_group``.
 
@@ -1813,6 +1854,9 @@ def _user_groups(resolved_users: list[dict[str, Any]], default_label: Any) -> li
         default_label: The ``{type: "users"}`` entry's own ``label``, used as the
             heading for the ungrouped users. Anything that is not a non-empty
             string falls back to ``"Terminals"``.
+        token_login_names: Passed straight to :func:`_user_card`, which turns
+            membership into that card's ``token_login``. Sectioning is
+            presentation; the posture is the same wherever a user's card lands.
 
     Returns:
         ``[{label, items}, {label, items, variant: "tray"}, ...]``.
@@ -1824,7 +1868,7 @@ def _user_groups(resolved_users: list[dict[str, Any]], default_label: Any) -> li
     trays: dict[str, list[dict[str, Any]]] = {}
     for user in resolved_users:
         group = user.get("landing_group")
-        card = _user_card(user)
+        card = _user_card(user, token_login_names)
         if isinstance(group, str) and group:
             trays.setdefault(group, []).append(card)
         else:

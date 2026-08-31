@@ -353,7 +353,8 @@ config:
         index: 2
         persona: ariel
         display_name: "ARIEL Logbook Research"
-        # Read-only research service, open without a login on purpose.
+        # Outside the login wall on purpose — entered through its own login URL
+        # instead (`osprey users login-url ariel`), not open to anyone.
         login: false
       # The one login that can change this deployment's configuration — the web
       # Config panel, the scaffold gallery's editors, and the agent's own setup
