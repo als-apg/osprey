@@ -500,13 +500,19 @@ class TestControlAssistantWebTier:
         """The rendered config passes the exact check ``osprey up`` runs —
         ``_landing_url`` raises without ``deploy.fqdn``, aborting ``osprey up``
         for the otherwise zero-config tutorial."""
-        from osprey.deployment.web_terminals.render import _landing_url
+        from osprey.deployment.web_terminals.render import TLS_LISTEN_PORT, _landing_url
 
         rendered = _render_config_overrides(tmp_path, {"system": {}})
         fqdn = rendered["deploy"]["fqdn"]
         nginx_port = resolve_nginx_port(rendered)
         assert nginx_port == default_port("nginx")
-        assert _landing_url(rendered, nginx_port) == f"http://{fqdn}:{nginx_port}"
+        # `tls_port` is required even here, where the preset renders TLS off and
+        # the port is never read: the default it would otherwise take is the one
+        # value a caller must not guess (see `_external_origin`).
+        assert (
+            _landing_url(rendered, nginx_port, tls_port=TLS_LISTEN_PORT)
+            == f"http://{fqdn}:{nginx_port}"
+        )
 
 
 # ---------------------------------------------------------------------------

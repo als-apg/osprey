@@ -107,6 +107,16 @@ _DEFAULT_NGINX_IMAGE = "nginx:1.27-alpine"
 #: reserve a port the template does not use.
 TLS_LISTEN_PORT = 443
 
+#: The port the ``https`` scheme itself implies, which a URL therefore omits.
+#: Spelled apart from :data:`TLS_LISTEN_PORT` even though both are 443 today:
+#: that one is this framework's default for an unset ``tls.port`` and is a
+#: choice, while this one is what the scheme means and cannot be chosen.
+#: Collapsing them would let a change to the default silently rewrite every
+#: derived origin's serialization — a deployment defaulted to 8443 would still
+#: advertise ``https://<fqdn>``, an address pointing at 443 where nothing
+#: listens.
+_HTTPS_DEFAULT_PORT = 443
+
 #: The authentication methods this deployment can actually serve: ``none``
 #: (open — every terminal is navigation-only, nginx vouches for every request),
 #: ``token`` (the default: no login wall, each user's terminal is entered once
@@ -1546,7 +1556,7 @@ def _external_origin(
     nginx_port: int,
     *,
     tls_enabled: bool,
-    tls_port: int = TLS_LISTEN_PORT,
+    tls_port: int,
 ) -> str:
     """Build the one origin every absolute URL this deployment emits is derived from.
 
@@ -1595,7 +1605,11 @@ def _external_origin(
         tls_enabled: The parsed ``tls.enabled`` (see :func:`_auth_tls_context`).
         tls_port: The parsed ``tls.port`` (see :func:`_auth_tls_context`), used
             only when TLS is on and no origin is configured. Left out of the
-            origin when it is :data:`TLS_LISTEN_PORT`.
+            origin when it is :data:`_HTTPS_DEFAULT_PORT`. Required rather than
+            defaulted: a caller that forgot it would silently derive the 443
+            origin for a deployment listening somewhere else, and the symptom —
+            every write refused while every page loads — points at neither this
+            function nor the caller.
 
     Raises:
         ValueError: If ``modules.web_terminals.external_origin`` is set to
@@ -1618,7 +1632,9 @@ def _external_origin(
         )
     if not tls_enabled:
         return f"http://{host}:{nginx_port}"
-    return f"https://{host}" if tls_port == TLS_LISTEN_PORT else f"https://{host}:{tls_port}"
+    if tls_port == _HTTPS_DEFAULT_PORT:
+        return f"https://{host}"
+    return f"https://{host}:{tls_port}"
 
 
 def deployment_external_origin(config: Any) -> str:
@@ -1699,7 +1715,7 @@ def _landing_url(
     nginx_port: int,
     *,
     tls_enabled: bool = False,
-    tls_port: int = TLS_LISTEN_PORT,
+    tls_port: int,
 ) -> str:
     """The absolute origin baked into every service's ``OSPREY_TERMINAL_LANDING_URL``.
 
@@ -1955,9 +1971,9 @@ def _auth_tls_context(web_terminals: dict[str, Any], *, base: int | None = None)
         ID-token claim carrying the identity to map onto a roster user); plus
         the TLS keys ``tls_enabled`` (bool), ``tls_port`` (int, the listener
         both nginx ``listen`` lines and the derived external origin follow,
-        defaulting to :data:`TLS_LISTEN_PORT`), ``tls_default_port`` (that
-        constant itself, so the template's port-in-redirect test and
-        :func:`_external_origin` compare against one value) and
+        defaulting to :data:`TLS_LISTEN_PORT`), ``https_default_port``
+        (:data:`_HTTPS_DEFAULT_PORT`, so the template's port-in-redirect test
+        and :func:`_external_origin` compare against one value) and
         ``tls_cert``/``tls_key`` (str path or ``None``, read only when
         ``tls_enabled``).
 
@@ -2008,8 +2024,10 @@ def _auth_tls_context(web_terminals: dict[str, Any], *, base: int | None = None)
         "tls_port": _port_int(tls.get("port"), TLS_LISTEN_PORT),
         # Carried alongside so the template's "is this the port a browser
         # assumes for https://" test reads the same constant `_external_origin`
-        # does, rather than restating 443 as a literal.
-        "tls_default_port": TLS_LISTEN_PORT,
+        # does, rather than restating 443 as a literal. It is the scheme's port,
+        # not this framework's default for an unset `tls.port` — the two are
+        # equal today and mean different things.
+        "https_default_port": _HTTPS_DEFAULT_PORT,
         "tls_cert": tls.get("cert"),
         "tls_key": tls.get("key"),
         # The HOST directory holding the certificate and key. Optional, and the
