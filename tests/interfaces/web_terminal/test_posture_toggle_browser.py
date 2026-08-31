@@ -31,7 +31,7 @@ Coverage (one test each):
       and inside the dialog for one raised from a confirm — which stays up to
       carry it.
   (f) both UI modes render the SAME row DOM and differ only in what is shown:
-      simple keeps the dot, the name, the plain-language kind word, the
+      simple keeps the dot, the name (the one identity line), the
       reachability LED, the toggle and Switch; expert keeps the endpoint/role
       line, the reachability word, the head note and the config sentence.
 
@@ -148,7 +148,7 @@ POSTURE_TARGET = "standin"
 SWITCH_TARGET = "live"
 
 #: What the render names each target. The controls server mints these once and
-#: every reader renders that one string; the popover's confirms quote them.
+#: every reader renders that one string; the popover's confirm titles quote them.
 LABELS = {
     "live": "LIVE MACHINE",
     "va": "virtual accelerator (simulation)",
@@ -657,7 +657,7 @@ def test_switch_confirms_is_accepted_and_reads_switching(tmp_path, monkeypatch, 
             # The posture that travels is the one held on the target being
             # switched TO, because posture is per target and does not follow.
             expect(page.locator(f"{OPEN_MODAL} .posture-modal-body")).to_contain_text(
-                "Session posture there: writes"
+                "Arrives in the writes posture"
             )
             page.locator(MODAL_CONFIRM).click()
 
@@ -680,27 +680,27 @@ def test_switch_confirms_is_accepted_and_reads_switching(tmp_path, monkeypatch, 
 
 
 # ---------------------------------------------------------------------------
-# (e) a refusal keeps its sentence on screen
+# (e) an unstarted session is already addressable
 # ---------------------------------------------------------------------------
 
 
-def test_an_unstarted_session_surfaces_the_409_remedy_on_the_row(
+def test_an_unstarted_session_accepts_a_narrowing_the_moment_it_opens(
     tmp_path, monkeypatch, chromium_browser
 ):
-    """A session with no file on disk is refused, and the row says why.
+    """A session with no file on disk narrows all the same.
 
     ``known_ids`` stays empty, so the id the chip is on names no session file —
-    the state a terminal is in before its first prompt. The route answers 409
-    with a dict detail, and the chip's request path unwraps ``detail.message``
-    (rather than stringifying the dict to "[object Object]") onto the row the
-    gesture was made on. The remedy sentence is the whole point of the refusal,
-    so it stays on the row the operator is looking at and nothing is written.
+    the state a terminal is in before its first prompt. The store only ever
+    narrows and both spawn paths read it before the first write, so there is
+    nothing an unstarted session could evade: the gesture lands in the store
+    under this session's key, and the row settles into the narrowed state
+    instead of surfacing a remedy sentence.
     """
     known_ids: set[str] = set()
 
     with _chip_hub(tmp_path, monkeypatch, known_ids=known_ids) as (base_url, app):
         # Deliberately NOT _settled_chip: that helper makes the session
-        # addressable, which is the exact fact this case removes.
+        # addressable, and working WITHOUT that fact is the case.
         page = chromium_browser.new_page()
         page.goto(base_url, wait_until="domcontentloaded")
         try:
@@ -715,13 +715,11 @@ def test_an_unstarted_session_surfaces_the_409_remedy_on_the_row(
             _open_popover(page)
             _segment(page, POSTURE_TARGET, "read-only").click()
 
-            outcome = _row(page, POSTURE_TARGET).locator(".ctc-outcome")
-            expect(outcome).to_be_visible(timeout=TIMEOUT)
-            expect(outcome).to_contain_text("send one prompt first", timeout=TIMEOUT)
-
-            # Nothing was applied and nothing was stored.
-            expect(_row(page, POSTURE_TARGET)).to_have_attribute("data-state", "writes")
-            assert _stored_postures() == {}
+            expect(_segment(page, POSTURE_TARGET, "read-only")).to_have_attribute(
+                "aria-pressed", "true", timeout=TIMEOUT
+            )
+            stored = _stored_postures()
+            assert stored == {session_id: {POSTURE_TARGET: "sandbox"}}, stored
         finally:
             page.close()
 
@@ -792,11 +790,11 @@ def test_both_ui_modes_render_the_same_row_and_differ_only_in_density(
     — every gated node is *attached* either way — and that the difference is
     which of them the stylesheet shows:
 
-    * simple keeps the dot, the name, the plain-language kind word, the
-      reachability LED, the posture toggle and Switch;
+    * simple keeps the dot, the name (the row's one identity line — the label
+      already says what kind of machine it names), the reachability LED, the
+      posture toggle and Switch;
     * expert keeps the endpoint/role line, the reachability word, the head note
-      and the sentence that bounds the popover, and drops the kind word (the
-      endpoint says it more precisely).
+      and the sentence that bounds the popover.
 
     The mode is driven the way the deployment drives it — ``web.ui_mode``
     reaching the page as the server-rendered ``<html data-ui-mode>`` attribute
@@ -817,8 +815,11 @@ def test_both_ui_modes_render_the_same_row_and_differ_only_in_density(
             row = _row(page, SWITCH_TARGET)
 
             # --- the same DOM in both modes ---
-            for selector in (*_EXPERT_ONLY, ".ctc-kind"):
+            for selector in _EXPERT_ONLY:
                 assert row.locator(selector).count() == 1, f"{selector} missing in {ui_mode}"
+            # The retired kind subtitle stays retired: the label is the row's
+            # one identity line, in either density.
+            assert row.locator(".ctc-kind").count() == 0
             expect(page.locator(HEAD_NOTE)).to_have_count(1)
             expect(page.locator(FOOT_NOTE)).to_have_count(1)
 
@@ -837,15 +838,6 @@ def test_both_ui_modes_render_the_same_row_and_differ_only_in_density(
                     expect(node).to_be_hidden()
                 else:
                     expect(node).to_be_visible()
-            kind = row.locator(".ctc-kind")
-            if simple:
-                # The plain-language word is what replaces the endpoint line for
-                # an operator who does not think in endpoints.
-                expect(kind).to_be_visible()
-                expect(kind).to_have_text("live machine")
-            else:
-                expect(kind).to_be_hidden()
-
             # The head note carries no text in the plain case, so "dropped" is
             # a question about the computed style rather than a bounding box.
             head_note_display = _display(page, HEAD_NOTE)

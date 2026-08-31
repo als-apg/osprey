@@ -26,8 +26,8 @@ Where a tool's connector comes from
 There are two serving paths, and which one a deployment gets is decided once,
 by :func:`~osprey.mcp_server.control_system.connector_host_manager.switch_capable`:
 
-* **Switch-capable** (both targets configured, and the deployment's own control
-  system is one of them): ``control_system()`` returns the proxy onto the
+* **Switch-capable** (at least two targets configured, and the deployment's own
+  control system is one of them): ``control_system()`` returns the proxy onto the
   connector-host child. The in-process connector is never built — this server
   holds no control-system client library at all, which is the only way a target
   switch can actually move where tool calls land. A child that has died is not

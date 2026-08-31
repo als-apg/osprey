@@ -68,8 +68,10 @@ Ahead of all of that, a write tool whose target this deployment has not armed
 exits with NO decision at all, so that the layer which refuses it — the
 `osprey_writes_check` deny, or `queue_start`'s own lane gate — is not reopened
 by an approval prompt. Posture is per target, so the same tool on the same
-deployment can defer on one target and prompt on the other. A config that
-states no posture anywhere prompts exactly as it always has.
+deployment can defer on one target and prompt on the other; the operator's own
+per-(session, target) narrowing in the posture store counts the same way as a
+config disarm, because `osprey_writes_check` reads the same store. A config
+that states no posture anywhere prompts exactly as it always has.
 
 ## Write-approval stamps
 
@@ -2069,7 +2071,19 @@ def _lane_posture(config, section, tool_input):
 
 
 def _session_posture(section, hook_input):
-    """Posture for the target this SESSION is pointed at."""
+    """Posture for the target this SESSION is pointed at.
+
+    Two layers, composed in the store's own direction — it only ever narrows:
+
+    * the DEPLOYMENT ceiling, from the rendered config. ``None`` (no posture
+      stated anywhere) survives untouched: with no ceiling there is no
+      guaranteed deny to defer into, so the prompt stays.
+    * the OPERATOR's narrowing of this (session, target), from the posture
+      store. ``osprey_writes_check`` reads the same store on the same shape
+      (its ``effective_writes_for`` call), so an armed target the operator
+      sandboxed is still a guaranteed deny — and keeping the prompt there
+      would ask the human to approve a write the next hook refuses.
+    """
     result = _target_state.read_session_target(hook_input)
     if _target_state.is_baseline(result):
         # A baseline fallback still NAMES the deployment's baseline target, and
@@ -2078,8 +2092,16 @@ def _session_posture(section, hook_input):
         # REACH agrees on is the only one that cannot become a guess in favour
         # of hardware — the same call `osprey_writes_check` makes on the same
         # shape, so the two cannot part company over an unidentified session.
-        return _target_state.most_restrictive_posture(section)
-    return _target_state.writes_posture(section, result.get("target"))
+        target = None
+        ceiling = _target_state.most_restrictive_posture(section)
+    else:
+        target = result.get("target")
+        ceiling = _target_state.writes_posture(section, target)
+    if ceiling is not True:
+        return ceiling
+    if _target_state.session_sandboxed(hook_input, target):
+        return False
+    return True
 
 
 def _call_write_posture(config, tool_name, short_name, tool_input, hook_input):

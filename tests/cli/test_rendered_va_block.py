@@ -68,24 +68,10 @@ PROJECT_ORIGINAL_EPICS_BLOCK = {
     },
 }
 
-#: The Control Assistant template's epics connector — the untouched ALS
-#: production configuration (same constant as
-#: tests/templates/test_preset_va_block.py pins).
-CONTROL_ASSISTANT_ORIGINAL_EPICS_BLOCK = {
-    "timeout": 5.0,
-    "gateways": {
-        "read_only": {
-            "address": "cagw-alsdmz.als.lbl.gov",
-            "port": 5064,
-            "use_name_server": False,
-        },
-        "write_access": {
-            "address": "cagw-alsdmz.als.lbl.gov",
-            "port": 5084,
-            "use_name_server": False,
-        },
-    },
-}
+#: The Control Assistant template's epics connector — the timeout and nothing
+#: else. The gateways ship commented out: authoring them is the go-live edit
+#: (same constant as tests/templates/test_preset_va_block.py pins).
+CONTROL_ASSISTANT_SHIPPED_EPICS_BLOCK = {"timeout": 5.0}
 
 
 def _render_project_template() -> str:
@@ -355,7 +341,7 @@ def test_acknowledgment_example_is_a_real_hostname_shape():
         assert "<" not in value and ">" not in value, f"{name}: {value!r} is a sentinel"
 
 
-# ── The production connector configuration is untouched ─────────────────────
+# ── The production connector configuration is what each template promises ────
 
 
 def test_project_template_epics_block_is_unchanged():
@@ -363,6 +349,6 @@ def test_project_template_epics_block_is_unchanged():
     assert epics == PROJECT_ORIGINAL_EPICS_BLOCK
 
 
-def test_control_assistant_epics_block_is_unchanged():
+def test_control_assistant_epics_block_ships_no_gateway_values():
     epics = _control_system(_render_control_assistant_template())["connector"]["epics"]
-    assert epics == CONTROL_ASSISTANT_ORIGINAL_EPICS_BLOCK
+    assert epics == CONTROL_ASSISTANT_SHIPPED_EPICS_BLOCK

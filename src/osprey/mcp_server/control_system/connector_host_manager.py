@@ -402,7 +402,7 @@ def baseline_target(config: Any) -> str:
 
 
 def switch_capable(config: Any) -> bool:
-    """Whether this deployment can be pointed at either target at runtime.
+    """Whether this deployment gives a session more than one runtime target.
 
     The predicate itself lives in :func:`osprey_connectors.types.switch_capable`,
     beside the target resolution it is built from, so that the runtime and the

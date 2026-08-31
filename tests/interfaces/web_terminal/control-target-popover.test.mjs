@@ -23,6 +23,9 @@
  * - Switch POSTs, shows `switching…` on that row, and renders the outcome the
  *   route publishes for the `request_id` — success, refusal, and the expiry a
  *   dead controls server never answers;
+ * - a refusal code renders as its operator phrase, never raw: the machine code
+ *   keys the presentation map, the route's `reason_detail` sentence rides on
+ *   the `title`, and a code the map does not know renders verbatim;
  * - a chat session's rows offer no Switch and live toggles;
  * - `Sandbox everything` POSTs `all` and renders every target the store
  *   `skipped`;
@@ -112,6 +115,7 @@ const rowOf = (kind, o = {}) => ({
   is_baseline: false,
   available_now: true,
   reason: null,
+  reason_detail: null,
   ceiling_writes: true,
   narrowing_refusal: null,
   reachability: {
@@ -364,7 +368,9 @@ describe('rows', () => {
     await bootOpen();
     const va = /** @type {HTMLElement} */ (rowEl('va'));
     expect(va.querySelector('.ctc-label')?.textContent).toBe('virtual accelerator (simulation)');
-    expect(va.querySelector('.ctc-kind')?.textContent).toBe('virtual accelerator');
+    // ONE identity line: the label already says what kind of machine it names,
+    // and the retired `.ctc-kind` subtitle must not come back to restate it.
+    expect(va.querySelector('.ctc-kind')).toBeNull();
     expect(va.querySelector('.ctc-endpoint')?.textContent).toBe('127.0.0.1:10064');
     expect(va.querySelector('.ctc-role')?.textContent).toBe('write_access');
 
@@ -561,6 +567,19 @@ describe('narrowing and arming', () => {
     expect(confirmBtn()?.textContent).toBe('Allow writes');
   });
 
+  test('the arming body says each fact once and never repeats the title', async () => {
+    // The title names the machine; the body carries what the title does not —
+    // the scope, the endpoint, the guards that stay up, when it takes hold.
+    await bootOpen();
+    segEl('live', 'writes')?.click();
+    await flush();
+
+    const body = inConfirm('.posture-modal-body').textContent ?? '';
+    expect(body).toContain('Arms writes for this session · als-gw.lbl.gov:5064.');
+    expect(body).toContain('Per-write approval and channel limits still apply.');
+    expect(body).not.toContain('LIVE MACHINE');
+  });
+
   test('the simulator arms without the hardware notice', async () => {
     await bootOpen(viewOf({ targets: [rowOf(KINDS.va, { ...STATES.sandbox })] }));
     segEl('va', 'writes')?.click();
@@ -651,7 +670,8 @@ describe('Sandbox everything', () => {
     await flush();
 
     expect(posts()[0].body).toEqual({ session_id: SESSION, target: 'all', posture: 'sandbox' });
-    expect(outcomes('va')).toContain('✗ selected_role_missing');
+    // The skip reason is the store's machine code, rendered as its phrase.
+    expect(outcomes('va')).toContain('✗ no endpoint for role');
   });
 
   test('it is disabled when there is nothing left to lift', async () => {
@@ -676,6 +696,14 @@ describe('switching', () => {
 
     expect(confirmTitle()).toBe('Switch to virtual accelerator (simulation)?');
     expect(confirmBtn()?.textContent).toBe('Switch');
+
+    // The title names the machine; the body carries the fact an operator is
+    // most likely to get wrong — the posture the session ARRIVES in (posture
+    // is per-target and does not travel) — and does not repeat the label.
+    const body = inConfirm('.posture-modal-body').textContent ?? '';
+    expect(body).toContain('Arrives in the writes posture · 127.0.0.1:10064.');
+    expect(body).toContain('The conversation continues.');
+    expect(body).not.toContain('virtual accelerator');
 
     postAnswers.push({ ok: true, body: { request_id: 'req-1', target: 'va' } });
     confirmBtn()?.click();
@@ -784,24 +812,72 @@ describe('switching', () => {
     expect(outcomes('va')).toHaveLength(0);
   });
 
-  test('no Switch where the route offers none; the refusal word takes its place', async () => {
+  test('no Switch where the route offers none; the refusal phrase takes its place', async () => {
     await bootOpen();
     // The active row says `current` and offers nothing.
     expect(switchEl('standin')).toBeNull();
     expect(rowEl('standin')?.querySelector('.ctc-reason')).toBeNull();
 
+    // A code the presentation map does not know renders verbatim — failing
+    // informative — and stands in for its own tooltip.
     await bootOpen(
       viewOf({ targets: [rowOf(KINDS.live, { available_now: false, reason: 'unreachable' })] })
     );
     expect(switchEl('live')).toBeNull();
-    expect(rowEl('live')?.querySelector('.ctc-reason')?.textContent).toBe('unreachable');
+    const reason = /** @type {HTMLElement} */ (rowEl('live')?.querySelector('.ctc-reason'));
+    expect(reason.textContent).toBe('unreachable');
+    expect(reason.title).toBe('unreachable');
+  });
+
+  test('an unconfigured target reads as a quiet phrase, with the sentence on the title', async () => {
+    // The three not-configured codes are one phrase: on a stock deployment the
+    // live target is deliberately unconfigured (authoring it is the go-live
+    // edit), and a raw `gateways_missing` would read as a fault.
+    for (const code of ['connector_block_missing', 'gateways_missing', 'probe_channel_missing']) {
+      await bootOpen(
+        viewOf({
+          targets: [
+            rowOf(KINDS.live, {
+              available_now: false,
+              reason: code,
+              reason_detail: 'The epics block configures no gateways.',
+            }),
+          ],
+        })
+      );
+      const reason = /** @type {HTMLElement} */ (rowEl('live')?.querySelector('.ctc-reason'));
+      expect(reason.textContent).toBe('not configured');
+      expect(reason.title).toBe('The epics block configures no gateways.');
+      popoverModule.teardownControlTargetPopover();
+      chipModule.teardownControlTargetChip();
+    }
+  });
+
+  test('every published refusal code has an operator phrase', async () => {
+    const phrases = {
+      target_unresolvable: 'unavailable',
+      limits_posture: 'needs strict limits',
+      operator_ack_missing: 'needs gateway ack',
+      archive_belongs_to_standin: 'archive conflict',
+      invented_history: 'no archive',
+      standin_not_deployed: 'stand-in not deployed',
+      selected_role_missing: 'no endpoint for role',
+    };
+    for (const [code, phrase] of Object.entries(phrases)) {
+      await bootOpen(
+        viewOf({ targets: [rowOf(KINDS.live, { available_now: false, reason: code })] })
+      );
+      expect(rowEl('live')?.querySelector('.ctc-reason')?.textContent).toBe(phrase);
+      popoverModule.teardownControlTargetPopover();
+      chipModule.teardownControlTargetChip();
+    }
   });
 
   test('a store that cannot be resolved explains the missing Switch', async () => {
     await bootOpen(
       viewOf({ store_available: false, targets: [rowOf(KINDS.live, { reason: null })] })
     );
-    expect(rowEl('live')?.querySelector('.ctc-reason')?.textContent).toBe('store_unavailable');
+    expect(rowEl('live')?.querySelector('.ctc-reason')?.textContent).toBe('store unavailable');
   });
 
   test('switching onto the facility machine says what a write would do there', async () => {
@@ -949,7 +1025,6 @@ describe('simple and expert are one DOM', () => {
     expect(simple).toBe(expert);
     // And every expert-only piece is present in BOTH: terminal.css hides them.
     expect(simple).toContain('ctc-meta');
-    expect(simple).toContain('ctc-kind');
     expect(simple).toContain('ctc-reach-text');
     expect(simple).toContain('ctc-baseline');
     expect(simple).toContain('ctc-foot-note');

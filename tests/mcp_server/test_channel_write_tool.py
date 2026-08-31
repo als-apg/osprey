@@ -1112,11 +1112,14 @@ async def test_emitted_key_is_the_constant_the_rules_name(tmp_path, monkeypatch)
 
 #: A deployment that relaxed unlisted channels for its simulator alone: the
 #: deployment-wide block refuses them, and only the ``virtual_accelerator``
-#: block allows them. ``live`` resolves to ``epics``, which wrote no block, so
-#: the two targets genuinely read two different postures out of one config.
+#: block allows them, so two postures genuinely coexist in one config. The
+#: baseline type is per-test: the serving target must be the baseline here,
+#: because a deployment serving anything else is switch-capable by
+#: construction and runs the connector-host path, where the host republishes
+#: its own target record over the one this fixture writes.
 _SPLIT_POSTURE_CONFIG = """\
 control_system:
-  type: epics
+  type: {cs_type}
   limits_checking:
     enabled: true
     allow_unlisted_channels: false
@@ -1154,7 +1157,13 @@ def _prepare_split_posture(tmp_path, monkeypatch, target):
         json.dumps({"LISTED:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}})
     )
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text(_SPLIT_POSTURE_CONFIG.format(db_path=db_path))
+    cs_type = "virtual_accelerator" if target == "va" else "epics"
+    config_text = _SPLIT_POSTURE_CONFIG.format(cs_type=cs_type, db_path=db_path)
+    if cs_type == "virtual_accelerator":
+        # A simulated machine may not pair with the synthesizing mock archiver
+        # (the invented-history startup guard); name the store the preset deploys.
+        config_text += "archiver:\n  type: mongodb_archiver\n"
+    (tmp_path / "config.yml").write_text(config_text)
     root = tmp_path / "var" / "agent_data"
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: root)
     target_state.write_on_start(target, _SPLIT_POSTURE_TARGETS_META, generation=0)

@@ -855,9 +855,16 @@ keys:
   archiver.type: {evidence: 'archiver\.type is not set'}
   # Point budget behind archiver_read's span-derived default bin (issue #117).
   archiver.auto_bin_points: {evidence: 'archiver\.auto_bin_points'}
-  archiver.epics_archiver: {evidence: 'epics_archiver'}
-  archiver.epics_archiver.url: {covered-by: archiver.epics_archiver}
-  archiver.epics_archiver.timeout: {covered-by: archiver.epics_archiver}
+  archiver.epics_archiver:
+    rendered: false
+    evidence: 'epics_archiver'
+    note: >-
+      Commented placeholder since the ALS-URL strip: a facility's Archiver
+      Appliance cannot be guessed, so authoring the block travels with the
+      flip to `type: epics_archiver`. The connector refuses to start without
+      a `url`, which keeps the unauthored state honest.
+  archiver.epics_archiver.url: {covered-by: archiver.epics_archiver, rendered: false}
+  archiver.epics_archiver.timeout: {covered-by: archiver.epics_archiver, rendered: false}
   # The stored archive's connection block, rendered by the control_assistant
   # template and written from the profile's `va_archiver:` block at build time.
   archiver.mongodb_archiver: {evidence: 'mongodb_archiver'}

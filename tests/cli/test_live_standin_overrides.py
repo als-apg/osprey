@@ -59,22 +59,13 @@ VA_PROBE_CHANNEL = "SR:VAC:GAUGE:SR01:PRESSURE:RB"
 #: The rendered subtree the ``standin`` target is configured from.
 STANDIN_PREFIX = "control_system.connector.live_standin"
 
-#: The shipped ALS production ``epics`` gateways. These are the ``live``
-#: target's, and the whole point of the third target is that they read the same
-#: whether or not a stand-in was asked for — pinned the same way
-#: tests/cli/test_rendered_va_block.py pins them.
-SHIPPED_EPICS_GATEWAYS = {
-    "read_only": {
-        "address": "cagw-alsdmz.als.lbl.gov",
-        "port": 5064,
-        "use_name_server": False,
-    },
-    "write_access": {
-        "address": "cagw-alsdmz.als.lbl.gov",
-        "port": 5084,
-        "use_name_server": False,
-    },
-}
+#: The ``epics`` block the template ships. This is the ``live`` target's, and
+#: the whole point of the third target is that it reads the same whether or
+#: not a stand-in was asked for — pinned the same way
+#: tests/cli/test_rendered_va_block.py pins it. The gateways ship commented
+#: out (authoring them is the go-live edit), so the shipped block is the
+#: timeout and nothing else.
+SHIPPED_EPICS_BLOCK = {"timeout": 5.0}
 
 
 def _va(live_standin: int | None) -> VAConfig:
@@ -425,7 +416,7 @@ class TestTheRenderedDeploymentDialsTheStandIn:
         control_system = yaml.safe_load((lifecycle_repo / "build" / "config.yml").read_text())[
             "control_system"
         ]
-        assert control_system["connector"]["epics"]["gateways"] == SHIPPED_EPICS_GATEWAYS
+        assert control_system["connector"]["epics"] == SHIPPED_EPICS_BLOCK
         assert "probe_channel" not in control_system["connector"]["epics"]
 
     def test_live_standin_overrides_take_the_limits_posture_from_the_profile(
@@ -524,7 +515,7 @@ class TestTheRenderedDeploymentDialsTheStandIn:
         config = yaml.safe_load(rendered)
         control_system = config["control_system"]
         assert "live_standin" not in control_system["connector"]
-        assert control_system["connector"]["epics"]["gateways"] == SHIPPED_EPICS_GATEWAYS
+        assert control_system["connector"]["epics"] == SHIPPED_EPICS_BLOCK
         assert "probe_channel" not in control_system["connector"]["epics"]
         # Still the profile's own pair, unchanged by the stand-in going away:
         # nothing about the limits posture was ever the stand-in's to decide.

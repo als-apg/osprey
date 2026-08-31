@@ -80,6 +80,7 @@ ROW_FIELDS = {
     "is_baseline",
     "available_now",
     "reason",
+    "reason_detail",
     "ceiling_writes",
     "posture",
     "effective",
@@ -639,6 +640,53 @@ class TestTheThreePostureColumns:
         assert row_for(payload, "va")["ceiling_writes"] is False
         assert row_for(payload, "va")["effective"] is False
 
+    def test_a_va_plus_standin_render_reports_the_standins_own_ceiling(self, make_client, tmp_path):
+        """Two configured targets are switch-capable with no live machine at all.
+
+        The stand-in row carries its own armed ceiling, which is what keeps the
+        popover's posture toggle on that row unlocked — a render rehearsing on
+        its stand-in beside the simulator must not lock the one toggle it
+        exists to offer.
+        """
+        config = tmp_path / "va_standin.yml"
+        config.write_text(
+            yaml.safe_dump(
+                {
+                    "control_system": {
+                        "type": "virtual_accelerator",
+                        "writes_enabled": False,
+                        "connector": {
+                            "virtual_accelerator": {
+                                "simulation_file": "data/sim.json",
+                                "probe_channel": "SIM:PROBE",
+                                "writes_enabled": True,
+                                "gateways": {"read_only": {"address": "gw", "port": 5064}},
+                            },
+                            "live_standin": {
+                                "probe_channel": "SR:PROBE",
+                                "writes_enabled": True,
+                                "gateways": {
+                                    "read_only": {"address": "localhost", "port": STANDIN_PORT},
+                                    "write_access": {"address": "localhost", "port": STANDIN_PORT},
+                                },
+                            },
+                        },
+                    },
+                    "services": {"live_standin": {"port": STANDIN_PORT}},
+                    "deployed_services": ["virtual_accelerator", "live_standin"],
+                }
+            ),
+            encoding="utf-8",
+        )
+        with make_client(config) as client:
+            payload = get_posture(client)
+
+        assert {row["target"] for row in payload["targets"]} == {"va", "standin"}
+        standin = row_for(payload, "standin")
+        assert standin["ceiling_writes"] is True
+        assert standin["effective"] is True
+        assert standin["narrowing_refusal"] is None
+
 
 class TestNarrowingRefusal:
     """What narrowing a row would cost — the one lock reason the rest of the
@@ -742,6 +790,35 @@ class TestAvailability:
         standin = row_for(payload, "standin")
         assert standin["available_now"] is False
         assert standin["reason"] in vocabulary
+
+    def test_a_refusal_carries_the_verdicts_own_sentence(self, client):
+        """``reason_detail`` is the eligibility detail, not a second opinion.
+
+        The popover renders a short phrase keyed on the code and puts this
+        sentence on the tooltip; pinning it to the shared verdict keeps the
+        tooltip, the 409 and the switch tool's answer one wording.
+        """
+        from osprey.mcp_server.control_system.target_eligibility import target_availability
+
+        with live_session(client, target="va"):
+            payload = get_posture(client)
+
+        standin = row_for(payload, "standin")
+        expected = target_availability(
+            yaml.safe_load(Path(client.app.state.config_path).read_text(encoding="utf-8")),
+            "standin",
+            "va",
+            "standin",
+            writes_enabled=False,
+        )
+        assert standin["reason_detail"] == expected.detail
+        assert standin["reason_detail"]
+
+    def test_an_offered_target_carries_no_detail(self, client):
+        with live_session(client, target="va"):
+            payload = get_posture(client)
+
+        assert row_for(payload, "live")["reason_detail"] is None
 
     def test_an_unreadable_render_offers_nothing(self, make_client):
         with make_client(None) as client:

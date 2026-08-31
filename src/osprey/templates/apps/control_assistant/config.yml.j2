@@ -395,7 +395,7 @@ control_system:
   #     Channel Access. Requires the VA service running first — add
   #     virtual_accelerator to deployed_services and run `osprey up`
   #     (see the "Use the Virtual Accelerator" how-to in the OSPREY docs).
-  #   - epics: Production EPICS control system (ALS values below)
+  #   - epics: Production EPICS control system (authored below at go-live)
   type: mock  # <-- Change to 'virtual_accelerator' or 'epics' for other modes
 
   # Write Access Control - Master safety switch for hardware control
@@ -555,7 +555,16 @@ control_system:
           # port: {{ osprey_ports.va_standin + 1 }}
           use_name_server: true
 
-    # EPICS connector (production mode) — ALS production values.
+    # EPICS connector (production mode) — ships unconfigured on purpose.
+    #
+    # Nothing here names a machine: a facility's gateways cannot be guessed,
+    # and shipping someone else's would make a stock deployment's `live` target
+    # look ready while pointing at hardware you never configured. Authoring
+    # this block is the go-live edit — uncomment `gateways` (and `probe_channel`
+    # below) with your facility's values, and set
+    # `control_system.target_switch.live_gateway_acknowledged` further down to
+    # confirm them. Until then the live target shows as not configured, which
+    # is the truthful state of a fresh deployment.
     #
     # PVAccess (PVA) read routing: addresses matching any glob in `pva_channels`
     # are read through the p4p client — the transport NTNDArray camera frames
@@ -599,18 +608,18 @@ control_system:
       #   address: your-pva-gateway.example.com  # Replace with your PVA gateway
       #   port: 5075
       #   use_name_server: false  # Set true for SSH tunnels
-      gateways:
-        read_only:
-          address: cagw-alsdmz.als.lbl.gov
-          port: 5064
-          # use_name_server: Set to true for SSH tunnels (uses EPICS_CA_NAME_SERVERS)
-          #                 Set to false for direct gateway (uses EPICS_CA_ADDR_LIST)
-          #                 Defaults to false. Can be overridden via environment variable.
-          use_name_server: false
-        write_access:
-          address: cagw-alsdmz.als.lbl.gov
-          port: 5084
-          use_name_server: false
+      # use_name_server: Set to true for SSH tunnels (uses EPICS_CA_NAME_SERVERS)
+      #                  Set to false for direct gateway (uses EPICS_CA_ADDR_LIST)
+      #                  Defaults to false. Can be overridden via environment variable.
+      # gateways:
+      #   read_only:
+      #     address: your-ca-gateway.example.com
+      #     port: 5064
+      #     use_name_server: false
+      #   write_access:
+      #     address: your-ca-gateway.example.com
+      #     port: 5084
+      #     use_name_server: false
 
   # Control-System Target Switch (Layer 2)
   # Bounds how a running session moves between the connector targets above.
@@ -625,7 +634,7 @@ control_system:
                             # old target before it is torn down regardless
     probe_interval_s: 30    # Seconds between background reachability probes of
                             # every target's gateways
-    # live_gateway_acknowledged: cagw-alsdmz.als.lbl.gov
+    # live_gateway_acknowledged: your-ca-gateway.example.com
 
 # Archiver Configuration
 archiver:
@@ -668,10 +677,17 @@ archiver:
   # mock_archiver:
   #   simulation_file: data/simulation/machine.json
 
-  # EPICS Archiver Appliance (production mode)
-  epics_archiver:
-    url: https://archiver.als.lbl.gov:8443
-    timeout: 60              # Timeout for archiver requests in seconds
+  # EPICS Archiver Appliance (production mode) — ships unconfigured on purpose.
+  #
+  # Nothing here names an appliance: a facility's archiver cannot be guessed,
+  # and shipping someone else's URL would make a flip to `type: epics_archiver`
+  # look ready while reading history from a machine you never configured.
+  # Authoring this block travels with that flip — uncomment it with your
+  # facility's values. Until then the connector refuses to start without a
+  # `url`, which is the truthful state of a fresh deployment.
+  # epics_archiver:
+  #   url: https://your-archiver.example.com:8443
+  #   timeout: 60            # Timeout for archiver requests in seconds
 
   # MongoDB archiver. Its client ships with OSPREY, so there is nothing extra to
   # install. Every key here except timeout is required; the connector raises on

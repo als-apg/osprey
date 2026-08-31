@@ -186,8 +186,9 @@ config:
   # sandbox simulator, "epics" your own control system, "mock" needs no
   # containers but cannot complete a plan.
   # `control_target_set live` moves a session onto the machine authored under
-  # `epics:`: it probes that target, then requires the strict limits pair
-  # below, then your own
+  # `epics:`. The template ships that block unconfigured — author its
+  # `gateways` and `probe_channel` first — then the switch probes that target,
+  # requires the strict limits pair below, then your own
   # `control_system.target_switch.live_gateway_acknowledged` — the operator
   # saying those gateways really are this facility's — and it still refuses
   # while this deployment records its own archive from the stand-in, because

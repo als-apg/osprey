@@ -399,7 +399,7 @@ class TestNoStandinChangesNothing:
             "  target_switch:\n" + template.split("  target_switch:\n", 1)[1].split("\n\n", 1)[0]
         )
         assert block in text
-        assert "# live_gateway_acknowledged: cagw-alsdmz.als.lbl.gov" in text
+        assert "# live_gateway_acknowledged: your-ca-gateway.example.com" in text
         assert "live_gateway_acknowledged" not in _target_switch(text)
 
 
@@ -466,7 +466,7 @@ class TestTheAcknowledgmentIsNeverWritten:
         """It is the template author's example; nothing wrote a value beside it."""
         text = _inject_standin(tmp_path)
 
-        assert "    # live_gateway_acknowledged: cagw-alsdmz.als.lbl.gov\n" in text
+        assert "    # live_gateway_acknowledged: your-ca-gateway.example.com\n" in text
         assert text.count("    live_gateway_acknowledged:") == 0
 
     def test_the_build_hangs_no_note_of_its_own_in_the_config(self, tmp_path):
@@ -514,7 +514,7 @@ class TestTheAcknowledgmentIsNeverWritten:
     def test_an_operator_authored_acknowledgment_is_left_exactly_as_written(self, tmp_path):
         """It names their own machine, and this build has no opinion about it."""
         template = _render_control_assistant_template().replace(
-            "    # live_gateway_acknowledged: cagw-alsdmz.als.lbl.gov\n",
+            "    # live_gateway_acknowledged: your-ca-gateway.example.com\n",
             "    live_gateway_acknowledged: cagw.example.com   # ours, checked\n",
             1,
         )

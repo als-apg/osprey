@@ -629,19 +629,27 @@ osprey-display-menu .display-menu-logout-icon {
   color: var(--color-error);
 }
 
-.ctc-rows {
-  display: flex;
-  flex-direction: column;
-}
-
 /* Four columns: the dot, who the target is, the posture this session holds on
    it, and the one action available. Status and action stay in separate
-   columns — reading the popover and changing it are different gestures. */
+   columns — reading the popover and changing it are different gestures.
+
+   The COLUMNS belong to the list, not to the row: `.ctc-rows` owns the track
+   sizing and each row subgrids into it, so the posture and action columns
+   share one width across every row and the toggles line up as a column
+   instead of ragged per-row boxes. */
+.ctc-rows {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) max-content max-content;
+  column-gap: 10px;
+}
+
 .ctc-row {
   display: grid;
-  grid-template-columns: 10px minmax(0, 1fr) auto auto;
-  column-gap: 10px;
-  align-items: center;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  /* Start, not center: the toggle and Switch align with the row's first
+     (label) line, and stay put when a row grows an outcome line below it. */
+  align-items: start;
   padding: 8px 2px;
   border-bottom: 1px solid var(--border-default);
 }
@@ -651,7 +659,10 @@ osprey-display-menu .display-menu-logout-icon {
 }
 
 /* The row this session is on, bled past the popover's padding so the tint
-   reads as a highlighted row rather than an inset card. */
+   reads as a highlighted row rather than an inset card. The -6px/8px pair
+   nets to the 2px inset every other row has, and subgrid keeps that
+   arithmetic: a subgridded row's own margin and padding are taken out of its
+   edge tracks, so the content still lands on the shared columns. */
 .ctc-row[data-active="true"] {
   margin: 0 -6px;
   padding-left: 8px;
@@ -692,20 +703,6 @@ osprey-display-menu .display-menu-logout-icon {
 .ctc-row[data-target-kind="simulated"] .ctc-label {
   color: var(--text-secondary);
   font-weight: var(--weight-regular);
-}
-
-/* The plain-language kind word under the name — simple mode's replacement for
-   the endpoint and gateway role. An operator who does not think in endpoints
-   still needs to know a row is the real machine. Hidden in expert, which has
-   the meta line instead. */
-.ctc-kind {
-  display: none;
-  font-family: var(--font-display);
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .ctc-tag {
@@ -803,9 +800,10 @@ osprey-display-menu .display-menu-logout-icon {
 }
 
 /* A target reachability does not apply to loses the LED entirely rather than
-   showing an unlit one, which would read as "down". */
+   showing an unlit one, which would read as "down" — but keeps its box, so
+   the reach text starts on the same column as every other row's. */
 .ctc-reach[data-state="not_applicable"] .ctc-reach-dot {
-  display: none;
+  visibility: hidden;
 }
 
 /* What the last switch or posture request on this row did. Feedback, so it
@@ -958,6 +956,9 @@ osprey-display-menu .display-menu-logout-icon {
   background: var(--error-tint-08);
 }
 
+/* Deliberately quiet, `not configured` above all: on a stock deployment the
+   live target is unconfigured on purpose — authoring it is the go-live edit —
+   and an error tone here would flag a healthy render as broken. */
 .ctc-reason {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
@@ -1013,12 +1014,14 @@ osprey-display-menu .display-menu-logout-icon {
    Expert (the attribute absent, or `expert`) is the resting state and shows
    everything above.
 
-   Simple keeps the four things an operator acts on — which target, whether it
-   is reachable, the posture, and Switch — and drops the detail that belongs to
-   whoever runs the deployment: endpoints, gateway roles, probe ages, the head
-   note, the config disclaimer, and the lock wording (which survives in the
-   `title`). The chip itself, and both confirms, are identical in either mode:
-   a readout and a safety gesture do not get a density. */
+   Simple keeps the four things an operator acts on — which target (the label
+   is the row's one identity line, and it already says what kind of machine it
+   names), whether it is reachable, the posture, and Switch — and drops the
+   detail that belongs to whoever runs the deployment: endpoints, gateway
+   roles, probe ages, the head note, the config disclaimer, and the lock
+   wording (which survives in the `title`). The chip itself, and both
+   confirms, are identical in either mode: a readout and a safety gesture do
+   not get a density. */
 html[data-ui-mode="simple"] .ctc-popover {
   width: 380px;
 }
@@ -1031,10 +1034,6 @@ html[data-ui-mode="simple"] .ctc-popover .ctc-foot-note,
 html[data-ui-mode="simple"] .ctc-popover .ctc-lock,
 html[data-ui-mode="simple"] .ctc-popover .ctc-baseline {
   display: none;
-}
-
-html[data-ui-mode="simple"] .ctc-popover .ctc-kind {
-  display: block;
 }
 
 /* Reachability collapses to the LED alone. The word and the age beside the dot

@@ -479,9 +479,12 @@ GATE_CASES = [
         False,
     ),
     (
-        "empty live block",
+        # The baseline is a configured target whether or not its block carries
+        # keys — a session sits on it either way — so an epics deployment with
+        # an empty epics block still has two machines once the VA is beside it.
+        "empty live block beside a va",
         {"type": "epics", "connector": {"epics": {}, "virtual_accelerator": _VA_BLOCK}},
-        False,
+        True,
     ),
     ("no connector section", {"type": "epics"}, False),
     (

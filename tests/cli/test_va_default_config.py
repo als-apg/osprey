@@ -44,29 +44,17 @@ from osprey.connectors.factory import (
 # The epics block a scaffolded Control Assistant renders: the app template's
 # own values, verbatim, and the same block
 # tests/templates/test_preset_va_block.py pins on the raw render as
-# ORIGINAL_EPICS_BLOCK. The stand-in has its own connector block —
+# SHIPPED_EPICS_BLOCK. The stand-in has its own connector block —
 # `control_system.connector.live_standin`, seven leaves the build derives from
 # `virtual_accelerator.live_standin` — so `epics:` stays the machine the
 # facility authors. `live` means that machine on a deployment running a
 # stand-in exactly as on one that is not, which is why pointing this repo at a
-# real facility is one edit here and nothing else. `probe_channel` is commented
-# out in the template (facility-specific, nothing shipped set), so a scaffolded
-# block carries the two gateways and the timeout and no third key.
-SCAFFOLDED_EPICS_BLOCK = {
-    "timeout": 5.0,
-    "gateways": {
-        "read_only": {
-            "address": "cagw-alsdmz.als.lbl.gov",
-            "port": 5064,
-            "use_name_server": False,
-        },
-        "write_access": {
-            "address": "cagw-alsdmz.als.lbl.gov",
-            "port": 5084,
-            "use_name_server": False,
-        },
-    },
-}
+# real facility is one edit here and nothing else. The gateways, the
+# `probe_channel` and the operator acknowledgment are all commented out
+# (facility-specific, nothing shipped set), so a scaffolded block carries the
+# timeout and nothing else — a stock deployment's live target reads "not
+# configured" until the go-live edit authors it.
+SCAFFOLDED_EPICS_BLOCK = {"timeout": 5.0}
 
 
 @pytest.fixture
