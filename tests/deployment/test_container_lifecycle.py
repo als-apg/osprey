@@ -101,6 +101,17 @@ def _addresses(cmd: list[str], compose_filename: str) -> bool:
     return any(arg == compose_filename or arg.endswith("/" + compose_filename) for arg in cmd)
 
 
+def _reconcile_ups(calls: list[dict]) -> list[dict]:
+    """The stack-wide ``up`` reconciles among *calls*.
+
+    Excludes the deploy's service-scoped ``up -d --force-recreate nginx``
+    (see provision.py's nginx rebind): that invocation is compose's spelling
+    of "recreate this one container", not a stack reconcile, and the tests
+    counting reconciles must not start double-counting because of it.
+    """
+    return [c for c in calls if "up" in c["cmd"] and "--force-recreate" not in c["cmd"]]
+
+
 def test_deploy_up_dev_mode_ups_no_build(captured_argv, tmp_path):
     """--dev builds in a separate step, so the final `up` carries --no-build,
     never --build in the same invocation (see the Defect A split tests for the
@@ -319,7 +330,7 @@ def test_web_only_deploy_does_not_early_return(captured_web_runs, tmp_path):
 def test_web_deploy_writes_artifacts_and_includes_web_compose_file(captured_web_runs, tmp_path):
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
 
-    up_calls = [c for c in captured_web_runs["calls"] if "up" in c["cmd"]]
+    up_calls = _reconcile_ups(captured_web_runs["calls"])
     assert len(up_calls) == 1
     up_cmd = up_calls[0]["cmd"]
     assert "-f" in up_cmd
@@ -332,7 +343,7 @@ def test_web_deploy_always_runs_detached(captured_web_runs, tmp_path):
     replace the process and the post-up hook could never run."""
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
 
-    up_calls = [c for c in captured_web_runs["calls"] if "up" in c["cmd"]]
+    up_calls = _reconcile_ups(captured_web_runs["calls"])
     assert len(up_calls) == 1
     assert "-d" in up_calls[0]["cmd"]
 
@@ -345,14 +356,20 @@ def test_web_deploy_pins_compose_project_name(captured_web_runs, tmp_path):
         assert "COMPOSE_PROJECT_NAME" in call["env"]
 
 
-def test_web_deploy_idempotent_pull_then_up_no_force_recreate(captured_web_runs, tmp_path):
+def test_web_deploy_force_recreate_stays_scoped_to_nginx(captured_web_runs, tmp_path):
+    """An idempotent re-deploy must never bounce live terminals: the ONLY
+    force-recreate a deploy may issue is the service-scoped nginx rebind
+    (its file bind mounts point at the previous build's inodes — see
+    provision.py). A bare `up -d --force-recreate` restarting every user's
+    container is exactly what this pins against."""
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
 
     cmds = [c["cmd"] for c in captured_web_runs["calls"]]
     assert any("pull" in cmd for cmd in cmds)
     assert any("up" in cmd and "-d" in cmd for cmd in cmds)
     for cmd in cmds:
-        assert "--force-recreate" not in cmd
+        if "--force-recreate" in cmd:
+            assert cmd[-4:] == ["up", "-d", "--force-recreate", "nginx"], cmd
 
 
 def test_web_deploy_no_wildcard_or_prune_flags(captured_web_runs, tmp_path):
@@ -441,7 +458,7 @@ def test_web_only_deploy_dev_mode_never_adds_build(captured_web_runs, tmp_path):
     land, even under --dev."""
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False, dev_mode=True)
 
-    up_calls = [c for c in captured_web_runs["calls"] if "up" in c["cmd"]]
+    up_calls = _reconcile_ups(captured_web_runs["calls"])
     assert len(up_calls) == 1
     assert "--build" not in up_calls[0]["cmd"]
     assert "-d" in up_calls[0]["cmd"]
@@ -450,7 +467,7 @@ def test_web_only_deploy_dev_mode_never_adds_build(captured_web_runs, tmp_path):
 def test_web_only_deploy_non_dev_mode_omits_build(captured_web_runs, tmp_path):
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False, dev_mode=False)
 
-    up_calls = [c for c in captured_web_runs["calls"] if "up" in c["cmd"]]
+    up_calls = _reconcile_ups(captured_web_runs["calls"])
     assert len(up_calls) == 1
     assert "--build" not in up_calls[0]["cmd"]
 
@@ -535,7 +552,7 @@ def test_combined_services_and_web_deploy_two_detached_up_calls(captured_combine
     """
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
 
-    up_calls = [c for c in captured_combined_runs["calls"] if "up" in c["cmd"]]
+    up_calls = _reconcile_ups(captured_combined_runs["calls"])
     assert len(up_calls) == 2
 
     services_up = [c["cmd"] for c in up_calls if _addresses(c["cmd"], "docker-compose.yml")]
@@ -588,7 +605,7 @@ def test_web_only_deploy_never_runs_a_services_up(captured_web_runs, tmp_path):
     outright with "no service selected")."""
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
 
-    up_calls = [c["cmd"] for c in captured_web_runs["calls"] if "up" in c["cmd"]]
+    up_calls = [c["cmd"] for c in _reconcile_ups(captured_web_runs["calls"])]
     assert len(up_calls) == 1
     assert _addresses(up_calls[0], "docker-compose.web.yml")
 
@@ -772,10 +789,13 @@ def test_registry_mode_still_pulls(monkeypatch, tmp_path, _mode_wiring_collab):
     assert any("up" in cmd and "-d" in cmd for cmd in cmds)
 
 
-def test_up_hot_reloads_nginx_after_web_stack_up(monkeypatch, tmp_path, _mode_wiring_collab):
-    """`up -d` never restarts a running nginx whose bind-mounted config CONTENT
-    changed (the container definition is unchanged), so the post-up hook must
-    issue a `compose exec nginx nginx -s reload` — after the web stack's up."""
+def test_up_force_recreates_nginx_after_web_stack_up(monkeypatch, tmp_path, _mode_wiring_collab):
+    """`up -d` never restarts a running nginx whose bind-mounted files changed
+    (the container definition is unchanged) — and because the build stage
+    regenerates build/'s inodes, a running nginx's file bind mounts point at
+    the previous render's inodes, which `nginx -s reload` cannot see past. The
+    deploy must issue a service-scoped `up -d --force-recreate nginx` — after
+    the web stack's own up, so the recreate rebinds against the final state."""
     (tmp_path / ".env.users").write_text("", encoding="utf-8")
     config = _web_terminals_config("registry")
     monkeypatch.setattr(container_lifecycle, "prepare_compose_files", lambda *a, **k: (config, []))
@@ -783,29 +803,13 @@ def test_up_hot_reloads_nginx_after_web_stack_up(monkeypatch, tmp_path, _mode_wi
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
 
     cmds = [c["cmd"] for c in _mode_wiring_collab]
-    reload_idx = next(
-        (i for i, cmd in enumerate(cmds) if cmd[-4:] == ["nginx", "nginx", "-s", "reload"]), None
+    recreate_idx = next(
+        (i for i, cmd in enumerate(cmds) if cmd[-4:] == ["up", "-d", "--force-recreate", "nginx"]),
+        None,
     )
-    assert reload_idx is not None, f"no nginx reload argv emitted: {cmds}"
-    assert "exec" in cmds[reload_idx] and "-T" in cmds[reload_idx]
-    up_idx = next(i for i, cmd in enumerate(cmds) if "up" in cmd and "-d" in cmd)
-    assert reload_idx > up_idx
-
-
-def test_nginx_reload_failure_is_advisory(monkeypatch, tmp_path, _mode_wiring_collab):
-    """A failing nginx reload (e.g. container still starting) warns but never
-    fails a deploy that did reconcile."""
-    (tmp_path / ".env.users").write_text("", encoding="utf-8")
-    config = _web_terminals_config("registry")
-    monkeypatch.setattr(container_lifecycle, "prepare_compose_files", lambda *a, **k: (config, []))
-
-    def _fake_run(cmd, **kwargs):
-        rc = 1 if "exec" in cmd else 0
-        return _FakeCompletedProcess(returncode=rc)
-
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
-
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)  # must not raise
+    assert recreate_idx is not None, f"no nginx force-recreate argv emitted: {cmds}"
+    up_idx = next(i for i, cmd in enumerate(cmds) if cmd[-2:] == ["up", "-d"])
+    assert recreate_idx > up_idx
 
 
 def test_registry_mode_raises_before_any_compose_call_when_env_production_missing(
@@ -995,8 +999,8 @@ def test_registry_mode_calls_ensure_env_production_before_pull_before_up(
     def _fake_run(cmd, **kwargs):
         if "rm" in cmd:
             order.append("rm")
-        elif "exec" in cmd:
-            order.append("nginx_reload")
+        elif "--force-recreate" in cmd:
+            order.append("nginx_recreate")
         else:
             order.append("pull" if "pull" in cmd else "up")
         return _FakeCompletedProcess(returncode=0)
@@ -1013,7 +1017,7 @@ def test_registry_mode_calls_ensure_env_production_before_pull_before_up(
         "rm",
         "pull",
         "up",
-        "nginx_reload",
+        "nginx_recreate",
     ]
 
 
