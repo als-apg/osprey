@@ -500,7 +500,7 @@ Related pages
 - :ref:`What executed code may not change <python-executor-protected-paths>`
   — the Python executor's zone boundary, enforced in both execution modes.
 - :ref:`The control-target chip <web-terminal-session-posture>` — how an
-  operator narrows one control target for a write-capable session, and never
-  widens past what the tier permits.
+  operator takes writes away from one control target for their own session,
+  and can never gain more than the tier permits.
 - :doc:`../../build-profiles` — personas: what a delta file may contain, and how
   the floor is written so that one persona can lift it.

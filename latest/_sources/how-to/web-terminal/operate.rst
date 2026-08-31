@@ -110,11 +110,11 @@ One row per machine
 
 Each row names a machine and carries the two things you can do to it:
 
-- **What it is** --- the name the deployment gave it, and a plain word for the
-  kind of machine behind it: *live machine*, *stand-in*, *virtual accelerator*
-  or *simulated*. That word comes from what the connector actually is, so a
-  stand-in never renders as the facility's own machine. The row you are on is
-  tagged ``current``.
+- **What it is** --- the name the deployment gave it, which already says what
+  kind of machine it names (*LIVE MACHINE*, *LIVE MACHINE (stand-in)*,
+  *virtual accelerator (simulation)*). That label comes from what the
+  connector actually is, so a stand-in never renders as the facility's own
+  machine. The row you are on is tagged ``current``.
 - **Whether it is answering** --- ``connected``, ``unreachable`` or ``unknown``,
   with how long ago that was measured. ``unknown`` means nothing has vouched for
   it yet, not that it is down.
@@ -122,37 +122,39 @@ Each row names a machine and carries the two things you can do to it:
   a two-segment toggle. It is the readout as well as the control: where it
   cannot move it still shows which state holds, with the reason beside it.
 - **Switch** --- moves this session onto that machine. Where a switch is not
-  available the button is replaced by the reason word, so the gap is explained
-  rather than merely empty.
+  available the button is replaced by a short phrase for the reason ---
+  ``not configured``, ``needs gateway ack`` --- so the gap is explained rather
+  than merely empty, and the server's full sentence sits on the tooltip. On a
+  fresh deployment the live machine reading ``not configured`` is the normal
+  state, not a fault: authoring its gateways is the go-live edit.
 
-The foot of the popover has **Sandbox everything**, which narrows every target
-that can be narrowed in one gesture, and the sentence that bounds the whole
-surface: nothing here changes the deployment's config.
+The foot of the popover has **Sandbox everything**, which puts every target it
+can into the sandbox in one click, and a reminder of the boundary: nothing here
+changes the deployment's config.
 
-Narrow a target, or widen it
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Take writes away, or give them back
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The posture is **per target**. Narrowing the live machine leaves a session
-working on the virtual accelerator alone, which is the point: you can put the
-machine you are worried about out of reach without giving up the one you are
-working on.
+The posture is **per target**. Sandbox the live machine and the session keeps
+working on the virtual accelerator, which is the point: you put the machine you
+are worried about out of reach without giving up the one you are working on.
 
-Narrowing applies as you click it --- taking reach away needs no ceremony.
-Widening a target back to writes asks you to confirm first, every time and with
-nothing remembered between clicks, and the confirmation names the machine and
-the endpoint the agent would then be able to write to.
+Taking writes away applies as you click --- it needs no ceremony. Turning
+writes back on asks you to confirm first, every time and with nothing
+remembered between clicks, and the confirmation names the machine and the
+endpoint the agent would then be able to write to.
 
 **Nothing is restarted.** Every gate reads the posture at the moment of the
-write, so a narrowing lands on the conversation that is already running: the
+write, so the change lands on the conversation that is already running: the
 agent obeys it on its very next write, and the turn in flight is not
-interrupted. The one lag worth knowing about is a narrowing on the target the
-session is *on* --- it reaches the agent when the connector is rebuilt, which
+interrupted. One lag is worth knowing about: sandbox the target the session is
+*on* and the change reaches the agent when the connector is rebuilt, which
 waits for a running execution to finish, and the row says so rather than
 leaving a toggle that appears to have done nothing.
 
-**It narrows, and never widens.** Only narrowings are recorded, so the chip can
-tighten what the deployment permits and never loosen it. Where the toggle
-cannot move it is locked and carries the reason:
+**The chip only takes writes away.** What you set here tightens what the
+deployment permits; it can never hand out writes the deployment did not arm.
+Where the toggle cannot move it is locked and carries the reason:
 
 .. list-table::
    :header-rows: 1
@@ -167,37 +169,37 @@ cannot move it is locked and carries the reason:
      - The whole deployment is running read-only
        (``OSPREY_EXECUTION_MODE=readonly``), which sits above any one session.
    * - ``not enforceable``
-     - This session's control-system server is not one this web server can
-       address, so a narrowing recorded here would be read by nobody. The
+     - This page has no way to deliver a posture change to this session's
+       control-system server, so a toggle set here would be read by nobody. The
        roster still renders --- it is worth reading --- but the toggles govern
        nothing.
    * - ``store unavailable``
-     - The deployment's agent-data root does not resolve, so there is nowhere to
-       record a posture the agent would read back. Nothing was changed.
+     - The folder where postures are recorded is missing or unreadable, so
+       there is nowhere to keep a setting the agent would read back. Nothing
+       was changed.
    * - ``no read-only endpoint``
-     - Narrowing this target would select a gateway role the deployment has not
-       configured, leaving the target unusable. You are told before you act,
-       not after.
+     - Read-only on this target would route it through a gateway the deployment
+       has not configured, leaving the target unusable. You are told before you
+       act, not after.
 
-Two more refusals arrive on the gesture rather than on the toggle. A session
-that has never been sent a prompt has nothing to record a posture against:
-*"This session has not started yet --- send one prompt first, then set its
-posture."* And widening while an execution is running is refused --- a run is
-pinned to the posture it launched under, so a widening could not reach it
-anyway, and saying so beats a silent no-op.
+One more refusal can meet the click itself: you cannot turn writes back on
+while the agent is still running something. The run keeps the posture it
+started with, so wait for it to finish, or stop it, and try again.
 
 Switch this session to another machine
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 **Switch** on a row moves the session onto that machine, after a confirmation
-that names it and its endpoint. The web server does not perform the switch: it
-records the request, and the control-system server that owns the connector
-picks it up, re-checks eligibility and reachability at that moment, and
-publishes the outcome back. The row then reads ``✓ switched``, or ``✗`` with the
-refusal word --- the same word the agent is given for the same refusal. While a
-request is out the chip reads ``switching…``, and one request is outstanding at
-a time. If nothing answers within 30 seconds the row reads ``request_expired``:
-the request was written, and nothing that could act on it was alive.
+that names it and says which write posture the session arrives in there ---
+posture is per target, and it does not travel with you. The browser does not
+perform the switch: it records the request, and the part of the deployment that
+owns the connection to the machines picks it up, re-checks at that moment that
+the move is allowed and the machine answers, and reports the outcome back. The
+row then reads ``✓ switched``, or ``✗`` with the phrase for the refusal ---
+the same refusal, for the same reason, the agent is given. While a request is
+out the chip reads ``switching…``, and one request is outstanding at a time. If
+nothing answers within 30 seconds the row reads ``request_expired``: nothing
+that could carry out the switch was alive to pick it up.
 
 What the switch itself is gated on --- the approval prompt, the limits posture,
 the archive --- is :doc:`../control-systems/switch-control-target`.
@@ -206,8 +208,8 @@ Simple and Expert
 ~~~~~~~~~~~~~~~~~
 
 The popover follows the session's density setting (the Simple/Expert control in
-the display menu; see :doc:`theming`). Simple mode shows the machine, the plain
-kind word, whether it is answering, the toggle and **Switch**. Expert mode adds
+the display menu; see :doc:`theming`). Simple mode shows the machine's name,
+whether it is answering, the toggle and **Switch**. Expert mode adds
 the endpoint, the gateway role, the age of the last probe, and the notes under a
 locked toggle. The controls and the confirmations are the same in both: the
 density changes what is on screen, never what a click does.
@@ -217,20 +219,20 @@ Where the posture lives
 
 The posture belongs to **one session**, not to the deployment. Nothing is
 written to ``config.yml``. Two people working in two sessions of the same
-deployment hold their own postures, and one of them narrowing theirs does not
-touch the other.
+deployment hold their own postures, and one of them sandboxing a target does
+not touch the other.
 
-Narrowings are recorded in
+Your settings are recorded in
 ``var/agent_data/control_target/session-postures.json``, written as soon as you
 click and read back when the server starts, so restarting the container never
-quietly returns a narrowed session to writes.
+quietly returns a sandboxed session to writes.
 
 What refuses a write, and how firmly
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Nothing about the posture is a single choke point --- each write route is
 refused by the layer that owns it. The difference between those layers is worth
-knowing, because one of them is a belt rather than the buckle:
+knowing, because one of them is best-effort rather than enforced:
 
 .. list-table::
    :header-rows: 1
@@ -271,7 +273,7 @@ sends you to the wrong control:
   saying to set that target back to writes from the chip if the write is
   intended.
 
-Those three are what a narrowing you made from the chip sounds like, and the
+Those three are what a posture you set from the chip sounds like, and the
 chip is where you lift it. A **deployment-wide read-only run** is a different
 story and says so, because no click lifts that one:
 
@@ -298,25 +300,32 @@ and says nothing about postures.
 
    **The other two surfaces.** Simple mode's chat and the operator websocket run
    their agent through the Agent SDK rather than a terminal. Both read the same
-   record at write time, so a narrowing reaches them exactly as it reaches a
-   terminal session. Where they differ is in what the chip can do for them.
+   record at write time, so a posture you set reaches them exactly as it reaches
+   a terminal session. Where they differ is in what the chip can do for them.
 
-   A **chat session's toggles work** --- its writes meet the same ceiling and the
-   same narrowing a terminal's do --- but it is offered no **Switch**: a chat has
-   no control-system server of its own for a switch request to be addressed to,
-   and every row says ``chat_session`` where the button would be. One thing is
-   worth knowing before relying on a chat's posture: the chat page mints a new
-   chat id every time it loads, so a chat's posture lasts as long as that page
-   does rather than following the conversation.
+   A **chat session's toggles work** --- its writes meet the same ceiling and
+   the same read-only setting a terminal's do --- but it is offered no
+   **Switch**: a chat has no machine connection of its own to move, and every
+   row says ``chat_session`` where the button would be. Know one thing before
+   relying on a chat's posture: the chat page starts a fresh chat every time it
+   loads, so a posture you set for it lasts as long as that page does rather
+   than following the conversation.
 
-   An **operator websocket session cannot be addressed from the chip.** Its id is
-   minted when the connection is accepted and names nothing afterwards, so no
-   narrowing can ever be recorded against it and there is nothing to restore
-   across a restart. That stays true until an operator client exists to define
-   its reconnect protocol. Every audit record such a session emits is labelled
-   ``posture_source=spawn``, which is the trail's way of saying the posture was
-   fixed when the session started rather than read from a live setting --- see
-   the record fields in :ref:`the audit trail contract <audit-trail-record>`.
+   An **operator websocket session's toggles govern nothing**: the chip has no
+   way to hand a posture to that kind of session, so what you set here never
+   reaches it.
+
+.. dropdown:: Why the websocket session is out of the chip's reach
+   :icon: gear
+
+   The websocket session's identifier is created when the connection is
+   accepted and identifies nothing once the connection ends, so no posture can
+   be recorded against it and there is nothing to restore across a restart.
+   That stays true until an operator client exists to define its reconnect
+   protocol. Every audit record such a session emits is labelled
+   ``posture_source=spawn`` --- the trail's way of saying the posture was fixed
+   when the session started rather than read from a live setting; see the
+   record fields in :ref:`the audit trail contract <audit-trail-record>`.
 
 Documentation and feedback settings
 -----------------------------------

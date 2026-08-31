@@ -121,11 +121,15 @@ anything. Optional keys: ``auth.port`` (the port layout's ``10001`` unless you
 set it — see :ref:`reference-ports`),
 ``auth.session_lifetime`` in whole seconds (default ``43200``), and
 ``auth.image``, required with ``image_source: registry``.
-``auth.session_lifetime`` also reaches past this page: it sets how long a
-terminal session cookie lasts wherever that cookie is used — ``osprey web``,
-``auth.method: token``, and ``login: false`` roster entries. For everyone who
-does go through the login page, nginx rather than that cookie is what lets
-them through, so here the key sets the login page's cookie.
+
+.. dropdown:: Where ``auth.session_lifetime`` applies
+   :icon: gear
+
+   The key reaches past this page: it sets how long a terminal session cookie
+   lasts wherever that cookie is used — ``osprey web``, ``auth.method:
+   token``, and ``login: false`` roster entries. For everyone who does go
+   through the login page, nginx rather than that cookie is what lets them
+   through, so here the key sets the login page's cookie.
 
 .. warning::
 

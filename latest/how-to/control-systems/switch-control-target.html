@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Aug 30, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 31, 2026"/>
   </head>
   
   
@@ -648,6 +648,13 @@ procedure. Then:</p>
 <p>Moving toward the live machine is the direction with the extra gates. The switch
 checks them in this order and reports the first one that fails, so the answer
 names the nearest thing to fix rather than the whole list.</p>
+<p><strong>The gateways</strong> (<code class="docutils literal notranslate"><span class="pre">gateways_missing</span></code>).
+<code class="docutils literal notranslate"><span class="pre">control_system.connector.epics.gateways</span></code> names where the live machine is
+reached. Like everything else about that machine it ships commented out — a
+facility’s gateways cannot be guessed, and shipped values would point a stock
+deployment at hardware it never configured — so on a fresh deployment this is
+the first gate, and the live target reads <em>not configured</em> until you author
+it. Uncomment the block with your facility’s gateway addresses.</p>
 <p><strong>A probe channel</strong> (<code class="docutils literal notranslate"><span class="pre">probe_channel_missing</span></code>).
 <code class="docutils literal notranslate"><span class="pre">control_system.connector.epics.probe_channel</span></code> names the channel the switch
 reads to prove the machine answered before the session moves onto it. It ships
@@ -829,7 +836,7 @@ per target, so a simulator may be armed beside a live machine that is not.</p></
 on and unlisted channels refused — which is what the <code class="docutils literal notranslate"><span class="pre">limits_posture</span></code>
 gate above requires. Rows can disagree here too, but only from the
 deployment’s config: a deployment can relax unlisted channels for its
-simulator alone. Unlike <code class="docutils literal notranslate"><span class="pre">writes_permitted</span></code>, no session narrowing
+simulator alone. Unlike <code class="docutils literal notranslate"><span class="pre">writes_permitted</span></code>, no chip toggle
 moves it. A target whose config states neither setting reads
 <code class="docutils literal notranslate"><span class="pre">false</span></code>, because a deployment that has stated nothing has refused
 nothing.</p></td>

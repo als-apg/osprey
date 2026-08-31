@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Aug 30, 2026"/>
+    <meta name="docbuild:last-update" content="Aug 31, 2026"/>
   </head>
   
   
@@ -1127,8 +1127,8 @@ container does with file ownership, and what a bare host does not.</p></li>
 <li><p><a class="reference internal" href="../../../architecture/python-executor.html#python-executor-protected-paths"><span class="std std-ref">What executed code may not change</span></a>
 — the Python executor’s zone boundary, enforced in both execution modes.</p></li>
 <li><p><a class="reference internal" href="../operate.html#web-terminal-session-posture"><span class="std std-ref">The control-target chip</span></a> — how an
-operator narrows one control target for a write-capable session, and never
-widens past what the tier permits.</p></li>
+operator takes writes away from one control target for their own session,
+and can never gain more than the tier permits.</p></li>
 <li><p><a class="reference internal" href="../../build-profiles.html"><span class="doc">Build Profiles</span></a> — personas: what a delta file may contain, and how
 the floor is written so that one persona can lift it.</p></li>
 </ul>
