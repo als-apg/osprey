@@ -49,7 +49,11 @@ function mountFullShell() {
     <div class="terminal-card"></div>`;
 }
 
-/** Arm the invite under `policy` and let the delay elapse. */
+/**
+ * Arm the invite under `policy` and let the delay elapse.
+ * @param {string} [policy]
+ * @param {string[]} [capabilities]
+ */
 function invite(policy = 'once', capabilities = []) {
   applyTourConfig({ tour: { policy, capabilities } });
   vi.advanceTimersByTime(INVITE_DELAY_MS + 1);
@@ -59,11 +63,21 @@ function closeTour() {
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
 }
 
-/** @param {string} selector */
-function click(selector) {
+/**
+ * Query an element the fixture guarantees, failing loudly when it is missing
+ * rather than letting a drifted fixture surface as a null dereference.
+ * @param {string} selector
+ * @returns {HTMLElement}
+ */
+function find(selector) {
   const el = document.querySelector(selector);
   if (!(el instanceof HTMLElement)) throw new Error(`expected ${selector}`);
-  el.click();
+  return el;
+}
+
+/** @param {string} selector */
+function click(selector) {
+  find(selector).click();
 }
 
 const cardTitle = () => document.querySelector('.tour-title')?.textContent;
@@ -192,7 +206,7 @@ describe('steps', () => {
 
   test('chip-derived text renders as text — markup in a facility name stays inert', () => {
     mountFullShell();
-    const short = document.querySelector('.ctc-short');
+    const short = find('.ctc-short');
     short.textContent = '<img src=x onerror=steal()>';
     startTour();
     click(nextBtn()); // → Your control target
@@ -208,7 +222,7 @@ describe('steps', () => {
 describe('activation', () => {
   test('the target step opens the chip popover and moving on closes it', () => {
     mountFullShell();
-    const chip = document.querySelector('.control-target-chip');
+    const chip = find('.control-target-chip');
     chip.addEventListener('click', () => {
       chip.setAttribute(
         'aria-expanded',
@@ -227,7 +241,7 @@ describe('activation', () => {
 
   test('a panel step presses its rail entry — but never the ACTIVE one', () => {
     mountFullShell();
-    const workspace = document.querySelector('[data-panel-id="artifacts"]');
+    const workspace = find('[data-panel-id="artifacts"]');
     workspace.classList.add('active');
     const clicks = vi.fn();
     workspace.addEventListener('click', clicks);

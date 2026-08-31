@@ -87,10 +87,13 @@ const setDismissed = (on) => {
 /* ---- DOM helpers (no innerHTML anywhere) ---- */
 
 /**
- * @param {string} tag
+ * Keyed on the tag literal so callers get the concrete element type back
+ * (`el('button', …)` is an HTMLButtonElement, with `.type` and `.disabled`).
+ * @template {keyof HTMLElementTagNameMap} K
+ * @param {K} tag
  * @param {string} [cls]
  * @param {string} [text]
- * @returns {HTMLElement}
+ * @returns {HTMLElementTagNameMap[K]}
  */
 function el(tag, cls, text) {
   const node = document.createElement(tag);
