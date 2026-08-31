@@ -72,8 +72,8 @@ Two tools move between them:
 
 ``control_target_set(target)``
    Moves the session. ``target`` is ``va``, ``live`` or ``standin``, spelled
-   exactly. It asks for your approval first, and the prompt names the machine
-   you would be moving to.
+   exactly. Where the deployment gates it on approval — the shipped presets
+   do — the prompt names the machine you would be moving to.
 
 Ask the OSPREY agent for these in plain language — *"what am I pointed at?"*,
 *"switch to the virtual accelerator"*. A session on the simulator looks like a
@@ -82,10 +82,10 @@ switch.
 
 In the Web Terminal you can also move the session yourself, without asking the
 agent: the :ref:`control-target chip <web-terminal-session-posture>` in the
-header lists every target and offers **Switch** on the ones this session could
-move to. The switch it asks for is the same one — the same gate, the same
-checks, the same refusal words — and a target the gate would refuse shows that
-word where the button would be.
+header opens a popover with a **Switch to** button per machine. The switch it
+asks for is the same one — the same gate, the same checks, the same refusal
+reasons — and a target the gate would refuse shows why where the button
+would be. See `From the Web Terminal`_ below.
 
 Whether writes are *allowed* follows it too. Write posture is per control
 target, so a deployment can be armed on the simulator and read-only on the
@@ -141,11 +141,12 @@ names the nearest thing to fix rather than the whole list.
 
 **The gateways** (``gateways_missing``).
 ``control_system.connector.epics.gateways`` names where the live machine is
-reached. Like everything else about that machine it ships commented out — a
-facility's gateways cannot be guessed, and shipped values would point a stock
-deployment at hardware it never configured — so on a fresh deployment this is
-the first gate, and the live target reads *not configured* until you author
-it. Uncomment the block with your facility's gateway addresses.
+reached. A facility's gateways cannot be guessed, so nothing usable ships
+here: the control-assistant template leaves the whole block commented out —
+there this is the first gate, and the live target reads *not configured*
+until you author it — while the generic project template writes placeholder
+addresses instead, which pass this gate and fail the probe. Either way, the
+edit is the same: put your facility's gateway addresses in the block.
 
 **A probe channel** (``probe_channel_missing``).
 ``control_system.connector.epics.probe_channel`` names the channel the switch
@@ -198,6 +199,56 @@ Nothing needs to be undone. The session target is not saved anywhere that
 outlives the session: every time the controls server starts it returns to the
 deployment baseline and clears what the previous session left behind. Closing
 the session is enough.
+
+From the Web Terminal
+---------------------
+
+Everything above can also be done by hand, without a prompt. Click the
+control-target chip in the header and the popover lists every machine this
+deployment configures — the one the agent stands on as a card, every other as
+a row.
+
+.. grid:: 1 1 2 2
+   :gutter: 2
+
+   .. grid-item::
+
+      .. image:: /_static/screenshots/control_target_popover_light.png
+         :alt: The control-target popover in the light theme, showing the Rehearsal card with its writes switch, and rows for the real machine and the simulator
+         :width: 100%
+
+   .. grid-item::
+
+      .. image:: /_static/screenshots/control_target_popover_dark.png
+         :alt: The control-target popover in the dark theme
+         :width: 100%
+
+The popover on the tutorial deployment, whose baseline is the stand-in: the
+*Rehearsal* card, the real machine still ``not set up``, and the simulator a
+**Switch to** away. Captured with OSPREY |captured_control_target_popover|.
+
+Each machine carries:
+
+- **A writes switch** — the write state on that machine, for your session, and
+  the control that changes it, in one widget. Turning writes off applies as
+  you click; turning them on asks first. Where the deployment locks writes the
+  switch is disabled, with the reason on hover.
+- **A small ⓘ** after the name — what writing to this machine means (*Writes
+  move hardware*, or one of the *nothing moves* lines), the endpoint, and the
+  controls server's own technical label, shown on hover or keyboard focus.
+- **Switch to** — a confirmation names where every control read and write goes
+  next and the write state the session arrives in; the row reads
+  ``switching…`` while the request is out, and the outcome lands on the row:
+  ``✓ switched``, or ``✗`` with an operator phrase for the same refusal code
+  the agent is given, the gate's own sentence on its tooltip. The line leaves
+  the row after a minute — an outcome is news for about as long as someone is
+  watching for it.
+
+The foot's **Turn all writes off** takes writes away from every machine it can
+in one click, and reports any machine it could not narrow rather than
+dropping it. Everything in the popover is per session and per machine;
+:doc:`../web-terminal/operate` walks the whole surface, including the write
+states themselves.
 
 What a deployment needs first
 =============================
@@ -563,7 +614,8 @@ does not run.
 
 **The label stays honest.** Nothing calls the stand-in the live machine. The
 banner reads ``LIVE MACHINE (stand-in)``, the roster says the same, and the
-header chip reads ``STAND-IN``. It carries a real machine's posture — the
+web terminal's header chip reads *Rehearsal* — named for what it is for, with
+the technical label kept on its ⓘ tooltip. It carries a real machine's posture — the
 same limits, the same approval prompts — because it is operated as one, not
 because a write reaches the facility. What the stand-in rehearses is the procedure, not the risk.
 

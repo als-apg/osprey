@@ -65,6 +65,13 @@ class DocShot:
     themes: tuple[str, ...] = ("light", "dark")
     viewport: tuple[int, int] = (1280, 800)
 
+    # tutorial_stack static app selection
+    stack_app: Literal["ariel", "web_terminal"] = "ariel"
+    """Which app a ``tutorial_stack`` *static* recipe captures: the ARIEL
+    interface (default), or the live web terminal — an ``osprey web`` launch
+    against the built tutorial repo, with no agent turn and no provider key
+    needed (see :func:`docs.screenshots.capture._capture_web_terminal_static`)."""
+
     # standalone_interface / tutorial_stack app boot
     app_factory: str | None = None
     """Dotted path to a ``create_app`` callable, e.g. ``"osprey.interfaces.artifacts.app:create_app"``."""
@@ -190,6 +197,24 @@ REGISTRY: list[DocShot] = [
         prompt="Plot the storage ring beam current over the last hour.",
         wait_for="plot",
     ),
+    # The control-target popover (opt-in ``--stack``): the panel behind the
+    # header chip, captured live from the tutorial deployment's web terminal.
+    # The tutorial baseline is the stand-in, so the shot shows the full shape —
+    # the Rehearsal card with its writes switch, the real machine's not-set-up
+    # row, and the simulator — real roster, real states, nothing staged. The
+    # popover only exists open, and only renders banner-free once the session's
+    # controls server has published a record, so the flow lives in
+    # capture._capture_web_terminal_static rather than in a subview click.
+    DocShot(
+        name="control_target_popover",
+        environment="tutorial_stack",
+        kind="static",
+        stack_app="web_terminal",
+        capture_mode="element",
+        element_selector=".ctc-popover.open",
+        themes=("light", "dark"),
+        viewport=(1280, 800),
+    ),
 ]
 
 
@@ -241,6 +266,11 @@ def validate_registry(registry: list[DocShot] | None = None) -> None:
 
         if shot.environment == "standalone_interface" and not shot.app_factory:
             raise ValueError(f"{shot.name!r}: standalone_interface recipes require an app_factory")
+
+        if shot.stack_app != "ariel" and shot.environment != "tutorial_stack":
+            raise ValueError(
+                f"{shot.name!r}: stack_app={shot.stack_app!r} requires the tutorial_stack environment"
+            )
 
         if shot.environment == "static_page" and not shot.source_file:
             raise ValueError(f"{shot.name!r}: static_page recipes require a source_file")
