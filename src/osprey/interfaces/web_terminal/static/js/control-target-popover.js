@@ -639,24 +639,25 @@ function renderFoot(state, rows) {
 /* ---- gestures ---- */
 
 /**
- * Turn one target's writes off or on (or every target's off), then re-read.
+ * POST one gesture and settle the UI around it, then re-read.
  *
  * The re-read is the whole point: the store is shared by every tab and
  * survives a restart, so what the popover shows next is what the server says,
- * never what this click intended. A refusal is kept on the row it was for,
- * because the operator is looking at that row and the server's own sentence is
- * more specific than anything this module could invent.
- * A gesture raised from a confirm passes that dialog's `ui`, and a refusal
- * then stays inside it: the dialog is where the operator is looking, nothing
- * was applied, and dismissing it to put the reason on a row behind would hide
- * the answer to the question they had just been asked.
- * @param {string} target  a configured target name, or {@link ALL_TARGETS}
- * @param {'sandbox'|'writes'} posture
- * @param {any} state  the payload the operator was shown
- * @param {ConfirmUi} [ui]  the confirm this gesture was raised from, if any
+ * never what this click intended. A refusal is kept where the operator is
+ * looking: inside the confirm that raised the gesture when there is one
+ * (nothing was applied, and dismissing it to put the reason on a row behind
+ * would hide the answer to the question they had just been asked), otherwise
+ * on `noteKey`'s row — the server's own sentence is more specific than
+ * anything this module could invent.
+ * @param {string} path
+ * @param {object} json
+ * @param {string} noteKey  the row a dialog-less refusal lands on
+ * @param {ConfirmUi|undefined} ui  the confirm this gesture came from, if any
+ * @param {(body: any) => void} onAccepted  what this gesture means, applied
+ *   before the confirm is dismissed and the state re-read
  * @returns {Promise<void>}
  */
-async function setPosture(target, posture, state, ui) {
+async function postGesture(path, json, noteKey, ui, onAccepted) {
   if (posting) return;
   posting = true;
   gestureNotes.clear();
@@ -665,17 +666,7 @@ async function setPosture(target, posture, state, ui) {
     ui.cancel.disabled = true;
   }
   try {
-    const body = await targetRequest('/api/terminal/posture', {
-      method: 'POST',
-      json: { session_id: state.session_id, target, posture },
-    });
-    // `all` narrows what it can and reports the rest rather than dropping it:
-    // a target whose writes stayed on is exactly what an operator who just
-    // clicked "Turn all writes off" must not be left believing otherwise
-    // about.
-    for (const skip of Array.isArray(body?.skipped) ? body.skipped : []) {
-      if (skip?.target) gestureNotes.set(String(skip.target), String(skip.reason || 'skipped'));
-    }
+    onAccepted(await targetRequest(path, { method: 'POST', json }));
   } catch (err) {
     posting = false;
     const message = err instanceof Error ? err.message : String(err);
@@ -685,7 +676,7 @@ async function setPosture(target, posture, state, ui) {
       ui.confirm.disabled = false;
       ui.cancel.disabled = false;
     } else {
-      gestureNotes.set(target, message);
+      gestureNotes.set(noteKey, message);
     }
     // The refusal may itself be news about the render, so re-read rather than
     // keeping whatever the rows showed.
@@ -700,57 +691,44 @@ async function setPosture(target, posture, state, ui) {
 }
 
 /**
+ * Turn one target's writes off or on (or every target's off).
+ * @param {string} target  a configured target name, or {@link ALL_TARGETS}
+ * @param {'sandbox'|'writes'} posture
+ * @param {any} state  the payload the operator was shown
+ * @param {ConfirmUi} [ui]  the confirm this gesture was raised from, if any
+ * @returns {Promise<void>}
+ */
+function setPosture(target, posture, state, ui) {
+  const json = { session_id: state.session_id, target, posture };
+  return postGesture('/api/terminal/posture', json, target, ui, (body) => {
+    // `all` narrows what it can and reports the rest rather than dropping it:
+    // a target whose writes stayed on is exactly what an operator who just
+    // clicked "Turn all writes off" must not be left believing otherwise
+    // about.
+    for (const skip of Array.isArray(body?.skipped) ? body.skipped : []) {
+      if (skip?.target) gestureNotes.set(String(skip.target), String(skip.reason || 'skipped'));
+    }
+  });
+}
+
+/**
  * Ask the controls server to switch, then hand the request to the chip.
  *
  * The route accepts and answers `202` with a `request_id`; nothing has
  * switched yet. The chip owns what happens next — the 500 ms poll, matching
  * the outcome by that id, and calling it expired if nothing ever answers — so
  * all this does is record which row is waiting.
- * A gesture whose confirm was waived arrives with no `ui`; a refusal then
- * lands on the row instead — the same home a verb click's refusal has in
- * {@link setPosture}.
  * @param {any} row
  * @param {any} state
  * @param {ConfirmUi} [ui]  the confirm this gesture was raised from, if any
  * @returns {Promise<void>}
  */
-async function requestSwitch(row, state, ui) {
-  if (posting) return;
-  if (ui) {
-    ui.confirm.disabled = true;
-    ui.cancel.disabled = true;
-  }
-  posting = true;
-  gestureNotes.clear();
-  let body;
-  try {
-    body = await targetRequest('/api/terminal/target', {
-      method: 'POST',
-      json: { session_id: state.session_id, target: row.target },
-    });
-  } catch (err) {
-    posting = false;
-    const message = err instanceof Error ? err.message : String(err);
-    if (ui) {
-      // The refusal stays in the dialog: it is where the operator is looking,
-      // and nothing was requested, so there is nothing to watch for.
-      ui.error.textContent = message;
-      ui.error.hidden = false;
-      ui.confirm.disabled = false;
-      ui.cancel.disabled = false;
-    } else {
-      gestureNotes.set(row.target, message);
-    }
-    await refetch();
-    render();
-    return;
-  }
-  posting = false;
-  ui?.done();
-  pendingTarget = row.target;
-  markPending(String(body?.request_id || ''), row.target);
-  await refetch();
-  render();
+function requestSwitch(row, state, ui) {
+  const json = { session_id: state.session_id, target: row.target };
+  return postGesture('/api/terminal/target', json, row.target, ui, (body) => {
+    pendingTarget = row.target;
+    markPending(String(body?.request_id || ''), row.target);
+  });
 }
 
 /* ---- confirms (the dialog itself lives in posture-confirm.js) ---- */

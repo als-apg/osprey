@@ -85,7 +85,7 @@ agent: the :ref:`control-target chip <web-terminal-session-posture>` in the
 header opens a popover with a **Switch to** button per machine. The switch it
 asks for is the same one — the same gate, the same checks, the same refusal
 reasons — and a target the gate would refuse shows why where the button
-would be. See `From the Web Terminal`_ below.
+would be. See `From the Web Terminal`_.
 
 Whether writes are *allowed* follows it too. Write posture is per control
 target, so a deployment can be armed on the simulator and read-only on the

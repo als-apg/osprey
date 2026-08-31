@@ -924,7 +924,7 @@ osprey-display-menu .display-menu-logout-icon {
 
 .ctc-toggle[aria-checked="true"]::after {
   transform: translateX(14px);
-  background: #fff;
+  background: #fff; /* hygiene-allow-color: knob on the saturated error/success track — white in every theme, like a native switch */
 }
 
 .ctc-toggle[aria-checked="true"][data-real="true"] {
@@ -957,8 +957,8 @@ osprey-display-menu .display-menu-logout-icon {
    when no click here moves it. */
 .ctc-toggle:disabled::after {
   content: "\1F512";
-  font-size: 8px;
-  line-height: 10px;
+  font-size: var(--text-2xs);
+  line-height: var(--leading-tight);
   text-align: center;
   background: transparent;
   color: var(--text-secondary);
