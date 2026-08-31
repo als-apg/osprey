@@ -240,8 +240,8 @@ web_panels:
   - channel-finder  # Interactive channel-finder web UI
   - okf             # KNOWLEDGE tab, for browsing the facility knowledge bundle
   - system-health   # SYSTEM tab, a framework health dashboard
-  # The events and bluesky panels are declared in personas/readwrite.yml
-  # instead, so the read-only login is built without them.
+  # The events and bluesky panels are declared by the write-armed personas
+  # (readwrite and admin) instead, so the read-only login is built without them.
   # Available — uncomment to enable:
   # - lattice  # Lattice dashboard
 
@@ -985,6 +985,17 @@ name: Als Exemplar (admin)
 # No services are scaffolded — the injector blocks inherited from the base are
 # all gated on this flag and skip cleanly.
 deploy_services: false
+
+# The write-oriented panels, exactly as the readwrite tier declares them: the
+# admin tier is a full operator desk plus deployment editing, never an operator
+# desk minus. Persona lists UNION over the base, so these are added to the
+# inherited builtin set. Each tab's URL, path and label are not spelled here:
+# the hosting deployment's build derives them when it injects the event
+# dispatcher and the bluesky-web sidecar, and this attached render is told
+# them from that render (the Reach Contract, `osprey.deployment.reach`).
+web_panels:
+  - events          # EVENTS dashboard tab (event dispatcher)
+  - bluesky         # Plan authoring, the plan queue, and the run's live results
 
 # The guided configuration workflow, left out of the base on purpose because it
 # edits config.yml and .mcp.json. Skill lists UNION over the base, so this is
