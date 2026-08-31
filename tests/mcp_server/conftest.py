@@ -366,6 +366,7 @@ def mock_channel_value():
         cv.metadata = MagicMock()
         cv.metadata.units = units
         cv.metadata.alarm_status = alarm_status
+        cv.metadata.alarm_severity = 0
         cv.metadata.precision = 3
         cv.metadata.description = "Test channel"
         cv.metadata.min_value = 0.0
