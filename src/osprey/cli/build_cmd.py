@@ -1175,6 +1175,13 @@ class _SharedRenderInputs(NamedTuple):
     host's data tree and tier, so the second and third renders would otherwise
     re-derive a manifest byte-for-byte identical to the first. Keyed on the two
     inputs that decide it, so a delta that *does* move either still gets its own.
+
+    A graph-deferred entry is stored under the same key but is per build
+    profile in truth: the deferred prepare reads the profile's mode and its
+    rendered ``services.graphdb.ttl_path``, so a persona that overrode the
+    corpus while keeping the tree would be served its host's answer. Every
+    render of one build shares one profile chain today, which is why the key
+    has not grown a third input.
     """
 
     va_reported: set[tuple[str, int]]
@@ -1373,6 +1380,7 @@ def _report_va_manifest_outcome(
     data_root: Path,
     tier: int,
     prepared: Any,
+    config: dict[str, Any] | None = None,
 ) -> None:
     """Report the channel set a deployed virtual accelerator will serve.
 
@@ -1396,6 +1404,10 @@ def _report_va_manifest_outcome(
         data_root: The ``data/`` tree this build sourced from.
         tier: The build-resolved tier whose channel databases were expanded.
         prepared: The prepared manifest, or ``None`` when the tree backs none.
+        config: The rendered project configuration, when this render prepared
+            its manifest through the graph source -- what the refusal resolves
+            the corpus from, so a graph-mode gap is reported as the corpus's
+            rather than as absent database files.
 
     Raises:
         BuildProfileError: when a deployed virtual accelerator has no channels
@@ -1410,6 +1422,18 @@ def _report_va_manifest_outcome(
         return
 
     if prepared is None:
+        if config is not None:
+            # The graph was consulted, so the tier-database framing is the
+            # wrong sentence: the reason names the corpus (or the per-tree
+            # file) that left this accelerator nothing to serve.
+            raise BuildProfileError(
+                f"this deployment runs a virtual accelerator, but no channel manifest "
+                f"could be built from its data tree {data_root}: "
+                f"{manifest_gap_reason(data_root, tier, config=config)}. The accelerator "
+                f"serves the project's own channels or the build stops here. Repair or "
+                f"stage what is named above, or remove the `virtual_accelerator:` block "
+                f"from the profile."
+            )
         raise BuildProfileError(
             f"this deployment runs a virtual accelerator, but no channel manifest could "
             f"be built from its data tree {data_root} at tier {tier}: "
@@ -1420,17 +1444,26 @@ def _report_va_manifest_outcome(
 
     shared.va_reported.add(key)
     metadata = prepared.manifest["_metadata"]
-    fed = _named_in_prose(metadata["source_paradigms"])
+    corpus = metadata.get("source_corpus")
     absent = metadata["absent_paradigms"]
     novel = metadata["machine_json_novel_addresses"]
     from_databases = metadata["total_channels"] - len(novel)
     # The tree is named by what it is rather than by its absolute path: the
     # operator is being told what the accelerator will serve, not sent to a
     # path they would have to retype.
-    line = (
-        f"Virtual-accelerator channel set built from this project's own data tree at "
-        f"tier {tier}: {from_databases} channel(s) from its {fed} channel database(s)"
-    )
+    if corpus is not None:
+        # The one source that is not a database file. The corpus path is the
+        # configured spelling, which IS what an operator would retype.
+        line = (
+            f"Virtual-accelerator channel set built from this project's knowledge-graph "
+            f"corpus ({corpus}): {from_databases} channel(s)"
+        )
+    else:
+        fed = _named_in_prose(metadata["source_paradigms"])
+        line = (
+            f"Virtual-accelerator channel set built from this project's own data tree at "
+            f"tier {tier}: {from_databases} channel(s) from its {fed} channel database(s)"
+        )
     if novel:
         # Not all of the count came from the databases the sentence just named,
         # and a scenario seed is a different kind of source from a channel
@@ -1450,17 +1483,34 @@ def _report_va_manifest_outcome(
             [f"{entry['paradigm']} ({entry['path']}) -- {entry['detail']}" for entry in corrupt]
         )
         line += "."
-    if "hierarchical" not in metadata["source_paradigms"]:
-        # The one absence that changes what the accelerator can DO, so it is
-        # spelled out rather than left to be inferred from the list above: the
-        # hierarchical database is the only paradigm carrying a hierarchy path,
-        # and the identity keys read from it are what pair a setpoint with its
-        # readback and what every partition rule reads.
-        line += (
-            " Without a hierarchical database the channels carry no identity keys, so this"
-            " accelerator serves 0 setpoints, pairs no readback with a setpoint, and drives"
-            " every channel as static-noisy."
-        )
+    from osprey.services.virtual_accelerator.manifest.classify import PARTITION_STATIC_NOISY
+
+    # The degradation that changes what the accelerator can DO, so it is
+    # spelled out rather than left to be inferred from the list above. The
+    # claim is read off the manifest's own census -- 0 setpoints, everything
+    # static-noisy -- never off the source list, so a source that someday
+    # yields identity keys cannot have this printed falsely over it. The
+    # lead-in names the mechanism per source: for a database tree the
+    # hierarchical database is the only paradigm carrying a hierarchy path;
+    # for the graph this is not a missing database at all -- the corpus states
+    # membership and direction but no hierarchy path, and nothing is invented
+    # to classify better than the source can say.
+    degraded = metadata["setpoint_count"] == 0 and set(metadata["by_partition"]) <= {
+        PARTITION_STATIC_NOISY
+    }
+    if degraded:
+        if corpus is not None:
+            lead_in = " The knowledge graph carries no hierarchy identity keys, so"
+        elif "hierarchical" not in metadata["source_paradigms"]:
+            lead_in = " Without a hierarchical database the channels carry no identity keys, so"
+        else:
+            lead_in = None
+        if lead_in is not None:
+            line += lead_in + (
+                " this"
+                " accelerator serves 0 setpoints, pairs no readback with a setpoint, and drives"
+                " every channel as static-noisy."
+            )
     _report_fact(line)
     reconciliation = metadata["machine_state_reconciliation"]
     _report_fact(
@@ -1586,16 +1636,25 @@ def _render_project(
     if va_key not in shared.va_manifests:
         shared.va_manifests[va_key] = prepare_project_manifest(va_data_root, va_key[1])
     prepared_va_manifest = shared.va_manifests[va_key]
+    # A graph-mode tree that stages no paradigm database is not yet a verdict:
+    # its channels live in the knowledge-graph corpus, and the corpus is a
+    # render-relative config value (`services.graphdb.ttl_path`) that only the
+    # rendered config can resolve. The manifest question is re-asked after the
+    # render, with that config in hand -- see below, before the manifest write.
+    va_graph_deferred = (
+        prepared_va_manifest is None and build_profile.channel_finder_mode == "graph"
+    )
     # Prepared unconditionally above (the memoization is the build's, not the
     # virtual accelerator's); only what is SAID about it is gated on the
     # virtual accelerator actually being deployed.
-    _report_va_manifest_outcome(
-        shared,
-        build_profile,
-        data_root=va_data_root,
-        tier=va_key[1],
-        prepared=prepared_va_manifest,
-    )
+    if not va_graph_deferred:
+        _report_va_manifest_outcome(
+            shared,
+            build_profile,
+            data_root=va_data_root,
+            tier=va_key[1],
+            prepared=prepared_va_manifest,
+        )
 
     # ``create_project``'s ``tier`` argument means "the tier the profile PINNED",
     # not "the tier to use": given ``None`` it applies the same paradigm-aware
@@ -1774,6 +1833,25 @@ def _render_project(
         reg_count = _register_convention_artifacts(render_dir, applied)
         if reg_count:
             progress("  ✓ Registered %d profile artifact(s) in config.yml", reg_count)
+
+    if va_graph_deferred:
+        # The deferred half of the manifest step above: the render is on disk,
+        # so the rendered config can resolve the corpus the roster reads --
+        # the same resolution every other roster consumer applies. The refusal
+        # (a virtual accelerator with an unreadable or empty corpus) fires
+        # here, still before anything is published outside the render zone.
+        rendered = _rendered_config(render_dir)
+        rendered["config_dir"] = str(render_dir)
+        prepared_va_manifest = prepare_project_manifest(va_data_root, va_key[1], config=rendered)
+        shared.va_manifests[va_key] = prepared_va_manifest
+        _report_va_manifest_outcome(
+            shared,
+            build_profile,
+            data_root=va_data_root,
+            tier=va_key[1],
+            prepared=prepared_va_manifest,
+            config=rendered,
+        )
 
     if prepared_va_manifest is not None:
         write_project_manifest(prepared_va_manifest, render_dir / "data")

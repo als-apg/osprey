@@ -471,3 +471,276 @@ class TestWriteProjectManifest:
         assert (project_data / "simulation" / LIMITS_FILENAME).read_bytes() == (
             facility_tree / LIMITS_FILENAME
         ).read_bytes()
+
+
+# --- the knowledge-graph source ---------------------------------------------
+
+_TTL_PREAMBLE = """\
+@prefix narad_p: <https://narad.example.org/property/> .
+@prefix narad_sem: <https://narad.example.org/schema/shared_semantics/> .
+"""
+
+
+def _binding(name: str, address: str, predicate: str | None) -> str:
+    """Render one corpus channel binding with the given direction predicate."""
+    direction = f" ;\n    narad_p:{predicate} narad_sem:{name}_signal" if predicate else ""
+    return f'<https://narad.example.org/binding/{name}> narad_p:fullPv "{address}"{direction} .\n'
+
+
+#: Two settable channels, three readable ones -- both directions have to reach
+#: the manifest, because membership is the roster's whole answer.
+_SMALL_CORPUS = _TTL_PREAMBLE + "".join(
+    (
+        _binding("hcm_sp", "SR:MAG:HCM:01:CURRENT:SP", "writesSignal"),
+        _binding("hcm_rb", "SR:MAG:HCM:01:CURRENT:RB", "readsSignal"),
+        _binding("rf_sp", "SR:RF:CAV:01:VOLTAGE:SP", "writesSignal"),
+        _binding("bpm_x", "SR:DIAG:BPM:01:POSITION:X", "readsSignal"),
+        _binding("temp", "SR:VAC:PUMP:01:TEMPERATURE:RB", "readsSignal"),
+    )
+)
+
+
+def _graph_tree(root: Path, corpus: str | None = _SMALL_CORPUS) -> tuple[Path, dict]:
+    """A graph-mode facility tree: per-tree sources plus a corpus, no databases.
+
+    Returns the data root and the config a graph-mode render resolves the
+    corpus from -- ``ttl_path`` spelled relative, as a project writes it.
+    """
+    (root / "simulation").mkdir(parents=True)
+    (root / "simulation" / "machine.json").write_text(json.dumps({"channels": {}}))
+    (root / "machine_state_channels.json").write_text(json.dumps({"_comment": "empty"}))
+    (root / LIMITS_FILENAME).write_text("{}\n")
+    if corpus is not None:
+        (root / "facility.ttl").write_text(corpus)
+    config = {
+        "channel_finder": {"pipeline_mode": "graph"},
+        "services": {"graphdb": {"ttl_path": "./facility.ttl"}},
+        "config_dir": str(root),
+    }
+    return root, config
+
+
+@pytest.fixture(autouse=True)
+def _cold_roster_cache():
+    """Every test reads its own corpus cold; none inherits another's parse."""
+    import osprey.channel_roster as channel_roster
+
+    channel_roster._roster_cache.clear()
+    yield
+    channel_roster._roster_cache.clear()
+
+
+class TestGraphSourcedManifest:
+    """A graph-mode tree gets its channel set from the knowledge-graph corpus."""
+
+    def test_every_corpus_binding_becomes_a_channel_both_directions(self, tmp_path):
+        """Membership is the corpus's fullPv set: writes and reads alike."""
+        root, config = _graph_tree(tmp_path / "data")
+
+        prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
+
+        assert prepared is not None
+        addresses = [c["address"] for c in prepared.manifest["channels"]]
+        assert addresses == sorted(
+            [
+                "SR:MAG:HCM:01:CURRENT:SP",
+                "SR:MAG:HCM:01:CURRENT:RB",
+                "SR:RF:CAV:01:VOLTAGE:SP",
+                "SR:DIAG:BPM:01:POSITION:X",
+                "SR:VAC:PUMP:01:TEMPERATURE:RB",
+            ]
+        )
+
+    def test_metadata_names_the_corpus_as_the_source(self, tmp_path):
+        root, config = _graph_tree(tmp_path / "data")
+
+        prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
+
+        metadata = prepared.manifest["_metadata"]
+        assert metadata["source_paradigms"] == ["graph"]
+        # The configured spelling, which an operator can retype and edit.
+        assert metadata["source_corpus"] == "./facility.ttl"
+        # Graph mode stages no tier database by design: nothing is "absent",
+        # nothing is corrupt, and no reader is owed either clause.
+        assert metadata["absent_paradigms"] == []
+        assert metadata["corrupt_paradigms"] == []
+
+    def test_census_is_honest_about_what_the_graph_cannot_say(self, tmp_path):
+        """No hierarchy identity keys are invented, so nothing is pyat-coupled.
+
+        The corpus states membership and direction, not the hierarchy path the
+        identity keys are read from. Every entry lands pathless in the
+        static-noisy partition -- exactly what a database tree without its
+        hierarchical paradigm gets -- and the setpoint census says 0 rather
+        than guessing from address grammar.
+        """
+        root, config = _graph_tree(tmp_path / "data")
+
+        prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
+
+        metadata = prepared.manifest["_metadata"]
+        assert metadata["by_partition"] == {classify.PARTITION_STATIC_NOISY: 5}
+        assert metadata["setpoint_count"] == 0
+        for channel in prepared.manifest["channels"]:
+            assert channel["partition"] == classify.PARTITION_STATIC_NOISY
+            for key in ("ring", "system", "family", "device", "field", "subfield"):
+                assert channel[key] == ""
+
+    def test_duplicate_addresses_in_the_corpus_collapse_to_one_channel(self, tmp_path):
+        """The manifest is a namespace: two bindings sharing one fullPv are one channel."""
+        corpus = _TTL_PREAMBLE + "".join(
+            (
+                _binding("first", "SR:MAG:HCM:01:CURRENT:SP", "writesSignal"),
+                _binding("second", "SR:MAG:HCM:01:CURRENT:SP", "readsSignal"),
+            )
+        )
+        root, config = _graph_tree(tmp_path / "data", corpus=corpus)
+
+        prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
+
+        assert prepared.manifest["_metadata"]["total_channels"] == 1
+        assert [c["address"] for c in prepared.manifest["channels"]] == ["SR:MAG:HCM:01:CURRENT:SP"]
+
+    def test_scenario_seed_union_applies_to_the_graph_source_too(self, tmp_path):
+        """machine.json's novel addresses ride along, flagged as such."""
+        root, config = _graph_tree(tmp_path / "data")
+        (root / "simulation" / "machine.json").write_text(
+            json.dumps({"channels": {"SR:VAC:GAUGE:99:PRESSURE:RB": {"value": 1e-9}}})
+        )
+
+        prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
+
+        metadata = prepared.manifest["_metadata"]
+        assert metadata["machine_json_novel_addresses"] == ["SR:VAC:GAUGE:99:PRESSURE:RB"]
+        assert metadata["total_channels"] == 6
+
+    def test_written_graph_manifest_loads_through_the_container_reader(self, tmp_path):
+        root, config = _graph_tree(tmp_path / "data")
+        prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
+        project_data = tmp_path / "project" / "data"
+        project_data.mkdir(parents=True)
+
+        manifest_path = write_project_manifest(prepared, project_data)
+
+        channels = loaders.load_manifest_file(manifest_path)
+        assert len(channels) == 5
+        assert (project_data / "simulation" / LIMITS_FILENAME).is_file()
+
+    def test_without_a_config_a_graph_tree_still_backs_no_manifest(self, tmp_path):
+        """Existing callers pass no config and must keep today's answer."""
+        root, _ = _graph_tree(tmp_path / "data")
+
+        assert prepare_project_manifest(root, DEFAULT_TIER) is None
+
+    def test_a_non_graph_config_keeps_the_paradigm_rules(self, tmp_path):
+        """A database-mode project never has its manifest read off a corpus."""
+        root, config = _graph_tree(tmp_path / "data")
+        config["channel_finder"]["pipeline_mode"] = "hierarchical"
+
+        assert prepare_project_manifest(root, DEFAULT_TIER, config=config) is None
+        reason = manifest_gap_reason(root, DEFAULT_TIER, config=config)
+        assert "no channel database is staged" in reason
+
+
+class TestStagedDatabasesWinOverTheGraph:
+    def test_a_staged_paradigm_database_keeps_priority(self, tmp_path, facility_tree):
+        """The graph is consulted only when the tree stages no database at all."""
+        root, config = _graph_tree(tmp_path / "data")
+        db = root / f"channel_databases/tiers/tier{DEFAULT_TIER}/hierarchical.json"
+        db.parent.mkdir(parents=True)
+        shutil.copy2(
+            facility_tree / f"channel_databases/tiers/tier{DEFAULT_TIER}/hierarchical.json", db
+        )
+
+        prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
+
+        metadata = prepared.manifest["_metadata"]
+        assert metadata["source_paradigms"] == ["hierarchical"]
+        assert "source_corpus" not in metadata
+
+    def test_a_database_manifest_never_carries_a_corpus_key(self, facility_tree):
+        prepared = prepare_project_manifest(facility_tree, DEFAULT_TIER)
+
+        assert "source_corpus" not in prepared.manifest["_metadata"]
+
+
+class TestGraphYieldsNothing:
+    """The refusal names the corpus, never the absent database files."""
+
+    def test_a_missing_corpus_backs_no_manifest_and_is_named(self, tmp_path):
+        root, config = _graph_tree(tmp_path / "data", corpus=None)
+
+        assert prepare_project_manifest(root, DEFAULT_TIER, config=config) is None
+        reason = manifest_gap_reason(root, DEFAULT_TIER, config=config)
+        assert "./facility.ttl" in reason
+        assert "is not there" in reason
+        assert "are all absent" not in reason
+
+    def test_an_unreadable_corpus_backs_no_manifest_and_is_named(self, tmp_path):
+        root, config = _graph_tree(tmp_path / "data", corpus="not turtle at all {{{\n")
+
+        assert prepare_project_manifest(root, DEFAULT_TIER, config=config) is None
+        reason = manifest_gap_reason(root, DEFAULT_TIER, config=config)
+        assert "./facility.ttl" in reason
+        assert "could not be read" in reason
+        # Never conflated with the paradigm wordings: the operator repairs the
+        # corpus, not database files that were never part of graph mode.
+        assert "are all absent" not in reason
+        assert "channel database" not in reason
+
+    def test_an_empty_corpus_backs_no_manifest_and_is_named(self, tmp_path):
+        root, config = _graph_tree(tmp_path / "data", corpus=_TTL_PREAMBLE)
+
+        assert prepare_project_manifest(root, DEFAULT_TIER, config=config) is None
+        reason = manifest_gap_reason(root, DEFAULT_TIER, config=config)
+        assert "./facility.ttl" in reason
+        assert "declares no channels" in reason
+
+    def test_a_graph_tree_missing_its_scenario_seed_is_named(self, tmp_path):
+        """The corpus enumerates channels, but the per-tree sources still ship."""
+        root, config = _graph_tree(tmp_path / "data")
+        (root / "simulation" / "machine.json").unlink()
+
+        assert prepare_project_manifest(root, DEFAULT_TIER, config=config) is None
+        reason = manifest_gap_reason(root, DEFAULT_TIER, config=config)
+        assert "missing simulation/machine.json" in reason
+
+    def test_a_graph_tree_missing_its_drive_limits_is_named(self, tmp_path):
+        """Limits and manifest ship together on the graph path too."""
+        root, config = _graph_tree(tmp_path / "data")
+        (root / LIMITS_FILENAME).unlink()
+
+        assert prepare_project_manifest(root, DEFAULT_TIER, config=config) is None
+        reason = manifest_gap_reason(root, DEFAULT_TIER, config=config)
+        assert f"missing {LIMITS_FILENAME}" in reason
+
+    def test_a_graph_tree_missing_its_machine_state_list_is_named(self, tmp_path):
+        root, config = _graph_tree(tmp_path / "data")
+        (root / "machine_state_channels.json").unlink()
+
+        assert prepare_project_manifest(root, DEFAULT_TIER, config=config) is None
+        reason = manifest_gap_reason(root, DEFAULT_TIER, config=config)
+        assert "missing machine_state_channels.json" in reason
+
+    def test_graph_mode_naming_no_corpus_key_is_named_by_its_keys(self, tmp_path):
+        """Graph mode with no ttl_path at all: the remedy is the config keys."""
+        root, _ = _graph_tree(tmp_path / "data")
+        config = {"channel_finder": {"pipeline_mode": "graph"}, "config_dir": str(root)}
+
+        assert prepare_project_manifest(root, DEFAULT_TIER, config=config) is None
+        reason = manifest_gap_reason(root, DEFAULT_TIER, config=config)
+        assert "services.graphdb.ttl_path" in reason
+        assert "services.graphdb.uri" in reason
+        assert "are all absent" not in reason
+
+    def test_an_unreadable_scenario_seed_raises_naming_the_file(self, tmp_path):
+        """Same rule as the paradigm path: a broken per-tree source stops the build."""
+        from osprey.errors import BuildProfileError
+
+        root, config = _graph_tree(tmp_path / "data")
+        (root / "simulation" / "machine.json").write_text("not json {")
+
+        with pytest.raises(BuildProfileError) as excinfo:
+            prepare_project_manifest(root, DEFAULT_TIER, config=config)
+
+        assert "machine.json" in str(excinfo.value)

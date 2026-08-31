@@ -623,3 +623,208 @@ def test_the_exemplar_build_derives_its_lattice_from_its_own_channels(built_exem
 
     assert manifest["_metadata"]["by_partition"]["pyat-coupled"] > 0
     assert env["VA_LATTICE"] == VA_LATTICE_DEFAULT
+
+
+# --- a graph-mode tree, served from its knowledge graph ---------------------
+
+_GRAPH_CORPUS = """\
+@prefix narad_p: <https://narad.example.org/property/> .
+@prefix narad_sem: <https://narad.example.org/schema/shared_semantics/> .
+<https://narad.example.org/binding/hcm_sp> narad_p:fullPv "SR:MAG:HCM:01:CURRENT:SP" ;
+    narad_p:writesSignal narad_sem:hcm_signal .
+<https://narad.example.org/binding/hcm_rb> narad_p:fullPv "SR:MAG:HCM:01:CURRENT:RB" ;
+    narad_p:readsSignal narad_sem:hcm_signal .
+<https://narad.example.org/binding/bpm_x> narad_p:fullPv "SR:DIAG:BPM:01:POSITION:X" ;
+    narad_p:readsSignal narad_sem:bpm_signal .
+"""
+
+
+def _graph_repo(root: Path, *, corpus: str | None = _GRAPH_CORPUS) -> Path:
+    """A graph-mode deployment repo: a corpus and the per-tree sources, no databases."""
+    from tests.fixtures.lifecycle_repo import FACILITY_ONTOLOGY_JSON
+
+    root.mkdir(parents=True, exist_ok=True)
+    data = root / "data"
+    (data / "simulation").mkdir(parents=True)
+    (data / "simulation" / "machine.json").write_text(json.dumps({"channels": {}}))
+    (data / "machine_state_channels.json").write_text(json.dumps({"_comment": "empty"}))
+    (data / LIMITS_FILENAME).write_text("{}\n")
+    (data / "facility_knowledge").mkdir()
+    # The bundle's config names a compiled ontology under data/; the exemplar's
+    # table satisfies it without this test growing a vocabulary of its own.
+    (data / "facility_ontology.json").write_text(FACILITY_ONTOLOGY_JSON)
+    if corpus is not None:
+        (data / "facility.ttl").write_text(corpus)
+    (root / "profile.yml").write_text(
+        "name: Graph VA\n"
+        "app_template: control_assistant\n"
+        "provider: anthropic\n"
+        "channel_finder_mode: graph\n"
+        "data: data\n"
+        "virtual_accelerator:\n"
+        "  port: 5064\n"
+        "config:\n"
+        "  services.graphdb.ttl_path: ./data/facility.ttl\n"
+    )
+    return root
+
+
+def _graph_config(root: Path) -> dict[str, Any]:
+    """The rendered-config shape the deferred graph manifest step consults."""
+    return {
+        "channel_finder": {"pipeline_mode": "graph"},
+        "services": {"graphdb": {"ttl_path": "./data/facility.ttl"}},
+        "config_dir": str(root),
+    }
+
+
+@pytest.fixture(autouse=True)
+def _cold_roster_cache():
+    """Every test resolves its own corpus cold; none inherits another's parse."""
+    import osprey.channel_roster as channel_roster
+
+    channel_roster._roster_cache.clear()
+    yield
+    channel_roster._roster_cache.clear()
+
+
+def test_a_graph_mode_repo_deploys_a_va_and_the_fact_names_the_corpus(tmp_path_factory, capsys):
+    """The whole build: a knowledge graph is a channel source, and it is said.
+
+    A graph-mode facility stages no paradigm database at all -- its channels
+    live in the corpus the graph store is seeded from -- and a build deploying
+    a virtual accelerator on it used to refuse as if the facility had no
+    channels. Now it serves them, and the fact names the corpus rather than
+    claiming database files that were never part of graph mode.
+    """
+    from click.testing import CliRunner
+
+    from osprey.cli.build_cmd import build as build_command
+    from osprey.services.virtual_accelerator.manifest.build import MANIFEST_FILENAME
+
+    repo = _graph_repo(tmp_path_factory.mktemp("graph") / "repo")
+
+    previous = Path.cwd()
+    os.chdir(repo)
+    try:
+        result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
+    finally:
+        os.chdir(previous)
+
+    assert result.exit_code == 0, result.output
+    printed = " ".join(result.output.split())
+    assert "knowledge-graph corpus (./data/facility.ttl)" in printed
+    assert "3 channel(s)" in printed
+    # The honest cost: no identity keys, so no setpoints and no lattice.
+    assert "serves 0 setpoints" in printed
+    assert _DEAD_FALLBACK_SENTENCE not in printed
+
+    manifest = json.loads((repo / "build" / "data" / "simulation" / MANIFEST_FILENAME).read_text())
+    assert manifest["_metadata"]["source_paradigms"] == ["graph"]
+    assert manifest["_metadata"]["source_corpus"] == "./data/facility.ttl"
+    assert {c["address"] for c in manifest["channels"]} == {
+        "SR:MAG:HCM:01:CURRENT:SP",
+        "SR:MAG:HCM:01:CURRENT:RB",
+        "SR:DIAG:BPM:01:POSITION:X",
+    }
+    from osprey.utils.dotenv import parse_dotenv_file
+
+    env = parse_dotenv_file(repo / ".env")
+    assert env["VA_CHANNELS_FILE"] == MANIFEST_FILENAME
+    # Nothing pyat-coupled to steer, so the built-in lattice is not asserted.
+    assert env["VA_LATTICE"] == "none"
+
+
+def test_a_graph_manifests_fact_names_the_corpus_not_databases(tmp_path, capsys):
+    """The reporting step alone, for the wording the build test reads end to end."""
+    root = _graph_repo(tmp_path / "repo")
+    prepared = prepare_project_manifest(root / "data", DEFAULT_TIER, config=_graph_config(root))
+
+    _report(_shared(tmp_path), _profile(data="data"), root / "data", prepared)
+
+    printed = _printed(capsys)
+    assert "knowledge-graph corpus (./data/facility.ttl)" in printed
+    assert "channel database(s)" not in printed
+    assert "Not staged" not in printed
+    assert "The knowledge graph carries no hierarchy identity keys" in printed
+    assert "serves 0 setpoints" in printed
+
+
+def test_a_graph_repo_with_an_unreadable_corpus_refuses_naming_it(tmp_path):
+    """Distinct from both the absent-paradigms and unreadable-databases refusals."""
+    root = _graph_repo(tmp_path / "repo", corpus="not turtle {{{\n")
+    config = _graph_config(root)
+
+    assert prepare_project_manifest(root / "data", DEFAULT_TIER, config=config) is None
+    with pytest.raises(BuildProfileError) as excinfo:
+        _report_va_manifest_outcome(
+            _shared(tmp_path),
+            _profile(data="data"),
+            data_root=root / "data",
+            tier=DEFAULT_TIER,
+            prepared=None,
+            config=config,
+        )
+
+    message = str(excinfo.value)
+    assert "./data/facility.ttl" in message
+    assert "could not be read" in message
+    assert "are all absent" not in message
+    assert "channel database" not in message
+
+
+def test_a_graph_repo_with_an_empty_corpus_refuses_naming_it(tmp_path):
+    root = _graph_repo(
+        tmp_path / "repo",
+        corpus="@prefix narad_p: <https://narad.example.org/property/> .\n",
+    )
+    config = _graph_config(root)
+
+    assert prepare_project_manifest(root / "data", DEFAULT_TIER, config=config) is None
+    with pytest.raises(BuildProfileError) as excinfo:
+        _report_va_manifest_outcome(
+            _shared(tmp_path),
+            _profile(data="data"),
+            data_root=root / "data",
+            tier=DEFAULT_TIER,
+            prepared=None,
+            config=config,
+        )
+
+    message = str(excinfo.value)
+    assert "./data/facility.ttl" in message
+    assert "declares no channels" in message
+
+
+def test_a_graph_repo_with_an_unreadable_corpus_fails_a_real_build(tmp_path_factory, caplog):
+    """The refusing path through the CLI itself, not just the reporting helper.
+
+    The deferred graph check runs after the render, so this pins that the
+    refusal still stops a real ``osprey build`` before anything is published:
+    no ``build/`` tree, and no manifest env keys written into ``.env``.
+    """
+    from click.testing import CliRunner
+
+    from osprey.cli.build_cmd import build as build_command
+    from osprey.utils.dotenv import parse_dotenv_file
+
+    repo = _graph_repo(tmp_path_factory.mktemp("graph-bad") / "repo", corpus="not turtle {{{\n")
+
+    previous = Path.cwd()
+    os.chdir(repo)
+    try:
+        with caplog.at_level(logging.ERROR):
+            result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
+    finally:
+        os.chdir(previous)
+
+    assert result.exit_code != 0
+    assert "./data/facility.ttl" in caplog.text
+    assert "could not be read" in caplog.text
+    assert "are all absent" not in caplog.text
+    # Refused before the swap published anything.
+    assert not (repo / "build" / "config.yml").is_file()
+    env_path = repo / ".env"
+    env = parse_dotenv_file(env_path) if env_path.is_file() else {}
+    assert "VA_CHANNELS_FILE" not in env
+    assert "VA_LATTICE" not in env

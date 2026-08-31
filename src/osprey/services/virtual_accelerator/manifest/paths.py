@@ -106,9 +106,11 @@ class ManifestPaths:
         only compare the databases that are here -- and, without
         ``hierarchical``, the identity keys that pair a setpoint with its
         readback, since it is the one paradigm that declares a hierarchy path.
-        An EMPTY tuple is the case with no answer at all: the tree stages no
-        database, and a build deploying a virtual accelerator refuses. This
-        asks whether the FILE is there, not whether it names anything; a staged
+        An EMPTY tuple is the case with no database answer: the tree stages
+        none, and a build deploying a virtual accelerator refuses -- unless the
+        project's roster source is the knowledge-graph corpus, which
+        ``build.prepare_project_manifest`` consults exactly then. This asks
+        whether the FILE is there, not whether it names anything; a staged
         database that expands to nothing is caught one layer up, by
         ``build.prepare_project_manifest``, and refuses the same way.
         """
