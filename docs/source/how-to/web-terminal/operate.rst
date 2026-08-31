@@ -123,12 +123,13 @@ The machine you are on, and the others
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The machine the agent stands on is a card at the top: its name, what writing
-there means (*Writes move hardware*, or one of the *nothing moves* lines), the
-write state, and the one button that changes it. Every other machine is a row
-below the card, carrying the same two facts, its write-state pill, and the
-actions:
+there means (*Writes move hardware*, or one of the *nothing moves* lines), and
+its writes switch. Every other machine is a row below the card, carrying the
+same two facts and the actions:
 
-- **Turn writes off / Turn writes on** --- per machine, for your session.
+- **The writes switch** --- per machine, for your session. The switch position
+  is the write state and clicking it is the gesture that changes it; where
+  writes are locked the switch is disabled, with the reason on hover.
 - **Switch to** --- moves this session onto that machine. Where a switch is
   not available, the button's place is taken by a short phrase for the reason
   --- ``not set up``, ``needs gateway ack`` --- with the server's full

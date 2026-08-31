@@ -17,7 +17,7 @@
  * - NO PROCESS CLAIMS: nothing rendered — rows, card, either confirm — states
  *   whether a write asks for approval or what limits apply, because that is
  *   deployment configuration the browser cannot see;
- * - the verb locks for each of the five reasons, in the documented order, and
+ * - the writes switch locks for each of the five reasons, in the documented order, and
  *   the reason reaches the `title` in operator words;
  * - turning writes on raises a confirm and turning them off does NOT: only a
  *   gesture that can end with a write landing somewhere new asks;
@@ -30,7 +30,7 @@
  *   the expiry a dead controls server never answers;
  * - a refusal code renders as its operator phrase, never raw; a code the map
  *   does not know renders verbatim;
- * - a chat session's rows offer no Switch and live verbs;
+ * - a chat session's rows offer no Switch and live write switches;
  * - `Turn all writes off` POSTs `all` and renders every target the store
  *   `skipped`;
  * - ONE DOM for both `ui_mode`s: the same markup under `simple` and `expert`.
@@ -103,7 +103,7 @@ const KINDS = {
 
 /**
  * The three effective states in the route's columns. `read-only` and `sandbox`
- * are the same "no"; which one it is decides whether a verb can undo it.
+ * are the same "no"; which one it is decides whether the switch can undo it.
  */
 const STATES = {
   writes: { effective: true, posture: 'writes' },
@@ -235,8 +235,6 @@ const chipEl = () =>
 const popEl = () => /** @type {HTMLElement|null} */ (document.querySelector('.ctc-popover'));
 const isOpen = () => Boolean(popEl()?.classList.contains('open'));
 const cardEl = () => /** @type {HTMLElement|null} */ (document.querySelector('.ctc-card'));
-const cardVerb = () =>
-  /** @type {HTMLButtonElement|null} */ (document.querySelector('.ctc-card-verb'));
 const bannerEl = () => /** @type {HTMLElement|null} */ (document.querySelector('.ctc-banner'));
 /** @param {string} target */
 const rowEl = (target) =>
@@ -247,16 +245,14 @@ const surfaceEl = (target) => {
   if (card?.dataset.target === target) return card;
   return rowEl(target);
 };
-/** @param {string} target */
-const verbEl = (target) => {
+/** The surface's writes switch — `aria-checked` is the readout. @param {string} target */
+const toggleEl = (target) => {
   const surface = surfaceEl(target);
-  return /** @type {HTMLButtonElement|null} */ (
-    surface?.querySelector('.ctc-verb, .ctc-card-verb') ?? null
-  );
+  return /** @type {HTMLButtonElement|null} */ (surface?.querySelector('.ctc-toggle') ?? null);
 };
-/** @param {string} target */
-const pillEl = (target) =>
-  /** @type {HTMLElement|null} */ (rowEl(target)?.querySelector('.ctc-pill') ?? null);
+/** The word beside a surface's switch: on / off / locked. @param {string} target */
+const switchWord = (target) =>
+  /** @type {HTMLElement|null} */ (surfaceEl(target)?.querySelector('.ctc-switch-state') ?? null);
 /** @param {string} target */
 const switchEl = (target) =>
   /** @type {HTMLButtonElement|null} */ (rowEl(target)?.querySelector('.ctc-switch') ?? null);
@@ -383,10 +379,13 @@ describe('the card', () => {
     expect(cardEl()?.querySelector('.ctc-desc')?.textContent).toBe(
       "Copy of the real machine's controls · nothing moves"
     );
-    expect(cardEl()?.querySelector('.ctc-state-phrase')?.textContent).toBe('writes on');
+    const toggle = /** @type {HTMLButtonElement} */ (toggleEl('standin'));
+    expect(toggle.getAttribute('role')).toBe('switch');
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    expect(toggle.getAttribute('aria-label')).toBe('writes on for Rehearsal');
   });
 
-  test('writes off on the card says whose doing it was', async () => {
+  test('writes off on the card reads off, and the same switch offers the way back', async () => {
     await bootOpen(
       viewOf({
         targets: [
@@ -401,9 +400,11 @@ describe('the card', () => {
         ],
       })
     );
-    expect(cardEl()?.querySelector('.ctc-state-phrase')?.textContent).toBe('writes off');
-    expect(cardEl()?.querySelector('.ctc-state-note')?.textContent).toBe('— you turned them off');
-    expect(cardVerb()?.textContent).toBe('Turn writes on');
+    const toggle = /** @type {HTMLButtonElement} */ (toggleEl('standin'));
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+    expect(switchWord('standin')?.textContent).toBe('off');
+    // The way back is the same widget, and its hover says it asks first.
+    expect(toggle.title).toBe('Turn writes on for Rehearsal — asks first');
   });
 });
 
@@ -542,16 +543,16 @@ describe('the verb locks, one reason at a time', () => {
   /** @param {any} view @param {string} target */
   async function lockOn(view, target) {
     await bootOpen(view);
-    const verb = verbEl(target);
-    return { verb, reason: verb?.title ?? '' };
+    const toggle = toggleEl(target);
+    return { toggle, reason: toggle?.title ?? '' };
   }
 
   test('an unrecordable store outranks everything else', async () => {
-    const { verb, reason } = await lockOn(
+    const { toggle, reason } = await lockOn(
       viewOf({ store_available: false, enforceable: false }),
       'va'
     );
-    expect(verb?.disabled).toBe(true);
+    expect(toggle?.disabled).toBe(true);
     expect(reason).toBe('changes cannot be recorded right now');
   });
 
@@ -573,15 +574,15 @@ describe('the verb locks, one reason at a time', () => {
   });
 
   test('a ceiling that never armed the target reads as the deployment holding it', async () => {
-    const { verb, reason } = await lockOn(
+    const { toggle, reason } = await lockOn(
       viewOf({ targets: [rowOf(KINDS.va, { ...STATES['read-only'] })] }),
       'va'
     );
     expect(reason).toBe('kept read-only by the deployment');
-    expect(verb?.disabled).toBe(true);
-    // The pill says locked, not off: nothing this session did holds it.
-    expect(pillEl('va')?.textContent).toBe('locked');
-    expect(pillEl('va')?.title).toBe('kept read-only by the deployment');
+    expect(toggle?.disabled).toBe(true);
+    // The word says locked, not off: nothing this session did holds it.
+    expect(switchWord('va')?.textContent).toBe('locked');
+    expect(switchWord('va')?.title).toBe('kept read-only by the deployment');
   });
 
   test('no read-only endpoint: narrowing would select a role nothing configures', async () => {
@@ -592,13 +593,13 @@ describe('the verb locks, one reason at a time', () => {
     expect(reason).toBe('no read-only endpoint configured');
   });
 
-  test('an unlocked verb stays live and names its outcome', async () => {
+  test('an unlocked switch stays live and names its outcome on hover', async () => {
     await bootOpen();
-    const verb = /** @type {HTMLButtonElement} */ (verbEl('va'));
-    expect(verb.disabled).toBe(false);
-    expect(verb.textContent).toBe('Turn writes off');
-    expect(verb.dataset.direction).toBe('off');
-    expect(pillEl('va')?.textContent).toBe('writes on');
+    const toggle = /** @type {HTMLButtonElement} */ (toggleEl('va'));
+    expect(toggle.disabled).toBe(false);
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    expect(toggle.title).toBe('Turn writes off for Simulator — applies now');
+    expect(switchWord('va')?.textContent).toBe('on');
   });
 });
 
@@ -608,7 +609,7 @@ describe('turning writes off and on', () => {
   test('turning writes off applies on click, with no confirm', async () => {
     await bootOpen();
     postAnswers.push({ ok: true, body: { entry: { va: 'sandbox' }, skipped: [] } });
-    verbEl('va')?.click();
+    toggleEl('va')?.click();
     await flush();
 
     expect(confirmEl()).toBeNull();
@@ -619,7 +620,7 @@ describe('turning writes off and on', () => {
 
   test('turning writes on raises a confirm and POSTs nothing until it is confirmed', async () => {
     await bootOpen();
-    verbEl('live')?.click();
+    toggleEl('live')?.click();
     await flush();
 
     expect(confirmTitle()).toBe('Turn writes on for Real machine?');
@@ -637,7 +638,7 @@ describe('turning writes off and on', () => {
     // deployment configuration the browser cannot see — the dialog must not
     // state either as fact.
     await bootOpen();
-    verbEl('live')?.click();
+    toggleEl('live')?.click();
     await flush();
 
     const body = inConfirm('.posture-modal-body').textContent ?? '';
@@ -654,7 +655,7 @@ describe('turning writes off and on', () => {
 
   test('the simulator turns on without the hardware notice', async () => {
     await bootOpen(viewOf({ targets: [rowOf(KINDS.va, { ...STATES.sandbox })] }));
-    verbEl('va')?.click();
+    toggleEl('va')?.click();
     await flush();
     expect(confirmTitle()).toBe('Turn writes on for Simulator?');
     expect(confirmEl()?.querySelector('.posture-modal-live')).toBeNull();
@@ -662,7 +663,7 @@ describe('turning writes off and on', () => {
 
   test('cancelling the confirm changes nothing and leaves the popover open', async () => {
     await bootOpen();
-    verbEl('live')?.click();
+    toggleEl('live')?.click();
     await flush();
     inConfirm('.posture-modal-cancel').click();
     await flush();
@@ -672,9 +673,25 @@ describe('turning writes off and on', () => {
     expect(isOpen()).toBe(true);
   });
 
+  test('while the turn-on confirm is up the switch parks mid-track, and springs back on cancel', async () => {
+    await bootOpen();
+    toggleEl('live')?.click();
+    await flush();
+
+    // Parked, not flipped: a switch implies "now", and nothing has been
+    // applied until the dialog is answered.
+    expect(toggleEl('live')?.dataset.pending).toBe('on');
+    expect(toggleEl('live')?.getAttribute('aria-checked')).toBe('false');
+
+    inConfirm('.posture-modal-cancel').click();
+    await flush();
+    expect(toggleEl('live')?.dataset.pending).toBeUndefined();
+    expect(toggleEl('live')?.getAttribute('aria-checked')).toBe('false');
+  });
+
   test('confirming POSTs, keeps the popover open, and re-renders in place', async () => {
     await bootOpen();
-    verbEl('live')?.click();
+    toggleEl('live')?.click();
     await flush();
 
     postAnswers.push({ ok: true, body: { entry: {}, skipped: [] } });
@@ -694,7 +711,7 @@ describe('turning writes off and on', () => {
     expect(confirmEl()).toBeNull();
     expect(isOpen()).toBe(true);
     expect(rowEl('live')?.dataset.state).toBe('writes');
-    expect(pillEl('live')?.textContent).toBe('writes on');
+    expect(switchWord('live')?.textContent).toBe('on');
   });
 
   test('a refused narrowing keeps the server sentence on the row', async () => {
@@ -704,7 +721,7 @@ describe('turning writes off and on', () => {
       status: 409,
       body: { detail: { error: 'execution_in_flight', message: 'An execution is running.' } },
     });
-    verbEl('va')?.click();
+    toggleEl('va')?.click();
     await flush();
 
     expect(outcomes('va')).toContain('✗ An execution is running.');
@@ -712,7 +729,7 @@ describe('turning writes off and on', () => {
 
   test('a refused turn-on keeps the dialog up carrying the reason', async () => {
     await bootOpen();
-    verbEl('live')?.click();
+    toggleEl('live')?.click();
     await flush();
     postAnswers.push({
       ok: false,
@@ -1024,7 +1041,7 @@ describe('switching', () => {
 describe('a confirm and the popover beneath it', () => {
   test('a click inside the confirm is not an outside click', async () => {
     await bootOpen();
-    verbEl('live')?.click();
+    toggleEl('live')?.click();
     await flush();
 
     inConfirm('.posture-modal-body').click();
@@ -1034,7 +1051,7 @@ describe('a confirm and the popover beneath it', () => {
 
   test('Escape dismisses the confirm first and the popover only after', async () => {
     await bootOpen();
-    verbEl('live')?.click();
+    toggleEl('live')?.click();
     await flush();
 
     pressEscape();
@@ -1075,12 +1092,12 @@ describe('a chat session', () => {
     expect(bannerEl()).toBeNull();
   });
 
-  test('keeps its verbs live — the write state is keyed on the session, not the topology', async () => {
+  test('keeps its switches live — the write state is keyed on the session, not the topology', async () => {
     await bootOpen(chatView());
-    expect(verbEl('live')?.disabled).toBe(false);
+    expect(toggleEl('live')?.disabled).toBe(false);
 
     postAnswers.push({ ok: true, body: { entry: { live: 'sandbox' }, skipped: [] } });
-    verbEl('live')?.click();
+    toggleEl('live')?.click();
     await flush();
     expect(posts()[0].body).toEqual({ session_id: SESSION, target: 'live', posture: 'sandbox' });
   });
@@ -1109,7 +1126,7 @@ describe('no process claims', () => {
     const forbidden = /approval|asks you|ask for permission|still apply/i;
     expect(popEl()?.textContent ?? '').not.toMatch(forbidden);
 
-    verbEl('live')?.click();
+    toggleEl('live')?.click();
     await flush();
     expect(confirmEl()?.textContent ?? '').not.toMatch(forbidden);
     pressEscape();
@@ -1168,7 +1185,7 @@ describe('request plumbing', () => {
     /** @type {any} */ (window).__OSPREY_PREFIX__ = '/u/alice';
     await bootOpen();
     postAnswers.push({ ok: true, body: { entry: {}, skipped: [] } });
-    verbEl('va')?.click();
+    toggleEl('va')?.click();
     await flush();
 
     expect(fetchCalls.length).toBeGreaterThan(0);

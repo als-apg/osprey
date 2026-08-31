@@ -12,16 +12,19 @@
  * machine.
  *
  * **Two shapes, not one list.** The machine the agent stands on is a card —
- * name, consequence line, write state, and the one button that changes it.
- * Every other machine is a row: name and consequence, a state pill, a verb,
- * and Switch to. Where a control cannot act it stays visible and says why on
- * hover; the machine vocabulary (lock codes, endpoints, the server's own
- * label) lives on tooltips, never at rest.
+ * name, consequence line, and its writes switch. Every other machine is a
+ * row: name and consequence, its writes switch, and Switch to. Where a
+ * control cannot act it stays visible and says why on hover; the machine
+ * vocabulary (lock codes, endpoints, the server's own label) lives on
+ * tooltips, never at rest.
  *
- * **Verbs, not toggles.** Turning writes off applies on click — it only ever
- * removes reach. Turning writes on confirms first, because it is the gesture
- * after which a write can land somewhere new. The button names the outcome,
- * so that asymmetry is visible before the click.
+ * **One switch per machine.** The write state is a switch: position and
+ * control are the same widget, so nothing says "writes on" twice. The old
+ * verbs' asymmetry survives in behaviour — turning off applies on click, it
+ * only ever removes reach; turning on parks the knob mid-track and confirms
+ * first, because it is the gesture after which a write can land somewhere
+ * new. Locked, the switch stays on screen, disabled, with the reason on
+ * hover.
  *
  * **No process claims.** Nothing rendered here says whether a write will ask
  * for approval or what limits apply — that is deployment configuration this
@@ -136,6 +139,17 @@ const gestureNotes = new Map();
 let posting = false;
 
 /**
+ * The target whose turn-on confirm is on screen, if any.
+ *
+ * The switch that raised it parks its knob mid-track (`data-pending="on"`)
+ * until the dialog is answered: a switch implies "now", and the knob must not
+ * sit in `on` while nothing has been applied. Cleared on every dismissal
+ * path — {@link dismissConfirm} is the one chokepoint.
+ * @type {string|null}
+ */
+let confirmingTarget = null;
+
+/**
  * The handles a confirm hands to the gesture it raised: where a refusal goes,
  * the two buttons to lock while the POST is out, and the one dismissal path.
  * @typedef {object} ConfirmUi
@@ -193,6 +207,7 @@ export function teardownControlTargetPopover() {
   open = false;
   posting = false;
   pendingTarget = null;
+  confirmingTarget = null;
   gestureNotes.clear();
 }
 
@@ -371,8 +386,8 @@ function render() {
 }
 
 /**
- * The card: the machine the agent stands on. Name, consequence line, the
- * write state in a sentence, and the one button that changes it.
+ * The card: the machine the agent stands on. Name, consequence line, and the
+ * writes switch that both states and changes the write state.
  * @param {any} row
  * @param {any} state
  */
@@ -396,25 +411,20 @@ function renderCard(row, state) {
   title.title = identTitle(row);
   card.append(title);
 
-  card.append(renderVerb(row, state, word, lock, 'ctc-card-verb'));
+  card.append(renderSwitch(row, state, word, lock));
 
   const desc = descriptor(row, kind);
   if (desc) card.append(descLine(row, kind, desc));
 
-  const sub = el('div', 'ctc-card-state');
-  const phrase = el('span', 'ctc-state-phrase', statePhrase(word));
-  phrase.dataset.state = word;
-  if (lock) phrase.title = lock;
-  sub.append(phrase);
-  if (word === 'sandbox') sub.append(el('span', 'ctc-state-note', '— you turned them off'));
+  // The reach exception sits on the title line: the switch carries the write
+  // state, so the card has no separate state line to put it on.
   const reach = reachException(row.reachability);
   if (reach) {
     const bad = el('span', 'ctc-reach-word', reach.text);
     bad.dataset.state = reach.state;
     bad.title = reach.title;
-    sub.append(bad);
+    title.append(bad);
   }
-  card.append(sub);
 
   for (const line of outcomeLines(row, state)) card.append(line);
   // Turning writes off on the machine the agent is ON only reaches it once
@@ -429,8 +439,8 @@ function renderCard(row, state) {
 }
 
 /**
- * One other machine's row: who it is and what writing there means, the state
- * pill, the verb that changes it, and Switch to.
+ * One other machine's row: who it is and what writing there means, its
+ * writes switch, and Switch to.
  * @param {any} row
  * @param {any} state
  * @param {any[]} rows
@@ -462,12 +472,7 @@ function renderRow(row, state, rows) {
   for (const line of outcomeLines(row, state)) ident.append(line);
   node.append(ident);
 
-  const pill = el('span', 'ctc-pill', word === 'writes' ? 'writes on' : word === 'sandbox' ? 'writes off' : 'locked');
-  pill.dataset.state = word;
-  if (lock) pill.title = lock;
-  node.append(pill);
-
-  node.append(renderVerb(row, state, word, lock, 'ctc-verb'));
+  node.append(renderSwitch(row, state, word, lock));
   node.append(renderAction(row, state, rows));
   return node;
 }
@@ -514,33 +519,53 @@ function outcomeLines(row, state) {
 }
 
 /**
- * The verb that changes a machine's write state, named for its outcome.
+ * The switch that both states and changes a machine's writes.
  *
- * Locked it stays on screen, disabled, with the reason on hover — the gap
- * where the control would be is explained rather than merely empty. Turning
- * off applies on click; turning on confirms first.
+ * One widget instead of pill + verb: the position is the state, the word
+ * beside it (`on` / `off` / `locked`) is the glance-and-screen-reader copy,
+ * and the click is the gesture. The old verbs' asymmetry survives in
+ * behaviour — off applies on click, on confirms first — said on the hover
+ * title, and while that confirm is up the knob parks mid-track
+ * (`data-pending`) rather than claiming a state nothing has applied. Locked
+ * it stays on screen, disabled, with the reason on hover — the gap where the
+ * control would be is explained rather than merely empty.
  * @param {any} row
  * @param {any} state
  * @param {string} word
  * @param {string|null} lock
- * @param {string} cls
- * @returns {HTMLButtonElement}
+ * @returns {HTMLElement}
  */
-function renderVerb(row, state, word, lock, cls) {
+function renderSwitch(row, state, word, lock) {
+  const name = displayName(row, kindAttr(row));
   const on = word === 'writes';
-  const verb = button(cls, on ? 'Turn writes off' : 'Turn writes on');
-  verb.dataset.direction = on ? 'off' : 'on';
+  const wrap = el('span', 'ctc-switchwrap');
+  wrap.dataset.state = word;
+  wrap.dataset.real = String(Boolean(row.real_machine));
+  wrap.append(el('span', 'ctc-switch-word', 'Writes'));
+  const toggle = button('ctc-toggle', '');
+  toggle.setAttribute('role', 'switch');
+  toggle.setAttribute('aria-checked', String(on));
+  toggle.setAttribute('aria-label', `${statePhrase(word)} for ${name}`);
+  toggle.dataset.real = String(Boolean(row.real_machine));
+  if (confirmingTarget === row.target) toggle.dataset.pending = 'on';
   if (lock) {
-    verb.disabled = true;
-    verb.title = lock;
-    return verb;
+    toggle.disabled = true;
+    toggle.title = lock;
+  } else {
+    toggle.title = on
+      ? `Turn writes off for ${name} — applies now`
+      : `Turn writes on for ${name} — asks first`;
+    toggle.addEventListener('click', (event) => {
+      event.stopPropagation();
+      if (on) void setPosture(row.target, 'sandbox', state);
+      else confirmTurnOn(row, state);
+    });
   }
-  verb.addEventListener('click', (event) => {
-    event.stopPropagation();
-    if (on) void setPosture(row.target, 'sandbox', state);
-    else confirmTurnOn(row, state);
-  });
-  return verb;
+  wrap.append(toggle);
+  const stateWordEl = el('span', 'ctc-switch-state', on ? 'on' : word === 'sandbox' ? 'off' : 'locked');
+  if (lock) stateWordEl.title = lock;
+  wrap.append(stateWordEl);
+  return wrap;
 }
 
 /**
@@ -785,6 +810,12 @@ function dismissConfirm() {
   // reader, to a test, and to the stale sweep in showConfirm.
   overlay.dataset.closing = '1';
   fadeOutOverlay(overlay);
+  // Release the parked switch on every dismissal path: cancel, Escape, a
+  // confirmed gesture's done(), the popover closing over it.
+  if (confirmingTarget) {
+    confirmingTarget = null;
+    render();
+  }
 }
 
 /**
@@ -799,6 +830,10 @@ function confirmTurnOn(row, state) {
     ...turnOnConfirm(row, kindAttr(row)),
     onConfirm: (ui) => void setPosture(row.target, 'writes', state, ui),
   });
+  // After showConfirm: its stale-dialog sweep runs dismissConfirm, which
+  // clears this. The render is what parks the switch beneath the dialog.
+  confirmingTarget = row.target;
+  render();
 }
 
 /**
