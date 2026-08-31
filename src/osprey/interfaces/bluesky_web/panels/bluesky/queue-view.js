@@ -47,6 +47,7 @@ import {
   createQueueStream,
   describeProgress,
   describeQueueStatus,
+  finishedRunId,
   historyChanged,
   historyEmptyState,
   historyRecords,
@@ -625,6 +626,7 @@ export function createQueueView({ root, api, onSelectRun }) {
   createQueueStream(api('/queue/events'), {
     onFrame(frame) {
       const previousStatus = state.queue.status;
+      const previousRunning = state.queue.runningItem;
       const next = reduceQueueFrame(state.queue, frame);
       if (next === state.queue) return;
       state.queue = next;
@@ -640,6 +642,18 @@ export function createQueueView({ root, api, onSelectRun }) {
       // than on a timer: the SSE summary is the change detector, so a settled
       // queue costs no polling at all.
       if (historyChanged(previousStatus, next.status)) void refreshHistory();
+      // A run the operator just watched finish must not vanish silently into
+      // the Completed-runs card: on a fast machine the whole run fits between
+      // two glances, and with nothing selected the Results view would sit on
+      // "Select a queued or completed run" while the finished run's row waits
+      // one tab away. So when the running item leaves the slot and NOTHING is
+      // selected yet — in either UI mode — the finished run is followed.
+      // `activate: false`, exactly like the Simple-mode auto-pick below: this
+      // is the panel's own housekeeping, so it fills the Results view without
+      // moving anyone off the tab they chose. A manual pick or deep link
+      // (state.selected non-null) always wins.
+      const finished = finishedRunId(previousRunning, next.runningItem);
+      if (finished !== null && state.selected === null) onSelectRun(finished, false);
       maybeAutoSelectLatest();
     },
     onConnectionChange(connected) {

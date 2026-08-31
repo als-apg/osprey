@@ -501,6 +501,32 @@ export function itemRunId(item) {
 }
 
 /**
+ * The run that just left the running slot, if one did.
+ *
+ * Compares the running item across two queue frames by OSPREY run id: when the
+ * previous frame was running a plan and the next frame shows that run gone —
+ * the slot empty, or already handed to the next item — the finished run's id
+ * is returned. `null` in every other case: nothing was running, the same run
+ * is still going, or the item carried no OSPREY run id (enqueued out of band,
+ * so there is no run for the Results view to open).
+ *
+ * The completion cue for the queue view's auto-follow: a run that finishes
+ * with nothing selected is followed in the Results view rather than dropping
+ * silently into the Completed-runs list — on a fast machine the whole run
+ * fits between two glances, and this is what keeps its result from being
+ * invisible afterwards.
+ *
+ * @param {QueueItem|null} previousRunning
+ * @param {QueueItem|null} nextRunning
+ * @returns {string|null}
+ */
+export function finishedRunId(previousRunning, nextRunning) {
+  const previousId = itemRunId(previousRunning);
+  if (previousId === null) return null;
+  return itemRunId(nextRunning) === previousId ? null : previousId;
+}
+
+/**
  * A one-line summary of an item's parameters. Queueserver item `kwargs` ARE
  * the plan's params, unwrapped — there is no `params` envelope to open.
  *
