@@ -98,6 +98,7 @@ __all__ = [
     "get_web_credentials",
     "mint_and_announce",
     "mint_secret",
+    "peek_web_credentials",
     "reset_web_credentials",
 ]
 
@@ -927,6 +928,32 @@ def get_web_credentials(app: Any = None) -> WebCredentials:
         if state is not None:
             state.web_credentials = credentials
     return credentials
+
+
+def peek_web_credentials() -> WebCredentials | None:
+    """Return this process's credentials if it already holds them, else ``None``.
+
+    The side-effect-free companion to :func:`get_web_credentials`, and the only
+    safe way for a caller that merely wants to *know* whether this process has
+    an identity to ask. It never calls :func:`_populate`, so it never pops
+    :data:`OPERATOR_SECRET_ENV` or :data:`PANEL_TOKEN_ENV` out of
+    ``os.environ``, never harvests the roster carriers, never mints a secret,
+    and never raises the container-shape ``RuntimeError``.
+
+    That distinction is load-bearing, not hygiene. ``get_web_credentials`` in a
+    process that never held a carrier does two damaging things: it MINTS an
+    operator secret and panel token that no other process in the deployment
+    recognises — a fabricated identity, which is worse than none — and it
+    removes the panel token from the environment on the way, so children spawned
+    afterwards (the MCP server the agent runs, and whatever it spawns) lose the
+    carrier they were deliberately given. A caller asking "do I have an
+    identity?" must therefore never be the caller that creates one.
+
+    Reads the holder under :data:`_POPULATION_LOCK` so it cannot observe a
+    half-built value while another thread is populating.
+    """
+    with _POPULATION_LOCK:
+        return _CREDENTIALS
 
 
 def close_env_carriers() -> None:

@@ -410,7 +410,7 @@ def _companion_roster_failure(
 
 
 def _probe_companion_ports() -> list[str]:
-    """Probe 1: TCP-connect-probe every companion panel port the lifespan will bind.
+    """Probe 1: bind-probe every companion panel port the lifespan will bind.
 
     Resolves the panel set the same way ``_create_lifespan`` does: enabled via
     ``web.panels`` (or a UNIVERSAL panel, which is always launched) AND actually
@@ -423,14 +423,16 @@ def _probe_companion_ports() -> list[str]:
     use (``artifact``/``artifacts``, ``channel_finder``/``channel-finder``), and
     a local translation table here drifted from the health category's copy.
 
-    A listener already bound to a companion port before we start ours is
+    The verdict is bindability, asked by attempting the very bind the lifespan
+    will attempt: a port we can bind is free, whatever else may answer there.
+    Something already holding a companion port so that our bind fails is
     usually foreign: at best it steals the panel's tab, at worst it silently
     reverse-proxies another project's data into this UI. The one case it is
     NOT foreign is this deployment's own multi-user roster — see
     :func:`_companion_roster_failure` — which is why the probe resolves the
     base and reads ``modules.web_terminals.enabled`` before it words a
-    failure. Zero network I/O beyond the local TCP connect probe itself — no
-    server starts, no registry init, no LLM calls.
+    failure. Zero network I/O beyond the local bind and connect probes
+    themselves — no server starts, no registry init, no LLM calls.
     """
     from osprey.infrastructure.server_launcher import (
         _launchers,
@@ -472,7 +474,20 @@ def _probe_companion_ports() -> list[str]:
             # of pre-flight, so `osprey web` names the key and the fix.
             failures.append(str(exc))
             continue
-        if not _launchers[key]._port_has_listener(host, port):
+        launcher = _launchers[key]
+        if launcher._port_is_bindable(host, port):
+            # Bindable == free: the lifespan's own bind will succeed, so there
+            # is no clash to report. Something may still answer a connect there
+            # without contending for the bind (a Docker Desktop host-loopback
+            # pass-through, where a Mac-side listener is visible to a connect
+            # but does not block the container's bind). Name it so the operator
+            # is not left wondering why `curl` answers and pre-flight is clean.
+            if launcher._port_answers_connect(host, port):
+                output.note(
+                    f"Companion panel '{key}' port {port} answers a TCP connect but does not "
+                    "block the bind. That is a foreign host-side listener, not an owner of "
+                    "this port."
+                )
             continue
         if roster_enabled and port == framework_web_port_default(key, base=base):
             failures.append(
