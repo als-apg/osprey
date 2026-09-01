@@ -297,6 +297,66 @@ async def test_connector_readable_describe_shape() -> None:
     assert described == {"bpm1": {"source": "connector:BPM:1", "dtype": "number", "shape": []}}
 
 
+async def test_a_settable_with_a_distinct_readback_reports_its_demand_too() -> None:
+    """``<name>`` is where the device is, ``<name>_setpoint`` where it was told to go.
+
+    A plan that decides when to advance on the difference between the two --
+    an insertion-device gap that takes ten seconds to arrive -- needs both off
+    the one device it drives, without a second device aliasing the setpoint
+    channel under a second name.
+    """
+    fake = FakeConnector(readbacks={"SR04U___GDS1PS_AC00": 25.0, "SR04U___GDS1PS_AM00": 17.3})
+    device = ConnectorSettable(
+        fake, "SR04U___GDS1PS_AC00", readback_pv="SR04U___GDS1PS_AM00", name="gap"
+    )
+
+    reading = await device.read()
+
+    assert device.has_distinct_readback
+    assert device.setpoint_key == "gap_setpoint"
+    assert reading["gap"]["value"] == 17.3
+    assert reading["gap_setpoint"]["value"] == 25.0
+    assert set(reading) == {"gap", "gap_setpoint"}
+    # Both halves are LIVE reads through the connector, never cached.
+    assert set(fake.read_calls) == {"SR04U___GDS1PS_AC00", "SR04U___GDS1PS_AM00"}
+    fake.readbacks["SR04U___GDS1PS_AM00"] = 25.0
+    assert (await device.read())["gap"]["value"] == 25.0
+
+
+async def test_a_settable_with_a_distinct_readback_describes_both_channels() -> None:
+    fake = FakeConnector(readbacks={"SP": 0.0, "RB": 0.0})
+    device = ConnectorSettable(fake, "SP", readback_pv="RB", name="motor")
+
+    assert await device.describe() == {
+        "motor": {"source": "connector:RB", "dtype": "number", "shape": []},
+        "motor_setpoint": {"source": "connector:SP", "dtype": "number", "shape": []},
+    }
+
+
+async def test_an_aliased_settable_reports_one_key() -> None:
+    """Its readback IS its demand: a second key would restate ``<name>``."""
+    fake = FakeConnector(readbacks={"SP": 4.0})
+    device = ConnectorSettable(fake, "SP", name="motor")
+
+    assert not device.has_distinct_readback
+    assert await device.read() == {
+        "motor": {"value": 4.0, "timestamp": pytest.approx(time.time(), abs=5)}
+    }
+    assert set(await device.describe()) == {"motor"}
+
+
+async def test_the_demand_key_is_not_hinted_so_rd_returns_the_readback() -> None:
+    """``bps.rd`` reads the one hinted field; a second hint would make it raise."""
+    from bluesky.utils import get_hinted_fields
+
+    fake = FakeConnector(readbacks={"SP": 25.0, "RB": 17.3})
+    device = ConnectorSettable(fake, "SP", readback_pv="RB", name="gap")
+
+    assert device.hints == {"fields": ["gap"]}
+    assert get_hinted_fields(device) == ["gap"]
+    assert set(await device.read()) == {"gap", "gap_setpoint"}
+
+
 def test_connector_settable_hints_declare_the_device_field() -> None:
     """The movable declares its one data key as the hinted field."""
     device = ConnectorSettable(FakeConnector(readbacks={"SP": 0.0}), "SP", name="motor")
