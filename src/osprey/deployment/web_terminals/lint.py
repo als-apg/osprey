@@ -253,6 +253,7 @@ def lint_web_terminals(
     findings.extend(_check_auth_oidc(root, web_terminals))
     findings.extend(_check_auth_credential_collisions(web_terminals, users))
     findings.extend(_check_shared_card_duplicate_subject(web_terminals, users))
+    findings.extend(_check_shared_card_subject(web_terminals, users))
     findings.extend(_check_authorization(web_terminals))
     findings.extend(_check_claims_without_oidc(web_terminals))
     findings.extend(_check_role_charset(web_terminals))
@@ -3364,6 +3365,59 @@ def _check_shared_card_duplicate_subject(
         for colliding in by_subject.values()
         if len(colliding) > 1
     ]
+
+
+def _check_shared_card_subject(web_terminals: dict[str, Any], users: list[Any]) -> list[Finding]:
+    """OIDC: a shared card that also carries a non-empty ``oidc_subject`` — a WARN.
+
+    A shared card is opened with the OPENER's identity: the sidecar's callback
+    reverse-matches the asserted subject over every roster entry's mapping,
+    and the card's own subject participates like any other entry's. So a
+    subject on the shared card itself maps one more identity that may open
+    the card as itself — a documented shape (a service identity on its own
+    shared card), which is why this is a WARN and not a refusal.
+
+    The hazard is the other reading of the same two keys: ``access: any``
+    typo'd onto a *personal* card — the admin login, say — which hands that
+    terminal to every mapped roster identity the moment ``oidc`` is in force,
+    with a green build. Nothing else in this module says so, and the entry
+    alone cannot tell the two readings apart, so the message names the entry
+    and both ways out.
+
+    Scoped to ``method: oidc`` like the two subject checks above: no other
+    method reads the mapping, and on a passive ``none``/``token`` base that an
+    ``oidc`` variant arms both keys are carried base-entry state
+    (:func:`_check_user_access`); the finding belongs to the merged render
+    where the wall stands. The message names the user, never the subject —
+    same reasoning as the ``$`` scan.
+    """
+    context = _auth_context(web_terminals)
+    if context is None or context["auth_method"] != "oidc":
+        return []
+    findings: list[Finding] = []
+    for user in users:
+        if not isinstance(user, dict) or not entry_is_shared(user):
+            continue
+        subject = user.get("oidc_subject")
+        if not isinstance(subject, str) or not subject.strip():
+            continue
+        name = user.get("name", user)
+        findings.append(
+            Finding(
+                severity="warn",
+                code="web_terminals.shared_card_subject",
+                message=(
+                    f"modules.web_terminals.users entry {name!r} sets access: any and "
+                    "also carries an oidc_subject. A shared card is opened with the "
+                    "opener's identity, so this subject only lets that one identity "
+                    "open the card as itself — it is not the card's own login. If "
+                    f"{name!r} is a personal card, drop access: any: as written, every "
+                    "roster identity can open it. If it is a shared card, its own "
+                    "oidc_subject is usually unneeded"
+                ),
+            )
+        )
+    return findings
 
 
 def _check_notice_docs(root: dict[str, Any], web_terminals: dict[str, Any]) -> list[Finding]:
