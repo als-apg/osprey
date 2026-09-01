@@ -41,7 +41,10 @@ safety-limits enforcement on all write operations.
   archived channel returns about ``archiver.auto_bin_points`` (default 10 000) points —
   1 s for anything under ~2.8 hours, ~53 minutes for a year — and the summary reports the
   bin that was used and whether it was requested or chosen automatically.
-- ``channel_limits`` -- Query the channel safety limits database (lookup, pattern match, summary).
+- ``channel_limits`` -- Query the channel write-safety limits database: which channels are
+  write-gated and under what constraints (lookup, pattern match, summary). Not a channel
+  roster -- an unlisted channel may still exist; use channel-finder to discover what channels
+  exist.
 
 
 Channel Finding

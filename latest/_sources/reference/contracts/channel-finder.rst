@@ -108,6 +108,16 @@ database. Its contract is the graph schema documented in
 ``data/channel_databases/`` entry. Populate the store with
 ``osprey knowledge seed-graph``.
 
+The corpus behind that store is also this deployment's **channel roster** — the
+one answer to which channels the facility has, and which of them are written.
+The web interface enumerates and validates against it, and ``osprey build``
+derives the queue server's plan devices from it
+(:doc:`/how-to/bluesky/write-plans`). Both read the corpus named by
+``services.graphdb.ttl_path``, not the store: a deployment pointed at a store
+the facility runs, holding no corpus file of its own, has nothing to enumerate,
+and the two web routes say so — naming that key — instead of reporting a
+facility with no channels.
+
 
 Configuration Reference
 =======================

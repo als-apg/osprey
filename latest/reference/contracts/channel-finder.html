@@ -550,6 +550,15 @@ database. Its contract is the graph schema documented in
 <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> store, and a graph-mode project ships no
 <code class="docutils literal notranslate"><span class="pre">data/channel_databases/</span></code> entry. Populate the store with
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">seed-graph</span></code>.</p>
+<p>The corpus behind that store is also this deployment’s <strong>channel roster</strong> — the
+one answer to which channels the facility has, and which of them are written.
+The web interface enumerates and validates against it, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
+derives the queue server’s plan devices from it
+(<a class="reference internal" href="../../how-to/bluesky/write-plans.html"><span class="doc">Write Your Own Plans</span></a>). Both read the corpus named by
+<code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code>, not the store: a deployment pointed at a store
+the facility runs, holding no corpus file of its own, has nothing to enumerate,
+and the two web routes say so — naming that key — instead of reporting a
+facility with no channels.</p>
 </section>
 </section>
 <section id="configuration-reference">

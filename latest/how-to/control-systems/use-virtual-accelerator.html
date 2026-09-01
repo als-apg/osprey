@@ -527,6 +527,7 @@ How it is put together is <a class="reference internal" href="../../architecture
 <ul class="simple">
 <li><p class="sd-card-text">What the Virtual Accelerator is (and is not)</p></li>
 <li><p class="sd-card-text">What <code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> selects, and which machine each value names</p></li>
+<li><p class="sd-card-text">Which channels the simulator serves, and what the build will not invent</p></li>
 <li><p class="sd-card-text">Pointing a project at the Virtual Accelerator the stack already deploys</p></li>
 <li><p class="sd-card-text">Moving a running session between the machines a deployment describes</p></li>
 <li><p class="sd-card-text">Switching back to the mock, and why plans go browse-only there</p></li>
@@ -584,6 +585,32 @@ exactly as it does the mock or a real machine; only the backend changes.</p>
 given — the shipped one is a pyAT ring model over the facility-agnostic
 <code class="docutils literal notranslate"><span class="pre">lume-pyat</span></code> package — and serving your own facility’s model is the LUME seam in
 <a class="reference internal" href="../../contributing/extending-osprey.html"><span class="doc">Extending Osprey</span></a>.</p>
+</section>
+<section id="what-channels-it-serves">
+<h2>What channels it serves<a class="headerlink" href="#what-channels-it-serves" title="Link to this heading">#</a></h2>
+<p>Your project’s own. At build time OSPREY expands whatever channel databases the
+project’s <code class="docutils literal notranslate"><span class="pre">data/</span></code> tree stages at the tier being built — <code class="docutils literal notranslate"><span class="pre">hierarchical</span></code>,
+<code class="docutils literal notranslate"><span class="pre">in_context</span></code>, <code class="docutils literal notranslate"><span class="pre">middle_layer</span></code>, in any combination — into the channel
+manifest the container serves, and reports which of them fed the set and which
+the tree does not stage at that tier.</p>
+<p>There is no fallback. A build that deploys services and declares a
+<code class="docutils literal notranslate"><span class="pre">virtual_accelerator:</span></code> block does not quietly come up serving the framework’s
+demo machine under your facility’s name — where the tree cannot back a channel
+set, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses and names the gap. Five things count as a gap: no
+channel database staged at that tier; a database staged but one of the files
+the manifest is generated from missing — the scenario seed, the machine-state
+list or the drive limits; databases that are all present and name no channel;
+databases present that disagree about which channels the facility has; and a
+staged database that is there and unreadable, which stops the build rather than
+being read past. Either the accelerator serves the project’s own channels, or
+the build stops there.</p>
+<p>One absence changes what the simulator can <em>do</em>, so the build spells it out
+rather than leaving it to be inferred. <code class="docutils literal notranslate"><span class="pre">hierarchical</span></code> is the only database
+that carries a hierarchy path, and those identity keys are what pair a readback
+with its setpoint and what every partition rule reads. A tree staging the
+others without it gets an accelerator that serves no setpoints, pairs no
+readback with a setpoint, and drives every channel as static noise rather than
+physics.</p>
 </section>
 <section id="quickstart">
 <h2>Quickstart<a class="headerlink" href="#quickstart" title="Link to this heading">#</a></h2>
@@ -1075,6 +1102,7 @@ reporting the key as merely unset.</p>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-channels-it-serves">What channels it serves</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quickstart">Quickstart</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#switching-a-running-session">Switching a running session</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#rehearsing-against-a-live-target">Rehearsing against a live target</a></li>

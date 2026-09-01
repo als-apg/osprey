@@ -548,6 +548,7 @@ subagents, two jobs — see <a class="reference internal" href="../use-channel-f
 <li><p class="sd-card-text">Why the server can only read, and what it refuses before dialing</p></li>
 <li><p class="sd-card-text">What each degraded state means and the remedy it names</p></li>
 <li><p class="sd-card-text">How to generate a graph corpus from your own channel databases</p></li>
+<li><p class="sd-card-text">Why the corpus is the deployment’s channel list, not only a search index</p></li>
 <li><p class="sd-card-text">How to point the tools at a store the facility already runs</p></li>
 </ul>
 <p class="sd-card-text"><strong>Prerequisites:</strong> a project with a <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block — the
@@ -862,6 +863,35 @@ in-context channel finder does not list, and on any build it can find an
 address the virtual accelerator does not serve. Both are the documented shapes
 of those smaller views, not a mismatch. A build with a channel database of your
 own restores the correspondence by regenerating the corpus from it.</p>
+<section id="the-corpus-is-the-channel-list-not-only-a-search-index">
+<h3>The corpus is the channel list, not only a search index<a class="headerlink" href="#the-corpus-is-the-channel-list-not-only-a-search-index" title="Link to this heading">#</a></h3>
+<p>On a graph-mode build the corpus is what the deployment answers “which channels
+does this facility have” with. Three places read it and get the same list:</p>
+<ul class="simple">
+<li><p><strong>The queue server’s devices.</strong> With no device file of your own, <code class="docutils literal notranslate"><span class="pre">osprey</span>
+<span class="pre">build</span></code> derives the plan device set from the corpus: every write-direction
+binding becomes a settable, every read-direction one a readable. A settable
+takes the <code class="docutils literal notranslate"><span class="pre">:RB</span></code> sibling of its <code class="docutils literal notranslate"><span class="pre">:SP</span></code> address as its readback where the
+corpus enumerates that address as a read binding, and otherwise carries none.
+See <a class="reference internal" href="../bluesky/write-plans.html"><span class="doc">Write Your Own Plans</span></a>.</p></li>
+<li><p><strong>The channel finder in graph mode.</strong> It keeps no database of its own and
+turns phrases into addresses out of this same corpus.</p></li>
+<li><p><strong>The channel finder’s web view.</strong> Its channel list serves the corpus’s
+addresses and their total, and a name checked against it is checked for
+membership in the corpus.</p></li>
+</ul>
+<p>Because the direction of a binding is a property of the graph rather than a
+guess from the address, a graph-mode build reads the settable/readable split
+straight out of the corpus. A build on one of the file-backed paradigms has to
+derive that split instead — from the write-limits file, or failing that from
+the <code class="docutils literal notranslate"><span class="pre">:SP</span></code> address grammar — because no paradigm database records a
+direction.</p>
+<p>Where the corpus cannot be read — the store belongs to the facility and this
+deployment holds no <code class="docutils literal notranslate"><span class="pre">.ttl</span></code> file, or <code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code> points at
+nothing — the web view says it has nothing to enumerate from and names that
+key, rather than reporting a facility with no channels. The rest of the app
+starts as usual, and the graph tools keep answering from the store.</p>
+</section>
 </section>
 <section id="multi-user-operator-terminals">
 <h2>Multi-User Operator Terminals<a class="headerlink" href="#multi-user-operator-terminals" title="Link to this heading">#</a></h2>
@@ -973,7 +1003,10 @@ query bounds.</p>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-presets-seed">What the Presets Seed</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pointing-at-a-store-the-facility-runs">Pointing at a Store the Facility Runs</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-machine-several-views">One Machine, Several Views</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#one-machine-several-views">One Machine, Several Views</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-corpus-is-the-channel-list-not-only-a-search-index">The corpus is the channel list, not only a search index</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#multi-user-operator-terminals">Multi-User Operator Terminals</a></li>
 </ul>
   </nav></div>

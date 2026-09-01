@@ -172,16 +172,66 @@ A deployment ends up with its device set in one of three ways:
   OSPREY reads it where it is and never rewrites or moves it. Either way the
   build takes its own copy for the queue server to mount, so an edit to your
   file reaches a running deployment at the next ``osprey build``.
-- **The build writes one for you.** A deployment running the bundled Virtual
-  Accelerator, with no file yet at the path inside the project, gets a device
-  set derived from the project's own channel-limits database: its correctors as
-  settables, its BPMs as readables. That derived set is written straight into
+- **The build derives one from your facility's own description.** A deployment
+  on a real control system, with no file yet at a project path, gets a device
+  set derived from the same description of the machine the channel finder
+  reads: the knowledge graph corpus in graph mode, and otherwise the
+  channel-finder database for the paradigm in force —
+  ``channel_finder.pipeline_mode`` where it is set, and otherwise whichever
+  pipeline has a database configured. That source says which channels exist.
+  Which of them are *settable* depends on which source it is, and the two
+  differ:
+
+  - **A graph corpus says so itself.** Every binding carries a direction —
+    ``writesSignal`` or ``readsSignal`` — so the split into settables and
+    readables is read out of the corpus rather than inferred.
+  - **A channel-finder database does not.** No paradigm database records a
+    direction, so the build derives one: from the write-limits file
+    (``control_system.limits_checking.database_path``) when the deployment has
+    one, read exactly as the write path reads it; failing that, from the
+    address grammar, where a final ``:SP`` token is a setpoint and everything
+    else is read. With neither — no limits file, and no ``:SP`` address in the
+    database — the build stages nothing and says the channels are known but
+    their directions are not.
+
+  A settable's readback is address grammar in both cases: the final ``:SP``
+  becomes ``:RB``, and that readback is adopted only if the source enumerates
+  that address as a read channel. Where it does not, the device carries no
+  readback and the worker reads the setpoint back. The build says which source
+  it read and how many devices came out of it — and, where some channels'
+  directions could not be stated, how many it left out, so a smaller device set
+  is never a silently smaller machine. The derived set is written straight into
   the build output and rewritten every time you build, so it is not a file to
-  edit — to take over, put your own file at the path the key names.
+  edit — to take over, put your own file at the path the key names. An
+  **absolute** ``devices_file`` with no file at it derives nothing: that path
+  says an operator supplies the file, so its absence means "not staged yet",
+  not "choose a device set for me".
 - **Neither.** The queue server comes up able to browse and describe plans and
   to run none of them. That is a plain statement about the deployment, not a
-  fault, and the build says so in its output. A deployment pointed at the
-  ``mock`` control system is browse-only this way whatever file is present.
+  fault, and the build says so in its output, in the words of whatever was
+  missing: no channel source configured at all, no ``bluesky.devices_file``
+  configured, graph mode naming no readable corpus, a source that is not there,
+  one that was read and declares no channel, or one whose channels are known
+  while which of them are settable is not. A deployment pointed at the ``mock``
+  control system is browse-only this way whatever file is present.
+
+One case is neither derived nor browse-only: a roster source that is **there
+and unreadable** refuses the build. An absent source is a facility this project
+did not describe; a corrupt one is a facility it meant to describe and got
+wrong, and deriving past it would stage a partial device set that looks exactly
+like a complete one.
+
+.. note::
+
+   **The limits database is not the channel list.** ``channel_limits.json``
+   states the range a write to a listed channel has to fall inside. It gates
+   writes over a subset of the machine, and nothing *enumerates* the facility
+   from it: a file listing a few hundred writable channels says nothing about
+   the few thousand the facility has. It does still answer one question about a
+   derived set — outside graph mode it is what says which of the enumerated
+   channels are settable, as above. That is the practical argument for a graph
+   corpus where you have one: it carries the direction itself, so the device
+   set does not inherit the shape of a limits file.
 
 .. note::
 
@@ -192,10 +242,88 @@ A deployment ends up with its device set in one of three ways:
    written for the live machine leaves the virtual-accelerator lane with
    nothing to address unless those channels are served there too.
 
-Which channels count as scan devices, and which readback belongs to which
-setpoint, is one view of your facility's namespace — the same namespace the
-channel finder and the knowledge graph describe. The three are meant to stay in
-step; bringing them under one description is work still ahead.
+Deriving for a live lane is deliberate
+--------------------------------------
+
+The derived set is the facility's namespace, and the live lane mounts it like
+any other. That is a decision, not an oversight. A device in the worker's
+namespace is a name a plan *may* reference; it is not a write that has
+happened. The gates deciding whether a write lands sit on the write path — the
+connector's per-write check and the bridge's arming and limits — and holding
+the machine's own channels out of the namespace would add no gate to them. It
+would only hide from the agent the channels it is allowed to *read*, and push
+you back to hand-written device files that nothing keeps in step with the
+facility.
+
+Two things stand behind that decision, and both are worth knowing:
+
+**The build refuses an armed lane with no limits.** When a lane's device set is
+derived, and a *deployed* lane's control target has writes armed while limits
+checking is not switched on for the same target, ``osprey build`` stops and
+names both keys. A lane the profile does not deploy is not examined. Limits checking that is off builds no validator at all, so every derived
+device would take whatever value a plan asked for with no database consulted.
+Authored device files are exempt — that set is your own list. The refusal is
+per lane and per target: a virtual-accelerator lane with limits on does not
+excuse a live lane without them.
+
+**A run is refused before it moves anything.** A device file names channels; it
+cannot promise the IOC serving them is up, and an unreachable channel used to
+surface mid-plan — as a connection error out of the first read, with setpoints
+already applied. The worker asks that question one message earlier instead:
+before the plan is constructed, it probes every address the run's declared
+devices touch — each setpoint, each readback, each recorded channel — on that
+lane's own connector, and refuses the run if any of them does not answer.
+
+.. code-block:: text
+
+   refusing plan 'bump' before it moves anything — lane bluesky_live (target live):
+   2 declared channels did not respond within 5 s: SR:MAG:HCM:07:CURRENT:SP, SR:MAG:HCM:07:CURRENT:RB
+
+Nothing has been written when that arrives, so nothing is half-done. Each
+address gets five seconds and one retry, and a channel that misses the first
+probe and answers the second runs. The sweep as a whole is bounded too — 20
+seconds for a small plan, up to 90 for one naming thousands of addresses — and
+whatever it did not reach inside that bound is reported separately from what it
+asked and got no answer from. Both refuse the run; they are different findings
+and the message keeps them apart. It is asked per *run* rather than at enqueue
+time: what a queued plan needs is channels that are alive when it runs, and the
+gap between the two can be an IOC restart.
+
+Listed as settable, refused at write time
+-----------------------------------------
+
+Being a settable says the facility describes the channel as one that is
+written. It does not say a write to it will be accepted. Those are two
+questions, answered in two places, and a facility whose two answers differ is a
+normal deployment rather than a misconfiguration:
+
+- The **facility's description** — the graph corpus, or the channel-finder
+  database — answers membership: which channels exist. In graph mode it answers
+  direction too, from the binding's own ``writesSignal``/``readsSignal``.
+- The **limits database** answers permission, at the moment a write is
+  attempted: what range the value has to be in, and whether a channel it does
+  not list may be written at all
+  (``control_system.limits_checking.allow_unlisted_channels``).
+
+So a graph corpus may mark a channel settable that the limits database refuses
+— a facility's structural description and its enforced write ranges are
+maintained separately, and OSPREY does not reconcile them at build time. The
+plan may name that device, and the write is refused when it is attempted, by
+the target that refused it, with a message saying so. The build does not
+intersect the two lists, and it does not drop a channel from the namespace
+because the limits file omits it — that would report a smaller machine than the
+facility has. (On a database paradigm the same limits file is what supplied the
+direction in the first place, so the two agree on which channels are settable
+by construction; what they can still disagree about is the value.)
+
+Which channels count as scan devices is no longer a separate answer from which
+channels your facility has: the queue server's device set and the channel
+finder read the same source, the one the paradigm in force selects. In graph
+mode that source *is* the corpus, so the device set, the channel finder and the
+knowledge graph are three views of one description and cannot drift apart. On a
+database paradigm the graph is generated from the same channel database
+(:doc:`../facility-knowledge/use-facility-graph`), so the three agree as long
+as the corpus is regenerated when the database changes.
 
 A plan says what it touches
 ===========================
