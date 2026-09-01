@@ -3,10 +3,12 @@
 Three properties carry most of the weight here, and each is pinned from several
 directions:
 
-* **The page is addressed per user.** It states the username and never asks for
-  one, and the username it unlocks travels into the session cookie byte for byte
-  — verify exact-matches it against the roster, so any normalisation here would
-  break the chain open rather than closed.
+* **The page is addressed per user.** It states the username and — on an own
+  card — never asks for one; the one exception is a shared card (``access:
+  any``), where the opener names *themselves*, never the terminal. The username
+  it unlocks travels into the session cookie byte for byte — verify
+  exact-matches it against the roster, so any normalisation here would break
+  the chain open rather than closed.
 * **Every refusal is the same refusal.** A wrong password, a roster user with no
   provisioned credential and a username that is not on the roster at all produce
   the same status, the same page and the same call into the throttle. The
@@ -40,6 +42,7 @@ from osprey.services.auth_sidecar.routes.login import (
     OIDC_LOGIN_PATH,
     THROTTLE_MESSAGE,
 )
+from osprey.services.auth_sidecar.routes.recheck import RosterRoles
 from osprey.services.auth_sidecar.sessions import SESSION_COOKIE_NAME, SessionCodec, SessionState
 from osprey.services.auth_sidecar.throttle import AttemptThrottle
 
@@ -344,6 +347,272 @@ def test_the_refusals_that_are_not_pages_are_uncacheable_too() -> None:
     ):
         assert response.status_code in (400, 404)
         assert response.headers["cache-control"] == "no-store"
+
+
+# --- Shared cards -----------------------------------------------------------
+
+SHARED_ENV = {**PASSWORD_ENV, "OSPREY_AUTH_ROSTER_ACCESS_BOB": "any"}
+"""The default roster with bob's card opened to the whole roster (``any``).
+
+Alice keeps the default own-card rule, so one env pins both page shapes — and
+pins that opening one card changes nothing about the others.
+"""
+
+
+def test_a_shared_card_asks_the_opener_to_name_themselves() -> None:
+    """A shared card's page gains a visible username field, and says "Sign in to"."""
+    response = _client(SHARED_ENV).get(LOGIN_PATH, params={"user": "bob", "next": "/u/bob/"})
+
+    assert response.status_code == 200
+    assert "Sign in to" in response.text
+    assert "Enter password for" not in response.text
+
+    fields = _inputs(response.text)
+    opener = [field for field in fields if 'name="username"' in field]
+    assert len(opener) == 1
+    assert 'type="text"' in opener[0]
+    assert "required" in opener[0]
+    # The card's own name still travels hidden: the opener names themselves,
+    # never the terminal they are opening.
+    assert any('type="hidden"' in field and 'name="user"' in field for field in fields)
+
+
+def test_a_shared_neighbour_does_not_leak_into_an_own_cards_page() -> None:
+    """Alice's page is the same page whether or not bob's card is shared.
+
+    Both renders are post-change, so the byte comparison pins NON-LEAKAGE — a
+    shared card on the roster changes nothing about its neighbours — not
+    identity to the pre-change template. The explicit content assertions below
+    are the stand-in for that: the own-card heading, exactly as the template
+    spells it, and no username field anywhere on the page.
+    """
+    params = {"user": "alice", "next": "/u/alice/"}
+    with_shared_neighbour = _client(SHARED_ENV).get(LOGIN_PATH, params=params)
+    without = _client().get(LOGIN_PATH, params=params)
+
+    assert with_shared_neighbour.status_code == 200
+    assert with_shared_neighbour.text == without.text
+    assert (
+        '<h1 class="login-prompt">Enter password for '
+        '<span class="login-user">alice</span></h1>' in with_shared_neighbour.text
+    )
+    assert "Sign in to" not in with_shared_neighbour.text
+    assert 'name="username"' not in with_shared_neighbour.text
+
+
+def _shared_login(
+    client: TestClient,
+    *,
+    card: str = "bob",
+    opener: str = "alice",
+    password: str = ALICE_PASSWORD,
+    next_value: str = "",
+) -> httpx.Response:
+    """POST one shared-card attempt: the opener's own name, the opener's password."""
+    return _post(
+        client,
+        {"user": card, "username": opener, "next": next_value, "password": password},
+    )
+
+
+def test_a_shared_card_opens_with_the_openers_credential() -> None:
+    """The card is unlocked, the opener is recorded, and the role is the card's.
+
+    Everything stays keyed on the card — the session entry, the role, the
+    return-to — while the credential evaluated and the generation tag stamped
+    are the opener's. The opener themselves is NOT unlocked: their name proved
+    the login, it did not join the session.
+    """
+    app = create_app(SHARED_ENV)
+    # The role table is read from the process env by the module that owns it,
+    # so the test seeds the app.state cache the route consults — a role on
+    # bob's CARD, none for the opener.
+    app.state.roster_roles = RosterRoles({"bob": "operator"})
+    client = TestClient(app, base_url="https://testserver")
+
+    response = _shared_login(client, next_value="/u/bob/files")
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/u/bob/files"
+
+    state = _codec().decode(_issued_cookie(response))
+    entry = state.entry("bob")
+    assert entry is not None
+    assert entry.opener == "alice"
+    assert entry.generation_tag == generation_tag(ALICE_HASH)
+    assert entry.role == "operator"
+    assert entry.role_source == "roster"
+    # Proving bob's card does not unlock alice's terminal.
+    assert state.entry("alice") is None
+    # And verify accepts what this login minted: the chain closes end to end.
+    assert client.get("/verify", params={"user": "bob"}).status_code == 200
+
+
+def test_every_shared_refusal_is_the_same_refusal() -> None:
+    """Unknown opener, uncredentialed opener, wrong password and empty opener
+    are one answer, compared byte for byte against the empty-opener body once
+    the echoed opener is removed — the only thing that may differ between them
+    is the caller's own input coming back in the username field."""
+    client = _client(SHARED_ENV)
+    wrong = _shared_login(client, opener="alice", password="not-the-password")
+    uncredentialed = _shared_login(client, opener="carol", password="anything")
+    unknown = _shared_login(client, opener="mally", password="anything")
+    empty = _shared_login(client, opener="", password="anything")
+
+    assert (
+        wrong.status_code
+        == uncredentialed.status_code
+        == unknown.status_code
+        == empty.status_code
+        == 401
+    )
+    assert DENIAL_MESSAGE in empty.text
+    # The refusal keeps the shared card's shape: the opener can correct their
+    # own name, prefilled exactly as they typed it.
+    assert "Sign in to" in wrong.text
+    assert 'name="username"' in wrong.text
+    assert 'value="alice"' in wrong.text
+    for other, name in ((wrong, "alice"), (uncredentialed, "carol"), (unknown, "mally")):
+        assert other.text.replace(name, "") == empty.text
+        assert other.headers["content-type"] == empty.headers["content-type"]
+        assert other.headers["cache-control"] == empty.headers["cache-control"]
+        assert "set-cookie" not in other.headers
+    assert "set-cookie" not in empty.headers
+
+
+def test_a_browser_missing_the_opener_is_sent_to_the_roster_without_a_charge() -> None:
+    """No opener means no credential attempt: the browser goes back to the
+    cards, and no throttle window anywhere records that it happened."""
+    client, throttle, _ = _throttled_client(SHARED_ENV)
+
+    response = _post(
+        client,
+        {"user": "bob", "next": "", "password": ALICE_PASSWORD},
+        headers=BROWSER_ACCEPT,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/"
+    assert response.headers["cache-control"] == "no-store"
+    assert "set-cookie" not in response.headers
+    assert throttle.retry_after("bob") == 0.0
+    assert throttle.retry_after("") == 0.0
+
+
+def test_a_json_client_missing_the_opener_gets_a_400() -> None:
+    """The user field's own split, applied to the opener field."""
+    response = _post(
+        _client(SHARED_ENV),
+        {"user": "bob", "next": "", "password": ALICE_PASSWORD},
+        headers=JSON_ACCEPT,
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "the login form must name exactly one opener"}
+    assert "set-cookie" not in response.headers
+
+
+def test_a_repeated_opener_is_refused_for_every_caller() -> None:
+    """Two openers is ambiguous, not empty — a 400 even for a browser, exactly
+    as a form naming two users is."""
+    client, throttle, _ = _throttled_client(SHARED_ENV)
+
+    response = _post(
+        client,
+        {"user": "bob", "username": ["alice", "carol"], "password": ALICE_PASSWORD},
+        headers=BROWSER_ACCEPT,
+    )
+
+    assert response.status_code == 400
+    assert "set-cookie" not in response.headers
+    assert throttle.retry_after("alice") == 0.0
+    assert throttle.retry_after("carol") == 0.0
+
+
+def test_the_shared_throttle_charges_the_opener_not_the_card() -> None:
+    """The credential under test is the opener's, so the opener's window grows
+    — the same bucket their own card charges, which is what stops a guessing
+    run shopping between the two surfaces for a fresh window."""
+    client, throttle, _ = _throttled_client(SHARED_ENV)
+
+    assert _shared_login(client, opener="carol", password="a-guess").status_code == 401
+
+    assert throttle.retry_after("carol") > 0.0
+    assert throttle.retry_after("bob") == 0.0
+    # The opener's own-card attempt lands inside the window the shared attempt
+    # opened, and a second shared attempt keeps the shared card's page shape.
+    assert _login(client, user="carol", password="anything").status_code == 429
+
+
+def test_a_throttled_shared_attempt_still_renders_the_username_field() -> None:
+    """A 429 inside the window must keep the shared card's shape: were it the
+    own-card page, the username field would vanish on exactly the retry the
+    page invites, and the corrected attempt could never be submitted."""
+    client, throttle, _ = _throttled_client(SHARED_ENV)
+    assert _shared_login(client, opener="carol", password="a-guess").status_code == 401
+
+    throttled = _shared_login(client, opener="carol", password="a-guess")
+
+    assert throttled.status_code == 429
+    assert THROTTLE_MESSAGE in throttled.text
+    assert "Sign in to" in throttled.text
+    assert 'name="username"' in throttled.text
+    assert 'value="carol"' in throttled.text
+
+
+def test_an_over_long_user_never_reaches_a_shared_cards_credential() -> None:
+    """An over-long name whose prefix is a shared card stays on the own-card
+    deny path: were the shared branch taken on the clamped name, the correct
+    opener credential below would mint a session for a card the browser never
+    posted to."""
+    name = "a" * MAX_USERNAME_LENGTH
+    suffix = "A" * MAX_USERNAME_LENGTH
+    env = {
+        **PASSWORD_ENV,
+        "OSPREY_AUTH_USERS": f"alice,{name}",
+        f"OSPREY_AUTH_PW_HASH_{suffix}": ALICE_HASH,
+        f"OSPREY_AUTH_ROSTER_ACCESS_{suffix}": "any",
+    }
+
+    response = _post(
+        _client(env),
+        {"user": name + "a", "username": "alice", "next": "", "password": ALICE_PASSWORD},
+    )
+
+    assert response.status_code == 401
+    assert "set-cookie" not in response.headers
+    # The own-card refusal, not the shared card's: no username field came back.
+    assert 'name="username"' not in response.text
+
+
+def test_an_over_long_opener_is_never_looked_up_as_a_roster_user() -> None:
+    """Truncating the opener for display must not become truncating it for
+    authorisation: a roster user whose name is exactly the clamped prefix must
+    not have their credential evaluated under a name the browser never sent."""
+    prefix = "a" * MAX_USERNAME_LENGTH
+    env = {
+        **SHARED_ENV,
+        "OSPREY_AUTH_USERS": f"alice,bob,carol,{prefix}",
+        f"OSPREY_AUTH_PW_HASH_{'A' * MAX_USERNAME_LENGTH}": ALICE_HASH,
+    }
+
+    response = _shared_login(_client(env), opener=prefix + "a", password=ALICE_PASSWORD)
+
+    assert response.status_code == 401
+    assert "set-cookie" not in response.headers
+
+
+def test_a_shared_cards_return_to_belongs_to_the_card() -> None:
+    """Empty or hostile, the fallback is the CARD's terminal — the opener's
+    name never chooses where the browser lands."""
+    client = _client(SHARED_ENV)
+
+    empty = _shared_login(client, next_value="")
+    hostile = _shared_login(client, next_value="https://evil.example/")
+
+    assert empty.status_code == hostile.status_code == 303
+    assert empty.headers["location"] == "/u/bob/"
+    assert hostile.headers["location"] == "/u/bob/"
 
 
 # --- Nothing a client sends is assumed to be small --------------------------

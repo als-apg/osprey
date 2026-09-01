@@ -448,6 +448,37 @@ def test_preflight_mints_no_credential_for_a_login_false_entry(monkeypatch, tmp_
     assert calls == [["alice", "bob"]]
 
 
+def test_preflight_mints_no_credential_for_a_shared_entry(monkeypatch, tmp_path):
+    """A roster entry with `access: any` is left out of the password mint: a
+    shared card holds no password of its own — verify checks the OPENER's
+    credential — so a hash under its name would be a credential nothing ever
+    checks, and a minted password printed for it would misdescribe how the
+    card is opened."""
+    calls: list[list[str]] = []
+    env_auth = tmp_path / AUTH_ENV_FILENAME
+
+    def _fake_credentials(usernames, project_root, **kwargs):
+        calls.append(list(usernames))
+        return _credentials_result(env_auth, users=usernames)
+
+    monkeypatch.setattr(provision, "ensure_auth_credentials", _fake_credentials)
+    monkeypatch.setattr(
+        provision, "ensure_auth_session_secrets", lambda root: _secrets_result(env_auth)
+    )
+
+    config = _auth_config(
+        "password",
+        users=[
+            "alice",
+            {"name": "ops", "index": 1, "access": "any"},
+            {"name": "bob", "index": 2},
+        ],
+    )
+    _run_preflight(monkeypatch, tmp_path, config)
+
+    assert calls == [["alice", "bob"]]
+
+
 # ---------------------------------------------------------------------------
 # preflight_web_terminals -- per-user terminal secrets. Provisioned for EVERY
 # deployment, outside the `auth.method: none` early return that governs the

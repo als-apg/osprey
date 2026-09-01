@@ -76,6 +76,7 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "AUDIT_DIR_ENV",
     "LOGIN_REASONS",
+    "REASON_AMBIGUOUS_IDENTITY",
     "REASON_AMBIGUOUS_ROLE_CLAIM",
     "REASON_BAD_CREDENTIAL",
     "REASON_IDENTITY_MISMATCH",
@@ -161,6 +162,17 @@ Its own category rather than a shade of :data:`REASON_UNMAPPED_USER`: this is a
 login that authenticated successfully and was still refused, which is the one
 denial an operator should be able to count separately — a run of them is either
 a misconfigured subject mapping or somebody clicking a card that is not theirs.
+"""
+
+REASON_AMBIGUOUS_IDENTITY = "ambiguous_identity"
+"""The asserted identity matches more than one roster entry on a shared card.
+
+A configuration fault, not a hostile login: two roster entries were mapped to
+the same provider subject, so the token proves who arrived but cannot say which
+entry they are. Refused rather than resolved — picking either entry would mint
+a session whose roster identity nobody decided on — and mirrored at build time
+by scaffold lint's duplicate-subject refusal, so reaching here means the
+deployment's config bypassed that check.
 """
 
 REASON_UNVALIDATED_TOKEN = "unvalidated_token"
@@ -258,6 +270,7 @@ _GENERIC_LOGIN = "login"
 
 LOGIN_REASONS: frozenset[str] = frozenset(
     {
+        REASON_AMBIGUOUS_IDENTITY,
         REASON_AMBIGUOUS_ROLE_CLAIM,
         REASON_BAD_CREDENTIAL,
         REASON_IDENTITY_MISMATCH,
@@ -333,7 +346,13 @@ def ledger_path() -> Path | None:
     return directory / f"{SURFACE}{writer.LEDGER_SUFFIX}"
 
 
-def record_login_success(*, user: str, method: str, role: str = "") -> None:
+def record_login_success(
+    *,
+    user: str,
+    method: str,
+    detail: str | None = None,
+    role: str = "",
+) -> None:
     """Record that ``user`` logged in, and how.
 
     Recorded for the same reason refusals are: "who is in this deployment, and
@@ -344,6 +363,9 @@ def record_login_success(*, user: str, method: str, role: str = "") -> None:
         user: The roster user who logged in — the record's *subject*.
         method: The deployment's auth method (``password`` or ``oidc``), which
             names the category the success is recorded under.
+        detail: Optional supplementary context — identifiers and config keys
+            only, on the same terms as a refusal's ``detail``. A shared-card
+            login records the opener here (``opener=<name>``).
         role: The role the session was minted with, where the deployment binds
             one. Empty is the deny-safe value and is recorded as no role at all,
             never as a role named ``""``.
@@ -352,6 +374,7 @@ def record_login_success(*, user: str, method: str, role: str = "") -> None:
         user=user,
         decision=DECISION_ALLOWED,
         reason=_SUCCESS_REASONS.get(method, _GENERIC_LOGIN),
+        detail=detail,
         role=role,
     )
 

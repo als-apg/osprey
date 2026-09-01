@@ -423,7 +423,7 @@ def limits_block_errors(config: Mapping[str, Any]) -> list[str]:
             f"a dotted custom type as its own map key:\n"
             f"  config:\n"
             f"    control_system.connector:\n"
-            f"      mypkg.TangoConnector:\n"
+            f"      mypkg.MoatConnector:\n"
             f"        limits_checking:\n"
             f"          enabled: true\n"
             f"          allow_unlisted_channels: false"

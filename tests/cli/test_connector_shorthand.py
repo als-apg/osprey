@@ -213,7 +213,7 @@ def test_wrong_case_connector_suggests_the_exact_spelling() -> None:
 def test_unrecognizable_connector_lists_every_valid_choice() -> None:
     """With nothing close enough to suggest, the full choice list still lands."""
     with pytest.raises(BuildProfileError) as excinfo:
-        _parse_profile({"name": "x", "connector": "tango"})
+        _parse_profile({"name": "x", "connector": "moat"})
 
     message = str(excinfo.value)
     assert "Valid connectors are:" in message
@@ -224,7 +224,7 @@ def test_unrecognizable_connector_lists_every_valid_choice() -> None:
 def test_custom_connector_path_is_pointed_at_the_literal_key() -> None:
     """A dotted module path is not a shorthand value; the error says what is."""
     with pytest.raises(BuildProfileError) as excinfo:
-        _parse_profile({"name": "x", "connector": "mypackage.TangoConnector"})
+        _parse_profile({"name": "x", "connector": "mypackage.MoatConnector"})
 
     assert CONNECTOR_CONFIG_KEY in str(excinfo.value)
 
@@ -370,7 +370,7 @@ def test_misspelled_stand_in_suggests_the_stand_in() -> None:
 def test_invalid_connector_lists_the_stand_in_among_the_choices() -> None:
     """The refusal names every settable type, the stand-in included."""
     with pytest.raises(BuildProfileError) as excinfo:
-        _parse_profile({"name": "x", "connector": "tango"})
+        _parse_profile({"name": "x", "connector": "moat"})
 
     assert LIVE_STANDIN in str(excinfo.value)
 

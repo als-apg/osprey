@@ -198,6 +198,51 @@ Pick a control system
          reading that is not a number -- a string, a name -- confirms by
          plain equality.
 
+   .. tab-item:: TANGO
+      :sync: tango
+
+      TANGO Controls. A channel address is a TANGO device name plus the
+      attribute served by it (``domain/family/member/attribute``, e.g.
+      ``sr/power_supply/ps01/Current``), optionally prefixed with an explicit
+      database as ``tango://host:port/domain/family/member/attribute``.
+      Without a prefix the connector reaches the database named by
+      ``TANGO_HOST``, exactly as every other TANGO client does; ``tango_host``
+      in the connector block overrides that environment for this connector
+      alone:
+
+      .. code-block:: yaml
+
+         control_system:
+           type: tango
+           connector:
+             tango:
+               tango_host: db.facility.edu:10000   # optional; default TANGO_HOST
+               timeout: 5.0                        # seconds per device call
+
+      Only **attributes** are exposed. TANGO *commands* (``command_inout``)
+      carry arbitrary payloads the limits database cannot bound, so they have
+      no seam in the connector contract -- the same reason the EPICS connector
+      refuses PVA RPC.
+
+      Reads report the attribute quality as the channel's alarm state
+      (``ATTR_WARNING`` → ``WARNING``, ``ATTR_ALARM`` → ``ALARM``, and so on),
+      and a ``DevEnum`` attribute reads as its integer index with the state
+      labels alongside it, like an EPICS ``mbbi``.
+
+      The connector requires PyTango (the ``pytango`` package). The import is
+      deferred to ``connect()``, so the name registers everywhere and only
+      fails -- with a clear ``ImportError`` instead of a silent degradation --
+      where a TANGO environment is genuinely absent.
+
+      .. note::
+
+         TANGO confirms a write the way every connector does: one fresh read
+         of the attribute, compared exactly against the value that was sent.
+         An ``ATTR_CHANGING`` quality on the readback never softens the
+         verdict -- a readback that does not yet hold the value sent is a
+         ``mismatch``, and the quality rides on the result's alarm fields for
+         the operator to interpret.
+
    .. tab-item:: Virtual Accelerator
       :sync: va
 
@@ -217,7 +262,7 @@ Pick a control system
    .. tab-item:: Your own
       :sync: custom
 
-      LabVIEW, Tango, MOAT, or any other stack OSPREY does not ship a
+      LabVIEW, MOAT, or any other stack OSPREY does not ship a
       connector for: write a custom connector against the same interface and
       register it with ``ConnectorFactory``. It then selects by name exactly
       like the in-tree ones. The seam -- the class to subclass, the pinning

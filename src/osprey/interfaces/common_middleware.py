@@ -694,9 +694,10 @@ def _audit_detail(scope: Scope, headers: dict[str, str], **extra: str) -> tuple[
       **only** when the forwarded account is not it. Its presence *is* the
       mismatch: one user's authorization arrived at another user's container.
     * :data:`AUDIT_OIDC_SUBJECT_KEY` — *who proved* the login, present only
-      when that is not the account itself. A password session, where the roster
-      username is the proof, therefore gains no key at all; an OIDC session
-      records the provider's subject beside the card it opened.
+      when that is not the account itself. A password session on a user's own
+      card, where the roster username is the proof, gains no key; on a shared
+      card the key holds the opener's roster name, whichever the method; an
+      OIDC session records the provider's subject beside the card it opened.
 
     **The comparison is on the account, never on the subject.** Under
     ``auth.method: oidc`` the subject is the IdP's assertion about a person —

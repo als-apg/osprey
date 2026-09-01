@@ -178,7 +178,7 @@ A connector type that carries no ``writes_enabled`` of its own inherits
 never falls back. Both default to blocked when omitted, and **only a literal**
 ``true`` **arms writes** — the quoted string ``'true'`` and the number ``1`` do
 not. A custom connector's block is keyed by the same dotted module path that
-selects it, so ``mypackage.TangoConnector`` names one block and is never split
+selects it, so ``mypackage.MoatConnector`` names one block and is never split
 on its dots.
 
 Write posture is a **launch-time deployment posture, not a live kill-switch**:

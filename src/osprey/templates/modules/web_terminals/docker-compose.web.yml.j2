@@ -295,6 +295,19 @@
       OSPREY_AUTH_ROLE_CLAIM / OSPREY_AUTH_ROLE_MAP above are the deployment's
       group binding, so a user named `claim` or `map` under a plain
       OSPREY_AUTH_ROLE_ prefix would have read that binding as their own role.
+    services[].shared: bool, required — whether this entry is a shared card
+      (`access: any` on the roster entry), read through
+      personas.entry_is_shared() -> one OSPREY_AUTH_ROSTER_ACCESS_<SUFFIX>=any
+      line on the sidecar, telling it any authenticated roster user may open
+      this card. False (the default, owner-only) emits no line at all, and the
+      sidecar resolves "" — owner-only — for that entry. Emitted under BOTH
+      login methods, ungated exactly like the role table and for the same
+      structural reason: only the enclosing `sidecar_active` decides it.
+    services[].access_env: str — the env-var name the above is emitted under,
+      pre-resolved by render.py through personas.env_var_suffix(). Always
+      present; read only when `shared` is set. Pre-resolved for the same
+      reason `oidc_subject_env` is, and the `ROSTER_` infix follows the
+      `role_env` precedent above.
     services[].terminal_secret_env: str, required
       The env-var NAME this user's operator secret travels in
       (`OSPREY_TERMINAL_SECRET_<SUFFIX>`), pre-resolved by render.py through
@@ -781,7 +794,10 @@ services:
    filtered out here: they are on OSPREY_AUTH_USERS above, which is the roster
    this table is keyed from, and a role table that disagreed with that roster is
    the drift worth avoiding. Nothing is granted by it — an exempt entry has no
-   password provisioned, so no login of theirs ever reaches the lookup.
+   password provisioned, so no login of theirs ever reaches the lookup. (A
+   password-mode argument that turns load-bearing under `oidc` once shared
+   cards exist: a `login: false` entry with a mapped subject IS an eligible
+   opener, and its login does reach this table.)
 
    The variable NAME arrives pre-resolved as `svc.role_env` (render.py, via
    personas.env_var_suffix()) and is emitted verbatim, for the reason spelled
@@ -797,6 +813,29 @@ services:
 {%- for svc in services %}
 {%- if svc.role %}
       - {{ (svc.role_env ~ "=" ~ svc.role) | tojson }}
+{%- endif %}
+{%- endfor %}
+{#- The roster's shared cards -> OSPREY_AUTH_ROSTER_ACCESS_<SUFFIX>=any: one
+   line per entry that declares `access: any`, telling the sidecar any
+   authenticated roster user may open this card. An owner-only entry (the
+   default) emits nothing and the sidecar resolves "" for it — owner-only,
+   not a sharing value named "". The value is the literal `any` — the only
+   sharing value normalize_users carries through — so the sidecar re-reads
+   the same vocabulary the roster was written in.
+
+   The variable NAME arrives pre-resolved as `svc.access_env` (render.py, via
+   personas.env_var_suffix()) and is emitted verbatim, for the reason spelled
+   out on `oidc_subject_env` above; the `ROSTER_` infix follows the role
+   table's precedent. tojson quotes the whole `KEY=value` for symmetry with
+   its neighbours, though here the value is a fixed token.
+
+   Method-UNGATED exactly like the role table above and for the same
+   structural reason: the enclosing `sidecar_active` is what keeps it out of
+   a login-free deployment, and both sidecar methods mint sessions that must
+   know which cards are open to the roster. #}
+{%- for svc in services %}
+{%- if svc.shared %}
+      - {{ (svc.access_env ~ "=any") | tojson }}
 {%- endif %}
 {%- endfor %}
     volumes:
