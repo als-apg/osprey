@@ -1522,6 +1522,14 @@ def _report_va_manifest_outcome(
         # that exist nowhere else.
         line += f", plus {len(novel)} address(es) seeded only by simulation/machine.json"
     line += "."
+    if corpus is not None and metadata["setpoint_count"]:
+        # What the corpus's device grouping bought: the pairs it states are
+        # the only channels a graph-sourced accelerator can echo a write on,
+        # and the operator driving one should know which count that is.
+        line += (
+            f" The corpus pairs {metadata['setpoint_count']} setpoint(s) with a readback; "
+            "those are served as setpoint-echo channels, every other channel as static-noisy."
+        )
     if absent:
         line += f" Not staged at that tier: {_named_in_prose(absent)}."
     corrupt = metadata["corrupt_paradigms"]

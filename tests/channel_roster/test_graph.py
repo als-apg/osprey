@@ -71,10 +71,53 @@ def _corpus(tmp_path: Path, body: str, name: str = "corpus.ttl") -> RosterSource
     return RosterSource(kind=RosterSourceKind.GRAPH, path=path)
 
 
-def _binding(name: str, address: str, predicate: str | None) -> str:
-    """Render one ``ChannelBinding`` with the given direction predicate."""
+def _binding(name: str, address: str, predicate: str | None, binding_id: str | None = None) -> str:
+    """Render one ``ChannelBinding`` with the given direction predicate.
+
+    ``binding_id`` is the corpus's ``narad_p:bindingId`` literal, whose field
+    token is what the device grouping pairs setpoints with readbacks on.
+    """
     direction = f" ;\n    narad_p:{predicate} narad_sem:{name}_signal" if predicate else ""
-    return f'<https://narad.example.org/binding/{name}> narad_p:fullPv "{address}"{direction} .\n'
+    identity = f' ;\n    narad_p:bindingId "{binding_id}"' if binding_id else ""
+    return (
+        f'<https://narad.example.org/binding/{name}> narad_p:fullPv "{address}"'
+        f"{direction}{identity} .\n"
+    )
+
+
+def _device(name: str, *bindings: str) -> str:
+    """Render one device grouping the named bindings under ``narad_p:hasBinding``."""
+    objects = ",\n        ".join(f"<https://narad.example.org/binding/{b}>" for b in bindings)
+    return f"<https://narad.example.org/device/{name}> narad_p:hasBinding {objects} .\n"
+
+
+def _magnet(
+    device: str = "bend",
+    *,
+    setpoint: str = "SR01C___B______AC00",
+    monitor: str = "SR01C___B______AM00",
+    setpoint_predicate: str | None = "writesSignal",
+    monitor_predicate: str | None = "readsSignal",
+    stem: str = "",
+    grouped: bool = True,
+) -> str:
+    """An ALS-shaped device: a ``<stem>Setpoint`` and a ``<stem>Monitor`` binding.
+
+    The addresses are the facility's own (no ``:SP``/``:RB`` grammar to fall
+    back on), so a readback here can only have come from the grouping.
+    """
+    sp, mon = f"{device}_sp", f"{device}_mon"
+    body = _binding(
+        sp, setpoint, setpoint_predicate, f"narad:binding:als:SR:BEND:0:{stem}Setpoint:val"
+    ) + _binding(mon, monitor, monitor_predicate, f"narad:binding:als:SR:BEND:0:{stem}Monitor:val")
+    if grouped:
+        body += _device(device, sp, mon)
+    return body
+
+
+def _readbacks(source: RosterSource) -> dict[str, str | None]:
+    """``address -> readback`` for every record the source yields."""
+    return {record.address: record.readback for record in read_graph_roster(source).records}
 
 
 class TestTheShippedDemoCorpus:
@@ -103,10 +146,190 @@ class TestTheShippedDemoCorpus:
         assert list(addresses) == sorted(addresses)
         assert len(set(addresses)) == len(addresses)
 
-    def test_records_come_back_unpaired(self, demo_source) -> None:
+    def test_a_corpus_stating_no_pairs_yields_unpaired_records(self, demo_source) -> None:
+        """The demo corpus groups bindings under devices, but its field names
+        (``GOLDEN_X``, ``POSITION_X``, ...) are not the ``Setpoint``/``Monitor``
+        vocabulary, so it states no pair and every readback is left to the
+        address-grammar pass."""
         result = read_graph_roster(demo_source)
 
         assert all(record.readback is None for record in result.records)
+
+
+class TestCorpusStatedReadbacks:
+    """A device carrying ``<stem>Setpoint`` and ``<stem>Monitor`` states a pair."""
+
+    def test_a_setpoint_and_monitor_on_one_device_pair_on_facility_addresses(
+        self, tmp_path
+    ) -> None:
+        source = _corpus(tmp_path, _magnet())
+
+        readbacks = _readbacks(source)
+
+        assert readbacks == {
+            "SR01C___B______AC00": "SR01C___B______AM00",
+            "SR01C___B______AM00": None,
+        }
+
+    def test_the_readback_rides_the_write_record_only(self, tmp_path) -> None:
+        source = _corpus(tmp_path, _magnet())
+
+        result = read_graph_roster(source)
+
+        (setpoint,) = result.write_records
+        assert setpoint.readback == "SR01C___B______AM00"
+        assert all(record.readback is None for record in result.read_records)
+
+    def test_a_stemmed_field_pair_is_recognised(self, tmp_path) -> None:
+        """``GapSetpoint``/``GapMonitor`` is an insertion device's pair."""
+        source = _corpus(
+            tmp_path,
+            _magnet(
+                "id", setpoint="SR04U___GDS1PS_AC00", monitor="SR04U___GDS1PS_AM00", stem="Gap"
+            ),
+        )
+
+        assert _readbacks(source)["SR04U___GDS1PS_AC00"] == "SR04U___GDS1PS_AM00"
+
+    def test_a_setpoint_without_a_monitor_on_its_device_stays_unpaired(self, tmp_path) -> None:
+        body = (
+            _binding(
+                "sp",
+                "SR01C___B______AC00",
+                "writesSignal",
+                "narad:binding:als:SR:BEND:0:Setpoint:val",
+            )
+            + _binding(
+                "golden",
+                "SR01C:BEND:Setpoint:Golden",
+                "writesSignal",
+                "narad:binding:als:SR:BEND:0:SetpointGolden:val",
+            )
+            + _device("bend", "sp", "golden")
+        )
+        source = _corpus(tmp_path, body)
+
+        assert _readbacks(source)["SR01C___B______AC00"] is None
+
+    def test_a_monitor_the_corpus_calls_settable_is_not_a_readback(self, tmp_path) -> None:
+        # A corpus asserting the Monitor is driven has drifted; reading it
+        # back would report a demand, not the machine.
+        source = _corpus(tmp_path, _magnet(monitor_predicate="writesSignal"))
+
+        assert _readbacks(source)["SR01C___B______AC00"] is None
+
+    def test_a_directionless_monitor_is_not_a_readback(self, tmp_path) -> None:
+        source = _corpus(tmp_path, _magnet(monitor_predicate=None))
+
+        assert _readbacks(source)["SR01C___B______AC00"] is None
+
+    def test_a_setpoint_claiming_both_directions_states_no_pair(self, tmp_path) -> None:
+        body = (
+            (
+                "<https://narad.example.org/binding/both> "
+                'narad_p:fullPv "SR01C___B______AC00" ;\n'
+                "    narad_p:writesSignal narad_sem:bend_sp ;\n"
+                "    narad_p:readsSignal narad_sem:bend_sp_rb ;\n"
+                '    narad_p:bindingId "narad:binding:als:SR:BEND:0:Setpoint:val" .\n'
+            )
+            + _binding(
+                "mon",
+                "SR01C___B______AM00",
+                "readsSignal",
+                "narad:binding:als:SR:BEND:0:Monitor:val",
+            )
+            + _device("bend", "both", "mon")
+        )
+        source = _corpus(tmp_path, body)
+
+        assert _readbacks(source) == {"SR01C___B______AC00": None, "SR01C___B______AM00": None}
+
+    def test_bindings_no_device_groups_state_no_pair(self, tmp_path) -> None:
+        """Matching field names alone are not a pair: the device is the grouping."""
+        source = _corpus(tmp_path, _magnet(grouped=False))
+
+        assert _readbacks(source)["SR01C___B______AC00"] is None
+
+    def test_bindings_on_different_devices_do_not_pair(self, tmp_path) -> None:
+        body = (
+            _binding(
+                "sp",
+                "SR01C___B______AC00",
+                "writesSignal",
+                "narad:binding:als:SR:BEND:0:Setpoint:val",
+            )
+            + _binding(
+                "mon",
+                "SR02C___B______AM00",
+                "readsSignal",
+                "narad:binding:als:SR:BEND:1:Monitor:val",
+            )
+            + _device("bend0", "sp")
+            + _device("bend1", "mon")
+        )
+        source = _corpus(tmp_path, body)
+
+        assert _readbacks(source)["SR01C___B______AC00"] is None
+
+    def test_a_binding_without_an_id_states_no_field(self, tmp_path) -> None:
+        body = (
+            _binding("sp", "SR01C___B______AC00", "writesSignal")
+            + _binding("mon", "SR01C___B______AM00", "readsSignal")
+            + _device("bend", "sp", "mon")
+        )
+        source = _corpus(tmp_path, body)
+
+        assert _readbacks(source)["SR01C___B______AC00"] is None
+
+    def test_a_binding_id_without_the_value_slot_still_names_its_field(self, tmp_path) -> None:
+        """The demo corpus spells ids without the trailing ``val`` token."""
+        body = (
+            _binding(
+                "sp", "SR01C___B______AC00", "writesSignal", "narad:binding:demo:SR:B:Setpoint"
+            )
+            + _binding(
+                "mon", "SR01C___B______AM00", "readsSignal", "narad:binding:demo:SR:B:Monitor"
+            )
+            + _device("bend", "sp", "mon")
+        )
+        source = _corpus(tmp_path, body)
+
+        assert _readbacks(source)["SR01C___B______AC00"] == "SR01C___B______AM00"
+
+    def test_a_setpoint_and_monitor_sharing_one_address_state_no_pair(self, tmp_path) -> None:
+        source = _corpus(tmp_path, _magnet(monitor="SR01C___B______AC00"))
+
+        assert _readbacks(source) == {"SR01C___B______AC00": None}
+
+    def test_two_devices_stating_different_readbacks_resolve_in_device_order(
+        self, tmp_path
+    ) -> None:
+        """A corpus that says two things picks one deterministically, not by parse order."""
+        body = (
+            _binding(
+                "sp",
+                "SR01C___B______AC00",
+                "writesSignal",
+                "narad:binding:als:SR:BEND:0:Setpoint:val",
+            )
+            + _binding(
+                "mon_z",
+                "SR01C___B______AM99",
+                "readsSignal",
+                "narad:binding:als:SR:BEND:9:Monitor:val",
+            )
+            + _binding(
+                "mon_a",
+                "SR01C___B______AM00",
+                "readsSignal",
+                "narad:binding:als:SR:BEND:0:Monitor:val",
+            )
+            + _device("z_bend", "sp", "mon_z")
+            + _device("a_bend", "sp", "mon_a")
+        )
+        source = _corpus(tmp_path, body)
+
+        assert _readbacks(source)["SR01C___B______AC00"] == "SR01C___B______AM00"
 
 
 class TestDirection:

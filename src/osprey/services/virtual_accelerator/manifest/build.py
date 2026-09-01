@@ -492,6 +492,93 @@ def _graph_missing_sources(paths: ManifestPaths) -> list[Path]:
     return missing
 
 
+#: The subfield tokens the container pairs a setpoint with its readback on
+#: (``serving/pvdb.py`` spells the same two; not imported from there because
+#: this module is imported on the build host, where the IOC's dependencies
+#: are not installed).
+SETPOINT_SUBFIELD = "SP"
+READBACK_SUBFIELD = "RB"
+
+
+def _echo_entry(address: str, *, pair_key: str, subfield: str) -> ManifestEntry:
+    """One half of a setpoint-echo pair the roster states.
+
+    The container pairs a setpoint with its readback on the five identity keys
+    ``(ring, system, family, device, field)``, differing only in subfield
+    (``serving/pvdb._channel_key``). The graph states no hierarchy path, so
+    the pair is keyed on the one thing that identifies it -- the setpoint's
+    own address, carried in ``device`` -- and the other four keys stay empty,
+    exactly as on a pathless entry. That is enough for the IOC to echo a write
+    to the setpoint onto the readback, which is all the partition promises.
+    """
+    return ManifestEntry(
+        address=address,
+        ring="",
+        system="",
+        family="",
+        device=pair_key,
+        field="",
+        subfield=subfield,
+        partition=classify.PARTITION_SP_ECHO,
+        record_type=classify.RECORD_TYPE_ANALOG,
+        noise=False,
+    )
+
+
+def _graph_entries(records) -> list[ManifestEntry]:
+    """Manifest entries for a knowledge-graph roster.
+
+    The graph states each channel's address, direction and -- where the
+    corpus groups a setpoint with the readback reporting it -- its readback.
+    Every stated pair becomes a setpoint-echo pair (:func:`_echo_entry`): a
+    write to the setpoint echoes onto the readback, physics-free, which is
+    what a plan driving that setpoint against the accelerator needs to observe
+    its own write. Everything else is pathless and static-noisy: the graph
+    carries no hierarchy path, the identity keys are read from nowhere else,
+    and nothing is invented to classify better than the source can say; the
+    build's fact states the cost.
+
+    The manifest is a namespace, so two records sharing one address are one
+    channel, and a readback is emitted once, beside its setpoint. A pair is
+    dropped -- both halves served static-noisy instead -- when the corpus
+    states it ambiguously: a readback claimed by two setpoints, a setpoint that
+    is itself another pair's readback, or a readback that is itself a
+    setpoint.
+
+    Args:
+        records: The roster's records, in source order.
+    """
+    stated: dict[str, str] = {}
+    for record in records:
+        if record.readback is not None:
+            stated.setdefault(record.address, record.readback)
+    addresses = {record.address for record in records}
+    claimed = {}
+    for setpoint, readback in stated.items():
+        claimed.setdefault(readback, []).append(setpoint)
+    pairs = {
+        setpoint: readback
+        for setpoint, readback in stated.items()
+        if readback in addresses
+        and len(claimed[readback]) == 1
+        and setpoint not in claimed
+        and readback not in stated
+    }
+    readbacks = set(pairs.values())
+
+    entries: list[ManifestEntry] = []
+    for address in sorted(addresses):
+        if address in readbacks:
+            continue
+        readback = pairs.get(address)
+        if readback is None:
+            entries.append(_pathless_entry(address, noise=False))
+            continue
+        entries.append(_echo_entry(address, pair_key=address, subfield=SETPOINT_SUBFIELD))
+        entries.append(_echo_entry(readback, pair_key=address, subfield=READBACK_SUBFIELD))
+    return entries
+
+
 def _prepare_graph_manifest(roster, paths: ManifestPaths) -> PreparedManifest | None:
     """Build the manifest from the knowledge-graph roster, or say no.
 
@@ -529,18 +616,7 @@ def _prepare_graph_manifest(roster, paths: ManifestPaths) -> PreparedManifest | 
         )
         return None
 
-    # The graph states each channel's address, direction and readback pairing
-    # -- membership -- but no hierarchy path, and the identity keys are read
-    # from nowhere else. So every entry is pathless: empty identity keys,
-    # static-noisy partition, exactly what a tree without a hierarchical
-    # database already gets. Nothing is invented to classify better than the
-    # source can say; the build's fact states the cost. The manifest is a
-    # namespace, so two bindings sharing one address are one channel: entries
-    # are built from the unique address set, never once per record.
-    entries = [
-        _pathless_entry(address, noise=False)
-        for address in sorted({record.address for record in roster.records})
-    ]
+    entries = _graph_entries(roster.records)
 
     try:
         manifest = _finish_manifest(
