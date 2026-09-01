@@ -185,7 +185,12 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # card sits behind the login wall and is opened with any roster login —
     # so the staleness advisory on already-deployed stacks is the correct
     # signal.
-    "control-assistant": "sha256:6f567aeeb4cea8ea4dde6681b478e9b48255c53d32970a25a34eaee3d01cd7ee",
+    # Moved again when `channel_finder_mode` became `graph`: the channel
+    # finder answers from the deployment's knowledge graph instead of the
+    # hierarchical database, and every tier inherits the mode. Deploy-visible
+    # — a rebuilt project stages no tier database and its channel-finder
+    # server dials the store — so the advisory is the correct signal.
+    "control-assistant": "sha256:e132b733d61f620e8ef23a5af07831faca40df330c3747bd67b2943964836171",
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     # Moved again with the base: permissive `virtual_accelerator` limits block.
     # Moved alone when the admin tier gained the EVENTS/BLUESKY `web_panels`
@@ -195,15 +200,17 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # render grows the two tabs — so the staleness advisory firing on
     # already-deployed admin renders is the correct signal.
     # Moved with the base above: the standalone card is a shared `logbook`.
+    # Moved with the base above: graph channel finder.
     "control-assistant-admin": (
-        "sha256:112c858685d49236524ab21554be929dc7cc8607cd01b2e634672e3ec71f7888"
+        "sha256:6d5d03bc31b23c079a0bace1f118ac351f231ed63ecdd5454b7fd2473003a15c"
     ),
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     # Moved again with the base: permissive `virtual_accelerator` limits block.
     # Renamed from `control-assistant-ariel` when its roster entry became the
     # shared `logbook` card, and moved with the base for the same change.
+    # Moved with the base above: graph channel finder.
     "control-assistant-logbook": (
-        "sha256:31064328a89e7ebf1357a377966a0e1e4e8866eae15b24b28c7748c8a8b4ae1b"
+        "sha256:626ee01b0a6f2b7bde0c901d812c76876355f6d377f8b084d7f3fc1312195eaa"
     ),
     # The two operator tiers below moved together, and alone, when each gained
     # the single dotted key `services.graphdb.port_host: 7687` in its `config:`
@@ -263,14 +270,16 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     # Moved again with the base: permissive `virtual_accelerator` limits block.
     # Moved with the base above: the standalone card is a shared `logbook`.
+    # Moved with the base above: graph channel finder.
     "control-assistant-readonly": (
-        "sha256:97b7a83a9a00eba7af51d14f88ae5b07189d90dc8ab6465d54730b8ec5423618"
+        "sha256:196db35e0d482c9ee3840c28a0d968a4980d7ac0801f51872c814702b85dbf78"
     ),
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     # Moved again with the base: permissive `virtual_accelerator` limits block.
     # Moved with the base above: the standalone card is a shared `logbook`.
+    # Moved with the base above: graph channel finder.
     "control-assistant-readwrite": (
-        "sha256:a3072dd14706a7a6c01f994798f0c95874b6103f23454fa95e140f607c9ad972"
+        "sha256:49320239f31ea50dd7625e5f719ae60ea013d95e80cd1d05694b3cf070180068"
     ),
     # New with per-target write posture, not a moved entry: the rung between
     # the two flat tiers, armed on the virtual accelerator alone. It pins the
@@ -281,8 +290,9 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     # Moved again with the base: permissive `virtual_accelerator` limits block.
     # Moved with the base above: the standalone card is a shared `logbook`.
+    # Moved with the base above: graph channel finder.
     "control-assistant-va-readwrite": (
-        "sha256:5d9ea9b1409ba8fef16ddb80a2d68352dcaf435b1db7305f35e9a668f5ccbe25"
+        "sha256:6922d767cb7af949f220bfd568cc819c973bb87d80e097d5504d20bdda302d2e"
     ),
     # Moved when the onboarding rewrite dropped the `facility` rule. The
     # wholesale comment rewrite that shipped alongside it contributed nothing:

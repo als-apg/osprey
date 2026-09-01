@@ -229,7 +229,7 @@ def test_persona_profiles_are_deltas_and_keep_their_posture(
     what makes the file a delta, and a written ``extends:`` there is rejected at
     build time.
 
-    Every persona pins the posture, including the standalone ``ariel`` tier,
+    Every persona pins the posture, including the standalone ``logbook`` card,
     whose control-system servers are switched off entirely — the key is the
     write boundary, so it is stated rather than left to follow whatever the host
     happens to default to."""
@@ -249,7 +249,7 @@ def test_persona_profiles_are_deltas_and_keep_their_posture(
     # and keeps the write-armed posture.
     assert postures == {
         "admin": True,
-        "ariel": False,
+        "logbook": False,
         "readonly": False,
         "readwrite": True,
     }
@@ -453,7 +453,18 @@ def test_persona_rendering_a_different_app_template_is_rejected(
     anything is written, and every affected persona is named at once."""
     target = tmp_path / "my-facility"
 
-    result = _new(runner, target, "control-assistant", "--set", "app_template=hello_world")
+    # Pinned to a database paradigm so the app-template rule is the one refusal
+    # in play: in the preset's graph mode, hello_world's missing graph store
+    # would be refused first and this test would pass for the wrong reason.
+    result = _new(
+        runner,
+        target,
+        "control-assistant",
+        "--set",
+        "app_template=hello_world",
+        "--set",
+        "channel_finder_mode=hierarchical",
+    )
 
     assert result.exit_code == 2
     assert "cannot serve both" in result.output

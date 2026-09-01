@@ -39,9 +39,13 @@ model: haiku   # tier (haiku/sonnet/opus), or any model ID the provider serves
 #     sonnet: claude-sonnet-4-6
 #     opus: claude-opus-4-6
 
-# How the agent searches for channels. `osprey set channel_finder_mode=...`
-# also accepts in_context, middle_layer, or graph (the knowledge graph store).
-channel_finder_mode: hierarchical
+# How the agent searches for channels: `graph` answers from the facility
+# knowledge graph this deployment runs (`services.graphdb`), the same store
+# the facility-knowledge-graph agent reads, so channels, devices and their
+# addresses have one source. `osprey set channel_finder_mode=...` also
+# accepts hierarchical, in_context or middle_layer, each reading a channel
+# database file from data/ instead; every persona inherits the mode.
+channel_finder_mode: graph
 
 # ── What the agent can do ────────────────────────────────────────────────────
 # Each entry is a name from the OSPREY artifact library. Delete what you do not
@@ -88,7 +92,7 @@ skills:
   - bluesky-plans  # Browse which plans this deployment can run
 
 agents:
-  - channel-finder          # Semantic search over channel databases (hierarchical)
+  - channel-finder          # Finds channel addresses (the mode above decides how)
   - data-visualizer         # Produce strip charts and correlation plots
   - logbook-search          # Search facility logbook for historical entries
   - logbook-deep-research   # Multi-hop logbook research with synthesis

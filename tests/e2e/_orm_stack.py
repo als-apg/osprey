@@ -353,6 +353,12 @@ def init_args(
         f"bluesky.port={bridge_port}",
         "--set",
         "bluesky.tiled_enabled=true",
+        # `roster_records` enumerates the facility from a channel-finder
+        # DATABASE file before the render (see its docstring); the preset's
+        # graph paradigm stages its corpus at build time instead, so the plan
+        # stack pins the hierarchical database the bundle also ships.
+        "--set",
+        "channel_finder_mode=hierarchical",
     ]
     if port_base is not None:
         # Every framework port the caller does NOT pin explicitly follows this

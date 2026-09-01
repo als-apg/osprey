@@ -1081,15 +1081,17 @@ def _materialize_profile_directory(
     # command materializes the tree, so pointing it elsewhere is a mistake.
     # Everything it rejects is a user error, so it surfaces as one.
     try:
+        baked = merge_cli_overrides({}, overrides, set_pairs)
+        if "extends" in baked:
+            # The shared refusal: the same override file must be answered the
+            # same way here and on a later build's write-back into this
+            # profile. Asked before the layers are resolved, so the answer is
+            # about the key and never about whatever the named parent requires.
+            raise click.UsageError(EXTENDS_OVERRIDE_REFUSAL)
         resolved, preset_dir = resolve_build_profile(None, preset_name, overrides, set_pairs)
     except BuildProfileError as e:
         raise click.UsageError(f"Cannot materialize {preset_name!r}: {e}") from e
 
-    baked = merge_cli_overrides({}, overrides, set_pairs)
-    if "extends" in baked:
-        # The shared refusal: the same override file must be answered the same
-        # way here and on a later build's write-back into this profile.
-        raise click.UsageError(EXTENDS_OVERRIDE_REFUSAL)
     name_override = baked.get("name")
 
     target = target_dir.resolve()
