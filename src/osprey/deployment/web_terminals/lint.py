@@ -173,6 +173,7 @@ def lint_web_terminals(
     findings.extend(_check_reserved_audit_identities(users))
     findings.extend(_check_display_name(users))
     findings.extend(_check_user_theme(users))
+    findings.extend(_check_user_tour(users))
     findings.extend(_check_user_login(web_terminals, users))
     findings.extend(_check_user_access(web_terminals, users))
     findings.extend(_check_invalid_index(users))
@@ -516,6 +517,38 @@ def _check_user_theme(users: list[Any]) -> list[Finding]:
                     f"modules.web_terminals.users entry {name!r} has a non-string "
                     f"theme {theme!r}; theme must be a string (a theme family such "
                     f"as 'desy', or a concrete id such as 'desy-light')"
+                ),
+            )
+        )
+    return findings
+
+
+def _check_user_tour(users: list[Any]) -> list[Finding]:
+    """An object-form entry's optional ``tour`` (the per-user onboarding-tour
+    invite policy emitted as ``OSPREY_WEB_TOUR``) must be a string when present.
+
+    Same shape and rationale as :func:`_check_user_theme`: only the *type* is
+    checked. The policy vocabulary (``once``/``always``/``never``) is owned by
+    the web terminal, which warns and falls back to its default on an unknown
+    value at startup — failing a build over a word this module does not own
+    would be worse than that warning.
+    """
+    findings: list[Finding] = []
+    for user in users:
+        if not isinstance(user, dict) or "tour" not in user:
+            continue
+        tour = user.get("tour")
+        if isinstance(tour, str):
+            continue
+        name = user.get("name", user)
+        findings.append(
+            Finding(
+                severity="error",
+                code="web_terminals.invalid_user_tour",
+                message=(
+                    f"modules.web_terminals.users entry {name!r} has a non-string "
+                    f"tour {tour!r}; tour must be a string "
+                    f"('once', 'always' or 'never')"
                 ),
             )
         )

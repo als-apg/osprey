@@ -849,6 +849,39 @@ def test_lint_does_not_validate_the_theme_name_itself() -> None:
     assert not any(f.code == "web_terminals.invalid_user_theme" for f in findings)
 
 
+def test_lint_non_string_user_tour_reports_error() -> None:
+    """A non-string `tour` (the per-user invite policy) is an error — the
+    renderer would drop it silently otherwise."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0, "tour": False}]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.invalid_user_tour" for f in errors)
+
+
+def test_lint_does_not_validate_the_tour_word_itself() -> None:
+    """Lint checks the TYPE, never the vocabulary — the web terminal owns
+    once/always/never and warns + falls back on an unknown value at startup."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "tour": "always"},
+        {"name": "gmartino", "index": 1, "tour": "sometimes"},  # unknown word, still a string
+        {"name": "aallezy", "index": 2},  # no tour at all is equally fine
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.invalid_user_tour" for f in findings)
+
+
 def test_lint_bare_multi_user_list_warns_about_port_drift_risk() -> None:
     """A legacy bare list with >1 user risks positional port drift on decommission."""
     # Arrange

@@ -205,11 +205,9 @@ osprey-display-menu .display-menu-logout-icon {
   border: 1px solid var(--border-default);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-dropdown);
-  /* One step above --z-dropdown, unlike the display card. Anchoring LEFT puts
-     this menu over the same column as the one-time `.rail-hint` callout, which
-     is also --z-dropdown and sits later in the DOM (.shell-body) — so at equal
-     z-index the hint wins and swallows the click on Log out. Header chrome
-     outranks a body-level callout. */
+  /* One step above --z-dropdown, unlike the display card: header chrome
+     outranks body-level callouts anchored over the same column, so at equal
+     z-index a later-in-DOM callout would swallow the click on Log out. */
   z-index: var(--z-sticky);
 }
 
@@ -1068,7 +1066,7 @@ html[data-ui-mode="simple"] .session-selector {
    add-panel control, both sharing the same 4px vertical rhythm so the "+" reads
    as the last cell in the column. It replaces the old horizontal header tabs. */
 .panel-rail-region {
-  position: relative; /* anchors the one-time .rail-hint callout */
+  position: relative; /* positioning parent for the "+" popover */
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1675,66 +1673,6 @@ html[data-rail-position="top"] .panel-utility-btn {
 html[data-rail-position="top"] .panel-utility-label {
   font-size: var(--text-lg);
   font-family: var(--font-display);
-}
-
-/* ---- One-time rail hint ---- */
-
-/* Small elevated callout anchored just right of the rail column (its
-   positioning parent is .panel-rail-region, which must stay unclipped for
-   the "+" popover anyway). Shown at most once ever; see rail-hint.js. */
-.rail-hint {
-  position: absolute;
-  top: 10px;
-  left: calc(74px + 8px); /* rail column width + the popover's 8px gutter */
-  width: 240px;
-  padding: var(--space-3);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-xs);
-  box-shadow: var(--shadow-dropdown);
-  z-index: var(--z-dropdown);
-}
-
-/* Under a top rail the hint would float detached mid-screen; rail-hint.js
-   already suppresses it there, this is belt-and-braces for a mid-hint flip. */
-html[data-rail-position="top"] .rail-hint {
-  display: none;
-}
-
-.rail-hint-text {
-  font-size: var(--text-md);
-  color: var(--text-primary);
-  line-height: var(--leading-normal);
-}
-
-.rail-hint-actions {
-  display: flex;
-  gap: var(--space-2);
-  margin-top: var(--space-2);
-}
-
-/* Buttons match the "+ New" chip idiom (.new-session-btn) — bg-elevated
-   fill, hairline border — minus its header-specific margin. */
-.rail-hint-move,
-.rail-hint-dismiss {
-  font-family: var(--font-display);
-  font-size: var(--text-base);
-  font-weight: var(--weight-regular);
-  color: var(--text-secondary);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-xs);
-  padding: 3px 9px;
-  cursor: pointer;
-  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast),
-    background var(--wt-transition-fast);
-}
-
-.rail-hint-move:hover,
-.rail-hint-dismiss:hover {
-  color: var(--color-accent-light);
-  border-color: var(--border-accent);
-  background: var(--accent-tint-08);
 }
 
 /* ---- Main layout ---- */

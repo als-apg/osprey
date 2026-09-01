@@ -179,13 +179,11 @@ def _live_server(
 # Page helpers
 # ---------------------------------------------------------------------------
 
-_DISMISS_RAIL_HINT = (
-    "try { localStorage.setItem('osprey-rail-hint-dismissed-v1', '1') } catch (e) {}"
-)
+_DISMISS_RAIL_HINT = "try { localStorage.setItem('osprey-tour-dismissed-v1', '1') } catch (e) {}"
 
 
 def _new_page(browser) -> Page:
-    """A page with the one-time rail hint pre-dismissed (it would eat clicks)."""
+    """A page with the onboarding-tour invite pre-dismissed (it would eat clicks)."""
     page = browser.new_page()
     page.add_init_script(_DISMISS_RAIL_HINT)
     return page
