@@ -1650,6 +1650,87 @@ class BuildProfile:
                     errors.append(
                         f"bluesky.tiled_port must differ from bluesky.port (both {b.port})"
                     )
+            if b.external is not None:
+                ext = b.external
+                if b.second_lane:
+                    errors.append(
+                        "bluesky.external and bluesky.second_lane are mutually exclusive: "
+                        "an external lane fronts exactly one facility-run manager"
+                    )
+                if b.tiled_enabled:
+                    errors.append(
+                        "bluesky.external and bluesky.tiled_enabled are mutually exclusive: "
+                        "an external worker persists to the facility's Tiled — name it with "
+                        "bluesky.external.tiled_uri instead of deploying one here"
+                    )
+                if not isinstance(ext.zmq_control_addr, str) or not ext.zmq_control_addr.startswith(
+                    "tcp://"
+                ):
+                    errors.append(
+                        "bluesky.external.zmq_control_addr must be the external RE Manager's "
+                        f"0MQ control socket as a tcp:// URL (got {ext.zmq_control_addr!r})"
+                    )
+                if ext.zmq_public_key_env is None:
+                    if not ext.insecure_plaintext:
+                        errors.append(
+                            "bluesky.external needs either zmq_public_key_env (the .env variable "
+                            "holding the external manager's CURVE public key) or an explicit "
+                            "insecure_plaintext: true acknowledging its control socket is "
+                            "unencrypted"
+                        )
+                elif not _ENV_VAR_RE.match(ext.zmq_public_key_env):
+                    errors.append(
+                        "bluesky.external.zmq_public_key_env must be an environment variable "
+                        f"name (got {ext.zmq_public_key_env!r})"
+                    )
+                if ext.tiled_api_key_env is not None:
+                    if ext.tiled_uri is None:
+                        errors.append(
+                            "bluesky.external.tiled_api_key_env without tiled_uri names a key "
+                            "for a Tiled this profile never dials — set tiled_uri or drop it"
+                        )
+                    elif not _ENV_VAR_RE.match(ext.tiled_api_key_env):
+                        errors.append(
+                            "bluesky.external.tiled_api_key_env must be an environment variable "
+                            f"name (got {ext.tiled_api_key_env!r})"
+                        )
+                for key, schema_path in sorted(ext.parameter_schemas.items()):
+                    # `<plan>.<parameter>`, both halves Python identifiers —
+                    # the key addresses one parameter of one manager plan, and
+                    # anything else could never match a plans_allowed entry.
+                    plan, dot, param = key.partition(".")
+                    if not dot or not plan.isidentifier() or not param.isidentifier():
+                        errors.append(
+                            "bluesky.external.parameter_schemas keys must be "
+                            f"'<plan>.<parameter>' (got {key!r})"
+                        )
+                        continue
+                    resolved = (
+                        Path(schema_path)
+                        if Path(schema_path).is_absolute()
+                        else profile_dir / schema_path
+                    )
+                    if not resolved.is_file():
+                        errors.append(
+                            f"bluesky.external.parameter_schemas[{key!r}] not found: "
+                            f"{schema_path} (resolved: {resolved})"
+                        )
+                        continue
+                    # A schema that does not parse would be grafted as nothing
+                    # at runtime; a facility artifact is validated where the
+                    # operator can fix it — at build time, like the limits DB
+                    # should have been (#815).
+                    try:
+                        import json as _json
+
+                        parsed = _json.loads(resolved.read_text())
+                        if not isinstance(parsed, dict):
+                            raise ValueError("top level is not a JSON object")
+                    except Exception as exc:
+                        errors.append(
+                            f"bluesky.external.parameter_schemas[{key!r}] is not a JSON "
+                            f"Schema document: {exc}"
+                        )
 
         # Validate virtual_accelerator configuration
         if self.virtual_accelerator is not None:

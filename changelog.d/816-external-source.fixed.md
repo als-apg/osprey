@@ -1,0 +1,1 @@
+On an external-worker lane, `GET /plans/{name}/source` for a manager-owned plan now answers honestly ("source lives in the facility worker's startup profile") instead of 404 — the panel's detail view treated the 404 as a failed selection and tore down the parameter form with it.

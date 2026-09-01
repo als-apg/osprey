@@ -12,6 +12,7 @@ container-bound e2e's job.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -788,3 +789,154 @@ def test_module_stays_import_clean_of_the_bluesky_stack() -> None:
     )
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
+
+
+# ------------------------------------------------- external worker (ownership)
+
+
+async def test_external_backend_reports_but_never_opens_the_environment(
+    connector, fast_backend
+) -> None:
+    """Environment ownership stays with whoever runs the external manager."""
+    connector("epics")
+    manager = FakeManager(status=status_doc(worker_environment_exists=False))
+    backend = fast_backend(manager, external_worker=True)
+
+    assert await backend.ensure_environment() is False
+    assert "environment_open" not in manager.method_names()
+
+
+async def test_external_backend_follows_an_environment_the_facility_opened(
+    connector, fast_backend
+) -> None:
+    connector("epics")
+    manager = FakeManager(status=status_doc(worker_environment_exists=True))
+
+    assert await fast_backend(manager, external_worker=True).ensure_environment() is True
+    assert "environment_open" not in manager.method_names()
+
+
+async def test_external_backend_refuses_to_close_the_environment(connector, fast_backend) -> None:
+    """Every close path — the session uploader's reload cycle included — lands here."""
+    connector("epics")
+    manager = FakeManager(status=status_doc())
+    backend = fast_backend(manager, external_worker=True)
+
+    with pytest.raises(QueueRequestRejectedError, match="externally-run"):
+        await backend.close_environment()
+    assert "environment_close" not in manager.method_names()
+
+
+async def test_external_execute_guard_names_the_facility_side(connector, fast_backend) -> None:
+    """The armed path's refusal says WHO can open the environment, not just that it is closed."""
+    connector("epics")
+    manager = FakeManager(status=status_doc(worker_environment_exists=False))
+    backend = fast_backend(manager, external_worker=True)
+
+    with pytest.raises(EnvironmentUnavailableError, match="facility side"):
+        await backend.ensure_environment_for_execute()
+
+
+def test_from_env_reads_the_external_worker_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The compose render's flag reaches the backend without a manager in the way."""
+    monkeypatch.delenv(qb.QSERVER_CONTROL_ADDRESS_ENV, raising=False)
+    monkeypatch.setenv(qb.EXTERNAL_WORKER_ENV, "1")
+    backend = QueueBackend.from_env()
+    assert backend._external_worker is True
+
+    monkeypatch.setenv(qb.EXTERNAL_WORKER_ENV, "0")
+    assert QueueBackend.from_env()._external_worker is False
+
+
+async def test_external_plan_catalog_is_the_managers_own(connector, fast_backend) -> None:
+    """The panel composes against plans_allowed, not this deployment's plan scan."""
+    connector("epics")
+    manager = FakeManager(
+        plans_allowed={
+            "success": True,
+            "plans_allowed": {
+                "geecs_scan_request_plan": {
+                    "name": "geecs_scan_request_plan",
+                    "description": "Run one validated ScanRequest.",
+                    "parameters": [
+                        {"name": "request", "description": "The ScanRequest document."},
+                        {"name": "dry_run", "default": "False"},
+                    ],
+                },
+                "geecs_run_action_plan": "not-a-mapping",
+            },
+        }
+    )
+    catalog = await fast_backend(manager, external_worker=True).external_plan_catalog()
+
+    assert [entry["name"] for entry in catalog] == [
+        "geecs_run_action_plan",
+        "geecs_scan_request_plan",
+    ]
+    scan = catalog[1]
+    assert scan["provenance"] == "facility"
+    assert scan["description"] == "Run one validated ScanRequest."
+    assert scan["schema"]["required"] == ["request"]
+    assert scan["schema"]["properties"]["dry_run"]["default"] == "False"
+    # A non-mapping description still yields a name-only entry.
+    assert catalog[0]["schema"]["properties"] == {}
+
+
+async def test_external_catalog_grafts_a_facility_published_parameter_schema(
+    connector, fast_backend, tmp_path, monkeypatch
+) -> None:
+    """A document-shaped parameter gets its published schema, $defs hoisted."""
+    connector("epics")
+    artifact = {
+        "title": "ScanRequest",
+        "type": "object",
+        "required": ["mode"],
+        "properties": {"mode": {"$ref": "#/$defs/ScanMode"}},
+        "$defs": {"ScanMode": {"type": "string", "enum": ["step", "noscan"]}},
+    }
+    schema_file = tmp_path / "scan_request.schema.json"
+    schema_file.write_text(json.dumps(artifact))
+    monkeypatch.setenv(
+        qb.EXTERNAL_PARAM_SCHEMAS_ENV,
+        json.dumps({"geecs_scan_request_plan.request": str(schema_file)}),
+    )
+    manager = FakeManager(
+        plans_allowed={
+            "success": True,
+            "plans_allowed": {
+                "geecs_scan_request_plan": {
+                    "description": "Run one validated ScanRequest.",
+                    "parameters": [{"name": "request", "description": "The queue's JSON shape."}],
+                }
+            },
+        }
+    )
+    (entry,) = await fast_backend(manager, external_worker=True).external_plan_catalog()
+
+    request = entry["schema"]["properties"]["request"]
+    assert request["title"] == "ScanRequest"
+    assert request["required"] == ["mode"]
+    # The artifact carried no description, so the manager's survives.
+    assert request["description"] == "The queue's JSON shape."
+    # $defs hoisted to the top level so the root-anchored $ref still resolves.
+    assert "$defs" not in request
+    assert entry["schema"]["$defs"]["ScanMode"]["enum"] == ["step", "noscan"]
+
+
+async def test_external_catalog_survives_an_unreadable_graft_file(
+    connector, fast_backend, monkeypatch
+) -> None:
+    """A missing artifact degrades to the un-grafted schema, never a missing plan."""
+    connector("epics")
+    monkeypatch.setenv(
+        qb.EXTERNAL_PARAM_SCHEMAS_ENV,
+        json.dumps({"geecs_scan_request_plan.request": "/nonexistent/schema.json"}),
+    )
+    manager = FakeManager(
+        plans_allowed={
+            "success": True,
+            "plans_allowed": {"geecs_scan_request_plan": {"parameters": [{"name": "request"}]}},
+        }
+    )
+    (entry,) = await fast_backend(manager, external_worker=True).external_plan_catalog()
+    assert entry["schema"]["properties"]["request"] == {"title": "request"}

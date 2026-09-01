@@ -219,6 +219,47 @@ def get_release_version() -> str:
         return running
 
 
+def get_image_pin_version(dev_mode: bool) -> str:
+    """The ``osprey-framework`` version an image build's DEPS layer pins.
+
+    A production build pins the running version: the deps layer install IS the
+    code the image ships, and it must be exactly this build's.
+
+    A dev build (``dev_mode`` True — meaning a locally-built wheel was staged
+    and will overlay the code) pins the base release the checkout descends
+    from instead, for two reasons that point the same way:
+
+    - **Cache stability.** The running dev version changes on every commit
+      (``2026.6.2.post2102+g…``), and an ARG consumed by the deps ``RUN``
+      invalidates that layer whenever its value changes — so every commit
+      re-resolved the full third-party dependency set in every image (~10
+      minutes each) to reach the same bytes. The base release changes only
+      when a release is actually cut, so across ordinary commits the deps
+      layer is byte-identical and cached; only the seconds-long wheel-overlay
+      layer re-runs.
+    - **Correctness.** The dev pin could never install anyway (the dev version
+      is not on PyPI), so those Dockerfiles fell back to ``pip install
+      osprey-framework`` — *latest*, which can be a release AHEAD of the
+      checkout's lineage. The base release is the dependency set this checkout
+      actually descends from.
+
+    The honesty the old warning carried ("primed with released code") is not
+    lost: the wheel-overlay layer announces the dev overlay, and dev-ness is a
+    property of the render (``OSPREY_DEV=1`` + the staged wheel), readable
+    from the compose file itself.
+
+    Args:
+        dev_mode: Whether a locally-built wheel was actually staged for this
+            build (the *effective* dev mode, never the flag alone — a --dev
+            run whose wheel staging failed must keep the fail-loud running
+            pin).
+
+    Returns:
+        The version string for the ``OSPREY_VERSION`` build arg.
+    """
+    return get_release_version() if dev_mode else get_running_version()
+
+
 def unreleased_pin_reason() -> str:
     """Explain why the running build cannot be pinned to a published release.
 

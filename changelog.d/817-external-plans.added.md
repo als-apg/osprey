@@ -1,0 +1,1 @@
+On an external-worker bluesky lane, `GET /plans` now serves the external manager's own `plans_allowed` — mapped into the catalog shape with schemas derived from the manager's parameter descriptions — instead of this deployment's plan-directory scan, so the panel only offers plans the facility manager will actually accept.

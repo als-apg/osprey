@@ -1,0 +1,1 @@
+`bluesky.external.parameter_schemas` — facility-published JSON Schemas grafted onto external plan parameters. A `"<plan>.<parameter>"` key names a schema artifact (validated at build time, mounted read-only into the bridge); `GET /plans` grafts it onto that parameter with `$defs` hoisted, so a document-shaped parameter (e.g. a GEECS ScanRequest) renders as a real nested form.

@@ -34,8 +34,11 @@ services:
     # `qserver ping` to answer removes that race rather than betting on the
     # manager's import of the bluesky/ophyd stack finishing first.
     #
-    # Unconditional, because `queueserver` is rendered by THIS template and so
-    # is always defined. Not in tension with the rule that a Tiled outage must
+    # Not quite unconditional any more: `queueserver` is rendered by THIS
+    # template on every deploy EXCEPT an external-worker lane, whose manager
+    # runs outside compose entirely — there is no service to order against,
+    # and the bridge's own capability probing carries the "manager not up yet"
+    # case instead. Not in tension with the rule that a Tiled outage must
     # never block the bridge (FR4): Tiled is the read path's durable store,
     # while the manager is the execution plane the bridge is a facade over —
     # the same reason the VA is depended on below.
@@ -174,7 +177,9 @@ services:
       # Document-plane CURVE certificates (see the env block above). This side
       # holds the proxy's secret certificate plus a `clients/` directory of the
       # publisher public keys it will accept — and never the publisher's
-      # secret, which lives only in the queueserver's own mount.
+      # secret, which lives only in the queueserver's own mount. An external
+      # lane mounts none of this: it runs no document-plane proxy, so there is
+      # no binding element to hold certificates for.
       - ./data/.runtime/bluesky_curve/bridge:/app/curve:ro
 
 
@@ -192,7 +197,6 @@ services:
       # the first image build (which bakes in the bluesky stack's
       # dependencies at build time, not at container start) take a few seconds.
       start_period: 15s
-
   # The bluesky-queueserver RE Manager: the process that actually executes
   # plans. It spawns and supervises its own RunEngine worker at
   # environment-open — upstream's own shape, not an OSPREY invention — so
@@ -201,6 +205,9 @@ services:
   # The queue and its recent history live in Redis, which is what makes them
   # survive a bridge restart. The bridge holds no queue state: it is a facade
   # over this manager, and the only authenticated route to it.
+  #
+  # An external-worker lane renders neither this service nor Redis below: the
+  # facility runs the manager, and its queue store is the facility's own.
   queueserver:
     # Same image as the bridge, and deliberately NO `build:` block: two
     # services building the same tag race each other (the dispatch worker
@@ -410,6 +417,8 @@ networks:
   # Redis — attached to nothing else — unreachable from anywhere but the
   # manager. The manager and the bridge are also on osprey-network for the
   # things that genuinely live there (VA, Tiled, the bluesky-web sidecar).
+  # An external-worker lane renders no internal network: it deploys no
+  # manager and no Redis to hold one around.
   bluesky-internal:
     internal: true
 

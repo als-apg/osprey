@@ -7684,6 +7684,43 @@ def test_the_real_render_context_carries_the_gate_key(
     assert contexts[0]["bluesky_devices"] is True
 
 
+class TestImagePinVersion:
+    """The deps-layer pin `_inject_project_metadata` hands service Dockerfiles.
+
+    Production renders pin the running version (the deps install IS the shipped
+    code). Dev renders — context dev_mode True, i.e. a wheel actually staged —
+    pin the BASE RELEASE: cache-stable across commits (the running dev version
+    changes per commit and busted every image's dependency layer), and the
+    lineage the checkout actually descends from (the old fallback primed with
+    *latest*). See osprey.version.get_image_pin_version.
+    """
+
+    def test_production_render_pins_the_running_version(self):
+        from osprey.deployment.compose_generator import _inject_project_metadata
+        from osprey.version import get_running_version
+
+        out = _inject_project_metadata({"project_name": "p"})
+        assert out["osprey_version"] == get_running_version()
+
+    def test_dev_render_pins_the_base_release(self):
+        from osprey.deployment.compose_generator import _inject_project_metadata
+        from osprey.version import get_release_version
+
+        out = _inject_project_metadata({"project_name": "p", "dev_mode": True})
+        assert out["osprey_version"] == get_release_version()
+
+    def test_failed_wheel_staging_keeps_the_fail_loud_running_pin(self):
+        # setup_build_dir writes dev_mode into the context as (flag AND wheel
+        # staged), so a --dev run whose staging failed reaches this function
+        # with dev_mode False — and must keep the running-version pin that
+        # makes the Dockerfile fail loudly instead of building released code.
+        from osprey.deployment.compose_generator import _inject_project_metadata
+        from osprey.version import get_running_version
+
+        out = _inject_project_metadata({"project_name": "p", "dev_mode": False})
+        assert out["osprey_version"] == get_running_version()
+
+
 # ---------------------------------------------------------------------------
 # The per-lane limits gate (``_refuse_lane_writes_without_limits``)
 #

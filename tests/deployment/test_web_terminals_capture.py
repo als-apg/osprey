@@ -277,7 +277,9 @@ def test_auth_sidecar_build_is_captured_and_reported(monkeypatch, tmp_path, repo
     context.mkdir(parents=True)
     monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker"])
     monkeypatch.setattr(
-        provision, "_materialize_auth_build_context", lambda repo_root, dev_mode: context
+        provision,
+        "_materialize_auth_build_context",
+        lambda repo_root, dev_mode: (context, dev_mode),
     )
     recorder = RunRecorder()
     monkeypatch.setattr(provision, "run_captured", recorder)
@@ -306,7 +308,9 @@ def _sidecar_build(monkeypatch, tmp_path, runtime: str) -> tuple[RunRecorder, di
     context.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(provision, "get_runtime_command", lambda config: [runtime])
     monkeypatch.setattr(
-        provision, "_materialize_auth_build_context", lambda repo_root, dev_mode: context
+        provision,
+        "_materialize_auth_build_context",
+        lambda repo_root, dev_mode: (context, dev_mode),
     )
     recorder = RunRecorder()
     monkeypatch.setattr(provision, "run_captured", recorder)
