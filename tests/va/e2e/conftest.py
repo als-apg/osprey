@@ -15,10 +15,16 @@ from a crashed prior run, and against a *live* peer sharing one fixed name
 that is not cleanup -- it kills the peer mid-test, which then fails with a
 boot timeout or a dropped connection that reads as environmental rather than
 as a collision. The ``osprey-va-e2e`` prefix is kept so a stray container is
-still recognisable by eye. It's bind-mounted against a *scratch* copy of the
-Control Assistant preset's ``data/simulation`` directory (never the repo's
-own copy -- ``osprey sim apply`` mutates ``active_scenarios`` and this suite
-adds its own synthetic scenario), so the fixture is free to write into it.
+still recognisable by eye. It's bind-mounted against a *scratch* directory
+assembled from the Control Assistant preset (never the repo's own copy --
+``osprey sim apply`` mutates ``active_scenarios`` and this suite adds its own
+synthetic scenario), so the fixture is free to write into it. What gets
+assembled is the layout ``osprey build`` stages for a project: the preset's
+``data/simulation`` tree plus the packaged channel manifest and the preset's
+``channel_limits.json`` beside ``machine.json``. The manifest has to be there
+and has to be named (``VA_CHANNELS_FILE``): the IOC has no default namespace
+and refuses to boot rather than serving the framework's demo channels under
+whatever name a deployment gave the container. See ``stage_demo_data_dir``.
 
 Process-boundary note (mirrors ``tests/va/test_record_factory.py``): this
 conftest and every test module in this directory may import ``epics``
@@ -37,6 +43,7 @@ conftest instead of each re-doing the ``importlib.util`` load.
 
 from __future__ import annotations
 
+import atexit
 import gc
 import importlib.util
 import json
@@ -45,6 +52,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -116,6 +124,67 @@ CONTAINER_BOOT_TIMEOUT_S = 120.0
 PRESET_SIM_DIR = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data/simulation"
 LIMITS_DB_PATH = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data/channel_limits.json"
 OSPREY_CLI = REPO_ROOT / ".venv" / "bin" / "osprey"
+
+# The framework's own demo channel namespace, as a committed file. The IOC has
+# no default namespace -- it refuses to boot without VA_CHANNELS_FILE rather
+# than serving these addresses under whatever name a deployment gave the
+# container -- so every container in this suite names this manifest, which is
+# the namespace the whole suite is written against.
+PACKAGED_MANIFEST_PATH = (
+    REPO_ROOT / "src/osprey/services/virtual_accelerator/manifest/channel_manifest.json"
+)
+
+# The container-side name of the manifest and the lattice that belongs with it.
+# Relative, so the entrypoint resolves it against the /data/simulation mount --
+# the same spelling `osprey build` writes into a project's .env.
+DEMO_MANIFEST_FILENAME = "channel_manifest.json"
+DEMO_NAMESPACE_RUN_ARGS = (
+    "-e",
+    f"VA_CHANNELS_FILE={DEMO_MANIFEST_FILENAME}",
+    "-e",
+    "VA_LATTICE=builtin",
+)
+
+
+def stage_demo_data_dir(root: Path) -> Path:
+    """Assemble, under *root*, the data directory a demo container mounts.
+
+    The layout the IOC reads is the one ``osprey build`` stages for a project:
+    ``machine.json``, the channel manifest and ``channel_limits.json`` all in
+    one directory. The packaged preset tree is not in that layout -- it carries
+    no manifest (the framework's is package data) and keeps its limits file one
+    level up, at the data root -- so this copies the three together.
+
+    Assembled rather than layered on with extra bind mounts because a bind
+    mount INTO a read-only mount cannot create its own mountpoint: the runtime
+    refuses with EROFS. Mounting the preset tree read-write to make room is not
+    an option either -- it is the checkout.
+    """
+    staged = root / "simulation"
+    shutil.copytree(PRESET_SIM_DIR, staged)
+    shutil.copy2(PACKAGED_MANIFEST_PATH, staged / DEMO_MANIFEST_FILENAME)
+    shutil.copy2(LIMITS_DB_PATH, staged / "channel_limits.json")
+    return staged
+
+
+_DEMO_DATA_DIR: Path | None = None
+
+
+def demo_data_dir() -> Path:
+    """The assembled demo data directory, one per pytest process.
+
+    A plain function rather than a fixture because most of this suite's
+    containers are booted from context-manager helpers, not from fixtures, and
+    every one of them wants the same directory. Built on first use and removed
+    at process exit, so a run that skips the whole directory copies nothing.
+    """
+    global _DEMO_DATA_DIR
+    if _DEMO_DATA_DIR is None:
+        root = Path(tempfile.mkdtemp(prefix="osprey-va-demo-data-"))
+        atexit.register(shutil.rmtree, root, ignore_errors=True)
+        _DEMO_DATA_DIR = stage_demo_data_dir(root)
+    return _DEMO_DATA_DIR
+
 
 # A channel harmless to read at boot time: pyat-coupled, never written by the
 # readiness probe itself.
@@ -279,8 +348,7 @@ def va_project(tmp_path_factory: pytest.TempPathFactory) -> VaProject:
     virtual_accelerator`` to this directory's ``machine.json``.
     """
     project_dir = tmp_path_factory.mktemp("va_e2e_project")
-    data_dir = project_dir / "data" / "simulation"
-    shutil.copytree(PRESET_SIM_DIR, data_dir)
+    data_dir = stage_demo_data_dir(project_dir / "data")
 
     burst_dir = data_dir / "scenarios" / BURST_SCENARIO_NAME
     burst_dir.mkdir(parents=True)
@@ -382,6 +450,9 @@ def va_container(va_project: VaProject) -> Iterator[VaProject]:
             f"{va_project.state_dir}:/state/simulation:ro",
             "-e",
             "VA_STATE_DIR=/state/simulation",
+            # The namespace, named. Without it the IOC refuses to boot rather
+            # than picking the framework's demo channels on its own.
+            *DEMO_NAMESPACE_RUN_ARGS,
             IMAGE,
         ],
         capture_output=True,

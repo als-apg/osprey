@@ -1,6 +1,10 @@
-"""MCP tool: channel_limits — query the safety limits database.
+"""MCP tool: channel_limits — query the write-safety limits database.
 
-Read-only metadata lookup. No connector or approval needed.
+Read-only metadata lookup. No connector or approval needed. This is a database
+of which channels are WRITE-GATED and under what constraints — it answers
+writability, never membership. A channel absent from it is simply unconfigured
+for limits checking, not nonexistent; discovering what channels exist on a
+deployment is the channel-finder server's job, not this one's.
 """
 
 import json
@@ -176,25 +180,33 @@ async def channel_limits(
     name_contains: str | None = None,
     filter_by: str | None = None,
 ) -> str:
-    """Query the channel safety limits database.
+    """Query the channel write-safety limits database.
 
     Proactively look up allowed ranges, step limits, and writability BEFORE
     attempting writes. This tool reads a local metadata file — no control
     system connection needed, no approval required.
 
+    This database holds only the channels a deployment has configured limits
+    for; it is not a roster of what channels exist. A channel this tool
+    cannot find may still be perfectly real — it is simply unlisted for
+    limits checking, which the deployment's ``allow_unlisted_channels``
+    posture governs. To discover what channels exist, use the channel-finder
+    server where one is configured for this deployment.
+
     Modes (selected by parameter combination):
       - No params: summary statistics and policy overview
       - channels: detailed config for specific channel addresses
-      - pattern: regex search across all channel addresses
-      - name_contains: literal substring search across all channel addresses
+      - pattern: regex search across configured channel addresses
+      - name_contains: literal substring search across configured channel addresses
       - pattern/name_contains + filter_by: search filtered by property
-      - filter_by alone: all channels matching a property
+      - filter_by alone: all configured channels matching a property
 
     Args:
         channels: Exact channel addresses to look up.
-        pattern: Regex to match against channel addresses.
-        name_contains: Literal substring to match against channel addresses. Use this for
-                       names containing regex metacharacters such as [], (), ., or ^.
+        pattern: Regex to match against configured channel addresses.
+        name_contains: Literal substring to match against configured channel addresses.
+                       Use this for names containing regex metacharacters such as
+                       [], (), ., or ^.
         filter_by: Property filter — one of: writable, read_only,
                    has_step_limit, has_range.
 

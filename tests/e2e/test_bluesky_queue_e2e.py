@@ -1429,11 +1429,34 @@ def _session_plan_args(stack: QueueStack) -> dict[str, Any]:
     One place, used by BOTH the validation dry run and the enqueue, so the
     bytes that were validated are exercised with the parameters they will
     actually run with.
+
+    The plan body sweeps ``-span_a .. span_a`` absolutely and restores to 0.0,
+    so the device must be one whose own ``channel_limits.json`` band contains
+    that range -- a bipolar corrector. The staged device set is the whole
+    roster (dipoles and all), so the first settable is not that device; pick
+    the first one whose limits prove it is.
     """
+    span_a = 1.0
+    corrector = next(
+        (
+            name
+            for name, (sp_address, _rb) in stack.correctors.items()
+            if isinstance(entry := stack.limits.get(sp_address), dict)
+            and "min_value" in entry
+            and "max_value" in entry
+            and float(entry["min_value"]) <= -span_a
+            and float(entry["max_value"]) >= span_a
+        ),
+        None,
+    )
+    assert corrector is not None, (
+        f"no staged settable has a channel_limits band covering "
+        f"[-{span_a}, {span_a}] -- the session sweep needs a bipolar corrector"
+    )
     return {
-        "correctors": [next(iter(stack.correctors))],
+        "correctors": [corrector],
         "readbacks": [next(iter(stack.bpms))],
-        "span_a": 1.0,
+        "span_a": span_a,
         "num": 3,
     }
 

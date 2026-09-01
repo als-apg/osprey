@@ -39,6 +39,7 @@ which devices share a PV.
    - Why the server can only read, and what it refuses before dialing
    - What each degraded state means and the remedy it names
    - How to generate a graph corpus from your own channel databases
+   - Why the corpus is the deployment's channel list, not only a search index
    - How to point the tools at a store the facility already runs
 
    **Prerequisites:** a project with a ``services.graphdb`` block — the
@@ -372,6 +373,37 @@ in-context channel finder does not list, and on any build it can find an
 address the virtual accelerator does not serve. Both are the documented shapes
 of those smaller views, not a mismatch. A build with a channel database of your
 own restores the correspondence by regenerating the corpus from it.
+
+The corpus is the channel list, not only a search index
+-------------------------------------------------------
+
+On a graph-mode build the corpus is what the deployment answers "which channels
+does this facility have" with. Three places read it and get the same list:
+
+* **The queue server's devices.** With no device file of your own, ``osprey
+  build`` derives the plan device set from the corpus: every write-direction
+  binding becomes a settable, every read-direction one a readable. A settable
+  takes the ``:RB`` sibling of its ``:SP`` address as its readback where the
+  corpus enumerates that address as a read binding, and otherwise carries none.
+  See :doc:`../bluesky/write-plans`.
+* **The channel finder in graph mode.** It keeps no database of its own and
+  turns phrases into addresses out of this same corpus.
+* **The channel finder's web view.** Its channel list serves the corpus's
+  addresses and their total, and a name checked against it is checked for
+  membership in the corpus.
+
+Because the direction of a binding is a property of the graph rather than a
+guess from the address, a graph-mode build reads the settable/readable split
+straight out of the corpus. A build on one of the file-backed paradigms has to
+derive that split instead — from the write-limits file, or failing that from
+the ``:SP`` address grammar — because no paradigm database records a
+direction.
+
+Where the corpus cannot be read — the store belongs to the facility and this
+deployment holds no ``.ttl`` file, or ``services.graphdb.ttl_path`` points at
+nothing — the web view says it has nothing to enumerate from and names that
+key, rather than reporting a facility with no channels. The rest of the app
+starts as usual, and the graph tools keep answering from the store.
 
 
 Multi-User Operator Terminals

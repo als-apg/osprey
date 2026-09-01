@@ -61,11 +61,12 @@ measured per-BPM sigma is exactly zero. That is legal and is not a skip — see
 readback resolution rather than a fault — and it means the convergence band
 here is exactly ``±TOLERANCE_M``, with no noise term taking over.
 
-No preset channel names are hardcoded: correctors and BPMs are derived from the
-deployment repo's own ``data/channel_limits.json`` — the limits database the
+No preset channel names are hardcoded: correctors and BPMs are selected from
+the deployment repo's own channel ROSTER — the channel-finder database the
 build copies verbatim into the build zone, where the deployed containers read
-it — via ``_orm_stack.select_correctors``/``select_bpms``, and then chosen from
-those lists BY POSITION. See ``CORRECTOR_INDICES`` for why the positions are
+it — via ``_orm_stack.roster_records`` +
+``_orm_stack.select_correctors``/``select_bpms``, and then chosen from those
+lists BY POSITION. See ``CORRECTOR_INDICES`` for why the positions are
 what they are. They reach the queueserver worker as the device file this
 fixture authors before the build stages it.
 
@@ -100,9 +101,9 @@ import shutil
 import statistics
 import subprocess
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -110,6 +111,9 @@ from osprey.deployment.compose_generator import resolve_project_name
 from osprey.services.bluesky_bridge.figure import rows_from_columnar
 from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
+
+if TYPE_CHECKING:
+    from osprey.channel_roster import ChannelRecord
 
 pytestmark = [
     pytest.mark.e2e,
@@ -204,8 +208,8 @@ HEALTH_TIMEOUT_SEC = 300.0
 # The bump's geometry
 # ---------------------------------------------------------------------------
 #
-# Positions within the channel-limits-derived device lists, not device names --
-# the deployed project's own channel_limits.json owns which devices exist.
+# Positions within the roster-derived device lists, not device names -- the
+# deployed project's own channel roster owns which devices exist.
 # These are the SAME positions `tests/va/test_bump_crosscheck.py` picks (its
 # lists come from `lattice.inventory.pyat_coupled_device_ids()`, which sorts by
 # device id, and `select_correctors`/`select_bpms` sort by full address over
@@ -435,7 +439,9 @@ class DeployedBumpStack:
         return [*self.constrained_bpms, *self.monitors]
 
 
-def _horizontal_devices(limits: dict[str, Any]) -> tuple[list[str], list[str]]:
+def _horizontal_devices(
+    records: Sequence[ChannelRecord],
+) -> tuple[list[str], list[str]]:
     """The HCM corrector setpoints and BPM X readbacks of the deployed project.
 
     One plane only. This bump is horizontal: it is built from HCM correctors
@@ -445,19 +451,19 @@ def _horizontal_devices(limits: dict[str, Any]) -> tuple[list[str], list[str]]:
     ``fit_probe_response`` correctly refuses, before any bump is solved.
 
     Both lists come from ``select_correctors``/``select_bpms``, so they are the
-    deployed project's own channel_limits entries, restricted to the
-    pyat-coupled partition (a write actually steers the beam through the AT
+    deployed project's own roster entries, restricted to the pyat-coupled
+    partition (a write actually steers the beam through the AT
     lattice model), and sorted by address -- which for one family and one field
     is device-id order.
     """
     correctors = [
         address
-        for address in _orm_stack.select_correctors(limits, count=None)
+        for address in _orm_stack.select_correctors(records, count=None)
         if address.split(":")[2] == "HCM"
     ]
     bpms = [
         address
-        for address in _orm_stack.select_bpms(limits, count=None)
+        for address in _orm_stack.select_bpms(records, count=None)
         if address.endswith(":POSITION:X")
     ]
     return correctors, bpms
@@ -471,14 +477,15 @@ def deployed_bump_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
     # <repo>/data into the build zone and stages the device file it finds there
     # for the queueserver worker, so a set written after the build would never
     # reach a container. The bump's geometry is chosen here too, from the repo's
-    # own data/channel_limits.json — the same bytes the build copies to
-    # build/data, and the only copy that exists this early.
+    # own channel roster — the same channel database the build materializes for
+    # the deployed channel finder, read here from the tier the profile pins
+    # because that is the only copy that exists this early.
     stack: DeployedBumpStack | None = None
 
     def author_devices(repo: Path) -> None:
         nonlocal stack
-        limits = _orm_stack.channel_limits(repo)
-        available_correctors, available_bpms = _horizontal_devices(limits)
+        records = _orm_stack.roster_records(repo)
+        available_correctors, available_bpms = _horizontal_devices(records)
 
         bpm_indices = (
             TARGET_BPM_INDEX,
@@ -508,7 +515,7 @@ def deployed_bump_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
         # of them is a Channel Access connection the RE worker environment has to
         # open before the queue will accept a plan, and the full 144-device
         # inventory would spend that on devices no assertion here reads.
-        all_correctors = _orm_stack.select_correctors(limits, count=None)
+        all_correctors = _orm_stack.select_correctors(records, count=None)
         _orm_stack.write_devices_file(
             repo,
             correctors={name: all_correctors[name] for name in stack.correctors},

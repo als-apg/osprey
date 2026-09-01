@@ -323,30 +323,59 @@ class TestSkippedWithoutParadigmDatabases:
         assert (project_dir / "config.yml").is_file()
 
 
-class TestCorruptFacilityDataFailsTheBuild:
-    """Absent databases fall back; unreadable ones must not.
+class TestCorruptFacilityDataIsNamed:
+    """An unreadable database is named as unreadable, whatever it costs.
 
-    Falling back on a corrupt tree would hand the operator a virtual
-    accelerator serving the framework's bundled channel namespace while they
-    believe they are driving their own facility's — for a control system that
-    is a worse outcome than a failed build.
+    One broken file out of three is a degraded namespace: it contributes
+    nothing, the manifest is built from the databases that are left, and the
+    operator is handed the path rather than a bare parser error. Only when
+    NOTHING readable is left does the build stop -- and then a deployed
+    accelerator has no channels of the project's to serve, which is the one
+    outcome worse than a failed build.
     """
 
-    def test_error_names_the_offending_file(self, tmp_path, caplog):
+    CORRUPT_BODY = '{"channels": [ truncated'
+
+    def _tier3(self, repo_dir: Path) -> Path:
+        return repo_dir / "data" / "channel_databases" / "tiers" / "tier3"
+
+    def test_one_corrupt_database_degrades_and_the_warning_names_it(self, tmp_path, caplog):
         repo_dir = tmp_path / "repo"
         _write_profile(repo_dir)
-        corrupt = repo_dir / "data" / "channel_databases" / "tiers" / "tier3" / "in_context.json"
-        corrupt.write_text('{"channels": [ truncated')
+        corrupt = self._tier3(repo_dir) / "in_context.json"
+        corrupt.write_text(self.CORRUPT_BODY)
+
+        with caplog.at_level(logging.WARNING):
+            result = _invoke_build(repo_dir)
+
+        assert result.exit_code == 0
+        # The operator gets the path to go fix, not a bare parser error, and
+        # not silence. Asserted on the log record rather than result.output,
+        # which rich line-wraps long paths in.
+        assert str(corrupt) in caplog.text
+        assert "could not be read" in caplog.text
+        assert "Unexpected error" not in caplog.text
+        # And the manifest is still the facility's, built from the rest.
+        manifest = json.loads(
+            (repo_dir / "build" / "data" / "simulation" / MANIFEST_FILENAME).read_text()
+        )
+        assert manifest["_metadata"]["source_paradigms"] == ["hierarchical", "middle_layer"]
+        assert [c["paradigm"] for c in manifest["_metadata"]["corrupt_paradigms"]] == ["in_context"]
+        assert manifest["channels"]
+
+    def test_every_database_corrupt_fails_a_va_deploying_build(self, tmp_path, caplog):
+        repo_dir = tmp_path / "repo"
+        _write_profile(repo_dir, deploy_va=True)
+        for name in ("hierarchical", "in_context", "middle_layer"):
+            (self._tier3(repo_dir) / f"{name}.json").write_text(self.CORRUPT_BODY)
 
         with caplog.at_level(logging.ERROR):
             result = _invoke_build(repo_dir)
 
         assert result.exit_code != 0
-        # The operator gets the path to go fix, not a bare KeyError from
-        # inside a database parser. Asserted on the log record rather than
-        # result.output, which rich line-wraps long paths in.
-        assert str(corrupt) in caplog.text
-        assert "Build error" in caplog.text
+        assert "present and could not be read" in caplog.text
+        # Named as broken rather than as never staged: these files are there.
+        assert "are all absent" not in caplog.text
         assert "Unexpected error" not in caplog.text
 
 

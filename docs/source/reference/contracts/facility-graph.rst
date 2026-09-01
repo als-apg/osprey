@@ -29,7 +29,10 @@ query:
 * **Signals** — what a binding reads or writes, reached over ``READSSIGNAL`` or
   ``WRITESSIGNAL``. Exactly one of the two sits on every binding, so the
   direction of an address is a property of the graph rather than a guess from
-  its name.
+  its name. That is what lets the corpus serve as the deployment's channel
+  roster: on a graph-mode build the queue server's settables and readables are
+  derived from these two predicates
+  (:doc:`/how-to/bluesky/write-plans`).
 * **Classes** — the device ontology, linked by ``SUBCLASSOF``. A device is
   typed by ``TYPE``. This is what lets "every magnet" find an ``HCorrector``
   without the query naming ``HCorrector``. Classes also carry the synonyms an

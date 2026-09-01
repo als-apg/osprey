@@ -487,9 +487,13 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # data/). launch_token left unset: `osprey up` mints BLUESKY_LAUNCH_TOKEN
     # for every deployed service that declares it, so there is nothing to supply
     # ourselves here.
+    records = _orm_stack.roster_records(repo)
+    correctors = _orm_stack.select_correctors(records, count=1)
+    bpms = _orm_stack.select_bpms(records, count=2)
+    # The limits are a separate question from which channels exist: this lane
+    # goes on to build plan args INSIDE a device's configured band, which is
+    # what channel_limits.json is for.
     limits = _channel_limits(repo)
-    correctors = _orm_stack.select_correctors(limits, count=1)
-    bpms = _orm_stack.select_bpms(limits, count=2)
     _orm_stack.write_devices_file(repo, correctors=correctors, bpms=bpms)
 
     build = _run(

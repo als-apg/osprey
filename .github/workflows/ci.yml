@@ -1326,9 +1326,9 @@ jobs:
           # boots in this lane: every module that binds that port leaves by
           # --ignore below and runs in its own job — the scan-stack agentic
           # module and the VA substrate equivalence proof each in one, and
-          # the ORM, grid-scan and orbit-bump roundtrips together in
-          # orm-roundtrip-e2e, where they run as sequential steps so the
-          # stacks never contend for a host port.
+          # the ORM, grid-scan, orbit-bump and preflight-probe roundtrips
+          # together in orm-roundtrip-e2e, where they run as sequential steps
+          # so the stacks never contend for a host port.
           # --durations=30: which tests approach the step cap on their own —
           # the data for deciding where reruns=2 has to become reruns=1 (#824).
           uv run pytest tests/e2e/ -v --tb=short --durations=30 -n 4 --dist loadfile \
@@ -1348,6 +1348,7 @@ jobs:
             --ignore=tests/e2e/test_orm_roundtrip.py \
             --ignore=tests/e2e/test_grid_scan_roundtrip.py \
             --ignore=tests/e2e/test_bump_roundtrip.py \
+            --ignore=tests/e2e/test_preflight_probe.py \
             --ignore=tests/e2e/test_archiver_world_e2e.py \
             --ignore=tests/e2e/test_bluesky_catalog_e2e.py \
             --ignore=tests/e2e/test_bluesky_sandbox_escape_e2e.py \
@@ -1924,13 +1925,14 @@ jobs:
     # was the lane's second-biggest time sink); same extraction pattern as
     # every other dockerbuild-marked file.
     #
-    # Three modules, run as SEQUENTIAL steps rather than one pytest
+    # Four modules, run as SEQUENTIAL steps rather than one pytest
     # invocation. The ORM and grid-scan roundtrips both stand up their own VA
     # and bind CA port 5064 by design, so overlapping them would collide. The
-    # orbit-bump roundtrip pins its whole port block and so could run beside
-    # them, but it stands up a third full VA/bridge/Tiled stack — three at once
-    # is more than a GHA runner has to give. Sequential steps also keep the
-    # three failures separately attributable in the job log.
+    # orbit-bump and preflight-probe roundtrips each pin their own whole port
+    # block and so could run beside them, but each stands up another full
+    # VA/bridge/Tiled stack — more than one at once is more than a GHA runner
+    # has to give. Sequential steps also keep the four failures separately
+    # attributable in the job log.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     # Builds the native PyAT/serving-stack VA image from source like
     # va-substrate-equivalence-e2e (see its timeout note) — generous cap so a
@@ -1996,6 +1998,11 @@ jobs:
       timeout-minutes: 45
       run: |
         uv run pytest tests/e2e/test_bump_roundtrip.py -v --tb=short
+
+    - name: Run preflight probe E2E
+      timeout-minutes: 45
+      run: |
+        uv run pytest tests/e2e/test_preflight_probe.py -v --tb=short
     # On failure only: container logs, exit codes, `OOMKilled`, and runner
     # disk/memory state, uploaded as the `ci-diag-<lane>` artifact.
     - name: Capture failure diagnostics

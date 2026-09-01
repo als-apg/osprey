@@ -1124,6 +1124,18 @@ PROTECTED_KEY_FAMILIES = [
         "service.bluesky.devices_file",
         "services.bluesky.devices",
     ),
+    (
+        "config.yml",
+        "services.graphdb.ttl_path",
+        "service.graphdb.ttl_path",
+        "services.graphdb.ttl",
+    ),
+    (
+        "config.yml",
+        "channel_finder.pipelines.hierarchical.database.path",
+        "channel_finders.pipelines.hierarchical.database.path",
+        "channel_finder.pipelines.hierarchical.database.type",
+    ),
     (".mcp.json", "mcpServers.foo.command", "mcpServers.foo.disabled", "servers.foo.command"),
 ]
 

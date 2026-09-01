@@ -22,6 +22,8 @@ from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable
 
+    from osprey.channel_roster import RosterResult
+
 logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -113,6 +115,71 @@ def _graph_ttl_filename(config) -> str | None:
     return Path(graphdb_config.ttl_path).name
 
 
+def _read_channel_roster(config) -> RosterResult | None:
+    """Enumerate the facility's channels once, for the routes that answer them.
+
+    The graph paradigm's roster is the Turtle corpus the build stages for the
+    store, not the store itself, and reading it costs a multi-megabyte parse —
+    so it happens here, at startup, rather than once per request. The store is
+    never dialed for it: a corpus that is staged answers even while the store is
+    down, and a store that is up answers nothing this app can enumerate.
+
+    Fail-soft. A deployment pointed at a graph store somebody else runs stages
+    no corpus at all, and that is a serving app whose two enumeration routes say
+    why they cannot answer — not a reason to refuse to start.
+
+    Args:
+        config: The loaded project config.
+
+    Returns:
+        The roster — records, or the absence saying why there are none — or
+        ``None`` when the read itself failed in a way the roster does not model.
+    """
+    try:
+        from osprey.channel_roster import registered_channels
+
+        roster = registered_channels(config)
+    except Exception:
+        logger.warning(
+            "The channel roster could not be read; channel membership and enumeration "
+            "will be answered as unavailable",
+            exc_info=True,
+        )
+        return None
+
+    if roster.absence is not None:
+        logger.info(
+            "No channel roster: %s The channel finder serves; its membership and "
+            "enumeration routes report this.",
+            roster.absence.message(),
+        )
+    else:
+        logger.info(
+            "Channel roster read: %d channels from %s",
+            len(roster.records),
+            roster.source.describe(),
+        )
+    return roster
+
+
+def _roster_addresses(roster: RosterResult | None) -> tuple[str, ...]:
+    """Return the roster's addresses once, deduplicated in the roster's order.
+
+    A source may bind the same address twice — two graph bindings onto one
+    channel, one database listing it under two devices — and a duplicate would
+    make an enumeration's total disagree with what membership can find.
+
+    Args:
+        roster: The roster the app read, or ``None`` when it read none.
+
+    Returns:
+        Each address once, in the order the roster enumerated it.
+    """
+    if roster is None:
+        return ()
+    return tuple(dict.fromkeys(roster.addresses))
+
+
 #: How the web app brings up each channel-finder paradigm it can serve, in the
 #: order the UI offers them. A paradigm is attempted only when the config has a
 #: ``channel_finder.pipelines.<paradigm>`` block for it, so the absence of a
@@ -198,6 +265,18 @@ def _create_lifespan(project_cwd: str | None = None):
                     exc_info=True,
                 )
             app.state.graph_ttl_filename = _graph_ttl_filename(config)
+
+            # The paradigm's channels come from the staged corpus, read once
+            # here. A file-backed paradigm gets no roster: its database is its
+            # own enumeration, and reading a second one for it is the
+            # divergence the roster exists to end.
+            app.state.channel_roster = _read_channel_roster(config)
+
+            # What the two routes actually serve, derived once: membership is
+            # a set lookup and enumeration is an ordered list, and rebuilding
+            # either per request would pay for the whole corpus on every call.
+            app.state.channel_addresses = _roster_addresses(app.state.channel_roster)
+            app.state.channel_address_index = frozenset(app.state.channel_addresses)
         else:
             # ``pipelines`` is a key every rendered config carries, and a graph
             # render leaves it empty — so read it as "whichever blocks are

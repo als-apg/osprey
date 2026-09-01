@@ -45,6 +45,27 @@ Ctrl-C (or `docker stop`) shuts the IOC down cleanly.
   simulation model — `machine.json` and its `scenarios/` bundles — re-rendered
   from the project's profile on every build. Read-only; the IOC never writes
   it.
+- **Set `VA_CHANNELS_FILE`** to the channel manifest to serve. **Required** —
+  the IOC has no default channel namespace and refuses to start without one,
+  because the only namespace it could pick unasked is the framework's own
+  bundled demo namespace, and a container serving those addresses under a
+  facility's name is indistinguishable, on the wire, from one serving the
+  facility. A relative name resolves against the data mount, which is where a
+  built project's manifest sits: `osprey build` generates
+  `channel_manifest.json` into `build/data/simulation/` alongside the
+  `channel_limits.json` the drive bands come from, and writes
+  `VA_CHANNELS_FILE=channel_manifest.json` into the deployment's `.env` for
+  compose to pass through. For a standalone demo, name the packaged demo
+  manifest explicitly — it ships as package data inside the image, at the path
+  `osprey.services.virtual_accelerator.manifest.paths.MANIFEST_OUTPUT`
+  resolves to, and the startup refusal prints that path for you.
+- **`VA_LATTICE`** selects `builtin` or `none` — whether the PyAT model behind
+  the pyat-coupled channels is constructed. **Defaults to `none`**: a manifest
+  names a facility's channels and says nothing about whether this image holds
+  physics for them, and the only model it could build unasked is the same
+  tutorial ring. `osprey build` derives the value from the generated manifest's
+  own partition census and writes it beside `VA_CHANNELS_FILE`. The demo needs
+  `builtin` — that plus the packaged manifest is the tutorial machine.
 - **Bind-mount the repo's `var/agent_data/simulation/`** to `/state/simulation`
   and point `VA_STATE_DIR` at it. It holds `active_scenarios`, which
   `osprey sim apply NAME` rewrites on the host while the system runs — hence a
@@ -82,10 +103,13 @@ Ctrl-C (or `docker stop`) shuts the IOC down cleanly.
 
 ## What it serves
 
-The full namespace-union manifest
+Whatever manifest `VA_CHANNELS_FILE` names, whole — the container has no
+namespace of its own. For a built project that is the manifest `osprey build`
+generated from the project's own channel databases. For the quick start above
+it is the packaged demo manifest
 (`src/osprey/services/virtual_accelerator/manifest/channel_manifest.json`) —
 a few thousand addresses, with the authoritative count in that file's own
-`_metadata.total_channels` rather than repeated here, since the served set is
+`_metadata.total_channels` rather than repeated here, since that set too is
 generated from the tutorial's channel-finder databases and never hand-listed.
 
 Every address falls into one of three physics-fidelity partitions

@@ -15,6 +15,7 @@ How it is put together is :doc:`/architecture/virtual-accelerator`.
 
    - What the Virtual Accelerator is (and is not)
    - What ``control_system.type`` selects, and which machine each value names
+   - Which channels the simulator serves, and what the build will not invent
    - Pointing a project at the Virtual Accelerator the stack already deploys
    - Moving a running session between the machines a deployment describes
    - Switching back to the mock, and why plans go browse-only there
@@ -64,6 +65,35 @@ The physics itself is pluggable: the container serves whatever LUME model it is
 given — the shipped one is a pyAT ring model over the facility-agnostic
 ``lume-pyat`` package — and serving your own facility's model is the LUME seam in
 :doc:`/contributing/extending-osprey`.
+
+What channels it serves
+=======================
+
+Your project's own. At build time OSPREY expands whatever channel databases the
+project's ``data/`` tree stages at the tier being built — ``hierarchical``,
+``in_context``, ``middle_layer``, in any combination — into the channel
+manifest the container serves, and reports which of them fed the set and which
+the tree does not stage at that tier.
+
+There is no fallback. A build that deploys services and declares a
+``virtual_accelerator:`` block does not quietly come up serving the framework's
+demo machine under your facility's name — where the tree cannot back a channel
+set, ``osprey build`` refuses and names the gap. Five things count as a gap: no
+channel database staged at that tier; a database staged but one of the files
+the manifest is generated from missing — the scenario seed, the machine-state
+list or the drive limits; databases that are all present and name no channel;
+databases present that disagree about which channels the facility has; and a
+staged database that is there and unreadable, which stops the build rather than
+being read past. Either the accelerator serves the project's own channels, or
+the build stops there.
+
+One absence changes what the simulator can *do*, so the build spells it out
+rather than leaving it to be inferred. ``hierarchical`` is the only database
+that carries a hierarchy path, and those identity keys are what pair a readback
+with its setpoint and what every partition rule reads. A tree staging the
+others without it gets an accelerator that serves no setpoints, pairs no
+readback with a setpoint, and drives every channel as static noise rather than
+physics.
 
 Quickstart
 ==========

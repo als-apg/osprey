@@ -9,6 +9,14 @@
 # serve), waits for it to report ready, and then drives both served
 # transports against it.
 #
+# The channel namespace is named, never inferred: the IOC has no default one
+# and refuses to boot without VA_CHANNELS_FILE. So for the default run the gate
+# assembles the demo data directory itself -- the preset's simulation tree plus
+# the packaged channel manifest and the preset's channel_limits.json, the
+# layout `osprey build` stages for a project -- and boots against that with the
+# tutorial lattice. Those three are the machine every assertion below is
+# written against.
+#
 # Before asserting anything, the gate proves it is measuring its OWN container:
 # every Channel Access step below runs from the host, and a host client is
 # pointed at a PORT, not at a container. A second virtual accelerator holding
@@ -117,6 +125,12 @@ OVER_DRIVE="20.0"
 
 DEFAULT_DATA_DIR="${WORKTREE_ROOT}/src/osprey/templates/apps/control_assistant/data/simulation"
 DATA_DIR="${1:-${DEFAULT_DATA_DIR}}"
+# Whether the caller pointed this somewhere; see run_va.sh for why this is a
+# flag rather than a later comparison against the default.
+DATA_DIR_GIVEN="no"
+if [[ $# -gt 0 ]]; then
+    DATA_DIR_GIVEN="yes"
+fi
 if [[ ! -f "${DATA_DIR}/machine.json" ]]; then
     echo "FATAL: no machine.json under ${DATA_DIR}" >&2
     exit 1
@@ -145,9 +159,12 @@ echo "Using container runtime: ${RUNTIME}"
 VENV_PY="${WORKTREE_ROOT}/.venv/bin/python"
 
 STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/osprey-va-full-build.XXXXXX")"
+DEMO_DATA_DIR=""
 cleanup() {
     "${RUNTIME}" rm -f "${CONTAINER}" >/dev/null 2>&1 || true
     rm -rf "${STAGING_DIR}"
+    [[ -n "${DEMO_DATA_DIR}" ]] && rm -rf "${DEMO_DATA_DIR}"
+    return 0
 }
 trap cleanup EXIT
 
@@ -178,15 +195,96 @@ echo "--- Building ${IMAGE} (linux/amd64) ---"
     --build-arg "OSPREY_VERSION=${OSPREY_VERSION}" \
     -t "${IMAGE}" -f "${STAGING_DIR}/docker/virtual-accelerator/Containerfile" "${STAGING_DIR}"
 
-echo "--- Starting ${CONTAINER} (data dir: ${DATA_DIR}) ---"
+# The channel namespace this gate certifies, named explicitly. The IOC has no
+# default one -- the only namespace it could pick unasked is the framework's
+# bundled demo namespace, and a container serving those addresses under a
+# facility's name is indistinguishable, on the wire, from one serving the
+# facility -- so it refuses instead, and this gate names what it wants.
+#
+# A DATA_DIR carrying its own channel_manifest.json is a built project, already
+# in the layout the IOC reads -- manifest and channel_limits.json beside
+# machine.json, which is what `osprey build` stages. Mount it as it stands.
+#
+# Otherwise this is the default run, and the answer is the packaged demo
+# manifest plus the tutorial lattice and the preset's drive limits: the machine
+# every assertion below is written against. The packaged preset tree is not in
+# that layout -- no manifest at all (the framework's is package data), and
+# channel_limits.json one level up at the data root -- so the layout is
+# assembled in a temp directory and that is what gets mounted. Assembled rather
+# than overlaid with extra bind mounts because a bind mount INTO a read-only
+# mount cannot create its own mountpoint (the runtime refuses with EROFS), and
+# mounting the tree read-write to make room would leave the container able to
+# write into the checkout.
+VA_LATTICE_VALUE="${VA_LATTICE:-}"
+MOUNT_DIR="${DATA_DIR}"
+if [[ -f "${DATA_DIR}/channel_manifest.json" ]]; then
+    : "${VA_LATTICE_VALUE:=none}"
+else
+    : "${VA_LATTICE_VALUE:=builtin}"
+    # Say what is about to happen, because this branch REINTERPRETS the argument:
+    # a DATA_DIR with no manifest beside machine.json is not a built project, so
+    # it is being certified as a demo data tree and the channels under test will
+    # be the framework's rather than this directory's.
+    if [[ "${DATA_DIR_GIVEN}" == "yes" ]]; then
+        echo "NOTE: ${DATA_DIR} has no channel_manifest.json, so it is not a built" >&2
+        echo "      project. Certifying it as a demo data tree: the channels under" >&2
+        echo "      test are the framework's packaged demo namespace, with only" >&2
+        echo "      machine.json and scenarios/ taken from this directory." >&2
+    fi
+
+    if [[ ! -x "${VENV_PY}" ]]; then
+        echo "FATAL: no worktree venv python at ${VENV_PY}." >&2
+        echo "       It is what locates the packaged demo manifest (the manifest is" >&2
+        echo "       package data, so its path comes from the installed osprey rather" >&2
+        echo "       than from a path spelled here). Create the venv with \`uv sync\`." >&2
+        exit 1
+    fi
+    # The manifest this checkout carries, located through the installed package
+    # rather than by a relative path, so it is the same file the image just
+    # built from.
+    PACKAGED_MANIFEST="$("${VENV_PY}" -c \
+        'from osprey.services.virtual_accelerator.manifest.paths import MANIFEST_OUTPUT
+print(MANIFEST_OUTPUT)')"
+    if [[ ! -f "${PACKAGED_MANIFEST}" ]]; then
+        echo "FATAL: the packaged demo manifest is missing at ${PACKAGED_MANIFEST}." >&2
+        echo "       Regenerate it with:" >&2
+        echo "         uv run python -m osprey.services.virtual_accelerator.manifest.build" >&2
+        exit 1
+    fi
+    # Drive limits for the demo come from the preset's data root, one level above
+    # a simulation tree. The drive-band step below asserts ${EXCITE_PV}'s
+    # [-12, 12] clamp, read from exactly this file, and would pass vacuously
+    # without it -- so its absence is a refusal, phrased as the reinterpretation
+    # it belongs to rather than as a missing framework asset.
+    PRESET_LIMITS="$(cd "${DATA_DIR}/.." && pwd)/channel_limits.json"
+    if [[ ! -f "${PRESET_LIMITS}" ]]; then
+        echo "FATAL: certifying ${DATA_DIR} as a demo data tree needs a" >&2
+        echo "       channel_limits.json at its data root (${PRESET_LIMITS})," >&2
+        echo "       the way the packaged preset lays one out. Without it the" >&2
+        echo "       drive-band step would pass vacuously." >&2
+        exit 1
+    fi
+
+    DEMO_DATA_DIR="$(mktemp -d "${TMPDIR:-/tmp}/osprey-va-demo-data.XXXXXX")"
+    echo "--- Assembling the demo data dir at ${DEMO_DATA_DIR} ---"
+    cp -R "${DATA_DIR}/." "${DEMO_DATA_DIR}/"
+    cp "${PACKAGED_MANIFEST}" "${DEMO_DATA_DIR}/channel_manifest.json"
+    cp "${PRESET_LIMITS}" "${DEMO_DATA_DIR}/channel_limits.json"
+    MOUNT_DIR="${DEMO_DATA_DIR}"
+fi
+CHANNELS_FILE_VALUE="channel_manifest.json"
+
+echo "--- Starting ${CONTAINER} (data dir: ${MOUNT_DIR}; manifest: ${CHANNELS_FILE_VALUE}; VA_LATTICE=${VA_LATTICE_VALUE}) ---"
 # The server port is passed explicitly, from the same CA_PORT the publish maps:
 # a CA search reply carries the server's own port, so a container bound to one
 # port and published on another hands clients an unreachable address with no
 # useful error. (The image derives EPICS_CAS_SERVER_PORT from this.)
 "${RUNTIME}" run -d --name "${CONTAINER}" \
     -e "EPICS_CA_SERVER_PORT=${CA_PORT}" \
+    -e "VA_CHANNELS_FILE=${CHANNELS_FILE_VALUE}" \
+    -e "VA_LATTICE=${VA_LATTICE_VALUE}" \
     -p "127.0.0.1:${CA_PORT}:${CA_PORT}/tcp" \
-    -v "${DATA_DIR}:/data/simulation:ro" \
+    -v "${MOUNT_DIR}:/data/simulation:ro" \
     "${IMAGE}" >/dev/null
 
 echo "--- Waiting up to ${BOOT_TIMEOUT_SECS}s for PVs to serve ---"

@@ -35,7 +35,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from osprey.services.bluesky_bridge import plan_loader, qserver_startup
+from osprey.services.bluesky_bridge import plan_loader, preflight, qserver_startup
 from osprey.services.bluesky_bridge.devices.connector import ConnectorReadable, ConnectorSettable
 
 _PLAN_DIRS_ENV = "BLUESKY_PLAN_DIRS"
@@ -624,6 +624,50 @@ def test_unknown_device_name_names_the_device_and_what_the_worker_has(
     assert "bpm_01" in message
 
 
+def test_unknown_device_error_bounds_the_available_devices_phrase(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A roster of thousands must not blow the KeyError message up with it.
+
+    The device list is interpolated straight into a KeyError the worker
+    ships back over 0MQ into an operator's plan-submission error; it has to
+    stay bounded prose, not enumerate a namespace that can run into the
+    thousands.
+    """
+    plans = _catalog(tmp_path, monkeypatch)
+    devices = {f"bpm_{i:04d}": object() for i in range(500)}
+    plan_function = qserver_startup.build_plan_functions(devices, plans)["sample_scan"]
+
+    with pytest.raises(KeyError) as excinfo:
+        next(plan_function(**_sample_kwargs()))
+
+    message = str(excinfo.value)
+    omitted = len(devices) - preflight.DEVICE_NAME_LIMIT
+    assert len(message) < 2000
+    assert f"+{omitted} more" in message
+    assert "GET /devices" in message
+    # Bounded means bounded: most of the 500 names must not appear at all.
+    assert message.count("bpm_") <= preflight.DEVICE_NAME_LIMIT
+
+
+def test_available_devices_phrase_lists_everything_within_the_cap() -> None:
+    available = {"bpm_01", "corrector_01"}
+
+    phrase = preflight.available_devices_phrase(available)
+
+    assert phrase == "['bpm_01', 'corrector_01']"
+
+
+def test_available_devices_phrase_caps_and_counts_a_large_set() -> None:
+    available = {f"bpm_{i:04d}" for i in range(500)}
+
+    phrase = preflight.available_devices_phrase(available)
+
+    assert phrase.count("bpm_") == preflight.DEVICE_NAME_LIMIT
+    assert f"+{500 - preflight.DEVICE_NAME_LIMIT} more" in phrase
+    assert "GET /devices" in phrase
+
+
 def test_plan_whose_name_is_not_an_identifier_is_skipped(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -715,15 +759,21 @@ def test_filtering_leaves_the_wrapper_annotations_untouched(
     )
 
 
-def test_the_wrapper_adds_nothing_to_the_plans_message_stream(
+def test_the_wrapper_stamps_no_metadata_of_its_own(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The wrapper narrows devices; it stamps no metadata of its own.
 
     Run identity is stamped on the enqueue path, as the queue item's metadata.
     A wrapper that also injected metadata here would be a second, competing
-    source of it, so what it yields is exactly what ``build_plan`` yielded —
-    nothing prepended, nothing appended.
+    source of it, so the documents a run carries are the ones ``build_plan``
+    asked for and nothing else.
+
+    Not a transparency claim about the message stream as a whole: over
+    connector-backed devices the wrapper prepends one ``wait_for`` message, the
+    pre-flight probe (see the pre-flight section below). These devices are bare
+    objects carrying no address, so there is nothing to probe and the stream
+    here is the plan's own.
     """
     plans = _catalog(tmp_path, monkeypatch)
     devices = {"corrector_01": object(), "bpm_01": object()}
@@ -733,6 +783,339 @@ def test_the_wrapper_adds_nothing_to_the_plans_message_stream(
 
     assert len(messages) == 1
     assert sorted(messages[0]) == ["devices", "offered", "params"]
+
+
+# ---------------------------------------------------------------------------
+# Pre-flight reachability: the per-run probe
+# ---------------------------------------------------------------------------
+#
+# These run a REAL ``RunEngine`` over the wrapper. The probe rides on a
+# ``wait_for`` message so that it runs on the RunEngine's own loop, and whether
+# the RunEngine actually creates the awaitable and hands the finished task back
+# is the whole mechanism — a double that answered the message the way this
+# module hopes it is answered would prove nothing about it. The plan the
+# RunEngine is given moves a real connector-mediated device, so "refused before
+# anything moved" is asserted against the connector's own write log.
+
+_SETPOINT_ADDRESS = _CORRECTOR_ENTRY["setpoint"]
+_READBACK_ADDRESS = _CORRECTOR_ENTRY["readback"]
+_MONITOR_ADDRESS = _BPM_ENTRY["pv"]
+
+
+class ProbeConnector(FakeConnector):
+    """``FakeConnector`` plus the reachability probe the pre-flight asks for.
+
+    An address in ``dead`` never answers. An address in ``flaky`` fails its
+    first probe and answers every one after it — the gateway-under-load case
+    the probe's one serial retry exists for. Every probe is recorded, so a test
+    can assert both which addresses were asked and how often.
+    """
+
+    def __init__(self, dead: Any = (), flaky: Any = ()) -> None:
+        super().__init__()
+        self.dead = set(dead)
+        self.flaky = set(flaky)
+        self.probed: list[str] = []
+
+    async def validate_channel(self, address: str) -> bool:
+        self.probed.append(address)
+        if address in self.dead:
+            return False
+        if address in self.flaky:
+            self.flaky.discard(address)
+            return False
+        return True
+
+
+def _moving_plan_source(name: str) -> str:
+    """A catalog plan the RunEngine can actually run, and that moves a channel.
+
+    Declares one movable and one readable — so the declared set covers both
+    halves of a settable and a readable's single channel — and drives the
+    movable to the value ``FakeConnector`` reads back, so the move settles
+    immediately instead of polling for a readback that never arrives.
+    """
+    return (
+        "from bluesky.utils import Msg\n"
+        "from pydantic import BaseModel\n\n"
+        "from osprey.services.bluesky_bridge.plan_fields import (\n"
+        "    MovableChannel,\n"
+        "    ReadableChannel,\n"
+        ")\n\n\n"
+        "PLAN_METADATA = {\n"
+        f'    "name": {name!r},\n'
+        '    "description": "A sample catalog plan that moves one channel.",\n'
+        '    "writes": True,\n'
+        "}\n\n\n"
+        "class PARAMS(BaseModel):\n"
+        "    movable: MovableChannel\n"
+        "    readable: ReadableChannel\n\n\n"
+        "def build_plan(devices, params):\n"
+        "    movable, _readable = devices[params.movable], devices[params.readable]\n"
+        "    def _gen():\n"
+        "        yield Msg('open_run', None)\n"
+        "        yield Msg('set', movable, 0.0, group='move')\n"
+        "        yield Msg('wait', None, group='move')\n"
+        "        yield Msg('close_run', None)\n"
+        "    return _gen()\n"
+    )
+
+
+def _moving_plan_function(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, connector: ProbeConnector
+) -> Any:
+    """The wrapper for a runnable plan over real connector-mediated devices."""
+    plans = _catalog(tmp_path, monkeypatch, "moving_scan", source=_moving_plan_source)
+    devices = asyncio.run(
+        qserver_startup.build_devices(env=_stock_devices_env(tmp_path), connector=connector)
+    )
+    return qserver_startup.build_plan_functions(devices, plans)["moving_scan"]
+
+
+def _moving_kwargs() -> dict[str, Any]:
+    return {"movable": "corrector_01", "readable": "bpm_01"}
+
+
+def test_a_run_probes_every_address_its_declared_devices_touch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Both halves of the settable and the readable's channel, then the plan runs.
+
+    A settable's readback is probed alongside its setpoint because the move
+    itself reads it to settle — an unreachable readback fails the run just as
+    an unreachable setpoint does.
+    """
+    from bluesky import RunEngine
+
+    connector = ProbeConnector()
+    plan_function = _moving_plan_function(tmp_path, monkeypatch, connector)
+
+    RunEngine()(plan_function(**_moving_kwargs()))
+
+    assert sorted(connector.probed) == sorted(
+        [_SETPOINT_ADDRESS, _READBACK_ADDRESS, _MONITOR_ADDRESS]
+    )
+    # Every address answered first time, so the plan built and ran: the move it
+    # carries reached the connector.
+    assert connector.writes == [(_SETPOINT_ADDRESS, 0.0)]
+
+
+@pytest.mark.parametrize("dead_address", [_SETPOINT_ADDRESS, _READBACK_ADDRESS, _MONITOR_ADDRESS])
+def test_one_dead_address_refuses_the_run_before_anything_moves(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dead_address: str
+) -> None:
+    """The refusal names the address, the bound it was given, and the machine.
+
+    Whichever of the three declared addresses is dead, the run is refused
+    before the plan is even built — so the connector was never asked to write,
+    which is exactly the mid-run partial application this pre-flight replaces.
+    """
+    from bluesky import RunEngine
+
+    from osprey.services.bluesky_bridge import queue_backend
+
+    monkeypatch.setenv(queue_backend.LANE_ENV, "bluesky_va")
+    connector = ProbeConnector(dead=[dead_address])
+    plan_function = _moving_plan_function(tmp_path, monkeypatch, connector)
+
+    with pytest.raises(ConnectionError) as excinfo:
+        RunEngine()(plan_function(**_moving_kwargs()))
+
+    lane, target = queue_backend.resolve_lane_identity()
+    message = str(excinfo.value)
+    assert lane == "bluesky_va"
+    assert f"lane {lane} (target {target})" in message
+    assert f"1 declared channel did not respond within 5 s: {dead_address}" in message
+    assert connector.writes == []
+
+
+def test_a_channel_that_answers_the_retry_runs_the_plan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A dropped first probe is not a dead channel.
+
+    A gateway under load drops probes for channels that are perfectly healthy,
+    and refusing those runs would be worse than the failure being fixed — so
+    the address is asked once more, serially, and answering that is enough.
+    """
+    from bluesky import RunEngine
+
+    connector = ProbeConnector(flaky=[_SETPOINT_ADDRESS])
+    plan_function = _moving_plan_function(tmp_path, monkeypatch, connector)
+
+    RunEngine()(plan_function(**_moving_kwargs()))
+
+    assert connector.probed.count(_SETPOINT_ADDRESS) == 2
+    assert connector.writes == [(_SETPOINT_ADDRESS, 0.0)]
+
+
+def test_previewing_a_plan_probes_no_channel_at_all(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A read-only walk moves nothing, so it has nothing to refuse.
+
+    ``collect_channel_moves`` consumes the wrapper's messages without executing
+    any of them and with no RunEngine behind it, so the probe is never awaited
+    — a preview must not turn into control-system traffic on the strength of a
+    question about a run that is not happening.
+    """
+    connector = ProbeConnector(dead=[_SETPOINT_ADDRESS])
+    plan_function = _moving_plan_function(tmp_path, monkeypatch, connector)
+
+    preview = qserver_startup.preview_plan_in_namespace(
+        "moving_scan", _moving_kwargs(), {"moving_scan": plan_function}
+    )
+
+    assert preview["ok"] is True
+    assert preview["total_moves"] == 1
+    assert connector.probed == []
+    assert connector.writes == []
+
+
+def test_the_probe_runs_per_run_not_once_per_plan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The same plan function, run twice, asks again the second time.
+
+    This is why the seam is here and not at enqueue: what a run needs is that
+    its channels are alive *now*, and an IOC can go down between two runs of
+    the same queued plan.
+    """
+    from bluesky import RunEngine
+
+    connector = ProbeConnector()
+    plan_function = _moving_plan_function(tmp_path, monkeypatch, connector)
+
+    RunEngine()(plan_function(**_moving_kwargs()))
+    connector.dead = {_SETPOINT_ADDRESS}
+
+    with pytest.raises(ConnectionError):
+        RunEngine()(plan_function(**_moving_kwargs()))
+
+    # One write from the first run, none from the second.
+    assert connector.writes == [(_SETPOINT_ADDRESS, 0.0)]
+
+
+def test_devices_that_expose_no_address_run_unprobed_and_say_so(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A device set that is not connector-mediated has nothing to probe.
+
+    In the worker every device is a ``ConnectorSettable``/``ConnectorReadable``,
+    so this is unreachable there — but a run that silently skips its own gate
+    is exactly the thing an operator must not have to guess at, so the skip is
+    logged rather than merely allowed.
+    """
+    plans = _catalog(tmp_path, monkeypatch)
+    devices = {"corrector_01": object(), "bpm_01": object()}
+    plan_function = qserver_startup.build_plan_functions(devices, plans)["sample_scan"]
+
+    with caplog.at_level("WARNING"):
+        message = next(plan_function(**_sample_kwargs()))
+
+    assert sorted(message["offered"]) == ["bpm_01", "corrector_01"]
+    assert "without a reachability pre-flight" in caplog.text
+
+
+def test_a_probe_that_raises_still_refuses_the_run_before_any_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fail closed: a probe that errors is not an address that answered.
+
+    A connector whose ``validate_channel`` raises says nothing about whether
+    the channel is there, and a gate that reads "no answer" as "go ahead" is
+    not a gate.
+    """
+    from bluesky import RunEngine
+
+    class RaisingProbeConnector(ProbeConnector):
+        async def validate_channel(self, address: str) -> bool:
+            self.probed.append(address)
+            raise RuntimeError("the gateway is not answering")
+
+    connector = RaisingProbeConnector()
+    plan_function = _moving_plan_function(tmp_path, monkeypatch, connector)
+
+    with pytest.raises(ConnectionError) as excinfo:
+        RunEngine()(plan_function(**_moving_kwargs()))
+
+    assert _SETPOINT_ADDRESS in str(excinfo.value)
+    assert connector.writes == []
+
+
+def test_a_refusal_over_a_large_declared_set_stays_bounded_prose(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A plan may declare hundreds of channels; the refusal may not list them all.
+
+    This text crosses a 0MQ hop into an operator's plan-submission failure, the
+    same trip the unresolved-device message makes, and a roster-derived plan
+    that names a whole subsystem would otherwise push tens of kilobytes of
+    addresses through it.
+    """
+    from bluesky import RunEngine
+
+    monitors = [
+        {"name": f"bpm_{index:03d}", "pv": f"SR:DIAG:BPM:{index:03d}:X:RB"} for index in range(250)
+    ]
+    env = _devices_env(tmp_path, {"settables": [_CORRECTOR_ENTRY], "readables": monitors})
+    plans = _catalog(tmp_path, monkeypatch)
+    connector = ProbeConnector(
+        dead=[_SETPOINT_ADDRESS, _READBACK_ADDRESS, *(entry["pv"] for entry in monitors)]
+    )
+    devices = asyncio.run(qserver_startup.build_devices(env=env, connector=connector))
+    plan_function = qserver_startup.build_plan_functions(devices, plans)["sample_scan"]
+    kwargs = {
+        "monitors": [entry["name"] for entry in monitors],
+        "axes": [{"setpoint": "corrector_01", "start": 0.0, "stop": 1.0, "points": 3}],
+    }
+
+    with pytest.raises(ConnectionError) as excinfo:
+        RunEngine()(plan_function(**kwargs))
+
+    message = str(excinfo.value)
+    assert len(message) < 2000
+    assert f"+{252 - preflight.DEVICE_NAME_LIMIT} more" in message
+    assert "252 declared channels did not respond" in message
+    assert connector.writes == []
+
+
+def test_a_budget_exhausted_sweep_refuses_without_claiming_the_channels_are_dead(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """What the wrapper says when the pre-flight ran out of time.
+
+    Nothing here answered a probe, so nothing may be reported as having failed
+    one — the refusal says the channels were left unchecked, and names the
+    budget that ran out rather than a per-probe timeout no probe ever reached.
+    """
+    from bluesky import RunEngine
+
+    monkeypatch.setattr(preflight, "PROBE_BUDGET_S", 0.05)
+    monkeypatch.setattr(preflight, "PROBE_BUDGET_MAX_S", 0.05)
+
+    class StallingProbeConnector(ProbeConnector):
+        async def validate_channel(self, address: str) -> bool:
+            self.probed.append(address)
+            await asyncio.sleep(5.0)
+            return True
+
+    connector = StallingProbeConnector()
+    plan_function = _moving_plan_function(tmp_path, monkeypatch, connector)
+
+    started = time.monotonic()
+    with pytest.raises(ConnectionError) as excinfo:
+        RunEngine()(plan_function(**_moving_kwargs()))
+    elapsed = time.monotonic() - started
+
+    message = str(excinfo.value)
+    assert elapsed < 2.0, f"the pre-flight ran {elapsed:.2f}s against a 0.05s budget"
+    assert "3 further channels were still unchecked when the 0.05 s pre-flight budget expired" in (
+        message
+    )
+    assert "did not respond within" not in message
+    assert len(message) < 2000
+    assert connector.writes == []
 
 
 # ---------------------------------------------------------------------------
