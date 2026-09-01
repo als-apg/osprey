@@ -117,6 +117,7 @@ _EXPECTED_SETTABLE_PUBLIC_ATTRS = [
     "connect",
     "describe",
     "describe_configuration",
+    "has_distinct_readback",
     "hints",
     "log",
     "name",
@@ -125,6 +126,7 @@ _EXPECTED_SETTABLE_PUBLIC_ATTRS = [
     "read_configuration",
     "set",
     "set_name",
+    "setpoint_key",
     "stage",
     "unstage",
 ]

@@ -61,6 +61,15 @@ class."""
 _READBACK_POLL_INTERVAL_S = 0.05
 """Sleep between readback polls in ``ConnectorSettable.set()``."""
 
+SETPOINT_KEY_SUFFIX = "_setpoint"
+"""Suffix of the data key a :class:`ConnectorSettable` with a *distinct*
+readback reports its demand under: ``<name>_setpoint`` beside ``<name>``.
+The same convention as ophyd's positioners (``<name>_setpoint`` beside the
+``<name>`` readback), so a plan that settle-checks a slow device -- an
+insertion-device gap, a ramping magnet -- reads where the device is and where
+it was told to go off one device, without a second device aliasing the
+setpoint channel."""
+
 
 class ConnectorSettable(StandardReadable):
     """A settable/readable PV pair mediated entirely by the OSPREY connector.
@@ -86,6 +95,17 @@ class ConnectorSettable(StandardReadable):
     ``confirm: false``, so nothing was checked). With a separate
     ``readback_pv`` the write's outcome is about the *setpoint*, not the
     readback channel, so it never stands in for a settle sample there.
+
+    A device with a separate ``readback_pv`` reports BOTH channels: the
+    readback under ``<name>`` (the hinted field, what ``bps.rd`` returns) and
+    the demand under ``<name>_setpoint`` (:data:`SETPOINT_KEY_SUFFIX`), each
+    read live through the connector. Where the device is and where it was
+    told to go are two different facts about a device that takes time to
+    move, and a plan that decides when to advance on the difference between
+    them needs both off the one device it drives -- the alternative is a
+    second device aliasing the setpoint channel, which puts the same address
+    in the worker's namespace twice. An aliased device reports one key: its
+    readback IS its demand.
 
     The OSPREY connector instance is stored as ``self._osprey_connector``,
     not ``self._connector``: ophyd-async's own ``Device.__init__`` already
@@ -164,37 +184,69 @@ class ConnectorSettable(StandardReadable):
                 )
             await asyncio.sleep(_READBACK_POLL_INTERVAL_S)
 
+    @property
+    def has_distinct_readback(self) -> bool:
+        """Whether this device reads back a channel other than the one it writes."""
+        return self._readback_pv != self._setpoint_pv
+
+    @property
+    def setpoint_key(self) -> str:
+        """The data key the demand is reported under, ``<name>_setpoint``.
+
+        Only present in ``read()``/``describe()`` when
+        :attr:`has_distinct_readback` -- an aliased device's demand IS its
+        readback, and the key would restate ``<name>``.
+        """
+        return f"{self.name}{SETPOINT_KEY_SUFFIX}"
+
     async def read(self) -> dict[str, dict[str, Any]]:
         """Return the live readback value, read fresh through the connector.
 
         Never returns a cached/soft value: every call issues a new
         ``connector.read_channel`` so the document a plan records reflects
-        the current mediated state of the readback channel.
+        the current mediated state of the readback channel. A device with a
+        distinct readback also reads its setpoint channel and reports the
+        demand under :attr:`setpoint_key`.
         """
         reading = await self._osprey_connector.read_channel(self._readback_pv)
-        return {self.name: {"value": reading.value, "timestamp": time.time()}}
+        document = {self.name: {"value": reading.value, "timestamp": time.time()}}
+        if self.has_distinct_readback:
+            demand = await self._osprey_connector.read_channel(self._setpoint_pv)
+            document[self.setpoint_key] = {"value": demand.value, "timestamp": time.time()}
+        return document
 
     async def describe(self) -> dict[str, dict[str, Any]]:
-        """Describe the live readback channel as a scalar numeric data key."""
-        return {
+        """Describe the live readback channel as a scalar numeric data key,
+        and the setpoint channel beside it when the two differ."""
+        described = {
             self.name: {
                 "source": f"connector:{self._readback_pv}",
                 "dtype": "number",
                 "shape": [],
             }
         }
+        if self.has_distinct_readback:
+            described[self.setpoint_key] = {
+                "source": f"connector:{self._setpoint_pv}",
+                "dtype": "number",
+                "shape": [],
+            }
+        return described
 
     @property
     def hints(self) -> Hints:
-        """Declare this movable's single readback field as the hinted one.
+        """Declare this movable's readback field as the one hinted field.
 
         ``StandardReadable`` builds its hints by aggregating over the
         ophyd-async signals declared on the device; this class declares
         none (every read goes through the connector instead), so the
         inherited property would report no fields at all and consumers of
         the run — live table, plot axes, ``PeakStats`` — would have nothing
-        to key on. ``read()``/``describe()`` emit exactly one data key,
-        named for the device, so that is the field named here.
+        to key on. The readback key, named for the device, is the field
+        named here; the ``<name>_setpoint`` key a distinct-readback device
+        also emits is deliberately NOT hinted, so ``bps.rd`` keeps returning
+        where the device is and a live table plots the machine, not the
+        demand.
 
         Overriding as a property is required, not stylistic: the base class
         declares ``hints`` read-only, so assigning an instance attribute in
