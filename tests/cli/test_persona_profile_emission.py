@@ -249,6 +249,7 @@ def test_persona_profiles_are_deltas_and_keep_their_posture(
     # and keeps the write-armed posture.
     assert postures == {
         "admin": True,
+        "knowledge": False,
         "logbook": False,
         "readonly": False,
         "readwrite": True,

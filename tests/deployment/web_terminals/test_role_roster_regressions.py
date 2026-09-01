@@ -284,6 +284,7 @@ class TestRoleOnlyRosterIsIndistinguishable:
             f'      - "{_ROLE_VAR_PREFIX}ALICE=readwrite-role"',
             f'      - "{_ROLE_VAR_PREFIX}BOB=readonly-role"',
             f'      - "{_ROLE_VAR_PREFIX}LOGBOOK=logbook-role"',
+            f'      - "{_ROLE_VAR_PREFIX}KNOWLEDGE=knowledge-role"',
             f'      - "{_ROLE_VAR_PREFIX}CAROL=admin-role"',
         ]
 

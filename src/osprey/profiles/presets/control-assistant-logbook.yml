@@ -1,6 +1,6 @@
 # control-assistant-logbook.yml
-# Logbook research terminal — the standalone persona of the control-assistant
-# multi-user stack, the ARIEL logbook assistant.
+# Logbook research terminal — one of the two standalone personas of the
+# control-assistant multi-user stack, the ARIEL logbook assistant.
 #
 # The operator tiers are people: a read-only analyst, a write-armed operator
 # and an admin, differing on what they may change. This one is not a person
@@ -15,7 +15,8 @@
 # together.
 #
 # The control-system tiers are `control-assistant-readonly`,
-# `control-assistant-readwrite` and `control-assistant-admin`.
+# `control-assistant-readwrite` and `control-assistant-admin`; the other
+# standalone persona is `control-assistant-knowledge`.
 
 name: Control Assistant (Logbook Research)
 

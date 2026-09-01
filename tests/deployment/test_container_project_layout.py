@@ -286,7 +286,13 @@ def test_the_context_root_dockerignore_matches_at_container_depth(tmp_path: Path
 #: at all, and it pins the key off for the same reason the read-only tier does.
 #: ``admin`` is the deployment-editing tier: it pins writes ON because admin is
 #: a superset of readwrite, not a third posture beside it.
-PERSONA_WRITES = {"admin": True, "logbook": False, "readonly": False, "readwrite": True}
+PERSONA_WRITES = {
+    "admin": True,
+    "knowledge": False,
+    "logbook": False,
+    "readonly": False,
+    "readwrite": True,
+}
 
 
 @pytest.fixture(scope="module")

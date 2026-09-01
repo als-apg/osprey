@@ -333,7 +333,7 @@ config:
       footer: OSPREY multi-user web terminal stack. Experimental system. Proceed with caution.
       groups:
         # `users` renders the roster. It also SPLITS it: any entry whose
-        # persona declares a `landing_group` (see `logbook` below) moves into a
+        # persona declares a `landing_group` (see `logbook` and `knowledge` below) moves into a
         # section of its own, drawn as an accent-edged panel underneath it.
         # So the page reads people first, services after.
         - type: users
@@ -359,6 +359,16 @@ config:
         display_name: "Logbook Research"
         # A shared card: everyone on this roster opens it with their own
         # password. It has no password of its own, so none is set in .env.
+        access: any
+      # The second product beside them: the facility knowledge layer — the
+      # knowledge graph, the graph channel finder and the knowledge bundle —
+      # read-only, with no control system behind it. Shared like the card
+      # above. Index 4 rather than 3 so carol's ports below stay where they
+      # were; the page follows roster order, so it sits with its sibling.
+      - name: knowledge
+        index: 4
+        persona: knowledge
+        display_name: "Facility Knowledge"
         access: any
       # The one login that can change this deployment's configuration — the web
       # Config panel, the scaffold gallery's editors, and the agent's own setup
@@ -391,6 +401,11 @@ config:
         # Puts this persona's users under their own landing-page heading
         # instead of in with the people. Presentation only — it changes
         # nothing about the container, its ports, or what it can do.
+        landing_group: Standalone deployments
+      knowledge:
+        project: control-assistant-knowledge
+        project_path: build/control-assistant-knowledge
+        build_profile: control-assistant-knowledge
         landing_group: Standalone deployments
 
 # ── Answering webhooks (optional) ────────────────────────────────────────────

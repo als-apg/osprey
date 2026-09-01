@@ -76,6 +76,7 @@ def test_repo_root_holds_the_profile(lifecycle_repo: Path) -> None:
         "ci-extra.yml",
         "personas/readonly.yml",
         "personas/readwrite.yml",
+        "personas/knowledge.yml",
         "data/README.md",
         "data/channel_limits.json",
         "data/machine_state_channels.json",

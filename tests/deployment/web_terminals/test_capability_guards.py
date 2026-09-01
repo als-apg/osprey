@@ -231,6 +231,7 @@ class TestShippedPresetPrivileges:
             "control-assistant-readonly",
             "control-assistant-readwrite",
             "control-assistant-logbook",
+            "control-assistant-knowledge",
         ],
     )
     def test_unprivileged_tiers(self, preset: str):
@@ -376,7 +377,7 @@ class TestPersonaProfileTextsGuard:
     def test_shipped_catalog_materializes(self):
         """The stack ships safe: privileged tier behind a login, default unprivileged."""
         texts = _persona_texts(_shipped_host_config())
-        assert set(texts) == {"admin", "logbook", "readonly", "readwrite"}
+        assert set(texts) == {"admin", "knowledge", "logbook", "readonly", "readwrite"}
 
     def test_privileged_default_persona_refuses_with_the_remedy(self):
         import click
@@ -406,7 +407,7 @@ class TestPersonaProfileTextsGuard:
         """`logbook` keeps its shared card — the guard is about privilege, not sharing."""
         config = _shipped_host_config()
         texts = _persona_texts(config)
-        assert "logbook" in texts
+        assert {"logbook", "knowledge"} <= set(texts)
 
     def test_a_floorless_host_preset_refuses_the_open_entry_too(self):
         """The last place the pre-C1 reading survived. This guard used to be fed
@@ -440,6 +441,7 @@ class TestPersonaProfileTextsGuard:
         offence. Nothing here is served openly, so nothing is refused."""
         assert set(_persona_texts(_floorless(_shipped_host_config()))) == {
             "admin",
+            "knowledge",
             "logbook",
             "readonly",
             "readwrite",

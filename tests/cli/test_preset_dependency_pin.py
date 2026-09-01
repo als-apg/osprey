@@ -48,6 +48,7 @@ PINNED_PRESET_DEPENDENCIES: dict[str, list[str]] = {
     # needs no package a plain `pip install osprey-framework` does not already
     # bring — the workspace MCP server it drives is framework-side.
     "control-assistant-admin": [],
+    "control-assistant-knowledge": [],
     "control-assistant-logbook": [],
     "control-assistant-readonly": [],
     "control-assistant-readwrite": [],

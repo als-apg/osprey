@@ -810,6 +810,7 @@ def test_either_claude_code_spelling_alone_is_fine() -> None:
         "control-assistant-readonly",
         "control-assistant-readwrite",
         "control-assistant-logbook",
+        "control-assistant-knowledge",
         "control-assistant-admin",
         "hello-world",
     ],

@@ -46,6 +46,7 @@ PINNED_PRESET_WRITE_GATES: dict[str, tuple[str, ...]] = {
     "channel-finder-standalone": ("approval",),
     "control-assistant": ("approval", "writes-check"),
     "control-assistant-admin": ("approval", "writes-check"),
+    "control-assistant-knowledge": ("approval",),
     "control-assistant-logbook": ("approval",),
     "control-assistant-readonly": ("approval", "writes-check"),
     "control-assistant-readwrite": ("approval", "writes-check"),

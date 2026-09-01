@@ -83,11 +83,12 @@ import pytest
 EXEMPLAR_DIRNAME = "als-exemplar"
 
 #: The preset the exemplar was materialized from, and the persona presets whose
-#: deltas sit in ``personas/`` — two operator tiers plus the standalone ARIEL
-#: logbook terminal the stack runs beside them.
+#: deltas sit in ``personas/`` — the operator tiers plus the two standalone
+#: terminals the stack runs beside them, logbook research and facility knowledge.
 EXEMPLAR_PRESET = "control-assistant"
 PERSONA_PRESETS: Mapping[str, str] = {
     "admin": "control-assistant-admin",
+    "knowledge": "control-assistant-knowledge",
     "logbook": "control-assistant-logbook",
     "readonly": "control-assistant-readonly",
     "readwrite": "control-assistant-readwrite",
@@ -469,7 +470,7 @@ config:
       footer: OSPREY multi-user web terminal stack. Experimental system. Proceed with caution.
       groups:
         # `users` renders the roster. It also SPLITS it: any entry whose
-        # persona declares a `landing_group` (see `logbook` below) moves into a
+        # persona declares a `landing_group` (see `logbook` and `knowledge` below) moves into a
         # section of its own, drawn as an accent-edged panel underneath it.
         # So the page reads people first, services after.
         - type: users
@@ -495,6 +496,16 @@ config:
         display_name: "Logbook Research"
         # A shared card: everyone on this roster opens it with their own
         # password. It has no password of its own, so none is set in .env.
+        access: any
+      # The second product beside them: the facility knowledge layer — the
+      # knowledge graph, the graph channel finder and the knowledge bundle —
+      # read-only, with no control system behind it. Shared like the card
+      # above. Index 4 rather than 3 so carol's ports below stay where they
+      # were; the page follows roster order, so it sits with its sibling.
+      - name: knowledge
+        index: 4
+        persona: knowledge
+        display_name: "Facility Knowledge"
         access: any
       # The one login that can change this deployment's configuration — the web
       # Config panel, the scaffold gallery's editors, and the agent's own setup
@@ -527,6 +538,11 @@ config:
         # Puts this persona's users under their own landing-page heading
         # instead of in with the people. Presentation only — it changes
         # nothing about the container, its ports, or what it can do.
+        landing_group: Standalone deployments
+      knowledge:
+        project: als-exemplar-knowledge
+        project_path: build/als-exemplar-knowledge
+        build_profile: personas/knowledge.yml
         landing_group: Standalone deployments
 
 # ── Answering webhooks (optional) ────────────────────────────────────────────
@@ -843,6 +859,118 @@ config:
   # render (`services: {}` of its own) built beside that deployment, and the
   # build copies every such fact from the deployment's own render into it
   # (the Reach Contract, `osprey.deployment.reach`). Per-user web-terminal
+  # containers run `network_mode: host`, so container `localhost` IS the
+  # deployment host and the copied ports are dialed there. Built alone, with
+  # no hosting deployment in the repo, the build copies what the app template
+  # deploys at its defaults instead — and a host that differs is named here.
+"""
+
+PERSONA_KNOWLEDGE_YML = """\
+# Als Exemplar (knowledge) — settings for one web login
+#
+# Only the differences from profile.yml belong here. The build merges this
+# file over that one, picking up any edit you make there. To see the combined
+# result:
+#   osprey validate personas/knowledge.yml
+#
+# Made from the bundled `control-assistant-knowledge` preset.
+#
+#   emitted by OSPREY @OSPREY_VERSION@
+#   preset content hash: @PRESET_HASH:control-assistant-knowledge@
+
+name: Als Exemplar (knowledge)
+
+# Attached render: this persona builds a per-user terminal image only and
+# connects to the shared web tier the hosting deployment runs on the same host.
+# No services are scaffolded — the graph store it reads is the hosting
+# deployment's, already declared there.
+deploy_services: false
+
+# The knowledge persona instead of the control-room operator one: the agent's
+# brief is written for answering "how is the machine built" from three
+# read-only sources and citing which one answered.
+claude_md_template: CLAUDE.knowledge.md.j2
+
+# Open on the KNOWLEDGE tab rather than the always-on Workspace tab. The
+# CHANNELS tab is the other one this persona keeps.
+default_panel: okf
+
+# ── What this persona drops ──────────────────────────────────────────────────
+# A persona can only add to an inherited list, never subtract from it, so
+# everything the control-room agent carries and a knowledge terminal has no
+# use for is removed here by name. What stays: the channel-finder,
+# facility-knowledge and facility-knowledge-graph agents, the KNOWLEDGE and
+# CHANNELS panels, and the channel-finder feedback hook (it captures
+# channel-finder results and needs no control system).
+exclude:
+  hooks:
+    - writes-check        # No hardware writes to pre-check
+    - limits              # No per-channel limits to enforce
+  rules:
+    - workflows           # Scan, ramp and restore patterns: operator work
+    - python-execution    # The Python sandbox is off (see config: below)
+    - data-visualization  # Plotting needs the sandbox this persona does not run
+    - control-system-safety  # EPICS PV rules, with no EPICS behind them
+    - test-ioc-safety     # Test-IOC port isolation, likewise
+  skills:
+    - diagnose            # Fault diagnosis is control-room work
+    - session-report      # Writes to the logbook, which this persona cannot reach
+    - demo-gallery
+    - demo-ui
+    - writing-bluesky-plans    # Plan authoring needs the Bluesky server
+    - operating-bluesky-plans  # and so does running one
+    - bluesky-plans            # and so does listing them
+  agents:
+    - data-visualizer
+    - logbook-search          # The logbook is the logbook persona's
+    - logbook-deep-research
+    - pyat-specialist         # Lattice computation needs the Python sandbox
+  web_panels:
+    - ariel
+    - system-health
+# The `safety` rule is deliberately NOT excluded. Its tools are gone, so the
+# rule governs nothing today and costs a few lines of prompt. It stays because
+# this agent runs inside a deployment that does move hardware: if anyone ever
+# turns a control server back on here, the rule should already be in place.
+
+# ── Config overrides ─────────────────────────────────────────────────────────
+# Dotted keys ONLY — see the base profile's block.
+config:
+  # The axis this persona is defined by: knowledge tools and nothing else.
+  # Each line switches off a tool server the base turns on. The graph server,
+  # the channel finder (graph mode, see `channel_finder_mode` in the base) and
+  # the facility knowledge server are the three left on.
+  claude_code.servers.controls.enabled: false
+  claude_code.servers.python.enabled: false
+  claude_code.servers.bluesky.enabled: false
+  claude_code.servers.health.enabled: false
+  claude_code.servers.ariel.enabled: false
+  # Read-only, stated at the one tool that would write: drafting a knowledge
+  # concept edits the shared bundle, which is curation work for a login that
+  # can edit the deployment. Deny lists UNION across `extends`, so this adds to
+  # the base's floor.
+  claude_code.permissions.deny:
+    - mcp__osprey_facility_knowledge__draft_concept
+  # Pinned even though every server that would honour it is gone, for the
+  # same reason the read-only tier pins it: this key is the write boundary,
+  # and it must not drift if the base's default ever changes. Three keys, not
+  # one — see the read-only preset for why.
+  control_system.writes_enabled: false
+  control_system.connector.epics.writes_enabled: false
+  control_system.connector.virtual_accelerator.writes_enabled: false
+  # Full split-pane layout: the KNOWLEDGE panel is the point of this persona,
+  # so it needs the panel area. Pinned rather than left to the server default,
+  # like the other tiers pin theirs.
+  web.ui_mode: expert
+  # The hosting deployment owns the web-terminal tier (nginx, landing, per-user
+  # containers). Without this override the inherited roster would make this
+  # render try to host a second web tier on the same host ports.
+  modules.web_terminals.enabled: false
+  # Nothing here says where the hosting deployment's services are — the graph
+  # store's bolt port above all. This persona is an attached render
+  # (`services: {}` of its own) built beside that deployment, and the build
+  # copies every such fact from the deployment's own render into it (the
+  # Reach Contract, `osprey.deployment.reach`). Per-user web-terminal
   # containers run `network_mode: host`, so container `localhost` IS the
   # deployment host and the copied ports are dialed there. Built alone, with
   # no hosting deployment in the repo, the build copies what the app template
@@ -1713,11 +1841,12 @@ fi
 # /health, the route its auth gate lets through.
 if wants web; then
   printf '\\n%s── Web terminal ──%s\\n\\n' "$BOLD" "$RESET"
-  probe_http 'landing page'        http://localhost:10000/
-  probe_http 'terminal (alice)'    http://localhost:10100/health
-  probe_http 'terminal (bob)'      http://localhost:10101/health
-  probe_http 'terminal (logbook)'  http://localhost:10102/health
-  probe_http 'terminal (carol)'    http://localhost:10103/health
+  probe_http 'landing page'          http://localhost:10000/
+  probe_http 'terminal (alice)'      http://localhost:10100/health
+  probe_http 'terminal (bob)'        http://localhost:10101/health
+  probe_http 'terminal (logbook)'    http://localhost:10102/health
+  probe_http 'terminal (carol)'      http://localhost:10103/health
+  probe_http 'terminal (knowledge)'  http://localhost:10104/health
 fi
 
 # ── Event dispatch ───────────────────────────────────────────────────────────
@@ -2163,12 +2292,14 @@ BASE_SOURCE_FILES: Mapping[str, str] = {
     "ci-extra.yml": CI_EXTRA_YML,
     "triggers.yml": TRIGGERS_YML,
     "personas/logbook.yml": PERSONA_LOGBOOK_YML,
+    "personas/knowledge.yml": PERSONA_KNOWLEDGE_YML,
     "personas/readonly.yml": PERSONA_READONLY_YML,
     "personas/readwrite.yml": PERSONA_READWRITE_YML,
     "personas/admin.yml": PERSONA_ADMIN_YML,
     "web-terminal-context/alice/.gitkeep": "",
     "web-terminal-context/logbook/.gitkeep": "",
     "web-terminal-context/bob/.gitkeep": "",
+    "web-terminal-context/knowledge/.gitkeep": "",
     "data/README.md": DATA_README_MD,
     "data/channel_databases/TEMPLATE_EXAMPLE.json": CHANNEL_DB_TEMPLATE_EXAMPLE_JSON,
     "data/channel_databases/tiers/tier1/in_context.json": CHANNEL_DB_IN_CONTEXT_JSON,

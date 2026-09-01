@@ -190,7 +190,10 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # hierarchical database, and every tier inherits the mode. Deploy-visible
     # — a rebuilt project stages no tier database and its channel-finder
     # server dials the store — so the advisory is the correct signal.
-    "control-assistant": "sha256:e132b733d61f620e8ef23a5af07831faca40df330c3747bd67b2943964836171",
+    # Moved again when the second standalone card, `knowledge` (persona
+    # `knowledge`, preset `control-assistant-knowledge`), joined the roster
+    # and the catalog. Deploy-visible: a new terminal container.
+    "control-assistant": "sha256:e01a78b53c8b703969c873f2739fd866e118e68a8fd7214f73c720a163cd9bd1",
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     # Moved again with the base: permissive `virtual_accelerator` limits block.
     # Moved alone when the admin tier gained the EVENTS/BLUESKY `web_panels`
@@ -201,16 +204,26 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # already-deployed admin renders is the correct signal.
     # Moved with the base above: the standalone card is a shared `logbook`.
     # Moved with the base above: graph channel finder.
+    # Moved with the base above: the `knowledge` card joined the roster.
     "control-assistant-admin": (
-        "sha256:6d5d03bc31b23c079a0bace1f118ac351f231ed63ecdd5454b7fd2473003a15c"
+        "sha256:1722ea5bc85ac57c232463a3423c7869f85072f7041e6f6c0184d91cd23fa184"
     ),
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     # Moved again with the base: permissive `virtual_accelerator` limits block.
     # Renamed from `control-assistant-ariel` when its roster entry became the
     # shared `logbook` card, and moved with the base for the same change.
     # Moved with the base above: graph channel finder.
+    # Moved with the base above: the `knowledge` card joined the roster.
     "control-assistant-logbook": (
-        "sha256:626ee01b0a6f2b7bde0c901d812c76876355f6d377f8b084d7f3fc1312195eaa"
+        "sha256:b872f2bf54113b94f1919d75034df2c5905eba90707746c9f9d9893b35cb0bbf"
+    ),
+    # New: the second standalone persona. The facility knowledge graph, the
+    # graph-mode channel finder and the knowledge bundle behind one shared
+    # card; every control, sandbox, health and logbook server switched off,
+    # writes pinned off on all three keys, and the one bundle-writing tool
+    # (`draft_concept`) denied.
+    "control-assistant-knowledge": (
+        "sha256:c10aed916e3b928464b52314c25fdb8fe08e1a5a00f539938b4c405c329e0a7c"
     ),
     # The two operator tiers below moved together, and alone, when each gained
     # the single dotted key `services.graphdb.port_host: 7687` in its `config:`
@@ -271,15 +284,17 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Moved again with the base: permissive `virtual_accelerator` limits block.
     # Moved with the base above: the standalone card is a shared `logbook`.
     # Moved with the base above: graph channel finder.
+    # Moved with the base above: the `knowledge` card joined the roster.
     "control-assistant-readonly": (
-        "sha256:196db35e0d482c9ee3840c28a0d968a4980d7ac0801f51872c814702b85dbf78"
+        "sha256:2b4cab67b08ce87a4b062e4d37f793e5e78553bf4ec69a6d78d83ce7f6fbdc23"
     ),
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     # Moved again with the base: permissive `virtual_accelerator` limits block.
     # Moved with the base above: the standalone card is a shared `logbook`.
     # Moved with the base above: graph channel finder.
+    # Moved with the base above: the `knowledge` card joined the roster.
     "control-assistant-readwrite": (
-        "sha256:49320239f31ea50dd7625e5f719ae60ea013d95e80cd1d05694b3cf070180068"
+        "sha256:8ebfd4db2df0a9c68d30190ac21b2c33dab5e1556e02f870cdf84bcffc144fae"
     ),
     # New with per-target write posture, not a moved entry: the rung between
     # the two flat tiers, armed on the virtual accelerator alone. It pins the
@@ -291,8 +306,9 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Moved again with the base: permissive `virtual_accelerator` limits block.
     # Moved with the base above: the standalone card is a shared `logbook`.
     # Moved with the base above: graph channel finder.
+    # Moved with the base above: the `knowledge` card joined the roster.
     "control-assistant-va-readwrite": (
-        "sha256:6922d767cb7af949f220bfd568cc819c973bb87d80e097d5504d20bdda302d2e"
+        "sha256:5d10df8c1c4710c0e14fe5981d4b18b2380b4ed450ad67fa585234f51e795764"
     ),
     # Moved when the onboarding rewrite dropped the `facility` rule. The
     # wholesale comment rewrite that shipped alongside it contributed nothing:

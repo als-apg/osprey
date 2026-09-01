@@ -85,6 +85,7 @@ FLOOR_PRESETS = [
     "control-assistant-readonly",
     "control-assistant-readwrite",
     "control-assistant-logbook",
+    "control-assistant-knowledge",
 ]
 
 
@@ -401,11 +402,11 @@ class TestControlAssistantRenderedAdmin:
     def test_init_emits_a_persona_delta_for_every_tier_including_admin(
         self, rendered_preset_repo: Path
     ) -> None:
-        """FOUR deltas, not three. ``personas/`` is what ``osprey build``
+        """FIVE deltas, not three. ``personas/`` is what ``osprey build``
         renders a project per, so a catalog entry with no file here is a tier
         that exists on the landing page and in nothing else."""
         deltas = sorted(p.stem for p in (rendered_preset_repo / "personas").glob("*.yml"))
-        assert deltas == ["admin", "logbook", "readonly", "readwrite"]
+        assert deltas == ["admin", "knowledge", "logbook", "readonly", "readwrite"]
 
     def test_admin_render_leaves_setup_patch_out_of_the_deny_list(
         self, rendered_admin_settings: dict

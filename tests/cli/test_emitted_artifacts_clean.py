@@ -293,6 +293,7 @@ def test_the_web_probes_split_the_perimeter_from_the_application(
         ("terminal (bob)", f"http://localhost:{web + 1}/health"),
         ("terminal (logbook)", f"http://localhost:{web + 2}/health"),
         ("terminal (carol)", f"http://localhost:{web + 3}/health"),
+        ("terminal (knowledge)", f"http://localhost:{web + 4}/health"),
     ]
 
 

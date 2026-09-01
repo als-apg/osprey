@@ -25,6 +25,9 @@ live on the same landing page:
   and the ``setup-mode`` skill that drives them.
 * ``control-assistant-logbook`` — not a tier: the standalone logbook-research
   deployment, filed under its own landing-page heading.
+* ``control-assistant-knowledge`` — not a tier either: the standalone facility
+  knowledge terminal (graph, graph channel finder, knowledge bundle), filed
+  under the same heading.
 
 The tier contract therefore has two halves, and both are asserted wholesale
 below rather than key-by-key. The MACHINE axes separate readonly from
@@ -379,32 +382,44 @@ class TestControlAssistantWebTier:
             "display_name": "Logbook Research",
             "access": "any",
         }
+        # The second shared card sits beside the first in roster order (the
+        # page follows the roster) but takes index 4, so carol's ports below
+        # do not move.
+        assert wt["users"][3] == {
+            "name": "knowledge",
+            "index": 4,
+            "persona": "knowledge",
+            "display_name": "Facility Knowledge",
+            "access": "any",
+        }
         # The admin login is neither shared nor public: the one account that
         # can rewrite the deployment sits behind its own login.
-        assert wt["users"][3] == {
+        assert wt["users"][4] == {
             "name": "carol",
             "index": 3,
             "persona": "admin",
             "display_name": "Deployment Admin (Carol)",
         }
-        assert len(wt["users"]) == 4
+        assert len(wt["users"]) == 5
 
         personas = wt["personas"]
-        assert set(personas) == {"readonly", "readwrite", "admin", "logbook"}
+        assert set(personas) == {"readonly", "readwrite", "admin", "logbook", "knowledge"}
         for name, profile in (
             ("readonly", "control-assistant-readonly"),
             ("readwrite", "control-assistant-readwrite"),
             ("admin", "control-assistant-admin"),
             ("logbook", "control-assistant-logbook"),
+            ("knowledge", "control-assistant-knowledge"),
         ):
             entry = personas[name]
             # Name invariant: project == basename(project_path).
             assert entry["project"] == os.path.basename(entry["project_path"])
             assert entry["build_profile"] == profile
 
-        # Only the standalone tier declares a landing section of its own; the
-        # three operator tiers stay in the roster's default section.
+        # Only the standalone personas declare a landing section of their own;
+        # the three operator tiers stay in the roster's default section.
         assert personas["logbook"]["landing_group"] == "Standalone deployments"
+        assert personas["knowledge"]["landing_group"] == "Standalone deployments"
         for tier in ("readonly", "readwrite", "admin"):
             assert "landing_group" not in personas[tier]
 
@@ -475,7 +490,8 @@ class TestControlAssistantWebTier:
         # And the persona it is about is the default one, not the shared card:
         # no entry on the shipped roster is served without a login.
         assert any("'readonly'" in finding.message for finding in errors)
-        assert not any("'logbook'" in finding.message for finding in errors)
+        for card in ("logbook", "knowledge"):
+            assert not any(f"'{card}'" in finding.message for finding in errors)
 
     def test_ships_companion_panels_multi_user(self) -> None:
         """Feature parity: multi-user must not shed single-user companion panels.
@@ -790,6 +806,7 @@ class TestControlAssistantPersonas:
             "control-assistant-readwrite",
             "control-assistant-admin",
             "control-assistant-logbook",
+            "control-assistant-knowledge",
         ):
             profile = resolve_preset(name)
             pinned = sorted(
@@ -984,6 +1001,38 @@ class TestControlAssistantPersonas:
         assert hits == [], f"the logbook tier configures no graph store but rendered {hits}"
         assert "graph" not in json.loads((project / ".mcp.json").read_text())["mcpServers"]
 
+    def test_knowledge_persona_renders_the_knowledge_surface_and_nothing_else(
+        self, built_persona_stack: Path
+    ) -> None:
+        """The knowledge persona is the graph, the graph channel finder and the
+        knowledge bundle — and no control system, sandbox or logbook.
+
+        Asserted on the real render: the servers in ``.mcp.json`` are the
+        three knowledge servers plus the workspace, the channel finder runs in
+        graph mode, the three knowledge agents are rendered, the KNOWLEDGE
+        panel is the default, and the one bundle-writing tool is denied.
+        """
+        project = built_persona_stack / "build" / f"{built_persona_stack.name}-knowledge"
+        assert project.is_dir(), "the knowledge persona was never rendered"
+
+        servers = json.loads((project / ".mcp.json").read_text())["mcpServers"]
+        assert set(servers) == {
+            "graph",
+            "channel-finder",
+            "osprey_facility_knowledge",
+            "osprey_workspace",
+        }
+        config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
+        assert config["channel_finder"]["pipeline_mode"] == "graph"
+        assert config["web"]["default_panel"] == "okf"
+        assert "ariel" not in config["web"]["panels"]
+
+        agents = sorted(p.stem for p in (project / ".claude" / "agents").glob("*.md"))
+        assert agents == ["channel-finder", "facility-knowledge", "facility-knowledge-graph"]
+
+        settings = json.loads((project / ".claude" / "settings.json").read_text())
+        assert "mcp__osprey_facility_knowledge__draft_concept" in settings["permissions"]["deny"]
+
 
 # ---------------------------------------------------------------------------
 # Write posture, per session target, across every shipped preset
@@ -1029,6 +1078,10 @@ PINNED_TARGET_WRITE_POSTURE: dict[str, dict[str, bool]] = {
     # The standalone logbook tier pins the flat key off and writes no per-type
     # block, so every target inherits the off.
     "control-assistant-logbook": {"live": False, "va": False, "standin": False},
+    # The standalone knowledge persona pins the flat key off AND the epics and
+    # virtual_accelerator blocks, like the read-only tier: it has no control
+    # surface at all, and the boundary is stated the same way everywhere.
+    "control-assistant-knowledge": {"live": False, "va": False, "standin": False},
     # The read-only tier: off on the flat key AND pinned off on the epics and
     # virtual_accelerator blocks, so no per-type ``true`` inherited from
     # anywhere can arm those two over it. The stand-in has no block to pin and
