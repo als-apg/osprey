@@ -64,7 +64,8 @@ def _write_store(root: Path, payload) -> Path:
     return path
 
 
-def _write_legacy(root: Path, payload) -> Path:
+def _write_at_retired_location(root: Path, payload) -> Path:
+    """Where the session-wide posture kept its store, directly under the root."""
     path = root / session_store.STORE_FILENAME
     path.write_text(json.dumps(payload), encoding="utf-8")
     return path
@@ -210,10 +211,12 @@ def test_session_map_and_target_posture(data_root):
     assert session_store.target_posture(None, "live") is None
 
 
-def test_legacy_path_store_is_read_through_when_the_new_one_is_absent(data_root):
-    _write_legacy(data_root, {"s1": "sandbox"})
-    assert session_store.target_posture("s1", "live") == "sandbox"
-    # The new path wins the moment it exists.
+def test_a_store_at_the_retired_session_wide_location_narrows_nothing(data_root):
+    """The store has one location; the pre-target one is retired, not read."""
+    _write_at_retired_location(data_root, {"s1": "sandbox"})
+    assert session_store.load_store() == {}
+    assert session_store.target_posture("s1", "live") is None
+    # And a narrowing at the one location holds regardless of what sits there.
     _write_store(data_root, {"s1": {"va": "sandbox"}})
     assert session_store.target_posture("s1", "live") is None
     assert session_store.target_posture("s1", "va") == "sandbox"
