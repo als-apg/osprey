@@ -1,0 +1,10 @@
+{
+  "name": "osprey",
+  "version": "2026.9.0",
+  "description": "Agent skills for developing and deploying OSPREY, the agentic control-room interface for accelerators and beamlines.",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "OSPREY",
+    "shortDescription": "Agent skills for developing and deploying OSPREY."
+  }
+}

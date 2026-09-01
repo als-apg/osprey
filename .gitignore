@@ -132,7 +132,11 @@ valves.json
 
 # Agent data directories
 _agent_data/*
-.agents/
+# Track only the Codex marketplace manifest; never Codex plugin state.
+.agents/*
+!.agents/plugins/
+.agents/plugins/*
+!.agents/plugins/marketplace.json
 
 # Local coding-agent guidance (kept out of git; see /CLAUDE.md below)
 AGENTS.md

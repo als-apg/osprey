@@ -1,12 +1,11 @@
 ---
-name: creating-an-osprey-panel
+name: panel
 description: >
   Author a new OSPREY web-terminal panel — a self-contained, themed HTML
   mini-app the terminal mounts beside the chat. Use whenever someone wants to
   create, author, add, scaffold, or build an OSPREY panel, a design-system
   panel, or a standalone themed surface for the web terminal. Produces a
   token-only panel that passes the panel validator.
-summary: Author a themed, token-only OSPREY web-terminal panel that passes the validator
 ---
 
 # Creating an OSPREY Panel

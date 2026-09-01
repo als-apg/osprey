@@ -1,11 +1,11 @@
 ---
-name: osprey-release
+name: release
 description: >
   Guides a maintainer through cutting an OSPREY release on the GitHub Flow
   workflow: land the release-notes PR, tag the merge commit, push the tag,
   verify the automated PyPI publish. Use when someone says "create a release",
   "bump the version", "cut v2026.X.Y", "publish to PyPI", "tag a release", or
-  asks about the release process. Composes with `osprey-contribute` for the
+  asks about the release process. Composes with `/osprey:contribute` for the
   notes PR. Versions follow CalVer (vYYYY.M.P) and the source of truth is the
   git tag — Hatch derives the version from it, so there is no version literal
   to bump.
@@ -27,7 +27,7 @@ The shape is:
 4. Tag the merge commit and push the tag. **This is what sets the version.**
 5. Verify the automated GitHub Actions workflow publishes successfully.
 
-For the PR mechanics in step 2, defer to the `osprey-contribute` skill.
+For the PR mechanics in step 2, defer to the `/osprey:contribute` skill.
 
 ## Versioning: CalVer
 
@@ -188,7 +188,7 @@ echo "changelog.d/:   $(ls changelog.d | grep -vc '^README.md$') fragment(s) on 
 echo "staged:         $(git diff --cached --name-only -- changelog.d/ CHANGELOG.md | tr '\n' ' ')"
 ```
 
-Now hand off to `osprey-contribute` for the rest of the PR mechanics:
+Now hand off to `/osprey:contribute` for the rest of the PR mechanics:
 `quick_check.sh` → commit (`release: notes for vYYYY.M.P`) →
 `ci_check.sh` → push → `premerge_check.sh main` → `gh pr create`.
 

@@ -67,7 +67,6 @@ Build from the edited profile: `osprey build`
 | The `deploy:` block's shape and rules | `src/osprey/cli/build_profile_deploy.py` |
 | Selectable model providers | `_BUILTIN_PROVIDERS` in `src/osprey/models/provider_registry.py` |
 | App templates rendered into a project | `src/osprey/templates/apps/` |
-| Bundled skills | `src/osprey/templates/skills/` |
 | Control-system connectors | `src/osprey/connectors/` |
 
 Open the preset file rather than describing it from memory: safety posture, enabled
@@ -99,4 +98,7 @@ that document themselves inline, worth opening verbatim:
 
 ## Adjacent skills
 
-- `creating-an-osprey-panel` — web-panel authoring.
+These ship in the same plugin, at `plugins/osprey/skills/` in the OSPREY
+repository — outside the wheel, so the join above does not reach them.
+
+- `/osprey:panel` — web-panel authoring.
