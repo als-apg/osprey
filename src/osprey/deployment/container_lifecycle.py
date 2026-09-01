@@ -3031,6 +3031,79 @@ def _preflight_pinned_overrides(repo_root: Path | str) -> list[str]:
     )
 
 
+#: The proxy names the login service is handed from the chain, in their
+#: lowercase spelling — the one curl honours and site documentation hands out.
+_LOWERCASE_PROXY_NAMES = ("http_proxy", "https_proxy", "no_proxy")
+
+
+def _warn_lowercase_proxy_names(repo_root: Path | str, config: dict) -> list[tuple[str, str]]:
+    """Warn (never rewrite) when the chain spells a proxy name the login service cannot see.
+
+    The login service receives exactly three names from the chain —
+    ``HTTP_PROXY``, ``HTTPS_PROXY``, ``NO_PROXY`` — interpolated one by one into
+    its compose ``environment:``; every other container reads the whole chain
+    through ``env_file:``. A chain spelling one of them in lowercase therefore
+    reaches every container except the one that has to reach the identity
+    provider, and nothing notices: the stack starts, the health check is green,
+    and every login fails at the discovery fetch. ``no_proxy`` is the sharp
+    case — a lowercase bypass list beside an uppercase proxy hands the sidecar
+    a proxy with no exceptions, and an on-site issuer is then asked for through
+    a relay that refuses internal hosts.
+
+    Passing the lowercase names through as well is not the fix: ``${var:-}``
+    renders an empty lowercase name beside a set uppercase one on every host
+    that sets only uppercase, and ``urllib.request.getproxies_environment``
+    pops a scheme whose lowercase spelling is present and empty. So the
+    uppercase-only passthrough stays, and this is the check the rule was
+    missing — at the one moment the operator can still fix it.
+
+    Advisory, and the value is left as written, on the same grounds as
+    ``_warn_on_invalid_proxy_env`` in the resolver: a rename the operator did
+    not make would surprise every other consumer of the name. Scoped to a
+    deployment that renders the login service and sends it out to an identity
+    provider — web terminals on, ``auth.method: oidc`` — because that is the
+    one container the lowercase spelling misses. **Names only, never values.**
+
+    :param repo_root: The deployment repo holding the chain.
+    :param config: The rendered config, for the web-terminal and auth gates.
+    :return: ``(file, name)`` per lowercase name whose uppercase twin nothing
+        in the chain sets, naming the file that set it — the local file when
+        both do, since that is the line that wins. Empty when there is nothing
+        to say.
+    """
+    if not _web_terminals_enabled(config):
+        return []
+    web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
+    auth = web_terminals.get("auth") or {}
+    if not isinstance(auth, dict) or auth.get("method") != "oidc":
+        return []
+
+    root = Path(repo_root).expanduser().absolute()
+    shared_path = root / ENV_SHARED_FILENAME
+    local_path = root / COMPOSE_ENV_FILENAME
+    shared = parse_dotenv_file(shared_path) if shared_path.is_file() else {}
+    local = parse_dotenv_file(local_path) if local_path.is_file() else {}
+    chain = {**shared, **local}
+
+    findings: list[tuple[str, str]] = []
+    for lower in _LOWERCASE_PROXY_NAMES:
+        if lower not in chain or lower.upper() in chain:
+            continue
+        where = COMPOSE_ENV_FILENAME if lower in local else ENV_SHARED_FILENAME
+        findings.append((where, lower))
+        logger.warning(
+            "%s sets %s, and nothing in the chain sets %s. The login service is handed "
+            "the three uppercase proxy names and nothing else, so its identity-provider "
+            "fetches will not see this value: the stack will start, and every login will "
+            "fail at the discovery fetch. Rename it to %s. The value is left as written.",
+            where,
+            lower,
+            lower.upper(),
+            lower.upper(),
+        )
+    return findings
+
+
 def _deploy_written_env_vars() -> set[str]:
     """Every variable name a deploy-time writer can put into ``.env``.
 
@@ -5644,6 +5717,12 @@ def _start_stack(
     # than about the ones the mint below is going to append, and so a deploy
     # doomed by a contradicted pin aborts having provisioned nothing.
     _preflight_pinned_overrides(repo_root)
+    # Advisory sibling on the same chain: a proxy name spelled in lowercase
+    # reaches every container but the login service, which is handed the
+    # uppercase three and nothing else. Warned here, beside the refusals that
+    # read the same two files, so the file and the variable are named while
+    # the operator still has them in front of them.
+    _warn_lowercase_proxy_names(repo_root, config)
 
     # Self-provision fail-closed service tokens into .env (before the --env-file
     # check below) so a fresh deploy is secure by default. The dispatch worker

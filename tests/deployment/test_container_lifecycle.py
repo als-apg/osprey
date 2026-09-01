@@ -3511,3 +3511,109 @@ def test_a_pinned_worker_image_builds_nothing_under_either_axis(monkeypatch, axe
         )
         is None
     )
+
+
+# ---------------------------------------------------------------------------
+# The lowercase-proxy advisory on the env chain
+# ---------------------------------------------------------------------------
+#
+# The login service is handed HTTP_PROXY / HTTPS_PROXY / NO_PROXY from the chain
+# and nothing else, so a lowercase spelling reaches every other container and
+# misses the one that has to reach the identity provider. The advisory names
+# the file and the variable, never the value, and fires only where the login
+# service makes that outbound call.
+
+
+def _oidc_web_config(**overrides) -> dict:
+    web_terminals = {"enabled": True, "auth": {"method": "oidc"}}
+    web_terminals.update(overrides)
+    return {"modules": {"web_terminals": web_terminals}}
+
+
+def _chain_repo(tmp_path: Path, *, shared: str | None = None, local: str | None = None) -> Path:
+    root = tmp_path / "repo"
+    root.mkdir()
+    if shared is not None:
+        (root / ".env.shared").write_text(shared, encoding="utf-8")
+    if local is not None:
+        (root / ".env").write_text(local, encoding="utf-8")
+    return root
+
+
+def test_lowercase_no_proxy_without_an_uppercase_twin_is_named(tmp_path, caplog):
+    """The sharp case from the issue: an uppercase proxy beside a lowercase bypass list."""
+    repo = _chain_repo(
+        tmp_path,
+        shared="HTTPS_PROXY=http://proxy.example.com:8080\nno_proxy=idp.example.com,localhost\n",
+    )
+
+    with caplog.at_level(logging.WARNING):
+        findings = container_lifecycle._warn_lowercase_proxy_names(repo, _oidc_web_config())
+
+    assert findings == [(".env.shared", "no_proxy")]
+    message = caplog.text
+    assert ".env.shared" in message
+    assert "no_proxy" in message
+    assert "NO_PROXY" in message
+    # Names only, never values.
+    assert "idp.example.com" not in message
+    assert "proxy.example.com" not in message
+
+
+def test_a_lowercase_name_with_its_uppercase_twin_set_anywhere_in_the_chain_is_fine(
+    tmp_path, caplog
+):
+    """The twin can sit in either file: the chain is read merged, later winning."""
+    repo = _chain_repo(
+        tmp_path,
+        shared="https_proxy=http://proxy.example.com:8080\n",
+        local="HTTPS_PROXY=http://proxy.example.com:8080\n",
+    )
+
+    with caplog.at_level(logging.WARNING):
+        findings = container_lifecycle._warn_lowercase_proxy_names(repo, _oidc_web_config())
+
+    assert findings == []
+    assert "https_proxy" not in caplog.text
+
+
+def test_the_local_file_is_named_when_it_is_the_one_that_sets_the_lowercase_name(tmp_path):
+    repo = _chain_repo(
+        tmp_path,
+        shared="http_proxy=http://a.example.com:8080\n",
+        local="http_proxy=http://b.example.com:8080\n",
+    )
+
+    assert container_lifecycle._warn_lowercase_proxy_names(repo, _oidc_web_config()) == [
+        (".env", "http_proxy")
+    ]
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        {},
+        {"modules": {"web_terminals": {"enabled": False, "auth": {"method": "oidc"}}}},
+        _oidc_web_config(auth={"method": "password"}),
+        _oidc_web_config(auth={"method": "token"}),
+        _oidc_web_config(auth=None),
+    ],
+    ids=["no-web-terminals", "web-terminals-off", "password", "token", "no-auth-stanza"],
+)
+def test_the_advisory_is_scoped_to_a_deployment_whose_login_service_reaches_out(
+    tmp_path, caplog, config
+):
+    """Only an OIDC login service makes the outbound call the lowercase name misses."""
+    repo = _chain_repo(tmp_path, shared="https_proxy=http://proxy.example.com:8080\n")
+
+    with caplog.at_level(logging.WARNING):
+        findings = container_lifecycle._warn_lowercase_proxy_names(repo, config)
+
+    assert findings == []
+    assert "https_proxy" not in caplog.text
+
+
+def test_a_repo_with_no_chain_files_is_silent(tmp_path):
+    repo = _chain_repo(tmp_path)
+
+    assert container_lifecycle._warn_lowercase_proxy_names(repo, _oidc_web_config()) == []
