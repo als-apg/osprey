@@ -3893,10 +3893,29 @@ def _long_grid_args(stack: DeployedScanStack, num_points: int) -> dict[str, Any]
     half of the corrector's OWN ``channel_limits.json`` entry, so nothing here
     hardcodes a facility channel or asks the reference monitor for a value
     outside its band.
+
+    The corrector NAMES come from the roster (``stack.correctors``); the limit
+    VALUES come from ``channel_limits.json``, which gates a subset of those
+    channels and enumerates none of them (see ``_orm_stack.channel_limits``).
+    So the axis is the first staged corrector the limits file actually bounds,
+    not simply the first one staged.
     """
-    axis_name = next(iter(stack.correctors))
-    sp_address, _rb = stack.correctors[axis_name]
-    entry = stack.limits[sp_address]
+    limits = _orm_stack.channel_limits(stack.repo)
+    axis = next(
+        (
+            (name, entry)
+            for name, (sp_address, _rb) in stack.correctors.items()
+            if isinstance(entry := limits.get(sp_address), dict)
+            and "min_value" in entry
+            and "max_value" in entry
+        ),
+        None,
+    )
+    assert axis is not None, (
+        "no staged corrector has a channel_limits band -- the long grid needs "
+        "a bounded axis to size its sweep"
+    )
+    axis_name, entry = axis
     lo, hi = float(entry["min_value"]), float(entry["max_value"])
     return {
         "readbacks": [next(iter(stack.bpms))],
