@@ -355,3 +355,32 @@ export function switchConfirm(row, kind, word) {
     confirmLabel: 'Switch',
   };
 }
+
+/**
+ * Whether one confirm may offer "don't ask again". Per gesture and per
+ * machine kind, because the two dialogs guard different things: a switch is
+ * recoverable (switch back, and the write state does not travel), so its
+ * ceremony may be waived anywhere; turning writes on is the gesture after
+ * which a write can land, and on a live machine that write moves hardware —
+ * that one dialog keeps asking, always.
+ * @param {'switch'|'writes-on'} gesture
+ * @param {string} kind  kindAttr's answer for the row
+ * @returns {boolean}
+ */
+export function confirmSkippable(gesture, kind) {
+  return gesture === 'switch' || kind !== 'live';
+}
+
+/**
+ * The localStorage key BASE under which a waived confirm is remembered — one
+ * slot per gesture per machine, so the first switch to each machine still
+ * explains itself once. Callers resolve it through `scopedStorageKey()`
+ * (storage-scope.js): on a multi-user mount one operator's waiver must not
+ * silence the dialog for everyone else.
+ * @param {'switch'|'writes-on'} gesture
+ * @param {any} row
+ * @returns {string}
+ */
+export function confirmSkipKeyBase(gesture, row) {
+  return `osprey-ctc-skip-confirm:${gesture}:${row.target}`;
+}

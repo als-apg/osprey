@@ -957,7 +957,6 @@ def _stub_web_stack(monkeypatch, tmp_path):
     monkeypatch.setattr(provision, "build_persona_images", lambda *a, **kw: None)
     monkeypatch.setattr(provision, "build_auth_sidecar_image", lambda *a, **kw: None)
     monkeypatch.setattr(provision, "_reconcile_web_stack_recreates", lambda *a, **kw: None)
-    monkeypatch.setattr(provision, "reload_nginx_config", lambda *a, **kw: None)
     monkeypatch.setattr(provision, "enable_linger", lambda *a, **kw: None)
     monkeypatch.setattr(provision, "seed_user_containers", lambda *a, **kw: None)
     monkeypatch.setattr(provision, "run_verify_script", lambda *a, **kw: None)
@@ -975,6 +974,21 @@ def test_local_mode_web_stack_never_pulls_the_local_auth_image(monkeypatch, tmp_
 
     assert not any("pull" in cmd for cmd in recorded)
     assert any(cmd[-2:] == ["up", "-d"] for cmd in recorded)
+
+
+def test_deploy_up_force_recreates_nginx(monkeypatch, tmp_path):
+    """The build stage regenerates ``build/`` from scratch (rmtree + render),
+    so a running nginx's file bind mounts (nginx.conf, landing.html) point at
+    the PREVIOUS render's inodes. ``nginx -s reload`` re-reads the dead inode
+    (native Linux) or fails outright (Docker Desktop's VirtioFS unlinks it, so
+    the landing page 404s and the healthcheck flips unhealthy) — only a
+    recreate rebinds the mounts to the fresh files. Scoped to the nginx
+    service: the rest of the stack is `up -d`'s to reconcile."""
+    recorded = _stub_web_stack(monkeypatch, tmp_path)
+
+    provision.deploy_up_web_terminals(_sidecar_config("local"), [], False, {}, [])
+
+    assert any(cmd[-4:] == ["up", "-d", "--force-recreate", "nginx"] for cmd in recorded), recorded
 
 
 def test_registry_mode_web_stack_still_pulls(monkeypatch, tmp_path):

@@ -39,6 +39,8 @@ import {
   createQueueStream,
   describeProgress,
   describeQueueStatus,
+  haltsCollapsible,
+  finishedRunId,
   historyChanged,
   historyEmptyState,
   historyRecords,
@@ -146,6 +148,30 @@ describe('reduceQueueFrame', () => {
   test('an empty running_item object reads as no running item', () => {
     const next = reduceQueueFrame(createInitialQueueState(), frame({ running_item: null }));
     expect(next.runningItem).toBeNull();
+  });
+});
+
+describe('finishedRunId', () => {
+  test('a run leaving the running slot is reported by its OSPREY run id', () => {
+    expect(finishedRunId(item(), null)).toBe('run-1');
+  });
+
+  test('a handover to the next run reports the one that finished', () => {
+    const next = item({ item_uid: 'uid-2', meta: { osprey_run_id: 'run-2' } });
+    expect(finishedRunId(item(), next)).toBe('run-1');
+  });
+
+  test('the same run still running has not finished', () => {
+    expect(finishedRunId(item(), item())).toBe(null);
+  });
+
+  test('nothing was running, so nothing finished', () => {
+    expect(finishedRunId(null, item())).toBe(null);
+    expect(finishedRunId(null, null)).toBe(null);
+  });
+
+  test('an out-of-band item without an OSPREY run id has no run to follow', () => {
+    expect(finishedRunId(item({ meta: {} }), null)).toBe(null);
   });
 });
 
@@ -321,6 +347,61 @@ describe('queueControls', () => {
     expect(controls.stop.arming).toBe(true);
     // The consequence, spelled out: this un-halts a queue a human halted.
     expect(controls.stop.note).toContain('keep draining');
+  });
+});
+
+describe('haltsCollapsible', () => {
+  /**
+   * @param {any} status
+   * @param {any} [runningItem]
+   * @param {boolean} [connected]
+   */
+  function stateWith(status, runningItem = null, connected = true) {
+    return { status, items: [], runningItem, connected, frames: connected ? 1 : 0 };
+  }
+
+  test('a provably dormant queue may fold its halts', () => {
+    expect(haltsCollapsible(stateWith(summary()))).toBe(true);
+  });
+
+  test('no frame yet keeps the halts pinned open', () => {
+    // First paint is exactly when a queue may already be executing; folding
+    // is earned by knowledge, and before the first frame there is none.
+    expect(haltsCollapsible(createInitialQueueState())).toBe(false);
+  });
+
+  test('a dropped stream keeps them open even with a stale idle summary', () => {
+    expect(haltsCollapsible(stateWith(summary(), null, false))).toBe(false);
+  });
+
+  test('an unreadable manager keeps them open', () => {
+    expect(haltsCollapsible(stateWith({ available: false, reason: 'x' }))).toBe(false);
+    expect(haltsCollapsible(stateWith(null))).toBe(false);
+  });
+
+  test('a missing or unrecognized manager state keeps them open', () => {
+    // An unknown state string is doubt, and doubt shows the halts — the
+    // default direction is EXPANDED, so only states this predicate can
+    // positively call dormant may fold.
+    expect(haltsCollapsible(stateWith(summary({ manager_state: null })))).toBe(false);
+  });
+
+  test('every active manager state keeps them open', () => {
+    for (const managerState of QUEUE_ACTIVE_MANAGER_STATES) {
+      expect(haltsCollapsible(stateWith(summary({ manager_state: managerState })))).toBe(false);
+    }
+  });
+
+  test('a pending stop keeps them open — the withdrawal must stay visible', () => {
+    expect(haltsCollapsible(stateWith(summary({ queue_stop_pending: true })))).toBe(false);
+  });
+
+  test('autostart keeps them open — an idle autostarting queue is not dormant', () => {
+    expect(haltsCollapsible(stateWith(summary({ queue_autostart_enabled: true })))).toBe(false);
+  });
+
+  test('a running item keeps them open regardless of the summary', () => {
+    expect(haltsCollapsible(stateWith(summary(), item()))).toBe(false);
   });
 });
 
@@ -2586,6 +2667,76 @@ describe('the merged panel shell', () => {
     // Coming back clears it.
     byId('view-tab-results').click();
     expect(resultsNavEntry().label).toBe('Results');
+  });
+
+  test('a run finishing with nothing selected fills Results without switching tabs', async () => {
+    // The regression this pins: a fast run completes between two glances, and
+    // in Expert mode nothing followed it — the Results view sat on its empty
+    // state while the finished run's row waited in the Completed-runs card on
+    // the other tab.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url) => {
+        const path = String(url);
+        if (path.endsWith('/runs/run-1')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ id: 'run-1', status: 'completed', plan_name: 'grid_scan' }),
+          };
+        }
+        if (path.endsWith('/runs/run-1/data')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              columns: ['x'],
+              rows: [[1]],
+              row_count: 1,
+              truncated: false,
+              partial: false,
+            }),
+          };
+        }
+        if (path.endsWith('/runs/run-1/figure')) {
+          return { ok: true, status: 200, json: async () => ({ panels: [], partial: false }) };
+        }
+        if (path.endsWith('/runs')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => [{ id: 'run-1', status: 'completed', plan_name: 'grid_scan' }],
+          };
+        }
+        return { ok: true, status: 200, json: async () => [] };
+      })
+    );
+    mount(); // Expert mode — the Simple-mode auto-pick is not in play.
+    await import(`${BUNDLE}panel.js`);
+
+    byId('view-tab-queue').click();
+    pushQueueFrame({
+      type: 'queue',
+      status: summary({ manager_state: 'executing_queue', running_item_uid: 'uid-1' }),
+      items: [],
+      running_item: item(),
+    });
+    pushQueueFrame({
+      type: 'queue',
+      status: summary({ items_in_history: 1, plan_history_uid: 'h2' }),
+      items: [],
+      running_item: null,
+    });
+
+    // The finished run is followed: its record lands in the Results view...
+    await vi.waitFor(() => expect(byId('results-empty').hidden).toBe(true));
+    await vi.waitFor(() => expect(byId('data-card').hidden).toBe(false));
+    // ...without yanking the operator off the tab they were on.
+    expect(visibleViews()).toEqual(['queue']);
+    // The Completed-runs card marks the same run selected once history lands.
+    await vi.waitFor(() =>
+      expect(byId('history-items').querySelector('.queue-row.selected')).not.toBeNull()
+    );
   });
 
   test('standalone, the panel contributes nothing and stays navigable', async () => {

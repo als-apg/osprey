@@ -4,6 +4,11 @@
     "kind": "static",
     "osprey_version": "2026.6.2.post1352+geab911034.d20260819"
   },
+  "control_target_popover": {
+    "captured_utc": "2026-08-31T16:14:17.525321+00:00",
+    "kind": "static",
+    "osprey_version": "2026.6.2.post2090+g23b198224.d20260831"
+  },
   "display_menu": {
     "captured_utc": "2026-08-25T22:10:58.781715+00:00",
     "kind": "static",

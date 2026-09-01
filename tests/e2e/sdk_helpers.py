@@ -34,6 +34,7 @@ from typing import Any
 
 import yaml
 
+from osprey.port_layout import BLOCK_SIZE
 from tests import ci_diagnostics
 
 # SDK imports — skip entire module if not installed
@@ -231,6 +232,27 @@ def _override_ariel_db_uri(render: Path) -> None:
     config_path.write_text(text.replace(_DEFAULT_ARIEL_DB_URI, override), encoding="utf-8")
 
 
+#: First port of the block the projects of xdist worker 0 bind. Each worker
+#: takes the next ``BLOCK_SIZE`` block, so ``-n 4`` spans 25000-28999: clear
+#: of the default 10000 block a real deployment on the host may hold, of the
+#: 21xxx bands the full-stack lanes pin, and below the ephemeral range the
+#: kernel hands out from 32768.
+E2E_PORT_BASE = 25000
+
+
+def e2e_port_base() -> int:
+    """The ``deployment.port_base`` for a project built by this xdist worker.
+
+    Every companion server's port is an offset from the block — the artifact
+    gallery's among them, and the gallery auto-launches on the first artifact
+    save. Two workers whose projects share a block therefore race for one
+    gallery port: whichever binds first owns it, and a test on the other
+    worker then reaches a gallery holding a different stack's bearer token
+    and is answered 401 (#823). One block per worker ends the sharing.
+    """
+    return E2E_PORT_BASE + BLOCK_SIZE * ci_diagnostics.worker_index()
+
+
 def init_project(
     tmp_path: Path,
     name: str,
@@ -361,6 +383,7 @@ def init_project(
         encoding="utf-8",
     )
     init_args.extend(["-O", str(preset_pins)])
+    init_args.extend(["--set", f"port_base={e2e_port_base()}"])
     if effective_tier is not None:
         init_args.extend(["--set", f"tier={effective_tier}"])
     if channel_finder_mode is not None:

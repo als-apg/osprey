@@ -113,8 +113,12 @@ def store_file(shared_root):
 
 
 @pytest.fixture
-def legacy_file(shared_root):
-    """Where the session-wide posture kept its store, directly under the root."""
+def retired_location(shared_root):
+    """Where the session-wide posture kept its store, directly under the root.
+
+    Retired: no reader consults it. It exists here only so a test can put a
+    file there and watch it change nothing.
+    """
     return shared_root / STORE_NAME
 
 
@@ -446,65 +450,30 @@ class TestDualKeyWrite:
         assert _posture_entry(app, None) == {}
 
 
-# ── The one-shot migration off the old path ──────────────────────────────────
+# ── One location, and the retired one ────────────────────────────────────────
 
 
-class TestMigrationFromTheOldPath:
-    def test_an_old_store_is_migrated_and_written_to_the_new_path(
-        self, app, legacy_file, store_file
+class TestTheStoreHasOneLocation:
+    def test_a_file_at_the_retired_location_is_neither_read_nor_migrated(
+        self, app, retired_location, store_file
     ):
-        """A deployment upgrading with a sandboxed session live.
+        """The session-wide posture's store is retired: it narrows nothing and
+        nothing is written on its account."""
+        _write_json(retired_location, {SESSION_A: "sandbox", OPERATOR_A: "sandbox"})
 
-        The narrowing must not be lifted the moment the code lands, so the old
-        path is read through once; and it must stop being read, so the migrated
-        shape is written to the new path straight away.
-        """
-        _write_json(legacy_file, {SESSION_A: "sandbox", OPERATOR_A: "sandbox"})
+        assert _session_postures(app) == {}
+        assert not store_file.exists()
 
-        store = _session_postures(app)
-
-        assert store == {SESSION_A: EVERY_TARGET}
-        assert json.loads(store_file.read_text(encoding="utf-8")) == {SESSION_A: EVERY_TARGET}
-
-    def test_the_old_file_is_left_alone(self, app, legacy_file, store_file):
-        """A rollback has to find it. Nothing here writes to the old path."""
-        payload = {SESSION_A: "sandbox"}
-        _write_json(legacy_file, payload)
-
-        _session_postures(app)
-
-        assert json.loads(legacy_file.read_text(encoding="utf-8")) == payload
-
-    def test_the_new_path_wins_once_it_exists(self, app, legacy_file, store_file):
-        """The read-through is one-shot: the old file stops answering."""
-        _write_json(legacy_file, {SESSION_A: "sandbox"})
+    def test_a_narrowing_at_the_one_location_holds(self, app, retired_location, store_file):
+        """With nothing at the retired location, the real store still governs —
+        its absence is not a permissive default."""
         _write_json(store_file, {CHAT_A: {"va": "sandbox"}})
 
+        assert not retired_location.exists()
         assert _session_postures(app) == {CHAT_A: {"va": SANDBOX}}
 
-    def test_an_old_store_that_narrows_nothing_writes_no_file(self, app, legacy_file, store_file):
-        """There is no such thing as an empty entry worth migrating."""
-        _write_json(legacy_file, {SESSION_A: "writes", OPERATOR_A: "sandbox"})
-
+    def test_no_store_at_all_is_an_empty_store(self, app, store_file):
         assert _session_postures(app) == {}
-        assert not store_file.exists()
-
-    def test_no_old_store_at_all_is_an_empty_store(self, app, store_file):
-        assert _session_postures(app) == {}
-        assert not store_file.exists()
-
-    def test_a_failed_migration_write_still_serves_the_migrated_store(
-        self, app, legacy_file, store_file
-    ):
-        """The old file still answers until the write lands, so nothing is lost."""
-        _write_json(legacy_file, {SESSION_A: "sandbox"})
-
-        with patch.object(
-            websocket_routes, "_atomic_write_json", side_effect=OSError("read-only fs")
-        ):
-            store = _session_postures(app)
-
-        assert store == {SESSION_A: EVERY_TARGET}
         assert not store_file.exists()
 
 

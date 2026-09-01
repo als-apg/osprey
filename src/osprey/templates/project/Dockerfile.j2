@@ -116,6 +116,16 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
 # builds — mirrors the dispatch-worker image's pinned install.
 RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
     npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}"
+# The pin above is the whole point, so the CLI's background self-updater is
+# switched off: an update that succeeded would silently replace the pinned
+# version, and one that fails is what the operator actually sees — a red
+# "Auto-update failed" line under the prompt on every session. It always fails
+# here: npm installed the CLI as root, and the entrypoint drops the agent to
+# `osprey`, for whom the npm prefix is not writable. Upgrading the CLI is an
+# image rebuild against a new pin, never a live self-update. The value reaches
+# the agent because the launch paths build the child env from this process's
+# environment (agent_runner.clean_env), stripping only CLAUDE_CODE_* names.
+ENV DISABLE_AUTOUPDATER=1
 
 # OSPREY + profile dependencies (deps layer). A C toolchain (build-essential +
 # python3-dev) is needed at install time to compile native deps (e.g.

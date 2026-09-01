@@ -345,16 +345,12 @@ def _session_postures(app) -> dict[str, dict[str, str]]:
     recreated container never serves a session whose persisted narrowing it has
     not read.
 
-    **The one-shot migration.** The session-wide posture kept its store
-    directly under the agent-data root; this one lives in the ``control_target``
-    directory beside the state file. When the new path holds nothing, the old
-    one is read through once, migrated into memory and written to the new path
-    straight away — the old file is left where it is, because a deployment that
-    rolls back must still find it. Persisting immediately is what ends the
-    read-through: :func:`session_store.legacy_store_path` answers only while
-    the new file does not exist, so every other reader is on the new path from
-    that moment. Nothing is migrated when the old store narrowed nothing —
-    there is no such thing as an empty entry worth writing.
+    The store has exactly one location — ``session_store.store_path()``, in the
+    ``control_target`` directory beside the state file. A file that is not there
+    is an empty store: nothing has been narrowed, and the deployment ceiling
+    stays in charge. (The session-wide posture that predated targets kept a
+    store directly under the agent-data root; that location is retired and no
+    reader consults it.)
 
     A load taken while the store has **no location** is kept provisional and
     retried on the next access. Caching it would let one transient config
@@ -367,15 +363,7 @@ def _session_postures(app) -> dict[str, dict[str, str]]:
         return store
 
     path = _posture_store_path()
-    migrated = False
-    if path is None:
-        loaded: dict[str, dict[str, str]] = {}
-    elif path.exists():
-        loaded = _load_postures(path)
-    else:
-        legacy = session_store.legacy_store_path()
-        loaded = _load_postures(legacy) if legacy is not None else {}
-        migrated = bool(loaded)
+    loaded = _load_postures(path) if path is not None else {}
 
     if store is None:
         store = loaded
@@ -390,17 +378,6 @@ def _session_postures(app) -> dict[str, dict[str, str]]:
         store.update(merged)
     app.state.session_postures = store
     app.state.session_postures_provisional = path is None
-
-    if migrated and path is not None:
-        try:
-            _write_store(path, store)
-        except Exception:  # noqa: BLE001 — the old file still answers until this lands
-            logger.warning(
-                "Could not write the migrated session-posture store to %s; the previous "
-                "store still governs and the migration is retried on the next restart",
-                path,
-                exc_info=True,
-            )
     return store
 
 

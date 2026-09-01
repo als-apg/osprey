@@ -70,7 +70,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 import subprocess
 import tomllib
 from collections.abc import Iterator
@@ -82,6 +81,7 @@ from click.testing import CliRunner
 
 from osprey.cli.main import cli
 from osprey.utils.workspace import container_image_context
+from tests._container_support import docker_cli_unavailable_reason
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONNECTORS_PYPROJECT = REPO_ROOT / "packages" / "osprey-connectors" / "pyproject.toml"
@@ -108,14 +108,13 @@ EMULATED_BUILD_OPT_IN = "OSPREY_ARM64_EMULATED_BUILD"
 
 
 @cache
-def _docker_available() -> bool:
-    """Whether a usable docker daemon is reachable (memoised, probed once)."""
-    if shutil.which("docker") is None:
-        return False
-    try:
-        return subprocess.run(["docker", "info"], capture_output=True, timeout=10).returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
-        return False
+def _docker_unavailable_reason() -> str | None:
+    """Why the docker CLI is unusable here, or ``None`` (memoised, probed once).
+
+    The shared probe words a slow daemon apart from an absent one, so a loaded
+    host shows up in the report as "timed out" rather than as "no docker" (#820).
+    """
+    return docker_cli_unavailable_reason()
 
 
 @cache
@@ -130,11 +129,12 @@ def _buildx_platforms() -> tuple[str, ...]:
     own platform first and the emulated ones after it, which is how the CI
     guard below tells a native arm64 machine from an emulating x86_64 one.
 
-    Both this probe and ``_docker_available`` are memoised because this module
-    is evaluated at import time in every collecting process; without the cache
-    the same two ``docker`` calls run again on each re-evaluation.
+    Both this probe and ``_docker_unavailable_reason`` are memoised because
+    this module is evaluated at import time in every collecting process;
+    without the cache the same two ``docker`` calls run again on each
+    re-evaluation.
     """
-    if not _docker_available():
+    if _docker_unavailable_reason() is not None:
         return ()
     try:
         probe = subprocess.run(
@@ -169,12 +169,12 @@ def _arm64_skip_reason() -> str | None:
       emulated CI run stays reachable on purpose via
       ``OSPREY_ARM64_EMULATED_BUILD=1``.
     """
+    docker_reason = _docker_unavailable_reason()
+    if docker_reason is not None:
+        return docker_reason
     platforms = _buildx_platforms()
     if TARGET_PLATFORM not in platforms:
-        return (
-            f"no builder for {TARGET_PLATFORM} (docker missing, or no qemu/binfmt "
-            "handler registered for arm64)"
-        )
+        return f"no builder for {TARGET_PLATFORM} (no qemu/binfmt handler registered for arm64)"
     if os.environ.get("CI") and platforms[0] != TARGET_PLATFORM:
         if not os.environ.get(EMULATED_BUILD_OPT_IN):
             return (

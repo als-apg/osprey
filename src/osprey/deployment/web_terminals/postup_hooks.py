@@ -183,7 +183,15 @@ def run_verify_script(project_root: str, run_env: dict[str, str]) -> None:
 
 
 def reload_nginx_config(web_cmd: list[str], run_env: dict[str, str]) -> None:
-    """Advisory nginx config hot-reload after the web stack's ``up -d``.
+    """Advisory nginx config hot-reload after an IN-PLACE artifact rewrite.
+
+    Only valid where the render rewrote ``nginx.conf`` without replacing its
+    inode (``write_web_terminal_artifacts``'s ``write_text``) — the roster
+    verbs. It is deliberately NOT on the deploy path: the build stage there
+    regenerates ``build/`` from scratch, orphaning a running nginx's file bind
+    mounts, and a reload through an orphaned mount re-reads the dead inode —
+    that path force-recreates the nginx service instead (see
+    ``deploy_up_web_terminals``).
 
     Scoped to the web compose invocation (``exec -T nginx``) so no container
     name is guessed. Advisory like :func:`run_verify_script`: nginx validates

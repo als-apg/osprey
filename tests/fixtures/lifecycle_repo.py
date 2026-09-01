@@ -240,8 +240,8 @@ web_panels:
   - channel-finder  # Interactive channel-finder web UI
   - okf             # KNOWLEDGE tab, for browsing the facility knowledge bundle
   - system-health   # SYSTEM tab, a framework health dashboard
-  # The events and bluesky panels are declared in personas/readwrite.yml
-  # instead, so the read-only login is built without them.
+  # The events and bluesky panels are declared by the write-armed personas
+  # (readwrite and admin) instead, so the read-only login is built without them.
   # Available — uncomment to enable:
   # - lattice  # Lattice dashboard
 
@@ -986,6 +986,17 @@ name: Als Exemplar (admin)
 # all gated on this flag and skip cleanly.
 deploy_services: false
 
+# The write-oriented panels, exactly as the readwrite tier declares them: the
+# admin tier is a full operator desk plus deployment editing, never an operator
+# desk minus. Persona lists UNION over the base, so these are added to the
+# inherited builtin set. Each tab's URL, path and label are not spelled here:
+# the hosting deployment's build derives them when it injects the event
+# dispatcher and the bluesky-web sidecar, and this attached render is told
+# them from that render (the Reach Contract, `osprey.deployment.reach`).
+web_panels:
+  - events          # EVENTS dashboard tab (event dispatcher)
+  - bluesky         # Plan authoring, the plan queue, and the run's live results
+
 # The guided configuration workflow, left out of the base on purpose because it
 # edits config.yml and .mcp.json. Skill lists UNION over the base, so this is
 # added to the inherited selection rather than replacing it.
@@ -1303,6 +1314,8 @@ ENV_SHARED = """\
 # HTTPS_PROXY=http://proxy.example.com:8080
 
 # Site CA bundle — uncomment if a proxy re-signs TLS with a site CA.
+# The login service does not receive it (nothing mounts a CA into that image),
+# so an identity-provider fetch behind such a proxy still fails there.
 # On RHEL-family hosts the system bundle lives here:
 # SSL_CERT_FILE=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
 # REQUESTS_CA_BUNDLE=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
@@ -1890,8 +1903,8 @@ FACILITY_ONTOLOGY_JSON = """\
 CHANNEL_LIMITS_JSON = """\
 {
   "_comment": "Write limits, enforced by the limits hook before any write reaches the control system. A channel is writable if and only if it is a setpoint (:SP); every other address is read-only, whatever this file says.",
-  "SR:MAG:HCM:01:CURRENT:SP": { "min": -5.0, "max": 5.0, "units": "A" },
-  "SR:MAG:HCM:02:CURRENT:SP": { "min": -5.0, "max": 5.0, "units": "A" }
+  "SR:MAG:HCM:01:CURRENT:SP": { "min_value": -5.0, "max_value": 5.0, "writable": true },
+  "SR:MAG:HCM:02:CURRENT:SP": { "min_value": -5.0, "max_value": 5.0, "writable": true }
 }
 """
 

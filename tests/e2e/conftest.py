@@ -6,10 +6,34 @@ See tests/e2e/README.md for details.
 
 import json
 import os
+import sys
 
 import pytest
 
 from osprey.registry import reset_registry
+
+
+def _print_failure_now(report) -> None:
+    """Put a failed test's traceback in the log the moment it fails.
+
+    pytest renders the FAILURES section when the session ends. The e2e lanes
+    run under a CI step cap, and a step-timeout kill lands after the per-test
+    FAILED line and before that section — so the traceback the run existed to
+    surface is exactly what the log then lacks (#824). Printed here it is in
+    the log the instant it is known; a run that survives to the end shows it a
+    second time in the usual place. A rerun attempt prints too
+    (pytest-rerunfailures reports it as ``rerun``, not ``failed``): the kill
+    lands during a later attempt, and the earlier ones are the evidence.
+    """
+    if report.outcome not in ("failed", "rerun"):
+        return
+    text = getattr(report, "longreprtext", "")
+    if not text:
+        return
+    label = "RERUN" if report.outcome == "rerun" else "FAILED"
+    rule = "_" * 12
+    sys.stdout.write(f"\n{rule} {label} {report.nodeid} [{report.when}] {rule}\n{text}\n")
+    sys.stdout.flush()
 
 
 def pytest_runtest_logreport(report):
@@ -18,6 +42,7 @@ def pytest_runtest_logreport(report):
     only when the whole 92-test suite finishes (issue #259). No-op unless the env
     var is set, so normal e2e runs are unaffected. Timeouts (pytest-timeout) are
     detected from the failure text and tagged distinctly (never a plain 'failed')."""
+    _print_failure_now(report)
     live = os.environ.get("OSPREY_E2E_LIVE")
     if not live:
         return

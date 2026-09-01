@@ -33,6 +33,17 @@ extends: control-assistant
 # all gated on this flag and skip cleanly.
 deploy_services: false
 
+# The write-oriented panels, exactly as the readwrite tier declares them: the
+# admin tier is a full operator desk plus deployment editing, never an operator
+# desk minus. Persona lists UNION over the base, so these are added to the
+# inherited builtin set. Each tab's URL, path and label are not spelled here:
+# the hosting deployment's build derives them when it injects the event
+# dispatcher and the bluesky-web sidecar, and this attached render is told
+# them from that render (the Reach Contract, `osprey.deployment.reach`).
+web_panels:
+  - events          # EVENTS dashboard tab (event dispatcher)
+  - bluesky         # Plan authoring, the plan queue, and the run's live results
+
 # The guided configuration workflow, left out of the base on purpose because it
 # edits config.yml and .mcp.json. Skill lists UNION over the base, so this is
 # added to the inherited selection rather than replacing it.

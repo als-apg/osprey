@@ -487,14 +487,22 @@ def test_deploy_lifecycle_full_sequence(repo: Path) -> None:
         assert not missing, f"container(s) not created by 'osprey up': {missing}"
 
         # --------------------------------------------------------------
-        # C2 — idempotency: a 2nd `up` must recreate ZERO containers
+        # C2 — idempotency: a 2nd `up` must recreate ZERO user containers.
+        # nginx is the deliberate exception: every deploy re-renders build/
+        # from scratch, orphaning a running nginx's file bind mounts, so the
+        # deploy path force-recreates the nginx service to rebind them (see
+        # deploy_up_web_terminals).
         # --------------------------------------------------------------
         up2 = _run_osprey(osprey_bin, ["up"], repo, timeout=DEPLOY_UP_TIMEOUT_SEC)
         assert up2.returncode == 0, _fmt("osprey up (2nd)", up2)
         ids_after_second_up = {name: _container_id(name) for name in all_containers}
-        assert ids_after_second_up == ids_after_first_up, (
-            "idempotent 'osprey up' recreated container(s): "
-            f"{[n for n in all_containers if ids_after_second_up[n] != ids_after_first_up[n]]}"
+        user_containers = [_web_container(u) for u in USERS]
+        recreated = [n for n in user_containers if ids_after_second_up[n] != ids_after_first_up[n]]
+        assert not recreated, f"idempotent 'osprey up' recreated user container(s): {recreated}"
+        nginx = _nginx_container()
+        assert ids_after_second_up[nginx] is not None, "nginx gone after 2nd 'osprey up'"
+        assert ids_after_second_up[nginx] != ids_after_first_up[nginx], (
+            "2nd 'osprey up' must force-recreate nginx to rebind its file mounts"
         )
 
         # --------------------------------------------------------------

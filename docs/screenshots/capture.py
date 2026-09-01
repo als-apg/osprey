@@ -671,6 +671,113 @@ def _capture_agentic(
             pass
 
 
+def _capture_web_terminal_static(browser: Browser, project_dir: Path, shot: DocShot) -> list[Path]:
+    """Capture a static element out of the live web terminal (no agent turn).
+
+    Launches a detached ``osprey web`` against the built tutorial repo exactly
+    as :func:`_capture_agentic` does — the ``?token=`` login, the PTY trust
+    prompt — but sends no operator prompt and needs no provider credentials.
+    What it waits for instead is the control-target chip reporting an
+    enforceable session (``data-enforceable="true"``): the signal that the
+    CLI's controls server has published its state record, so the popover will
+    render real rows rather than a warning banner. It then opens the popover
+    by clicking the chip and crops the recipe's ``element_selector`` at 2x,
+    once per theme.
+    """
+    from playwright.sync_api import expect
+
+    web_port = free_port()
+    operator_secret = mint_secret()
+    child_env = {**os.environ, OPERATOR_SECRET_ENV: operator_secret}
+    try:
+        proc = subprocess.Popen(
+            [
+                "osprey",
+                "web",
+                "--repo",
+                str(project_dir),
+                "--detach",
+                "--port",
+                str(web_port),
+            ],
+            env=child_env,
+        )
+    except FileNotFoundError as exc:
+        raise ScreenshotSkip(f"osprey CLI unavailable to launch web terminal: {exc}") from exc
+
+    try:
+        try:
+            wait_for_port(web_port, timeout=90.0)
+        except RuntimeError as exc:
+            raise ScreenshotSkip(f"web terminal did not become ready: {exc}") from exc
+
+        base_url = f"http://127.0.0.1:{web_port}"
+        dest_dir = output_dir()
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        n_themes = len(shot.themes)
+        written: list[Path] = []
+
+        for theme in shot.themes:
+            # Element crops render at 2x device scale, like capture_shot's.
+            page = browser.new_page(
+                viewport={"width": shot.viewport[0], "height": shot.viewport[1]},
+                device_scale_factor=2,
+            )
+            try:
+                token = urllib.parse.quote(operator_secret, safe="")
+                page.goto(
+                    f"{base_url}/?theme={theme}&token={token}",
+                    wait_until="domcontentloaded",
+                    timeout=30_000,
+                )
+                # Accept the CLI trust prompt so the session boots its MCP
+                # servers; the controls server's published record is what
+                # flips the chip to enforceable. On the second theme the
+                # session resumes and the Enter is a harmless keypress.
+                page.locator("#terminal-container").click(timeout=30_000)
+                page.keyboard.press("Enter")
+
+                chip = page.locator("#control-target-chip")
+                expect(chip).to_be_visible(timeout=60_000)
+                try:
+                    expect(chip).to_have_attribute("data-enforceable", "true", timeout=90_000)
+                except AssertionError as exc:
+                    raise ScreenshotSkip(
+                        f"{shot.name}: the controls server never published a record "
+                        "(chip stayed unenforceable) — the capture would show a "
+                        "warning banner instead of the real rows"
+                    ) from exc
+
+                chip.click()
+                target = page.locator(shot.element_selector)
+                expect(target).to_be_attached(timeout=10_000)
+                # Let the open animation and the first re-render settle.
+                page.wait_for_timeout(600)
+
+                png = target.screenshot()
+                dest = dest_dir / _output_filename(shot.name, theme, n_themes)
+                dest.write_bytes(png)
+                written.append(dest)
+            finally:
+                page.close()
+        return written
+    finally:
+        try:
+            # Repo-scoped stop, mirroring _capture_agentic's teardown rule: a
+            # silently-failed stop leaves a detached web terminal running.
+            subprocess.run(
+                ["osprey", "web", "stop", "--repo", str(project_dir)],
+                capture_output=True,
+                check=True,
+            )
+        except (OSError, subprocess.CalledProcessError) as exc:
+            print(f"WARNING: `osprey web stop` failed; a web terminal may still be running: {exc}")
+        try:
+            proc.terminate()
+        except (OSError, ValueError):
+            pass
+
+
 def capture_tutorial_stack(
     browser_factory: Callable[[], Browser], shot: DocShot, *, agentic: bool
 ) -> list[Path]:
@@ -678,11 +785,14 @@ def capture_tutorial_stack(
 
     ``browser_factory`` is a zero-argument callable returning a live browser to
     reuse for the capture. Builds and seeds the tutorial stack (via
-    :func:`_tutorial_stack`), then dispatches on ``shot.kind``: ``"static"``
-    boots the ARIEL app on a throwaway port and reuses :func:`capture_shot`;
-    ``"agentic"`` drives the live web terminal via :func:`_capture_agentic`
-    (only when ``agentic`` is set). Raises :class:`ScreenshotSkip` when the
-    container runtime is unavailable so a ``--stack`` run degrades gracefully.
+    :func:`_tutorial_stack`), then dispatches on ``shot.kind`` and
+    ``shot.stack_app``: ``"static"`` boots the ARIEL app on a throwaway port
+    and reuses :func:`capture_shot` — or, for ``stack_app="web_terminal"``,
+    drives the live web terminal statically via
+    :func:`_capture_web_terminal_static`; ``"agentic"`` drives it with a real
+    agent turn via :func:`_capture_agentic` (only when ``agentic`` is set).
+    Raises :class:`ScreenshotSkip` when the container runtime is unavailable
+    so a ``--stack`` run degrades gracefully.
     """
     artifact_port = free_port()
     with _tutorial_stack(artifact_port=artifact_port) as project_dir:
@@ -700,6 +810,9 @@ def capture_tutorial_stack(
                 raise ScreenshotSkip(
                     f"{shot.name}: agent did not produce a {shot.wait_for!r} artifact in time"
                 ) from exc
+
+        if shot.stack_app == "web_terminal":
+            return _capture_web_terminal_static(browser, project_dir, shot)
 
         from osprey.interfaces.ariel.app import create_app
 

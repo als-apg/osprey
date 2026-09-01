@@ -19,7 +19,7 @@ live on the same landing page:
   channel writes pass the ordinary safety chain (writes-check, limits, human
   approval); declares the EVENTS/BLUESKY panels.
 * ``control-assistant-admin`` — deployment-editing tier; readwrite's write
-  posture over the MACHINE (``writes_enabled``, ``ui_mode``) but NOT its
+  posture over the MACHINE (``writes_enabled``, ``ui_mode``) and its
   operator panels, plus the privileges the base floors off: the
   ``setup_patch`` tool, the web Config panel, the scaffold gallery's editors,
   and the ``setup-mode`` skill that drives them.
@@ -30,7 +30,8 @@ The tier contract therefore has two halves, and both are asserted wholesale
 below rather than key-by-key. The MACHINE axes separate readonly from
 readwrite: enforcement (``control_system.writes_enabled``), surface
 (``web.ui_mode``), and the write-oriented panel declarations (EVENTS +
-BLUESKY, readwrite-only). The DEPLOYMENT axes separate admin from both:
+BLUESKY, declared by every write-armed tier and absent from readonly). The
+DEPLOYMENT axes separate admin from both:
 ``claude_code.permissions.remove_deny`` for the ``setup_patch`` tool,
 ``web.config_panel.enabled``, ``web.scaffold_gallery.write_enabled``, and the
 ``setup-mode`` skill. The base pins the restricted side of every deployment
@@ -100,13 +101,14 @@ GALLERY_WRITE_KEY = "web.scaffold_gallery.write_enabled"
 ADMIN_LIFTED_FLOOR_KEYS = (CONFIG_PANEL_KEY, GALLERY_WRITE_KEY)
 # The skill that drives those surfaces from the agent side.
 ADMIN_ONLY_SKILL = "setup-mode"
-# The write-oriented panels: declared only in the readwrite persona's
-# `web_panels` list, so the readonly build genuinely lacks them (a persona
-# delta can only add; `enabled: false` is inert for URL panels). Their URL,
-# path and label are NOT preset config — the build projects them from the
-# hosting deployment's render (osprey.deployment.reach), which is asserted on
-# a real build in test_readwrite_is_told_its_panel_urls.
-READWRITE_PANELS = ("events", "bluesky")
+# The write-oriented panels: declared by every write-armed persona's
+# `web_panels` list (readwrite, va-readwrite, admin) and by none other, so the
+# readonly build genuinely lacks them (a persona delta can only add;
+# `enabled: false` is inert for URL panels). Their URL, path and label are NOT
+# preset config — the build projects them from the hosting deployment's render
+# (osprey.deployment.reach), which is asserted on a real build in
+# test_readwrite_is_told_its_panel_urls.
+WRITE_TIER_PANELS = ("events", "bluesky")
 
 # The literal dotted key the hosting preset must carry: the whole web-terminals
 # module subtree addressed as one leaf so config_writer sets only this leaf and
@@ -525,7 +527,7 @@ class TestControlAssistantPersonas:
 
     Over the MACHINE, readonly and readwrite differ on enforcement
     (``writes_enabled``), surface (``ui_mode``) and the write-oriented panel
-    declarations (readwrite-only). Over the DEPLOYMENT, admin differs from
+    declarations (write-armed tiers only). Over the DEPLOYMENT, admin differs from
     readwrite on the three keys the base floors off — ``remove_deny`` for
     ``setup_patch``, the Config panel, the gallery's write surfaces — plus the
     ``setup-mode`` skill that drives them.
@@ -570,6 +572,11 @@ class TestControlAssistantPersonas:
         assert profile.config.get(CONFIG_PANEL_KEY) is True
         assert profile.config.get(GALLERY_WRITE_KEY) is True
 
+        # A full operator desk plus editing: the admin tier declares the same
+        # write-oriented panels the readwrite tier does, on top of the base's.
+        base = resolve_preset("control-assistant")
+        assert set(profile.web_panels) == set(base.web_panels) | set(WRITE_TIER_PANELS)
+
     def test_base_floors_the_deployment_privileges(self) -> None:
         """The base ships the restricted side of every deployment axis.
 
@@ -603,11 +610,12 @@ class TestControlAssistantPersonas:
         deployment editing. Asserted wholesale so a fourth difference cannot
         creep in unnoticed.
 
-        Two deliberate asymmetries are subtracted before the comparison. The
-        deployment axes are the point of the tier. The EVENTS/BLUESKY panel
-        declarations are not: they belong to the OPERATOR tier, and the admin
-        persona is an editing surface rather than a second control desk, so it
-        is built without them exactly as readonly is."""
+        The deployment axes — subtracted before the comparison — are the whole
+        difference. The EVENTS/BLUESKY panel declarations are deliberately NOT
+        among them: the admin tier is a full operator desk plus deployment
+        editing, so it declares the same write-oriented panels readwrite does
+        (asserted with the artifact lists — ``web_panels`` is a list, not
+        config, so it never appears in the config comparison below)."""
         readwrite = resolve_preset("control-assistant-readwrite")
         admin = resolve_preset("control-assistant-admin")
 
@@ -627,10 +635,10 @@ class TestControlAssistantPersonas:
         for key in ADMIN_LIFTED_FLOOR_KEYS:
             assert rw_cfg.pop(key) is False, f"readwrite persona must not enable {key}"
             assert ad_cfg.pop(key) is True
-        # The operator-only panels ride the readwrite persona's `web_panels`
-        # list, not its config: their URLs are projected by the build, so
+        # The write-oriented panels ride both personas' `web_panels` lists,
+        # not their config: their URLs are projected by the build, so
         # neither tier may spell one.
-        for panel in READWRITE_PANELS:
+        for panel in WRITE_TIER_PANELS:
             for cfg in (rw_cfg, ad_cfg):
                 assert not any(key.startswith(f"web.panels.{panel}.") for key in cfg), (
                     f"no persona preset may pin web.panels.{panel}.* — the build projects it"
@@ -685,11 +693,11 @@ class TestControlAssistantPersonas:
         assert ro_cfg.pop(UI_MODE_KEY) == "simple"
         assert rw_cfg.pop(UI_MODE_KEY) == "expert"
         # Axis 3 — write-oriented panels — is not a config axis at all: the
-        # tabs ride the readwrite persona's `web_panels` list (asserted in
+        # tabs ride the write-armed personas' `web_panels` lists (asserted in
         # test_personas_share_every_artifact_list_except_panels_and_the_admin_skill), and their
         # URLs are projected from the hosting deployment's render rather than
         # spelled in any preset.
-        for panel in READWRITE_PANELS:
+        for panel in WRITE_TIER_PANELS:
             for cfg in (ro_cfg, rw_cfg):
                 assert not any(key.startswith(f"web.panels.{panel}.") for key in cfg), (
                     f"no persona preset may pin web.panels.{panel}.* — the build projects it"
@@ -705,9 +713,9 @@ class TestControlAssistantPersonas:
         boundary is enforcement, not a stripped-down agent). Exactly two lists
         are allowed to differ, and both differ by ADDITION:
 
-        * panels — the readwrite persona adds the write-oriented EVENTS/BLUESKY
-          tabs (their URLs are projected by the build, not declared), and the
-          readonly persona is built without them;
+        * panels — the write-armed readwrite and admin personas add the
+          write-oriented EVENTS/BLUESKY tabs (their URLs are projected by the
+          build, not declared), and the readonly persona is built without them;
         * skills — the admin persona adds ``setup-mode``, the guided workflow
           that edits config.yml and .mcp.json, which is the agent-side half of
           the privilege its config keys turn on.
@@ -730,8 +738,8 @@ class TestControlAssistantPersonas:
         assert admin.skills == [*base.skills, ADMIN_ONLY_SKILL]
         assert ADMIN_ONLY_SKILL not in base.skills
         assert readonly.web_panels == base.web_panels
-        assert admin.web_panels == base.web_panels
-        assert set(readwrite.web_panels) == set(base.web_panels) | {"events", "bluesky"}
+        for tier in (readwrite, admin):
+            assert set(tier.web_panels) == set(base.web_panels) | {"events", "bluesky"}
 
     def test_safety_chain_hooks_are_shipped(self) -> None:
         """The write-capable tier is supervised, not unguarded: the hooks that
@@ -1126,7 +1134,7 @@ class TestWritePostureMatrix:
         assert profile.config.get("modules.web_terminals.enabled") is False
         assert profile.config.get(UI_MODE_KEY) == "expert"
         assert set(profile.web_panels) == set(resolve_preset("control-assistant").web_panels) | set(
-            READWRITE_PANELS
+            WRITE_TIER_PANELS
         )
         assert [key for key in profile.config if str(key).startswith("services.")] == []
 

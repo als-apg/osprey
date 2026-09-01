@@ -121,7 +121,6 @@ __all__ = [
     "launch_narrowed_target",
     "launch_permits",
     "launch_posture_stamp",
-    "legacy_store_path",
     "load_store",
     "parse_launch_posture",
     "parse_store",
@@ -251,21 +250,6 @@ def store_path() -> Path | None:
     return None if directory is None else directory / STORE_FILENAME
 
 
-def legacy_store_path() -> Path | None:
-    """The pre-feature store path, read through once when the new one is absent.
-
-    The session-wide posture kept its store directly under the agent-data root
-    (``resolve_shared_data_root() / "session-postures.json"``). A deployment
-    upgrading with a sandboxed session live must not have that narrowing
-    silently lifted the moment the code lands, so readers fall back to it while
-    the new file does not exist. Nothing here writes: the web server persists
-    the migrated shape on its first load, and this fallback stops answering the
-    moment it does.
-    """
-    root = agent_data_root()
-    return None if root is None else root / STORE_FILENAME
-
-
 # -- parsing ----------------------------------------------------------------
 
 
@@ -362,24 +346,14 @@ def load_store() -> dict[str, dict[str, str]]:
     if path is None:
         return {}
     signature = _signature(path)
-    if signature is not None:
-        key: Any = (str(path), signature)
-    else:
-        legacy = legacy_store_path()
-        key = (
-            str(path),
-            None,
-            None if legacy is None else str(legacy),
-            _signature(legacy) if legacy else None,
-        )
+    if signature is None:
+        # No file at the one location the store has: nothing is narrowed.
+        return {}
+    key = (str(path), signature)
     cached = _CACHE
     if cached is not None and cached[0] == key:
         return cached[1]
-    if signature is not None:
-        parsed = _read(path)
-    else:
-        legacy = legacy_store_path()
-        parsed = _read(legacy) if legacy is not None else {}
+    parsed = _read(path)
     with _CACHE_LOCK:
         _CACHE = (key, parsed)
     return parsed

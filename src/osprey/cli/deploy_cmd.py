@@ -91,6 +91,29 @@ def _abort(
     raise click.Abort()
 
 
+def _failure_cause(exc: BaseException, repo_root: Path) -> str:
+    """The exception's own line, plus what it points at and does not carry.
+
+    A ``compose up`` that died on an unhealthy container names the container
+    and nothing about why; the why is in that container's log. When the
+    captured output names one, its last lines are read through the runtime
+    the build resolved and appended here, so the failure report holds the
+    reason instead of a path to a spool that does not.
+    """
+    from osprey.deployment.container_lifecycle import as_built_config_path
+    from osprey.deployment.subprocess_capture import captured_failure_detail
+
+    config = None
+    config_path = as_built_config_path(repo_root)
+    if config_path.is_file():
+        try:
+            config = load_project_config(str(config_path), wrap_errors=True)
+        except Exception:  # noqa: BLE001 - runtime selection only; the failure stands
+            config = None
+    detail = captured_failure_detail(exc, config=config)
+    return f"{exc}\n{detail}" if detail else str(exc)
+
+
 def _abort_unmet_precondition(
     exc: DeploymentPreconditionError,
     *,
@@ -627,7 +650,7 @@ def up_verb(
             # import to keep this module's import cost off every CLI start.
             from osprey.deployment.subprocess_capture import diagnose_captured_failure
 
-            _abort("Deployment failed", str(e), diagnose_captured_failure(e))
+            _abort("Deployment failed", _failure_cause(e, repo_root), diagnose_captured_failure(e))
         finally:
             os.chdir(previous)
 

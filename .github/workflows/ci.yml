@@ -1193,7 +1193,10 @@ jobs:
     # the channel-finder benchmarks moved to the nightly schedule); a run past
     # the cap means a test is wedged on a dead endpoint or a leaked container
     # stack, and the useful signal is the timeout itself, not more runner time.
-    timeout-minutes: 40
+    # The cap also has to fit @flaky reruns stacking on one slow test: an
+    # agentic test that legitimately takes ~8 minutes gets three attempts, so
+    # ~25 minutes of that test alone on top of the rest of its file (#824).
+    timeout-minutes: 50
 
     steps:
     - name: Checkout repository
@@ -1256,8 +1259,12 @@ jobs:
     - name: Run E2E tests
       # Step cap under the job cap so a hang fails THIS step, leaving the
       # capture step below room to run. A job-level timeout is a hard cancel
-      # that takes the container logs with it.
-      timeout-minutes: 35
+      # that takes the container logs with it. Sized with the reruns in mind
+      # (see the job cap above): a step kill ends pytest before its FAILURES
+      # section prints, so the cap must not be what a healthy-but-retried
+      # run trips over. tests/e2e/conftest.py prints each failure's traceback
+      # the moment it happens so a kill can no longer erase it (#824).
+      timeout-minutes: 45
       # E2E_FILTER comes from workflow_dispatch `inputs.e2e_filter` and is
       # empty on push/PR/schedule triggers, so the full-suite command runs
       # by default. The filter is a debug-only convenience for scoped CI
@@ -1322,7 +1329,9 @@ jobs:
           # the ORM, grid-scan and orbit-bump roundtrips together in
           # orm-roundtrip-e2e, where they run as sequential steps so the
           # stacks never contend for a host port.
-          uv run pytest tests/e2e/ -v --tb=short -n 4 --dist loadfile \
+          # --durations=30: which tests approach the step cap on their own —
+          # the data for deciding where reruns=2 has to become reruns=1 (#824).
+          uv run pytest tests/e2e/ -v --tb=short --durations=30 -n 4 --dist loadfile \
             --ignore=tests/e2e/test_preset_agentic.py \
             --ignore=tests/e2e/test_plan_stack_agentic.py \
             --ignore=tests/e2e/test_dispatch_deploy.py \

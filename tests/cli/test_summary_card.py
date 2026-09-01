@@ -139,6 +139,20 @@ def restore_reporter():
 
 
 @pytest.fixture(autouse=True)
+def _nothing_is_unhealthy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Answer the closing line's health read without consulting the host.
+
+    The line asks the runtime for this repo's unhealthy containers before it
+    says everything is running. Stubbed on the lifecycle module, where the card
+    imports it at call time; ``test_summary_card_health.py`` is where the read
+    itself is exercised.
+    """
+    monkeypatch.setattr(
+        "osprey.deployment.container_lifecycle.unhealthy_containers", lambda repo_root: []
+    )
+
+
+@pytest.fixture(autouse=True)
 def empty_ledger():
     """Start and leave every test with no collected rows.
 

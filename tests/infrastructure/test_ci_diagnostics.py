@@ -23,6 +23,7 @@ from tests.ci_diagnostics import (
     DiagnosticsRecorder,
     recorder_from_env,
     worker_id,
+    worker_index,
 )
 
 _SUMMARY = Path(__file__).resolve().parents[2] / "scripts" / "ci" / "diag_summary.py"
@@ -58,6 +59,20 @@ def test_recorder_from_env_builds_recorder_when_set(monkeypatch, tmp_path):
 def test_worker_id_defaults_to_main(monkeypatch):
     monkeypatch.delenv("PYTEST_XDIST_WORKER", raising=False)
     assert worker_id() == "main"
+
+
+@pytest.mark.parametrize(
+    ("worker", "expected"),
+    [("gw0", 0), ("gw3", 3), ("gw12", 12), ("main", 0), ("gwx", 0)],
+)
+def test_worker_index_parses_the_xdist_number(monkeypatch, worker, expected):
+    monkeypatch.setenv("PYTEST_XDIST_WORKER", worker)
+    assert worker_index() == expected
+
+
+def test_worker_index_defaults_to_zero(monkeypatch):
+    monkeypatch.delenv("PYTEST_XDIST_WORKER", raising=False)
+    assert worker_index() == 0
 
 
 def test_worker_id_follows_xdist(monkeypatch):
