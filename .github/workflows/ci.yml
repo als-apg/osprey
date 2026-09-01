@@ -1077,20 +1077,22 @@ jobs:
     # skill file renamed anywhere else, a manifest key the CLI stops
     # accepting, or a plugin CLI change all break it without touching the
     # plugin tree. The lane costs about a minute, so it always runs.
-    env:
-      # `claude plugin marketplace add` writes the registration into
-      # $CLAUDE_CONFIG_DIR/settings.json, and `install`/`details` read it back
-      # — so the config dir has to be job-level, not per-step, or the later
-      # steps look at a different (empty) config and the install "vanishes".
-      # A runner-temp path keeps it off the default config location.
-      CLAUDE_CONFIG_DIR: ${{ runner.temp }}/claude-cfg
-
     steps:
     - name: Checkout repository
       uses: actions/checkout@v7
       # Full history + tags: the package version is derived from the git tag.
       with:
         fetch-depth: 0
+
+    # `claude plugin marketplace add` writes the registration into
+    # $CLAUDE_CONFIG_DIR/settings.json, and `install`/`details` read it back
+    # — so the config dir has to be shared by every later step, or they look
+    # at a different (empty) config and the install "vanishes". Exported via
+    # GITHUB_ENV rather than job-level `env:` because the `runner` context is
+    # not available at job level (the workflow fails to parse). A runner-temp
+    # path keeps it off the default config location.
+    - name: Point the Claude CLI at a scratch config dir
+      run: echo "CLAUDE_CONFIG_DIR=$RUNNER_TEMP/claude-cfg" >> "$GITHUB_ENV"
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
