@@ -21,7 +21,7 @@ copy that plan's exact bytes into a checkout of the repo that owns the target
    content.
 3. Call :func:`stage_contribution` on the result to write the file into that
    checkout.
-4. Use the existing **``osprey-contribute``** skill (branch → commit → push
+4. Use the existing **``/osprey:contribute``** skill (branch → commit → push
    → PR, GitHub Flow) to open the PR/MR proposing the addition — exactly as
    for any other change to that repo. This module supplies the file and a
    suggested branch name / PR title / PR body; it does not re-implement any
@@ -93,7 +93,7 @@ def prepare_contribution(name: str, catalog_dir: str | Path) -> ContributionRequ
 
     Returns:
         A `ContributionRequest` describing what to write where, plus a
-        suggested branch name and PR title/body for the ``osprey-contribute``
+        suggested branch name and PR title/body for the ``/osprey:contribute``
         skill to use verbatim or adapt.
 
     Raises:
@@ -143,7 +143,7 @@ def stage_contribution(request: ContributionRequest) -> Path:
 
     The one filesystem side effect this module performs: copying the
     validated session plan's exact bytes into a checkout of the target
-    catalog repo so the ``osprey-contribute`` skill has something to
+    catalog repo so the ``/osprey:contribute`` skill has something to
     ``git add``. Byte-for-byte identical to the session file — no
     re-generation, no re-formatting — so the content hash a reviewer or a
     future re-validation computes is unchanged by the move.
