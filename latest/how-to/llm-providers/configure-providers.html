@@ -830,6 +830,38 @@ translation proxy:</p>
 <p>(The unmapped <code class="docutils literal notranslate"><span class="pre">opus</span></code> tier here falls back to the default model at build
 time, with a warning — map it to silence the substitution.)</p>
 </section>
+<section id="spend-attribution-on-a-litellm-gateway">
+<h2>Spend Attribution on a LiteLLM Gateway<a class="headerlink" href="#spend-attribution-on-a-litellm-gateway" title="Link to this heading">#</a></h2>
+<p>A deployment authenticates to its gateway with one key, so without help the
+gateway’s spend logs book every terminal, the dispatch worker and every
+headless run to that single key. When the provider is a <a class="reference external" href="https://docs.litellm.ai/docs/proxy/cost_tracking">LiteLLM proxy</a>, OSPREY stamps the acting
+identity onto every request instead:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">x-litellm-end-user-id</span></code> — who asked: the terminal’s roster user
+(<code class="docutils literal notranslate"><span class="pre">OSPREY_TERMINAL_USER</span></code>), a service container’s framework identity such as
+<code class="docutils literal notranslate"><span class="pre">dispatch-worker-0</span></code>, or the local account of an <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code> session.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">x-litellm-tags</span></code> — <code class="docutils literal notranslate"><span class="pre">osprey,surface:&lt;terminal|dispatch|service|local&gt;</span></code>.</p></li>
+</ul>
+<p>The agent carries them through Claude Code’s <code class="docutils literal notranslate"><span class="pre">ANTHROPIC_CUSTOM_HEADERS</span></code>
+(merged into any corporate-proxy headers you already set there), and the
+LiteLLM SDK path used by MCP servers sets the same identity as the OpenAI
+<code class="docutils literal notranslate"><span class="pre">user</span></code> field. Nothing is sent to a direct vendor.</p>
+<p>The built-in <code class="docutils literal notranslate"><span class="pre">als-apg</span></code> and <code class="docutils literal notranslate"><span class="pre">cborg</span></code> providers are LiteLLM proxies and get
+this automatically. A custom gateway declares it:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">api</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">providers</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">my-litellm-gateway</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${MY_GATEWAY_KEY}</span>
+<span class="w">      </span><span class="nt">base_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://my-gateway.example.com/v1</span>
+<span class="w">      </span><span class="nt">api_protocol</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">anthropic</span><span class="w">   </span><span class="c1"># or omit it for the OpenAI route</span>
+<span class="w">      </span><span class="nt">gateway</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">litellm</span>
+</pre></div>
+</div>
+<p>On the gateway, read the result per person with <code class="docutils literal notranslate"><span class="pre">/customer/info?end_user_id=</span></code>
+or from the <code class="docutils literal notranslate"><span class="pre">end_user</span></code> and <code class="docutils literal notranslate"><span class="pre">request_tags</span></code> columns of <code class="docutils literal notranslate"><span class="pre">/spend/logs</span></code>. Both
+need the gateway to run with a database (virtual keys enabled); a stateless
+LiteLLM ignores the headers.</p>
+</section>
 <section id="verifying-connectivity">
 <h2>Verifying Connectivity<a class="headerlink" href="#verifying-connectivity" title="Link to this heading">#</a></h2>
 <p>After configuring a provider, check that the API key and endpoint work:</p>
@@ -927,6 +959,7 @@ takes code: a provider class registered under that name through a
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#provider-configuration">Provider Configuration</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#model-tier-mapping">Model Tier Mapping</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#protocol-translation">Protocol Translation</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#spend-attribution-on-a-litellm-gateway">Spend Attribution on a LiteLLM Gateway</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#verifying-connectivity">Verifying Connectivity</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#adding-a-new-provider">Adding a New Provider</a></li>
 </ul>
