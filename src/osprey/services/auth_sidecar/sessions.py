@@ -6,7 +6,7 @@ lives in a single :mod:`itsdangerous`-signed cookie::
 
     {"v": 1, "sid": "<session id>", "iat": <epoch>, "users": {
         "alice": {"exp": <epoch>, "tag": "0123456789abcdef", "sub": "",
-                  "role": "", "source": ""}
+                  "role": "", "source": "", "opener": ""}
     }}
 
 **Signed, not encrypted.** Anyone holding the cookie can read the payload; they
@@ -35,6 +35,14 @@ The ``"sub"``, ``"role"`` and ``"source"`` keys are read with defaults rather
 than being made mandatory, and none of them was added with a
 :data:`PAYLOAD_VERSION` bump: a cookie minted before any of them existed still
 decodes, with an empty subject, no role and no provenance for it.
+
+Shared-card entries also carry the ``"opener"`` — the roster username whose
+entry proved the login behind a shared password card, or ``""`` for an own-card
+session. It follows the same additive pattern: read with a default and added
+without a :data:`PAYLOAD_VERSION` bump, so a cookie minted before shared cards
+named their opener decodes with an empty one. And because the opener rides
+``X-Osprey-Auth-Subject`` on shared password cards, it is header-checked at the
+same two points as the subject, the role and its source.
 
 **A value that cannot cross the nginx boundary is never stored.** The subject,
 the role and its source all leave as HTTP headers (see
@@ -135,6 +143,11 @@ class UnlockedUser:
             holding no role carries and what any session minted before
             provenance travelled carries. Provenance only: it says where a
             privilege came from, never that one is held.
+        opener: The roster username whose entry proved the login behind this
+            unlock — the opener of a shared password card — or ``""`` for an
+            own-card session, and for any session minted before the opener
+            travelled. Identity, never privilege: it names who unlocked the
+            card, and it rides an identity header, so it must be header-safe.
     """
 
     username: str
@@ -143,6 +156,7 @@ class UnlockedUser:
     oidc_subject: str = ""
     role: str = ""
     role_source: str = ""
+    opener: str = ""
 
     def is_expired(self, now: float) -> bool:
         """Whether this entry has reached its expiry at ``now``."""
@@ -217,6 +231,7 @@ class SessionState:
         oidc_subject: str = "",
         role: str = "",
         role_source: str = "",
+        opener: str = "",
     ) -> SessionState:
         """Return this state with ``username`` unlocked until ``expires_at``.
 
@@ -239,6 +254,8 @@ class SessionState:
                 none.
             role_source: Where that role came from, or ``""`` for none — which
                 is what a login resolving no role passes.
+            opener: The roster username whose entry proved this login — set
+                for a shared password card, ``""`` for an own-card login.
 
         Raises:
             ValueError: If ``username`` is empty, or if the subject, the role or
@@ -246,7 +263,8 @@ class SessionState:
                 caller is refusing a login at that point, not repairing a
                 value: a substitute identity would authorize the wrong thing,
                 and a silently dropped role would authorize *something* under
-                a privilege nobody granted.
+                a privilege nobody granted. An uncarryable opener is refused
+                on the same grounds: it rides an identity header too.
         """
         if not username:
             raise ValueError("username must not be empty")
@@ -256,6 +274,8 @@ class SessionState:
             raise ValueError("role cannot be carried in an identity header")
         if role_source and not is_header_safe(role_source):
             raise ValueError("role source cannot be carried in an identity header")
+        if opener and not is_header_safe(opener):
+            raise ValueError("opener cannot be carried in an identity header")
 
         entry = UnlockedUser(
             username=username,
@@ -264,6 +284,7 @@ class SessionState:
             oidc_subject=oidc_subject,
             role=role,
             role_source=role_source,
+            opener=opener,
         )
         if self.entry(username) is None:
             return replace(self, users=(*self.users, entry))
@@ -371,6 +392,7 @@ class SessionCodec:
                     "sub": user.oidc_subject,
                     "role": user.role,
                     "source": user.role_source,
+                    "opener": user.opener,
                 }
                 for user in state.users
             },
@@ -436,9 +458,10 @@ class SessionCodec:
         ``tag``, ``sub``, ``role`` and ``source`` all default to ``""`` when
         absent, so a cookie minted before any of those keys existed decodes at
         the current payload version instead of signing that browser out.
+        ``opener`` defaults the same way.
 
-        A subject, role or role source that could not be carried in an identity
-        header invalidates the whole cookie. Only this sidecar can have signed
+        A subject, role, role source or opener that could not be carried in an
+        identity header invalidates the whole cookie. Only this sidecar can have signed
         it, and :meth:`SessionState.with_user` refuses to store such a value —
         so a cookie carrying one is not a session to salvage, and refusing it
         here is what keeps the verify route's answer a plain 401 rather than an
@@ -486,6 +509,13 @@ class SessionCodec:
                 raise InvalidSessionError(
                     f"session entry for {username!r} carries an uncarryable role source"
                 )
+            opener = entry.get("opener", "")
+            if not isinstance(opener, str):
+                raise InvalidSessionError(f"session entry for {username!r} has a non-string opener")
+            if opener and not is_header_safe(opener):
+                raise InvalidSessionError(
+                    f"session entry for {username!r} carries an uncarryable opener"
+                )
             users.append(
                 UnlockedUser(
                     username=username,
@@ -494,6 +524,7 @@ class SessionCodec:
                     oidc_subject=subject,
                     role=role,
                     role_source=role_source,
+                    opener=opener,
                 )
             )
         return tuple(users)

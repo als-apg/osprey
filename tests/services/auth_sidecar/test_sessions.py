@@ -614,3 +614,127 @@ def test_re_adding_a_user_refreshes_the_subject_in_place(
     assert alice is not None
     assert alice.oidc_subject == "provider|new"
     assert len(decoded.users) == 1
+
+
+# --- the shared-card opener --------------------------------------------------
+
+
+def test_round_trip_preserves_the_opener(codec: SessionCodec, clock: FakeClock) -> None:
+    """The roster entry that proved a shared-card login survives the round trip."""
+    state = codec.new_state().with_user(
+        "beamline", expires_at=clock.now + HOUR, generation_tag="0123456789abcdef", opener="alice"
+    )
+
+    decoded = codec.decode(codec.encode(state))
+
+    assert decoded.users == (
+        UnlockedUser(
+            username="beamline",
+            expires_at=clock.now + HOUR,
+            generation_tag="0123456789abcdef",
+            opener="alice",
+        ),
+    )
+
+
+def test_an_entry_carries_no_opener_by_default(codec: SessionCodec, clock: FakeClock) -> None:
+    """An own-card login names no opener, so the field stays empty."""
+    state = codec.new_state().with_user(
+        "alice", expires_at=clock.now + HOUR, generation_tag="0123456789abcdef"
+    )
+
+    entry = codec.decode(codec.encode(state)).entry("alice")
+
+    assert entry is not None
+    assert entry.opener == ""
+
+
+def test_the_opener_is_written_into_the_payload(codec: SessionCodec, clock: FakeClock) -> None:
+    """Pinning the wire key: a later reader looks for ``opener``, not a rename."""
+    encoded = codec.encode(
+        codec.new_state().with_user("beamline", expires_at=clock.now + HOUR, opener="alice")
+    )
+
+    payload = URLSafeSerializer(SECRET, salt=SIGNATURE_SALT).loads(encoded)
+
+    assert payload["users"]["beamline"]["opener"] == "alice"
+
+
+def test_a_payload_without_an_opener_decodes_as_empty() -> None:
+    """Cookies minted before ``opener`` existed keep working, at the same version.
+
+    The opener was added without a :data:`PAYLOAD_VERSION` bump on purpose, so
+    a browser holding a pre-upgrade cookie stays logged in instead of being
+    silently signed out.
+    """
+    encoded = sign_payload(
+        {
+            "v": PAYLOAD_VERSION,
+            "sid": "s",
+            "iat": 0.0,
+            "users": {"alice": {"exp": 1_000_000_000.0, "tag": "0123456789abcdef"}},
+        }
+    )
+
+    entry = SessionCodec(SECRET, clock=FakeClock()).decode(encoded).entry("alice")
+
+    assert entry is not None
+    assert entry.generation_tag == "0123456789abcdef"
+    assert entry.opener == ""
+
+
+@pytest.mark.parametrize("opener", ["a\nb", " alice", "alice ", "jörg"])
+def test_an_uncarryable_opener_is_refused_at_login(
+    codec: SessionCodec, clock: FakeClock, opener: str
+) -> None:
+    """The opener rides an identity header, so the mint path refuses it early."""
+    with pytest.raises(ValueError, match="opener cannot be carried"):
+        codec.new_state().with_user("beamline", expires_at=clock.now + HOUR, opener=opener)
+
+
+@pytest.mark.parametrize("opener", ["a\nb", " alice", "alice ", "jörg"])
+def test_an_uncarryable_opener_invalidates_the_cookie(opener: str) -> None:
+    """Only this sidecar signs cookies, and it never stores such a value."""
+    encoded = sign_payload(
+        {
+            "v": PAYLOAD_VERSION,
+            "sid": "s",
+            "iat": 0.0,
+            "users": {"beamline": {"exp": 1_000_000_000.0, "opener": opener}},
+        }
+    )
+
+    with pytest.raises(InvalidSessionError, match="uncarryable opener"):
+        SessionCodec(SECRET, clock=FakeClock()).decode(encoded)
+
+
+def test_a_non_string_opener_is_rejected() -> None:
+    encoded = sign_payload(
+        {
+            "v": PAYLOAD_VERSION,
+            "sid": "s",
+            "iat": 0.0,
+            "users": {"beamline": {"exp": 1_000_000_000.0, "opener": 9}},
+        }
+    )
+
+    with pytest.raises(InvalidSessionError, match="non-string opener"):
+        SessionCodec(SECRET, clock=FakeClock()).decode(encoded)
+
+
+def test_re_adding_a_user_replaces_the_opener_wholesale(
+    codec: SessionCodec, clock: FakeClock
+) -> None:
+    """A login naming no opener clears the one the previous login carried."""
+    state = (
+        codec.new_state()
+        .with_user("beamline", expires_at=clock.now + 60, opener="alice")
+        .with_user("beamline", expires_at=clock.now + HOUR)
+    )
+
+    decoded = codec.decode(codec.encode(state))
+
+    beamline = decoded.entry("beamline")
+    assert beamline is not None
+    assert beamline.opener == ""
+    assert len(decoded.users) == 1

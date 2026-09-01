@@ -1360,3 +1360,64 @@ def test_every_deploy_exit_path_shares_this_one_seam():
     from osprey.deployment import container_lifecycle
 
     assert container_lifecycle.log_endpoint_summary is deploy_summary.log_endpoint_summary
+
+
+# ---------------------------------------------------------------------------
+# The roster's three-way split behind a login wall: an entry with its own
+# required login reaches the seeded-logins report, a `login: false` entry
+# reaches the token-URL list, and a shared entry (`access: any`) reaches
+# NEITHER — it holds no credential of its own and is opened with another
+# roster user's name and credential, which is what `_shared_cards` exists to
+# say.
+# ---------------------------------------------------------------------------
+
+
+def _walled_roster_config(method: str = "password") -> dict:
+    return {
+        "modules": {
+            "web_terminals": {
+                "enabled": True,
+                "nginx_port": 8080,
+                "auth": {"method": method},
+                "users": [
+                    {"name": "alice", "index": 0},
+                    {"name": "ariel", "index": 1, "login": False},
+                    {"name": "ops", "index": 2, "access": "any"},
+                ],
+            }
+        }
+    }
+
+
+@pytest.fixture
+def walled_roster_root(tmp_path):
+    """A root whose profile still seeds alice's password, so the seeded-logins
+    report has something to print for the one entry that owns a login."""
+    (tmp_path / "profile.yml").write_text("env:\n  defaults:\n    OSPREY_AUTH_PW_ALICE: alice\n")
+    (tmp_path / ".env").write_text("OSPREY_AUTH_PW_ALICE=alice\n")
+    return tmp_path
+
+
+def test_a_shared_entry_is_in_neither_the_seeded_logins_nor_the_token_list(
+    walled_roster_root,
+):
+    """The split, pinned whole: were `ops` in the seeded report the card would
+    print a password nothing checks, and were it in the token list the card
+    would name a login URL the wall makes inert. It belongs to the third leg
+    alone."""
+    config = _walled_roster_config()
+
+    seeded = deploy_summary._seeded_logins(walled_roster_root, config)
+    tokens = deploy_summary.token_login_users(config)
+
+    assert [user for user, _ in seeded.printable] == ["alice"]
+    assert tokens == ["ariel"]
+    assert deploy_summary._shared_cards(config) == ["ops"]
+
+
+def test_shared_cards_are_reported_only_while_a_wall_stands():
+    """Without a login wall the sharing marker changes nothing about how the
+    entry is reached — under `token` every terminal is entered through its own
+    URL, shared or not — so naming it would be noise."""
+    assert deploy_summary._shared_cards(_walled_roster_config("token")) == []
+    assert deploy_summary._shared_cards(_walled_roster_config("oidc")) == ["ops"]

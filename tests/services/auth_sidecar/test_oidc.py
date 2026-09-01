@@ -245,6 +245,38 @@ def test_login_refuses_a_user_with_no_mapped_identity(caplog: pytest.LogCaptureF
     assert "bob" in caplog.text
 
 
+def test_login_starts_a_shared_cards_handshake_when_any_entry_is_mapped() -> None:
+    """bob's shared card has no mapped identity of its own — but alice and
+    carol do, and either of them could open it, so the handshake starts. The
+    unmapped-user refusal above is the own-card rule; a shared card only asks
+    whether SOMEBODY on the roster is mapped."""
+    env = {**OIDC_ENV, "OSPREY_AUTH_ROSTER_ACCESS_BOB": "any"}
+    with _client(_app(env)) as client:
+        response = client.get(LOGIN_PATH, params={"user": "bob"}, follow_redirects=False)
+
+    assert response.status_code == 302
+    assert response.headers["location"] == IDP_AUTHORIZE_URL
+
+
+def test_login_refuses_a_shared_card_when_no_entry_is_mapped(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A roster on which nobody carries a mapped identity cannot open a shared
+    card either: the handshake could only end in a refusal, so it never
+    starts — same category as the own-card rule, its own message."""
+    env = {
+        key: value
+        for key, value in OIDC_ENV.items()
+        if not key.startswith("OSPREY_AUTH_OIDC_SUBJECT_")
+    }
+    env["OSPREY_AUTH_ROSTER_ACCESS_BOB"] = "any"
+    with caplog.at_level(logging.WARNING), _client(_app(env)) as client:
+        response = client.get(LOGIN_PATH, params={"user": "bob"}, follow_redirects=False)
+
+    assert response.status_code == 403
+    assert "no roster entry carries a mapped identity" in caplog.text
+
+
 def test_login_refuses_a_user_who_is_not_on_the_roster() -> None:
     with _client(_app()) as client:
         response = client.get(LOGIN_PATH, params={"user": "mallory"}, follow_redirects=False)
