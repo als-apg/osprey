@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Aug 31, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 01, 2026"/>
   </head>
   
   
@@ -843,6 +843,88 @@ entry is still gated the way every terminal is under <code class="docutils liter
 login URL. A <code class="docutils literal notranslate"><span class="pre">login:</span> <span class="pre">false</span></code> entry whose persona can edit the deployment
 (<code class="docutils literal notranslate"><span class="pre">setup_patch</span></code> or the Config panel) is refused at build and at <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>.</p>
 </section>
+<section id="share-a-card-with-the-whole-roster">
+<span id="multi-user-shared-card"></span><h2>Share a card with the whole roster<a class="headerlink" href="#share-a-card-with-the-whole-roster" title="Link to this heading">#</a></h2>
+<p>A roster entry admits one person. <code class="docutils literal notranslate"><span class="pre">access:</span></code> is the key that changes that —
+<code class="docutils literal notranslate"><span class="pre">own</span></code>, the default, is that rule spelled out: the entry’s own login and
+nobody else’s. <code class="docutils literal notranslate"><span class="pre">any</span></code> marks a <strong>shared card</strong>: one terminal, one persona,
+one audit directory, that anyone on the roster opens with their own
+credential:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">modules</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">web_terminals</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">tls</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">      </span><span class="nt">host_cert_dir</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/ssl/facility</span>
+<span class="w">      </span><span class="nt">cert</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/osprey/tls/facility.crt</span>
+<span class="w">      </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/osprey/tls/facility.key</span>
+<span class="w">    </span><span class="nt">auth</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">oidc</span>
+<span class="w">      </span><span class="nt">oidc</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">issuer</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://sso.example.org/realms/accelerator</span>
+<span class="w">        </span><span class="nt">client_id_env</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OSPREY_AUTH_OIDC_CLIENT_ID</span>
+<span class="w">        </span><span class="nt">client_secret_env</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OSPREY_AUTH_OIDC_CLIENT_SECRET</span>
+<span class="w">        </span><span class="nt">claim</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sub</span>
+<span class="w">    </span><span class="nt">users</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
+<span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+<span class="w">        </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readwrite</span>
+<span class="w">        </span><span class="nt">oidc_subject</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;8f4c1e02-...&quot;</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bob</span>
+<span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="w">        </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readonly</span>
+<span class="w">        </span><span class="nt">oidc_subject</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;41ab97d0-...&quot;</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ops-desk</span>
+<span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
+<span class="w">        </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readonly</span>
+<span class="w">        </span><span class="nt">access</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">any</span><span class="w">                </span><span class="c1"># any roster login opens this card</span>
+</pre></div>
+</div>
+<p>Who can open it: anyone this deployment can authenticate. Under <code class="docutils literal notranslate"><span class="pre">password</span></code>
+that is every roster entry with a provisioned password; under <code class="docutils literal notranslate"><span class="pre">oidc</span></code>, every
+entry that carries an <code class="docutils literal notranslate"><span class="pre">oidc_subject:</span></code> — <code class="docutils literal notranslate"><span class="pre">login:</span> <span class="pre">false</span></code> entries included,
+and the shared card itself when it carries one. On a shared card the password
+form gains a username field: the person types their <em>own</em> roster name beside
+the password, and it is that name’s stored password that is checked — and that
+name the rate limit counts against. A card that never had a password of its
+own has no credential to offer here; one flipped from <code class="docutils literal notranslate"><span class="pre">own</span></code> still does,
+until you decommission it — see
+<a class="reference internal" href="#multi-user-shared-card-removal"><span class="std std-ref">Removing someone</span></a> below.</p>
+<p>The session carries who opened it — the <em>opener</em> — and re-checks that person
+against the roster on every request. Rotating the opener’s password or
+decommissioning them ends every shared session they opened at the next
+request, and under <code class="docutils literal notranslate"><span class="pre">oidc</span></code> so does editing or removing their
+<code class="docutils literal notranslate"><span class="pre">oidc_subject:</span></code> — that per-person revocation is how a shared card is taken
+away from one user without touching the rest. Flipping the <code class="docutils literal notranslate"><span class="pre">access</span></code> key
+settles the same way: a card flipped to <code class="docutils literal notranslate"><span class="pre">any</span></code> refuses sessions minted while
+it was its owner’s, and a card flipped back to <code class="docutils literal notranslate"><span class="pre">own</span></code> refuses the shared
+ones. The ledger records the opener beside the card
+(<a class="reference internal" href="../../../reference/contracts/audit-trail.html#audit-trail-identity-keys"><span class="std std-ref">The login behind the record</span></a>), so a shared terminal’s records still say
+who did what.</p>
+<p>The card’s role rides the card. The claims binding
+(<a class="reference internal" href="#multi-user-role-from-sso"><span class="std std-ref">Let single sign-on pick the tier</span></a>) is not consulted on a shared card — the
+card’s terminal is only ever built as its own tier — so a person the binding
+would refuse for their own card can still open a shared one. If the binding
+is your membership gate, do not share a card.</p>
+<p>Two rosters are refused by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span></code> and the
+build verbs that run it:</p>
+<ul class="simple">
+<li><p><strong>A deployment-editing card cannot be shared</strong>
+(<code class="docutils literal notranslate"><span class="pre">web_terminals.shared_card_privileged</span></code>). A persona holding the setup
+tool or the Config panel was lifted for named people behind their own
+cards; <code class="docutils literal notranslate"><span class="pre">access:</span> <span class="pre">any</span></code> would hand it to every login the deployment has.</p></li>
+<li><p><strong>With a shared card on an</strong> <code class="docutils literal notranslate"><span class="pre">oidc</span></code> <strong>roster, two entries must not carry
+the same</strong> <code class="docutils literal notranslate"><span class="pre">oidc_subject</span></code> (<code class="docutils literal notranslate"><span class="pre">web_terminals.shared_card_duplicate_subject</span></code>).
+One person could always hold two cards — the same <code class="docutils literal notranslate"><span class="pre">oidc_subject:</span></code> on
+both, every login arriving through the card that was clicked. A shared card
+changes the question: the login service must resolve each identity to a
+single roster entry to know who opened it, so once any card is shared, such
+a person keeps <code class="docutils literal notranslate"><span class="pre">oidc_subject:</span></code> on one card only — a login by that
+identity would otherwise be ambiguous, and is refused.</p></li>
+</ul>
+<p><code class="docutils literal notranslate"><span class="pre">login:</span> <span class="pre">false</span></code> remains the ungated option — no login wall at all, the entry
+gated only by its own login URL. <code class="docutils literal notranslate"><span class="pre">access:</span> <span class="pre">any</span></code> is the gated one: everyone
+can reach the card, but only by logging in as themselves.</p>
+</section>
 <section id="serve-it-over-https">
 <span id="multi-user-https"></span><h2>Serve it over HTTPS<a class="headerlink" href="#serve-it-over-https" title="Link to this heading">#</a></h2>
 <p>A login page hands out session cookies, so <code class="docutils literal notranslate"><span class="pre">password</span></code> and <code class="docutils literal notranslate"><span class="pre">oidc</span></code> refuse to
@@ -897,12 +979,14 @@ the way to set a password you chose. <code class="docutils literal notranslate">
 <li><p>Otherwise a password is generated, hashed, and printed once. Capture it.</p></li>
 </ol>
 <p>To change one later, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">passwd</span> <span class="pre">alice</span></code> prompts, rewrites that hash
-and ends alice’s sessions; nobody else is touched. Password login is
-rate-limited per user but never locks anyone out — a control-room operator
-must not be shut out of the terminals.</p>
+and ends alice’s sessions — her own card’s, and every shared-card
+(<a class="reference internal" href="#multi-user-shared-card"><span class="std std-ref">access: any</span></a>) session she opened, since those
+are held open by this same credential. Sessions held open by other people’s
+passwords stay up. Password login is rate-limited per user but never locks
+anyone out — a control-room operator must not be shut out of the terminals.</p>
 </section>
 <section id="removing-someone-and-turning-it-off">
-<h2>Removing someone, and turning it off<a class="headerlink" href="#removing-someone-and-turning-it-off" title="Link to this heading">#</a></h2>
+<span id="multi-user-shared-card-removal"></span><h2>Removing someone, and turning it off<a class="headerlink" href="#removing-someone-and-turning-it-off" title="Link to this heading">#</a></h2>
 <p>A credential can outlive an account, so:</p>
 <ul class="simple">
 <li><p><strong>Use</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">remove</span> <span class="pre">alice</span></code>, not a hand-edit of the roster —
@@ -910,6 +994,19 @@ removing the entry alone leaves her hash in <code class="docutils literal notran
 name back months later revives her password. <code class="docutils literal notranslate"><span class="pre">decommission</span></code> (or
 <code class="docutils literal notranslate"><span class="pre">prune</span></code>, for names already edited out) retires the credential and, under
 OIDC, ends the session.</p></li>
+<li><p><strong>A shared card is revoked per person, through their own credential.</strong>
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">passwd</span> <span class="pre">alice</span></code> ends every shared-card session alice opened
+along with her own (see above); under <code class="docutils literal notranslate"><span class="pre">oidc</span></code>, editing or removing her
+<code class="docutils literal notranslate"><span class="pre">oidc_subject:</span></code> ends her shared-card sessions at the next request — her
+<em>own</em> card’s session is different, lapsing at expiry or logout as it always
+has, unless <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">decommission</span> <span class="pre">alice</span></code> ends it now.</p></li>
+<li><p><strong>Flipping a card to</strong> <code class="docutils literal notranslate"><span class="pre">access:</span> <span class="pre">any</span></code> <strong>does not retire the card’s own
+password</strong> — the hash stays in <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code> and still works: anyone who
+knows it can open the shared card by typing the card’s own name into the
+username field. Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">decommission</span> <span class="pre">&lt;card&gt;</span></code> when you share a
+card that used to have its own password; flipping back to <code class="docutils literal notranslate"><span class="pre">own</span></code> revives
+an unretired hash. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">users</span> <span class="pre">passwd</span> <span class="pre">&lt;card&gt;</span></code> is refused while the card
+is shared — there is no password of its own to change.</p></li>
 <li><p><strong>A plaintext</strong> <code class="docutils literal notranslate"><span class="pre">OSPREY_AUTH_PW_ALICE</span></code> <strong>in</strong> <code class="docutils literal notranslate"><span class="pre">.env</span></code> <strong>survives
 decommission</strong> and would be hashed straight back in for the next alice.
 Delete the line by hand when the person leaves.</p></li>
@@ -988,6 +1085,7 @@ read <a class="reference internal" href="#multi-user-open-mode"><span class="std
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#choose-a-method">Choose a method</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#let-single-sign-on-pick-the-tier">Let single sign-on pick the tier</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#leave-one-entry-public">Leave one entry public</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#share-a-card-with-the-whole-roster">Share a card with the whole roster</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#serve-it-over-https">Serve it over HTTPS</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#passwords-and-where-they-live">Passwords, and where they live</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#removing-someone-and-turning-it-off">Removing someone, and turning it off</a></li>

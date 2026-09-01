@@ -166,16 +166,20 @@ part of the message:
        right card never writes the key. The same case logs a warning, and it
        is recorded rather than refused
    * - ``oidc_subject=``
-     - Who proved the login, as the provider asserted it --- an opaque id or an
-       email. Written only where that differs from the account, so a password
-       deployment never sees this key, and a shared card records the person
-       beside the card they opened
+     - Who proved the login. Under ``oidc`` that is the identity the provider
+       asserted --- an opaque id or an email; on a shared
+       (:ref:`access: any <multi-user-shared-card>`) card under ``password``
+       it is the opener's roster name. Written only where it differs from the
+       account, so a password deployment sees the key on shared cards alone,
+       recording the person beside the card they opened
 
 Two forwarded headers carry that from the login service through nginx:
 ``X-Osprey-Auth-Account`` names the card, ``X-Osprey-Auth-Subject`` names the
-login that proved it. Under ``auth.method: password`` they hold the same value,
-because the roster username *is* the proof; under ``oidc`` they part, and only
-the account is a name a container can compare itself against.
+login that proved it. Under ``auth.method: password`` they hold the same value
+on a person's own card, because the roster username *is* the proof; on a shared
+card the subject header names the opener instead, and under ``oidc`` the two
+part on every card. Either way only the account is a name a container can
+compare itself against.
 
 A deployment that pins an older login-service image with ``auth.image`` gets no
 account header. The container then falls back to comparing the subject, as it

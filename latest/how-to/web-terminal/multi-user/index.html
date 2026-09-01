@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Aug 31, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 01, 2026"/>
   </head>
   
   
@@ -765,7 +765,10 @@ an explicit <code class="docutils literal notranslate"><span class="pre">persona
 becomes that user’s browser tab title. An entry may name a <strong>role</strong>
 instead of a persona — one mapping written once rather than a persona
 pinned per user, and the half a single sign-on provider’s groups can
-decide; see <a class="reference internal" href="login.html#multi-user-role-from-sso"><span class="std std-ref">Let single sign-on pick the tier</span></a>. The roster sets no ports.
+decide; see <a class="reference internal" href="login.html#multi-user-role-from-sso"><span class="std std-ref">Let single sign-on pick the tier</span></a>. Behind a login wall an
+entry may also set <code class="docutils literal notranslate"><span class="pre">access:</span> <span class="pre">any</span></code>, opening it to every roster login
+as a shared card — see <a class="reference internal" href="login.html#multi-user-shared-card"><span class="std std-ref">Share a card with the whole roster</span></a>. The roster sets
+no ports.
 Each user’s host ports come from the deployment’s port layout — one
 hundred-port family per companion panel (artifact gallery, ARIEL,
 channel finder, lattice dashboard, …) plus the terminal itself, and

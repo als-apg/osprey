@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Aug 31, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 01, 2026"/>
   </head>
   
   
@@ -653,19 +653,23 @@ right card never writes the key. The same case logs a warning, and it
 is recorded rather than refused</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">oidc_subject=</span></code></p></td>
-<td><p>Who proved the login, as the provider asserted it — an opaque id or an
-email. Written only where that differs from the account, so a password
-deployment never sees this key, and a shared card records the person
-beside the card they opened</p></td>
+<td><p>Who proved the login. Under <code class="docutils literal notranslate"><span class="pre">oidc</span></code> that is the identity the provider
+asserted — an opaque id or an email; on a shared
+(<a class="reference internal" href="../../how-to/web-terminal/multi-user/login.html#multi-user-shared-card"><span class="std std-ref">access: any</span></a>) card under <code class="docutils literal notranslate"><span class="pre">password</span></code>
+it is the opener’s roster name. Written only where it differs from the
+account, so a password deployment sees the key on shared cards alone,
+recording the person beside the card they opened</p></td>
 </tr>
 </tbody>
 </table>
 </div>
 <p>Two forwarded headers carry that from the login service through nginx:
 <code class="docutils literal notranslate"><span class="pre">X-Osprey-Auth-Account</span></code> names the card, <code class="docutils literal notranslate"><span class="pre">X-Osprey-Auth-Subject</span></code> names the
-login that proved it. Under <code class="docutils literal notranslate"><span class="pre">auth.method:</span> <span class="pre">password</span></code> they hold the same value,
-because the roster username <em>is</em> the proof; under <code class="docutils literal notranslate"><span class="pre">oidc</span></code> they part, and only
-the account is a name a container can compare itself against.</p>
+login that proved it. Under <code class="docutils literal notranslate"><span class="pre">auth.method:</span> <span class="pre">password</span></code> they hold the same value
+on a person’s own card, because the roster username <em>is</em> the proof; on a shared
+card the subject header names the opener instead, and under <code class="docutils literal notranslate"><span class="pre">oidc</span></code> the two
+part on every card. Either way only the account is a name a container can
+compare itself against.</p>
 <p>A deployment that pins an older login-service image with <code class="docutils literal notranslate"><span class="pre">auth.image</span></code> gets no
 account header. The container then falls back to comparing the subject, as it
 did before this release. Where the mapped subject is not the roster name — an
