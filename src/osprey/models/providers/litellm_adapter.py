@@ -39,6 +39,12 @@ os.environ.setdefault("LITELLM_MODE", "PRODUCTION")
 import litellm  # noqa: E402  (must follow the LITELLM_MODE setdefault above)
 from pydantic import BaseModel  # noqa: E402
 
+from osprey.models.spend_attribution import (  # noqa: E402
+    LITELLM_GATEWAY,
+    TAGS_HEADER,
+    attribution_tags,
+)
+from osprey.utils.identity import acting_identity  # noqa: E402
 from osprey.utils.logger import get_logger  # noqa: E402
 
 if TYPE_CHECKING:
@@ -134,6 +140,22 @@ def get_litellm_model_name(
     return f"{provider}/{model_id}"
 
 
+def _provider_gateway(provider: str) -> str | None:
+    """The gateway kind the provider adapter declares, or ``None``.
+
+    Read from the registered adapter class (``gateway`` attribute) so the SDK
+    path and the agent's launch paths agree on which providers are LiteLLM
+    proxies. An unregistered name is a direct provider for this purpose.
+    """
+    from osprey.models.provider_registry import get_provider_registry
+
+    try:
+        provider_class = get_provider_registry().get_provider(provider)
+    except Exception:  # noqa: BLE001 — unknown provider: attribute nothing
+        return None
+    return getattr(provider_class, "gateway", None)
+
+
 def execute_litellm_completion(
     provider: str,
     message: str,
@@ -195,6 +217,13 @@ def execute_litellm_completion(
 
     # HTTP proxy needs no handling here: LiteLLM honors the standard
     # HTTP_PROXY / HTTPS_PROXY environment variables automatically.
+
+    # Spend attribution: on a LiteLLM-fronted provider, book this call to the
+    # acting identity (OpenAI `user` field) and tag it like the agent's own
+    # requests, so the gateway's spend logs see one caller on both paths.
+    if _provider_gateway(provider) == LITELLM_GATEWAY:
+        completion_kwargs["user"] = acting_identity()
+        completion_kwargs["extra_headers"] = {TAGS_HEADER: attribution_tags()}
 
     # Handle extended thinking
     enable_thinking = kwargs.get("enable_thinking", False)

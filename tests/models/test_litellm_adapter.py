@@ -866,3 +866,43 @@ class TestCheckLitellmHealth:
         )
         assert ok is False
         assert msg.startswith("API error")
+
+
+class TestSpendAttribution:
+    """The SDK path books its spend to the acting identity on a LiteLLM gateway."""
+
+    @patch("osprey.models.providers.litellm_adapter.litellm")
+    def test_gateway_provider_sends_user_and_tags(self, mock_litellm, monkeypatch):
+        monkeypatch.setenv("OSPREY_TERMINAL_USER", "thellert")
+        mock_litellm.completion.return_value.choices[0].message.content = "ok"
+        mock_litellm.completion.return_value.choices[0].message.tool_calls = None
+
+        execute_litellm_completion(
+            provider="als-apg",
+            message="hi",
+            model_id="claude-haiku-4-5-20251001",
+            api_key="sk-x",
+            base_url="https://gw.example/v1",
+        )
+
+        kwargs = mock_litellm.completion.call_args.kwargs
+        assert kwargs["user"] == "thellert"
+        assert kwargs["extra_headers"] == {"x-litellm-tags": "osprey,surface:terminal"}
+
+    @patch("osprey.models.providers.litellm_adapter.litellm")
+    def test_direct_provider_sends_nothing(self, mock_litellm, monkeypatch):
+        monkeypatch.setenv("OSPREY_TERMINAL_USER", "thellert")
+        mock_litellm.completion.return_value.choices[0].message.content = "ok"
+        mock_litellm.completion.return_value.choices[0].message.tool_calls = None
+
+        execute_litellm_completion(
+            provider="openai",
+            message="hi",
+            model_id="gpt-4o-mini",
+            api_key="sk-x",
+            base_url=None,
+        )
+
+        kwargs = mock_litellm.completion.call_args.kwargs
+        assert "user" not in kwargs
+        assert "extra_headers" not in kwargs

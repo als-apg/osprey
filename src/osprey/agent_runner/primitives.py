@@ -250,6 +250,11 @@ def provider_env_for_project(project_dir: Path, *, provider: str | None = None) 
                 env[spec.auth_env_var] = secret
             # Raw secret for the MCP-subprocess ${SECRET} expansion (see Notes).
             env[spec.auth_secret_env] = secret
+
+    # Spend attribution on a LiteLLM-fronted provider (mirrors inject_provider_env).
+    from osprey.models.spend_attribution import apply_attribution_env
+
+    apply_attribution_env(env, spec.gateway)
     return env
 
 
