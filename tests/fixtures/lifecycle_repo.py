@@ -1901,8 +1901,8 @@ FACILITY_ONTOLOGY_JSON = """\
 CHANNEL_LIMITS_JSON = """\
 {
   "_comment": "Write limits, enforced by the limits hook before any write reaches the control system. A channel is writable if and only if it is a setpoint (:SP); every other address is read-only, whatever this file says.",
-  "SR:MAG:HCM:01:CURRENT:SP": { "min": -5.0, "max": 5.0, "units": "A" },
-  "SR:MAG:HCM:02:CURRENT:SP": { "min": -5.0, "max": 5.0, "units": "A" }
+  "SR:MAG:HCM:01:CURRENT:SP": { "min_value": -5.0, "max_value": 5.0, "writable": true },
+  "SR:MAG:HCM:02:CURRENT:SP": { "min_value": -5.0, "max_value": 5.0, "writable": true }
 }
 """
 
