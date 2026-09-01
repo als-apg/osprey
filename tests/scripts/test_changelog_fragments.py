@@ -1033,7 +1033,7 @@ class TestGateFailures:
         assert failures == []
         assert ok_lines == [
             "✓ changelog gate: changelog.d/745.fixed.md added for 1 changed file(s) "
-            "under src/, packages/",
+            "under src/, packages/, plugins/",
             "✓ [Unreleased]: untouched",
         ]
 
@@ -1125,7 +1125,7 @@ class TestGateFailures:
         )
         assert ok_lines[0] == (
             "✓ changelog gate: changelog.d/115.fixed.md added for 2 changed file(s) "
-            "under src/, packages/"
+            "under src/, packages/, plugins/"
         )
 
     def test_no_gated_change_requires_no_fragment(self):
@@ -1135,7 +1135,7 @@ class TestGateFailures:
         )
         assert failures == []
         assert ok_lines == [
-            "✓ changelog gate: no src/ or packages/ changes — no fragment required",
+            "✓ changelog gate: no src/ or packages/ or plugins/ changes — no fragment required",
             "✓ [Unreleased]: untouched",
         ]
 
@@ -1290,7 +1290,7 @@ class TestGateFailures:
         failures, ok_lines = cf.gate_failures(changed, [], deleted, head, base)
         assert failures == []
         assert ok_lines == [
-            "✓ changelog gate: no src/ or packages/ changes — no fragment required",
+            "✓ changelog gate: no src/ or packages/ or plugins/ changes — no fragment required",
             "✓ [Unreleased]: empty (rotation)",
         ]
 
@@ -1567,7 +1567,7 @@ class TestMain:
         assert capsys.readouterr().out.splitlines() == [
             "✓ changelog.d: 1 fragment(s) valid",
             "✓ changelog gate: changelog.d/745.fixed.md added for 1 changed file(s) "
-            "under src/, packages/",
+            "under src/, packages/, plugins/",
             "✓ [Unreleased]: untouched",
         ]
 
@@ -1578,7 +1578,7 @@ class TestMain:
         assert code == 0
         assert capsys.readouterr().out.splitlines() == [
             "✓ changelog.d: 0 fragment(s) valid",
-            "✓ changelog gate: no src/ or packages/ changes — no fragment required",
+            "✓ changelog gate: no src/ or packages/ or plugins/ changes — no fragment required",
             "✓ [Unreleased]: untouched",
         ]
 
@@ -1763,7 +1763,7 @@ class TestMain:
 #: without being documented in both of these is a type nobody knows exists.
 VOCABULARY_SURFACES = (
     "changelog.d/README.md",
-    "src/osprey/templates/skills/osprey-contribute/SKILL.md",
+    "plugins/osprey/skills/contribute/SKILL.md",
 )
 
 #: Surfaces that have to send a contributor to the directory. Each one is a
@@ -1773,8 +1773,8 @@ POINTER_SURFACES = (
     "docs/source/contributing/workflow.rst",
     "CONTRIBUTING.md",
     "scripts/README.md",
-    "src/osprey/templates/skills/osprey-design-philosophy/SKILL.md",
-    "src/osprey/templates/skills/osprey-release/SKILL.md",
+    "plugins/osprey/skills/design-philosophy/SKILL.md",
+    "plugins/osprey/skills/release/SKILL.md",
 )
 
 
@@ -1834,12 +1834,10 @@ class TestLiveTree:
     def test_the_release_skill_folds_and_counts_what_is_on_disk(self):
         """Step 3 has to run `apply`, and the release has to see the count."""
         tokens = ["changelog_fragments.py apply", "fragment(s) on disk"]
-        assert _surface_has(
-            self.read("src/osprey/templates/skills/osprey-release/SKILL.md"), tokens
-        )
+        assert _surface_has(self.read("plugins/osprey/skills/release/SKILL.md"), tokens)
 
     def test_dropping_either_release_token_would_fail(self):
-        text = self.read("src/osprey/templates/skills/osprey-release/SKILL.md")
+        text = self.read("plugins/osprey/skills/release/SKILL.md")
         tokens = ["changelog_fragments.py apply", "fragment(s) on disk"]
         for token in tokens:
             assert _surface_has(text.replace(token, ""), tokens) is False
