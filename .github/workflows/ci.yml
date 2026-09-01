@@ -546,6 +546,50 @@ jobs:
         BASE_REF: ${{ github.event.pull_request.base.ref }}
       run: python3 scripts/changelog_fragments.py check --base "origin/$BASE_REF"
 
+    - name: Run plugin version-bump gate
+      # A PR that edits the plugin tree must also bump the plugin version.
+      # Consumers install the marketplace plugin by version, so an edit
+      # republished under the version it already carried never reaches anyone
+      # who already installed it — the change looks landed and is invisible.
+      #
+      # Same `!cancelled()` reasoning as the two steps above: an earlier
+      # failure in this job must not hide a missing bump and buy a second full
+      # CI cycle to discover it.
+      #
+      # The base comes from the event, not a hardcoded `main`, and it reaches
+      # the command through `env:` and never through `${{ }}` inside `run:`:
+      # a branch name is attacker-controlled text, and interpolating it into
+      # the shell line would execute it. By the time the shell sees
+      # `$BASE_REF` it is a variable, so the quoting holds. Pull requests
+      # only — on a push there is no base ref to diff against. The checkout
+      # above is fetch-depth: 0, which is what makes `origin/$BASE_REF` and
+      # the `A...B` merge base resolvable; deliberately no fetch here, since a
+      # depth-limited one would shallow the clone and break that merge base.
+      if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+      env:
+        BASE_REF: ${{ github.event.pull_request.base.ref }}
+      run: |
+        BASE="origin/$BASE_REF"
+        # Captured on its own line so an unresolvable base aborts the step
+        # (bash -e) instead of reading as an empty, untouched plugin tree.
+        CHANGED=$(git diff --name-only "$BASE...HEAD" -- plugins .claude-plugin .agents/plugins)
+        if [ -z "$CHANGED" ]; then
+          echo "plugin tree untouched — no version bump required"; exit 0
+        fi
+        HEAD_VER=$(python3 -c 'import json;print(json.load(open("plugins/osprey/.claude-plugin/plugin.json"))["version"])')
+        # A manifest missing on the base is a new plugin; a manifest that exists
+        # but does not parse is an error, not a free pass.
+        if BASE_JSON=$(git show "$BASE:plugins/osprey/.claude-plugin/plugin.json" 2>/dev/null); then
+          BASE_VER=$(printf %s "$BASE_JSON" | python3 -c 'import json,sys;print(json.load(sys.stdin)["version"])')
+        else
+          BASE_VER=NONE
+        fi
+        [ "$BASE_VER" = NONE ] && { echo "new plugin manifest — no bump required"; exit 0; }
+        if [ "$HEAD_VER" = "$BASE_VER" ]; then
+          echo "plugin tree changed without a version bump — run python scripts/plugin_version.py bump"; exit 1
+        fi
+        echo "plugin version $BASE_VER -> $HEAD_VER"
+
     - name: Run mypy (type checking)
       run: |
         uv run mypy src/ packages/osprey-connectors/src/ --no-error-summary || true
@@ -1022,6 +1066,70 @@ jobs:
 
     - name: Run JS tests (vitest)
       run: npm run test:js
+
+  plugin-smoke:
+    name: Plugin marketplace smoke (install the osprey plugin)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # No `if:` and no paths filter: GitHub Actions has no job-level `paths`,
+    # and a plugin that stops installing is a shipping bug for every consumer
+    # of the marketplace, not just for PRs that happen to edit `plugins/`. A
+    # skill file renamed anywhere else, a manifest key the CLI stops
+    # accepting, or a plugin CLI change all break it without touching the
+    # plugin tree. The lane costs about a minute, so it always runs.
+    env:
+      # `claude plugin marketplace add` writes the registration into
+      # $CLAUDE_CONFIG_DIR/settings.json, and `install`/`details` read it back
+      # — so the config dir has to be job-level, not per-step, or the later
+      # steps look at a different (empty) config and the install "vanishes".
+      # A runner-temp path keeps it off the default config location.
+      CLAUDE_CONFIG_DIR: ${{ runner.temp }}/claude-cfg
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      # Full history + tags: the package version is derived from the git tag.
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Install dependencies
+      run: uv sync
+
+    - name: Put the SDK's bundled Claude CLI on PATH
+      # Same reasoning as the agentic lane above: `claude-agent-sdk` ships a
+      # working `claude` binary but installs no console script, so a fresh
+      # runner has none on PATH. Verify before exporting, so a missing binary
+      # fails the lane loudly instead of turning the smoke below into a
+      # "command not found" that reads like a plugin failure.
+      run: |
+        bundled="$(uv run python -c "import claude_agent_sdk, pathlib; print(pathlib.Path(claude_agent_sdk.__file__).parent / '_bundled')")"
+        "$bundled/claude" --version
+        echo "$bundled" >> "$GITHUB_PATH"
+
+    - name: Install the osprey plugin from the in-repo marketplace
+      # The checkout itself is the marketplace source, so this proves the
+      # manifests in THIS commit resolve — not whatever is published
+      # elsewhere. `install` is non-interactive and takes no -y.
+      run: |
+        claude plugin marketplace add "$GITHUB_WORKSPACE"
+        claude plugin install osprey@osprey
+
+    - name: Check the plugin exposes all six skills
+      # `details` prints the count and the skill names on one line, so both
+      # halves are asserted: the count catches a skill that stopped being
+      # discovered, and the names catch one silently renamed or swapped.
+      run: |
+        claude plugin details osprey@osprey | tee /tmp/details.txt
+        grep -q 'Skills (6)' /tmp/details.txt
+        for s in build-interview contribute design-philosophy panel pre-commit release; do grep -q "$s" /tmp/details.txt; done
 
   build-boot-smoke:
     name: Tier 1 — Build + MCP boot (${{ matrix.preset }})
@@ -1530,7 +1638,6 @@ jobs:
           --set provider=als-apg --set model=haiku
         cd hello-world-test
         uv run osprey build --skip-deps --skip-lifecycle
-        uv run osprey skills install osprey-build-interview
         ls -la
 
     - name: osprey up (deploys openobserve for hello-world)
@@ -4778,7 +4885,7 @@ jobs:
 
   all-checks-passed:
     name: All CI Checks Passed
-    needs: [test, dependency-floor, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-web-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, bluesky-queue-e2e, scan-agentic-e2e, archiver-world-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, dockerfile-e2e, privilege-split-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman, auth-perimeter-e2e, terminal-auth-multiuser-e2e, full-chain-auth-e2e, two-shape-boot-e2e, qmd-sidecar-e2e, target-switch-e2e, target-switch-agentic-e2e]
+    needs: [test, dependency-floor, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-web-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, bluesky-queue-e2e, scan-agentic-e2e, archiver-world-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, dockerfile-e2e, privilege-split-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman, auth-perimeter-e2e, terminal-auth-multiuser-e2e, full-chain-auth-e2e, two-shape-boot-e2e, qmd-sidecar-e2e, target-switch-e2e, target-switch-agentic-e2e, plugin-smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     if: always()
@@ -4835,6 +4942,10 @@ jobs:
         fi
         if [[ "${{ needs.static-checks.result }}" != "success" ]]; then
           echo "❌ Tier 0 static checks failed"
+          exit 1
+        fi
+        if [[ "${{ needs.plugin-smoke.result }}" != "success" ]]; then
+          echo "❌ Plugin marketplace smoke failed (the osprey plugin no longer installs)"
           exit 1
         fi
         if [[ "${{ needs.visual-theming.result }}" != "success" ]]; then
