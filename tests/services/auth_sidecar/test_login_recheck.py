@@ -687,6 +687,29 @@ class TestTheAntiLookupInvariant:
             ("alice", audit.REASON_IDENTITY_MISMATCH)
         ]
 
+    def test_a_shared_card_is_the_one_deliberate_reverse_match(
+        self, zone: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The exception the test above is stated against — and it lives in
+        ``oidc.py``, not in this module. On a card whose rendered access rule
+        is ``any``, bob's subject arriving on alice's handshake opens alice's
+        card: the entry is keyed by the card, the opener records who proved the
+        login, the role is the card's own roster role, and the ledger names the
+        opener. Alice's own card above stays a refusal — the reverse match is
+        gated on :meth:`AuthSettings.shared`."""
+        _bind_roster_roles(monkeypatch, alice="operator")
+        env = {**OIDC_ENV, "OSPREY_AUTH_ROSTER_ACCESS_ALICE": "any"}
+        response = _callback(_oidc_app(env, userinfo={"sub": BOB_SUBJECT}), user="alice")
+        assert response.status_code == 303
+        entry = _minted_entry(_issued_cookie(response), "alice")
+        assert entry.oidc_subject == BOB_SUBJECT
+        assert entry.opener == "bob"
+        assert entry.role == "operator"
+        assert entry.role_source == ROLE_SOURCE_ROSTER
+        record = _records(zone)[-1]
+        assert record["subject"] == "alice"
+        assert record["detail"] == "opener=bob"
+
     #: Every public name the matrix module is allowed to define.
     #:
     #: Deliberately the whole surface rather than a pattern. A guard that
@@ -953,9 +976,34 @@ class TestVerifyReadsTheSameMatrix:
         entry = UnlockedUser(username="alice", expires_at=0, generation_tag="", oidc_subject="")
         assert session_subject(method=METHOD_PASSWORD, username="alice", entry=entry) == "alice"
 
+    def test_a_shared_card_session_names_its_opener(self) -> None:
+        """A shared card's entry is keyed by the card but was proved by the
+        opener's password, and the opener is the account the header names."""
+        entry = UnlockedUser(
+            username="controls", expires_at=0, generation_tag="", oidc_subject="", opener="alice"
+        )
+        assert session_subject(method=METHOD_PASSWORD, username="controls", entry=entry) == "alice"
+
+    def test_a_missing_entry_under_password_names_the_roster_user(self) -> None:
+        """The defensive path: with no entry to read an opener from, the
+        fallback is still the locally verified roster username."""
+        assert session_subject(method=METHOD_PASSWORD, username="alice", entry=None) == "alice"
+
     def test_an_oidc_session_names_the_provider_account(self) -> None:
         entry = UnlockedUser(
             username="alice", expires_at=0, generation_tag="", oidc_subject=ALICE_SUBJECT
+        )
+        assert session_subject(method=METHOD_OIDC, username="alice", entry=entry) == ALICE_SUBJECT
+
+    def test_the_opener_never_reaches_the_oidc_arm(self) -> None:
+        """An opener is password-path bookkeeping: the OIDC arm keeps naming
+        the provider account, never a roster username stored beside it."""
+        entry = UnlockedUser(
+            username="alice",
+            expires_at=0,
+            generation_tag="",
+            oidc_subject=ALICE_SUBJECT,
+            opener="bob",
         )
         assert session_subject(method=METHOD_OIDC, username="alice", entry=entry) == ALICE_SUBJECT
 

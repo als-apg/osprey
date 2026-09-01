@@ -273,3 +273,20 @@ def print_call_to_action(repo_root: Path | str, state: str) -> None:
                 f"{', '.join(facts.token_login_users)} each need their own "
                 "login URL, which carries that user's secret -- treat it like a password"
             )
+    if facts.shared_cards:
+        # Names, never URLs, for the same reason as the token-login line above.
+        # Without this line a shared card looks unreachable: it is in neither
+        # the sign-in pairs nor the login-url list, because it holds no
+        # credential of its own.
+        if len(facts.shared_cards) == 1:
+            output.note(
+                f"{facts.shared_cards[0]} is a shared card with no login of its "
+                "own -- open it by signing in with another roster user's name "
+                "and credential"
+            )
+        else:
+            output.note(
+                f"{', '.join(facts.shared_cards)} are shared cards with no "
+                "login of their own -- open each by signing in with another "
+                "roster user's name and credential"
+            )

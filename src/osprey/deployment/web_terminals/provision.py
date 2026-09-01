@@ -79,6 +79,7 @@ from osprey.deployment.web_terminals.persona_images import (
 )
 from osprey.deployment.web_terminals.personas import (
     effective_image_source,
+    entry_is_shared,
     entry_requires_login,
     normalize_users,
     resolve_personas,
@@ -553,11 +554,14 @@ def _provision_auth_secrets(web_terminals: dict, repo_root: str) -> None:
         # `login: false` entries are left out on purpose: no gate ever asks the
         # sidecar about them, so a hash here would be a credential nothing
         # checks — and a minted password printed for an entry that has no login
-        # would tell the operator the opposite of the truth.
+        # would tell the operator the opposite of the truth. Shared entries
+        # (`access: any`) are left out for the same reason: a shared card holds
+        # no password of its own — verify checks the opener's credential — so a
+        # hash minted under its name would likewise be one nothing ever checks.
         usernames = [
             entry["name"]
             for entry in normalize_users(web_terminals.get("users"))
-            if entry_requires_login(entry)
+            if entry_requires_login(entry) and not entry_is_shared(entry)
         ]
         credentials = ensure_auth_credentials(usernames, repo_root, echo=_mint_echo())
         _report_unshown_mints(credentials)

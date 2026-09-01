@@ -509,6 +509,7 @@ module = [
     "podman.*",
     "pymongo.*",
     "doocs4py.*",
+    "tango.*",
 ]
 ignore_missing_imports = true
 

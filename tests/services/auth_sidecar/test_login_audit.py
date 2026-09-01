@@ -355,6 +355,18 @@ class TestASuccessfulLogin:
         assert _callback(_oidc_app()).status_code == 303
         assert "role" not in _records(zone)[0]
 
+    def test_a_detail_is_carried_when_given(self, zone: Path) -> None:
+        """A shared-card login names its opener in ``detail`` — identifiers
+        only, on the same terms as a refusal's detail."""
+        audit.record_login_success(user="alice", method="password", detail="opener=alice")
+        assert _records(zone)[0]["detail"] == "opener=alice"
+
+    def test_no_detail_means_the_key_is_omitted(self, zone: Path) -> None:
+        """Absent, not null: a record with nothing to add carries no key, so a
+        reader never has to distinguish ``null`` from missing."""
+        audit.record_login_success(user="alice", method="password")
+        assert "detail" not in _records(zone)[0]
+
 
 # --- what a refused login records -------------------------------------------
 
@@ -407,6 +419,65 @@ class TestARefusedPasswordLogin:
             assert _login(client, password="wrong").status_code == 401
             assert _login(client, password="wrong").status_code == 429
         assert len(_records(zone)) == 1
+
+
+SHARED_ENV = {**PASSWORD_ENV, "OSPREY_AUTH_ROSTER_ACCESS_BOB": "any"}
+"""The password roster with bob's card opened to the whole roster, so a shared
+login's ledger records can be pinned: alice's credential opens bob's card."""
+
+
+def _shared_login(
+    client: TestClient, opener: str, password: str = ALICE_PASSWORD
+) -> httpx.Response:
+    """POST one shared-card attempt against bob's card."""
+    return client.post(
+        "/auth/login",
+        data={"user": "bob", "username": opener, "next": "", "password": password},
+        headers={"Origin": EXTERNAL_ORIGIN},
+        follow_redirects=False,
+    )
+
+
+class TestASharedCardInTheLedger:
+    """A shared card's records are the card's, with the opener in ``detail``.
+
+    The subject stays the card — that is whose terminal was entered — and the
+    opener rides in ``detail`` as an identifier, so "who is in bob's terminal,
+    and whose credential put them there" are both one line's answer.
+    """
+
+    def test_a_success_names_its_opener(self, zone: Path) -> None:
+        with TestClient(create_app(SHARED_ENV), base_url="https://testserver") as client:
+            assert _shared_login(client, "alice").status_code == 303
+        record = _records(zone)[0]
+        assert record["decision"] == "allowed"
+        assert record["reason"] == audit.REASON_PASSWORD_LOGIN
+        assert record["subject"] == "bob"
+        assert record["detail"] == "opener=alice"
+
+    def test_a_refusal_names_its_opener(self, zone: Path) -> None:
+        """Same category as every other bad credential — the record must not
+        say whether the opener exists any more than the page does — but the
+        bounded opener name is carried so the ledger can answer who was
+        knocking."""
+        with TestClient(create_app(SHARED_ENV), base_url="https://testserver") as client:
+            assert _shared_login(client, "mally", password="a-guess").status_code == 401
+        record = _records(zone)[0]
+        assert record["decision"] == "refused"
+        assert record["reason"] == audit.REASON_BAD_CREDENTIAL
+        assert record["subject"] == "bob"
+        assert record["detail"] == "opener=mally"
+
+    def test_an_empty_opener_refusal_carries_no_detail(self, zone: Path) -> None:
+        """An empty opener is refused like any other miss, but ``opener=`` with
+        nothing after it would put an empty value in an identifiers-only field
+        — so that refusal carries no detail key at all."""
+        with TestClient(create_app(SHARED_ENV), base_url="https://testserver") as client:
+            assert _shared_login(client, "", password="a-guess").status_code == 401
+        record = _records(zone)[0]
+        assert record["decision"] == "refused"
+        assert record["reason"] == audit.REASON_BAD_CREDENTIAL
+        assert "detail" not in record
 
 
 class TestARefusedOidcLogin:
@@ -688,6 +759,9 @@ class TestTheCategorySetIsClosed:
             if name.startswith("REASON_") and isinstance(value, str)
         }
         assert named <= audit.LOGIN_REASONS
+        # Categories no route files yet are pinned here by name, so the
+        # vars() sweep above is not their only tie to the closed set.
+        assert audit.REASON_AMBIGUOUS_IDENTITY in audit.LOGIN_REASONS
 
     def test_the_oidc_routes_name_the_same_categories(self) -> None:
         """The route module keeps its own spellings for readability at the point

@@ -397,6 +397,7 @@ _BUILTIN_CONTROL_SYSTEMS = (
     types.EPICS,
     types.VIRTUAL_ACCELERATOR,
     types.DOOCS,
+    types.TANGO,
     types.LIVE_STANDIN,
 )
 _BUILTIN_ARCHIVERS = (
@@ -442,6 +443,7 @@ def register_builtin_connectors() -> None:
     from osprey_connectors.control_system.doocs_connector import DOOCSConnector
     from osprey_connectors.control_system.epics_connector import EPICSConnector
     from osprey_connectors.control_system.mock_connector import MockConnector
+    from osprey_connectors.control_system.tango_connector import TangoConnector
     from osprey_connectors.control_system.va_connector import VirtualAcceleratorConnector
 
     control_systems: list[tuple[str, type[ControlSystemConnector]]] = [
@@ -449,6 +451,7 @@ def register_builtin_connectors() -> None:
         (types.EPICS, EPICSConnector),
         (types.VIRTUAL_ACCELERATOR, VirtualAcceleratorConnector),
         (types.DOOCS, DOOCSConnector),
+        (types.TANGO, TangoConnector),
         # The live stand-in is a soft IOC, so the EPICS connector is what reaches
         # it — but it registers under its own name rather than sharing 'epics'.
         # The registry key is what build_control_system_connector() stamps onto

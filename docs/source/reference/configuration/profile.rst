@@ -205,9 +205,9 @@ sections in their own ``config.yml.j2``.
    **Connector types whose name contains a dot** are the one place the flat form
    does not work. A custom connector is named by its module path, and the build
    splits only the *first* key of each ``config:`` entry on dots — so
-   ``control_system.connector.mypkg.TangoConnector.limits_checking.enabled``
+   ``control_system.connector.mypkg.MoatConnector.limits_checking.enabled``
    renders the type's module path as two nested keys, ``mypkg`` and
-   ``TangoConnector``, instead of the one key the connector is actually called.
+   ``MoatConnector``, instead of the one key the connector is actually called.
    ``osprey build`` and ``osprey validate`` refuse that entry by name rather
    than letting it render somewhere nothing reads. Write such a type as its own
    map key under a dotted prefix, which is the one spelling that puts the block
@@ -217,7 +217,7 @@ sections in their own ``config.yml.j2``.
 
       config:
         control_system.connector:
-          mypkg.TangoConnector:
+          mypkg.MoatConnector:
             limits_checking:
               enabled: true
               allow_unlisted_channels: false

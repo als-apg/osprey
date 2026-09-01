@@ -523,3 +523,101 @@ class TestNotRunningMessages:
 
         monkeypatch.setattr(platform, "system", lambda: "Linux")
         assert "podman.socket" in runtime_helper._get_podman_not_running_message()
+
+
+class TestFallThroughIsAnnounced:
+    """``auto`` may pick the second runtime, but never quietly.
+
+    Skipping an installed runtime whose probe failed is a decision the
+    operator has to be able to see: a ``down`` served by the other runtime
+    reports a stack it cannot see as stopped. The warning names the runtime
+    that was skipped, the probe that failed, and the one selected instead.
+    """
+
+    @staticmethod
+    def _warnings(caplog) -> list[str]:
+        import logging
+
+        return [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+
+    def test_skipping_an_installed_runtime_is_warned_with_the_failed_probe(
+        self, monkeypatch, caplog
+    ):
+        import logging
+
+        monkeypatch.setattr(runtime_helper.shutil, "which", lambda name: f"/usr/bin/{name}")
+        monkeypatch.setattr(
+            runtime_helper.subprocess,
+            "run",
+            _make_run(
+                {
+                    ("docker", "compose"): 0,
+                    ("docker", "ps"): 1,
+                    ("podman", "compose"): 0,
+                    ("podman", "ps"): 0,
+                }
+            ),
+        )
+
+        with caplog.at_level(logging.WARNING, logger="deployment.runtime"):
+            assert get_runtime_command() == ["podman", "compose"]
+
+        warnings = self._warnings(caplog)
+        assert len(warnings) == 1, warnings
+        assert "docker" in warnings[0] and "podman" in warnings[0]
+        assert "docker ps" in warnings[0]
+
+    def test_a_probe_timeout_is_named_as_such(self, monkeypatch, caplog):
+        import logging
+
+        def _run(cmd, **kwargs):
+            if cmd[0] == "docker" and cmd[1] == "ps":
+                raise subprocess.TimeoutExpired(cmd, 5)
+            return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
+
+        monkeypatch.setattr(runtime_helper.shutil, "which", lambda name: f"/usr/bin/{name}")
+        monkeypatch.setattr(runtime_helper.subprocess, "run", _run)
+
+        with caplog.at_level(logging.WARNING, logger="deployment.runtime"):
+            assert get_runtime_command() == ["podman", "compose"]
+
+        warnings = self._warnings(caplog)
+        assert len(warnings) == 1, warnings
+        assert "timed out" in warnings[0]
+
+    def test_an_absent_runtime_is_not_a_fall_through(self, monkeypatch, caplog):
+        """Only docker on PATH is not a choice between two; nothing is warned."""
+        import logging
+
+        monkeypatch.setattr(
+            runtime_helper.shutil,
+            "which",
+            lambda name: f"/usr/bin/{name}" if name == "podman" else None,
+        )
+        monkeypatch.setattr(
+            runtime_helper.subprocess,
+            "run",
+            _make_run({("podman", "compose"): 0, ("podman", "ps"): 0}),
+        )
+
+        with caplog.at_level(logging.WARNING, logger="deployment.runtime"):
+            assert get_runtime_command() == ["podman", "compose"]
+
+        assert self._warnings(caplog) == []
+
+    def test_a_pinned_runtime_never_falls_through(self, monkeypatch, caplog):
+        """The pin narrows the candidates to one; nothing is skipped, so nothing is warned."""
+        import logging
+
+        monkeypatch.setattr(runtime_helper.shutil, "which", lambda name: f"/usr/bin/{name}")
+        monkeypatch.setattr(
+            runtime_helper.subprocess,
+            "run",
+            _make_run({("podman", "compose"): 0, ("podman", "ps"): 0}),
+        )
+
+        with caplog.at_level(logging.WARNING, logger="deployment.runtime"):
+            with pytest.raises(RuntimeError):
+                get_runtime_command({"container_runtime": "docker"})
+
+        assert self._warnings(caplog) == []

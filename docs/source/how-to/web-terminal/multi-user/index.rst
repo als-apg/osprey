@@ -201,7 +201,10 @@ The config block
          becomes that user's browser tab title. An entry may name a **role**
          instead of a persona — one mapping written once rather than a persona
          pinned per user, and the half a single sign-on provider's groups can
-         decide; see :ref:`multi-user-role-from-sso`. The roster sets no ports.
+         decide; see :ref:`multi-user-role-from-sso`. Behind a login wall an
+         entry may also set ``access: any``, opening it to every roster login
+         as a shared card — see :ref:`multi-user-shared-card`. The roster sets
+         no ports.
          Each user's host ports come from the deployment's port layout — one
          hundred-port family per companion panel (artifact gallery, ARIEL,
          channel finder, lattice dashboard, …) plus the terminal itself, and

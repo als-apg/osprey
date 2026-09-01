@@ -57,9 +57,9 @@ renders the ready-to-run deployment into `build/`.
   approval gates.
 - **Control-system safety** — Pattern detection, channel boundary checking, and mandatory
   human approval for every hardware write.
-- **Protocol-agnostic integration** — EPICS and Mock connectors ship in-tree; LabVIEW, Tango,
-  and other stacks connect through the
-  [connector interface](https://als-apg.github.io/osprey/how-to/add-connector.html).
+- **Protocol-agnostic integration** — EPICS, DOOCS, TANGO, and Mock connectors ship in-tree;
+  LabVIEW and other stacks connect through the
+  [connector interface](https://als-apg.github.io/osprey/contributing/extending-osprey.html).
 - **Replaceable backends** — The agent harness, the underlying model, and the compute backend
   are each swappable by configuration, without changing what the operator sees.
 - **Scalable capability management** — Dynamic classification prevents prompt explosion as

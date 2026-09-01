@@ -134,6 +134,11 @@ ENV_OIDC_CLAIM = "OSPREY_AUTH_OIDC_CLAIM"
 ENV_OIDC_SUBJECT_PREFIX = "OSPREY_AUTH_OIDC_SUBJECT_"
 """Per-user expected IdP identity: ``OSPREY_AUTH_OIDC_SUBJECT_<SUFFIX>``."""
 
+ENV_ROSTER_ACCESS_PREFIX = "OSPREY_AUTH_ROSTER_ACCESS_"
+"""Per-user access rule: ``OSPREY_AUTH_ROSTER_ACCESS_<SUFFIX>``. The ``ROSTER_``
+infix matches ``OSPREY_AUTH_ROSTER_ROLE_``: both describe the roster entry
+itself rather than a credential belonging to the user."""
+
 DEFAULT_OIDC_CLIENT_ID_ENV = "OSPREY_AUTH_OIDC_CLIENT_ID"
 DEFAULT_OIDC_CLIENT_SECRET_ENV = "OSPREY_AUTH_OIDC_CLIENT_SECRET"
 DEFAULT_OIDC_CLAIM = "sub"
@@ -244,6 +249,10 @@ class AuthSettings:
         oidc_claim: Which ID-token claim carries the identity to map onto a
             roster user.
         oidc_subjects: ``{username: expected claim value}`` from the roster.
+        shared_users: Roster usernames whose terminal any authenticated roster
+            user may open (``access: any``). Membership is granted only by the
+            exact value ``any`` — anything else, including the default
+            ``own``, reads as not shared, so a typo fails closed.
     """
 
     method: str = "none"
@@ -261,6 +270,7 @@ class AuthSettings:
     oidc_client_secret_var: str = DEFAULT_OIDC_CLIENT_SECRET_ENV
     oidc_claim: str = DEFAULT_OIDC_CLAIM
     oidc_subjects: Mapping[str, str] = field(default_factory=dict)
+    shared_users: frozenset[str] = frozenset()
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> AuthSettings:
@@ -291,6 +301,7 @@ class AuthSettings:
         users = _roster(source.get(ENV_USERS))
         password_hashes: dict[str, str] = {}
         oidc_subjects: dict[str, str] = {}
+        shared_users: set[str] = set()
         for user in users:
             suffix = env_var_suffix(user)
             stored = (source.get(f"{ENV_PW_HASH_PREFIX}{suffix}") or "").strip()
@@ -299,6 +310,11 @@ class AuthSettings:
             subject = (source.get(f"{ENV_OIDC_SUBJECT_PREFIX}{suffix}") or "").strip()
             if subject:
                 oidc_subjects[user] = subject
+            access = (source.get(f"{ENV_ROSTER_ACCESS_PREFIX}{suffix}") or "").strip()
+            if access == "any":
+                # Only the exact value grants sharing; anything else — the
+                # default ``own`` included — fails closed to per-user access.
+                shared_users.add(user)
 
         client_id_var = (
             source.get(ENV_OIDC_CLIENT_ID_ENV) or ""
@@ -325,6 +341,7 @@ class AuthSettings:
             oidc_client_secret_var=client_secret_var,
             oidc_claim=(source.get(ENV_OIDC_CLAIM) or "").strip() or DEFAULT_OIDC_CLAIM,
             oidc_subjects=oidc_subjects,
+            shared_users=frozenset(shared_users),
         )
 
     def missing_requirements(self) -> tuple[str, ...]:
@@ -409,6 +426,14 @@ class AuthSettings:
     def oidc_subject(self, user: str) -> str | None:
         """The IdP identity mapped to ``user``, or ``None`` if unmapped."""
         return self.oidc_subjects.get(user)
+
+    def shared(self, user: str) -> bool:
+        """Whether ``user``'s terminal is open to the whole roster.
+
+        ``False`` for a user not on the roster, and for every roster user whose
+        access rule is anything but the exact value ``any``.
+        """
+        return user in self.shared_users
 
     def knows_user(self, user: str) -> bool:
         """Whether ``user`` is on this deployment's roster."""

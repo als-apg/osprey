@@ -67,7 +67,7 @@ class TestDynamicConnectorImport:
     @pytest.mark.asyncio
     async def test_simple_unknown_type_error_message(self):
         """Non-dotted unknown type still raises with helpful message."""
-        config = {"type": "tango", "connector": {}}
+        config = {"type": "moat", "connector": {}}
         with pytest.raises(ValueError, match="Use a dotted module path"):
             await ConnectorFactory.create_control_system_connector(config)
 
@@ -106,7 +106,7 @@ class TestControlSystemContextValidation:
         registry = ControlSystemContext()
         registry._config = MCPServerConfig(
             raw={
-                "control_system": {"type": "tango"},
+                "control_system": {"type": "moat"},
                 "archiver": {"type": "custom_archiver"},
             }
         )
@@ -114,7 +114,7 @@ class TestControlSystemContextValidation:
             logging.WARNING, logger="osprey.mcp_server.control_system.server_context"
         ):
             registry._validate()
-        assert "Unknown control_system.type: tango" in caplog.text
+        assert "Unknown control_system.type: moat" in caplog.text
         assert "Unknown archiver.type: custom_archiver" in caplog.text
 
 

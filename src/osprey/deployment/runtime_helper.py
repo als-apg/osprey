@@ -24,6 +24,14 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from osprey.utils.logger import get_logger
+
+logger = get_logger("deployment.runtime")
+
+#: How long each detection probe (``<runtime> compose version``, ``<runtime> ps``)
+#: may take before the runtime is treated as not answering.
+_DETECTION_PROBE_TIMEOUT = 5
+
 #: Memoized detections, keyed on the runtimes a call would probe — which folds in
 #: both ``CONTAINER_RUNTIME`` and the config's ``container_runtime``. Keying on
 #: those inputs rather than memoizing a single answer per process keeps a
@@ -55,6 +63,31 @@ def _runtimes_to_try(config: Mapping[str, Any] | None) -> tuple[str, ...]:
     return ("docker", "podman")
 
 
+def _probe_runtime(runtime: str) -> str | None:
+    """Why ``runtime`` cannot serve a compose invocation, or ``None`` when it can.
+
+    Two probes: ``<runtime> compose version`` (a compose implementation is
+    reachable through it) and ``<runtime> ps`` (its daemon answers — a docker
+    CLI with no daemon behind it passes the first and fails the second). The
+    reason is worded for the warning that names a skipped runtime, so it says
+    which probe failed and how.
+    """
+    try:
+        version = subprocess.run(
+            [runtime, "compose", "version"], capture_output=True, timeout=_DETECTION_PROBE_TIMEOUT
+        )
+        if version.returncode != 0:
+            return f"`{runtime} compose version` exited {version.returncode}"
+        ps = subprocess.run([runtime, "ps"], capture_output=True, timeout=_DETECTION_PROBE_TIMEOUT)
+        if ps.returncode != 0:
+            return f"`{runtime} ps` exited {ps.returncode}"
+        return None
+    except subprocess.TimeoutExpired as e:
+        return f"`{' '.join(str(part) for part in e.cmd)}` timed out after {e.timeout:g}s"
+    except FileNotFoundError:
+        return f"`{runtime}` is on PATH but could not be executed"
+
+
 def get_runtime_command(config: Mapping[str, Any] | None = None) -> list[str]:
     """Get container compose command.
 
@@ -78,29 +111,39 @@ def get_runtime_command(config: Mapping[str, Any] | None = None) -> list[str]:
     if cached is not None:
         return cached.copy()
 
-    # Try each runtime
+    # Try each runtime. An INSTALLED runtime that fails its probe is skipped,
+    # but never quietly: the skip is recorded and, if a later candidate is
+    # selected, warned with the probe that failed. Falling from docker to
+    # podman on one slow `docker ps` is a decision the operator has to be able
+    # to see — a lifecycle verb served by the other runtime cannot see the
+    # containers it was asked about, and reports a running stack as stopped.
+    skipped: list[tuple[str, str]] = []
     for runtime in candidates:
         if not shutil.which(runtime):
             continue
 
-        try:
-            # Check if compose subcommand works
-            result = subprocess.run([runtime, "compose", "version"], capture_output=True, timeout=5)
-
-            if result.returncode != 0:
-                continue
-
-            # Also verify daemon is actually running
-            # This prevents selecting Docker when only Docker CLI is installed but daemon isn't running
-            ps_result = subprocess.run([runtime, "ps"], capture_output=True, timeout=5)
-
-            if ps_result.returncode == 0:
-                cmd = [runtime, "compose"]
-                _runtime_cmd_cache[candidates] = cmd
-                return cmd.copy()
-
-        except (subprocess.TimeoutExpired, FileNotFoundError):
+        why = _probe_runtime(runtime)
+        if why is not None:
+            skipped.append((runtime, why))
             continue
+
+        cmd = [runtime, "compose"]
+        _runtime_cmd_cache[candidates] = cmd
+        for other, reason in skipped:
+            logger.warning(
+                "container_runtime: auto chose %s after skipping %s — %s is installed but %s. "
+                "Containers running under %s are not visible from %s; if this deployment's "
+                "are, start %s and retry with CONTAINER_RUNTIME=%s.",
+                runtime,
+                other,
+                other,
+                reason,
+                other,
+                runtime,
+                other,
+                other,
+            )
+        return cmd.copy()
 
     # No runtime found - check if any are installed but not running
     docker_installed = shutil.which("docker") is not None
