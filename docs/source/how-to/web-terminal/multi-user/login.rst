@@ -199,6 +199,12 @@ on the deploy host. A ``claims`` stanza under ``password`` resolves nothing;
    emit only the groups assigned to this application, or define app roles and
    point ``claim`` at ``roles``.
 
+Behind a proxy that re-signs TLS with a site certificate authority, the
+identity-provider fetch fails inside the login service even with the site-CA
+block in ``.env.shared`` uncommented: that service receives the three proxy
+variables and nothing else, and no site CA is mounted into its image. See
+:ref:`deployment-env-chain` for what the chain delivers to which container.
+
 Leave one entry public
 ======================
 
