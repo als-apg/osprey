@@ -182,10 +182,7 @@ def read_graph_roster(source: RosterSource) -> RosterResult:
             )
         )
 
-    records = tuple(
-        _record(address, binding, source, writes, reads, readbacks)
-        for address, binding in sorted(bindings, key=lambda binding: binding[0])
-    )
+    records = _records(bindings, source, writes, reads, readbacks)
     if not records:
         logger.warning(
             f"The knowledge-graph corpus at {source.path} parsed cleanly and declares no "
@@ -201,18 +198,52 @@ def read_graph_roster(source: RosterSource) -> RosterResult:
     return RosterResult(records=records, source=source)
 
 
-def _record(
-    address: str,
-    binding: object,
+def _records(
+    bindings: list[tuple[str, object]],
     source: RosterSource,
     writes: set,
     reads: set,
     readbacks: dict[str, str],
-) -> ChannelRecord:
-    """One record for a binding, carrying the corpus-stated readback when it is a setpoint."""
-    direction = _direction(binding, writes, reads)
-    readback = readbacks.get(address) if direction == "write" else None
-    return ChannelRecord(address=address, source=source, direction=direction, readback=readback)
+) -> tuple[ChannelRecord, ...]:
+    """One record per address, in address order.
+
+    The roster is a namespace: two bindings carrying one ``fullPv`` are one
+    channel, however many devices the corpus hangs it under (a timing
+    system's delay generator is bound once per device it serves; a facility
+    corpus can carry a fifth of its bindings this way). Every consumer keys
+    on the address -- the plan-device document names each device for it and
+    the build refuses a name claimed twice, the manifest serves it once -- so
+    the collapse happens here, once, rather than in each of them.
+
+    Direction is the one the address's bindings agree on. A binding that
+    states none abstains; bindings that disagree leave the address with no
+    direction, the same honest unknown a single binding claiming both ways
+    gets. A settable address carries the readback the corpus stated for it,
+    provided the readback ADDRESS resolves readable too -- a pair is stated
+    between bindings, and the binding it names as the monitor may share its
+    address with a write binding elsewhere in the corpus.
+    """
+    votes: dict[str, set[ChannelDirection]] = {}
+    for address, binding in bindings:
+        directions = votes.setdefault(address, set())
+        direction = _direction(binding, writes, reads)
+        if direction is not None:
+            directions.add(direction)
+    resolved: dict[str, ChannelDirection | None] = {
+        address: next(iter(directions)) if len(directions) == 1 else None
+        for address, directions in votes.items()
+    }
+
+    records: list[ChannelRecord] = []
+    for address in sorted(resolved):
+        direction = resolved[address]
+        readback = readbacks.get(address) if direction == "write" else None
+        if readback is not None and resolved.get(readback) != "read":
+            readback = None
+        records.append(
+            ChannelRecord(address=address, source=source, direction=direction, readback=readback)
+        )
+    return tuple(records)
 
 
 def _binding_field(binding_id: str) -> str | None:

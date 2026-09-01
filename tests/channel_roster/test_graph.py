@@ -156,6 +156,58 @@ class TestTheShippedDemoCorpus:
         assert all(record.readback is None for record in result.records)
 
 
+class TestOneRecordPerAddress:
+    """The roster is a namespace: bindings sharing a ``fullPv`` are one channel."""
+
+    def test_two_bindings_on_one_address_are_one_record(self, tmp_path) -> None:
+        # A delay generator's channel, bound once per device it serves.
+        body = _binding("evr_a", "B0215:EVR1-DlyGen:3:Delay-SP", "writesSignal") + _binding(
+            "evr_b", "B0215:EVR1-DlyGen:3:Delay-SP", "writesSignal"
+        )
+        source = _corpus(tmp_path, body)
+
+        result = read_graph_roster(source)
+
+        assert result.addresses == ("B0215:EVR1-DlyGen:3:Delay-SP",)
+        assert result.records[0].direction == "write"
+
+    def test_bindings_disagreeing_on_direction_leave_an_honest_unknown(self, tmp_path) -> None:
+        body = _binding("sp", "SR04C___BSC_P__AC01", "writesSignal") + _binding(
+            "rb", "SR04C___BSC_P__AC01", "readsSignal"
+        )
+        source = _corpus(tmp_path, body)
+
+        (record,) = read_graph_roster(source).records
+
+        assert record.direction is None
+        assert record.readback is None
+
+    def test_a_directionless_binding_abstains(self, tmp_path) -> None:
+        body = _binding("sp", "SR01C___B______AC00", "writesSignal") + _binding(
+            "bare", "SR01C___B______AC00", None
+        )
+        source = _corpus(tmp_path, body)
+
+        (record,) = read_graph_roster(source).records
+
+        assert record.direction == "write"
+
+    def test_a_stated_readback_survives_the_collapse(self, tmp_path) -> None:
+        # The same setpoint address bound a second time, off any device.
+        body = _magnet() + _binding("again", "SR01C___B______AC00", "writesSignal")
+        source = _corpus(tmp_path, body)
+
+        assert _readbacks(source) == {
+            "SR01C___B______AC00": "SR01C___B______AM00",
+            "SR01C___B______AM00": None,
+        }
+
+    def test_the_demo_corpus_is_already_a_namespace(self, demo_source) -> None:
+        addresses = read_graph_roster(demo_source).addresses
+
+        assert len(addresses) == DEMO_CHANNELS == len(set(addresses))
+
+
 class TestCorpusStatedReadbacks:
     """A device carrying ``<stem>Setpoint`` and ``<stem>Monitor`` states a pair."""
 
