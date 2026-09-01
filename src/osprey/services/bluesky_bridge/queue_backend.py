@@ -44,6 +44,7 @@ the type to an HTTP status and puts the code on the wire.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import time
@@ -73,6 +74,49 @@ client of the manager, not its supervisor."""
 def _external_worker_from_env() -> bool:
     """Whether the compose render declared this lane's worker external."""
     return os.environ.get(EXTERNAL_WORKER_ENV, "").strip() not in ("", "0")
+
+
+EXTERNAL_PARAM_SCHEMAS_ENV = "BLUESKY_EXTERNAL_PARAM_SCHEMAS"
+"""JSON mapping ``"<plan>.<parameter>"`` → in-container path of a
+facility-published JSON Schema file, written by the compose render from
+``bluesky.external.parameter_schemas``. Consumed by
+:meth:`QueueBackend.external_plan_catalog` to graft each schema onto its
+parameter, so a document-shaped parameter (a GEECS ``ScanRequest``, say)
+reaches the panel as a real nested form rather than one opaque field."""
+
+
+def _external_parameter_schemas() -> dict[str, dict[str, Any]]:
+    """The grafted-schema documents, keyed ``"<plan>.<parameter>"``.
+
+    Read from :data:`EXTERNAL_PARAM_SCHEMAS_ENV` and loaded per call — the
+    files are small, mounted read-only, and a catalog fetch is rare. Fail-open
+    per entry: a missing or unparseable file is logged and skipped, and the
+    catalog serves that parameter un-grafted — a degraded form is honest, a
+    missing plan is not. (The build validates these files exist and parse, so
+    a failure here means the mount itself moved underneath the container.)
+    """
+    raw = os.environ.get(EXTERNAL_PARAM_SCHEMAS_ENV, "").strip()
+    if not raw:
+        return {}
+    try:
+        mapping = json.loads(raw)
+    except ValueError:
+        logger.warning(
+            "%s is not valid JSON; serving un-grafted schemas", EXTERNAL_PARAM_SCHEMAS_ENV
+        )
+        return {}
+    schemas: dict[str, dict[str, Any]] = {}
+    for key, path in mapping.items() if isinstance(mapping, dict) else []:
+        try:
+            with open(path) as fh:
+                document = json.load(fh)
+            if isinstance(document, dict):
+                schemas[str(key)] = document
+            else:
+                raise ValueError("top level is not a JSON object")
+        except Exception as exc:
+            logger.warning("parameter schema for %r unreadable (%s); serving un-grafted", key, exc)
+    return schemas
 
 
 QSERVER_PUBLIC_KEY_ENV = "QSERVER_ZMQ_PUBLIC_KEY"
@@ -668,6 +712,7 @@ class QueueBackend:
         """
         result = await self._call("plans_allowed")
         allowed = result.get("plans_allowed") or {}
+        grafts = _external_parameter_schemas()
         catalog: list[dict[str, Any]] = []
         for name in sorted(allowed):
             desc = allowed[name] if isinstance(allowed[name], dict) else {}
@@ -688,6 +733,23 @@ class QueueBackend:
             schema: dict[str, Any] = {"title": name, "type": "object", "properties": properties}
             if required:
                 schema["required"] = required
+            for pname in list(properties):
+                graft = grafts.get(f"{name}.{pname}")
+                if graft is None:
+                    continue
+                # The facility-published schema replaces the derived property,
+                # keeping the manager's description when the artifact carries
+                # none. Its ``$defs`` are hoisted to the top level: internal
+                # ``$ref``\s are root-anchored ("#/$defs/..."), so leaving
+                # them nested under the property would break every reference.
+                grafted = dict(graft)
+                hoisted = grafted.pop("$defs", None)
+                grafted.setdefault("title", properties[pname].get("title", pname))
+                if "description" not in grafted and properties[pname].get("description"):
+                    grafted["description"] = properties[pname]["description"]
+                properties[pname] = grafted
+                if hoisted:
+                    schema.setdefault("$defs", {}).update(hoisted)
             catalog.append(
                 {
                     "name": name,

@@ -492,6 +492,22 @@ class BlueskyExternalConfig:
     Only meaningful with :attr:`tiled_uri`; ``None`` connects without a key
     (a Tiled served with ``--public``)."""
 
+    parameter_schemas: dict[str, str] = field(default_factory=dict)
+    """Facility-published JSON Schemas grafted onto external plan parameters.
+
+    Key: ``"<plan_name>.<parameter_name>"``; value: profile-relative path to a
+    JSON Schema file (an absolute path is operator-owned and mounted verbatim).
+    The external manager *describes* its parameters but publishes no typed
+    model, so a document-shaped parameter (e.g. GEECS's
+    ``geecs_scan_request_plan.request``, a ``ScanRequest``) renders as one
+    opaque field. A facility that exports its request schema (e.g.
+    ``ScanRequest.model_json_schema()`` committed as an artifact, the same
+    discipline as a generated channel database) names it here; the bridge
+    grafts it onto that parameter in ``GET /plans`` — its ``$defs`` hoisted to
+    the top level so internal ``$ref``\\ s stay valid — and the panel renders a
+    real nested form. Files are validated (existing, parseable JSON) at build
+    time and mounted read-only into the bridge container."""
+
 
 @dataclass
 class BlueskyConfig:

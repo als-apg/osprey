@@ -1155,6 +1155,25 @@ def _inject_bluesky(
             external_block["tiled_uri"] = bluesky.external.tiled_uri
         if bluesky.external.tiled_api_key_env:
             external_block["tiled_api_key_env"] = bluesky.external.tiled_api_key_env
+        if bluesky.external.parameter_schemas:
+            # Precomputed here so the template stays a renderer: one bind
+            # mount per schema file at a fixed, key-derived container path,
+            # and the finished JSON mapping the bridge reads back
+            # (BLUESKY_EXTERNAL_PARAM_SCHEMAS). Relative sources resolve
+            # against the compose project directory — the repo root — the
+            # same convention as every other bind in the bluesky template;
+            # absolute sources are operator-owned and mounted verbatim.
+            import json as _json
+
+            mounts: list[dict[str, str]] = []
+            env_map: dict[str, str] = {}
+            for key, host_path in sorted(bluesky.external.parameter_schemas.items()):
+                target = f"/app/project/plan_schemas/{key}.json"
+                source = host_path if os.path.isabs(host_path) else f"./{host_path}"
+                mounts.append({"source": source, "target": target})
+                env_map[key] = target
+            external_block["parameter_schema_mounts"] = mounts
+            external_block["parameter_schemas_env"] = _json.dumps(env_map)
         svc_config["external"] = external_block
 
     lanes: list[tuple[str, dict[str, Any]]] = [("bluesky", svc_config)]

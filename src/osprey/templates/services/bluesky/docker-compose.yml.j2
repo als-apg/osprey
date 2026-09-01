@@ -243,6 +243,14 @@ services:
       QSERVER_ZMQ_PUBLIC_KEY: {{ ext_public_ref }}
 {%- endif %}
       BLUESKY_EXTERNAL_WORKER: "1"
+{%- if external.parameter_schemas_env %}
+      # Facility-published parameter schemas (bluesky.external.parameter_schemas):
+      # a JSON mapping "<plan>.<parameter>" -> in-container schema path. The
+      # bridge grafts each onto that parameter in GET /plans, so a
+      # document-shaped parameter renders as a real form instead of one opaque
+      # field. Paths match the read-only mounts below.
+      BLUESKY_EXTERNAL_PARAM_SCHEMAS: '{{ external.parameter_schemas_env }}'
+{%- endif %}
 {%- if external.tiled_uri %}
       # The facility's own Tiled, for the durable read path (`GET
       # /runs/{id}/data`): the external worker persists documents there, so
@@ -418,6 +426,14 @@ services:
       # config.yml to resolve control_system settings regardless of which
       # optional services are co-deployed.
       - ./build/services/bluesky/config.yml:/app/project/config.yml:ro
+{%- if external and external.parameter_schema_mounts %}
+{%- for m in external.parameter_schema_mounts %}
+      # Facility-published parameter schema (see BLUESKY_EXTERNAL_PARAM_SCHEMAS
+      # above): sources are computed by _inject_bluesky, targets are fixed and
+      # key-derived, and the file is read-only — the bridge only grafts it.
+      - {{ m.source }}:{{ m.target }}:ro
+{%- endfor %}
+{%- endif %}
 {%- if not external %}
       # Document-plane CURVE certificates (see the env block above). This side
       # holds the proxy's secret certificate plus a `clients/` directory of the

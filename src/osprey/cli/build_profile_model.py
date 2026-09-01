@@ -1694,6 +1694,43 @@ class BuildProfile:
                             "bluesky.external.tiled_api_key_env must be an environment variable "
                             f"name (got {ext.tiled_api_key_env!r})"
                         )
+                for key, schema_path in sorted(ext.parameter_schemas.items()):
+                    # `<plan>.<parameter>`, both halves Python identifiers —
+                    # the key addresses one parameter of one manager plan, and
+                    # anything else could never match a plans_allowed entry.
+                    plan, dot, param = key.partition(".")
+                    if not dot or not plan.isidentifier() or not param.isidentifier():
+                        errors.append(
+                            "bluesky.external.parameter_schemas keys must be "
+                            f"'<plan>.<parameter>' (got {key!r})"
+                        )
+                        continue
+                    resolved = (
+                        Path(schema_path)
+                        if Path(schema_path).is_absolute()
+                        else profile_dir / schema_path
+                    )
+                    if not resolved.is_file():
+                        errors.append(
+                            f"bluesky.external.parameter_schemas[{key!r}] not found: "
+                            f"{schema_path} (resolved: {resolved})"
+                        )
+                        continue
+                    # A schema that does not parse would be grafted as nothing
+                    # at runtime; a facility artifact is validated where the
+                    # operator can fix it — at build time, like the limits DB
+                    # should have been (#815).
+                    try:
+                        import json as _json
+
+                        parsed = _json.loads(resolved.read_text())
+                        if not isinstance(parsed, dict):
+                            raise ValueError("top level is not a JSON object")
+                    except Exception as exc:
+                        errors.append(
+                            f"bluesky.external.parameter_schemas[{key!r}] is not a JSON "
+                            f"Schema document: {exc}"
+                        )
 
         # Validate virtual_accelerator configuration
         if self.virtual_accelerator is not None:

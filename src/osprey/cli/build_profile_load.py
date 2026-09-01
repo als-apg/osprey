@@ -946,12 +946,22 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             _reject_unknown_block_keys(
                 external_raw, _KNOWN_BLUESKY_EXTERNAL_KEYS, "bluesky.external"
             )
+            parameter_schemas = external_raw.get("parameter_schemas", {})
+            if not isinstance(parameter_schemas, dict) or not all(
+                isinstance(k, str) and isinstance(v, str) for k, v in parameter_schemas.items()
+            ):
+                raise BuildProfileError(
+                    "bluesky.external.parameter_schemas must map "
+                    "'<plan>.<parameter>' strings to schema-file path strings "
+                    f"(got {parameter_schemas!r})"
+                )
             external = BlueskyExternalConfig(
                 zmq_control_addr=external_raw.get("zmq_control_addr", ""),
                 zmq_public_key_env=external_raw.get("zmq_public_key_env"),
                 insecure_plaintext=bool(external_raw.get("insecure_plaintext", False)),
                 tiled_uri=external_raw.get("tiled_uri"),
                 tiled_api_key_env=external_raw.get("tiled_api_key_env"),
+                parameter_schemas=dict(parameter_schemas),
             )
         bluesky = BlueskyConfig(
             port=bluesky_raw.get("port", default_port("bluesky", base=port_base)),

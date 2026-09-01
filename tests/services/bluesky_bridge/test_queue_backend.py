@@ -12,6 +12,7 @@ container-bound e2e's job.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -879,3 +880,63 @@ async def test_external_plan_catalog_is_the_managers_own(connector, fast_backend
     assert scan["schema"]["properties"]["dry_run"]["default"] == "False"
     # A non-mapping description still yields a name-only entry.
     assert catalog[0]["schema"]["properties"] == {}
+
+
+async def test_external_catalog_grafts_a_facility_published_parameter_schema(
+    connector, fast_backend, tmp_path, monkeypatch
+) -> None:
+    """A document-shaped parameter gets its published schema, $defs hoisted."""
+    connector("epics")
+    artifact = {
+        "title": "ScanRequest",
+        "type": "object",
+        "required": ["mode"],
+        "properties": {"mode": {"$ref": "#/$defs/ScanMode"}},
+        "$defs": {"ScanMode": {"type": "string", "enum": ["step", "noscan"]}},
+    }
+    schema_file = tmp_path / "scan_request.schema.json"
+    schema_file.write_text(json.dumps(artifact))
+    monkeypatch.setenv(
+        qb.EXTERNAL_PARAM_SCHEMAS_ENV,
+        json.dumps({"geecs_scan_request_plan.request": str(schema_file)}),
+    )
+    manager = FakeManager(
+        plans_allowed={
+            "success": True,
+            "plans_allowed": {
+                "geecs_scan_request_plan": {
+                    "description": "Run one validated ScanRequest.",
+                    "parameters": [{"name": "request", "description": "The queue's JSON shape."}],
+                }
+            },
+        }
+    )
+    (entry,) = await fast_backend(manager, external_worker=True).external_plan_catalog()
+
+    request = entry["schema"]["properties"]["request"]
+    assert request["title"] == "ScanRequest"
+    assert request["required"] == ["mode"]
+    # The artifact carried no description, so the manager's survives.
+    assert request["description"] == "The queue's JSON shape."
+    # $defs hoisted to the top level so the root-anchored $ref still resolves.
+    assert "$defs" not in request
+    assert entry["schema"]["$defs"]["ScanMode"]["enum"] == ["step", "noscan"]
+
+
+async def test_external_catalog_survives_an_unreadable_graft_file(
+    connector, fast_backend, monkeypatch
+) -> None:
+    """A missing artifact degrades to the un-grafted schema, never a missing plan."""
+    connector("epics")
+    monkeypatch.setenv(
+        qb.EXTERNAL_PARAM_SCHEMAS_ENV,
+        json.dumps({"geecs_scan_request_plan.request": "/nonexistent/schema.json"}),
+    )
+    manager = FakeManager(
+        plans_allowed={
+            "success": True,
+            "plans_allowed": {"geecs_scan_request_plan": {"parameters": [{"name": "request"}]}},
+        }
+    )
+    (entry,) = await fast_backend(manager, external_worker=True).external_plan_catalog()
+    assert entry["schema"]["properties"]["request"] == {"title": "request"}

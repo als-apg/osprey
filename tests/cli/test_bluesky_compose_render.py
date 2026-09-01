@@ -1346,3 +1346,34 @@ def test_external_lane_beside_a_deployed_va_still_renders_no_ordering() -> None:
         deployed_services=["bluesky", "virtual_accelerator"],
     )
     assert "depends_on" not in doc["services"]["bluesky-bridge"]
+
+
+def test_external_parameter_schemas_render_the_env_and_the_mounts() -> None:
+    doc = _render(
+        external={
+            "zmq_control_addr": "tcp://qserver-host:60615",
+            "insecure_plaintext": True,
+            "parameter_schemas_env": '{"geecs_scan_request_plan.request": "/app/project/plan_schemas/geecs_scan_request_plan.request.json"}',
+            "parameter_schema_mounts": [
+                {
+                    "source": "./data/plan_schemas/scan_request.schema.json",
+                    "target": "/app/project/plan_schemas/geecs_scan_request_plan.request.json",
+                }
+            ],
+        }
+    )
+    bridge = doc["services"]["bluesky-bridge"]
+    assert (
+        bridge["environment"]["BLUESKY_EXTERNAL_PARAM_SCHEMAS"]
+        == '{"geecs_scan_request_plan.request": "/app/project/plan_schemas/geecs_scan_request_plan.request.json"}'
+    )
+    assert (
+        "./data/plan_schemas/scan_request.schema.json:"
+        "/app/project/plan_schemas/geecs_scan_request_plan.request.json:ro" in bridge["volumes"]
+    )
+
+
+def test_external_without_parameter_schemas_renders_neither() -> None:
+    bridge = _render(external=_EXTERNAL_PLAINTEXT)["services"]["bluesky-bridge"]
+    assert "BLUESKY_EXTERNAL_PARAM_SCHEMAS" not in bridge["environment"]
+    assert not any("plan_schemas" in v for v in bridge["volumes"])

@@ -1086,3 +1086,42 @@ def test_build_passes_a_complete_per_type_limits_block(tmp_path: Path) -> None:
 
     assert "Profile validation failed" not in result.output
     assert "names no provider" in result.output
+
+
+def test_external_parameter_schema_key_must_name_plan_and_parameter(tmp_path: Path) -> None:
+    """A key that cannot match a plans_allowed entry is refused at build time."""
+    (tmp_path / "s.json").write_text("{}")
+    profile = BuildProfile(
+        name="x",
+        bluesky=BlueskyConfig(external=_external(parameter_schemas={"notakey": "s.json"})),
+    )
+    assert any("'<plan>.<parameter>'" in e for e in _errors(profile, tmp_path))
+
+
+def test_external_parameter_schema_file_must_exist_and_parse(tmp_path: Path) -> None:
+    """Missing or malformed artifacts fail the build, not the first catalog fetch."""
+    (tmp_path / "bad.json").write_text("not json")
+    profile = BuildProfile(
+        name="x",
+        bluesky=BlueskyConfig(
+            external=_external(
+                parameter_schemas={
+                    "geecs_scan_request_plan.request": "missing.json",
+                    "geecs_run_action_plan.name": "bad.json",
+                }
+            )
+        ),
+    )
+    errors = _errors(profile, tmp_path)
+    assert any("not found" in e and "missing.json" in e for e in errors)
+    assert any("not a JSON Schema document" in e for e in errors)
+
+
+def test_external_parameter_schema_valid_file_passes(tmp_path: Path) -> None:
+    (tmp_path / "s.json").write_text('{"title": "ScanRequest", "type": "object"}')
+    BuildProfile(
+        name="x",
+        bluesky=BlueskyConfig(
+            external=_external(parameter_schemas={"geecs_scan_request_plan.request": "s.json"})
+        ),
+    ).validate(tmp_path)
