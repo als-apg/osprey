@@ -156,6 +156,23 @@ const visible = (node) => {
   return r.width > 0 && r.height > 0;
 };
 
+/**
+ * Whether the gallery currently lists a shipped example (its tree renders an
+ * "Examples" section). The gallery is a same-origin iframe, so its document
+ * is readable; any failure (not loaded yet, cross-origin embed) reads as "no".
+ * @returns {boolean}
+ */
+function workspaceHasExample() {
+  try {
+    const frame = /** @type {HTMLIFrameElement | null} */ (
+      document.querySelector('iframe[data-panel-id="artifacts"]')
+    );
+    return !!frame?.contentDocument?.querySelector('.tree-section[data-type="examples"]');
+  } catch {
+    return false;
+  }
+}
+
 /* ---- Copy ---- */
 
 /**
@@ -258,6 +275,9 @@ const STEPS = [
       'Everything the agent produces — plots, data files, reports — lands in ',
       strong('WORKSPACE'),
       ', ready to open or download. Its rail entry glows when something new arrives.',
+      ...(workspaceHasExample()
+        ? [' The entry under Examples is a shipped sample; your own work lands above it.']
+        : []),
     ],
     foot: '＋ on the rail adds more panels.',
   },
