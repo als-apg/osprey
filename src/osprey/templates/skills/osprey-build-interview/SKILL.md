@@ -135,17 +135,23 @@ offer to investigate them. Do not re-ask decided questions.
 
 ### 1. Pre-init round
 
-One AskUserQuestion round collecting only what `osprey init` needs plus
-routing:
+**The first question, before anything else: is there already something
+to look at?** An existing OSPREY package or deployment, a running agent,
+a config repo — anything already deployed or half-built that this
+interview should inspect and build on. If there is, get its path (or
+access) and read it before asking anything further; what you find
+pre-fills the decisions below. An existing OSPREY/LangGraph project
+makes this a migration: follow `references/migration-legacy.md` for the
+scan before continuing.
 
+Only then ask what the deployment targets, plus what `osprey init`
+needs:
+
+- **Facility / target system** (free text; which accelerator, beamline,
+  or detector this deployment is for — also used for timezone/naming
+  later)
 - **Project name** (lowercase-with-dashes; becomes the repo directory and
   deployment name)
-- **Fresh start or migration** from an existing OSPREY/LangGraph project
-- **Facility** (free text; used for timezone/naming later)
-
-If migration: also get the path to the old project, then follow
-`references/migration-legacy.md` for the scan before continuing — its
-findings pre-fill decisions below.
 
 ### 2. Materialize the repo
 

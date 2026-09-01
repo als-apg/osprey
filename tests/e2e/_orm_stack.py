@@ -10,11 +10,13 @@ override is needed to get the agent armed. Corrector setpoints and BPM
 readbacks reach the queueserver worker as a DEVICE FILE -- authored at
 ``<repo>/data/bluesky_devices.yml`` before ``osprey build``, staged by the
 build into ``build/services/bluesky/bluesky_devices.yml`` and bind-mounted
-into the worker -- derived from the deployment repo's own
-``channel_limits.json``, never a hardcoded preset channel (mirrors
-``tests/e2e/test_va_substrate_equivalence.py``'s ``_select_sp_echo_pairs``,
-restricted here to correctors/BPMs specifically since the ORM plan sweeps
-correctors and reads BPMs, not arbitrary writable setpoints).
+into the worker -- selected from the deployment repo's own channel ROSTER
+(``osprey.channel_roster``: the channel-finder database this deployment's
+render points its channel finder at), never a hardcoded preset channel and
+never ``channel_limits.json``, which gates writes on a subset of the facility
+rather than enumerating it. Restricted here to pyat-coupled correctors/BPMs
+specifically, since the ORM plan sweeps correctors and reads BPMs rather than
+arbitrary writable setpoints.
 
 Authoring that file is why the builders take a ``pre_build`` hook: the device
 file has to exist in the repo's source zone by the time ``osprey build`` runs,
@@ -27,21 +29,26 @@ this config for:
     gate (this task, Docker-free, via ``build_via_cli_runner``),
   * the real-container round-trip e2e (task 5.2, ``test_orm_roundtrip.py``),
   * the agentic-discovery e2e (tasks 5.3/5.4),
-via ``build_project_subprocess`` + ``select_correctors``/``select_bpms``/
-``write_devices_file``.
+via ``build_project_subprocess`` + ``roster_records`` +
+``select_correctors``/``select_bpms``/``write_devices_file``.
 
 Building this config never touches Docker by itself -- only a subsequent
 ``osprey up`` does (left to each caller, since only the real e2e/agentic
 tests need a live stack).
 
-``select_correctors``/``select_bpms``/``write_devices_file`` delegate to the
-canonical derivation in
-``osprey.services.bluesky_bridge.substrate_devices`` -- the single source of
-this logic, shared with the build path
-(``compose_generator._stage_bluesky_devices``, which derives the very same
-document for a VA-backed stack that authored no file of its own). Delegating
-rather than re-deriving is what keeps a harness-authored device set and a
-turn-key derived one from ever disagreeing about what the worker is handed.
+Where the work is split. ``roster_records`` asks the product's one
+enumerator which channels this facility has;
+``select_correctors``/``select_bpms`` are the HARNESS's own, because which
+channels a corrector-sweeping plan can do physics with is a fact about this
+demo machine's lattice partitions and has no place in a framework that must
+stay facility-agnostic. ``write_devices_file`` then hands the chosen records
+to the canonical producer in
+``osprey.services.bluesky_bridge.substrate_devices`` for the document and its
+atomic write -- the same producer the build path uses
+(``compose_generator._stage_bluesky_devices``, which stages the very same
+document for a VA-backed stack that authored no file of its own), so a
+harness-authored device set and a turn-key derived one can never disagree
+about what the worker is handed for the same channels.
 """
 
 from __future__ import annotations
@@ -56,14 +63,21 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import yaml
 
 if TYPE_CHECKING:
     from click.testing import CliRunner, Result
+
+    from osprey.channel_roster import ChannelRecord, RosterResult
+
+#: What :func:`_keyed_by_address` keys -- a corrector ``(sp, rb)`` pair or a
+#: BPM address, both of which name their device by an address the selector
+#: reads off the item itself.
+_T = TypeVar("_T")
 
 # Channel Access port the Virtual Accelerator serves on, and the value every
 # caller of this module gets unless it passes its own.
@@ -622,10 +636,25 @@ def build_project_subprocess(
     return repo
 
 
+CHANNEL_LIMITS_RELATIVE = Path("data") / "channel_limits.json"
+"""Where a deployment repo keeps the channel limits, relative to its root.
+
+One spelling for the two readers below: :func:`channel_limits`, which parses it
+for a lane that needs a channel's limit VALUES, and :func:`_roster_config`,
+which hands the path to the roster so channel directions are derived from the
+writability this deployment actually enforces.
+"""
+
+
 def channel_limits(project_dir: Path) -> dict[str, Any]:
-    """The project's own ``data/channel_limits.json`` — the source of every
-    device name the plan-stack e2es use, so no preset channel is ever
-    hardcoded.
+    """The project's own ``data/channel_limits.json``, parsed — the LIMITS this
+    deployment enforces on the channels it can write.
+
+    Not a roster, and not what the plan-stack lanes choose their devices from:
+    it gates a subset of the facility's channels and enumerates none of them,
+    so the device names come from :func:`roster_records` instead. This stays
+    for the lanes that need a channel's limit VALUES — a write at the edge of
+    a range, a refusal a bound produces.
 
     Callers pass the deployment REPO. ``osprey build`` copies ``<repo>/data``
     into the build zone verbatim, so ``<repo>/data/channel_limits.json`` and
@@ -634,7 +663,7 @@ def channel_limits(project_dir: Path) -> dict[str, Any]:
     exists before the build, which is when a ``pre_build`` hook has to choose
     the plan devices.
     """
-    return json.loads((project_dir / "data" / "channel_limits.json").read_text(encoding="utf-8"))
+    return json.loads((project_dir / CHANNEL_LIMITS_RELATIVE).read_text(encoding="utf-8"))
 
 
 def minted_launch_token(project_dir: Path) -> str:
@@ -821,59 +850,261 @@ def restart_bridge(
     wait_for_health(f"{bridge_url}/health", health_timeout)
 
 
-def select_correctors(
-    limits: dict[str, Any], count: int | None = DEFAULT_CORRECTOR_COUNT
-) -> dict[str, tuple[str, str]]:
-    """Derive ``count`` SR corrector (HCM/VCM) ``:SP``/``:RB`` pairs from the
-    deployed project's own ``channel_limits.json`` -- never a hardcoded
-    preset channel.
+#: Address components a corrector setpoint has, in the 6-part colon grammar
+#: this facility's addresses follow: ``SR:MAG:<family>:<device>:<field>:<sub>``.
+CORRECTOR_RING = "SR"
+CORRECTOR_SYSTEM = "MAG"
+CORRECTOR_FAMILIES = ("HCM", "VCM")
 
-    Restricted to the pyat-coupled corrector partition (a write actually
-    steers the beam via the AT lattice model) rather than any writable
-    ``:SP``: the ORM plan sweeps correctors specifically, so a generic
-    sp-echo pair (physics-free) would be the wrong device class here.
+#: The same, for the BPM readbacks a plan reads back.
+BPM_RING = "SR"
+BPM_SYSTEM = "DIAG"
+BPM_FAMILY = "BPM"
 
-    If ``count`` is ``None``, returns the FULL available pyat-coupled
-    corrector set instead of a fixed-size slice -- no assertion is raised in
-    that case, regardless of how many pairs are found.
 
-    Returns a dict of ``sp_address -> (sp_address, rb_address)`` -- the setpoint's
-    device name is its own ``:SP`` address -- ready to hand to
-    :func:`write_devices_file` as the device file's ``settables``.
+def _address_path(address: str) -> dict[str, str] | None:
+    """Split a 6-part colon address into the named components
+    ``classify_partition`` consumes, or ``None`` when it does not have exactly
+    six parts.
 
-    Thin wrapper: delegates to the canonical
-    ``osprey.services.bluesky_bridge.substrate_devices.select_correctors``
-    (same logic; this module keeps the ``DEFAULT_CORRECTOR_COUNT`` default
-    the e2e suite has always used, versus the product module's ``None``/
-    full-set default).
+    Lives HERE rather than in the product: which grammar an address follows and
+    which partition of the accelerator model a channel belongs to are facts
+    about THIS facility's demo machine, and the plans these lanes run sweep
+    correctors specifically. The roster (``osprey.channel_roster``) enumerates
+    channels and says which way each points; everything below this line is the
+    harness choosing a physics-appropriate subset of that answer, and none of
+    it belongs in a framework that must stay facility-agnostic.
     """
-    from osprey.services.bluesky_bridge.substrate_devices import (
-        select_correctors as _select_correctors,
+    parts = address.split(":")
+    if len(parts) != 6:
+        return None
+    ring, system, family, device, field, subfield = parts
+    return {
+        "ring": ring,
+        "system": system,
+        "family": family,
+        "device": device,
+        "field": field,
+        "subfield": subfield,
+    }
+
+
+def _in_partition(address: str, *, ring: str, system: str, families: tuple[str, ...]) -> bool:
+    """Whether ``address`` names a pyat-coupled channel of the given family set.
+
+    Pyat-coupled specifically -- a write actually steers the beam through the AT
+    lattice model, and a read actually moves when it does. The generic sp-echo
+    partition (a physics-free software copy) is the wrong device class for a
+    plan that sweeps correctors and watches BPMs respond, which is why the
+    restriction is applied here rather than left to the roster: the roster's job
+    is which channels EXIST, not which of them a given plan can do physics with.
+    """
+    from osprey.services.virtual_accelerator.manifest import (
+        PARTITION_PYAT_COUPLED,
+        classify_partition,
     )
 
-    return _select_correctors(limits, count)
+    path = _address_path(address)
+    if path is None:
+        return False
+    if path["ring"] != ring or path["system"] != system or path["family"] not in families:
+        return False
+    return classify_partition(path) == PARTITION_PYAT_COUPLED
 
 
-def select_bpms(limits: dict[str, Any], count: int | None = DEFAULT_BPM_COUNT) -> dict[str, str]:
-    """Derive ``count`` SR BPM ``:POSITION:X``/``:POSITION:Y`` readbacks from
-    the deployed project's own ``channel_limits.json`` -- same generic,
-    no-hardcoded-channel convention as ``select_correctors``.
+def _keyed_by_address(
+    items: list[_T], address_of: Callable[[_T], str], count: int | None, unit_label: str
+) -> dict[str, _T]:
+    """Key ``items`` by ``address_of(item)`` -- the device name IS the channel
+    address, the convention the product's own derivation follows.
+
+    ``count=None`` takes all; an int raises ``AssertionError`` when fewer than
+    ``count`` are available, else slices to exactly ``count``.
+
+    The "exactly ``count``" promise holds only while the addresses are distinct,
+    which the roster guarantees by enumerating each channel once. A colliding
+    address would silently return a shorter dict, so the invariant is asserted
+    rather than assumed.
+    """
+    if count is not None and len(items) < count:
+        raise AssertionError(
+            f"the deployment repo's own channel roster only yields {len(items)} "
+            f"{unit_label}, need {count}"
+        )
+    take = len(items) if count is None else count
+    keyed = {address_of(items[i]): items[i] for i in range(take)}
+    if len(keyed) != take:
+        raise AssertionError(
+            f"duplicate addresses among the selected {unit_label}: "
+            f"{take} selected, {len(keyed)} distinct names"
+        )
+    return keyed
+
+
+def _roster_config(repo: Path) -> dict[str, Any]:
+    """The configuration ``osprey.channel_roster`` reads, for a deployment repo
+    that has not been rendered yet.
+
+    ``registered_channels`` takes the config a build holds, and the window in
+    which a lane must choose its plan devices is one step ahead of that config
+    existing: ``osprey build`` renders ``<repo>/build/config.yml``, materializes
+    the profile's tier database to the flat
+    ``data/channel_databases/<paradigm>.json`` that config names, and only then
+    is there a config to hand over. So the same answer is assembled here from
+    the repo's own ``profile.yml`` -- the paradigm it pins, at the tier
+    :func:`~osprey.build.build_tiers.default_tier_for_mode` derives for that
+    paradigm exactly as the build derives it -- pointed at the TIERED database
+    file the materializer will copy from. The channels it holds are the channels
+    the deployed channel finder will hold.
+
+    ``config_dir`` is the repo root, which anchors the relative limits path the
+    same way the render anchors it. The limits file is not a roster here and is
+    not read as one: the roster reads it only to learn which of the database's
+    channels this deployment enforces as writable, which is the same authority
+    the runtime write path applies.
+
+    Raises:
+        AssertionError: If the profile pins no channel-finder paradigm, pins the
+            graph paradigm (whose corpus is staged by the render, so there is
+            nothing to enumerate this early), or if the tier database it names
+            is not in the repo.
+    """
+    from osprey.build.build_tiers import default_tier_for_mode
+    from osprey.channel_roster.sources import GRAPH_PARADIGM
+
+    profile = yaml.safe_load((repo / "profile.yml").read_text(encoding="utf-8")) or {}
+    paradigm = profile.get("channel_finder_mode")
+    caller = _calling_module()
+
+    assert paradigm and paradigm != GRAPH_PARADIGM, (
+        f"{repo}'s profile pins channel_finder_mode={paradigm!r}, and this module can "
+        f"only enumerate a facility whose roster is a channel-finder DATABASE file "
+        f"before the render: the graph paradigm's corpus is staged into the build zone "
+        f"by `osprey build` itself, so there is nothing for {caller} to select devices "
+        f"from between `init` and `build`. Pin a file-database paradigm for this lane, "
+        f"or author its device file some other way."
+    )
+
+    tier = profile.get("tier") or default_tier_for_mode(paradigm)
+    database = repo / "data" / "channel_databases" / "tiers" / f"tier{tier}" / f"{paradigm}.json"
+    assert database.is_file(), (
+        f"{repo} ships no {paradigm} database at {database} (tier {tier}), so "
+        f"{caller} cannot enumerate the channels this deployment will serve"
+    )
+
+    return {
+        "config_dir": str(repo),
+        "control_system": {
+            "limits_checking": {"database_path": str(CHANNEL_LIMITS_RELATIVE)},
+        },
+        "channel_finder": {
+            "pipeline_mode": paradigm,
+            "pipelines": {paradigm: {"database": {"path": str(database)}}},
+        },
+    }
+
+
+def _roster(repo: Path) -> RosterResult:
+    """The deployment repo's channel roster, or fail naming the absence.
+
+    Memoized inside ``registered_channels`` per source file, so the several
+    callers a lane makes during one ``pre_build`` hook read the database once.
+    """
+    from osprey.channel_roster import registered_channels
+
+    result = registered_channels(_roster_config(repo))
+    assert result.source is not None, (
+        f"{_calling_module()} could not enumerate the channels of the deployment at "
+        f"{repo}: "
+        f"{result.absence.message() if result.absence else 'the roster named no source'}"
+    )
+    return result
+
+
+def roster_records(repo: Path) -> tuple[ChannelRecord, ...]:
+    """Every channel the deployment repo's own roster enumerates.
+
+    The ONE enumeration a plan-stack lane selects its devices from: the
+    channel-finder database the render will point the deployment at, read
+    through ``osprey.channel_roster.registered_channels`` -- the same producer
+    the build's own turn-key derivation uses. Never ``channel_limits.json``,
+    which gates writes on a subset of the facility and enumerates nothing (see
+    :func:`channel_limits`).
+
+    Callers pass the deployment REPO, from inside a ``pre_build`` hook: the
+    build copies ``<repo>/data`` into the build zone and stages the device file
+    it finds there, so the devices have to be chosen after ``osprey init`` has
+    written the repo and before ``osprey build`` renders it.
+
+    Returns:
+        The roster's records in source order, each carrying its direction and,
+        for a settable the roster paired, its readback.
+    """
+    result = _roster(repo)
+    assert result.records, (
+        f"the deployment at {repo} enumerated no channels at all, so "
+        f"{_calling_module()} has no devices to author"
+    )
+    return result.records
+
+
+def select_correctors(
+    records: Sequence[ChannelRecord], count: int | None = DEFAULT_CORRECTOR_COUNT
+) -> dict[str, tuple[str, str]]:
+    """Pick ``count`` SR corrector (HCM/VCM) ``:SP``/``:RB`` pairs out of
+    ``records`` -- the repo's own roster (:func:`roster_records`), never a
+    hardcoded preset channel.
+
+    Restricted to the pyat-coupled corrector partition (see
+    :func:`_in_partition`): the ORM plan sweeps correctors specifically, so a
+    generic sp-echo pair -- physics-free -- would be the wrong device class.
+    A settable the roster paired no readback with is skipped: these plans read
+    a corrector back after setting it, and a device whose readback is its own
+    setpoint would echo the demand rather than report the magnet.
+
+    If ``count`` is ``None``, returns the FULL available pyat-coupled corrector
+    set instead of a fixed-size slice -- no assertion is raised in that case,
+    regardless of how many pairs are found.
+
+    Returns a dict of ``sp_address -> (sp_address, rb_address)`` -- the
+    setpoint's device name is its own ``:SP`` address -- ready to hand to
+    :func:`write_devices_file` as the device file's ``settables``.
+    """
+    pairs = [
+        (record.address, record.readback)
+        for record in sorted(records, key=lambda record: record.address)
+        if record.direction == "write"
+        and record.readback is not None
+        and _in_partition(
+            record.address,
+            ring=CORRECTOR_RING,
+            system=CORRECTOR_SYSTEM,
+            families=CORRECTOR_FAMILIES,
+        )
+    ]
+    return _keyed_by_address(pairs, lambda pair: pair[0], count, "SR corrector (HCM/VCM) pairs")
+
+
+def select_bpms(
+    records: Sequence[ChannelRecord], count: int | None = DEFAULT_BPM_COUNT
+) -> dict[str, str]:
+    """Pick ``count`` SR BPM readbacks out of ``records`` -- same roster, same
+    no-hardcoded-channel convention as :func:`select_correctors`.
 
     If ``count`` is ``None``, returns the FULL available pyat-coupled BPM set
     instead of a fixed-size slice -- no assertion is raised in that case.
 
-    Returns a dict of ``read_address -> read_address`` -- the readback's
-    device name is its own read address -- ready to hand to
-    :func:`write_devices_file` as the device file's ``readables``.
-
-    Thin wrapper: delegates to the canonical
-    ``osprey.services.bluesky_bridge.substrate_devices.select_bpms`` (same
-    logic; this module keeps the ``DEFAULT_BPM_COUNT`` default the e2e suite
-    has always used, versus the product module's ``None``/full-set default).
+    Returns a dict of ``read_address -> read_address`` -- the readback's device
+    name is its own read address -- ready to hand to :func:`write_devices_file`
+    as the device file's ``readables``.
     """
-    from osprey.services.bluesky_bridge.substrate_devices import select_bpms as _select_bpms
-
-    return _select_bpms(limits, count)
+    addresses = [
+        record.address
+        for record in sorted(records, key=lambda record: record.address)
+        if record.direction == "read"
+        and _in_partition(record.address, ring=BPM_RING, system=BPM_SYSTEM, families=(BPM_FAMILY,))
+    ]
+    return _keyed_by_address(addresses, lambda address: address, count, "SR BPM readbacks")
 
 
 def write_devices_file(
@@ -893,13 +1124,16 @@ def write_devices_file(
     against the rendered config -- so a file authored here is the AUTHORED
     device set the render stages into
     ``build/services/bluesky/bluesky_devices.yml`` and the worker mounts. Write
-    it after the build and the render has already chosen (deriving its own set
-    from the project's channel limits) and nothing picks this file up.
+    it after the build and the render has already derived its own set from the
+    project's roster, and nothing picks this file up.
 
     ``correctors``/``bpms`` carry the same shapes
     :func:`select_correctors`/:func:`select_bpms` return, and select WHICH
     channels reach the worker: only these devices are registered, and each one
-    is a Channel Access connection the RE worker opens at startup.
+    is a Channel Access connection the RE worker opens at startup. A lane
+    authors a SLICE rather than the whole roster for exactly that reason -- the
+    turn-key derivation stages every channel the facility has, which is minutes
+    of connections a lane's assertions never read.
 
     ``launch_token``, if given, is written to the repo's ``.env``. The deploy
     path normally mints one on ``osprey up``; callers that need a deterministic
@@ -909,11 +1143,12 @@ def write_devices_file(
     ``osprey.services.bluesky_bridge.substrate_devices`` -- the same producer
     the build path uses -- rather than assembled here, so a harness-authored
     device set and a turn-key derived one are byte-identical for the same
-    channels. That producer derives from a channel-limits mapping, so the
-    requested devices reach it as the SLICE of channel keys naming exactly them
-    (it reads keys, never values), and the document it returns is checked to
-    name exactly what was asked for.
+    channels. That producer takes roster RECORDS, so the chosen addresses are
+    handed to it as the records naming exactly them, sourced from this repo's
+    own roster so the file's header names the artifact it is a slice of. The
+    document it returns is checked to name exactly what was asked for.
     """
+    from osprey.channel_roster import ChannelRecord
     from osprey.cli.build_profile_schema import BlueskyConfig
     from osprey.services.bluesky_bridge.devices._specs_from_file import (
         READABLES_KEY,
@@ -923,8 +1158,14 @@ def write_devices_file(
         write_devices_file as _write_devices_file,
     )
 
-    limits_slice: dict[str, Any] = {address: {} for pair in correctors.values() for address in pair}
-    limits_slice.update({address: {} for address in bpms.values()})
+    source = _roster(repo).source
+    records = [
+        ChannelRecord(address=setpoint, source=source, direction="write", readback=readback)
+        for setpoint, readback in correctors.values()
+    ]
+    records += [
+        ChannelRecord(address=address, source=source, direction="read") for address in bpms.values()
+    ]
 
     # ``BlueskyConfig.devices_file`` is authored relative to the rendered
     # config's directory; joining that same relative path onto the REPO root
@@ -932,7 +1173,7 @@ def write_devices_file(
     # zone -- so the render finds it exactly where it looks.
     devices_path = repo / BlueskyConfig.devices_file
     devices_path.parent.mkdir(parents=True, exist_ok=True)
-    document = _write_devices_file(devices_path, limits_slice)
+    document = _write_devices_file(devices_path, records, source=source)
 
     written_settables = {entry["name"] for entry in document[SETTABLES_KEY]}
     written_readables = {entry["name"] for entry in document[READABLES_KEY]}
@@ -940,9 +1181,7 @@ def write_devices_file(
         raise AssertionError(
             "the authored device file does not name the requested devices "
             f"(settables {sorted(written_settables)} vs {sorted(correctors)}, "
-            f"readables {sorted(written_readables)} vs {sorted(bpms)}) -- a "
-            "requested channel is one the canonical derivation does not "
-            "classify as a corrector/BPM"
+            f"readables {sorted(written_readables)} vs {sorted(bpms)})"
         )
 
     if launch_token:

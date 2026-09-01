@@ -79,13 +79,13 @@ from osprey.deployment.web_terminals.persona_images import (
 )
 from osprey.deployment.web_terminals.personas import (
     effective_image_source,
+    entry_is_shared,
     entry_requires_login,
     normalize_users,
     resolve_personas,
 )
 from osprey.deployment.web_terminals.postup_hooks import (
     enable_linger,
-    reload_nginx_config,
     run_verify_script,
     warn_if_web_stack_unreachable,
 )
@@ -554,11 +554,14 @@ def _provision_auth_secrets(web_terminals: dict, repo_root: str) -> None:
         # `login: false` entries are left out on purpose: no gate ever asks the
         # sidecar about them, so a hash here would be a credential nothing
         # checks — and a minted password printed for an entry that has no login
-        # would tell the operator the opposite of the truth.
+        # would tell the operator the opposite of the truth. Shared entries
+        # (`access: any`) are left out for the same reason: a shared card holds
+        # no password of its own — verify checks the opener's credential — so a
+        # hash minted under its name would likewise be one nothing ever checks.
         usernames = [
             entry["name"]
             for entry in normalize_users(web_terminals.get("users"))
-            if entry_requires_login(entry)
+            if entry_requires_login(entry) and not entry_is_shared(entry)
         ]
         credentials = ensure_auth_credentials(usernames, repo_root, echo=_mint_echo())
         _report_unshown_mints(credentials)
@@ -1247,8 +1250,9 @@ def _force_recreate_services(
 
     The single place that argv is built. Always service-scoped: a bare
     ``up -d --force-recreate`` would bounce every live terminal in the stack,
-    which is exactly what both callers (the post-``up`` reconcile and
-    :func:`force_recreate_auth_sidecar`) exist to avoid.
+    which is exactly what every caller (the post-``up`` reconcile, the deploy
+    path's nginx rebind, and :func:`force_recreate_auth_sidecar`) exists to
+    avoid.
 
     :param repo_root: The deployment repo whose ``var/logs/`` holds this
         recreate's spooled output. Both callers already resolved it.
@@ -1633,12 +1637,18 @@ def deploy_up_web_terminals(
     # already recreated the sidecar on any content change.
     _reconcile_web_stack_recreates(config, web_cmd, run_env, repo_root=repo_root)
 
-    # Hot-reload nginx: `up -d` never restarts a running nginx whose
-    # bind-mounted nginx.conf/landing.html CONTENT changed — the container
-    # definition is unchanged, so compose reconciles nothing and the freshly
-    # rendered routes silently never take effect. `nginx -s reload` is
-    # zero-downtime and a no-op when the config is unchanged.
-    reload_nginx_config(web_cmd, run_env)
+    # Recreate nginx, never merely reload it: the build stage regenerates
+    # `build/` from scratch (rmtree + re-render), so a running nginx's FILE
+    # bind mounts (nginx.conf, landing.html) still point at the previous
+    # render's inodes. Through an orphaned mount `nginx -s reload` re-reads
+    # the dead inode (native Linux) or fails outright (Docker Desktop's
+    # VirtioFS propagates the unlink, so the landing page 404s and the
+    # healthcheck flips unhealthy) — either way the freshly rendered config
+    # can never reach the running container. A service-scoped recreate is the
+    # one verb that rebinds the mounts. Reload remains correct only where the
+    # render rewrites the files IN PLACE (same inode) — the roster verbs, via
+    # write_web_terminal_artifacts — and that call site keeps it.
+    _force_recreate_services(web_cmd, run_env, ["nginx"], repo_root=repo_root)
 
     # -----------------------------------------------------------------------
     # POST-UP HOOK — web-terminal reconcile complete (`compose up -d`

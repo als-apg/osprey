@@ -30,9 +30,14 @@ verify route denies the subrequest. A header silently omitted from an otherwise
 successful authorization would leave the terminal running with less identity
 than the deployment thinks it forwarded, which is exactly the failure this
 module exists to prevent.
+
+The module also owns :func:`same_value`, the constant-time comparator every
+check of an identity value uses.
 """
 
 from __future__ import annotations
+
+import secrets
 
 __all__ = [
     "ACCOUNT_HEADER",
@@ -40,6 +45,7 @@ __all__ = [
     "ROLE_SOURCE_HEADER",
     "SUBJECT_HEADER",
     "is_header_safe",
+    "same_value",
 ]
 
 ACCOUNT_HEADER = "X-Osprey-Auth-Account"
@@ -48,9 +54,8 @@ ACCOUNT_HEADER = "X-Osprey-Auth-Account"
 The account is the roster entry whose card was clicked — the name ``/verify``
 checked the session against, and the one a consumer can compare with the
 account it believes it is serving. :data:`SUBJECT_HEADER` answers a different
-question: who proved the login. The two coincide in a password session, where
-the roster username *is* the proof, and diverge in an OIDC session, where the
-provider asserts an opaque id or an email that names a person and not a card.
+question: who proved the login. The two coincide on an own card under either
+login method and diverge on a shared card under both.
 
 On a shared card that difference is the whole point: the account names the
 card, the subject names whoever opened it. Emitted on every authorized answer —
@@ -63,9 +68,10 @@ SUBJECT_HEADER = "X-Osprey-Auth-Subject"
 """Names who proved the login behind an authorized request.
 
 An OIDC session carries the provider's subject; a password session carries the
-roster username, which *is* the account in that method. Emitted only when the
-session holds one, so its presence always means a known identity and no
-consumer has to tell an empty value from an absent one.
+roster username of whoever proved the login. Under either method the value
+matches the account on an own card and differs from it on a shared card.
+Emitted only when the session holds one, so its presence always means a known
+identity and no consumer has to tell an empty value from an absent one.
 """
 
 ROLE_HEADER = "X-Osprey-Auth-Role"
@@ -110,3 +116,16 @@ def is_header_safe(value: str) -> bool:
     if value[0] == " " or value[-1] == " ":
         return False
     return all(_LOWEST_PRINTABLE <= ord(char) <= _HIGHEST_PRINTABLE for char in value)
+
+
+def same_value(left: str, right: str) -> bool:
+    """Whether two text values are equal, compared in constant time.
+
+    As UTF-8 bytes, never as ``str``: :func:`secrets.compare_digest` raises
+    ``TypeError`` the moment either side carries a non-ASCII character, and both
+    things compared here can. A ``state`` parameter is unauthenticated input, so
+    one accented character in it would be an unhandled 500 rather than a
+    refusal; a mapped identity like ``jörg@example.org`` would raise on the
+    comparison that was about to *succeed*, locking that operator out for good.
+    """
+    return secrets.compare_digest(left.encode("utf-8"), right.encode("utf-8"))

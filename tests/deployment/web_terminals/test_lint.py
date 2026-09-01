@@ -631,6 +631,169 @@ def test_lint_login_false_with_auth_on_reports_nothing() -> None:
     assert not any(f.code == "web_terminals.user_login_inert" for f in findings)
 
 
+def test_lint_non_literal_user_access_is_an_error() -> None:
+    """An `access` value that is not exactly 'own' or 'any' deploys fail-closed
+    as `own`, which may be the opposite of what the author believes — so the
+    typo is an ERROR rather than a silent narrowing."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "access": "maybe"}
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert any(f.code == "web_terminals.invalid_user_access" for f in _errors(findings))
+
+
+def test_lint_wrong_case_user_access_is_an_error() -> None:
+    """The normalizer keeps only the literal lowercase 'any' — `access: ANY`
+    silently deploys as `own`, so lint must call the spelling out."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "access": "ANY"}
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert any(f.code == "web_terminals.invalid_user_access" for f in _errors(findings))
+
+
+def test_lint_boolean_user_access_is_an_error() -> None:
+    """`access: true` (a plausible YAML slip for 'any') is not a literal and
+    deploys as `own` — an ERROR, not a widened entry."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0, "access": True}]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert any(f.code == "web_terminals.invalid_user_access" for f in _errors(findings))
+
+
+def test_lint_user_access_skips_non_dict_entries() -> None:
+    """Bare-string (and otherwise malformed) roster entries carry no `access`
+    key — the check skips them without crashing and reports nothing."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = ["thellert", 42]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.invalid_user_access" for f in findings)
+    assert not any(f.code == "web_terminals.user_access_inert" for f in findings)
+
+
+def test_lint_access_any_without_sidecar_is_an_inert_key_warning() -> None:
+    """`access: any` under the default `auth.method: token` changes nothing —
+    no sidecar stands a login wall, so every terminal is already as reachable
+    as the key promises to make this one."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "access": "any"}
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert any(f.code == "web_terminals.user_access_inert" for f in _warnings(findings))
+
+
+def test_lint_access_any_under_auth_none_is_an_inert_key_warning() -> None:
+    """Under `auth.method: none` the key is inert too: `login: false` still
+    means something there (it withholds the injected secret), but `access`
+    reads the sidecar-established identity, and there is none."""
+    # Arrange
+    config = _auth_config({"method": "none"}, tls=False, fqdn=None)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "access": "any"}
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert any(f.code == "web_terminals.user_access_inert" for f in _warnings(findings))
+
+
+def test_lint_access_any_on_a_login_exempt_entry_is_an_inert_key_warning() -> None:
+    """`access: any` together with `login: false` under a walled deployment:
+    nginx proxies the login-exempt entry with no auth_request, so there is no
+    authenticated identity for `access` to widen."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    web_terminals = config["modules"]["web_terminals"]
+    web_terminals["auth"] = {"method": "password", "allow_insecure_http": True}
+    web_terminals["users"] = [
+        {"name": "thellert", "index": 0, "access": "any", "login": False},
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert any(f.code == "web_terminals.user_access_inert" for f in _warnings(findings))
+
+
+def test_lint_access_any_under_walled_auth_reports_nothing() -> None:
+    """The intended use — a privileged entry in an authenticated deployment —
+    is clean."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    web_terminals = config["modules"]["web_terminals"]
+    web_terminals["auth"] = {"method": "password", "allow_insecure_http": True}
+    web_terminals["users"] = [{"name": "thellert", "index": 0, "access": "any"}]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.invalid_user_access" for f in findings)
+    assert not any(f.code == "web_terminals.user_access_inert" for f in findings)
+
+
+def test_lint_explicit_access_own_reports_nothing() -> None:
+    """`access: own` is a valid spelling of the default — silent, even though
+    the normalizer drops it."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "access": "own"}
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.invalid_user_access" for f in findings)
+    assert not any(f.code == "web_terminals.user_access_inert" for f in findings)
+
+
+def test_lint_roster_without_access_keys_reports_no_access_findings() -> None:
+    """An all-default roster (no entry declares `access`) introduces neither of
+    the new finding codes."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.invalid_user_access" for f in findings)
+    assert not any(f.code == "web_terminals.user_access_inert" for f in findings)
+
+
 def test_lint_non_string_user_theme_is_an_error() -> None:
     """A non-string `theme` (a config typo) is rejected — the renderer would
     otherwise drop it silently."""
@@ -684,6 +847,39 @@ def test_lint_does_not_validate_the_theme_name_itself() -> None:
 
     # Assert
     assert not any(f.code == "web_terminals.invalid_user_theme" for f in findings)
+
+
+def test_lint_non_string_user_tour_reports_error() -> None:
+    """A non-string `tour` (the per-user invite policy) is an error — the
+    renderer would drop it silently otherwise."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0, "tour": False}]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.invalid_user_tour" for f in errors)
+
+
+def test_lint_does_not_validate_the_tour_word_itself() -> None:
+    """Lint checks the TYPE, never the vocabulary — the web terminal owns
+    once/always/never and warns + falls back on an unknown value at startup."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "tour": "always"},
+        {"name": "gmartino", "index": 1, "tour": "sometimes"},  # unknown word, still a string
+        {"name": "aallezy", "index": 2},  # no tour at all is equally fine
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.invalid_user_tour" for f in findings)
 
 
 def test_lint_bare_multi_user_list_warns_about_port_drift_risk() -> None:
@@ -3023,6 +3219,89 @@ def test_lint_auth_credential_collision_not_reported_when_auth_is_off() -> None:
     assert not any(f.code == "web_terminals.auth_credential_collision" for f in _errors(findings))
 
 
+def test_lint_duplicate_subject_with_a_shared_card_is_an_error() -> None:
+    """One person holding two cards (same subject, one per role) is fine on an
+    owner-only roster — but with a shared card present the sidecar must resolve
+    every login to a single entry, so the duplicate becomes a refused login
+    (`ambiguous_identity`) and lint says so while the fix is still cheap.
+    Stripped-exact comparison: surrounding whitespace does not hide a match."""
+    # Arrange
+    config = _auth_config({"method": "oidc", "oidc": {"issuer": "https://idp.example.org"}})
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "oidc_subject": "thorsten@example.org"},
+        {"name": "thellert-admin", "index": 1, "oidc_subject": " thorsten@example.org "},
+        {"name": "control", "index": 2, "access": "any", "oidc_subject": "svc@example.org"},
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    offenders = [
+        f for f in _errors(findings) if f.code == "web_terminals.shared_card_duplicate_subject"
+    ]
+    assert len(offenders) == 1
+    assert "thellert" in offenders[0].message
+    assert "thellert-admin" in offenders[0].message
+    assert "control" not in offenders[0].message
+    assert "ambiguous_identity" in offenders[0].message
+    assert "one of them only" in offenders[0].message
+
+
+def test_lint_duplicate_subject_without_a_shared_card_reports_nothing() -> None:
+    """The same two-cards-one-person roster with no shared entry is silent:
+    every login still arrives through the card that was clicked, so nothing
+    is ambiguous — the documented behaviour change, pinned from both sides."""
+    # Arrange
+    config = _auth_config({"method": "oidc", "oidc": {"issuer": "https://idp.example.org"}})
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "oidc_subject": "thorsten@example.org"},
+        {"name": "thellert-admin", "index": 1, "oidc_subject": "thorsten@example.org"},
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.shared_card_duplicate_subject" for f in findings)
+
+
+def test_lint_distinct_subjects_with_a_shared_card_report_nothing() -> None:
+    """A shared card alone is not the finding — every subject mapping to one
+    entry resolves unambiguously."""
+    # Arrange
+    config = _auth_config({"method": "oidc", "oidc": {"issuer": "https://idp.example.org"}})
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "oidc_subject": "thorsten@example.org"},
+        {"name": "gmartino", "index": 1, "oidc_subject": "gmartino@example.org"},
+        {"name": "control", "index": 2, "access": "any"},
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.shared_card_duplicate_subject" for f in findings)
+
+
+def test_lint_duplicate_subject_check_is_mode_gated() -> None:
+    """Password mode reads no subject mapping at all — leftover subjects from
+    an earlier oidc posture cannot collide."""
+    # Arrange
+    config = _auth_config({"method": "password"})
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "oidc_subject": "thorsten@example.org"},
+        {"name": "thellert-admin", "index": 1, "oidc_subject": "thorsten@example.org"},
+        {"name": "control", "index": 2, "access": "any"},
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.shared_card_duplicate_subject" for f in findings)
+
+
 # --- profile altitude: the same engine over a build profile's `config:` block -
 
 
@@ -3825,3 +4104,68 @@ def test_lint_open_mode_with_the_shipped_deny_list_reports_nothing(tmp_path) -> 
 
     # Assert
     assert not any(f.code == "web_terminals.open_mode_egress" for f in findings)
+
+
+# --- shared cards on privileged personas --------------------------------------
+
+
+def _shipped_profile_config() -> dict:
+    """The shipped `control-assistant` host preset, resolved and deep-copied.
+
+    The one roster shape the shared-card guard exists for: a privileged
+    `admin` tier (carol) behind a login, unprivileged tiers beside it.
+    """
+    from osprey.cli.build_profile import resolve_build_profile
+
+    resolved, _profile_dir = resolve_build_profile(None, "control-assistant")
+    return copy.deepcopy(resolved.config)
+
+
+def test_lint_shared_card_on_a_privileged_persona_is_an_error() -> None:
+    """`access: any` on the card that resolves to the setup-patch-capable
+    `admin` persona hands the deployment-editing surfaces to every roster
+    login — an ERROR naming the entry, the privileges and the remedy."""
+    # Arrange
+    config = _shipped_profile_config()
+    for user in config["modules.web_terminals"]["users"]:
+        if user["name"] == "carol":
+            user["access"] = "any"
+
+    # Act
+    findings = lint_profile_config(config)
+
+    # Assert
+    offenders = [f for f in _errors(findings) if f.code == "web_terminals.shared_card_privileged"]
+    assert len(offenders) == 1
+    assert "'carol'" in offenders[0].message
+    assert "'admin'" in offenders[0].message
+    assert "access: own" in offenders[0].message
+    assert "[" not in offenders[0].message
+
+
+def test_lint_shared_card_on_an_unprivileged_persona_reports_nothing() -> None:
+    """Sharing bob's `readonly` card is the feature — no finding."""
+    # Arrange
+    config = _shipped_profile_config()
+    for user in config["modules.web_terminals"]["users"]:
+        if user["name"] == "bob":
+            user["access"] = "any"
+
+    # Act
+    findings = lint_profile_config(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.shared_card_privileged" for f in findings)
+
+
+def test_lint_owner_only_privileged_card_draws_no_shared_finding() -> None:
+    """The shipped preset unchanged: carol's admin card is owner-only, which
+    is the existing login rule's domain — this rule stays silent."""
+    # Arrange
+    config = _shipped_profile_config()
+
+    # Act
+    findings = lint_profile_config(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.shared_card_privileged" for f in findings)

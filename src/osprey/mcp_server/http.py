@@ -127,13 +127,20 @@ def _panel_auth_headers() -> dict[str, str]:
     inherit them.  Without the latch every panel call after that point would
     go out with no bearer and be refused.  The environment is still consulted
     first, so a value published after import (or rotated) wins over the latch.
-    The latch is never fed from the credential holder: in a process that
-    never held a carrier, ``get_web_credentials()`` would *mint* a token the
-    terminal does not recognise.
+    When neither the carrier nor the latch holds a value, the credentials this
+    process already holds are consulted last: a gallery auto-launched
+    in-thread was built from that same holder and verifies exactly its panel
+    token, so it is the right bearer by construction — and without it the
+    process would be refused by its own gallery.  The holder is only *peeked*
+    (:func:`~osprey.interfaces.web_auth.peek_web_credentials`), never
+    populated: in a process that never held a carrier,
+    ``get_web_credentials()`` would *mint* a token the terminal does not
+    recognise.
 
     Returns:
-        ``{"Authorization": "Bearer <token>"}`` when the carrier (or the
-        latch) holds a non-blank value, otherwise ``{}``.  Blank counts as
+        ``{"Authorization": "Bearer <token>"}`` when the carrier, the latch,
+        or this process's own credential holder yields a non-blank value,
+        otherwise ``{}``.  Blank counts as
         absent — an uninterpolated compose variable arrives as ``""`` — and a
         bare ``"Bearer "`` would be a credential-shaped lie the route has to
         reject.
@@ -141,13 +148,15 @@ def _panel_auth_headers() -> dict[str, str]:
     global _PANEL_TOKEN_LATCH
     import os
 
-    from osprey.interfaces.web_auth import PANEL_TOKEN_ENV
+    from osprey.interfaces.web_auth import PANEL_TOKEN_ENV, peek_web_credentials
 
     token = os.environ.get(PANEL_TOKEN_ENV, "").strip()
     if token:
         _PANEL_TOKEN_LATCH = token
     elif _PANEL_TOKEN_LATCH:
         token = _PANEL_TOKEN_LATCH
+    elif (held := peek_web_credentials()) is not None:
+        token = held.panel_token
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 

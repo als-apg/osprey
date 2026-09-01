@@ -12,7 +12,7 @@ description: >-
 
 # OSPREY Design Philosophy
 
-> **Working draft.** Principles are still being collected and refined with the maintainer. The five
+> **Working draft.** Principles are still being collected and refined with the maintainer. The six
 > below are confirmed. Each states a rule, its rationale, and the guidance an agent should apply.
 > Principles are written generically: do not hard-code lists of current features or subsystems into
 > this document — they go stale. Refer to "existing peer subsystems" and let the reader inspect the
@@ -89,6 +89,21 @@ be found is incomplete, not done.
 - Internal-only or framework-internal changes are exempt; the bar is reader-facing impact, not line
   count.
 
+## 6. Every fact has one producer
+
+A datum — which channels exist, which providers are registered, what a limit is — is produced in
+exactly one place, and every other consumer derives from that place rather than keeping its own
+enumeration. Parallel lists do not stay in sync; they diverge silently and the divergence surfaces
+as a wrong answer on a real machine, not as a failing test.
+
+- A projection is not a source. A file or table derived from the authoritative datum (a limits
+  export, a cache, a generated manifest) answers the question it was built for and nothing else.
+  Reading it back as if it were the original is a bug even when the two currently agree.
+- Test each change against: "If this list and its source disagree tomorrow, which one is wrong, and
+  would anyone find out?" If the answer is not immediate, derive instead of enumerating.
+- Deriving costs a lookup; duplicating costs a silent inconsistency. Prefer the lookup, and where a
+  cached copy is genuinely needed, make its derivation explicit rather than re-deriving by hand.
+
 ---
 
 ## How to apply
@@ -98,4 +113,4 @@ state it plainly: name the principle, point at the specific drift, and propose t
 the work back in line. The questions behind the principles: Is the unsafe path harder to reach than
 the safe one? Would this be wrong at another facility? Does this follow the shape of its peers? Can
 this dependency be swapped later without a rewrite? Could a user discover and use this without
-reading the source?
+reading the source? Does this fact have exactly one producer?

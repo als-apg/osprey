@@ -19,6 +19,7 @@ from osprey.deployment.web_terminals.personas import (
     config_needs_launch_token,
     config_needs_launch_token_for,
     effective_persona,
+    entry_is_shared,
     entry_requires_login,
     env_var_suffix,
     env_var_suffix_collisions,
@@ -34,6 +35,7 @@ from osprey.deployment.web_terminals.personas import (
     resolve_authorization_roles,
     resolve_personas,
     settings_json_denies_bash,
+    shared_card_privileged_problems,
 )
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 
@@ -177,6 +179,32 @@ def test_normalize_users_drops_non_string_theme() -> None:
     result = normalize_users(users_raw)
 
     # Assert — entry survives (name/index valid), theme omitted
+    assert result == [{"name": "alice", "index": 0}]
+
+
+def test_normalize_users_carries_string_tour_through() -> None:
+    """An object entry's string `tour` (onboarding-tour invite policy) is
+    carried onto the normalized entry on the same terms as `theme`."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "tour": "always"}]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert
+    assert result == [{"name": "alice", "index": 0, "tour": "always"}]
+
+
+def test_normalize_users_drops_non_string_tour() -> None:
+    """A non-string `tour` (a config typo) is dropped defensively; the rest of
+    a well-formed entry still normalizes."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "tour": True}]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert — entry survives (name/index valid), tour omitted
     assert result == [{"name": "alice", "index": 0}]
 
 
@@ -790,6 +818,25 @@ def test_resolve_personas_exposes_theme_when_set() -> None:
     ]
 
 
+def test_resolve_personas_exposes_tour_when_set() -> None:
+    """A roster entry's `tour` is threaded onto the resolved svc dict (the
+    render emits it as OSPREY_WEB_TOUR); entries without one carry no key."""
+    # Arrange
+    web_terminals = {
+        "users": [
+            {"name": "alice", "index": 0, "tour": "always"},
+            {"name": "bob", "index": 1},
+        ]
+    }
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result[0]["tour"] == "always"
+    assert "tour" not in result[1]
+
+
 def test_resolve_personas_theme_threads_through_persona_branch() -> None:
     """`theme` is orthogonal to persona resolution — it rides through a
     fully-resolved non-default persona entry too, not only the zero-migration path."""
@@ -1225,6 +1272,129 @@ def test_resolve_personas_threads_login_false_through_both_branches() -> None:
     assert zero_migration[0]["login"] is False
     assert persona_branch[0]["login"] is False
     assert "login" not in undeclared[0]
+
+
+def test_normalize_users_carries_access_any_through() -> None:
+    """`access: any` — the one value that changes anything — rides onto the
+    normalized entry."""
+    # Act
+    result = normalize_users([{"name": "control", "index": 3, "access": "any"}])
+
+    # Assert
+    assert result == [{"name": "control", "index": 3, "access": "any"}]
+
+
+def test_normalize_users_drops_every_other_access_spelling() -> None:
+    """`own`, absence, and every malformed spelling all normalize to "owner
+    only" — a typo can lock an entry down, never share it with the roster."""
+    # Act / Assert — the explicit default and non-string spellings alike leave
+    # the plain two-key shape, so downstream reads them all as owner-only
+    for spelling in ("own", "ANY", "Any", True, 1, None, ["any"], ""):
+        result = normalize_users([{"name": "control", "index": 3, "access": spelling}])
+        assert result == [{"name": "control", "index": 3}], repr(spelling)
+
+
+def test_shared_card_privileged_problems_names_entry_privileges_and_remedy() -> None:
+    """A shared card on a privileged persona is reported with the user, the
+    persona, what it holds, and both halves of the remedy — in rich-safe
+    prose (`osprey build` renders refusals through rich, which eats `[...]`)."""
+    # Arrange
+    resolved = [
+        {"name": "control", "index": 0, "persona": "admin", "access": "any"},
+        {"name": "carol", "index": 1, "persona": "admin"},
+    ]
+
+    # Act
+    problems = shared_card_privileged_problems(resolved, {"admin": ("the web Config panel",)})
+
+    # Assert
+    assert len(problems) == 1
+    assert "'control'" in problems[0]
+    assert "'admin'" in problems[0]
+    assert "the web Config panel" in problems[0]
+    assert "access: own" in problems[0]
+    assert "carol" not in problems[0]
+    assert "[" not in problems[0]
+
+
+def test_shared_card_privileged_problems_silent_for_an_unprivileged_persona() -> None:
+    """Sharing an unprivileged card is the feature, not the finding — a persona
+    absent from the privilege map (or mapped to nothing) draws no message."""
+    # Arrange
+    resolved = [
+        {"name": "control", "index": 0, "persona": "ariel", "access": "any"},
+        {"name": "gui", "index": 1, "persona": "readonly", "access": "any"},
+    ]
+
+    # Act / Assert
+    assert shared_card_privileged_problems(resolved, {"admin": ("the web Config panel",)}) == []
+    assert shared_card_privileged_problems(resolved, {"readonly": ()}) == []
+
+
+def test_shared_card_privileged_problems_silent_for_an_owner_only_card() -> None:
+    """A privileged persona behind an owner-only card is the login rule's
+    domain, not this one's — no `access: any`, no message. An entry with no
+    persona in effect has no tier to be privileged either way."""
+    # Arrange
+    privileges = {"admin": ("the web Config panel",)}
+    owner_only = [{"name": "carol", "index": 0, "persona": "admin"}]
+    no_persona = [{"name": "control", "index": 1, "persona": None, "access": "any"}]
+
+    # Act / Assert
+    assert shared_card_privileged_problems(owner_only, privileges) == []
+    assert shared_card_privileged_problems(no_persona, privileges) == []
+
+
+def test_entry_is_shared_reads_only_the_literal_any() -> None:
+    """The shared predicate: one reading of the key for provisioning, the
+    deploy summary, the passwd refusal, the render, and lint."""
+    assert entry_is_shared({"name": "alice", "index": 0}) is False
+    assert entry_is_shared({"name": "control", "index": 3, "access": "any"}) is True
+    assert entry_is_shared({"name": "control", "index": 3, "access": "own"}) is False
+    assert entry_is_shared({"name": "control", "index": 3, "access": "ANY"}) is False
+    assert entry_is_shared({"name": "control", "index": 3, "access": True}) is False
+
+
+def test_resolve_personas_threads_access_any_through_both_branches() -> None:
+    """The sharing marker survives resolution on the zero-migration path and
+    the persona-catalog path alike, and stays absent when never declared."""
+    # Act
+    zero_migration = resolve_personas(
+        {"users": [{"name": "control", "index": 0, "access": "any"}]}, _REGISTRY, "als"
+    )
+    persona_branch = resolve_personas(
+        {
+            "users": [{"name": "control", "index": 0, "persona": "gui", "access": "any"}],
+            "personas": {"gui": {"project": "als-gui"}},
+        },
+        _REGISTRY,
+        "als",
+    )
+    undeclared = resolve_personas({"users": ["alice"]}, _REGISTRY, "als")
+
+    # Assert
+    assert zero_migration[0]["access"] == "any"
+    assert persona_branch[0]["access"] == "any"
+    assert "access" not in undeclared[0]
+
+
+def test_freeze_user_indices_access_any_survives_a_freeze_round_trip() -> None:
+    """The decommission write-back keeps `access: any` on a survivor: freezing
+    re-attaches the authored key verbatim, so a user removal never quietly
+    un-shares another entry."""
+    # Arrange
+    users_raw = ["alice", {"name": "control", "index": 1, "access": "any"}]
+
+    # Act
+    frozen = freeze_user_indices(users_raw)
+    refrozen = freeze_user_indices(frozen)
+
+    # Assert
+    assert frozen == [
+        {"name": "alice", "index": 0},
+        {"name": "control", "index": 1, "access": "any"},
+    ]
+    assert refrozen == frozen
 
 
 def test_resolve_personas_exposes_oidc_subject_when_set() -> None:

@@ -105,7 +105,6 @@ REPO_PATHS = (str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-conne
 
 #: The image under test, and the simulation data both containers serve.
 IMAGE = os.environ.get("OSPREY_VA_E2E_IMAGE", "osprey-va-full:latest")
-DATA_DIR = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data/simulation"
 
 #: Container-name prefixes; ``_serving`` appends the run's own ephemeral port.
 CONTAINER_VA = "osprey-va-e2e-switch-va"
@@ -273,7 +272,10 @@ def _serving(prefix: str, *, seeded: bool):
         "-p",
         f"127.0.0.1:{port}:{port}/tcp",
         "-v",
-        f"{DATA_DIR}:/data/simulation:ro",
+        f"{e2e_conftest.demo_data_dir()}:/data/simulation:ro",
+        # The namespace, named: the IOC refuses to boot without one rather
+        # than picking the framework's demo channels on its own.
+        *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
     ]
     if seeded:
         arguments += ["-e", f"VA_BPM_ERRORS={VA_BPM_ERRORS}"]

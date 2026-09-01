@@ -467,3 +467,39 @@ def test_run_verify_script_oserror_does_not_raise(monkeypatch, tmp_path):
     monkeypatch.setattr(postup_hooks.subprocess, "run", _raise)
 
     postup_hooks.run_verify_script(str(tmp_path), {})  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# reload_nginx_config -- the roster verbs' in-place-rewrite hot reload
+# ---------------------------------------------------------------------------
+
+
+def test_reload_nginx_config_emits_a_scoped_exec(monkeypatch):
+    """The reload rides the web compose invocation (`exec -T nginx`) so no
+    container name is guessed."""
+    recorded: list[list[str]] = []
+
+    def _fake_run(cmd, **kwargs):
+        recorded.append(list(cmd))
+        return _FakeCompletedProcess(returncode=0)
+
+    monkeypatch.setattr(postup_hooks.subprocess, "run", _fake_run)
+
+    postup_hooks.reload_nginx_config(["docker", "compose", "-f", "web.yml"], {})
+
+    assert recorded == [
+        ["docker", "compose", "-f", "web.yml", "exec", "-T", "nginx", "nginx", "-s", "reload"]
+    ]
+
+
+def test_reload_nginx_config_failure_is_advisory(monkeypatch):
+    """A failing reload (container still starting, config rejected) warns but
+    never raises: nginx keeps serving the old config, and the roster verb that
+    triggered the reload did reconcile."""
+    monkeypatch.setattr(
+        postup_hooks.subprocess,
+        "run",
+        lambda *a, **k: _FakeCompletedProcess(returncode=1, stderr="boom"),
+    )
+
+    postup_hooks.reload_nginx_config(["docker", "compose"], {})  # must not raise

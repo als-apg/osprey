@@ -126,9 +126,11 @@ The Bluesky panel
 -----------------
 
 One tab covers a plan end to end, served by the ``bluesky-web`` sidecar.
-**BLUESKY** (``/bluesky/``) has three views, and the queue's state — with
-**Stop after current item** and **Abort running plan** — stays on screen across
-all three:
+**BLUESKY** (``/bluesky/``) has three views, and the queue's state stays on
+screen across all three — with **Stop after current item** and **Abort
+running plan** beside it whenever the queue is running or its state is in
+doubt (a provably idle queue folds the two behind a **Queue controls**
+disclosure):
 
 **Plans** is where a plan is composed. It binds to the same shared draft the
 OSPREY agent edits, so a field the agent sets glows in the form as it lands,

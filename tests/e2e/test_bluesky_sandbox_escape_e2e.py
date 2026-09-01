@@ -416,17 +416,6 @@ def _minted_token(repo: Path) -> str:
     return token
 
 
-def _channel_limits(repo: Path) -> dict[str, Any]:
-    """The deployment repo's own limits database.
-
-    ``osprey build`` copies ``<repo>/data`` into the build zone verbatim, so
-    this file and the ``build/data/`` copy the containers read are the same
-    bytes and name the same channels -- but only this one exists before the
-    build, which is when the plan devices have to be chosen and authored.
-    """
-    return json.loads((repo / "data" / "channel_limits.json").read_text(encoding="utf-8"))
-
-
 # ---------------------------------------------------------------------------
 # Real EPICS CA probe -- from this test PROCESS, never through the bridge.
 # Subprocess-based (mirrors tests/va/e2e/conftest.py's `_readiness_pv_served`):
@@ -493,9 +482,9 @@ def deployed_sandbox_stack(
 
     def author_devices(repo: Path) -> None:
         nonlocal escape_sp, escape_rb, positive_correctors, bpms
-        limits = _channel_limits(repo)
-        correctors = _orm_stack.select_correctors(limits, count=CORRECTOR_COUNT)
-        bpms = _orm_stack.select_bpms(limits, count=BPM_COUNT)
+        records = _orm_stack.roster_records(repo)
+        correctors = _orm_stack.select_correctors(records, count=CORRECTOR_COUNT)
+        bpms = _orm_stack.select_bpms(records, count=BPM_COUNT)
         escape_name, (escape_sp, escape_rb) = sorted(correctors.items())[0]
         positive_correctors = {
             name: pair for name, pair in correctors.items() if name != escape_name

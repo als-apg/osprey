@@ -236,6 +236,27 @@ def test_channel_source_is_the_manifest_named_by_va_channels_file(
     assert resolve_channel_addresses(tmp_path) == ["SR:BPM01:X"]
 
 
+def test_an_unnamed_manifest_is_fatal_not_a_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unset is refused on the same terms as unloadable, and for the same
+    reason: the only channel set this service could choose unasked is the
+    framework's demo one, and an archive of those addresses under this
+    facility's name is indistinguishable later from a real record of it. The
+    refusal names the variable and where it should have come from."""
+    monkeypatch.delenv("VA_CHANNELS_FILE", raising=False)
+
+    with pytest.raises(RecorderConfigError, match="VA_CHANNELS_FILE") as excinfo:
+        resolve_channel_addresses(tmp_path)
+    assert "osprey build" in str(excinfo.value)
+
+    # The compose passthrough sends "" when the host variable is absent, so
+    # empty has to be refused exactly as unset is.
+    monkeypatch.setenv("VA_CHANNELS_FILE", "  ")
+    with pytest.raises(RecorderConfigError, match="VA_CHANNELS_FILE"):
+        resolve_channel_addresses(tmp_path)
+
+
 def test_an_unloadable_manifest_is_fatal_not_a_fallback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -29,6 +29,12 @@ table the sidecar's own parser builds from it — because either end alone can b
 self-consistently wrong. Every variable name is imported from the sidecar rather
 than spelled out here, so a rename on that side fails here instead of silently
 rendering a variable nothing reads.
+
+The roster's `access: any` marker rides the same seam under its own family
+(`OSPREY_AUTH_ROSTER_ACCESS_<SUFFIX>`, read back by `AuthSettings.from_env`),
+and is pinned here the same way — the render spells the prefix literally for
+the same import-weight reason the role prefix is, so this round trip is the
+only thing that fails when either side renames it.
 """
 
 from __future__ import annotations
@@ -42,7 +48,7 @@ import yaml
 from osprey.deployment.web_terminals import render as render_module
 from osprey.deployment.web_terminals.personas import env_var_suffix
 from osprey.deployment.web_terminals.render import render_web_terminals
-from osprey.services.auth_sidecar.app import ENV_USERS
+from osprey.services.auth_sidecar.app import ENV_ROSTER_ACCESS_PREFIX, ENV_USERS, AuthSettings
 from osprey.services.auth_sidecar.routes.oidc import ENV_ROLE_CLAIM, ENV_ROLE_MAP, RoleBinding
 from osprey.services.auth_sidecar.routes.recheck import ENV_ROSTER_ROLE_PREFIX, RosterRoles
 
@@ -493,3 +499,70 @@ class TestTheRosterRoleReachesTheSidecar:
         # Assert — one scalar, and still the whole role name.
         assert _roster_role_lines(env_lines) == [f"{_role_var('alice')}={_SEPARATOR_ROLE}"]
         assert _roster_roles(env_lines).role_for("alice") == _SEPARATOR_ROLE
+
+
+# ---------------------------------------------------------------------------
+# The shared card: the roster's own `access: any`
+# ---------------------------------------------------------------------------
+
+#: One shared card beside one owner-only entry, because the two shapes coexist
+#: in a real roster and the render walks them in a single pass. The shared
+#: entry's name carries a `-` so the expected variable exercises the real
+#: suffix mapping (`-` maps to `_`), not just an uppercasing.
+_ACCESS_ROSTER = [
+    {"name": "control-room", "index": 0, "access": "any"},
+    {"name": "alice", "index": 1},
+]
+
+
+def _access_lines(env_lines: list[str]) -> list[str]:
+    return [line for line in env_lines if line.startswith(ENV_ROSTER_ACCESS_PREFIX)]
+
+
+def _access_var(username: str) -> str:
+    """The variable one entry's access rule is expected under, derived the one way."""
+    return f"{ENV_ROSTER_ACCESS_PREFIX}{env_var_suffix(username)}"
+
+
+def _settings(env_lines: list[str]) -> AuthSettings:
+    """The settings the sidecar builds from exactly what the render handed it."""
+    return AuthSettings.from_env(dict(line.split("=", 1) for line in env_lines))
+
+
+class TestTheSharedCardMarkerReachesTheSidecar:
+    """One `OSPREY_AUTH_ROSTER_ACCESS_<SUFFIX>=any` per shared entry, none otherwise."""
+
+    def test_a_shared_entry_is_emitted_under_its_own_access_variable(self) -> None:
+        """The exact line, with the variable name derived rather than spelled.
+
+        The value is the literal `any` — the only sharing vocabulary
+        `normalize_users` carries through — and the owner-only entry emits no
+        line under any spelling: an absent variable is what the sidecar reads
+        as owner-only, so a dead `=own` line would be a second spelling of the
+        default for every deployment that never shares a card.
+        """
+        # Act
+        env_lines = _sidecar_env(_config(method="password", users=_ACCESS_ROSTER))
+        access_lines = _access_lines(env_lines)
+
+        # Assert
+        assert access_lines == [f"{_access_var('control-room')}=any"]
+        assert f"{ENV_ROSTER_ACCESS_PREFIX}CONTROL_ROOM=any" in env_lines
+        assert not [line for line in access_lines if line.startswith(_access_var("alice"))]
+        assert not [line for line in access_lines if "ALICE" in line]
+
+    def test_the_rendered_marker_round_trips_through_the_sidecars_own_settings(self) -> None:
+        """What the render emits is what `AuthSettings.from_env()` reads back.
+
+        The assertion that matters end to end: not that an env line exists, but
+        that the settings the sidecar builds answer `shared()` with the sharing
+        the facility wrote, against the entry it wrote it for — the both-ends
+        agreement that makes a rename on either side fail here.
+        """
+        # Act
+        settings = _settings(_sidecar_env(_config(method="password", users=_ACCESS_ROSTER)))
+
+        # Assert
+        assert settings.shared("control-room") is True
+        assert settings.shared("alice") is False
+        assert settings.shared_users == frozenset({"control-room"})

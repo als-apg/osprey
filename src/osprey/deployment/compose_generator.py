@@ -19,12 +19,14 @@ import re
 import shutil
 import stat
 import tempfile
+from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
 from osprey.bluesky_bridge_connection import LANE_KEYS
+from osprey.channel_roster import RosterAbsenceReason, RosterResult, registered_channels
 from osprey.cli import output
 from osprey.cli.phase_reporter import report_step
 from osprey.deployment.channel_snapshot import compute_channel_snapshot
@@ -1098,6 +1100,39 @@ def resolve_image_defaults(config):
     }
 
 
+def _lane_target(block, control_system):
+    """The control-system target one plan lane serves.
+
+    ``services.<lane>.target`` as the build injector wrote it, and the
+    deployment's own :func:`~osprey_connectors.types.baseline_target` for a lane
+    block that carries no target key — which is every single-lane render except
+    the stand-in's, whose injector writes the target because its baseline runs
+    two soft IOCs.
+
+    Only a non-empty STRING counts as a declared target, because that is the
+    test the worker applies to the same key
+    (:func:`~osprey.services.bluesky_bridge.queue_backend._declared_lane_target`).
+    On a hand-edited config a target of any other type would otherwise be a
+    lane this gate resolves one way and the runtime another — the build gating
+    a machine the worker does not come up on.
+
+    One spelling, because two readers act on the answer and a disagreement
+    between them is a lane described as one machine and gated as another: the
+    template's write posture below, and the limits gate
+    (:func:`_refuse_lane_writes_without_limits`) that refuses the build.
+
+    :param block: The lane's ``services.<lane>`` block
+    :type block: dict
+    :param control_system: The config's ``control_system:`` section
+    :return: The target this lane is bound to at render time
+    :rtype: str
+    """
+    from osprey_connectors.types import baseline_target
+
+    declared = block.get("target")
+    return declared if isinstance(declared, str) and declared else baseline_target(control_system)
+
+
 def _bluesky_lane_write_posture(services, control_system):
     """Whether writes are armed for each declared Bluesky lane, by lane key.
 
@@ -1117,12 +1152,10 @@ def _bluesky_lane_write_posture(services, control_system):
     :return: Lane service key to armed flag, for the lanes declared in *services*
     :rtype: dict[str, bool]
     """
-    from osprey_connectors.types import baseline_target, target_writes_enabled
+    from osprey_connectors.types import target_writes_enabled
 
     return {
-        key: target_writes_enabled(
-            control_system, services[key].get("target") or baseline_target(control_system)
-        )
+        key: target_writes_enabled(control_system, _lane_target(services[key], control_system))
         for key in LANE_KEYS
         if isinstance(services.get(key), dict)
     }
@@ -2333,76 +2366,220 @@ def _write_staged_devices(source, staged_path):
         raise
 
 
-def _limits_database_for_devices(config):
-    """Host path of the channel-limits database the derivation reads, or ``None``.
+@dataclass(frozen=True, slots=True)
+class _DerivedDevices:
+    """Whether this render stages a roster-derived plan-device file, and from what.
 
-    Resolved exactly as :func:`resolve_limits_mount` resolves the same key's
-    existence probe — relative against the loaded config's own directory,
-    absolute as written — so the file the derivation reads and the file the
-    deployment mounts can never be two different files.
+    The derivation decision, made ONCE per render and consulted by everything
+    that has to know it: :func:`_stage_bluesky_devices`, which acts on it, and
+    the per-lane limits-posture gate in :func:`prepare_compose_files`, which
+    refuses the build before any service directory is written. Both have to
+    agree about whether a derived file lands — a gate that guessed differently
+    would either refuse a browse-only build or wave a derived one through — so
+    the answer is computed in one place rather than re-derived from the config
+    at each site.
 
-    :param config: The render config
-    :type config: dict
-    :return: Where the limits database would be, or ``None`` if unconfigured
-    :rtype: Path or None
+    ``roster`` is carried because the decision and its FACT come from the same
+    read: the line an operator is handed names the source
+    (:meth:`~osprey.channel_roster.records.RosterSource.describe`) or the
+    reason there is none
+    (:meth:`~osprey.channel_roster.records.RosterAbsence.message`), and neither
+    is re-derived from config keys here.
+
+    :ivar derives: True iff a roster-derived device file will be staged when
+        the bluesky service directory is rendered. It says what the DECISION
+        is, not that a render has happened: this is a pure function of the
+        config plus the filesystem, so the gate can read it before the service
+        loop starts and get the same answer the staging step will act on.
+    :ivar is_mock: True when the control system is the mock, which has no
+        channels to drive whatever else is configured
+    :ivar configured: ``bluesky.devices_file`` as the profile spelled it, or
+        ``None`` when no lane names one
+    :ivar authored: That spelling resolved to a path — absolute as written,
+        relative against the loaded config's directory — or ``None`` when no
+        lane names a file at all
+    :ivar authored_present: Whether that file is actually there; the
+        filesystem probe is part of the decision, not a later step
+    :ivar roster: The roster the decision consulted, or ``None`` when it never
+        got that far — a mock control system, an authored file that is there,
+        an absolute configured path, or no ``devices_file`` key at all
+    :ivar usable: The roster records that named a direction. A record whose
+        direction the source could not state becomes no device, so it is the
+        length of THIS list that decides whether there is a device set worth
+        staging — see :func:`_plan_derived_devices`.
     """
-    control_system = config.get("control_system") or {}
-    limits_checking = control_system.get("limits_checking") or {}
-    raw = limits_checking.get("database_path")
-    if not isinstance(raw, str) or not raw.strip():
-        return None
-    configured = Path(raw.strip()).expanduser()
-    if configured.is_absolute():
-        return configured
-    return _render_anchor_dir(config) / configured
+
+    derives: bool
+    is_mock: bool
+    configured: str | None = None
+    authored: Path | None = None
+    authored_present: bool = False
+    roster: RosterResult | None = None
+    usable: tuple = ()
 
 
-def _derive_staged_devices(config, staged_path):
-    """Derive the device set from the deployment's own channel-limits database.
+def _plan_derived_devices(config):
+    """Decide whether this render derives the queueserver worker's device file.
 
-    The turn-key half of the feature: a VA-backed stack that has authored no
-    device file still gets a worker holding real channel names, because the
-    project already ships the file that says which channels exist. Never a
-    hardcoded preset — the derivation reads the deployed project's own data (see
-    :mod:`osprey.services.bluesky_bridge.substrate_devices`, the single producer
-    this shares with the e2e harness).
+    The full predicate, in the order the reasons rule each other out:
 
-    Fail-soft, deliberately: an unreadable or unparseable limits database is not
-    refused here. The one unsafe combination — writes enabled with no readable
-    limits file — is already a refusal in :func:`resolve_limits_mount`, so what
-    reaches this point is a read-only deployment whose derivation simply has no
-    input, and the honest outcome there is a browse-only worker with a fact
-    saying so rather than a failed build.
+    1. A **mock** control system drives no channels, so nothing is derived for
+       it whatever else the config says.
+    2. An **authored** file wins over a derived one — the operator named the
+       device set, and this build does not second-guess it.
+    3. The configured path must be **relative and absent**. An absolute path
+       names a file outside the repo, which is the deployment saying an
+       operator supplies it: its absence means it is not staged yet, not that
+       OSPREY should choose the device set on their behalf and mount it in its
+       place. A config naming no file at all derives nothing either — the
+       build injector writes ``devices_file`` on every lane, so an absent key
+       is a hand-edited config rather than a request.
+    4. The facility's **roster** must actually enumerate channels that point
+       somewhere: :func:`~osprey.channel_roster.registered_channels` returning
+       records against a resolved source, at least one of them carrying a
+       direction. A record whose direction the source could not state becomes
+       no device, so a roster of nothing but those would stage an EMPTY device
+       file over the top of a facility that has channels — a browse-only worker
+       reported as a device set. A roster that is absent, corrupt, or whose
+       directions it could not derive at all stages nothing either; see
+       :func:`_stage_bluesky_devices` for what each of those is reported as.
+
+    The roster read is memoized per source file, so calling this once per lane
+    and once more for the gate costs one parse of the corpus or database.
 
     :param config: The render config
     :type config: dict
+    :return: The decision, with the inputs it was made from
+    :rtype: _DerivedDevices
+    """
+    from osprey.connectors.types import MOCK, resolve_control_system_type
+
+    raw = _configured_devices_file(config)
+    configured = Path(raw).expanduser() if raw is not None else None
+    if configured is None:
+        authored = None
+    elif configured.is_absolute():
+        authored = configured
+    else:
+        authored = _render_anchor_dir(config) / configured
+
+    is_mock = resolve_control_system_type(config.get("control_system")) == MOCK
+    authored_present = authored is not None and authored.is_file()
+    decided = _DerivedDevices(
+        derives=False,
+        is_mock=is_mock,
+        configured=raw,
+        authored=authored,
+        authored_present=authored_present,
+    )
+
+    if is_mock or authored_present or configured is None or configured.is_absolute():
+        return decided
+
+    roster = registered_channels(config)
+    usable = tuple(record for record in roster.records if record.direction is not None)
+    return replace(
+        decided,
+        derives=roster.absence is None and bool(usable),
+        roster=roster,
+        usable=usable,
+    )
+
+
+def _omitted_phrase(plan):
+    """Name the channels the derivation had to leave out, or say nothing.
+
+    A record whose direction the source could not state becomes no device
+    (:func:`~osprey.services.bluesky_bridge.substrate_devices.devices_document`
+    emits neither a settable nor a readable for it), so a roster that is partly
+    directionless stages a device set SMALLER than the facility. Counting the
+    difference into the fact is what keeps that from being a silent drop: the
+    counts alone would read as a smaller machine.
+
+    :param plan: The derivation decision
+    :type plan: _DerivedDevices
+    :return: A clause to append to the derived fact, or the empty string
+    :rtype: str
+    """
+    omitted = len(plan.roster.records) - len(plan.usable)
+    if not omitted:
+        return ""
+    channels = "channel" if omitted == 1 else "channels"
+    was = "was" if omitted == 1 else "were"
+    return f"; {omitted} {channels} whose direction the source could not state {was} omitted"
+
+
+def _derive_staged_devices(plan, staged_path):
+    """Write the device set this facility's channel roster enumerates.
+
+    The turn-key half of the feature: a deployment that has authored no device
+    file still gets a worker holding real channel names, because the facility
+    already describes which channels it has — in its knowledge graph, or in the
+    channel-finder database the same ``detect_pipeline_config`` selects for
+    every other consumer. Never a hardcoded preset, and never the write-limits
+    projection ``channel_limits.json``, which gates a subset of the channels a
+    facility has and was never an enumeration of them.
+
+    One producer writes the document
+    (:func:`~osprey.services.bluesky_bridge.substrate_devices.write_devices_file`),
+    shared with the e2e harness, so the build path and the harness cannot drift
+    on what the worker is handed.
+
+    Only the records that named a direction are handed over: they are the ones
+    that become devices, and passing the whole roster would let the staged
+    file's contents differ from what the decision above counted.
+
+    :param plan: The derivation decision, carrying the roster's usable records
+        and the source the staged file's header credits
+    :type plan: _DerivedDevices
     :param staged_path: Destination inside the build context
     :type staged_path: str
-    :return: The written document, or ``None`` when there was nothing to derive
-    :rtype: dict or None
+    :return: The written document
+    :rtype: dict
     """
     from osprey.services.bluesky_bridge.substrate_devices import write_devices_file
 
-    limits_path = _limits_database_for_devices(config)
-    if limits_path is None or not limits_path.is_file():
-        return None
+    return write_devices_file(Path(staged_path), plan.usable, source=plan.roster.source)
 
-    try:
-        limits = json.loads(limits_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, ValueError) as e:
-        logger.warning(
-            f"Could not read the channel-limits database {limits_path} ({e}); the "
-            f"bluesky plan lane gets no derived device file."
-        )
-        return None
-    if not isinstance(limits, dict):
-        logger.warning(
-            f"The channel-limits database {limits_path} is not a mapping of channels; "
-            f"the bluesky plan lane gets no derived device file."
-        )
-        return None
 
-    return write_devices_file(Path(staged_path), limits)
+def _refuse_corrupt_roster(absence):
+    """Refuse the render for a roster source that is there and unreadable.
+
+    The build's three-way rule, as
+    :func:`osprey.services.virtual_accelerator.manifest.build.prepare_project_manifest`
+    applies it to a data tree: an ABSENT source is a facility this project did
+    not describe, and leaves the worker honestly browse-only; a source that is
+    there and cannot be read is one it meant to describe and got wrong, and
+    deriving past it would stage a device set nobody authored — a worker
+    holding a partial namespace looks exactly like a healthy one.
+
+    Which of the two a roster hit is the roster's own answer
+    (:attr:`~osprey.channel_roster.records.RosterAbsenceReason.MISSING_SOURCE`
+    against
+    :attr:`~osprey.channel_roster.records.RosterAbsenceReason.CORRUPT_SOURCE`),
+    never a second filesystem probe here: the file behind an absence has
+    already been opened once, and re-``stat``ing it to classify it would be
+    answering about a disk that has moved on since.
+
+    :param absence: The corrupt-source absence the roster came back with
+    :type absence: osprey.channel_roster.RosterAbsence
+    :raises DeploymentPreconditionError: always
+    """
+    raise DeploymentPreconditionError(
+        reason=(
+            f"{absence.message()} The queueserver worker's plan devices are derived from "
+            f"that source, so this build cannot say which channels this facility has, nor "
+            f"which of them are settable."
+        ),
+        remedy=(
+            f"Repair the source named above, or point the build at a different one, and "
+            f"rebuild. To bring the worker up without it, author a device file and set "
+            f"{BLUESKY_DEVICES_CONFIG_KEY} to it. A source that is simply absent leaves "
+            f"the worker browse-only; one that is present and unreadable is refused, "
+            f"because deriving past it would stage a device set this facility did not "
+            f"describe."
+        ),
+    )
 
 
 def _stage_bluesky_devices(config, source_dir, out_dir):
@@ -2416,7 +2593,9 @@ def _stage_bluesky_devices(config, source_dir, out_dir):
     earlier build is removed, so neither an incremental rebuild nor a re-render
     can go on mounting a device set the deployment no longer has.
 
-    The ORDER of the decision carries more of the meaning than any single branch:
+    :func:`_plan_derived_devices` makes the decision; this function performs it
+    and reports it. The ORDER carries more of the meaning than any single
+    branch:
 
     1. A **mock** control system has no channels to drive, so its lanes are
        browse-only whatever file is lying around. Decided first, so an authored
@@ -2426,22 +2605,40 @@ def _stage_bluesky_devices(config, source_dir, out_dir):
        render, because the worker's own loader is fail-soft by design: it skips
        a malformed entry with a warning, so a deployment built from a bad file
        comes up healthy and silently missing exactly those devices.
-    3. Otherwise the set is **derived** from the project's own channel-limits
-       database — but only for a co-deployed virtual accelerator, and only when
-       the configured path is RELATIVE. An absolute path names a file outside
-       the repo, which is the deployment saying an operator supplies it; its
-       absence means it is not staged yet, not that OSPREY should choose the
-       device set on their behalf and mount it in its place.
-    4. Otherwise there is no device file, and the fact says so: the worker comes
-       up able to browse plans and run none.
+    3. Otherwise the set is **derived** from this facility's own channel roster
+       — the knowledge graph or channel-finder database
+       :func:`~osprey.channel_roster.registered_channels` enumerates.
+    4. Otherwise there is no device file, and the fact says why in the roster's
+       own words: nothing configured, graph mode naming no corpus, a source
+       that is not there, one that enumerates nothing, or a source whose
+       directions cannot be derived. The worker comes up able to browse plans
+       and run none. A roster source that is present and UNREADABLE is the one
+       case that refuses instead (:func:`_refuse_corrupt_roster`) — the roster
+       tells the two apart itself, so nothing here re-``stat``s the file.
+
+    Deriving a device set for a live lane is deliberate
+    ---------------------------------------------------
+
+    This function is lane-blind: it stages ONE file, which both plan lanes of a
+    two-lane deploy mount, and it never asks which target a lane points at. That
+    is a considered position rather than an oversight. A device in the worker's
+    namespace is a name a plan MAY reference, never a write that has happened;
+    the gates that decide whether a write lands sit on the write path — the
+    connector's per-put reference monitor and the bridge's arming + limits
+    facade — and the build refuses outright, per lane, when a target has writes
+    enabled without an enabled limits posture. Withholding the machine's own
+    channels from the namespace would add no gate: it would only make the
+    channels an agent is allowed to READ invisible to it, and push operators
+    back to hand-authored device files that nothing keeps in step with the
+    facility.
 
     Called once per plan lane, and a two-lane deploy renders this one directory
     twice (both lanes declare the same service ``path``). That second call is
     what the idempotence is for: it re-derives the same decision from the same
     config — the lookup order in ``_configured_devices_file`` is fixed for this
-    reason — and rewrites identical bytes atomically, so a running deployment
-    holding this file as a bind mount never sees it half-written or briefly
-    absent.
+    reason, and the roster read behind it is memoized — and rewrites identical
+    bytes atomically, so a running deployment holding this file as a bind mount
+    never sees it half-written or briefly absent.
 
     :param config: Full project configuration dictionary
     :type config: dict
@@ -2452,31 +2649,25 @@ def _stage_bluesky_devices(config, source_dir, out_dir):
     :return: True iff a device file is staged in ``out_dir``
     :rtype: bool
     :raises DeploymentPreconditionError: An authored device file exists and is
-        not one the worker can load in full
+        not one the worker can load in full, or the roster source this build
+        would derive from is present and unreadable
     """
     if os.path.basename(source_dir) != _BLUESKY_DEVICES_SERVICE:
         return False
 
-    from osprey.connectors.types import MOCK, VIRTUAL_ACCELERATOR, resolve_control_system_type
     from osprey.services.bluesky_bridge.devices._specs_from_file import validate_device_document
 
     staged_path = os.path.join(out_dir, BLUESKY_DEVICES_FILENAME)
+    plan = _plan_derived_devices(config)
+    raw = plan.configured
 
-    if resolve_control_system_type(config.get("control_system")) == MOCK:
+    if plan.is_mock:
         _discard_staged_devices(staged_path)
         _report_fact("bluesky plans browse-only: a mock control system drives no channels")
         return False
 
-    raw = _configured_devices_file(config)
-    configured = Path(raw).expanduser() if raw is not None else None
-    if configured is None:
-        authored = None
-    elif configured.is_absolute():
-        authored = configured
-    else:
-        authored = _render_anchor_dir(config) / configured
-
-    if authored is not None and authored.is_file():
+    if plan.authored_present:
+        authored = plan.authored
         try:
             document = yaml.safe_load(authored.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, yaml.YAMLError) as e:
@@ -2485,6 +2676,10 @@ def _stage_bluesky_devices(config, source_dir, out_dir):
         else:
             problems = validate_device_document(document)
         if problems:
+            # Before the refusal, not after: a build that stops here must not
+            # leave an earlier render's device file mounted into a worker on the
+            # strength of a file this render refused to accept.
+            _discard_staged_devices(staged_path)
             listed = "\n".join(f"  - {problem}" for problem in problems)
             raise DeploymentPreconditionError(
                 reason=(
@@ -2516,32 +2711,46 @@ def _stage_bluesky_devices(config, source_dir, out_dir):
         logger.debug(f"Staged the bluesky plan device file from {authored} to {staged_path}")
         return True
 
-    va_deployed = VIRTUAL_ACCELERATOR in {
-        str(name) for name in config.get("deployed_services") or []
-    }
-    if va_deployed and configured is not None and not configured.is_absolute():
-        document = _derive_staged_devices(config, staged_path)
-        if document is not None:
-            settables, readables = _document_counts(document)
-            _report_fact(
-                f"bluesky plan devices: {settables} settable / {readables} readable "
-                "derived from the channel-limits database"
-            )
-            logger.debug(
-                f"Derived the bluesky plan device set from "
-                f"{_limits_database_for_devices(config)} to {staged_path}"
-            )
-            return True
+    roster = plan.roster
+    if plan.derives:
+        document = _derive_staged_devices(plan, staged_path)
+        settables, readables = _document_counts(document)
+        _report_fact(
+            f"bluesky plan devices: {settables} settable / {readables} readable "
+            f"derived from {roster.source.describe()}{_omitted_phrase(plan)}"
+        )
+        logger.debug(f"Derived the bluesky plan device set from {roster.source.path}")
+        return True
 
     _discard_staged_devices(staged_path)
-    if authored is None:
+
+    if roster is not None and roster.absence is not None:
+        if roster.absence.reason is RosterAbsenceReason.CORRUPT_SOURCE:
+            _refuse_corrupt_roster(roster.absence)
+        # Every other absence -- a source that is not there included -- is
+        # fail-soft, and is reported in the roster's own words rather than
+        # re-phrased here: the fact an operator reads is the same sentence
+        # every other consumer of this absence renders.
+        _report_fact(f"bluesky plans browse-only: {roster.absence.message()}")
+        return False
+
+    if roster is not None:
+        # Records, a source, no absence -- and not one of them says which way it
+        # points. Nothing is staged: a device file built from these would name
+        # no settable and no readable, which reads downstream as a facility that
+        # has no channels rather than as a source that did not say.
+        _report_fact(
+            f"bluesky plans browse-only: {roster.source.describe()} enumerates "
+            f"{len(roster.records)} channels and states a direction for none of them"
+        )
+    elif plan.authored is None:
         _report_fact(f"bluesky plans browse-only: no {BLUESKY_DEVICES_CONFIG_KEY} is configured")
     else:
         _report_fact(
             f"bluesky plans browse-only: {BLUESKY_DEVICES_CONFIG_KEY} is {raw!r} and no "
             "file is there"
         )
-        logger.debug(f"No bluesky plan device file at {authored}")
+        logger.debug(f"No bluesky plan device file at {plan.authored}")
     return False
 
 
@@ -3063,6 +3272,101 @@ def clean_deployment(compose_files, config=None, repo_root=None):
     logger.debug("Cleanup completed")
 
 
+def _refuse_lane_writes_without_limits(config):
+    """Refuse a build that would hand an armed lane a derived device set with no
+    limits checking behind it.
+
+    Only when this render DERIVES the device file
+    (:func:`_plan_derived_devices`). A device set the operator authored is their
+    own list of what the worker may move, and this build does not second-guess
+    it; a derived one is OSPREY's list, mounting a settable for every channel
+    the facility states is writable — so the build that chose that list is
+    where the posture behind it has to hold.
+
+    Asked PER LANE, against the target that lane is bound to at render time
+    (:func:`_lane_target`), and never as a deployment-wide fold. A deployment
+    can arm its virtual accelerator and leave its live machine read-only, or
+    check limits on one and not the other; an ``any()``-style answer over both
+    would let an enabled simulator vouch for a live lane that enforces nothing
+    — which is precisely the lane the refusal exists for.
+
+    The condition is one leaf: writes armed for the lane's target
+    (:func:`~osprey_connectors.types.target_writes_enabled`) while
+    ``limits_checking.enabled`` for that same target is not ``True``
+    (:func:`~osprey_connectors.types.target_limits_posture`). ``enabled`` alone,
+    because that is the leaf deciding whether a validator is built at all —
+    ``LimitsValidator._from_posture`` returns ``None`` for anything else, and
+    nothing bounds a setpoint after that. ``allow_unlisted_channels`` is a
+    deliberate facility choice about channels the database does not list, which
+    the shipped presets set true, and is not this gate's business.
+
+    Evaluated before the service loop in :func:`prepare_compose_files`, so a
+    refusal costs no half-written build context.
+
+    :param config: The render config
+    :type config: dict
+    :raises DeploymentPreconditionError: A deployed lane arms writes for its
+        target while limits checking is not on for that target, and this render
+        would derive that lane's device set
+    """
+    from osprey_connectors.types import (
+        target_limits_posture,
+        target_writes_enabled,
+        target_writes_enabled_key,
+    )
+
+    deployed = {str(name) for name in (config.get("deployed_services") or [])}
+    lanes = [lane for lane in _BLUESKY_LANE_KEYS if lane in deployed]
+    if not lanes:
+        # Nothing to arm, so nothing to refuse -- and asked first, because the
+        # roster read below is a corpus parse or a database query and a
+        # deployment running no plan lane should not pay for one.
+        return
+
+    plan = _plan_derived_devices(config)
+    if not plan.derives:
+        return
+
+    # `services` is a dict here or the plan derives nothing: a non-mapping makes
+    # `_configured_devices_file` answer None, which is the `configured is None`
+    # arm of `_plan_derived_devices`.
+    services = config.get("services") or {}
+    control_system = config.get("control_system") or {}
+
+    for lane in lanes:
+        block = services.get(lane)
+        if not isinstance(block, dict):
+            continue
+        target = _lane_target(block, control_system)
+        if not target_writes_enabled(control_system, target):
+            continue
+        posture = target_limits_posture(control_system, target)
+        if posture.enabled is True:
+            continue
+        raise DeploymentPreconditionError(
+            reason=(
+                f"The queueserver worker's plan devices are derived from "
+                f"{plan.roster.source.describe()}, so lane '{lane}' comes up holding a "
+                f"settable for every channel this facility states is writable. That "
+                f"lane serves the {target!r} target, which arms writes "
+                f"({target_writes_enabled_key(control_system, target)}), while limits "
+                f"checking is not on for it: {posture.key('enabled')} is "
+                f"{posture.enabled!r}. Limits checking that is not on builds no "
+                f"validator at all, so every one of those devices would take whatever "
+                f"value a plan asks for, with no channel-limits database consulted."
+            ),
+            remedy=(
+                f"Set {posture.key('enabled')} to true and rebuild, so the {target!r} "
+                f"target enforces the limits database on the channels this build "
+                f"derived. To bring lane '{lane}' up browse-only instead, set "
+                f"{target_writes_enabled_key(control_system, target)} to false. To keep "
+                f"the writes and choose the device set yourself, author a device file "
+                f"and point {BLUESKY_DEVICES_CONFIG_KEY} at it — an authored set is the "
+                f"operator's own list, and nothing is derived for it."
+            ),
+        )
+
+
 def prepare_compose_files(
     config_path,
     dev_mode=False,
@@ -3137,8 +3441,11 @@ def prepare_compose_files(
     :raises RuntimeError: If configuration loading fails
     :raises DeploymentPreconditionError: Writes are enabled and
         ``control_system.limits_checking.database_path`` names no path, or names
-        a file that is not on this host. Nothing has been rendered when this
-        raises.
+        a file that is not on this host; or a deployed plan lane whose device
+        set this render derives arms writes for its target while limits checking
+        is not on for that target
+        (:func:`_refuse_lane_writes_without_limits`). Nothing has been rendered
+        when either raises.
     """
     # Fail before any work when --dev cannot be honored: every precondition is
     # a path check away, so there is no reason to surface it seven services in.
@@ -3214,6 +3521,14 @@ def prepare_compose_files(
     else:
         logger.warning("No deployed_services list found, no services will be processed")
         deployed_service_names = []
+
+    # The per-lane limits gate, before anything is written. A lane whose device
+    # set THIS render derives must not come up armed for writes with limits
+    # checking off for its target: the derived set is OSPREY's list of what the
+    # worker may move, so the build that chose it is where the posture behind it
+    # is checked. Asked once here rather than per service, and per lane rather
+    # than deployment-wide — see the function for why a fold would not do.
+    _refuse_lane_writes_without_limits(config)
 
     # Record which env-chain files this render found, beside the compose files
     # it explains. Written for every render, including one that deploys no

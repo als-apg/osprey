@@ -226,6 +226,44 @@ def resolve_storage_scope(terminal_user: str | None) -> str:
 RAIL_POSITIONS = ("left", "top")
 DEFAULT_RAIL_POSITION = "left"
 
+#: Onboarding-tour invite policy (``web.tour``, per-user override via the
+#: ``OSPREY_WEB_TOUR`` environment variable — the ``web.theme`` /
+#: ``OSPREY_WEB_THEME`` shape, so a roster can arm the invite per user).
+#: ``once``: the invite shows until this browser dismisses it ("Don't show
+#: this again", or completing the tour). ``always``: the invite shows on
+#: every load and offers no permanent dismissal — the shared read-only
+#: screen case. ``never``: no automatic invite; the tour stays reachable
+#: from the rail's Tour control and the command palette.
+TOUR_POLICIES = ("once", "always", "never")
+DEFAULT_TOUR_POLICY = "once"
+
+
+def resolve_tour_policy(configured: str | None) -> str:
+    """Resolve ``web.tour`` / ``OSPREY_WEB_TOUR`` into a concrete policy.
+
+    Mirrors the warn+fallback shape of :func:`resolve_ui_mode`: anything
+    outside :data:`TOUR_POLICIES` — a typo, ``None``, an empty string — is
+    logged as a warning and resolved to :data:`DEFAULT_TOUR_POLICY`, so a bad
+    value degrades to the safe default instead of blocking server startup.
+
+    Args:
+        configured: The raw value, environment override already applied.
+
+    Returns:
+        A concrete policy string in :data:`TOUR_POLICIES`.
+    """
+    if configured in TOUR_POLICIES:
+        return configured
+
+    logger.warning(
+        "Unknown web.tour %r (expected one of %s); falling back to %r.",
+        configured,
+        list(TOUR_POLICIES),
+        DEFAULT_TOUR_POLICY,
+    )
+    return DEFAULT_TOUR_POLICY
+
+
 #: Per-theme-family rail defaults, applied only when ``web.rail_position``
 #: is absent from config. The ``retro`` family carries a horizontal tab strip
 #: under the header as part of its look — picking Retro without also moving
@@ -926,6 +964,26 @@ def _create_lifespan(
             )
             app.state.web_ui_mode = DEFAULT_UI_MODE
 
+        # ── Onboarding-tour invite policy ──
+        # OSPREY_WEB_TOUR (the per-user roster path) outranks web.tour, the
+        # same precedence OSPREY_WEB_THEME has over web.theme. Resolved once
+        # at startup; GET /api/panels echoes it to the browser. Fails open to
+        # the default policy on any config-read error.
+        try:
+            from osprey.utils.workspace import load_osprey_config
+
+            configured_tour = os.environ.get(
+                "OSPREY_WEB_TOUR", ""
+            ).strip() or load_osprey_config().get("web", {}).get("tour", DEFAULT_TOUR_POLICY)
+            app.state.web_tour_policy = resolve_tour_policy(configured_tour)
+        except Exception:  # noqa: BLE001 — never let config load block startup
+            logger.warning(
+                "Could not resolve web.tour (config load failed); falling back to policy %r",
+                DEFAULT_TOUR_POLICY,
+                exc_info=True,
+            )
+            app.state.web_tour_policy = DEFAULT_TOUR_POLICY
+
         # ── Rail position (SSR no-flash attribute) ──
         # Same shape as web.ui_mode above: resolved once at startup and
         # server-rendered onto <html data-rail-position> so the pre-paint
@@ -1254,6 +1312,27 @@ def _create_lifespan(
         # human applies in one click. Immutable config-derived state. Empty
         # (the default) → the "+" menu renders no presets section.
         app.state.panel_presets = _load_panel_presets(enabled_panels, custom_panels)
+
+        # ── Tour capabilities ──
+        # The "Ask in plain language" tour card lists what THIS deployment's
+        # agent can do — derived here, never claimed in the browser. Reads
+        # come from a configured control system; Python analysis and plots
+        # ride the core executor + workspace pipeline every deployment
+        # carries; the logbook line appears only when the ARIEL panel is
+        # enabled. Deployment-dependent sentences the server cannot verify
+        # are not emitted at all.
+        tour_capabilities = []
+        try:
+            from osprey.utils.workspace import load_osprey_config
+
+            if load_osprey_config().get("control_system", {}).get("type"):
+                tour_capabilities.append("read live machine values")
+        except Exception:  # noqa: BLE001 — capabilities are cosmetic, never block startup
+            logger.debug("Tour capabilities: config load failed", exc_info=True)
+        tour_capabilities += ["run Python analysis", "make plots"]
+        if "ariel" in enabled_panels:
+            tour_capabilities.append("search the logbook")
+        app.state.tour_capabilities = tour_capabilities
 
         if panel_runtime.allow_runtime_panels and not panel_runtime.runtime_panel_allowlist:
             logger.warning(

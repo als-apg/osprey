@@ -36,7 +36,12 @@ from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
-from tests.e2e.sdk_helpers import agent_data_dir, provider_env_for_project, render_dir
+from tests.e2e.sdk_helpers import (
+    agent_data_dir,
+    e2e_port_base,
+    provider_env_for_project,
+    render_dir,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -132,6 +137,7 @@ def init_project(
         encoding="utf-8",
     )
     init_args.extend(["-O", str(preset_pins)])
+    init_args.extend(["--set", f"port_base={e2e_port_base()}"])
     init_result = runner.invoke(init, init_args)
     assert init_result.exit_code == 0, f"osprey init failed: {init_result.output}"
     build_result = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])

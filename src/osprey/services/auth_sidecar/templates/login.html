@@ -11,9 +11,21 @@
 
     user: str, required
       The roster user whose card was clicked. Shown in the prompt and carried in
-      a hidden field — there is NO username input on this page, because the page
-      is addressed per user and typing a different name here would only produce
-      a login the server refuses.
+      a hidden field. On an own card there is NO username input on this page,
+      because the page is addressed per user and typing a different name here
+      would only produce a login the server refuses; a SHARED card is the one
+      exception — see `shared` below.
+
+    shared: bool
+      Whether this card is open to the whole roster (`access: any`). Off by
+      default. When true, the form gains a visible `username` input where the
+      person opening the card types their OWN roster name, and the heading reads
+      "Sign in to <user>" rather than "Enter password for <user>".
+
+    opener: str
+      Prefill for the shared card's `username` input — the opener's own roster
+      name on a re-render, empty on a first prompt. Unused when `shared` is
+      false.
 
     next: str, required
       The validated same-origin return-to. Already checked by
@@ -164,8 +176,13 @@
 <body>
   <main class="login-card">
     <p class="login-mark">OSPREY</p>
-    {#- The acceptance gate: the username is stated, never asked for. #}
+    {#- The acceptance gate: the username is stated, never asked for — except on
+        a shared card, where the person opening it names themselves below. #}
+    {%- if shared %}
+    <h1 class="login-prompt">Sign in to <span class="login-user">{{ user|e }}</span></h1>
+    {%- else %}
     <h1 class="login-prompt">Enter password for <span class="login-user">{{ user|e }}</span></h1>
+    {%- endif %}
     <p class="login-hint">You are signing in to this terminal only.</p>
     {%- if error %}
     <p class="login-error" role="alert">{{ error|e }}</p>
@@ -175,9 +192,22 @@
           re-validates both values on arrival. #}
       <input type="hidden" name="user" value="{{ user|e }}">
       <input type="hidden" name="next" value="{{ next|e }}">
+      {%- if shared %}
+      {#- The shared-card exception: anyone on the roster may open this card, so
+          the opener names themselves here. `username` is the field the POST
+          route reads the opener from. #}
+      <label class="login-label" for="username">Your roster username</label>
+      <input class="login-input" id="username" name="username" type="text"
+             value="{{ opener|e }}" autocomplete="username" autocapitalize="none"
+             spellcheck="false" autofocus required>
+      <label class="login-label" for="password">Password</label>
+      <input class="login-input" id="password" name="password" type="password"
+             autocomplete="current-password" required>
+      {%- else %}
       <label class="login-label" for="password">Password</label>
       <input class="login-input" id="password" name="password" type="password"
              autocomplete="current-password" autofocus required>
+      {%- endif %}
       <button class="login-submit" type="submit">Unlock terminal</button>
     </form>
     <a class="login-back" href="/">&larr; Choose a different user</a>

@@ -12,20 +12,30 @@
  * machine.
  *
  * **Two shapes, not one list.** The machine the agent stands on is a card —
- * name, consequence line, write state, and the one button that changes it.
- * Every other machine is a row: name and consequence, a state pill, a verb,
- * and Switch to. Where a control cannot act it stays visible and says why on
- * hover; the machine vocabulary (lock codes, endpoints, the server's own
- * label) lives on tooltips, never at rest.
+ * name, ⓘ, and its writes switch. Every other machine is a row: name, ⓘ,
+ * its writes switch, and Switch to. Where a control cannot act it stays
+ * visible and says why on hover; what a machine is and what writing there
+ * does — the consequence line, the server's own label, the endpoint — live
+ * behind the name's ⓘ tooltip, never at rest.
  *
- * **Verbs, not toggles.** Turning writes off applies on click — it only ever
- * removes reach. Turning writes on confirms first, because it is the gesture
- * after which a write can land somewhere new. The button names the outcome,
- * so that asymmetry is visible before the click.
+ * **One switch per machine.** The write state is a switch: position and
+ * control are the same widget, so nothing says "writes on" twice. The old
+ * verbs' asymmetry survives in behaviour — turning off applies on click, it
+ * only ever removes reach; turning on parks the knob mid-track and confirms
+ * first, because it is the gesture after which a write can land somewhere
+ * new. Locked, the switch stays on screen, disabled, with the reason on
+ * hover.
  *
  * **No process claims.** Nothing rendered here says whether a write will ask
  * for approval or what limits apply — that is deployment configuration this
  * module cannot see. Confirms state scope, endpoint and consequence only.
+ *
+ * **A confirm can be waived, mostly.** Both confirms carry a "don't ask
+ * again" checkbox — per gesture, per machine, per persona (scopedStorageKey),
+ * remembered only when the operator confirms. The one exception is turning
+ * writes ON for a live machine, which keeps asking always: it is the gesture
+ * after which hardware can move. A waived dialog is re-shown by holding Shift
+ * on the gesture, which is also where the waiver is undone.
  *
  * **The popover stays open beneath a confirm.** Both confirms raise a
  * `.posture-modal-overlay` at `--z-modal`, a full layer above the popover's
@@ -43,6 +53,8 @@
 import {
   REASON_STORE_UNAVAILABLE,
   bannerNote,
+  confirmSkipKeyBase,
+  confirmSkippable,
   descriptor,
   descriptorTone,
   displayName,
@@ -55,7 +67,8 @@ import {
   switchConfirm,
   turnOnConfirm,
 } from './control-target-facts.js';
-import { fadeOutOverlay, mountOverlay } from './modal-overlay.js';
+import { confirmSkipped } from './confirm-skip.js';
+import { dismissConfirm, isConfirmUp, showConfirm } from './posture-confirm.js';
 
 // Re-exported so the popover's public surface stays what it was before the
 // derived-facts split; the wording itself lives in control-target-facts.js.
@@ -102,14 +115,6 @@ let unsubscribe = null;
 let open = false;
 
 /**
- * The confirm currently on screen, if any. One at a time: both confirms are
- * raised from the same popover, and a second overlay would bury the first
- * without dismissing it.
- * @type {HTMLElement|null}
- */
-let activeConfirm = null;
-
-/**
  * The target this browser's outstanding switch request named.
  *
  * The chip owns whether a request is outstanding ({@link isPending}); which
@@ -136,13 +141,20 @@ const gestureNotes = new Map();
 let posting = false;
 
 /**
- * The handles a confirm hands to the gesture it raised: where a refusal goes,
- * the two buttons to lock while the POST is out, and the one dismissal path.
- * @typedef {object} ConfirmUi
- * @property {HTMLElement} error
- * @property {HTMLButtonElement} confirm
- * @property {HTMLButtonElement} cancel
- * @property {() => void} done
+ * The target whose turn-on confirm is on screen, if any.
+ *
+ * The switch that raised it parks its knob mid-track (`data-pending="on"`)
+ * until the dialog is answered: a switch implies "now", and the knob must not
+ * sit in `on` while nothing has been applied. Cleared on every dismissal
+ * path — {@link dismissConfirm} is the one chokepoint.
+ * @type {string|null}
+ */
+let confirmingTarget = null;
+
+/**
+ * The handles a confirm hands to the gesture it raised — see
+ * posture-confirm.js, which owns the dialog itself.
+ * @typedef {import('./posture-confirm.js').ConfirmUi} ConfirmUi
  */
 
 /* ---- mount ---- */
@@ -193,6 +205,7 @@ export function teardownControlTargetPopover() {
   open = false;
   posting = false;
   pendingTarget = null;
+  confirmingTarget = null;
   gestureNotes.clear();
 }
 
@@ -231,7 +244,7 @@ function onDocumentClick(event) {
  */
 function onDocumentKeydown(event) {
   if (event.key !== 'Escape') return;
-  if (activeConfirm) {
+  if (isConfirmUp()) {
     event.stopPropagation();
     dismissConfirm();
     return;
@@ -289,10 +302,11 @@ function switchOutcome(row, state) {
   const last = state.last_switch;
   if (!last || last.target !== row.target) return null;
   if (typeof last.age_s === 'number' && last.age_s > OUTCOME_MAX_AGE_S) return null;
-  if (last.status === 'success') {
-    const age = typeof last.age_s === 'number' ? ` · ${last.age_s} s ago` : '';
-    return { status: 'success', text: `✓ switched${age}` };
-  }
+  // No age in the copy: `age_s` decides WHETHER the line renders (the
+  // freshness window above), never what it says. A ticking counter would
+  // restate the mechanism, and every re-render — the 5 s poll, every
+  // gesture's re-read — would bump it in front of the operator.
+  if (last.status === 'success') return { status: 'success', text: '✓ switched' };
   // refused / failed / expired render the operator phrase for the word the
   // gate (or the client's own deadline, for a request nothing ever answered)
   // put on them, with the gate's own sentence on the title where it sent one.
@@ -370,8 +384,8 @@ function render() {
 }
 
 /**
- * The card: the machine the agent stands on. Name, consequence line, the
- * write state in a sentence, and the one button that changes it.
+ * The card: the machine the agent stands on. Name, consequence line, and the
+ * writes switch that both states and changes the write state.
  * @param {any} row
  * @param {any} state
  */
@@ -392,28 +406,21 @@ function renderCard(row, state) {
   title.dataset.state = word;
   title.append(el('span', 'ctc-dot'));
   title.append(el('span', 'ctc-name', displayName(row, kind)));
-  title.title = identTitle(row);
+  const info = infoAffordance(row, kind);
+  if (info) title.append(info);
   card.append(title);
 
-  card.append(renderVerb(row, state, word, lock, 'ctc-card-verb'));
+  card.append(renderSwitch(row, state, word, lock));
 
-  const desc = descriptor(row, kind);
-  if (desc) card.append(descLine(row, kind, desc));
-
-  const sub = el('div', 'ctc-card-state');
-  const phrase = el('span', 'ctc-state-phrase', statePhrase(word));
-  phrase.dataset.state = word;
-  if (lock) phrase.title = lock;
-  sub.append(phrase);
-  if (word === 'sandbox') sub.append(el('span', 'ctc-state-note', '— you turned them off'));
+  // The reach exception sits on the title line: the switch carries the write
+  // state, so the card has no separate state line to put it on.
   const reach = reachException(row.reachability);
   if (reach) {
     const bad = el('span', 'ctc-reach-word', reach.text);
     bad.dataset.state = reach.state;
     bad.title = reach.title;
-    sub.append(bad);
+    title.append(bad);
   }
-  card.append(sub);
 
   for (const line of outcomeLines(row, state)) card.append(line);
   // Turning writes off on the machine the agent is ON only reaches it once
@@ -428,8 +435,8 @@ function renderCard(row, state) {
 }
 
 /**
- * One other machine's row: who it is and what writing there means, the state
- * pill, the verb that changes it, and Switch to.
+ * One other machine's row: who it is and what writing there means, its
+ * writes switch, and Switch to.
  * @param {any} row
  * @param {any} state
  * @param {any[]} rows
@@ -447,7 +454,8 @@ function renderRow(row, state, rows) {
   const ident = el('div', 'ctc-ident');
   const name = el('div', 'ctc-name-line');
   name.append(el('span', 'ctc-name', displayName(row, kind)));
-  name.title = identTitle(row);
+  const info = infoAffordance(row, kind);
+  if (info) name.append(info);
   const reach = reachException(row.reachability);
   if (reach) {
     const bad = el('span', 'ctc-reach-word', reach.text);
@@ -456,35 +464,45 @@ function renderRow(row, state, rows) {
     name.append(bad);
   }
   ident.append(name);
-  const desc = descriptor(row, kind);
-  if (desc) ident.append(descLine(row, kind, desc));
   for (const line of outcomeLines(row, state)) ident.append(line);
   node.append(ident);
 
-  const pill = el('span', 'ctc-pill', word === 'writes' ? 'writes on' : word === 'sandbox' ? 'writes off' : 'locked');
-  pill.dataset.state = word;
-  if (lock) pill.title = lock;
-  node.append(pill);
-
-  node.append(renderVerb(row, state, word, lock, 'ctc-verb'));
+  node.append(renderSwitch(row, state, word, lock));
   node.append(renderAction(row, state, rows));
   return node;
 }
 
 /**
- * The consequence line, toned: the one descriptor that names hardware moving
- * carries the error tone; every "nothing moves" (and "not set up") stays
- * muted.
+ * The ⓘ beside a name, and the tooltip behind it.
+ *
+ * Two facts in one place: what writing to this machine does (the consequence
+ * line — the one that names hardware moving keeps its error tone), then the
+ * machine vocabulary the name's `title` used to carry (the server's own
+ * label, the endpoint, the measured reachability). A real element shown on
+ * hover and keyboard focus rather than the browser's `title` bubble, which
+ * is delayed, unstyled and mouse-only. Returns `null` for a row with
+ * nothing to say.
  * @param {any} row
  * @param {string} kind
- * @param {string} desc
- * @returns {HTMLElement}
+ * @returns {HTMLElement|null}
  */
-function descLine(row, kind, desc) {
-  const line = el('div', 'ctc-desc', desc);
-  const tone = descriptorTone(row, kind);
-  if (tone) line.dataset.tone = tone;
-  return line;
+function infoAffordance(row, kind) {
+  const what = descriptor(row, kind);
+  const ident = identTitle(row);
+  if (!what && !ident) return null;
+  const info = button('ctc-info', 'i');
+  info.setAttribute('aria-label', `About ${displayName(row, kind)}`);
+  const tip = el('span', 'ctc-tip');
+  tip.setAttribute('role', 'tooltip');
+  if (what) {
+    const line = el('span', 'ctc-tip-what', what);
+    const tone = descriptorTone(row, kind);
+    if (tone) line.dataset.tone = tone;
+    tip.append(line);
+  }
+  if (ident) tip.append(el('span', 'ctc-tip-ident', ident));
+  info.append(tip);
+  return info;
 }
 
 /**
@@ -513,33 +531,53 @@ function outcomeLines(row, state) {
 }
 
 /**
- * The verb that changes a machine's write state, named for its outcome.
+ * The switch that both states and changes a machine's writes.
  *
- * Locked it stays on screen, disabled, with the reason on hover — the gap
- * where the control would be is explained rather than merely empty. Turning
- * off applies on click; turning on confirms first.
+ * One widget instead of pill + verb: the position is the state, the word
+ * beside it (`on` / `off` / `locked`) is the glance-and-screen-reader copy,
+ * and the click is the gesture. The old verbs' asymmetry survives in
+ * behaviour — off applies on click, on confirms first — said on the hover
+ * title, and while that confirm is up the knob parks mid-track
+ * (`data-pending`) rather than claiming a state nothing has applied. Locked
+ * it stays on screen, disabled, with the reason on hover — the gap where the
+ * control would be is explained rather than merely empty.
  * @param {any} row
  * @param {any} state
  * @param {string} word
  * @param {string|null} lock
- * @param {string} cls
- * @returns {HTMLButtonElement}
+ * @returns {HTMLElement}
  */
-function renderVerb(row, state, word, lock, cls) {
+function renderSwitch(row, state, word, lock) {
+  const name = displayName(row, kindAttr(row));
   const on = word === 'writes';
-  const verb = button(cls, on ? 'Turn writes off' : 'Turn writes on');
-  verb.dataset.direction = on ? 'off' : 'on';
+  const wrap = el('span', 'ctc-switchwrap');
+  wrap.dataset.state = word;
+  wrap.dataset.real = String(Boolean(row.real_machine));
+  wrap.append(el('span', 'ctc-switch-word', 'Writes'));
+  const toggle = button('ctc-toggle', '');
+  toggle.setAttribute('role', 'switch');
+  toggle.setAttribute('aria-checked', String(on));
+  toggle.setAttribute('aria-label', `${statePhrase(word)} for ${name}`);
+  toggle.dataset.real = String(Boolean(row.real_machine));
+  if (confirmingTarget === row.target) toggle.dataset.pending = 'on';
   if (lock) {
-    verb.disabled = true;
-    verb.title = lock;
-    return verb;
+    toggle.disabled = true;
+    toggle.title = lock;
+  } else {
+    toggle.title = on
+      ? `Turn writes off for ${name} — applies now`
+      : `Turn writes on for ${name} — asks first`;
+    toggle.addEventListener('click', (event) => {
+      event.stopPropagation();
+      if (on) void setPosture(row.target, 'sandbox', state);
+      else confirmTurnOn(row, state, event.shiftKey);
+    });
   }
-  verb.addEventListener('click', (event) => {
-    event.stopPropagation();
-    if (on) void setPosture(row.target, 'sandbox', state);
-    else confirmTurnOn(row, state);
-  });
-  return verb;
+  wrap.append(toggle);
+  const stateWordEl = el('span', 'ctc-switch-state', on ? 'on' : word === 'sandbox' ? 'off' : 'locked');
+  if (lock) stateWordEl.title = lock;
+  wrap.append(stateWordEl);
+  return wrap;
 }
 
 /**
@@ -564,7 +602,7 @@ function renderAction(row, state, rows) {
     swap.title = `Move this session's reads and writes to ${displayName(row, kindAttr(row))}`;
     swap.addEventListener('click', (event) => {
       event.stopPropagation();
-      confirmSwitchTo(row, state);
+      confirmSwitchTo(row, state, event.shiftKey);
     });
     action.append(swap);
     return action;
@@ -601,24 +639,25 @@ function renderFoot(state, rows) {
 /* ---- gestures ---- */
 
 /**
- * Turn one target's writes off or on (or every target's off), then re-read.
+ * POST one gesture and settle the UI around it, then re-read.
  *
  * The re-read is the whole point: the store is shared by every tab and
  * survives a restart, so what the popover shows next is what the server says,
- * never what this click intended. A refusal is kept on the row it was for,
- * because the operator is looking at that row and the server's own sentence is
- * more specific than anything this module could invent.
- * A gesture raised from a confirm passes that dialog's `ui`, and a refusal
- * then stays inside it: the dialog is where the operator is looking, nothing
- * was applied, and dismissing it to put the reason on a row behind would hide
- * the answer to the question they had just been asked.
- * @param {string} target  a configured target name, or {@link ALL_TARGETS}
- * @param {'sandbox'|'writes'} posture
- * @param {any} state  the payload the operator was shown
- * @param {ConfirmUi} [ui]  the confirm this gesture was raised from, if any
+ * never what this click intended. A refusal is kept where the operator is
+ * looking: inside the confirm that raised the gesture when there is one
+ * (nothing was applied, and dismissing it to put the reason on a row behind
+ * would hide the answer to the question they had just been asked), otherwise
+ * on `noteKey`'s row — the server's own sentence is more specific than
+ * anything this module could invent.
+ * @param {string} path
+ * @param {object} json
+ * @param {string} noteKey  the row a dialog-less refusal lands on
+ * @param {ConfirmUi|undefined} ui  the confirm this gesture came from, if any
+ * @param {(body: any) => void} onAccepted  what this gesture means, applied
+ *   before the confirm is dismissed and the state re-read
  * @returns {Promise<void>}
  */
-async function setPosture(target, posture, state, ui) {
+async function postGesture(path, json, noteKey, ui, onAccepted) {
   if (posting) return;
   posting = true;
   gestureNotes.clear();
@@ -627,17 +666,7 @@ async function setPosture(target, posture, state, ui) {
     ui.cancel.disabled = true;
   }
   try {
-    const body = await targetRequest('/api/terminal/posture', {
-      method: 'POST',
-      json: { session_id: state.session_id, target, posture },
-    });
-    // `all` narrows what it can and reports the rest rather than dropping it:
-    // a target whose writes stayed on is exactly what an operator who just
-    // clicked "Turn all writes off" must not be left believing otherwise
-    // about.
-    for (const skip of Array.isArray(body?.skipped) ? body.skipped : []) {
-      if (skip?.target) gestureNotes.set(String(skip.target), String(skip.reason || 'skipped'));
-    }
+    onAccepted(await targetRequest(path, { method: 'POST', json }));
   } catch (err) {
     posting = false;
     const message = err instanceof Error ? err.message : String(err);
@@ -647,7 +676,7 @@ async function setPosture(target, posture, state, ui) {
       ui.confirm.disabled = false;
       ui.cancel.disabled = false;
     } else {
-      gestureNotes.set(target, message);
+      gestureNotes.set(noteKey, message);
     }
     // The refusal may itself be news about the render, so re-read rather than
     // keeping whatever the rows showed.
@@ -662,6 +691,27 @@ async function setPosture(target, posture, state, ui) {
 }
 
 /**
+ * Turn one target's writes off or on (or every target's off).
+ * @param {string} target  a configured target name, or {@link ALL_TARGETS}
+ * @param {'sandbox'|'writes'} posture
+ * @param {any} state  the payload the operator was shown
+ * @param {ConfirmUi} [ui]  the confirm this gesture was raised from, if any
+ * @returns {Promise<void>}
+ */
+function setPosture(target, posture, state, ui) {
+  const json = { session_id: state.session_id, target, posture };
+  return postGesture('/api/terminal/posture', json, target, ui, (body) => {
+    // `all` narrows what it can and reports the rest rather than dropping it:
+    // a target whose writes stayed on is exactly what an operator who just
+    // clicked "Turn all writes off" must not be left believing otherwise
+    // about.
+    for (const skip of Array.isArray(body?.skipped) ? body.skipped : []) {
+      if (skip?.target) gestureNotes.set(String(skip.target), String(skip.reason || 'skipped'));
+    }
+  });
+}
+
+/**
  * Ask the controls server to switch, then hand the request to the chip.
  *
  * The route accepts and answers `202` with a `request_id`; nothing has
@@ -670,146 +720,82 @@ async function setPosture(target, posture, state, ui) {
  * all this does is record which row is waiting.
  * @param {any} row
  * @param {any} state
- * @param {ConfirmUi} ui
+ * @param {ConfirmUi} [ui]  the confirm this gesture was raised from, if any
  * @returns {Promise<void>}
  */
-async function requestSwitch(row, state, ui) {
-  ui.confirm.disabled = true;
-  ui.cancel.disabled = true;
-  posting = true;
-  gestureNotes.clear();
-  let body;
-  try {
-    body = await targetRequest('/api/terminal/target', {
-      method: 'POST',
-      json: { session_id: state.session_id, target: row.target },
-    });
-  } catch (err) {
-    posting = false;
-    // The refusal stays in the dialog: it is where the operator is looking,
-    // and nothing was requested, so there is nothing to watch for.
-    ui.error.textContent = err instanceof Error ? err.message : String(err);
-    ui.error.hidden = false;
-    ui.confirm.disabled = false;
-    ui.cancel.disabled = false;
-    await refetch();
-    return;
-  }
-  posting = false;
-  ui.done();
-  pendingTarget = row.target;
-  markPending(String(body?.request_id || ''), row.target);
-  await refetch();
-  render();
-}
-
-/* ---- confirms ---- */
-
-/** @param {string} text */
-function strong(text) {
-  return el('strong', undefined, text);
-}
-
-/**
- * Build and show one confirm over the popover, which stays open beneath it.
- *
- * Structure and lifecycle mirror the badge-era dialog (posture-badge.js): the
- * overlay is appended to `document.body`, `.visible` lands on the next frame,
- * and one `done()` runs on every dismissal path. What differs is where Escape
- * is handled — this popover owns it, so a confirm and the rows behind it are
- * dismissed in the order they were opened.
- * @param {{title: string,
- *          body: (import('./control-target-facts.js').ConfirmRun)[][],
- *          live: string|null, confirmLabel: string,
- *          onConfirm: (ui: ConfirmUi) => void}} spec
- */
-function showConfirm(spec) {
-  dismissConfirm();
-  // A dialog dismissed a moment ago is still in the DOM, fading out. Drop it
-  // now rather than stacking a second overlay on top of it.
-  for (const stale of document.querySelectorAll('.posture-modal-overlay[data-closing]')) {
-    stale.remove();
-  }
-
-  const overlay = el('div', 'posture-modal-overlay');
-  const dialog = el('div', 'posture-modal');
-  dialog.setAttribute('role', 'dialog');
-  dialog.setAttribute('aria-modal', 'true');
-  dialog.setAttribute('aria-labelledby', 'posture-modal-title');
-
-  const heading = el('div', 'posture-modal-title', spec.title);
-  heading.id = 'posture-modal-title';
-
-  const body = el('div', 'posture-modal-body');
-  // Assembled node by node (no innerHTML) so the emphasis can sit on the name
-  // and the state word without any string ever being parsed as markup. An
-  // `{em}` run is the facts module's DOM-free spelling of a `<strong>`.
-  for (const line of spec.body) {
-    const paragraph = el('p');
-    for (const run of line) {
-      paragraph.append(typeof run === 'string' ? run : strong(run.em));
-    }
-    body.append(paragraph);
-  }
-  if (spec.live) body.append(el('div', 'posture-modal-live', spec.live));
-
-  const error = el('div', 'posture-modal-error');
-  error.setAttribute('role', 'alert');
-  error.hidden = true;
-
-  const actions = el('div', 'posture-modal-actions');
-  const cancel = button('posture-modal-cancel', 'Cancel');
-  const confirm = button('posture-modal-confirm', spec.confirmLabel);
-  if (spec.live) confirm.dataset.live = 'true';
-  actions.append(cancel, confirm);
-
-  dialog.append(heading, body, error, actions);
-  overlay.append(dialog);
-  activeConfirm = overlay;
-  mountOverlay(overlay);
-
-  cancel.addEventListener('click', () => dismissConfirm());
-  confirm.addEventListener('click', () =>
-    spec.onConfirm({ error, confirm, cancel, done: dismissConfirm })
-  );
-  confirm.focus();
-}
-
-/** Take the confirm off the screen, if one is up. Idempotent. */
-function dismissConfirm() {
-  const overlay = activeConfirm;
-  activeConfirm = null;
-  if (!overlay) return;
-  // `data-closing` is what tells "still up" from "on its way out" — to a
-  // reader, to a test, and to the stale sweep in showConfirm.
-  overlay.dataset.closing = '1';
-  fadeOutOverlay(overlay);
-}
-
-/**
- * The confirm for turning one machine's writes on. Wording lives in
- * control-target-facts.js ({@link turnOnConfirm}); this only wires the
- * gesture.
- * @param {any} row
- * @param {any} state
- */
-function confirmTurnOn(row, state) {
-  showConfirm({
-    ...turnOnConfirm(row, kindAttr(row)),
-    onConfirm: (ui) => void setPosture(row.target, 'writes', state, ui),
+function requestSwitch(row, state, ui) {
+  const json = { session_id: state.session_id, target: row.target };
+  return postGesture('/api/terminal/target', json, row.target, ui, (body) => {
+    pendingTarget = row.target;
+    markPending(String(body?.request_id || ''), row.target);
   });
 }
 
+/* ---- confirms (the dialog itself lives in posture-confirm.js) ---- */
+
 /**
- * The confirm for switching this session onto another machine. Wording lives
- * in control-target-facts.js ({@link switchConfirm}); this only wires the
- * gesture.
+ * Release the parked switch on every dismissal path: cancel, Escape, a
+ * confirmed gesture's done(), the popover closing over it. Registered as the
+ * turn-on confirm's `onDismiss`, which posture-confirm.js runs exactly once
+ * per dialog.
+ */
+function releaseParkedSwitch() {
+  if (confirmingTarget) {
+    confirmingTarget = null;
+    render();
+  }
+}
+
+/**
+ * The confirm for turning one machine's writes on — or, when its waiver is
+ * recorded and Shift is not held, the gesture applied directly. A live
+ * machine never takes the waiver ({@link confirmSkippable}): its dialog is
+ * the one gate that must not be muted.
+ * Wording lives in control-target-facts.js ({@link turnOnConfirm}); this
+ * only wires the gesture.
  * @param {any} row
  * @param {any} state
+ * @param {boolean} [reshow]  Shift was held: show the dialog even when waived
  */
-function confirmSwitchTo(row, state) {
+function confirmTurnOn(row, state, reshow = false) {
+  const kind = kindAttr(row);
+  const skippable = confirmSkippable('writes-on', kind);
+  const keyBase = confirmSkipKeyBase('writes-on', row);
+  if (skippable && !reshow && confirmSkipped(keyBase)) {
+    void setPosture(row.target, 'writes', state);
+    return;
+  }
+  showConfirm({
+    ...turnOnConfirm(row, kind),
+    skipKeyBase: skippable ? keyBase : null,
+    onConfirm: (ui) => void setPosture(row.target, 'writes', state, ui),
+    onDismiss: releaseParkedSwitch,
+  });
+  // After showConfirm: its stale-dialog sweep dismisses (and releases) any
+  // previous confirm first. The render is what parks the switch beneath the
+  // dialog.
+  confirmingTarget = row.target;
+  render();
+}
+
+/**
+ * The confirm for switching this session onto another machine — or, when its
+ * waiver is recorded and Shift is not held, the request posted directly.
+ * Wording lives in control-target-facts.js ({@link switchConfirm}); this
+ * only wires the gesture.
+ * @param {any} row
+ * @param {any} state
+ * @param {boolean} [reshow]  Shift was held: show the dialog even when waived
+ */
+function confirmSwitchTo(row, state, reshow = false) {
+  const keyBase = confirmSkipKeyBase('switch', row);
+  if (!reshow && confirmSkipped(keyBase)) {
+    void requestSwitch(row, state);
+    return;
+  }
   showConfirm({
     ...switchConfirm(row, kindAttr(row), stateWord(row)),
+    skipKeyBase: keyBase,
     onConfirm: (ui) => void requestSwitch(row, state, ui),
   });
 }

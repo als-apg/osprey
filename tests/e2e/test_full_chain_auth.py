@@ -65,9 +65,10 @@ compares the two against the same value. That makes these assertions a proof
 of nginx TRANSPORT — that the sidecar's ``X-Osprey-Auth-Account`` is captured
 from the ``/verify`` answer, forwarded exactly once, replaces a client-forged
 copy rather than joining it, and is cleared on the ungated arm — and NOT a
-proof of OIDC semantics, where an account and a subject actually diverge. The
-OIDC half is unit-covered instead, because the repo has no OIDC e2e harness to
-drive a real IdP login through this chain.
+proof of OIDC semantics, where an account and a subject actually diverge. That
+half is ``tests/deployment/web_terminals/test_auth_serving_oidc.py``: one OIDC
+login through the rendered nginx and the real sidecar, against a stub provider
+in the serving harness's network namespace.
 
 **The persona each user runs is decided by the ROLE, never by a ``persona:``
 pin.** That is not incidental to the fixture — it is the FR6 mechanism under
@@ -1429,7 +1430,7 @@ def test_the_upstream_receives_exactly_one_of_each_identity_header(
     because this lane is password-only, where the account IS the subject. So
     what its arrival proves is nginx TRANSPORT — captured from ``/verify``,
     forwarded once, uncorrupted — and not OIDC semantics, where the two
-    diverge; that half is unit-covered, there being no OIDC e2e harness.
+    diverge; that half is ``tests/deployment/web_terminals/test_auth_serving_oidc.py``.
     """
     report = _probe_report(HEADER_USER, opener=deployment["sessions"][HEADER_USER])
     assert _forwarded(report, ACCOUNT_HEADER) == [HEADER_USER], (

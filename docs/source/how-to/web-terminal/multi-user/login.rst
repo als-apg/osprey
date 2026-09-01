@@ -199,6 +199,12 @@ on the deploy host. A ``claims`` stanza under ``password`` resolves nothing;
    emit only the groups assigned to this application, or define app roles and
    point ``claim`` at ``roles``.
 
+Behind a proxy that re-signs TLS with a site certificate authority, the
+identity-provider fetch fails inside the login service even with the site-CA
+block in ``.env.shared`` uncommented: that service receives the three proxy
+variables and nothing else, and no site CA is mounted into its image. See
+:ref:`deployment-env-chain` for what the chain delivers to which container.
+
 Leave one entry public
 ======================
 
@@ -217,6 +223,96 @@ Only the literal ``false`` opts out; anything else means "login required". The
 entry is still gated the way every terminal is under ``token``, by its own
 login URL. A ``login: false`` entry whose persona can edit the deployment
 (``setup_patch`` or the Config panel) is refused at build and at ``osprey up``.
+
+.. _multi-user-shared-card:
+
+Share a card with the whole roster
+==================================
+
+A roster entry admits one person. ``access:`` is the key that changes that —
+``own``, the default, is that rule spelled out: the entry's own login and
+nobody else's. ``any`` marks a **shared card**: one terminal, one persona,
+one audit directory, that anyone on the roster opens with their own
+credential:
+
+.. code-block:: yaml
+
+   modules:
+     web_terminals:
+       tls:
+         enabled: true
+         host_cert_dir: /etc/ssl/facility
+         cert: /etc/osprey/tls/facility.crt
+         key: /etc/osprey/tls/facility.key
+       auth:
+         method: oidc
+         oidc:
+           issuer: https://sso.example.org/realms/accelerator
+           client_id_env: OSPREY_AUTH_OIDC_CLIENT_ID
+           client_secret_env: OSPREY_AUTH_OIDC_CLIENT_SECRET
+           claim: sub
+       users:
+         - name: alice
+           index: 0
+           persona: readwrite
+           oidc_subject: "8f4c1e02-..."
+         - name: bob
+           index: 1
+           persona: readonly
+           oidc_subject: "41ab97d0-..."
+         - name: ops-desk
+           index: 2
+           persona: readonly
+           access: any                # any roster login opens this card
+
+Who can open it: anyone this deployment can authenticate. Under ``password``
+that is every roster entry with a provisioned password; under ``oidc``, every
+entry that carries an ``oidc_subject:`` — ``login: false`` entries included,
+and the shared card itself when it carries one. On a shared card the password
+form gains a username field: the person types their *own* roster name beside
+the password, and it is that name's stored password that is checked — and that
+name the rate limit counts against. A card that never had a password of its
+own has no credential to offer here; one flipped from ``own`` still does,
+until you decommission it — see
+:ref:`Removing someone <multi-user-shared-card-removal>` below.
+
+The session carries who opened it — the *opener* — and re-checks that person
+against the roster on every request. Rotating the opener's password or
+decommissioning them ends every shared session they opened at the next
+request, and under ``oidc`` so does editing or removing their
+``oidc_subject:`` — that per-person revocation is how a shared card is taken
+away from one user without touching the rest. Flipping the ``access`` key
+settles the same way: a card flipped to ``any`` refuses sessions minted while
+it was its owner's, and a card flipped back to ``own`` refuses the shared
+ones. The ledger records the opener beside the card
+(:ref:`audit-trail-identity-keys`), so a shared terminal's records still say
+who did what.
+
+The card's role rides the card. The claims binding
+(:ref:`multi-user-role-from-sso`) is not consulted on a shared card — the
+card's terminal is only ever built as its own tier — so a person the binding
+would refuse for their own card can still open a shared one. If the binding
+is your membership gate, do not share a card.
+
+Two rosters are refused by ``osprey scaffold web-terminals lint`` and the
+build verbs that run it:
+
+- **A deployment-editing card cannot be shared**
+  (``web_terminals.shared_card_privileged``). A persona holding the setup
+  tool or the Config panel was lifted for named people behind their own
+  cards; ``access: any`` would hand it to every login the deployment has.
+- **With a shared card on an** ``oidc`` **roster, two entries must not carry
+  the same** ``oidc_subject`` (``web_terminals.shared_card_duplicate_subject``).
+  One person could always hold two cards — the same ``oidc_subject:`` on
+  both, every login arriving through the card that was clicked. A shared card
+  changes the question: the login service must resolve each identity to a
+  single roster entry to know who opened it, so once any card is shared, such
+  a person keeps ``oidc_subject:`` on one card only — a login by that
+  identity would otherwise be ambiguous, and is refused.
+
+``login: false`` remains the ungated option — no login wall at all, the entry
+gated only by its own login URL. ``access: any`` is the gated one: everyone
+can reach the card, but only by logging in as themselves.
 
 .. _multi-user-https:
 
@@ -281,9 +377,13 @@ only. On every ``osprey up``, for each user in order:
 #. Otherwise a password is generated, hashed, and printed once. Capture it.
 
 To change one later, ``osprey users passwd alice`` prompts, rewrites that hash
-and ends alice's sessions; nobody else is touched. Password login is
-rate-limited per user but never locks anyone out — a control-room operator
-must not be shut out of the terminals.
+and ends alice's sessions — her own card's, and every shared-card
+(:ref:`access: any <multi-user-shared-card>`) session she opened, since those
+are held open by this same credential. Sessions held open by other people's
+passwords stay up. Password login is rate-limited per user but never locks
+anyone out — a control-room operator must not be shut out of the terminals.
+
+.. _multi-user-shared-card-removal:
 
 Removing someone, and turning it off
 ====================================
@@ -295,6 +395,20 @@ A credential can outlive an account, so:
   name back months later revives her password. ``decommission`` (or
   ``prune``, for names already edited out) retires the credential and, under
   OIDC, ends the session.
+- **A shared card is revoked per person, through their own credential.**
+  ``osprey users passwd alice`` ends every shared-card session alice opened
+  along with her own (see above); under ``oidc``, editing or removing her
+  ``oidc_subject:`` ends her shared-card sessions at the next request — her
+  *own* card's session is different, lapsing at expiry or logout as it always
+  has, unless ``osprey users decommission alice`` ends it now.
+
+- **Flipping a card to** ``access: any`` **does not retire the card's own
+  password** — the hash stays in ``.env.auth`` and still works: anyone who
+  knows it can open the shared card by typing the card's own name into the
+  username field. Run ``osprey users decommission <card>`` when you share a
+  card that used to have its own password; flipping back to ``own`` revives
+  an unretired hash. ``osprey users passwd <card>`` is refused while the card
+  is shared — there is no password of its own to change.
 - **A plaintext** ``OSPREY_AUTH_PW_ALICE`` **in** ``.env`` **survives
   decommission** and would be hashed straight back in for the next alice.
   Delete the line by hand when the person leaves.

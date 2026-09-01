@@ -993,6 +993,12 @@ def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
     web terminal resolves it at startup and warns+falls back on an unknown one,
     and lint reports a non-string separately.
 
+    An object entry's optional ``tour`` (that user's onboarding-tour invite
+    policy -- ``once``, ``always`` or ``never``, surfaced downstream as the
+    per-user ``OSPREY_WEB_TOUR``) is carried through on the same terms as
+    ``theme``, with the same division of labour: the web terminal owns the
+    vocabulary and warns+falls back on an unknown value.
+
     An object entry's optional ``oidc_subject`` (the value of the configured OIDC
     claim -- ``sub`` by default -- that identifies this roster user at the IdP) is
     carried through on the same terms, with one deliberate difference: an *empty*
@@ -1022,6 +1028,16 @@ def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
     the typo separately). See :func:`entry_requires_login` for the single
     consumer-side reading of the carried key.
 
+    An object entry's optional ``access`` (whether this entry is a shared card
+    any authenticated roster user may open, rather than one owned by a single
+    user) is carried through only when it is the literal string ``"any"`` — the
+    one value that changes anything. ``"own"``, absence, and every malformed
+    spelling (``"ANY"``, a boolean, a number) all mean "owner only", so
+    dropping them is both the fail-closed reading and what keeps a config typo
+    from silently sharing an entry (lint reports the typo separately). See
+    :func:`entry_is_shared` for the single consumer-side reading of the
+    carried key.
+
     Malformed entries — anything that isn't a string, and any dict missing a
     string ``name`` or an int ``index`` — are dropped rather than raising
     (well-formedness is lint.py's job). ``bool`` is a subclass of ``int`` in
@@ -1039,8 +1055,8 @@ def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
     Returns:
         New ``{"name": str, "index": int}`` dicts (plus optional
         ``"display_name"``, ``"theme"``, ``"oidc_subject"`` and ``"role"`` string
-        keys and a ``"login": False`` marker when the entry carried them) in
-        config-declaration order. Input dicts are never mutated or returned by
+        keys, a ``"login": False`` marker and an ``"access": "any"`` marker
+        when the entry carried them) in config-declaration order. Input dicts are never mutated or returned by
         reference.
     """
     if not isinstance(users_raw, list):
@@ -1060,6 +1076,13 @@ def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
                 theme = entry.get("theme")
                 if isinstance(theme, str):
                     normalized_entry["theme"] = theme
+                # Per-user onboarding-tour invite policy (once/always/never),
+                # carried on the same terms as `theme`: surfaced downstream as
+                # OSPREY_WEB_TOUR, and the web terminal warns + falls back on
+                # an unknown value, so only the type is checked here.
+                tour = entry.get("tour")
+                if isinstance(tour, str):
+                    normalized_entry["tour"] = tour
                 oidc_subject = entry.get("oidc_subject")
                 if isinstance(oidc_subject, str) and oidc_subject:
                     normalized_entry["oidc_subject"] = oidc_subject
@@ -1078,6 +1101,13 @@ def normalize_users(users_raw: Any) -> list[dict[str, Any]]:
                 # can never open an entry to the world.
                 if entry.get("login") is False:
                     normalized_entry["login"] = False
+                # Only the literal string "any" is carried: absence and "own"
+                # both mean "owner only", and any other value is a config typo
+                # (reported by lint) whose safe reading is the same. Carrying
+                # only the sharing value keeps the gate fail-closed — a typo
+                # can never share an entry with the whole roster.
+                if entry.get("access") == "any":
+                    normalized_entry["access"] = "any"
                 normalized.append(normalized_entry)
     return normalized
 
@@ -1099,6 +1129,24 @@ def entry_requires_login(entry: dict[str, Any]) -> bool:
     already normalized back to "login required".
     """
     return entry.get("login") is not False
+
+
+def entry_is_shared(entry: dict[str, Any]) -> bool:
+    """Whether this normalized roster entry is a shared card, open to the roster.
+
+    ``access: any`` on a roster entry marks it as shared: any authenticated
+    roster user may open it, instead of only the one user the entry belongs
+    to. The single reading of that key, shared by credential provisioning
+    (which decides whose logins may mint a session for it), the deploy summary
+    (which reports the seeded logins), the ``users passwd`` verb's refusal
+    path, the render's per-entry service dict, and lint's privileged/duplicate
+    checks — call sites that must never disagree about who may open an entry.
+
+    Reads the *normalized* entry, so only the literal ``"any"``
+    :func:`normalize_users` carries through shares; every malformed spelling
+    already normalized back to "owner only".
+    """
+    return entry.get("access") == "any"
 
 
 def freeze_user_indices(users_raw: Any) -> list[dict[str, Any]]:
@@ -1748,6 +1796,53 @@ def deployment_wide_privileged_exposure_problems(
     return problems
 
 
+def shared_card_privileged_problems(
+    resolved_entries: Iterable[Mapping[str, Any]],
+    privileges_by_persona: Mapping[str, Sequence[str]],
+) -> list[str]:
+    """Every SHARED roster entry whose persona can edit the deployment.
+
+    ``access: any`` opens a card to the whole roster: any authenticated login
+    may mint a session for it (see :func:`entry_is_shared`). On an unprivileged
+    persona that is the feature — one control-room terminal everybody on shift
+    opens. On a privileged one it undoes the tier split the roster declared:
+    the setup tool or the Config panel was lifted for named people behind their
+    own cards, and the one key hands it to every login the deployment has.
+
+    **Judged on what the persona ABSOLUTELY holds**, like the ``login: false``
+    rule above and for the same reason: sharing is an authored claim about one
+    entry, made deliberately, and a deployment that floors neither surface
+    hands both of them through the shared card — the widest version of this
+    exposure, not an exempt one. See :func:`privileges_beyond_baseline` for the
+    rules that read the relative answer.
+
+    Args:
+        resolved_entries: :func:`resolve_personas`' output (or anything with
+            the same ``name``/``persona``/``access`` keys).
+        privileges_by_persona: Persona name → :func:`persona_privileges` — the
+            ABSOLUTE answer; see :func:`_privileged_entries` for what a missing
+            persona means.
+
+    Returns:
+        One message per offending entry, in roster order, each naming the user,
+        the persona, what it holds and the remedy.
+    """
+    problems: list[str] = []
+    for entry, persona, privileges in _privileged_entries(resolved_entries, privileges_by_persona):
+        if not entry_is_shared(dict(entry)):
+            continue
+        name = entry.get("name")
+        problems.append(
+            f"modules.web_terminals user {name!r} is a shared card (access: any), but "
+            f"resolves to persona {persona!r}, which holds {privilege_phrase(privileges)}. "
+            f"Any authenticated roster login may open that terminal, so every user on the "
+            f"roster edits this deployment. Set access: own for {name!r} — or drop the key, "
+            f"since owner-only is the default — or point {name!r} at a persona that holds "
+            f"neither (the bundled stack's {UNPRIVILEGED_TIER_EXAMPLE!r})"
+        )
+    return problems
+
+
 def env_var_suffix(username: str) -> str:
     """Map a roster username to the suffix its per-user env vars are keyed by.
 
@@ -2015,18 +2110,20 @@ def resolve_personas(
         ``seed_base`` (a bool; anything else is defensively coerced to
         ``True``), and always ``True`` for the zero-migration / lenient-degrade
         paths — it controls whether the shared base context is prepended when
-        seeding this entry's ``CLAUDE.md``. Optional ``"display_name"`` and
-        ``"theme"`` keys are added — carried through from
+        seeding this entry's ``CLAUDE.md``. Optional ``"display_name"``,
+        ``"theme"`` and ``"tour"`` keys are added — carried through from
         :func:`normalize_users` — only when the entry declared a non-empty string
-        one (render emits them as ``OSPREY_WEB_APP_NAME`` and
-        ``OSPREY_WEB_THEME``); each is omitted entirely otherwise, so a roster
-        declaring neither resolves byte-identically to before these fields
+        one (render emits them as ``OSPREY_WEB_APP_NAME``, ``OSPREY_WEB_THEME``
+        and ``OSPREY_WEB_TOUR``); each is omitted entirely otherwise, so a roster
+        declaring none resolves byte-identically to before these fields
         existed. An optional ``"oidc_subject"`` key rides through on the same
         terms, so the auth sidecar's roster→identity mapping is read off the same
         resolved entry as everything else rather than re-derived from the raw
         roster. An optional ``"login": False`` marker rides through likewise —
         present only when the roster entry opted out of the login wall (see
-        :func:`entry_requires_login`). An optional ``"landing_group"`` key — the catalog entry's own
+        :func:`entry_requires_login`). An optional ``"access": "any"`` marker
+        rides through on the same terms — present only when the roster entry is
+        a shared card (see :func:`entry_is_shared`). An optional ``"landing_group"`` key — the catalog entry's own
         ``landing_group``, present only for a non-empty string — names the
         landing-page section this entry's card belongs in; it is read by
         :func:`osprey.deployment.web_terminals.render._build_groups` and affects
@@ -2089,7 +2186,7 @@ def resolve_personas(
         render.py's conditional-``sublabel`` convention: a key is present only
         for a non-empty string, so a roster declaring none leaves the entry
         byte-identical to a resolution from before these fields existed."""
-        for field in ("display_name", "theme", "oidc_subject"):
+        for field in ("display_name", "theme", "tour", "oidc_subject"):
             value = source.get(field)
             if isinstance(value, str) and value:
                 entry[field] = value
@@ -2097,6 +2194,9 @@ def resolve_personas(
         # normalize_users already reduced every other spelling to absence.
         if source.get("login") is False:
             entry["login"] = False
+        # `access: "any"` likewise: only the sharing value is ever present.
+        if source.get("access") == "any":
+            entry["access"] = "any"
         return entry
 
     def _zero_migration_entry(

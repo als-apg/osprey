@@ -164,13 +164,9 @@ state file and one directory answers "session state for the control targets".
 The root resolves by the ONE rule the path contract above states, used by the
 writer and by both readers; there is no third path and no fallback. For
 *reading*, an unresolvable root is indistinguishable from an empty store:
-nothing has been narrowed, so the deployment ceiling stays in charge. One legacy
-location is read through while the new file does not exist — the store the
-session-wide posture kept directly under the agent-data root
-(:func:`legacy_store_path`) — so a deployment upgrading with a sandboxed session
-live does not have that narrowing silently lifted the moment the code lands.
-Nothing here writes: the web server persists the migrated shape on its first
-load, and the fallback stops answering the moment it does.
+nothing has been narrowed, so the deployment ceiling stays in charge. (The
+session-wide posture that predated targets kept a store directly under the
+agent-data root; that location is retired and no reader consults it.)
 
 **2. What the shapes mean.** The file is a JSON object keyed by session key. A
 value is either a per-target object (``{"live": "sandbox"}``) or one of the two
@@ -368,7 +364,6 @@ __all__ = [
     "has_live_record",
     "is_baseline",
     "is_readonly_run",
-    "legacy_store_path",
     "most_restrictive_posture",
     "parent_pid",
     "parse_store",
@@ -473,20 +468,6 @@ def store_path(hook_input=None):
     """
     directory = resolve_state_dir(hook_input)
     return None if directory is None else os.path.join(directory, STORE_FILENAME)
-
-
-def legacy_store_path(hook_input=None):
-    """The pre-feature store path, read through once when the new one is absent.
-
-    The session-wide posture kept its store directly under the agent-data root.
-    A deployment upgrading with a sandboxed session live must not have that
-    narrowing silently lifted the moment the code lands, so readers fall back to
-    it while the new file does not exist. Nothing here writes: the web server
-    persists the migrated shape on its first load, and this fallback stops
-    answering the moment it does.
-    """
-    root = agent_data_root(hook_input)
-    return None if root is None else os.path.join(root, STORE_FILENAME)
 
 
 def _pid_from_filename(name):
@@ -1155,24 +1136,6 @@ def parse_store(raw):
     return parsed
 
 
-def _store_exists(path):
-    """Whether *path* is there at all — the ONLY thing the fallback turns on.
-
-    The canonical reader decides between the two paths on ``stat()`` and nothing
-    else, so this reader must too. Deciding on "did the read succeed" instead
-    would make an existing-but-unreadable new store hand back the LEGACY file's
-    narrowings while the canonical reader hands back an empty one — two answers
-    to one write, from the failure mode least likely to be noticed.
-    """
-    if not path:
-        return False
-    try:
-        os.stat(path)
-    except OSError:
-        return False
-    return True
-
-
 def _read_store_file(path):
     """The parsed store at *path*. Empty on any trouble at all; never raises.
 
@@ -1194,20 +1157,16 @@ def _read_store_file(path):
 def read_session_store(hook_input=None):
     """The whole posture store — ``{session_key: {target: "sandbox"}}``.
 
-    The new path when it EXISTS (:func:`store_path`), the legacy one otherwise
-    (:func:`legacy_store_path`) — existence alone, exactly as the canonical
-    reader chooses between them. Missing, unresolvable, unreadable, undecodable
-    or corrupt all arrive as an EMPTY store: for a reader, nothing has been
-    narrowed, so the deployment ceiling stays in charge. Never raises.
+    Read from :func:`store_path`, the one location the store has. Missing,
+    unresolvable, unreadable, undecodable or corrupt all arrive as an EMPTY
+    store: for a reader, nothing has been narrowed, so the deployment ceiling
+    stays in charge. Never raises.
 
     Re-read on every call. The canonical reader caches against the file's
     ``(st_mtime_ns, st_size, st_ino)`` because it lives in a long-running
     process; a hook is a fresh process per tool call.
     """
-    path = store_path(hook_input)
-    if _store_exists(path):
-        return _read_store_file(path)
-    return _read_store_file(legacy_store_path(hook_input))
+    return _read_store_file(store_path(hook_input))
 
 
 def session_key():

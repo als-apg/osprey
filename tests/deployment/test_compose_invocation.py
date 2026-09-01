@@ -750,7 +750,6 @@ def _podman_web_host(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
         "build_auth_sidecar_image",
         "verify_persona_renders",
         "_reconcile_web_stack_recreates",
-        "reload_nginx_config",
         "enable_linger",
         "seed_user_containers",
         "run_verify_script",

@@ -431,7 +431,6 @@ def _stub_web_stack(monkeypatch, tmp_path):
     monkeypatch.setattr(provision, "build_persona_images", lambda *a, **kw: None)
     monkeypatch.setattr(provision, "build_auth_sidecar_image", lambda *a, **kw: None)
     monkeypatch.setattr(provision, "_reconcile_web_stack_recreates", lambda *a, **kw: None)
-    monkeypatch.setattr(provision, "reload_nginx_config", lambda *a, **kw: None)
     monkeypatch.setattr(provision, "enable_linger", lambda *a, **kw: None)
     monkeypatch.setattr(provision, "seed_user_containers", lambda *a, **kw: None)
     monkeypatch.setattr(provision, "run_verify_script", lambda *a, **kw: None)
@@ -466,6 +465,7 @@ def test_dev_mode_up_captures_every_compose_invocation(monkeypatch, tmp_path, re
         "compose-web-rm",
         "compose-web-pull",
         "compose-web-up",
+        "compose-force-recreate",
     ]
     assert all(call["repo_root"] == tmp_path for call in recorder.calls)
     assert recorder.by_spool("compose-services-rm")["cmd"][-2:] == ["rm", "-f"]
@@ -474,6 +474,14 @@ def test_dev_mode_up_captures_every_compose_invocation(monkeypatch, tmp_path, re
     assert recorder.by_spool("compose-web-rm")["cmd"][-2:] == ["rm", "-f"]
     assert recorder.by_spool("compose-web-pull")["cmd"][-1] == "pull"
     assert recorder.by_spool("compose-web-up")["cmd"][-2:] == ["up", "-d"]
+    # The build stage regenerated build/'s inodes, so the deploy rebinds
+    # nginx's file mounts with a service-scoped recreate (see provision.py).
+    assert recorder.by_spool("compose-force-recreate")["cmd"][-4:] == [
+        "up",
+        "-d",
+        "--force-recreate",
+        "nginx",
+    ]
 
 
 def test_stale_container_preflights_stay_non_fatal(monkeypatch, tmp_path, reporter):
@@ -491,6 +499,7 @@ def test_stale_container_preflights_stay_non_fatal(monkeypatch, tmp_path, report
         "compose-web-rm": False,
         "compose-web-pull": True,
         "compose-web-up": True,
+        "compose-force-recreate": True,
     }
 
 
@@ -506,6 +515,7 @@ def test_up_reports_a_step_for_each_stack(monkeypatch, tmp_path, reporter):
         "cleared stale web-terminal containers",
         "pulled web-terminal images",
         "web-terminal stack started",
+        "recreated nginx",
     ]
 
 

@@ -37,8 +37,11 @@ function mountFixture() {
       <button class="settings-mode-btn" data-mode="raw"></button>
       <button class="settings-mode-btn" data-mode="form"></button>
       <button class="settings-apply-btn"></button>
-      <button class="settings-confirm-btn"></button>
-      <button class="settings-cancel-btn"></button>
+      <div class="settings-confirm-overlay">
+        <label class="settings-confirm-skip"><input type="checkbox" class="settings-confirm-skip-box"></label>
+        <button class="settings-confirm-btn"></button>
+        <button class="settings-cancel-btn"></button>
+      </div>
       <div class="settings-status"></div>
     </div>
     <div id="settings-form"></div>
@@ -95,6 +98,76 @@ describe('applySettings: raw mode PUT', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/config', expect.objectContaining({
       method: 'PUT',
     }));
+  });
+});
+
+/**
+ * The apply-button gate: dialog by default, waived by "don't ask again",
+ * re-shown (pre-ticked) by Shift. The waiver is recorded only when the
+ * operator confirms, under the persona-scoped key (bare here: single-user).
+ */
+describe('Apply Settings: the confirm and its waiver', () => {
+  const SKIP_KEY = 'osprey-settings-apply-skip-confirm';
+  const overlay = () => /** @type {HTMLElement} */ (document.querySelector('.settings-confirm-overlay'));
+  const applyBtn = () => /** @type {HTMLElement} */ (document.querySelector('.settings-apply-btn'));
+  const skipBox = () => /** @type {HTMLInputElement} */ (document.querySelector('.settings-confirm-skip-box'));
+
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  test('with no waiver, Apply shows the dialog and fetches nothing', () => {
+    const fetchMock = vi.fn(() => Promise.resolve(notOkResponse()));
+    vi.stubGlobal('fetch', fetchMock);
+
+    applyBtn().click();
+
+    expect(overlay().classList.contains('visible')).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('confirming with the box ticked records the waiver; the next Apply skips the dialog', async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(notOkResponse()));
+    vi.stubGlobal('fetch', fetchMock);
+    /** @type {HTMLElement} */ (
+      document.querySelector('.settings-mode-btn[data-mode="raw"]')
+    ).click();
+
+    applyBtn().click();
+    skipBox().click();
+    /** @type {HTMLElement} */ (document.querySelector('.settings-confirm-btn')).click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(localStorage.getItem(SKIP_KEY)).toBe('1');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    applyBtn().click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(overlay().classList.contains('visible')).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  test('Shift on Apply re-shows a waived dialog, pre-ticked, and unticking there undoes the waiver', async () => {
+    localStorage.setItem(SKIP_KEY, '1');
+    const fetchMock = vi.fn(() => Promise.resolve(notOkResponse()));
+    vi.stubGlobal('fetch', fetchMock);
+
+    applyBtn().dispatchEvent(new MouseEvent('click', { shiftKey: true, bubbles: true }));
+
+    expect(overlay().classList.contains('visible')).toBe(true);
+    expect(skipBox().checked).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    skipBox().click();
+    /** @type {HTMLElement} */ (document.querySelector('.settings-confirm-btn')).click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(localStorage.getItem(SKIP_KEY)).toBeNull();
   });
 });
 

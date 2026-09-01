@@ -448,6 +448,37 @@ def test_preflight_mints_no_credential_for_a_login_false_entry(monkeypatch, tmp_
     assert calls == [["alice", "bob"]]
 
 
+def test_preflight_mints_no_credential_for_a_shared_entry(monkeypatch, tmp_path):
+    """A roster entry with `access: any` is left out of the password mint: a
+    shared card holds no password of its own — verify checks the OPENER's
+    credential — so a hash under its name would be a credential nothing ever
+    checks, and a minted password printed for it would misdescribe how the
+    card is opened."""
+    calls: list[list[str]] = []
+    env_auth = tmp_path / AUTH_ENV_FILENAME
+
+    def _fake_credentials(usernames, project_root, **kwargs):
+        calls.append(list(usernames))
+        return _credentials_result(env_auth, users=usernames)
+
+    monkeypatch.setattr(provision, "ensure_auth_credentials", _fake_credentials)
+    monkeypatch.setattr(
+        provision, "ensure_auth_session_secrets", lambda root: _secrets_result(env_auth)
+    )
+
+    config = _auth_config(
+        "password",
+        users=[
+            "alice",
+            {"name": "ops", "index": 1, "access": "any"},
+            {"name": "bob", "index": 2},
+        ],
+    )
+    _run_preflight(monkeypatch, tmp_path, config)
+
+    assert calls == [["alice", "bob"]]
+
+
 # ---------------------------------------------------------------------------
 # preflight_web_terminals -- per-user terminal secrets. Provisioned for EVERY
 # deployment, outside the `auth.method: none` early return that governs the
@@ -926,7 +957,6 @@ def _stub_web_stack(monkeypatch, tmp_path):
     monkeypatch.setattr(provision, "build_persona_images", lambda *a, **kw: None)
     monkeypatch.setattr(provision, "build_auth_sidecar_image", lambda *a, **kw: None)
     monkeypatch.setattr(provision, "_reconcile_web_stack_recreates", lambda *a, **kw: None)
-    monkeypatch.setattr(provision, "reload_nginx_config", lambda *a, **kw: None)
     monkeypatch.setattr(provision, "enable_linger", lambda *a, **kw: None)
     monkeypatch.setattr(provision, "seed_user_containers", lambda *a, **kw: None)
     monkeypatch.setattr(provision, "run_verify_script", lambda *a, **kw: None)
@@ -944,6 +974,21 @@ def test_local_mode_web_stack_never_pulls_the_local_auth_image(monkeypatch, tmp_
 
     assert not any("pull" in cmd for cmd in recorded)
     assert any(cmd[-2:] == ["up", "-d"] for cmd in recorded)
+
+
+def test_deploy_up_force_recreates_nginx(monkeypatch, tmp_path):
+    """The build stage regenerates ``build/`` from scratch (rmtree + render),
+    so a running nginx's file bind mounts (nginx.conf, landing.html) point at
+    the PREVIOUS render's inodes. ``nginx -s reload`` re-reads the dead inode
+    (native Linux) or fails outright (Docker Desktop's VirtioFS unlinks it, so
+    the landing page 404s and the healthcheck flips unhealthy) — only a
+    recreate rebinds the mounts to the fresh files. Scoped to the nginx
+    service: the rest of the stack is `up -d`'s to reconcile."""
+    recorded = _stub_web_stack(monkeypatch, tmp_path)
+
+    provision.deploy_up_web_terminals(_sidecar_config("local"), [], False, {}, [])
+
+    assert any(cmd[-4:] == ["up", "-d", "--force-recreate", "nginx"] for cmd in recorded), recorded
 
 
 def test_registry_mode_web_stack_still_pulls(monkeypatch, tmp_path):

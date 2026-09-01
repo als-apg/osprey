@@ -182,8 +182,14 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     "control-assistant": "sha256:c8d4f280789d363bc418002b27e229c7fc80cedf6bac469cae42ace2318d2098",
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     # Moved again with the base: permissive `virtual_accelerator` limits block.
+    # Moved alone when the admin tier gained the EVENTS/BLUESKY `web_panels`
+    # declarations the readwrite tier already carried: the tier contract now
+    # reads "a full operator desk plus deployment editing", not "an editing
+    # surface without the operator tabs". Deploy-visible — a rebuilt admin
+    # render grows the two tabs — so the staleness advisory firing on
+    # already-deployed admin renders is the correct signal.
     "control-assistant-admin": (
-        "sha256:3f111428abad719585dfa50fc86f5f93fc1dd776ff648f1d99e16cdb8a10b84e"
+        "sha256:49d4e563674758724bb6244690499e76f6426305dd372708cd2881fc55aaf691"
     ),
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     # Moved again with the base: permissive `virtual_accelerator` limits block.

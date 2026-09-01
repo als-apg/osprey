@@ -538,9 +538,8 @@ class LimitsValidator:
                     # allow_unlisted_channels - silently removed its limits.
                     raise ValueError(f"Invalid config for channel '{channel_name}': {e}") from e
 
-            logger.info(
-                f"Successfully loaded {len(limits_db)} channel configurations from {db_path}"
-            )
+            logger.info(f"Successfully loaded {len(limits_db)} channel configurations")
+            logger.debug(f"Channel limits database: {db_path}")
             return limits_db, raw_db
 
         except json.JSONDecodeError as e:

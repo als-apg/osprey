@@ -109,6 +109,19 @@ class TestValidateNonInContext:
         assert data["total"] == 3
 
 
+class TestChannelsNonInContext:
+    @pytest.mark.parametrize("paradigm", ["hierarchical", "middle_layer"])
+    def test_channels_404s_for_a_paradigm_that_does_not_serve_them(self, client, paradigm):
+        """Only the in-context database and the graph roster answer this route.
+
+        The graph has its own branch ahead of this gate; the two tree-shaped
+        paradigms are explored level by level and have no flat channel list.
+        """
+        _set_pipeline(client, paradigm)
+
+        assert client.get("/api/channels").status_code == 404
+
+
 class TestHierarchicalExplore:
     def test_explore_options_success(self, client):
         _set_pipeline(client, "hierarchical")
@@ -484,13 +497,28 @@ class TestGraphParadigmRoutes:
         assert body["error_type"] == "service_unavailable"
         assert "graphdb" in " ".join(body["suggestions"])
 
-    def test_validate_501_naming_the_graph_tools(self, client):
+    @pytest.mark.parametrize(
+        ("method", "path", "body"),
+        [
+            ("post", "/api/validate", {"channels": ["SR:BPM:01:X"]}),
+            ("get", "/api/channels", None),
+        ],
+    )
+    def test_enumeration_503s_when_the_app_holds_no_roster(self, client, method, path, body):
+        """Membership and enumeration answer from the roster, or say they cannot.
+
+        An app started without one keeps no roster at all — the state
+        ``install_graph_paradigm`` leaves behind — and both routes name the key
+        that would give it one rather than reporting an empty facility.
+        """
         install_graph_paradigm(client)
-        resp = client.post("/api/validate", json={"channels": ["SR:BPM:01:X"]})
-        assert resp.status_code == 501
-        detail = resp.json()["detail"]
-        assert "read_cypher" in detail
-        assert "get_schema" in detail
+        kwargs = {"json": body} if body is not None else {}
+
+        resp = getattr(client, method)(path, **kwargs)
+
+        assert resp.status_code == 503
+        assert resp.json()["error_type"] == "service_unavailable"
+        assert "services.graphdb.ttl_path" in " ".join(resp.json()["suggestions"])
 
     def test_switch_pipeline_400_names_the_paradigm_and_read_cypher(self, client):
         install_graph_paradigm(client)
@@ -506,11 +534,12 @@ class TestGraphParadigmRoutes:
     @pytest.mark.parametrize(
         ("method", "path", "body"),
         [
-            # One route per pipeline gate: hierarchical, middle_layer,
-            # in_context, plus the two write gates that share those checks.
+            # One route per pipeline gate: hierarchical, middle_layer, plus the
+            # two write gates that share those checks. ``/api/channels`` is not
+            # among them any more: the graph paradigm enumerates from the
+            # roster, and its gate is tested above.
             ("get", "/api/explore/options?level=system", None),
             ("get", "/api/explore/systems", None),
-            ("get", "/api/channels", None),
             ("post", "/api/tree/node", {"level": "system", "name": "SR"}),
             ("post", "/api/structure/family", {"system": "SR", "family": "BPM"}),
         ],

@@ -1,0 +1,1 @@
+MCP artifact tools no longer get a 401 from the artifact gallery they launched themselves: the tool now presents the panel token this process already holds when no carrier was handed in. This also fixes `osprey chat` run with no companion server.

@@ -38,6 +38,7 @@ from osprey.deployment.web_terminals.personas import (
     deployment_wide_privileged_exposure_problems,
     effective_image_source,
     effective_persona,
+    entry_is_shared,
     entry_requires_login,
     env_var_suffix_collisions,
     persona_privileges,
@@ -47,6 +48,7 @@ from osprey.deployment.web_terminals.personas import (
     rendered_persona_configs,
     resolve_image_tag,
     resolve_personas,
+    shared_card_privileged_problems,
     unauthenticated_privileged_terminal_problems,
 )
 from osprey.deployment.web_terminals.ports import (
@@ -171,7 +173,9 @@ def lint_web_terminals(
     findings.extend(_check_reserved_audit_identities(users))
     findings.extend(_check_display_name(users))
     findings.extend(_check_user_theme(users))
+    findings.extend(_check_user_tour(users))
     findings.extend(_check_user_login(web_terminals, users))
+    findings.extend(_check_user_access(web_terminals, users))
     findings.extend(_check_invalid_index(users))
     findings.extend(_check_duplicate_index(users))
     findings.extend(_check_bare_list_port_drift_risk(users))
@@ -248,6 +252,7 @@ def lint_web_terminals(
     findings.extend(_check_auth_transport(root, web_terminals))
     findings.extend(_check_auth_oidc(root, web_terminals))
     findings.extend(_check_auth_credential_collisions(web_terminals, users))
+    findings.extend(_check_shared_card_duplicate_subject(web_terminals, users))
     findings.extend(_check_authorization(web_terminals))
     findings.extend(_check_claims_without_oidc(web_terminals))
     findings.extend(_check_role_charset(web_terminals))
@@ -518,6 +523,38 @@ def _check_user_theme(users: list[Any]) -> list[Finding]:
     return findings
 
 
+def _check_user_tour(users: list[Any]) -> list[Finding]:
+    """An object-form entry's optional ``tour`` (the per-user onboarding-tour
+    invite policy emitted as ``OSPREY_WEB_TOUR``) must be a string when present.
+
+    Same shape and rationale as :func:`_check_user_theme`: only the *type* is
+    checked. The policy vocabulary (``once``/``always``/``never``) is owned by
+    the web terminal, which warns and falls back to its default on an unknown
+    value at startup — failing a build over a word this module does not own
+    would be worse than that warning.
+    """
+    findings: list[Finding] = []
+    for user in users:
+        if not isinstance(user, dict) or "tour" not in user:
+            continue
+        tour = user.get("tour")
+        if isinstance(tour, str):
+            continue
+        name = user.get("name", user)
+        findings.append(
+            Finding(
+                severity="error",
+                code="web_terminals.invalid_user_tour",
+                message=(
+                    f"modules.web_terminals.users entry {name!r} has a non-string "
+                    f"tour {tour!r}; tour must be a string "
+                    f"('once', 'always' or 'never')"
+                ),
+            )
+        )
+    return findings
+
+
 def _check_user_login(web_terminals: dict[str, Any], users: list[Any]) -> list[Finding]:
     """An object-form entry's optional ``login`` must be a boolean, and only does
     anything where the perimeter puts something in front of that entry.
@@ -574,6 +611,95 @@ def _check_user_login(web_terminals: dict[str, Any], users: list[Any]) -> list[F
                     "exempt from — no login wall, and no injected operator secret; "
                     "the key changes nothing until auth.method is none, password "
                     "or oidc"
+                ),
+            )
+        )
+    return findings
+
+
+def _check_user_access(web_terminals: dict[str, Any], users: list[Any]) -> list[Finding]:
+    """An object-form entry's optional ``access`` must be the literal ``own`` or
+    ``any``, and ``any`` only does anything where the sidecar stands a wall.
+
+    Two findings, for the two ways the key can lie:
+
+    * Anything but exactly the string ``"own"`` or ``"any"`` is an ERROR. The
+      normalizer keeps only the literal ``"any"`` and drops everything else —
+      deliberately fail-closed to ``own`` — so ``access: ANY`` (or ``true``, or
+      a number) never widens an entry's reach, but the author who wrote it
+      believes the opposite of what deploys.
+    * ``access: any`` is a WARN when it cannot change anything: either the
+      deployment stands no wall at all (``sidecar_active`` is false — under
+      ``token`` and ``none`` alike no login gates the roster, so every entry is
+      as reachable as the key promises to make this one), or the same entry
+      also carries ``login: false`` (nginx proxies it with no ``auth_request``,
+      so there is no authenticated identity for ``access`` to widen). One code
+      for both; the message names the cause.
+
+    ``access: own`` explicit is silent — a valid spelling of the default, even
+    though the normalizer drops it.
+    """
+    findings: list[Finding] = []
+    # `sidecar_active`, not `inject_secret`: `access` reads the identity the
+    # auth sidecar established, so it is inert under `none` too — where
+    # `login: false` still means something (it withholds the injected secret).
+    context = _auth_context(web_terminals)
+    inert = context is None or not context["sidecar_active"]
+
+    any_declared = False
+    for user in users:
+        if not isinstance(user, dict) or "access" not in user:
+            continue
+        access = user.get("access")
+        if isinstance(access, str) and access == "own":
+            continue
+        if isinstance(access, str) and access == "any":
+            any_declared = True
+            # Only where the wall stands: with no sidecar the deployment-level
+            # warning below already covers this entry, and reporting both
+            # causes for one key would double-count a single inertness.
+            if not inert and user.get("login") is False:
+                name = user.get("name", user)
+                findings.append(
+                    Finding(
+                        severity="warn",
+                        code="web_terminals.user_access_inert",
+                        message=(
+                            f"modules.web_terminals.users entry {name!r} sets "
+                            f"access: any together with login: false; nginx proxies "
+                            f"a login-exempt entry with no auth_request, so there is "
+                            f"no authenticated identity for access to widen — the "
+                            f"key claims a distinction this entry does not have"
+                        ),
+                    )
+                )
+            continue
+        name = user.get("name", user)
+        findings.append(
+            Finding(
+                severity="error",
+                code="web_terminals.invalid_user_access",
+                message=(
+                    f"modules.web_terminals.users entry {name!r} has an invalid "
+                    f"access {access!r}; access must be the string 'own' (default: "
+                    f"this entry reaches only its own terminal) or 'any' (may reach "
+                    f"every roster entry's terminal). Anything else deploys as 'own'"
+                ),
+            )
+        )
+
+    if any_declared and inert:
+        method = "unset" if context is None else repr(context["auth_method"])
+        findings.append(
+            Finding(
+                severity="warn",
+                code="web_terminals.user_access_inert",
+                message=(
+                    "a modules.web_terminals.users entry sets access: any, but "
+                    f"auth.method is {method} so no login wall stands between "
+                    "entries — every terminal is already as reachable as the key "
+                    "promises to make this one; the key changes nothing until "
+                    "auth.method is password or oidc"
                 ),
             )
         )
@@ -1608,6 +1734,19 @@ def _check_privileged_persona_exposure(
                 severity="error",
                 code="web_terminals.unauthenticated_privileged_terminal",
                 message=problem + (_STALE_RENDER_REMEDY if rendered_project else ""),
+            )
+        )
+
+    # A shared card is judged on the same ABSOLUTE answer, and only reported
+    # where a wall stands: with no sidecar there is no authenticated identity
+    # for `access: any` to widen (`user_access_inert` says so), and the
+    # deployment-wide arm above already names every privileged entry once.
+    for problem in shared_card_privileged_problems(resolved, absolute):
+        findings.append(
+            Finding(
+                severity="error",
+                code="web_terminals.shared_card_privileged",
+                message=problem,
             )
         )
     return findings
@@ -3176,6 +3315,63 @@ def _check_auth_credential_collisions(
             ),
         )
         for suffix, colliding in env_var_suffix_collisions(names).items()
+    ]
+
+
+def _check_shared_card_duplicate_subject(
+    web_terminals: dict[str, Any], users: list[Any]
+) -> list[Finding]:
+    """OIDC with a shared card on the roster: one subject may not map to two entries.
+
+    Without a shared card a duplicated ``oidc_subject`` is legitimate — one
+    person holding two cards, where every login arrives through the card that
+    was clicked and the sidecar only confirms the asserted identity matches
+    that one entry. A shared card changes the question: the sidecar must
+    resolve the identity to a single roster entry on its own to know who
+    opened it, and a subject carried by two entries has no one answer. The
+    sidecar refuses such a login outright (``ambiguous_identity`` in the audit
+    log) rather than minting a session whose roster identity nobody decided
+    on; this is the same refusal at scaffold time, where dropping one
+    ``oidc_subject:`` is still cheap.
+
+    Scoped to ``method: oidc`` — no other method reads the subject mapping —
+    and grouped like :func:`_check_auth_credential_collisions`: exact strings
+    (stripped of surrounding whitespace) across the raw roster, one finding
+    per colliding subject. The message names the entries, never the subject —
+    same reasoning as the ``$`` scan above: echoing a value invites pasting
+    it, and the names are what the operator edits.
+    """
+    context = _auth_context(web_terminals)
+    if context is None or context["auth_method"] != "oidc":
+        return []
+    # Only the literal `access: "any"` survives normalization, so reading it
+    # off the raw entry through the shared predicate cannot disagree with
+    # what deploys.
+    if not any(isinstance(user, dict) and entry_is_shared(user) for user in users):
+        return []
+    by_subject: dict[str, list[str]] = {}
+    for user in users:
+        if not isinstance(user, dict):
+            continue
+        name = _user_name(user)
+        subject = user.get("oidc_subject")
+        if name is None or not isinstance(subject, str) or not subject.strip():
+            continue
+        by_subject.setdefault(subject.strip(), []).append(name)
+    return [
+        Finding(
+            severity="error",
+            code="web_terminals.shared_card_duplicate_subject",
+            message=(
+                f"modules.web_terminals.users entries {colliding} all carry the same "
+                "oidc_subject. With a shared card on the roster the auth sidecar must "
+                "resolve every login to a single roster entry, so a login by that "
+                "identity is ambiguous and refused (ambiguous_identity). A person "
+                "holding two cards must carry oidc_subject: on one of them only"
+            ),
+        )
+        for colliding in by_subject.values()
+        if len(colliding) > 1
     ]
 
 

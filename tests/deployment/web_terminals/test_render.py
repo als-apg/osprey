@@ -3459,6 +3459,55 @@ def test_auth_sidecar_service_omits_the_oidc_claim_unless_the_facility_names_one
     assert not [line for line in auth_env if line.startswith("OSPREY_AUTH_OIDC_CLAIM")]
 
 
+@pytest.mark.parametrize("method", ["password", "oidc"])
+def test_auth_sidecar_service_marks_each_shared_card_from_the_roster(method: str) -> None:
+    """A roster entry with `access: any` renders exactly one
+    `OSPREY_AUTH_ROSTER_ACCESS_<SUFFIX>=any` line on the sidecar — under BOTH
+    sidecar methods, because both mint sessions that must know which cards are
+    open to the roster. Owner-only entries (the default) emit no line at all,
+    rather than an explicit owner-only value the sidecar would have to parse.
+
+    The suffix is whatever env_var_suffix() says it is — asserted for a
+    hyphenated name, which is where a hand-rolled second mapping would drift.
+    """
+    # Arrange
+    config = _auth_config(
+        ["alice", {"name": "ops-review", "index": 1, "access": "any"}, "bob"],
+        method=method,
+    )
+
+    # Act
+    compose = _compose(config)
+
+    # Assert — the shared entry's line carries the literal sharing value, and no
+    # owner-only entry gets a line of its own.
+    suffix = env_var_suffix("ops-review")
+    assert _service_env(compose, "auth")[f"OSPREY_AUTH_ROSTER_ACCESS_{suffix}"] == "any"
+    access_names = [
+        name
+        for name in _env_names(compose["services"]["auth"])
+        if name.startswith("OSPREY_AUTH_ROSTER_ACCESS_")
+    ]
+    assert access_names == [f"OSPREY_AUTH_ROSTER_ACCESS_{suffix}"]
+
+
+@pytest.mark.parametrize("method", ["token", "none"])
+def test_no_roster_access_line_renders_for_a_method_that_stands_no_wall(method: str) -> None:
+    """`token` and `none` render no sidecar, and the shared-card marker rides only
+    on the sidecar — so a shared roster under a wall-less posture leaves no
+    OSPREY_AUTH_ROSTER_ACCESS reference anywhere in the overlay. Nothing else
+    could read one: with no login wall there is no session to open a card with."""
+    # Arrange
+    config = _config(["alice", {"name": "ops-review", "index": 1, "access": "any"}])
+    config["modules"]["web_terminals"]["auth"] = {"method": method}
+
+    # Act
+    rendered = render_web_terminals(config)["docker-compose.web.yml"]
+
+    # Assert
+    assert "OSPREY_AUTH_ROSTER_ACCESS" not in rendered
+
+
 def test_auth_sidecar_service_names_a_configured_non_default_oidc_claim() -> None:
     """An IdP that carries the mappable identity somewhere other than `sub` (a
     facility SSO keyed on `email` or `preferred_username`) is configured by name, and

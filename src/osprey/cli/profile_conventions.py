@@ -469,6 +469,14 @@ PROTECTED_CONFIG_KEYS: dict[str, tuple[str, ...]] = {
         "file_paths.*",
         "artifacts.*",
         "services.*.devices_file",
+        # The roster a plan may drive is enumerated from these two: the
+        # knowledge graph a deployment builds against, or the channel-finder
+        # pipeline database that stands in for it. Repointing either swaps
+        # the corpus the bluesky device namespace is derived from. Trailing
+        # ``*`` for the same reason as the scalar keys above: a block planted
+        # where the path goes must not slip past the gate as a child key.
+        "services.graphdb.ttl_path.*",
+        "channel_finder.pipelines.*.database.path.*",
         *RUNTIME_WRITE_PATH_KEYS,
     ),
     ".mcp.json": (

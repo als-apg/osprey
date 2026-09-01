@@ -89,7 +89,6 @@ REPO_PATHS = (str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-conne
 #: because writing setpoints into the directory's shared session container would
 #: move a lattice other modules read.
 VA_IMAGE = os.environ.get("OSPREY_VA_E2E_IMAGE", "osprey-va-full:latest")
-VA_DATA_DIR = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data/simulation"
 VA_CONTAINER_PREFIX = "osprey-va-e2e-bench-live"
 
 #: Floor for this module's own test count -- a guard against a refactor that
@@ -284,7 +283,10 @@ def va_endpoint() -> Iterator[int]:
         "-p",
         f"127.0.0.1:{port}:{port}/tcp",
         "-v",
-        f"{VA_DATA_DIR}:/data/simulation:ro",
+        f"{e2e_conftest.demo_data_dir()}:/data/simulation:ro",
+        # The namespace, named: the IOC refuses to boot without one rather
+        # than picking the framework's demo channels on its own.
+        *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
         VA_IMAGE,
     )
     if started.returncode != 0:

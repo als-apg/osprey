@@ -139,6 +139,20 @@ def restore_reporter():
 
 
 @pytest.fixture(autouse=True)
+def _nothing_is_unhealthy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Answer the closing line's health read without consulting the host.
+
+    The line asks the runtime for this repo's unhealthy containers before it
+    says everything is running. Stubbed on the lifecycle module, where the card
+    imports it at call time; ``test_summary_card_health.py`` is where the read
+    itself is exercised.
+    """
+    monkeypatch.setattr(
+        "osprey.deployment.container_lifecycle.unhealthy_containers", lambda repo_root: []
+    )
+
+
+@pytest.fixture(autouse=True)
 def empty_ledger():
     """Start and leave every test with no collected rows.
 
@@ -882,6 +896,57 @@ class TestTokenLoginClosingLine:
         assert "kiosk needs its own login URL" in printed
         # ...and only that entry: alice and bob still have a login page.
         assert "alice" not in printed.split("no login page")[1]
+
+
+class TestSharedCardClosingLine:
+    """A shared card is in neither the sign-in pairs nor the login-url list.
+
+    It holds no credential of its own — verify checks the OPENER's credential —
+    so without its own line the card would present a roster entry with no way
+    in at all. The line names the way in: another roster user's name and
+    credential. Names only, never URLs, like everything else on this card.
+    """
+
+    def test_a_shared_card_is_told_how_it_is_opened(
+        self, repo_with_logins: Path, recorder: Recorded
+    ) -> None:
+        """One shared entry gets the singular phrasing: `is a shared card`."""
+        config = repo_with_logins / "build" / "config.yml"
+        config.write_text(
+            config.read_text() + "      - name: ops\n        index: 2\n        access: any\n"
+        )
+
+        print_summary_card(repo_with_logins, "running")
+
+        printed = "\n".join(recorder.lines)
+        assert "ops is a shared card with no login of its own" in printed
+        assert "another roster user's name and credential" in printed
+        # ...and it reached neither of the other two legs of the split.
+        assert "ops /" not in printed
+        assert "login-url ops" not in printed
+
+    def test_two_shared_cards_get_the_plural_phrasing(
+        self, repo_with_logins: Path, recorder: Recorded
+    ) -> None:
+        config = repo_with_logins / "build" / "config.yml"
+        config.write_text(
+            config.read_text()
+            + "      - name: ops\n        index: 2\n        access: any\n"
+            + "      - name: crew\n        index: 3\n        access: any\n"
+        )
+
+        print_summary_card(repo_with_logins, "running")
+
+        printed = "\n".join(recorder.lines)
+        assert "ops, crew are shared cards with no login of their own" in printed
+
+    def test_a_roster_without_shared_cards_gets_no_such_line(
+        self, repo_with_logins: Path, recorder: Recorded
+    ) -> None:
+        """Every entry there has its own way in, already named above it."""
+        print_summary_card(repo_with_logins, "running")
+
+        assert "shared card" not in "\n".join(recorder.lines)
 
 
 def test_the_card_flags_dangerously_allow_bash(repo: Path):

@@ -280,6 +280,129 @@ def test_real_bridge_devices_are_collected_like_the_stand_ins() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Worker half: the pre-flight a session plan gets too
+# ---------------------------------------------------------------------------
+#
+# A session plan drives the machine through the same connector-mediated devices
+# as a catalog plan, so it goes through the same gate — otherwise the session
+# tier would be the quiet way past a refusal the catalog path enforces. These
+# run a real ``RunEngine``, because the probe rides on a ``wait_for`` message
+# the RunEngine has to answer for the gate to exist at all.
+
+_SESSION_SETPOINT = "SR:MAG:HCM:07:CUR:SP"
+_SESSION_READBACK = "SR:MAG:HCM:07:CUR:RB"
+
+MOVING_PLAN_SOURCE = """from bluesky.utils import Msg
+from pydantic import BaseModel
+
+from osprey.services.bluesky_bridge.plan_fields import MovableChannel
+
+
+class PARAMS(BaseModel):
+    channel: MovableChannel
+
+
+def build_plan(devices, params):
+    movable = devices[params.channel]
+
+    def _gen():
+        yield Msg("open_run", None)
+        yield Msg("set", movable, 0.0, group="move")
+        yield Msg("wait", None, group="move")
+        yield Msg("close_run", None)
+
+    return _gen()
+"""
+
+
+class SessionProbeConnector:
+    """The OSPREY connector a session plan's devices are mediated by.
+
+    Minimal by design: the four coroutines a ``ConnectorSettable`` and the
+    pre-flight actually call. Addresses in ``dead`` never answer the probe.
+    """
+
+    def __init__(self, dead: Any = ()) -> None:
+        self.dead = set(dead)
+        self.probed: list[str] = []
+        self.writes: list[tuple[str, Any]] = []
+
+    async def validate_channel(self, address: str) -> bool:
+        self.probed.append(address)
+        return address not in self.dead
+
+    async def write_channel_checked(self, address: str, value: Any, **_: Any) -> Any:
+        self.writes.append((address, value))
+        return type("Result", (), {"outcome": "confirmed", "observed_value": value})()
+
+    async def read_channel(self, address: str) -> Any:
+        return type("Reading", (), {"value": 0.0})()
+
+
+def session_device_namespace(connector: SessionProbeConnector) -> dict[str, Any]:
+    """A worker namespace holding one real connector-mediated settable."""
+    from osprey.services.bluesky_bridge.devices.connector import ConnectorSettable
+
+    device = ConnectorSettable(connector, _SESSION_SETPOINT, _SESSION_READBACK, name="corrector")
+    return worker_namespace(corrector=device)
+
+
+def test_a_session_run_probes_its_declared_channels_then_moves() -> None:
+    from bluesky import RunEngine
+
+    connector = SessionProbeConnector()
+    namespace = session_device_namespace(connector)
+    run_upload_script(namespace, "moving_scan", MOVING_PLAN_SOURCE)
+
+    RunEngine()(namespace["moving_scan"](channel="corrector"))
+
+    assert sorted(connector.probed) == sorted([_SESSION_SETPOINT, _SESSION_READBACK])
+    assert connector.writes == [(_SESSION_SETPOINT, 0.0)]
+
+
+def test_a_session_run_with_a_dead_channel_is_refused_before_it_moves() -> None:
+    """The same refusal a catalog plan gets, naming address, bound and machine."""
+    from bluesky import RunEngine
+
+    from osprey.services.bluesky_bridge import queue_backend
+
+    connector = SessionProbeConnector(dead=[_SESSION_READBACK])
+    namespace = session_device_namespace(connector)
+    run_upload_script(namespace, "moving_scan", MOVING_PLAN_SOURCE)
+
+    with pytest.raises(ConnectionError) as excinfo:
+        RunEngine()(namespace["moving_scan"](channel="corrector"))
+
+    lane, target = queue_backend.resolve_lane_identity()
+    message = str(excinfo.value)
+    assert f"lane {lane} (target {target})" in message
+    assert f"1 declared channel did not respond within 5 s: {_SESSION_READBACK}" in message
+    assert connector.writes == []
+
+
+def test_a_session_plans_missing_device_message_is_bounded() -> None:
+    """A roster of thousands must not blow this message up with it.
+
+    It is interpolated into a ``KeyError`` the worker ships back over 0MQ into
+    an operator's plan-submission failure, exactly like the catalog wrapper's.
+    """
+    from osprey.services.bluesky_bridge import preflight
+
+    source = "def build_plan(devices, params):\n    return iter([('move', devices['motor'])])\n"
+    devices = {f"bpm_{index:04d}": FakeDevice(f"bpm_{index:04d}") for index in range(500)}
+    namespace = worker_namespace(**devices)
+    run_upload_script(namespace, "sample_scan", source)
+
+    with pytest.raises(KeyError) as excinfo:
+        list(namespace["sample_scan"]())
+
+    message = str(excinfo.value)
+    assert len(message) < 2000
+    assert f"+{500 - preflight.DEVICE_NAME_LIMIT} more" in message
+    assert "GET /devices" in message
+
+
+# ---------------------------------------------------------------------------
 # Bridge half: the scripted backend and its fixtures
 # ---------------------------------------------------------------------------
 

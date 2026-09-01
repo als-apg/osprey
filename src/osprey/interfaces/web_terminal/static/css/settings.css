@@ -386,6 +386,27 @@
   margin-bottom: var(--space-4);
 }
 
+/* The "don't ask again" waiver — quiet secondary text beside the decision.
+   Per persona (scopedStorageKey); Shift-clicking Apply re-shows the dialog,
+   which is also where the waiver is unticked. */
+.settings-confirm-skip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-4);
+  cursor: pointer;
+  user-select: none;
+}
+
+.settings-confirm-skip input {
+  accent-color: var(--color-accent);
+  margin: 0;
+}
+
 .settings-confirm-actions {
   display: flex;
   gap: var(--space-2);

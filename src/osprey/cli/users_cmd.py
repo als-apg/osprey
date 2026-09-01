@@ -856,7 +856,9 @@ def login_url(user: str, repo: Path | None) -> None:
 def passwd(user: str, repo: Path | None) -> None:
     """Change one web-terminal user's login password.
 
-    Prompts for the new password and ends that user's sessions.
+    Prompts for the new password and ends that user's sessions. A shared
+    (`access: any`) card has no password of its own — rotate the opener's
+    instead.
     """
     with _users_session(repo) as session:
         from osprey.deployment.web_terminals.lifecycle import rotate_user_password

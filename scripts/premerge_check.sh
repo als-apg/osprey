@@ -1,17 +1,45 @@
 #!/bin/bash
 set -eo pipefail
-BASE="${1:-main}"
+# Usage: premerge_check.sh [BASE] [--worktree]
+#
+# The diff gates below read $RANGE. By default that is `$BASE...HEAD`: the
+# COMMITTED state of the branch, which is what the PR will carry. Run before
+# committing, that judges an empty or stale diff — a vacuous pass, or a blocker
+# on content the uncommitted remainder already removed (#821). `--worktree`
+# diffs the merge base against the working tree instead (committed + staged +
+# unstaged together); the changelog gate always judges committed state.
+BASE="main"
+WORKTREE=0
+for arg in "$@"; do
+  case "$arg" in
+    --worktree) WORKTREE=1 ;;
+    *) BASE="$arg" ;;
+  esac
+done
+if [ "$WORKTREE" -eq 1 ]; then
+  RANGE="$(git merge-base "$BASE" HEAD)"
+else
+  RANGE="$BASE...HEAD"
+fi
 ERRORS=0
 WARNINGS=0
 
 echo "🔍 Pre-merge scan against $BASE"
 echo "========================================"
+uncommitted=$(git status --porcelain --untracked-files=no | wc -l | xargs)
+if [ "$uncommitted" -gt 0 ]; then
+  if [ "$WORKTREE" -eq 1 ]; then
+    echo "ℹ $uncommitted files uncommitted — --worktree: gates judge the working tree"
+  else
+    echo "⚠ $uncommitted files uncommitted — gates below judge COMMITTED state only (pass --worktree to include them)"
+  fi
+fi
 
 # BLOCKER checks
 echo -e "\n=== BLOCKERS ==="
 
 # Debug code (exclude __main__ blocks which are legitimate)
-debug_in_src=$(git diff $BASE...HEAD -- 'src/*.py' | grep -E "^\+.*(print\(|pdb\.|breakpoint\()" | grep -v "if __name__" || true)
+debug_in_src=$(git diff $RANGE -- 'src/*.py' | grep -E "^\+.*(print\(|pdb\.|breakpoint\()" | grep -v "if __name__" || true)
 if [ -n "$debug_in_src" ]; then
   echo "✗ Debug code found in src/"
   echo "$debug_in_src" | head -3
@@ -21,7 +49,7 @@ else
 fi
 
 # Commented code (more comprehensive patterns, exclude doc comments)
-commented=$(git diff $BASE...HEAD | grep -E "^\+.*# *(def |class |import |return |if |for |while )" | grep -v "^\+.*#.*:" || true)
+commented=$(git diff $RANGE | grep -E "^\+.*# *(def |class |import |return |if |for |while )" | grep -v "^\+.*#.*:" || true)
 if [ -n "$commented" ]; then
   echo "✗ Possible commented code found"
   echo "$commented" | head -3
@@ -31,7 +59,7 @@ else
 fi
 
 # Hardcoded secrets (fixed pipe - now correctly filters out getenv/environ)
-secrets=$(git diff $BASE...HEAD | grep -iE "^\+.*(password|api_key|secret|token).*=.*[\"'][^\"']*[\"']" | grep -v -E "(getenv|environ\[)" || true)
+secrets=$(git diff $RANGE | grep -iE "^\+.*(password|api_key|secret|token).*=.*[\"'][^\"']*[\"']" | grep -v -E "(getenv|environ\[)" || true)
 if [ -n "$secrets" ]; then
   echo "✗ Possible hardcoded secrets"
   echo "$secrets" | head -3
@@ -69,8 +97,8 @@ if uv run python scripts/changelog_fragments.py check --base "$BASE"; then :; el
 # The `|| true` is inside the group so a no-match grep (exit 1) can't abort the
 # substitution under `set -eo pipefail`; `xargs` strips the padding BSD `wc -l`
 # emits, leaving a bare integer for the comparisons below.
-new_funcs=$({ git diff $BASE...HEAD | grep -E "^\+def [a-z_]" | grep -v "^\+    " || true; } | wc -l | xargs)
-typed_funcs=$({ git diff $BASE...HEAD | grep -E "^\+def [a-z_][^(]*\([^)]*\) *->" | grep -v "^\+    " || true; } | wc -l | xargs)
+new_funcs=$({ git diff $RANGE | grep -E "^\+def [a-z_]" | grep -v "^\+    " || true; } | wc -l | xargs)
+typed_funcs=$({ git diff $RANGE | grep -E "^\+def [a-z_][^(]*\([^)]*\) *->" | grep -v "^\+    " || true; } | wc -l | xargs)
 if [ "$new_funcs" -gt 0 ]; then
   echo "  New top-level functions: $new_funcs"
   echo "  With return type hints: $typed_funcs"
@@ -82,8 +110,8 @@ fi
 
 # HIGH checks
 echo -e "\n=== HIGH ==="
-todos=$(git diff $BASE...HEAD | grep -cE "^\+.*(TODO|FIXME|HACK|XXX)" || true)
-linked=$(git diff $BASE...HEAD | grep -cE "^\+.*(TODO|FIXME|HACK|XXX).*(issue #[0-9]+|https://)" || true)
+todos=$(git diff $RANGE | grep -cE "^\+.*(TODO|FIXME|HACK|XXX)" || true)
+linked=$(git diff $RANGE | grep -cE "^\+.*(TODO|FIXME|HACK|XXX).*(issue #[0-9]+|https://)" || true)
 unlinked=$((todos - linked))
 if [ $unlinked -gt 0 ]; then
   echo "⚠ $unlinked TODOs without issue links"
@@ -92,7 +120,7 @@ else
   echo "✓ All TODOs linked (count: $todos)"
 fi
 
-deleted=$(git diff $BASE...HEAD --name-only --diff-filter=D | wc -l | xargs)
+deleted=$(git diff $RANGE --name-only --diff-filter=D | wc -l | xargs)
 if [ "$deleted" -gt 0 ]; then
   echo "  $deleted files deleted - verify no orphaned references"
 fi
@@ -125,7 +153,7 @@ fi
 # scan stack -- a checklist that appears on every unrelated PR is a checklist
 # people learn to skip.
 echo -e "\n=== MANUAL (containers) ==="
-scan_stack_touched=$(git diff $BASE...HEAD --name-only | grep -E \
+scan_stack_touched=$(git diff $RANGE --name-only | grep -E \
   "^(src/osprey/services/bluesky_bridge/|src/osprey/interfaces/bluesky_web/|src/osprey/templates/services/bluesky|src/osprey/mcp_server/bluesky/|tests/e2e/test_bluesky|tests/e2e/test_tiled_roundtrip|tests/e2e/test_grid_scan_roundtrip|tests/e2e/_orm_stack|tests/e2e/_queue_drive)" || true)
 if [ -n "$scan_stack_touched" ]; then
   echo "⚠ This diff touches the Bluesky scan stack — run the container e2e by hand"

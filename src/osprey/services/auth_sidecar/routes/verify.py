@@ -48,6 +48,7 @@ from ..identity_headers import (
     ROLE_SOURCE_HEADER,
     SUBJECT_HEADER,
     is_header_safe,
+    same_value,
 )
 from ..passwords import verify_generation_tag
 from ..revocation import RevocationStore
@@ -109,6 +110,13 @@ async def verify(
     one stops verifying — without server-side session state, and surviving the
     container recreate that rotation performs (which is also what clears the
     revocation store).
+
+    In every mode the session's shared-card story must also match the roster's
+    current one: a shared (``access: any``) card authorizes only a session that
+    names an opener, an own card only one that names none, and under OIDC the
+    opener must still map to the subject the session stored — re-checked on
+    every subrequest, so a shared card closes for the whole roster the moment
+    its opener's own login would stop working.
 
     The parameters are missing-tolerant on purpose. ``user`` defaults to absent
     and the cookie to ``None`` rather than being required, because FastAPI would
@@ -178,6 +186,42 @@ async def verify(
     if revocations.is_revoked(state.session_id):
         return _deny(username, "session was revoked by a logout")
 
+    entry = state.entry(username)
+    if entry is None:
+        # `is_unlocked` above means the entry exists; the guard is here so
+        # nothing below — the opener checks and the tag comparison — can be
+        # reached with `None`.
+        return _deny(username, "session carries no entry for this user")
+
+    # A shared (``access: any``) card's session names its opener — the roster
+    # entry whose credential proved the login — and an own card's session names
+    # none. That correspondence is minted into the entry, so a session whose
+    # story disagrees with the roster's *current* access rule was minted under
+    # a rule an operator has since flipped, and it retires now rather than
+    # lapsing: flipping a card to ``any`` must not widen sessions already
+    # outstanding, and flipping it back must not leave the roster's sessions
+    # holding the card open.
+    if settings.shared(username) and not entry.opener:
+        return _deny(username, "card is shared but the session names no opener")
+    if entry.opener and not settings.shared(username):
+        return _deny(username, "session names an opener but the card is not shared")
+
+    if entry.opener and settings.method == "oidc":
+        # Opener re-validation, the shared card's counterpart of the generation
+        # tag: the card stays open only while whoever opened it could still
+        # open it today. Unlike the role, this *is* re-derived on every
+        # subrequest — deliberately, because a shared card multiplies one login
+        # across the whole roster, so an opener taken off the roster or
+        # remapped at the IdP must lose every terminal at once, not at each
+        # session's own expiry.
+        expected = settings.oidc_subject(entry.opener)
+        if expected is None:
+            # Checked explicitly, and first, so the comparison below can never
+            # run against ``None``.
+            return _deny(username, "the opener is no longer a mapped roster user")
+        if not same_value(expected, entry.oidc_subject):
+            return _deny(username, "the opener's mapped subject has changed")
+
     if settings.method != "oidc":
         # Password mode. Written as "not OIDC" rather than "is password" so the
         # stricter branch is the default one: the guard admits only the two
@@ -189,21 +233,30 @@ async def verify(
         # holder of the signing secret could have put a tag there in the first
         # place — a session that survives that check has already proved more
         # than the tag could.
-        stored = settings.password_hash(username)
+        # On a shared card the session's tag was minted from the *opener's*
+        # hash, so that is the hash the tag is checked against; the card's own
+        # hash — which may exist as a stale leftover from before the card was
+        # shared — is deliberately not consulted. On an own card the opener is
+        # empty and the owner is the username itself, unchanged.
+        hash_owner = entry.opener or username
+        stored = settings.password_hash(hash_owner)
         if stored is None:
             # A roster user with no provisioned credential. An individual
             # denial, not a deployment-wide fault: the other users still
-            # authenticate, so this is a 401 rather than the guard's 503.
-            return _deny(username, "user has no stored credential")
+            # authenticate, so this is a 401 rather than the guard's 503. Two
+            # reasons, one per fault, so the log names whose credential is
+            # missing — the card's own, or its opener's (which also covers an
+            # opener taken off the roster: the hashes are roster-scoped).
+            if hash_owner == username:
+                return _deny(username, "user has no stored credential")
+            return _deny(username, "the opener has no stored credential")
 
-        entry = state.entry(username)
-        if entry is None or not verify_generation_tag(entry.generation_tag, stored):
-            # `is_unlocked` above means the entry exists; the check is here so
-            # the tag comparison cannot be reached with `None`. A tag that no
-            # longer matches means the password was rotated under this session.
+        if not verify_generation_tag(entry.generation_tag, stored):
+            # A tag that no longer matches means the password was rotated under
+            # this session.
             return _deny(username, "credential generation tag does not match")
 
-    return _authorized(username, state.entry(username), settings)
+    return _authorized(username, entry, settings)
 
 
 def _subject_for(username: str, entry: UnlockedUser | None, settings: AuthSettings) -> str:
@@ -238,10 +291,10 @@ def _authorized(username: str, entry: UnlockedUser | None, settings: AuthSetting
     consumer can compare against the account it believes it is serving.
     ``X-Osprey-Auth-Subject`` names who proved the login — the provider subject
     under OIDC, the roster username otherwise — so a later layer can tell who is
-    behind the request without re-reading the cookie. The two coincide in
-    password mode and diverge on a shared card under OIDC, which is the case
-    they exist separately for. ``X-Osprey-Auth-Role`` names the role that
-    account holds.
+    behind the request without re-reading the cookie. The two coincide on an own
+    card under either method and diverge on a shared card under both, which is
+    the case they exist separately for. ``X-Osprey-Auth-Role`` names the role
+    that account holds.
 
     **The account is the one header that always rides.** An authorized request
     is by definition on a card, so there is no session state that can leave it
@@ -263,7 +316,10 @@ def _authorized(username: str, entry: UnlockedUser | None, settings: AuthSetting
     hot path. If retiring a role must retire outstanding sessions too, the
     generation tag is the mechanism to copy: it already revokes on a credential
     change, and it does so by invalidating the session rather than by rewriting
-    what it says.
+    what it says. A shared card's opener is exactly such a copy: :func:`verify`
+    re-validates it against the roster's current mapping on every subrequest,
+    so a shared-card session retires the moment its opener is unmapped or
+    remapped, by refusing rather than by rewriting.
 
     **A changed METHOD is a different question, and it does not lapse.** The
     paragraph above is about a role that is no longer *granted*; switching

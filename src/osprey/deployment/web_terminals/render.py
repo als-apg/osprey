@@ -44,6 +44,7 @@ from osprey.deployment.web_terminals.personas import (
     config_needs_graphdb_password,
     config_needs_launch_token_for,
     effective_image_source,
+    entry_is_shared,
     entry_requires_login,
     env_var_suffix,
     env_var_suffix_collisions,
@@ -951,6 +952,11 @@ def render_web_terminals(
                 # the template's `{% if svc.theme %}` guard false, so no env
                 # line is emitted and the app falls back to config web.theme.
                 "theme": entry.get("theme"),
+                # Optional per-user onboarding-tour invite policy ->
+                # OSPREY_WEB_TOUR. Same shape again: absent leaves the
+                # template's `{% if svc.tour %}` guard false and the app
+                # falls back to config web.tour.
+                "tour": entry.get("tour"),
                 # Optional per-user OIDC identity -> the auth sidecar's
                 # OSPREY_AUTH_OIDC_SUBJECT_<SUFFIX>. Same shape again: absent
                 # leaves the compose template's `{% if svc.oidc_subject %}`
@@ -980,6 +986,14 @@ def render_web_terminals(
                 # and credential provisioning can never disagree about who has
                 # a login. With auth off the template never consults it.
                 "login_exempt": not entry_requires_login(entry),
+                # Whether this entry is a shared card (`access: any` on the
+                # roster entry): any authenticated roster user may open it,
+                # not only the one it belongs to. Read through the shared
+                # predicate rather than off the raw key so the sidecar's env
+                # line and credential provisioning can never disagree about
+                # which cards are shared. With auth off the template never
+                # consults it.
+                "shared": entry_is_shared(entry),
                 # The env-var name that subject is emitted under, resolved HERE
                 # through env_var_suffix() — the single definition of the
                 # username->env-var mapping, shared with credential
@@ -1009,6 +1023,16 @@ def render_web_terminals(
                 # OIDC group binding, so a roster user named `claim` or `map`
                 # would otherwise have read that binding as their own role.
                 "role_env": f"OSPREY_AUTH_ROSTER_ROLE_{env_var_suffix(entry['name'])}",
+                # The env-var name the shared-card marker travels under,
+                # resolved HERE for exactly the reason `role_env` is: one
+                # definition of the username->env-var mapping (never a
+                # template-side `upper|replace`), so this user's access
+                # marker, role, password hash and mapped IdP subject cannot
+                # be keyed four ways. The `ROSTER_` infix follows the role
+                # precedent above: OSPREY_AUTH_ROSTER_* is the per-entry
+                # table, kept clear of the deployment-wide OSPREY_AUTH_*
+                # knobs a short username could otherwise collide with.
+                "access_env": f"OSPREY_AUTH_ROSTER_ACCESS_{env_var_suffix(entry['name'])}",
                 # The env-var NAME this user's operator secret travels in — the
                 # credential nginx injects as a request header and the app
                 # authenticates every request against. A name, never a value:

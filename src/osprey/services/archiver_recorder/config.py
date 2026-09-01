@@ -227,8 +227,16 @@ def resolve_channel_addresses(data_dir: Path | None = None) -> list[str]:
 
     The source is the build-generated channel MANIFEST, named by
     ``VA_CHANNELS_FILE`` exactly as the virtual accelerator reads it, so the
-    recorder covers precisely the channels the IOC serves. Unset or empty means
-    the image's built-in manifest, again matching the IOC.
+    recorder covers precisely the channels the IOC serves. Required, again
+    matching the IOC: unset or empty is refused rather than defaulted, because
+    the only channel set this service could pick on its own is the framework's
+    bundled demo one, and an archive filled with those addresses under this
+    facility's name is indistinguishable, later, from a real record of the
+    facility. ``osprey build`` writes the variable into the deployment's
+    ``.env`` and the recorder's compose service passes it through, so a built
+    deployment always has it; a deployment whose data tree stages no channel
+    database has nothing to record and says so here rather than recording
+    somebody else's machine.
 
     It must never be ``channel_limits.json``. That file is a *write-safety
     projection* of the same manifest rather than a second copy of it: it holds
@@ -240,34 +248,40 @@ def resolve_channel_addresses(data_dir: Path | None = None) -> list[str]:
     that is free to drift from what is actually being served.
 
     Raises:
-        RecorderConfigError: if the named manifest cannot be loaded. A recorder
-            that fell back to the built-in channel set here would record
-            another facility's namespace into this facility's archive.
+        RecorderConfigError: if ``VA_CHANNELS_FILE`` names nothing, or if the
+            manifest it names cannot be loaded. A recorder that fell back to
+            the built-in channel set on either path would record another
+            facility's namespace into this facility's archive.
     """
     root = Path(data_dir) if data_dir is not None else Path(DEFAULT_DATA_DIR)
     raw = os.environ.get("VA_CHANNELS_FILE", "").strip()
+    if not raw:
+        raise RecorderConfigError(
+            "cannot record: VA_CHANNELS_FILE names no channel manifest, and there "
+            "is no built-in channel set to fall back on -- recording the "
+            "framework's bundled demo addresses would put another facility's "
+            "namespace in this facility's archive. `osprey build` writes the "
+            "variable into the deployment's .env when it generates a manifest; if "
+            "it did not, this project's data tree stages no channel database."
+        )
 
     # Imported here rather than at module scope: the manifest package pulls in
     # the channel-database parsers, which a config-only caller has no use for.
-    from osprey.services.virtual_accelerator.manifest import build_manifest
     from osprey.services.virtual_accelerator.manifest.loaders import (
         ManifestFileError,
         load_manifest_file,
     )
 
-    if not raw:
-        channels = build_manifest()["channels"]
-    else:
-        path = Path(raw)
-        if not path.is_absolute():
-            path = root / path
-        try:
-            channels = load_manifest_file(path)
-        except (ManifestFileError, json.JSONDecodeError, OSError) as exc:
-            raise RecorderConfigError(
-                f"cannot record: the channel manifest named by VA_CHANNELS_FILE ({path}) "
-                f"could not be loaded: {exc}"
-            ) from exc
+    path = Path(raw)
+    if not path.is_absolute():
+        path = root / path
+    try:
+        channels = load_manifest_file(path)
+    except (ManifestFileError, json.JSONDecodeError, OSError) as exc:
+        raise RecorderConfigError(
+            f"cannot record: the channel manifest named by VA_CHANNELS_FILE ({path}) "
+            f"could not be loaded: {exc}"
+        ) from exc
 
     return [str(channel["address"]) for channel in channels]
 

@@ -27,6 +27,7 @@ Run contract (see docker/virtual-accelerator/README.md for the full version):
 
     -v <project>/data/simulation:/data/simulation             # the DIRECTORY, never a file
     -v <repo>/var/agent_data/simulation:/state/simulation:ro  # scenario state
+    -e VA_CHANNELS_FILE=channel_manifest.json                 # required; see below
     -p 5064:5064/tcp
 
 ``VA_DATA_DIR`` overrides the mount point (default ``/data/simulation``) for
@@ -38,25 +39,31 @@ writes it at run time (``osprey sim apply``) while ``data/`` is build-owned and
 checksummed. Unset, it falls back to the data dir — the single-directory layout,
 for a hand-run container whose state file sits next to ``machine.json``.
 
-Facility-neutral source configuration. Every variable below is optional, and
-unset they serve the built-in tutorial machine byte-for-byte — a deployment
-that sets none of them is unaffected by all of them:
+Facility-neutral source configuration:
 
 ``VA_CHANNELS_FILE``
-    Path to a ``{"channels": [...]}`` manifest JSON (see
+    **Required.** Path to a ``{"channels": [...]}`` manifest JSON (see
     ``manifest.loaders.load_manifest_file``). Relative paths resolve against
-    the data dir. Unset/empty -> the built-in generated manifest
-    (``build_manifest()``). With a file source, drive limits come
-    from ``<data dir>/channel_limits.json`` when present (none otherwise)
-    and boot values from the mounted ``machine.json`` -- never from the
-    bundled tutorial data.
+    the data dir. Drive limits come from ``<data dir>/channel_limits.json``
+    when present (none otherwise) and boot values from the mounted
+    ``machine.json``. There is no default: the only namespace this process
+    could pick on its own is the framework's bundled demo one, and a
+    container quietly serving that under a facility's name is
+    indistinguishable, on the wire, from one serving the facility. ``osprey
+    build`` writes this variable into a project's ``.env``; a standalone
+    demo names the packaged demo manifest
+    (``manifest/channel_manifest.json``, resolvable as
+    ``manifest.paths.MANIFEST_OUTPUT``) explicitly.
 ``VA_LATTICE``
     ``builtin`` or ``none``: whether to construct the PyAT-backed
-    ``PhysicsBridge``. Defaults to ``builtin`` for the built-in manifest and
-    ``none`` for a file-backed one. With ``none``, PyAT is never imported,
-    the served model is the empty stub in
-    ``serving.model_stub``, and pyat-coupled setpoint writes (if any) latch
-    without physics.
+    ``PhysicsBridge``. Defaults to ``none`` -- a manifest names a facility's
+    channels and says nothing about whether this process has a physics model
+    for them, and the only model it could build is the framework's own
+    tutorial ring. With ``none``, PyAT is never imported, the served model is
+    the empty stub in ``serving.model_stub``, and pyat-coupled setpoint
+    writes (if any) latch without physics. The demo scripts under
+    ``scripts/va/`` pair the packaged manifest with ``builtin``, which is the
+    tutorial machine byte-for-byte.
 """
 
 from __future__ import annotations
@@ -70,11 +77,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from osprey.services.virtual_accelerator.ioc.engine_source import EngineSource
-from osprey.services.virtual_accelerator.manifest import PARTITION_SP_ECHO, build_manifest
+from osprey.services.virtual_accelerator.manifest import PARTITION_SP_ECHO
+from osprey.services.virtual_accelerator.manifest.build import MANIFEST_FILENAME
 from osprey.services.virtual_accelerator.manifest.loaders import (
     load_machine_json_channels,
     load_manifest_file,
 )
+from osprey.services.virtual_accelerator.manifest.paths import MANIFEST_OUTPUT
 from osprey.services.virtual_accelerator.serving.pvdb import (
     READBACK_SUBFIELD,
     build_serving_pvdb,
@@ -204,33 +213,55 @@ def _parse_bpm_errors(env_var: str = "VA_BPM_ERRORS") -> dict[str, dict[str, flo
     return result
 
 
-def _resolve_channels_file(data_dir: Path) -> Path | None:
-    """Resolve ``VA_CHANNELS_FILE`` into the file-backed channel source path.
+def _resolve_channels_file(data_dir: Path) -> Path:
+    """Resolve ``VA_CHANNELS_FILE`` into the channel source path.
 
-    Unset or empty (the compose passthrough sends ``""`` when the host var
-    is absent) means the built-in generated manifest. A relative path
-    resolves against the data dir -- the bind mount is the natural home for
-    facility-supplied data files.
+    A relative path resolves against the data dir -- the bind mount is the
+    natural home for facility-supplied data files.
+
+    Unset or empty (the compose passthrough sends ``""`` when the host var is
+    absent) is refused rather than defaulted, and that refusal is the point:
+    the only namespace this process could choose on its own is the
+    framework's bundled demo one, and a container serving those addresses
+    under a facility's name looks, to every client, exactly like one serving
+    the facility. The demo namespace is still available -- it is a committed
+    file
+    (:data:`~osprey.services.virtual_accelerator.manifest.paths.MANIFEST_OUTPUT`)
+    like any other manifest -- but it has to be asked for.
     """
     raw = os.environ.get("VA_CHANNELS_FILE", "").strip()
     if not raw:
-        return None
+        raise SystemExit(
+            "FATAL: VA_CHANNELS_FILE names no channel manifest. The virtual "
+            "accelerator serves the manifest it is given and never falls back to "
+            "the framework's bundled demo namespace.\n"
+            "  Project deployment: run `osprey build`, which generates "
+            f"{MANIFEST_FILENAME} into the project's data/simulation/ and writes "
+            "VA_CHANNELS_FILE into its .env.\n"
+            "  Standalone demo: ask for the packaged demo manifest by name --\n"
+            f"    -e VA_CHANNELS_FILE={MANIFEST_OUTPUT} -e VA_LATTICE={LATTICE_BUILTIN}\n"
+            "  (that path is where this installation carries it; "
+            "scripts/va/run_va.sh arranges the same demo)."
+        )
     path = Path(raw)
     return path if path.is_absolute() else data_dir / path
 
 
-def _resolve_lattice_mode(channels_file: Path | None) -> str:
+def _resolve_lattice_mode() -> str:
     """Resolve ``VA_LATTICE`` into ``builtin`` or ``none``.
 
-    The default follows the channel source: the built-in manifest describes
-    the lattice-backed tutorial machine (so ``builtin``), while a
-    file-backed manifest comes from a facility with no PyAT model (so
-    ``none``). An explicit value overrides either default -- a facility MAY
-    pair a file manifest with the built-in lattice if its addresses map.
+    Defaults to ``none``. A manifest names a facility's channels and says
+    nothing about whether this process holds physics for them, and the only
+    model it could construct unasked is the framework's own tutorial ring --
+    bundled demo physics behind a facility's addresses, which is the same
+    substitution :func:`_resolve_channels_file` refuses one layer up. A
+    deployment that wants the ring asks for it: ``osprey build`` writes the
+    answer it derived from the project's own manifest, and the demo scripts
+    name ``builtin`` beside the packaged manifest.
     """
     raw = os.environ.get("VA_LATTICE", "").strip().lower()
     if not raw:
-        return LATTICE_NONE if channels_file is not None else LATTICE_BUILTIN
+        return LATTICE_NONE
     if raw not in (LATTICE_BUILTIN, LATTICE_NONE):
         raise SystemExit(
             f"FATAL: VA_LATTICE must be {LATTICE_BUILTIN!r} or {LATTICE_NONE!r}, got {raw!r}"
@@ -364,22 +395,17 @@ def main() -> None:
         )
 
     channels_file = _resolve_channels_file(data_dir)
-    lattice_mode = _resolve_lattice_mode(channels_file)
+    lattice_mode = _resolve_lattice_mode()
 
-    if channels_file is not None:
-        # File-backed facility: every data file comes from the mount, never
-        # from the bundled tutorial data (whose addresses belong to another
-        # facility's namespace).
-        print(f"Loading channel manifest from {channels_file} ...", flush=True)
-        channels = load_manifest_file(channels_file)
-        limits_path = data_dir / "channel_limits.json"
-        drive_limits = _load_drive_limits(limits_path) if limits_path.is_file() else {}
-        boot_values = _load_boot_values(machine_path)
-    else:
-        print(f"Building channel manifest (data dir: {data_dir}) ...", flush=True)
-        channels = build_manifest()["channels"]
-        drive_limits = _load_drive_limits()
-        boot_values = _load_boot_values()
+    # Every data file comes from the manifest that was named and the mount
+    # beside it -- never from the bundled tutorial data, whose addresses
+    # belong to one particular facility's namespace. The packaged demo
+    # manifest reaches this the same way any other does: by being named.
+    print(f"Loading channel manifest from {channels_file} ...", flush=True)
+    channels = load_manifest_file(channels_file)
+    limits_path = data_dir / "channel_limits.json"
+    drive_limits = _load_drive_limits(limits_path) if limits_path.is_file() else {}
+    boot_values = _load_boot_values(machine_path)
 
     stuck_setpoints = frozenset(
         addr.strip() for addr in os.environ.get("VA_STUCK_SETPOINTS", "").split(",") if addr.strip()

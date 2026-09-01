@@ -374,7 +374,6 @@ def test_the_stamped_store_path_is_one_path(tmp_path, monkeypatch):
 
     # Act / Assert
     assert reader.store_path({}) == str(session_store.store_path())
-    assert reader.legacy_store_path({}) == str(session_store.legacy_store_path())
     assert reader.resolve_state_dir({}) == str(session_store.state_dir())
     assert os.path.basename(reader.store_path({})) == session_store.STORE_FILENAME
 
@@ -406,9 +405,6 @@ def test_the_unstamped_store_path_is_one_path(tmp_path, monkeypatch):
     try:
         assert canonical is not None
         assert os.path.realpath(hook_answer) == os.path.realpath(str(canonical))
-        assert os.path.realpath(reader.legacy_store_path({})) == os.path.realpath(
-            str(session_store.legacy_store_path())
-        )
     finally:
         reset_config_cache()
         session_store.invalidate_cache()
@@ -434,12 +430,10 @@ def test_the_store_sits_beside_the_target_state_file(tmp_path, monkeypatch):
     assert set(reader.VALID_POSTURES) == set(session_store.VALID_POSTURES)
 
 
-def test_the_legacy_store_answers_only_while_the_new_one_is_absent(tmp_path, monkeypatch):
-    """Rule 1's upgrade clause, both sides.
-
-    A deployment upgrading with a sandboxed session live must not have that
-    narrowing lifted the moment the code lands; once the web server persists the
-    migrated shape, the old file stops answering rather than fighting the new one.
+def test_the_retired_session_wide_store_is_read_by_neither_side(tmp_path, monkeypatch):
+    """Rule 1 has one location. The store the session-wide posture kept directly
+    under the agent-data root is retired, and a file left there narrows nothing
+    on either side — the two readers agree on that as they agree on everything.
     """
     # Arrange
     root = tmp_path / "var" / "agent_data"
@@ -449,20 +443,36 @@ def test_the_legacy_store_answers_only_while_the_new_one_is_absent(tmp_path, mon
     (root / reader.STORE_FILENAME).write_text(json.dumps({"k": "sandbox"}), encoding="utf-8")
     session_store.invalidate_cache()
 
-    # Act / Assert — legacy answers while the new file does not exist
+    # Act / Assert
+    assert reader.read_session_store({}) == {}
     assert reader.read_session_store({}) == session_store.load_store()
-    assert reader.effective_writes_for({}, ARMED_BOTH, "live") is False
+    assert reader.effective_writes_for({}, ARMED_BOTH, "live") is True
 
-    # Arrange — the migrated shape lands
+
+def test_a_narrowing_in_the_one_store_holds_with_nothing_at_the_retired_location(
+    tmp_path, monkeypatch
+):
+    """The safety property the retirement must not disturb.
+
+    A session narrowed in the per-target store stays narrowed when the retired
+    location holds nothing at all — the absence of an old file is not a
+    permissive default, on either side.
+    """
+    # Arrange
+    root = tmp_path / "var" / "agent_data"
+    (root / reader.STATE_DIR_NAME).mkdir(parents=True)
+    monkeypatch.setenv(reader.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv(reader.POSTURE_SESSION_ENV_VAR, "k")
     (root / reader.STATE_DIR_NAME / reader.STORE_FILENAME).write_text(
         json.dumps({"k": {"va": "sandbox"}}), encoding="utf-8"
     )
     session_store.invalidate_cache()
 
-    # Act / Assert — and the old file stops answering
-    assert reader.read_session_store({}) == session_store.load_store()
-    assert reader.effective_writes_for({}, ARMED_BOTH, "live") is True
+    # Act / Assert
+    assert not (root / reader.STORE_FILENAME).exists()
+    assert reader.read_session_store({}) == session_store.load_store() == {"k": {"va": "sandbox"}}
     assert reader.effective_writes_for({}, ARMED_BOTH, "va") is False
+    assert reader.effective_writes_for({}, ARMED_BOTH, "live") is True
 
 
 def test_the_target_blind_ceiling_is_deliberately_stricter(stamped_root, monkeypatch):
@@ -610,20 +620,17 @@ def test_the_guard_actually_scans_the_callers_that_exist():
 # ---------------------------------------------------------------------------
 
 
-def test_an_unreadable_new_store_does_not_fall_back_to_the_legacy_one(tmp_path, monkeypatch):
-    """Existence alone chooses the path — the rule the canonical reader uses.
+def test_an_unreadable_store_is_an_empty_store_on_both_sides(tmp_path, monkeypatch):
+    """A store that exists but cannot be read is an empty store on both sides.
 
-    A new store that exists but cannot be read is an empty store on both sides.
-    Falling back to the legacy file here would hand the hook a narrowing the
-    canonical reader does not see, or lift one it does; the divergence would
-    surface only as one layer refusing a write another allowed.
+    The divergence this pins would surface only as one layer refusing a write
+    another allowed, which is the failure mode least likely to be noticed.
     """
     # Arrange
     root = tmp_path / "var" / "agent_data"
     (root / reader.STATE_DIR_NAME).mkdir(parents=True)
     monkeypatch.setenv(reader.AGENT_DATA_ROOT_ENV_VAR, str(root))
     monkeypatch.setenv(reader.POSTURE_SESSION_ENV_VAR, "k")
-    (root / reader.STORE_FILENAME).write_text(json.dumps({"k": "sandbox"}), encoding="utf-8")
     new_store = root / reader.STATE_DIR_NAME / reader.STORE_FILENAME
     new_store.write_text(json.dumps({"k": {"va": "sandbox"}}), encoding="utf-8")
     new_store.chmod(0o000)
@@ -632,7 +639,7 @@ def test_an_unreadable_new_store_does_not_fall_back_to_the_legacy_one(tmp_path, 
     # Act / Assert
     try:
         if os.access(new_store, os.R_OK):  # pragma: no cover - root can read anything
-            pytest.skip("this user can read a mode-000 file; the fallback rule is untestable here")
+            pytest.skip("this user can read a mode-000 file; the rule is untestable here")
         assert reader.read_session_store({}) == {}
         assert reader.read_session_store({}) == session_store.load_store()
         assert reader.effective_writes_for({}, ARMED_BOTH, "live") is True
