@@ -308,14 +308,7 @@ def _web_terminal_group(
         if persona:
             rights.append(persona)
             rights.extend(_write_rights(profile, persona_deltas, persona))
-        if user.get("login") is False:
-            # The one warning tone on the card: an open surface must not be
-            # skimmed past, so `password` stays dim precisely to keep it alone.
-            auth_cell: Cell = [("no login", Styles.WARNING)]
-        elif auth_method:
-            auth_cell = [(str(auth_method), Styles.DIM)]
-        else:
-            auth_cell = []
+        auth_cell: Cell = [(str(auth_method), Styles.DIM)] if auth_method else []
         index = user.get("index", position)
         # The allocator the render itself uses, rather than `base + index` spelled
         # again: it is what falls a family back to its layout band when the

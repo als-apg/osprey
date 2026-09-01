@@ -114,7 +114,7 @@ def _auth_config(users: list) -> dict:
 def _open_config(users: list) -> dict:
     """`_config` with the open posture on (`auth.method: none`).
 
-    The one render shape where a non-exempt location carries the operator
+    The one render shape where a location carries the operator
     secret with NO subrequest in front of it: reaching this nginx is the
     authorization, so the perimeter vouches for the request itself. No
     `allow_insecure_http` is needed — the cleartext refusal guards the sidecar
@@ -275,10 +275,10 @@ def _assert_claims_every_identity_header(location: str, body: str) -> None:
 
 _ONE_USER = ["alice"]
 _TWO_USERS = ["alice", "bob"]
-#: A roster whose second entry opts out of the login flow (`login: false`): it is
-#: proxied with no gate at all, which makes it the sharpest test of the clears —
-#: there is no `auth_request` here whose answer could overwrite a forged header.
-_EXEMPT_ROSTER = [
+#: A roster whose second entry still carries the retired `login: false`. It used
+#: to render one location with no gate at all; now it renders exactly like a
+#: bare-name roster, which is what every test that uses it pins.
+_RETIRED_KEY_ROSTER = [
     {"name": "alice", "index": 0},
     {"name": "ariel", "index": 1, "login": False},
 ]
@@ -341,7 +341,7 @@ def test_gated_user_location_forwards_every_identity_header_from_the_auth_answer
 
 def test_the_forward_is_emitted_once_per_gated_user_and_nowhere_else() -> None:
     """Two gated users, one forward per identity header each — and nothing on
-    the exempt entry, the internal verify target, `/auth/`, or the landing page.
+    the internal verify target, `/auth/`, or the landing page.
     The count is what makes this bite: a forward hoisted somewhere shared would
     still satisfy a plain substring check while handing one user's identity to
     another."""
@@ -358,19 +358,21 @@ def test_the_forward_is_emitted_once_per_gated_user_and_nowhere_else() -> None:
         )
 
 
-def test_login_exempt_location_forwards_no_identity_at_all() -> None:
-    """`login: false` means no gate, and no gate means no authorized identity to
-    forward. Emitting the header here from an unset variable would announce an
-    empty subject as though the perimeter had checked one."""
+def test_the_retired_login_key_renders_a_gated_location_like_any_other() -> None:
+    """`login: false` used to render one location with no gate, and so no
+    authorized identity to forward. The key is retired: the entry carrying it
+    is gated and forwards the sidecar's answer exactly as its neighbour does."""
     # Arrange / Act
-    nginx_conf = _render_nginx(_auth_config(_EXEMPT_ROSTER))
-    body = _directives(_location_body(nginx_conf, "/u/ariel/"))
+    nginx_conf = _render_nginx(_auth_config(_RETIRED_KEY_ROSTER))
+    ariel = _directives(_location_body(nginx_conf, "/u/ariel/"))
+    alice = _directives(_location_body(nginx_conf, "/u/alice/"))
 
-    # Assert
-    assert "auth_request_set" not in body
-    assert _SUBJECT_VAR not in body
-    assert _ROLE_VAR not in body
-    assert _ROLE_SOURCE_VAR not in body
+    # Assert — identical directives once the user's name and upstream port are
+    # masked out
+    port = re.compile(r":\d+/")
+    assert port.sub(":PORT/", ariel.replace("ariel", "alice")) == port.sub(":PORT/", alice)
+    assert "auth_request_set" in ariel
+    assert _identity_writes(ariel)[SUBJECT_HEADER] == ["forward"]
 
 
 @pytest.mark.parametrize(
@@ -409,39 +411,43 @@ def test_every_proxying_location_claims_every_identity_header_with_auth_on() -> 
     later is covered the day it is added, not the day someone remembers this
     file."""
     # Arrange / Act
-    nginx_conf = _render_nginx(_auth_config(_EXEMPT_ROSTER))
+    nginx_conf = _render_nginx(_auth_config(_TWO_USERS))
 
-    # Assert — the set is non-trivial: gated user, exempt user, both verify
-    # targets' worth of surface, and the public login prefix.
+    # Assert — the set is non-trivial: two gated users, their verify targets'
+    # worth of surface, and the public login prefix.
     proxying = {
         header: body for header, body in _locations(nginx_conf).items() if "proxy_pass " in body
     }
-    assert set(proxying) == {"/u/alice/", "/u/ariel/", "= /_osprey_auth/alice", "/auth/"}
+    assert set(proxying) == {
+        "/u/alice/",
+        "/u/bob/",
+        "= /_osprey_auth/alice",
+        "= /_osprey_auth/bob",
+        "/auth/",
+    }
 
     # Assert — and not one of them leaves any of the names for the client to
     # supply.
     for location, body in proxying.items():
         _assert_claims_every_identity_header(location, body)
 
-    # Assert — exactly one of them is entitled to forward, and it is the gated
-    # user's own location. Everything else clears.
+    # Assert — exactly the gated users' own locations are entitled to forward.
+    # Everything else clears.
     forwarding = {
         location
         for location, body in proxying.items()
         if _identity_writes(body)[SUBJECT_HEADER] == ["forward"]
     }
-    assert forwarding == {"/u/alice/"}
+    assert forwarding == {"/u/alice/", "/u/bob/"}
 
 
 @pytest.mark.parametrize(
     "config,proxying_locations",
     [
         (_config(_TWO_USERS), {"/u/alice/", "/u/bob/"}),
-        (_config(_EXEMPT_ROSTER), {"/u/alice/", "/u/ariel/"}),
         (_open_config(_TWO_USERS), {"/u/alice/", "/u/bob/"}),
-        (_open_config(_EXEMPT_ROSTER), {"/u/alice/", "/u/ariel/"}),
     ],
-    ids=["token", "token-exempt", "open", "open-exempt"],
+    ids=["token", "open"],
 )
 def test_every_proxying_location_claims_every_identity_header_without_a_login_wall(
     config: dict, proxying_locations: set[str]
@@ -453,13 +459,9 @@ def test_every_proxying_location_claims_every_identity_header_without_a_login_wa
     could contradict a forged header: a terminal reading one would be taking
     the client's word for who it is. With no subrequest anywhere in either
     render there is nothing to forward, so every claim here has to be a clear —
-    including in the `none` render, whose non-exempt locations DO carry an
-    injected credential and could otherwise look authorized enough to forward
-    an identity nobody checked.
-
-    The exempt roster is run through both because `login: false` is the entry
-    that changes shape under `none` (it is the one opted out of the injection),
-    and a claim must not be what the opt-out drops.
+    including in the `none` render, whose locations DO carry an injected
+    credential and could otherwise look authorized enough to forward an
+    identity nobody checked.
     """
     # Arrange / Act
     nginx_conf = _render_nginx(config)
@@ -539,12 +541,12 @@ def test_no_location_writes_the_same_proxy_set_header_name_twice() -> None:
     # Arrange
     configs = (
         _config(_TWO_USERS),
-        _config(_EXEMPT_ROSTER),
+        _config(_RETIRED_KEY_ROSTER),
         _auth_config(_ONE_USER),
         _auth_config(_TWO_USERS),
-        _auth_config(_EXEMPT_ROSTER),
+        _auth_config(_RETIRED_KEY_ROSTER),
         _open_config(_TWO_USERS),
-        _open_config(_EXEMPT_ROSTER),
+        _open_config(_RETIRED_KEY_ROSTER),
     )
     name_of = re.compile(r"^\s*proxy_set_header\s+(\S+)", re.MULTILINE)
 
@@ -572,8 +574,8 @@ def test_no_identity_header_directive_is_written_at_server_level() -> None:
     # Arrange / Act
     for config in (
         _config(_TWO_USERS),
-        _auth_config(_EXEMPT_ROSTER),
-        _open_config(_EXEMPT_ROSTER),
+        _auth_config(_RETIRED_KEY_ROSTER),
+        _open_config(_RETIRED_KEY_ROSTER),
     ):
         outside_locations = _directives(_server_level(_render_nginx(config)))
 
@@ -587,7 +589,7 @@ def test_no_identity_header_directive_is_written_at_server_level() -> None:
 # --------------------------------------------------------------------------
 
 
-def test_open_render_injects_each_non_exempt_users_own_secret_with_no_gate_in_front() -> None:
+def test_open_render_injects_each_users_own_secret_with_no_gate_in_front() -> None:
     """`none` is the one posture where a location carries the operator secret
     with nothing standing in front of it.
 
@@ -613,7 +615,7 @@ def test_open_render_injects_each_non_exempt_users_own_secret_with_no_gate_in_fr
     # Arrange / Act
     nginx_conf = _render_nginx(_open_config(_TWO_USERS))
 
-    # Assert — each non-exempt location pulls in its OWN user's snippet…
+    # Assert — each location pulls in its OWN user's snippet…
     for index, (user, other) in enumerate((("alice", "bob"), ("bob", "alice"))):
         body = _directives(_location_body(nginx_conf, f"/u/{user}/"))
         assert _secret_include(user) in body
@@ -633,7 +635,9 @@ def test_open_render_injects_each_non_exempt_users_own_secret_with_no_gate_in_fr
 
 
 @pytest.mark.parametrize(
-    "config", [_open_config(_ONE_USER), _open_config(_EXEMPT_ROSTER)], ids=["plain", "exempt"]
+    "config",
+    [_open_config(_ONE_USER), _open_config(_RETIRED_KEY_ROSTER)],
+    ids=["plain", "retired-key"],
 )
 def test_open_injecting_location_leaves_the_secret_name_to_the_include_alone(
     config: dict,
@@ -650,10 +654,6 @@ def test_open_injecting_location_leaves_the_secret_name_to_the_include_alone(
 
     Invisible to the duplicate-name guard above, which reads this fragment
     only: the second directive lives in a file `nginx -T` resolves at start.
-
-    Run on the exempt roster as well: that render is the one where the OTHER
-    arm of the split branch is live next door, and an edit that hoisted the
-    clear out of it would land it here.
     """
     # Arrange / Act
     body = _directives(_location_body(_render_nginx(config), "/u/alice/"))
@@ -665,58 +665,18 @@ def test_open_injecting_location_leaves_the_secret_name_to_the_include_alone(
     assert TERMINAL_SECRET_HEADER not in body
 
 
-def test_open_login_exempt_location_is_injected_nothing_and_clears_the_secret_header() -> None:
-    """`login: false` opts an entry out of the open posture's injection exactly
-    as it opts one out of a login wall — and the clear is what makes that safe.
-
-    Nothing is vouched for here, so nothing sets the header; a value arriving
-    in it therefore came from the client, and forwarding it would let anyone
-    who can reach this port present the credential the app trusts absolutely.
-    This is the one arm of the split branch that must write the clear.
-    """
+def test_open_render_injects_every_location_including_the_retired_key() -> None:
+    """`login: false` used to opt an entry out of the open posture's injection
+    and clear the secret header on it instead. The key is retired: under `none`
+    every location carries its own user's include, and none clears the name."""
     # Arrange / Act
-    nginx_conf = _render_nginx(_open_config(_EXEMPT_ROSTER))
-    exempt = _directives(_location_body(nginx_conf, "/u/ariel/"))
+    nginx_conf = _render_nginx(_open_config(_RETIRED_KEY_ROSTER))
 
     # Assert
-    assert _secret_include("ariel") not in exempt
-    assert _clear(TERMINAL_SECRET_HEADER) in exempt
-
-    # Assert — and the roster's other entry is still injected, so the opt-out
-    # is the entry's own and not the render's.
-    assert _secret_include("alice") in _directives(_location_body(nginx_conf, "/u/alice/"))
-
-
-def test_the_exempt_entry_is_served_the_same_directives_under_open_as_under_token() -> None:
-    """A `login: false` entry gets the ungated treatment whatever the posture
-    around it is.
-
-    Compared as the directives alone, in the same order, rather than as text:
-    the open render explains the opt-out in prose the token render has no
-    reason to carry, so the two bodies differ by design in every way except the
-    one that matters. What has to match is what nginx executes — same clears,
-    same single forwarded cookie, no include on either side — and order is kept
-    in the comparison because a location's header table is built in the order
-    it is written.
-    """
-    # Arrange / Act
-    served = {
-        posture: [
-            line.strip()
-            for line in _directives(_location_body(_render_nginx(config), "/u/ariel/")).splitlines()
-            if line.strip()
-        ]
-        for posture, config in (
-            ("open", _open_config(_EXEMPT_ROSTER)),
-            ("token", _config(_EXEMPT_ROSTER)),
-        )
-    }
-
-    # Assert
-    assert served["open"] == served["token"]
-    # Guard against a vacuous green: an empty body would compare equal to an
-    # empty body, and this location is one of the two the render exists for.
-    assert "proxy_pass " in " ".join(served["open"])
+    for user in ("alice", "ariel"):
+        body = _directives(_location_body(nginx_conf, f"/u/{user}/"))
+        assert _secret_include(user) in body
+        assert _clear(TERMINAL_SECRET_HEADER) not in body
 
 
 def test_the_open_render_holds_no_login_surface_anywhere() -> None:
@@ -730,7 +690,7 @@ def test_the_open_render_holds_no_login_surface_anywhere() -> None:
     not have.
     """
     # Arrange / Act
-    directives = _directives(_render_nginx(_open_config(_EXEMPT_ROSTER)))
+    directives = _directives(_render_nginx(_open_config(_RETIRED_KEY_ROSTER)))
 
     # Assert
     assert "auth_request" not in directives
@@ -817,12 +777,10 @@ def test_real_nginx_reads_the_auth_on_render_without_a_single_warning() -> None:
     the noise would be emitted on every start and every reload of every
     authenticated deployment, by the process enforcing the perimeter.
     """
-    # Arrange — a topology with all three claim shapes in it at once: a gated
-    # user forwarding, an exempt user clearing, and the shared `/auth/` prefix.
-    # Every roster user needs a secret for the render to succeed, even the
-    # exempt one whose location never includes it.
+    # Arrange — a topology with both claim shapes in it at once: gated users
+    # forwarding, and the shared `/auth/` prefix clearing.
     secrets = {"alice": "terminal-secret-for-alice", "ariel": "terminal-secret-for-ariel"}
-    artifacts = render_web_terminals(_auth_config(_EXEMPT_ROSTER), terminal_secrets=secrets)
+    artifacts = render_web_terminals(_auth_config(_RETIRED_KEY_ROSTER), terminal_secrets=secrets)
     nginx_conf = artifacts["nginx/nginx.conf"]
 
     # Arrange — guard against a vacuous green: a render that had stopped
@@ -832,8 +790,8 @@ def test_real_nginx_reads_the_auth_on_render_without_a_single_warning() -> None:
     assert _forward(ROLE_SOURCE_HEADER, _ROLE_SOURCE_VAR) in nginx_conf
     assert _clear(SUBJECT_HEADER) in nginx_conf
 
-    # Only the gated users get a snippet — an exempt location includes none —
-    # so the set is taken from the render rather than from the roster.
+    # Every gated user gets a snippet; the set is taken from the render rather
+    # than from the roster so the two are held to agree.
     prefix = f"{NGINX_TEMPLATES_OUTPUT_DIR}/secret-"
     snippets = {
         path[len(f"{NGINX_TEMPLATES_OUTPUT_DIR}/") :].removesuffix(".template"): content.replace(

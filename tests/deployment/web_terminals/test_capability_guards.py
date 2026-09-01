@@ -5,8 +5,8 @@ runs in — from three different inputs, and these tests pin all three plus the
 shared judgement underneath them:
 
 * :func:`~osprey.deployment.web_terminals.personas.persona_privileges` and the
-  two rules built on it (a privileged ``default_persona``, an unauthenticated
-  privileged terminal);
+  two rules built on it (a privileged ``default_persona``, a shared
+  privileged card);
 * :func:`osprey.cli.profile_cmd._persona_profile_texts`, the refusal at
   ``osprey init`` time, where the persona presets have just been resolved;
 * the lint belt, which is what ``osprey profile validate`` / ``osprey build``
@@ -15,7 +15,7 @@ shared judgement underneath them:
 
 The shipped ``control-assistant`` stack is exercised as itself throughout: its
 roster is exactly the shape the guards exist for (a privileged ``admin`` tier
-behind a login, an unauthenticated ``ariel`` tier that is not privileged), so a
+behind a login, a shared ``ariel`` card that is not privileged), so a
 guard that fired on it would be wrong and a guard that let a one-key edit to it
 through would be useless.
 """
@@ -47,13 +47,13 @@ from osprey.deployment.web_terminals.personas import (
     persona_privileges,
     privilege_phrase,
     privileged_default_persona_problem,
-    unauthenticated_privileged_terminal_problems,
+    shared_card_privileged_problems,
 )
 
 SETUP_TOOL = "mcp__osprey_workspace__setup_patch"
 
 DEFAULT_PERSONA_CODE = "web_terminals.privileged_default_persona"
-UNAUTHENTICATED_CODE = "web_terminals.unauthenticated_privileged_terminal"
+SHARED_CARD_CODE = "web_terminals.shared_card_privileged"
 DEPLOYMENT_WIDE_CODE = "web_terminals.unauthenticated_privileged_deployment"
 UNKNOWN_PRIVILEGE_CODE = "web_terminals.persona_privileges_unknown"
 NOT_RENDERED_CODE = "web_terminals.persona_project_path_not_rendered_yet"
@@ -234,7 +234,7 @@ class TestShippedPresetPrivileges:
         ],
     )
     def test_unprivileged_tiers(self, preset: str):
-        """Everything the base floors — including the login-less `ariel` tier."""
+        """Everything the base floors — including the shared `ariel` tier."""
         resolved, _dir = resolve_build_profile(None, preset)
         assert persona_privileges(resolved.config) == ()
 
@@ -266,45 +266,43 @@ class TestPrivilegedDefaultPersona:
         assert privileged_default_persona_problem(value, [PRIVILEGE_CONFIG_PANEL]) is None
 
 
-class TestUnauthenticatedPrivilegedTerminal:
-    CAROL = {"name": "carol", "index": 3, "persona": "admin", "login": False}
+class TestSharedCardPrivileged:
+    CAROL = {"name": "carol", "index": 3, "persona": "admin", "access": "any"}
     ALICE = {"name": "alice", "index": 0, "persona": "readwrite"}
     PRIVILEGES = {"admin": (PRIVILEGE_SETUP_TOOL, PRIVILEGE_CONFIG_PANEL)}
 
-    def test_login_false_on_a_privileged_persona_is_named_with_its_remedy(self):
-        problems = unauthenticated_privileged_terminal_problems(
-            [self.ALICE, self.CAROL], self.PRIVILEGES
-        )
+    def test_a_shared_card_on_a_privileged_persona_is_named_with_its_remedy(self):
+        problems = shared_card_privileged_problems([self.ALICE, self.CAROL], self.PRIVILEGES)
         assert len(problems) == 1
         assert "'carol'" in problems[0]
-        assert "login: false" in problems[0]
+        assert "access: any" in problems[0]
         assert "'admin'" in problems[0]
         assert PRIVILEGE_SETUP_TOOL in problems[0]
-        assert "login: true" in problems[0]
+        assert "access: own" in problems[0]
         assert "'readonly'" in problems[0]
 
-    def test_a_privileged_persona_behind_a_login_is_fine(self):
+    def test_a_privileged_persona_on_an_own_card_is_fine(self):
         entry = dict(self.CAROL)
-        del entry["login"]
-        assert unauthenticated_privileged_terminal_problems([entry], self.PRIVILEGES) == []
+        del entry["access"]
+        assert shared_card_privileged_problems([entry], self.PRIVILEGES) == []
 
-    def test_an_unprivileged_persona_may_be_served_openly(self):
-        """The shipped `ariel` card: no login, and nothing it could edit."""
-        ariel = {"name": "ariel", "index": 2, "persona": "ariel", "login": False}
-        assert unauthenticated_privileged_terminal_problems([ariel], self.PRIVILEGES) == []
+    def test_an_unprivileged_persona_may_be_shared(self):
+        """The shipped `ariel` card: open to the roster, and nothing it could edit."""
+        ariel = {"name": "ariel", "index": 2, "persona": "ariel", "access": "any"}
+        assert shared_card_privileged_problems([ariel], self.PRIVILEGES) == []
 
     def test_a_persona_whose_config_could_not_be_read_contributes_nothing(self):
-        assert unauthenticated_privileged_terminal_problems([self.CAROL], {}) == []
+        assert shared_card_privileged_problems([self.CAROL], {}) == []
 
     def test_an_entry_with_no_persona_in_effect_contributes_nothing(self):
-        entry = {"name": "dave", "index": 4, "persona": None, "login": False}
-        assert unauthenticated_privileged_terminal_problems([entry], self.PRIVILEGES) == []
+        entry = {"name": "dave", "index": 4, "persona": None, "access": "any"}
+        assert shared_card_privileged_problems([entry], self.PRIVILEGES) == []
 
     def test_every_offender_is_named_at_once(self):
         """An operator fixing a roster sees the whole list, not the second entry
         after fixing the first."""
-        dave = {"name": "dave", "index": 4, "persona": "admin", "login": False}
-        problems = unauthenticated_privileged_terminal_problems([self.CAROL, dave], self.PRIVILEGES)
+        dave = {"name": "dave", "index": 4, "persona": "admin", "access": "any"}
+        problems = shared_card_privileged_problems([self.CAROL, dave], self.PRIVILEGES)
         assert [problem for problem in problems if "'carol'" in problem]
         assert [problem for problem in problems if "'dave'" in problem]
 
@@ -325,10 +323,10 @@ class TestDeploymentWidePrivilegedExposure:
         assert "auth.method" in problems[0]
         assert "'readonly'" in problems[0]
 
-    def test_the_login_key_is_ignored_because_it_is_inert(self):
-        """With no wall, `login: true` exempts nobody — the exposure is the same."""
-        walled = dict(self.CAROL, login=True)
-        assert len(deployment_wide_privileged_exposure_problems([walled], self.PRIVILEGES)) == 1
+    def test_the_access_key_is_ignored_because_it_is_inert(self):
+        """With no wall, `access: any` widens nothing — the exposure is the same."""
+        shared = dict(self.CAROL, access="any")
+        assert len(deployment_wide_privileged_exposure_problems([shared], self.PRIVILEGES)) == 1
 
     def test_unprivileged_entries_are_not_named(self):
         assert deployment_wide_privileged_exposure_problems([self.ALICE], self.PRIVILEGES) == []
@@ -389,49 +387,43 @@ class TestPersonaProfileTextsGuard:
         assert "default_persona 'admin'" in message
         assert "'readonly'" in message
 
-    def test_unauthenticated_privileged_entry_refuses_naming_the_user(self):
+    def test_shared_privileged_card_refuses_naming_the_user(self):
         import click
 
         config = _shipped_host_config()
         for user in config["modules.web_terminals"]["users"]:
             if user["name"] == "carol":
-                user["login"] = False
+                user["access"] = "any"
         with pytest.raises(click.UsageError) as excinfo:
             _persona_texts(config)
         message = str(excinfo.value)
         assert "'carol'" in message
-        assert "login: true" in message
+        assert "access: own" in message
 
-    def test_an_unprivileged_persona_may_still_be_served_openly(self):
-        """`ariel` keeps its login-less card — the guard is about privilege, not logins."""
+    def test_an_unprivileged_persona_may_still_be_shared(self):
+        """`ariel` keeps its shared card — the guard is about privilege, not sharing."""
         config = _shipped_host_config()
         texts = _persona_texts(config)
         assert "ariel" in texts
 
-    def test_a_floorless_host_preset_refuses_the_open_entry_too(self):
-        """The last place the pre-C1 reading survived. This guard used to be fed
-        one baseline-RELATIVE map for both its rules, so on a host preset that
-        floors neither surface every persona sat at the baseline, the map was
-        empty for all of them, and `osprey init` emitted a repo serving an
-        unauthenticated terminal that could edit the deployment. The login rule
-        reads what the persona holds OUTRIGHT, which does not move when the
-        floor goes away.
-
-        The remedy has to move, though: with no floor there is no unprivileged
-        tier to be re-pointed at, so it says how to create one."""
+    def test_a_floorless_host_preset_refuses_the_shared_card_too(self):
+        """This guard used to be fed one baseline-RELATIVE map for both its
+        rules, so on a host preset that floors neither surface every persona
+        sat at the baseline, the map was empty for all of them, and `osprey
+        init` emitted a repo handing a deployment-editing terminal to the whole
+        roster. The shared-card rule reads what the persona holds OUTRIGHT,
+        which does not move when the floor goes away."""
         import click
 
         config = _floorless(_shipped_host_config())
         for user in config["modules.web_terminals"]["users"]:
             if user["name"] == "carol":
-                user["login"] = False
+                user["access"] = "any"
         with pytest.raises(click.UsageError) as excinfo:
             _persona_texts(config)
         message = str(excinfo.value)
         assert "'carol'" in message
-        assert "floors neither surface" in message
-        assert "the bundled stack's 'readonly'" not in message
-        assert "login: true" in message
+        assert "access: own" in message
         # `osprey init` renders its refusals through rich, which eats `[...]`.
         assert "[" not in message
 
@@ -455,7 +447,7 @@ class TestProfileTimeBelt:
     def test_shipped_preset_is_clean(self):
         findings = lint_profile_config(_shipped_host_config())
         assert DEFAULT_PERSONA_CODE not in _codes(findings)
-        assert UNAUTHENTICATED_CODE not in _codes(findings)
+        assert SHARED_CARD_CODE not in _codes(findings)
 
     def test_privileged_default_persona_is_an_error(self):
         config = _shipped_host_config()
@@ -464,14 +456,14 @@ class TestProfileTimeBelt:
         assert DEFAULT_PERSONA_CODE in _codes(findings)
         assert "'readonly'" in _messages(findings, DEFAULT_PERSONA_CODE)[0]
 
-    def test_unauthenticated_privileged_entry_is_an_error_naming_the_user(self):
+    def test_shared_privileged_card_is_an_error_naming_the_user(self):
         config = _shipped_host_config()
         for user in config["modules.web_terminals"]["users"]:
             if user["name"] == "carol":
-                user["login"] = False
+                user["access"] = "any"
         findings = lint_profile_config(config)
-        assert UNAUTHENTICATED_CODE in _codes(findings)
-        assert "'carol'" in _messages(findings, UNAUTHENTICATED_CODE)[0]
+        assert SHARED_CARD_CODE in _codes(findings)
+        assert "'carol'" in _messages(findings, SHARED_CARD_CODE)[0]
 
     def test_auth_none_is_reported_but_does_not_block(self):
         """The exposure is real and named; failing a build over the shipped
@@ -486,15 +478,15 @@ class TestProfileTimeBelt:
         assert "'carol'" in messages[0]
         assert "auth.method" in messages[0]
 
-    def test_auth_none_replaces_the_login_finding_rather_than_doubling_it(self):
-        """One exposure, one message: `login: false` is inert with no wall."""
+    def test_auth_none_replaces_the_shared_card_finding_rather_than_doubling_it(self):
+        """One exposure, one message: `access: any` is inert with no wall."""
         config = _shipped_host_config()
         config["modules.web_terminals"]["auth"] = {"method": "none"}
         for user in config["modules.web_terminals"]["users"]:
             if user["name"] == "carol":
-                user["login"] = False
+                user["access"] = "any"
         findings = lint_profile_config(config)
-        assert UNAUTHENTICATED_CODE not in [f.code for f in findings]
+        assert SHARED_CARD_CODE not in [f.code for f in findings]
         assert len(_messages(findings, DEPLOYMENT_WIDE_CODE)) == 1
 
     def test_an_unreferenced_privileged_persona_deploys_nothing(self):
@@ -506,10 +498,10 @@ class TestProfileTimeBelt:
         ]
         findings = lint_profile_config(config)
         assert DEFAULT_PERSONA_CODE not in _codes(findings)
-        assert UNAUTHENTICATED_CODE not in _codes(findings)
+        assert SHARED_CARD_CODE not in _codes(findings)
 
 
-def _delta_repo(tmp_path: Path, *, admin_login: Any) -> dict[str, Any]:
+def _delta_repo(tmp_path: Path, *, admin_access: Any) -> dict[str, Any]:
     """A materialized-repo shape: a host `config:` bag plus `personas/*.yml` deltas.
 
     This is what `osprey init` leaves behind and what `osprey profile validate`
@@ -536,8 +528,8 @@ def _delta_repo(tmp_path: Path, *, admin_login: Any) -> dict[str, Any]:
         encoding="utf-8",
     )
     carol: dict[str, Any] = {"name": "carol", "index": 1, "persona": "admin"}
-    if admin_login is not None:
-        carol["login"] = admin_login
+    if admin_access is not None:
+        carol["access"] = admin_access
     return {
         "facility.prefix": "ca",
         "claude_code.permissions.deny": [SETUP_TOOL],
@@ -579,33 +571,23 @@ def _floorless(config: dict[str, Any]) -> dict[str, Any]:
 
 
 class TestFloorlessDeploymentsAreNotExempt:
-    """A profile that floors nothing must still not serve an open privileged terminal.
+    """A profile that floors nothing must still not share a privileged card.
 
-    The `login: false` rule is judged on what a persona ABSOLUTELY holds, so
+    The shared-card rule is judged on what a persona ABSOLUTELY holds, so
     deleting the floor makes the finding worse rather than making it disappear.
     Its sibling rules stay baseline-relative — see `privileges_beyond_baseline`
     — and this class pins both sides of that asymmetry.
     """
 
-    def test_login_false_is_refused_with_a_remedy_that_presupposes_no_tier(
-        self, tmp_path: Path, monkeypatch
-    ):
+    def test_a_shared_card_is_still_refused_with_no_floor(self, tmp_path: Path, monkeypatch):
         monkeypatch.chdir(tmp_path)
-        findings = lint_profile_config(_floorless(_delta_repo(tmp_path, admin_login=False)))
-        assert UNAUTHENTICATED_CODE in _codes(findings)
-        message = _messages(findings, UNAUTHENTICATED_CODE)[0]
+        findings = lint_profile_config(_floorless(_delta_repo(tmp_path, admin_access="any")))
+        assert SHARED_CARD_CODE in _codes(findings)
+        message = _messages(findings, SHARED_CARD_CODE)[0]
         assert "'carol'" in message
-        # The tier remedy would name a persona this deployment does not have.
-        assert "the bundled stack's 'readonly'" not in message
-        assert "floors neither surface" in message
-        assert "claude_code.permissions.deny" in message
-        assert SETUP_TOOL in message
-        assert "web.config_panel.enabled: false" in message
-        assert "claude_code.permissions.remove_deny" in message
-        assert "login: true" in message
+        assert "access: own" in message
         # `osprey build` renders refusals through rich, which reads `[...]` as a
-        # style tag: an earlier draft wrote the deny list as `deny: [<tool>]`
-        # and the tool name vanished from the build's output.
+        # style tag.
         assert "[" not in message
 
     def test_the_same_deployment_with_everyone_authenticated_is_clean(
@@ -613,10 +595,10 @@ class TestFloorlessDeploymentsAreNotExempt:
     ):
         """The negative control, and the migration the relative reading exists
         for: a floorless deployment behind a login draws nothing at all — not
-        the login finding, and not the `default_persona` finding either."""
+        the shared-card finding, and not the `default_persona` finding either."""
         monkeypatch.chdir(tmp_path)
-        findings = lint_profile_config(_floorless(_delta_repo(tmp_path, admin_login=None)))
-        assert UNAUTHENTICATED_CODE not in _codes(findings)
+        findings = lint_profile_config(_floorless(_delta_repo(tmp_path, admin_access=None)))
+        assert SHARED_CARD_CODE not in _codes(findings)
         assert DEFAULT_PERSONA_CODE not in _codes(findings)
         assert UNKNOWN_PRIVILEGE_CODE not in _codes(findings)
 
@@ -625,93 +607,28 @@ class TestFloorlessDeploymentsAreNotExempt:
     ):
         """The asymmetry, stated as a test: an inherited default on a profile
         written before the floor existed has no better tier to be pointed at,
-        so it stays silent where the typed `login: false` key does not."""
+        so it stays silent where the typed `access: any` key does not."""
         monkeypatch.chdir(tmp_path)
-        config = _floorless(_delta_repo(tmp_path, admin_login=None))
+        config = _floorless(_delta_repo(tmp_path, admin_access=None))
         config["modules.web_terminals"]["default_persona"] = "admin"
         assert DEFAULT_PERSONA_CODE not in _codes(lint_profile_config(config))
-
-    def test_the_remedy_is_chosen_by_the_baseline_not_by_the_altitude(self):
-        """The unit behind it: the same roster and the same privileges read one
-        way against a floored base and another against a floorless one."""
-        entries = [{"name": "carol", "persona": "admin", "login": False}]
-        privileges = {"admin": ALL_PRIVILEGES}
-
-        floored = unauthenticated_privileged_terminal_problems(entries, privileges)
-        floorless = unauthenticated_privileged_terminal_problems(
-            entries, privileges, baseline_privileges=ALL_PRIVILEGES
-        )
-
-        assert "the bundled stack's 'readonly'" in floored[0]
-        assert "floors neither surface" not in floored[0]
-        assert "floors neither surface" in floorless[0]
-        # Both name the user and the exposure; only the way out differs.
-        for message in (floored[0], floorless[0]):
-            assert "'carol'" in message
-            assert "Anyone who opens that terminal's page edits this deployment" in message
-
-    def test_a_partly_floored_baseline_names_the_surface_it_leaves_open(self):
-        """A PARTIAL floor is not a tier split either. With the panel unfloored
-        every persona holds it, so "point it at a persona that holds neither"
-        names a persona this deployment need not have — the same dishonest
-        remedy the floorless case was fixed for. The honest one names the one
-        surface still open and how to floor it."""
-        problems = unauthenticated_privileged_terminal_problems(
-            [{"name": "carol", "persona": "admin", "login": False}],
-            {"admin": ALL_PRIVILEGES},
-            baseline_privileges=[PRIVILEGE_CONFIG_PANEL],
-        )
-        assert "the bundled stack's 'readonly'" not in problems[0]
-        assert f"does not floor {PRIVILEGE_CONFIG_PANEL} for its base tier" in problems[0]
-        assert "web.config_panel.enabled: false" in problems[0]
-        assert "web.config_panel.enabled: true" in problems[0]
-        # The surface this deployment DOES floor is not mentioned: an operator
-        # told to add a deny it already has would go looking for a second bug.
-        assert "claude_code.permissions.deny" not in problems[0]
-        assert "login: true" in problems[0]
-        assert "[" not in problems[0]
-
-    def test_a_baseline_with_only_the_setup_tool_names_that_one(self):
-        """The mirror image, so the clause is built from the surface rather than
-        from whichever one the sentence happened to be written around."""
-        problems = unauthenticated_privileged_terminal_problems(
-            [{"name": "carol", "persona": "admin", "login": False}],
-            {"admin": ALL_PRIVILEGES},
-            baseline_privileges=[PRIVILEGE_SETUP_TOOL],
-        )
-        assert f"does not floor {PRIVILEGE_SETUP_TOOL} for its base tier" in problems[0]
-        assert "claude_code.permissions.deny" in problems[0]
-        assert SETUP_TOOL in problems[0]
-        assert "web.config_panel.enabled" not in problems[0]
-        assert "[" not in problems[0]
-
-    def test_a_fully_floored_baseline_keeps_the_tier_remedy(self):
-        """The shape that HAS an unprivileged tier: nothing to floor, so the
-        remedy points at the tier instead of naming keys."""
-        problems = unauthenticated_privileged_terminal_problems(
-            [{"name": "carol", "persona": "admin", "login": False}],
-            {"admin": ALL_PRIVILEGES},
-            baseline_privileges=[],
-        )
-        assert "the bundled stack's 'readonly'" in problems[0]
-        assert "does not floor" not in problems[0]
 
 
 class TestProfileTimeBeltReadsPersonaDeltas:
     def test_delta_that_lifts_the_floor_is_caught(self, tmp_path: Path, monkeypatch):
         monkeypatch.chdir(tmp_path)
-        findings = lint_profile_config(_delta_repo(tmp_path, admin_login=False))
-        assert UNAUTHENTICATED_CODE in _codes(findings)
-        assert "'carol'" in _messages(findings, UNAUTHENTICATED_CODE)[0]
+        findings = lint_profile_config(_delta_repo(tmp_path, admin_access="any"))
+        assert SHARED_CARD_CODE in _codes(findings)
+        assert "'carol'" in _messages(findings, SHARED_CARD_CODE)[0]
 
     def test_the_same_delta_behind_a_login_is_fine(self, tmp_path: Path, monkeypatch):
         monkeypatch.chdir(tmp_path)
-        findings = lint_profile_config(_delta_repo(tmp_path, admin_login=None))
-        assert UNAUTHENTICATED_CODE not in _codes(findings)
+        findings = lint_profile_config(_delta_repo(tmp_path, admin_access=None))
+        assert SHARED_CARD_CODE not in _codes(findings)
 
     def test_privileged_default_persona_from_a_delta_is_caught(self, tmp_path: Path, monkeypatch):
         monkeypatch.chdir(tmp_path)
-        config = _delta_repo(tmp_path, admin_login=None)
+        config = _delta_repo(tmp_path, admin_access=None)
         config["modules.web_terminals"]["default_persona"] = "admin"
         findings = lint_profile_config(config)
         assert DEFAULT_PERSONA_CODE in _codes(findings)
@@ -721,7 +638,7 @@ class TestProfileTimeBeltReadsPersonaDeltas:
     ):
         """ "Cannot tell" is not "holds nothing" where the answer decides something."""
         monkeypatch.chdir(tmp_path)
-        config = _delta_repo(tmp_path, admin_login=False)
+        config = _delta_repo(tmp_path, admin_access="any")
         (tmp_path / "personas" / "admin.yml").unlink()
         findings = lint_profile_config(config)
         assert UNKNOWN_PRIVILEGE_CODE in _codes(findings)
@@ -734,13 +651,13 @@ class TestProfileTimeBeltReadsPersonaDeltas:
         """A privileged persona behind a login is no exposure, so nor is an
         unreadable one — its real problem is reported by the check that owns it."""
         monkeypatch.chdir(tmp_path)
-        config = _delta_repo(tmp_path, admin_login=None)
+        config = _delta_repo(tmp_path, admin_access=None)
         (tmp_path / "personas" / "admin.yml").unlink()
         assert UNKNOWN_PRIVILEGE_CODE not in _codes(lint_profile_config(config))
 
     def test_an_unreadable_default_persona_is_refused(self, tmp_path: Path, monkeypatch):
         monkeypatch.chdir(tmp_path)
-        config = _delta_repo(tmp_path, admin_login=None)
+        config = _delta_repo(tmp_path, admin_access=None)
         config["modules.web_terminals"]["default_persona"] = "admin"
         (tmp_path / "personas" / "admin.yml").unlink()
         findings = lint_profile_config(config)
@@ -753,7 +670,7 @@ class TestProfileTimeBeltReadsPersonaDeltas:
         """The escape hatch: `../admin.yml` resolves as neither a delta nor
         a preset, so it used to read as unprivileged and build clean."""
         monkeypatch.chdir(tmp_path)
-        config = _delta_repo(tmp_path, admin_login=False)
+        config = _delta_repo(tmp_path, admin_access="any")
         (tmp_path / "personas" / "admin.yml").rename(tmp_path / "admin.yml")
         config["modules.web_terminals"]["personas"]["admin"]["build_profile"] = "../admin.yml"
         findings = lint_profile_config(config, profile_root=tmp_path)
@@ -762,22 +679,23 @@ class TestProfileTimeBeltReadsPersonaDeltas:
 
     def test_a_catalog_entry_with_no_build_profile_is_refused(self, tmp_path: Path, monkeypatch):
         monkeypatch.chdir(tmp_path)
-        config = _delta_repo(tmp_path, admin_login=False)
+        config = _delta_repo(tmp_path, admin_access="any")
         del config["modules.web_terminals"]["personas"]["admin"]["build_profile"]
         assert UNKNOWN_PRIVILEGE_CODE in _codes(lint_profile_config(config))
 
     def test_a_deployment_with_no_floor_still_refuses_an_unreadable_open_terminal(
         self, tmp_path: Path, monkeypatch
     ):
-        """The unknown rule's `login: false` half is NOT gated on the split.
+        """The unknown rule's shared-card half is NOT gated on the split.
 
         A floorless deployment hands both surfaces to every persona it has, so
         a persona nobody can read is one nobody can show holds less than
-        everything — and this one is served to whoever opens its page. The
-        earlier reading exempted exactly the deployment with the most to hide.
+        everything — and this one is opened by every login the deployment has.
+        The earlier reading exempted exactly the deployment with the most to
+        hide.
         """
         monkeypatch.chdir(tmp_path)
-        config = _floorless(_delta_repo(tmp_path, admin_login=False))
+        config = _floorless(_delta_repo(tmp_path, admin_access="any"))
         (tmp_path / "personas" / "admin.yml").unlink()
         findings = lint_profile_config(config)
         assert UNKNOWN_PRIVILEGE_CODE in _codes(findings)
@@ -793,7 +711,7 @@ class TestProfileTimeBeltReadsPersonaDeltas:
         re-pointed at — the same migration argument that makes the KNOWN
         default-persona rule baseline-relative."""
         monkeypatch.chdir(tmp_path)
-        config = _floorless(_delta_repo(tmp_path, admin_login=None))
+        config = _floorless(_delta_repo(tmp_path, admin_access=None))
         config["modules.web_terminals"]["default_persona"] = "admin"
         (tmp_path / "personas" / "admin.yml").unlink()
         assert UNKNOWN_PRIVILEGE_CODE not in _codes(lint_profile_config(config))
@@ -805,7 +723,7 @@ class TestProfileTimeBeltReadsPersonaDeltas:
         version of this exposure is only advisory — so nor does the unknown one
         become an error."""
         monkeypatch.chdir(tmp_path)
-        config = _delta_repo(tmp_path, admin_login=False)
+        config = _delta_repo(tmp_path, admin_access="any")
         config["modules.web_terminals"]["auth"] = {"method": "none"}
         (tmp_path / "personas" / "admin.yml").unlink()
         assert UNKNOWN_PRIVILEGE_CODE not in _codes(lint_profile_config(config))
@@ -821,13 +739,13 @@ class TestProfileRootIsNotTheWorkingDirectory:
     """
 
     def test_a_run_from_a_subdirectory_still_refuses_the_roster(self, tmp_path: Path, monkeypatch):
-        config = _delta_repo(tmp_path, admin_login=False)
+        config = _delta_repo(tmp_path, admin_access="any")
         subdirectory = tmp_path / "data"
         subdirectory.mkdir()
         monkeypatch.chdir(subdirectory)
         findings = lint_profile_config(config, profile_root=tmp_path)
-        assert UNAUTHENTICATED_CODE in _codes(findings)
-        assert "'carol'" in _messages(findings, UNAUTHENTICATED_CODE)[0]
+        assert SHARED_CARD_CODE in _codes(findings)
+        assert "'carol'" in _messages(findings, SHARED_CARD_CODE)[0]
 
     def test_a_run_from_outside_the_repo_still_refuses_the_roster(
         self, tmp_path: Path, monkeypatch
@@ -835,20 +753,20 @@ class TestProfileRootIsNotTheWorkingDirectory:
         """The `--repo` shape: the cwd has no `personas/` directory at all."""
         repo = tmp_path / "repo"
         repo.mkdir()
-        config = _delta_repo(repo, admin_login=False)
+        config = _delta_repo(repo, admin_access="any")
         outside = tmp_path / "outside"
         outside.mkdir()
         monkeypatch.chdir(outside)
-        assert UNAUTHENTICATED_CODE in _codes(lint_profile_config(config, profile_root=repo))
+        assert SHARED_CARD_CODE in _codes(lint_profile_config(config, profile_root=repo))
 
     def test_without_a_profile_root_the_check_sees_nothing(self, tmp_path: Path, monkeypatch):
         """Pinning the fallback so the omission is a caller bug, not a silent one."""
-        config = _delta_repo(tmp_path, admin_login=False)
+        config = _delta_repo(tmp_path, admin_access="any")
         subdirectory = tmp_path / "data"
         subdirectory.mkdir()
         monkeypatch.chdir(subdirectory)
         findings = lint_profile_config(config)
-        assert UNAUTHENTICATED_CODE not in _codes(findings)
+        assert SHARED_CARD_CODE not in _codes(findings)
         # Not silent, though: it reports that it could not read the persona.
         assert UNKNOWN_PRIVILEGE_CODE in _codes(findings)
 
@@ -856,7 +774,7 @@ class TestProfileRootIsNotTheWorkingDirectory:
 # ── The lint belt at deploy time ─────────────────────────────────────────────
 
 
-def _rendered_repo(tmp_path: Path, *, admin_config: dict[str, Any], login: Any) -> dict[str, Any]:
+def _rendered_repo(tmp_path: Path, *, admin_config: dict[str, Any], access: Any) -> dict[str, Any]:
     """A rendered project: each persona's own `build/<project>/config.yml` on disk."""
     for project, persona_config in (
         ("ca-admin", admin_config),
@@ -872,8 +790,8 @@ def _rendered_repo(tmp_path: Path, *, admin_config: dict[str, Any], login: Any) 
         project_dir.mkdir(parents=True)
         (project_dir / "config.yml").write_text(yaml.safe_dump(persona_config), encoding="utf-8")
     carol: dict[str, Any] = {"name": "carol", "index": 1, "persona": "admin"}
-    if login is not None:
-        carol["login"] = login
+    if access is not None:
+        carol["access"] = access
     return {
         "facility": {"prefix": "ca"},
         # The deploy config's own posture is the BASELINE every persona is judged
@@ -938,7 +856,7 @@ def _unrender(root: Path, project: str) -> None:
     directory.rmdir()
 
 
-def _registry_repo(tmp_path: Path, *, login: Any) -> dict[str, Any]:
+def _registry_repo(tmp_path: Path, *, access: Any) -> dict[str, Any]:
     """A deployment in the DEFAULT image mode: images built in CI, nothing rendered here.
 
     `image_source: registry` is what `effective_image_source` returns for
@@ -948,8 +866,8 @@ def _registry_repo(tmp_path: Path, *, login: Any) -> dict[str, Any]:
     persona this roster references is unreadable here.
     """
     carol: dict[str, Any] = {"name": "carol", "index": 1, "persona": "admin"}
-    if login is not None:
-        carol["login"] = login
+    if access is not None:
+        carol["access"] = access
     (tmp_path / "build").mkdir(exist_ok=True)
     return {
         "facility": {"prefix": "ca"},
@@ -991,37 +909,18 @@ FLOORED_RENDER = {
 class TestRenderedProjectBelt:
     """`osprey up`, which lints the deploy config against what the build produced.
 
-    An unauthenticated privileged terminal BLOCKS here as it does at profile
-    altitude: it is the same open door either way, this is the only altitude a
-    hand-edited `config.yml` is ever read at, and every surface that gates on
-    the lint filters to errors — so a warning here reached nobody. A render that
-    simply predates the base tier's deny floor is refused too, and told to
-    rebuild.
+    A shared privileged card BLOCKS here as it does at profile altitude: it is
+    the same open door either way, this is the only altitude a hand-edited
+    `config.yml` is ever read at, and every surface that gates on the lint
+    filters to errors — so a warning here reached nobody.
     """
 
-    def test_privileged_render_without_a_login_is_refused(self, tmp_path: Path, monkeypatch):
+    def test_privileged_render_on_a_shared_card_is_refused(self, tmp_path: Path, monkeypatch):
         monkeypatch.chdir(tmp_path)
-        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, login=False)
+        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, access="any")
         findings = lint_web_terminals(config)
-        assert UNAUTHENTICATED_CODE in _codes(findings)
-        assert "'carol'" in _messages(findings, UNAUTHENTICATED_CODE)[0]
-
-    def test_a_stale_render_is_refused_and_told_to_rebuild(self, tmp_path: Path, monkeypatch):
-        """The remedy an operator can act on: the profile may be fine already."""
-        monkeypatch.chdir(tmp_path)
-        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, login=False)
-        message = _messages(lint_web_terminals(config), UNAUTHENTICATED_CODE)[0]
-        assert "osprey build" in message
-        assert "predates" in message
-
-    def test_the_rebuild_remedy_is_not_said_at_profile_altitude(self):
-        """A profile has no render to be stale; the remedy there is an edit."""
-        config = _shipped_host_config()
-        for user in config["modules.web_terminals"]["users"]:
-            if user["name"] == "carol":
-                user["login"] = False
-        message = _messages(lint_profile_config(config), UNAUTHENTICATED_CODE)[0]
-        assert "osprey build" not in message
+        assert SHARED_CARD_CODE in _codes(findings)
+        assert "'carol'" in _messages(findings, SHARED_CARD_CODE)[0]
 
     def test_project_root_is_the_repo_the_caller_names_not_the_cwd(
         self, tmp_path: Path, monkeypatch
@@ -1029,59 +928,54 @@ class TestRenderedProjectBelt:
         """`osprey up` from anywhere reads the same persona configs."""
         elsewhere = tmp_path / "elsewhere"
         elsewhere.mkdir()
-        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, login=False)
+        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, access="any")
         monkeypatch.chdir(elsewhere)
-        assert UNAUTHENTICATED_CODE not in _codes(lint_web_terminals(config))
+        assert SHARED_CARD_CODE not in _codes(lint_web_terminals(config))
         findings = lint_web_terminals(config, project_root=tmp_path)
-        assert UNAUTHENTICATED_CODE in _codes(findings)
-        assert "'carol'" in _messages(findings, UNAUTHENTICATED_CODE)[0]
+        assert SHARED_CARD_CODE in _codes(findings)
+        assert "'carol'" in _messages(findings, SHARED_CARD_CODE)[0]
 
-    def test_floored_render_without_a_login_is_silent(self, tmp_path: Path, monkeypatch):
+    def test_floored_render_on_a_shared_card_is_silent(self, tmp_path: Path, monkeypatch):
         monkeypatch.chdir(tmp_path)
-        config = _rendered_repo(tmp_path, admin_config=FLOORED_RENDER, login=False)
+        config = _rendered_repo(tmp_path, admin_config=FLOORED_RENDER, access="any")
         findings = lint_web_terminals(config)
         # Both severities: the rule is an error here, so asserting only the
         # warnings would pass on a config it was screaming about.
-        assert UNAUTHENTICATED_CODE not in _codes(findings)
-        assert UNAUTHENTICATED_CODE not in _codes(findings, "warn")
+        assert SHARED_CARD_CODE not in _codes(findings)
+        assert SHARED_CARD_CODE not in _codes(findings, "warn")
 
-    def test_privileged_render_behind_a_login_is_silent(self, tmp_path: Path, monkeypatch):
+    def test_privileged_render_on_an_own_card_is_silent(self, tmp_path: Path, monkeypatch):
         monkeypatch.chdir(tmp_path)
-        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, login=None)
+        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, access=None)
         findings = lint_web_terminals(config)
-        assert UNAUTHENTICATED_CODE not in _codes(findings)
-        assert UNAUTHENTICATED_CODE not in _codes(findings, "warn")
+        assert SHARED_CARD_CODE not in _codes(findings)
+        assert SHARED_CARD_CODE not in _codes(findings, "warn")
 
     def test_privileged_default_persona_in_a_render_is_reported(self, tmp_path: Path, monkeypatch):
         monkeypatch.chdir(tmp_path)
-        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, login=None)
+        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, access=None)
         config["modules"]["web_terminals"]["default_persona"] = "admin"
         findings = lint_web_terminals(config)
         assert DEFAULT_PERSONA_CODE in _codes(findings, "warn")
         assert DEFAULT_PERSONA_CODE not in _codes(findings)
 
-    def test_a_deployment_with_no_floor_is_refused_with_the_floor_remedy(
-        self, tmp_path: Path, monkeypatch
-    ):
+    def test_a_deployment_with_no_floor_is_still_refused(self, tmp_path: Path, monkeypatch):
         """A render whose two floor keys were deleted by hand. The deployment
-        now hands both surfaces to every persona it has, so an open terminal
-        there is the WORST version of this finding, not an exempt one — and the
-        remedy switches to the one an operator with no tier can carry out."""
+        now hands both surfaces to every persona it has, so a shared card
+        there is the WORST version of this finding, not an exempt one."""
         monkeypatch.chdir(tmp_path)
-        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, login=False)
+        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, access="any")
         del config["claude_code"]
         del config["web"]
         findings = lint_web_terminals(config)
-        assert UNAUTHENTICATED_CODE in _codes(findings)
-        message = _messages(findings, UNAUTHENTICATED_CODE)[0]
-        assert "'carol'" in message
-        assert "floors neither surface" in message
+        assert SHARED_CARD_CODE in _codes(findings)
+        assert "'carol'" in _messages(findings, SHARED_CARD_CODE)[0]
 
     def test_an_unrendered_persona_is_refused_where_it_is_exposed(
         self, tmp_path: Path, monkeypatch
     ):
-        """A persona referenced by a `login: false` entry whose project was
-        never rendered — a `project_path` typo, a partial build.
+        """A persona referenced by a shared card whose project was never
+        rendered — a `project_path` typo, a partial build.
 
         Its privileges cannot be read, and the only other signal is a WARN about
         a different question (`persona_project_path_not_rendered_yet`) that no
@@ -1090,12 +984,12 @@ class TestRenderedProjectBelt:
         path itself, so it is refused and told to rebuild.
         """
         monkeypatch.chdir(tmp_path)
-        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, login=False)
+        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, access="any")
         _unrender(tmp_path, "ca-admin")
         findings = lint_web_terminals(config)
         # Not guessed at: the privilege itself is still not asserted.
-        assert UNAUTHENTICATED_CODE not in _codes(findings)
-        assert UNAUTHENTICATED_CODE not in _codes(findings, "warn")
+        assert SHARED_CARD_CODE not in _codes(findings)
+        assert SHARED_CARD_CODE not in _codes(findings, "warn")
         assert UNKNOWN_PRIVILEGE_CODE in _codes(findings)
         message = _messages(findings, UNKNOWN_PRIVILEGE_CODE)[0]
         assert "'admin'" in message
@@ -1113,58 +1007,58 @@ class TestRenderedProjectBelt:
         render check's finding, not this one's. Otherwise every partial build
         would fail over personas that deploy nothing open."""
         monkeypatch.chdir(tmp_path)
-        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, login=None)
+        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, access=None)
         _unrender(tmp_path, "ca-admin")
         findings = lint_web_terminals(config)
         assert UNKNOWN_PRIVILEGE_CODE not in _codes(findings)
         assert NOT_RENDERED_CODE in _codes(findings, "warn")
 
-    def test_the_unknown_refusal_offers_the_login_it_is_about(self, tmp_path: Path, monkeypatch):
+    def test_the_unknown_refusal_offers_the_key_it_is_about(self, tmp_path: Path, monkeypatch):
         """Both other remedies presuppose a document that can be made to
         resolve — a render this deployment may build in CI rather than here. The
-        entry's own `login: true` is the one an operator can always carry out,
+        entry's own `access: own` is the one an operator can always carry out,
         and it is the one that closes the door the finding is about, so the
         refusal is never a dead end."""
         monkeypatch.chdir(tmp_path)
-        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, login=False)
+        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, access="any")
         _unrender(tmp_path, "ca-admin")
         message = _messages(lint_web_terminals(config), UNKNOWN_PRIVILEGE_CODE)[0]
-        assert "or set login: true for 'carol'" in message
+        assert "or set access: own for 'carol'" in message
         assert "[" not in message
 
     def test_the_unknown_refusal_says_both_reasons_when_both_apply(
         self, tmp_path: Path, monkeypatch
     ):
         """A persona can be at stake twice over — it is the `default_persona`
-        AND an entry opted out of the login wall to reach it. The open door is
+        AND a shared card resolves to it. The open door is
         the more serious half and the one whose remedy differs, so the finding
         says both rather than letting whichever ran first win."""
         monkeypatch.chdir(tmp_path)
-        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, login=False)
+        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, access="any")
         config["modules"]["web_terminals"]["default_persona"] = "admin"
         _unrender(tmp_path, "ca-admin")
         message = _messages(lint_web_terminals(config), UNKNOWN_PRIVILEGE_CODE)[0]
         assert "default_persona" in message
         assert "'carol'" in message
-        assert "without a login" in message
-        assert "or set login: true for 'carol'" in message
+        assert "shared with the whole roster" in message
+        assert "or set access: own for 'carol'" in message
 
     def test_every_open_entry_on_one_unreadable_persona_is_named(self, tmp_path: Path, monkeypatch):
-        """Two `login: false` entries, one unreadable persona. Naming only the
-        first costs the operator a round trip: they set `login: true` for carol,
+        """Two shared cards, one unreadable persona. Naming only the first
+        costs the operator a round trip: they set `access: own` for carol,
         re-run, and meet the same refusal for dave. The KNOWN half of this rule
         emits one message per entry and names them all — this half says both in
         one message, in the reason clause AND in the remedy."""
         monkeypatch.chdir(tmp_path)
-        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, login=False)
+        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, access="any")
         config["modules"]["web_terminals"]["users"].append(
-            {"name": "dave", "index": 2, "persona": "admin", "login": False}
+            {"name": "dave", "index": 2, "persona": "admin", "access": "any"}
         )
         _unrender(tmp_path, "ca-admin")
         messages = _messages(lint_web_terminals(config), UNKNOWN_PRIVILEGE_CODE)
         assert len(messages) == 1
-        assert "users 'carol' and 'dave' are served without a login" in messages[0]
-        assert "or set login: true for 'carol' and 'dave'" in messages[0]
+        assert "users 'carol' and 'dave' are shared with the whole roster" in messages[0]
+        assert "or set access: own for 'carol' and 'dave'" in messages[0]
         assert "[" not in messages[0]
 
     def test_an_unreadable_persona_under_auth_none_is_a_warning_not_silence(
@@ -1177,7 +1071,7 @@ class TestRenderedProjectBelt:
         Skipping the advisory rung is how registry mode plus auth-off came to
         report nothing at all."""
         monkeypatch.chdir(tmp_path)
-        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, login=None)
+        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, access=None)
         config["modules"]["web_terminals"]["auth"] = {"method": "none"}
         _unrender(tmp_path, "ca-admin")
         findings = lint_web_terminals(config)
@@ -1195,7 +1089,7 @@ class TestRenderedProjectBelt:
         severity: both defaults at once, and a referenced persona nobody can
         read."""
         monkeypatch.chdir(tmp_path)
-        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, login=None)
+        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, access=None)
         config["modules"]["web_terminals"]["auth"] = {"method": "none"}
         del config["modules"]["web_terminals"]["image_source"]
         _unrender(tmp_path, "ca-admin")
@@ -1212,7 +1106,7 @@ class TestRenderedProjectBelt:
         sentence and name it as missing in the next. Here the base denies the
         setup tool but leaves the Config panel on for every persona."""
         monkeypatch.chdir(tmp_path)
-        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, login=False)
+        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, access="any")
         del config["web"]
         _unrender(tmp_path, "ca-admin")
         message = _messages(lint_web_terminals(config), UNKNOWN_PRIVILEGE_CODE)[0]
@@ -1223,7 +1117,7 @@ class TestRenderedProjectBelt:
 
     def test_a_fully_floored_deployment_says_it_floors_both(self, tmp_path: Path, monkeypatch):
         monkeypatch.chdir(tmp_path)
-        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, login=False)
+        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, access="any")
         _unrender(tmp_path, "ca-admin")
         message = _messages(lint_web_terminals(config), UNKNOWN_PRIVILEGE_CODE)[0]
         assert "floors both surfaces for its base tier" in message
@@ -1236,7 +1130,7 @@ class TestRenderedProjectBelt:
         entry that names no tier inherits a persona nobody can read — and it is
         refused."""
         monkeypatch.chdir(tmp_path)
-        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, login=None)
+        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, access=None)
         config["modules"]["web_terminals"]["default_persona"] = "admin"
         _unrender(tmp_path, "ca-admin")
         findings = lint_web_terminals(config)
@@ -1254,41 +1148,43 @@ class TestRenderedProjectBelt:
         rather than drift, and no remedy exists that a pull-only host can carry
         out. The profile altitude, where the deltas live, owns that question."""
         monkeypatch.chdir(tmp_path)
-        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, login=None)
+        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, access=None)
         config["modules"]["web_terminals"]["default_persona"] = "admin"
         del config["modules"]["web_terminals"]["image_source"]
         _unrender(tmp_path, "ca-admin")
         assert UNKNOWN_PRIVILEGE_CODE not in _codes(lint_web_terminals(config))
 
-    def test_the_login_half_is_not_gated_on_the_image_source(self, tmp_path: Path, monkeypatch):
-        """The other half of the gate: an entry that typed itself public is
-        refused in either mode, because its remedy is its own login key and
+    def test_the_shared_card_half_is_not_gated_on_the_image_source(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """The other half of the gate: an entry that typed itself shared is
+        refused in either mode, because its remedy is its own access key and
         every host holds that."""
         monkeypatch.chdir(tmp_path)
-        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, login=False)
+        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, access="any")
         del config["modules"]["web_terminals"]["image_source"]
         _unrender(tmp_path, "ca-admin")
         findings = lint_web_terminals(config)
         assert UNKNOWN_PRIVILEGE_CODE in _codes(findings)
         assert "'carol'" in _messages(findings, UNKNOWN_PRIVILEGE_CODE)[0]
 
-    def test_an_unknown_default_persona_nobody_is_exposed_by_offers_no_login(
+    def test_an_unknown_default_persona_nobody_shares_offers_no_access_key(
         self, tmp_path: Path, monkeypatch
     ):
         """The clause names a user, so it is said only where an entry named
-        itself. An inherited default behind the wall has no `login: false` to
+        itself. An inherited default behind the wall has no `access: any` to
         turn off."""
         monkeypatch.chdir(tmp_path)
-        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, login=None)
+        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, access=None)
         config["modules"]["web_terminals"]["default_persona"] = "admin"
         _unrender(tmp_path, "ca-admin")
         message = _messages(lint_web_terminals(config), UNKNOWN_PRIVILEGE_CODE)[0]
         assert "default_persona" in message
-        assert "login: true" not in message
+        assert "access: own" not in message
 
     def test_a_disabled_module_is_not_linted_at_all(self, tmp_path: Path, monkeypatch):
         monkeypatch.chdir(tmp_path)
-        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, login=False)
+        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, access="any")
         config["modules"]["web_terminals"]["enabled"] = False
         assert lint_web_terminals(config) == []
 
@@ -1319,7 +1215,7 @@ class TestProfileConfigWarnings:
         It does not fall silent, though — that was the hole. Blind, the belt
         says it cannot tell; given the root, it names the exposure itself.
         """
-        config = _delta_repo(tmp_path, admin_login=None)
+        config = _delta_repo(tmp_path, admin_access=None)
         config["modules.web_terminals"]["auth"] = {"method": "none"}
         subdirectory = tmp_path / "data"
         subdirectory.mkdir()
@@ -1363,8 +1259,8 @@ class TestTheUpPreflightGate:
     web-terminals lint` and the `render` pre-render gate — and neither is on the
     deploy path. So a hand-edit to `build/config.yml` (a file no build
     fingerprint covers: `profile.yml` is untouched, so the staleness check is
-    silent) could set `login: false` on a privileged persona, fail the lint, and
-    still pass `osprey up`'s preflight and start containers.
+    silent) could share a privileged persona's card, fail the lint, and still
+    pass `osprey up`'s preflight and start containers.
 
     The gate is deliberately NARROW: only the two open-door codes refuse a
     start. Every other lint error already gates the authoring verbs, and a start
@@ -1392,48 +1288,44 @@ class TestTheUpPreflightGate:
 
         return provision.web_terminal_preflight_advisories(config, repo_root=root)
 
-    def test_a_hand_edited_login_false_refuses_the_start(self, tmp_path: Path, monkeypatch):
-        """THE repro: `profile.yml` untouched, one key flipped in the render."""
-        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, login=False)
+    def test_a_hand_edited_shared_card_refuses_the_start(self, tmp_path: Path, monkeypatch):
+        """THE repro: `profile.yml` untouched, one key added in the render."""
+        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, access="any")
         problems = self._problems(config, tmp_path, monkeypatch)
-        assert any("'carol'" in problem and "without a login" in problem for problem in problems)
+        assert any("'carol'" in problem and "shared card" in problem for problem in problems)
 
-    def test_a_pre_floor_render_refuses_the_start_and_says_to_rebuild(
-        self, tmp_path: Path, monkeypatch
-    ):
+    def test_a_pre_floor_render_still_refuses_the_start(self, tmp_path: Path, monkeypatch):
         """A render that predates the base tier's deny floor: the deploy config
-        itself floors neither surface, so every persona holds both. The remedy
-        an operator can act on here is a rebuild, and the message says so."""
-        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, login=False)
+        itself floors neither surface, so every persona holds both — the
+        shared card is refused all the same."""
+        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, access="any")
         del config["claude_code"]
         del config["web"]
         problems = self._problems(config, tmp_path, monkeypatch)
-        refusal = next(problem for problem in problems if "'carol'" in problem)
-        assert "floors neither surface" in refusal
-        assert "osprey build" in refusal
+        assert any("'carol'" in problem and "shared card" in problem for problem in problems)
 
     def test_an_unreadable_persona_refuses_the_start_too(self, tmp_path: Path, monkeypatch):
         """The other open-door code. A persona whose project was never rendered
-        cannot be shown to hold nothing, and this one is served to anyone."""
-        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, login=False)
+        cannot be shown to hold nothing, and this one is opened by every login."""
+        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, access="any")
         _unrender(tmp_path, "ca-admin")
         problems = self._problems(config, tmp_path, monkeypatch)
         assert any("could not be read" in problem and "'carol'" in problem for problem in problems)
 
-    def test_registry_mode_refuses_the_open_terminal_and_offers_the_login(
+    def test_registry_mode_refuses_the_shared_card_and_offers_the_key(
         self, tmp_path: Path, monkeypatch
     ):
         """The DEFAULT image mode, which every other fixture here opts out of.
 
         A registry-mode host has no rendered persona project to read, so a
-        `login: false` entry's persona is unreadable — and the gate is
-        fail-CLOSED on purpose: "cannot tell" is not "harmless" on the one path
-        where the answer becomes a running container. The refusal has to stay
-        escapable, though, and `osprey build` is not the escape here (the images
-        and their deltas are built in CI, which is registry mode's premise), so
-        the message offers the login too.
+        shared card's persona is unreadable — and the gate is fail-CLOSED on
+        purpose: "cannot tell" is not "harmless" on the one path where the
+        answer becomes a running container. The refusal has to stay escapable,
+        though, and `osprey build` is not the escape here (the images and their
+        deltas are built in CI, which is registry mode's premise), so the
+        message offers the access key too.
         """
-        config = _registry_repo(tmp_path, login=False)
+        config = _registry_repo(tmp_path, access="any")
         problems = self._problems(config, tmp_path, monkeypatch)
         refusal = next(
             problem
@@ -1441,10 +1333,10 @@ class TestTheUpPreflightGate:
             if "could not be read" in problem and "'admin'" in problem
         )
         assert "'carol'" in refusal
-        assert "or set login: true for 'carol'" in refusal
+        assert "or set access: own for 'carol'" in refusal
         assert "[" not in refusal
 
-    def test_registry_mode_behind_a_login_starts(self, tmp_path: Path, monkeypatch):
+    def test_registry_mode_with_own_cards_starts(self, tmp_path: Path, monkeypatch):
         """The counterfactual, and the one that matters for the default mode: a
         pull-only host holds no persona render at all, so with every login on
         NOTHING here refuses the start.
@@ -1454,23 +1346,23 @@ class TestTheUpPreflightGate:
         than drift, and there is no remedy an operator on a pull-only host can
         carry out. A gate that fired here would refuse every registry-mode
         deployment in the shipped default configuration."""
-        config = _registry_repo(tmp_path, login=None)
+        config = _registry_repo(tmp_path, access=None)
         assert self._problems(config, tmp_path, monkeypatch) == []
 
     def test_a_floored_render_starts(self, tmp_path: Path, monkeypatch):
         """The negative control: the shape a clean `osprey build` produces
         passes preflight, so the gate cannot be green by refusing everything."""
-        config = _rendered_repo(tmp_path, admin_config=FLOORED_RENDER, login=False)
+        config = _rendered_repo(tmp_path, admin_config=FLOORED_RENDER, access="any")
         assert self._problems(config, tmp_path, monkeypatch) == []
 
-    def test_a_privileged_persona_behind_a_login_starts(self, tmp_path: Path, monkeypatch):
-        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, login=None)
+    def test_a_privileged_persona_on_an_own_card_starts(self, tmp_path: Path, monkeypatch):
+        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, access=None)
         assert self._problems(config, tmp_path, monkeypatch) == []
 
     def test_the_other_lint_errors_do_not_refuse_a_start(self, tmp_path: Path, monkeypatch):
         """The scope, pinned. This config carries a real lint ERROR of a
         different kind; the authoring verbs refuse it and `up` does not."""
-        config = _rendered_repo(tmp_path, admin_config=FLOORED_RENDER, login=None)
+        config = _rendered_repo(tmp_path, admin_config=FLOORED_RENDER, access=None)
         config["modules"]["web_terminals"]["personas"]["admin"]["extra_mounts"] = ["not a mount"]
         findings = lint_web_terminals(config, project_root=tmp_path)
         assert "web_terminals.persona_invalid_extra_mount" in _codes(findings)
@@ -1481,10 +1373,9 @@ class TestTheUpPreflightGate:
         self, tmp_path: Path, monkeypatch
     ):
         """An authoring mistake, not an open door: the entries that inherit it
-        are still behind the wall, and any that are not are named by the rule
-        that does block. Refusing the start of a running stack over roster shape
+        are still behind the wall. Refusing the start of a running stack over roster shape
         would stop a shift to fix a profile — so it is printed instead."""
-        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, login=None)
+        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, access=None)
         config["modules"]["web_terminals"]["default_persona"] = "admin"
 
         assert self._problems(config, tmp_path, monkeypatch) == []
@@ -1501,7 +1392,7 @@ class TestTheUpPreflightGate:
         What does refuse an open start is the separate egress gate, and only when a
         persona can actually reach the deployment's own terminals — which is not the
         case here, where both rendered projects ship the shipped deny list."""
-        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, login=None)
+        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, access=None)
         config["modules"]["web_terminals"]["auth"] = {"method": "none"}
         _ship_persona_settings(tmp_path, "ca-admin", "ca-readonly")
 
@@ -1515,7 +1406,7 @@ class TestTheUpPreflightGate:
         open mode HAS a refusal. Nginx vouches for every terminal it proxies, so a
         persona whose shipped settings lift the shell is one prompt away from a
         neighbour's session — and that start is refused rather than advised."""
-        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, login=None)
+        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, access=None)
         config["modules"]["web_terminals"]["auth"] = {"method": "none"}
         _ship_persona_settings(tmp_path, "ca-readonly")
         _ship_persona_settings(tmp_path, "ca-admin", lifted=("Bash",))
@@ -1527,13 +1418,13 @@ class TestTheUpPreflightGate:
 
     def test_a_warn_with_a_blocking_code_is_printed_not_refused(self, tmp_path: Path, monkeypatch):
         """`persona_privileges_unknown` is in BOTH filter sets, because the same
-        rule blocks when an entry opted out of a login and only advises when no
+        rule blocks when a shared card resolves to it and only advises when no
         wall stands at all. The two filters select on severity AND code, never
         on code alone — so this deployment starts, and says why.
 
         A filter that matched on code alone would refuse this start over a
         posture the design deliberately does not block on."""
-        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, login=None)
+        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, access=None)
         # `token` rather than `none`: this test is about the lint filter sets, and
         # both postures stand no wall (`auth_is_enforced` reads `walled`), so they
         # select the same finding. Under `none` the deliberately unrendered project
@@ -1549,7 +1440,7 @@ class TestTheUpPreflightGate:
         )
 
     def test_a_clean_deployment_draws_no_advisory(self, tmp_path: Path):
-        config = _rendered_repo(tmp_path, admin_config=FLOORED_RENDER, login=None)
+        config = _rendered_repo(tmp_path, admin_config=FLOORED_RENDER, access=None)
         assert self._advisories(config, tmp_path) == []
 
     def test_the_gate_reads_the_repo_it_is_given_not_the_cwd(self, tmp_path: Path, monkeypatch):
@@ -1558,7 +1449,7 @@ class TestTheUpPreflightGate:
         outside the repo — which is the seam this belt already paid for once."""
         elsewhere = tmp_path / "elsewhere"
         elsewhere.mkdir()
-        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, login=False)
+        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, access="any")
         monkeypatch.chdir(elsewhere)
 
         problems = self._problems(config, tmp_path, monkeypatch)
@@ -1568,7 +1459,7 @@ class TestTheUpPreflightGate:
     def test_the_gate_writes_nothing(self, tmp_path: Path, monkeypatch):
         """The pass this joins is ordered against provisioners that DO write, so
         a probe with a side effect would silently become a step in that order."""
-        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, login=False)
+        config = _rendered_repo(tmp_path, admin_config=PRIVILEGED_RENDER, access="any")
         before = sorted(path.name for path in tmp_path.iterdir())
 
         self._problems(config, tmp_path, monkeypatch)

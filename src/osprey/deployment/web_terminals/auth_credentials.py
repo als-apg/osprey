@@ -871,8 +871,8 @@ def ensure_terminal_secrets(
         project_root: Directory holding the deploy ``.env``.
         usernames: Roster usernames — ``entry["name"]`` for each
             :func:`~osprey.deployment.web_terminals.personas.normalize_users`
-            entry. The WHOLE roster, including ``login: false`` entries: opting
-            out of the login wall does not opt a terminal out of needing a front
+            entry. The WHOLE roster, shared cards included: a card opened with
+            somebody else's credential is still a terminal needing a front
             door. Order is preserved; a name repeated verbatim is processed once.
 
     Returns:

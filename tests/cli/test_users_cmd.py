@@ -464,9 +464,8 @@ RENDERED_CONFIG_WITH_FQDN = RENDERED_CONFIG.replace(
 )
 
 
-#: The same deployment behind a login wall, with one entry deliberately left
-#: outside it. `login: false` and `auth.method: password` together are the two
-#: halves of the predicate the verb refuses on.
+#: The same deployment behind a login wall, with one entry still carrying the
+#: retired `login: false` — which no longer puts it outside the wall.
 RENDERED_CONFIG_WALLED = RENDERED_CONFIG_WITH_FQDN.replace(
     "    users:\n",
     "    auth:\n      method: password\n      allow_insecure_http: true\n    users:\n",
@@ -477,8 +476,8 @@ RENDERED_CONFIG_WALLED = RENDERED_CONFIG_WITH_FQDN.replace(
 )
 
 
-#: The same deployment thrown OPEN: nginx vouches for every non-exempt
-#: terminal itself, so there is no login page and no `?token=` URL either.
+#: The same deployment thrown OPEN: nginx vouches for every terminal itself,
+#: so there is no login page and no `?token=` URL either.
 RENDERED_CONFIG_OPEN = RENDERED_CONFIG_WITH_FQDN.replace(
     "    users:\n",
     "    auth:\n      method: none\n    users:\n",
@@ -502,7 +501,7 @@ def open_repo(tmp_path, monkeypatch):
 
 @pytest.fixture
 def walled_repo(tmp_path, monkeypatch):
-    """A password-authenticated deployment whose `kiosk` entry sits outside the wall."""
+    """A password-authenticated deployment whose `kiosk` entry carries the retired key."""
     root = _make_repo(tmp_path, RENDERED_CONFIG_WALLED)
     monkeypatch.chdir(root)
     return root
@@ -683,21 +682,22 @@ class TestLoginUrl:
         # its path rather than on the query it would have carried.)
         assert read_env(open_repo)[ALICE_SECRET] not in combined
 
-    def test_a_login_exempt_entry_still_gets_its_url_with_auth_on(
+    def test_the_retired_login_key_does_not_exempt_an_entry_from_the_refusal(
         self, cli_runner, walled_repo, stub_engines
     ):
-        """`login: false` puts one entry outside the wall, and that terminal is
-        reached exactly the way an auth-off one is — so the verb still answers
-        for it while refusing its walled neighbours."""
+        """`login: false` used to put one entry outside the wall and make this
+        verb answer for it. The key is retired: an entry still carrying it
+        signs in through the login page like its neighbours, so the verb
+        refuses and names that page instead of printing a live secret."""
         cli_runner.invoke(users, ["seed"])
         secret = read_env(walled_repo)["OSPREY_TERMINAL_SECRET_KIOSK"]
 
         result = cli_runner.invoke(users, ["login-url", "kiosk"])
 
-        assert result.exit_code == 0
-        assert (
-            result.stdout.strip() == f"http://dls-deploy.example.org:8080/u/kiosk/?token={secret}"
-        )
+        assert result.exit_code != 0
+        combined = result.stdout + result.stderr
+        assert "/auth/login" in combined
+        assert secret not in combined
 
     def test_a_deployment_with_no_fqdn_says_which_key_is_missing(
         self, cli_runner, repo_root, stub_engines

@@ -1234,7 +1234,7 @@ def test_html_refusal_points_multi_user_at_the_login_url_command(
     """In the deployment shape the launcher prints no ``Open:`` line to re-open.
 
     A browser only reaches this page when the app's own gate is the outermost
-    one — ``auth.method: none`` or a roster entry with ``login: false`` — and
+    one — ``auth.method: none`` — and
     there the container's ``osprey web`` suppresses the announcement because
     nginx owns the way in. The verb that helps is ``osprey users login-url``.
     """

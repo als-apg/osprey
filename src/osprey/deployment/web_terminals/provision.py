@@ -80,7 +80,6 @@ from osprey.deployment.web_terminals.persona_images import (
 from osprey.deployment.web_terminals.personas import (
     effective_image_source,
     entry_is_shared,
-    entry_requires_login,
     normalize_users,
     resolve_personas,
 )
@@ -260,14 +259,14 @@ def persona_render_problem(config: dict, repo_root: Path | str) -> str | None:
 #: `up` owns one question the authoring verbs cannot answer for it: is a door
 #: about to be opened. These two codes are that question.
 #:
-#: * ``unauthenticated_privileged_terminal`` — a terminal served with no login
-#:   whose persona can edit this deployment. The exposure itself.
-#: * ``persona_privileges_unknown`` — the same terminal, with the persona's
-#:   document unreadable. "Cannot tell" is not "harmless" on the one path where
-#:   the answer is about to become a running container.
+#: * ``shared_card_privileged`` — a card every roster login may open whose
+#:   persona can edit this deployment. The exposure itself.
+#: * ``persona_privileges_unknown`` — a persona whose document is unreadable
+#:   where the answer would decide something. "Cannot tell" is not "harmless"
+#:   on the one path where the answer is about to become a running container.
 _UP_BLOCKING_LINT_CODES = frozenset(
     {
-        "web_terminals.unauthenticated_privileged_terminal",
+        "web_terminals.shared_card_privileged",
         "web_terminals.persona_privileges_unknown",
     }
 )
@@ -276,9 +275,8 @@ _UP_BLOCKING_LINT_CODES = frozenset(
 #:
 #: * ``privileged_default_persona`` — an authoring mistake, not an open door:
 #:   the entries that inherit it are still behind whatever wall the deployment
-#:   has, and any that are not are named by the blocking rule above. Refusing
-#:   the start of a running stack over roster shape would stop a shift to fix a
-#:   profile.
+#:   has. Refusing the start of a running stack over roster shape would stop a
+#:   shift to fix a profile.
 #: * ``unauthenticated_privileged_deployment`` — the ``auth.method: none``
 #:   version of the exposure, which is the shipped default and a legitimate
 #:   loopback posture; see
@@ -336,9 +334,9 @@ def web_terminal_preflight_problems(
     scaffold web-terminals lint`` and the ``render`` pre-render gate read the
     rendered altitude; ``osprey up`` read none of it, so a hand-edited
     ``build/config.yml`` — a file no build fingerprint covers, since
-    ``profile.yml`` is untouched — could set ``login: false`` on a privileged
-    persona and start containers with the lint screaming into a terminal nobody
-    ran. Only the open-door codes block here; see
+    ``profile.yml`` is untouched — could share a privileged persona's card
+    (``access: any``) and start containers with the lint screaming into a
+    terminal nobody ran. Only the open-door codes block here; see
     :data:`_UP_BLOCKING_LINT_CODES`.
 
     Deliberately NOT the whole of :func:`preflight_web_terminals`:
@@ -445,9 +443,9 @@ def _provision_terminal_secrets(web_terminals: dict, repo_root: str) -> None:
     the front door, not whether the back ones are open. A deployment with no
     login wall is precisely the one with nothing else in the way.
 
-    The whole roster is provisioned, ``login: false`` entries included — unlike
-    the auth credentials, where such an entry has no login for a password to
-    belong to. Every entry has a terminal, so every entry has a front door.
+    The whole roster is provisioned, shared cards included — unlike the auth
+    credentials, where a shared card has no password of its own. Every entry
+    has a terminal, so every entry has a front door.
 
     Mint first, then gate, for the reason
     :func:`_provision_auth_secrets` spells out: the question is not "was a
@@ -551,17 +549,15 @@ def _provision_auth_secrets(web_terminals: dict, repo_root: str) -> None:
 
     credentials = None
     if auth_method == "password":
-        # `login: false` entries are left out on purpose: no gate ever asks the
-        # sidecar about them, so a hash here would be a credential nothing
-        # checks — and a minted password printed for an entry that has no login
-        # would tell the operator the opposite of the truth. Shared entries
-        # (`access: any`) are left out for the same reason: a shared card holds
-        # no password of its own — verify checks the opener's credential — so a
-        # hash minted under its name would likewise be one nothing ever checks.
+        # Shared entries (`access: any`) are left out on purpose: a shared card
+        # holds no password of its own — verify checks the opener's credential
+        # — so a hash minted under its name would be one nothing ever checks,
+        # and a minted password printed for it would tell the operator the
+        # opposite of the truth.
         usernames = [
             entry["name"]
             for entry in normalize_users(web_terminals.get("users"))
-            if entry_requires_login(entry) and not entry_is_shared(entry)
+            if not entry_is_shared(entry)
         ]
         credentials = ensure_auth_credentials(usernames, repo_root, echo=_mint_echo())
         _report_unshown_mints(credentials)

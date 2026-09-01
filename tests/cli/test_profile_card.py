@@ -176,10 +176,15 @@ def test_a_mixed_persona_arms_only_the_target_its_own_block_names() -> None:
     assert "va-write · live read-only · va rights approval-gated" in dana
 
 
-def test_a_login_free_user_says_no_login(exemplar_lines: list[str]) -> None:
+def test_a_shared_card_says_the_auth_method_like_every_other_row(
+    exemplar_lines: list[str],
+) -> None:
+    """A shared card is opened with a roster login like any own card, so the
+    auth column says `password` for it too — there is no longer a roster shape
+    that puts one entry outside the login wall."""
     ariel = line_with(exemplar_lines, "ariel", f":{_PORTS['web'] + 2}")
-    assert "no login" in ariel
-    assert "password" not in ariel
+    assert "password" in ariel
+    assert "no login" not in ariel
 
 
 def test_the_panels_row_is_the_union_across_personas(exemplar_lines: list[str]) -> None:
@@ -341,6 +346,5 @@ def test_init_prints_the_card_after_its_report(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     # Short lines only — the wide rows are the plain renderer's tests' business.
     assert f"  web terminal  :{_PORTS['nginx']}" in result.output
-    assert "no login" in result.output
     report_at = result.output.index("✓ Created")
     assert result.output.index(f"  web terminal  :{_PORTS['nginx']}") > report_at

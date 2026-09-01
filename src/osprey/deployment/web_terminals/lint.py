@@ -39,7 +39,6 @@ from osprey.deployment.web_terminals.personas import (
     effective_image_source,
     effective_persona,
     entry_is_shared,
-    entry_requires_login,
     env_var_suffix_collisions,
     persona_privileges,
     privilege_phrase,
@@ -49,7 +48,6 @@ from osprey.deployment.web_terminals.personas import (
     resolve_image_tag,
     resolve_personas,
     shared_card_privileged_problems,
-    unauthenticated_privileged_terminal_problems,
 )
 from osprey.deployment.web_terminals.ports import (
     FAMILY_BASE_FIELDS,
@@ -92,17 +90,6 @@ from osprey_connectors.types import TYPE_WRITES_ENABLED_LEAF, WRITES_ENABLED_KEY
 # importing the credential provisioner to quote one string in a message would
 # pull the whole deploy-time secret-minting path in behind it.
 _PW_HASH_VAR_PREFIX = "OSPREY_AUTH_PW_HASH_"
-
-# Appended to the unauthenticated-privileged-terminal message when it is read
-# off a RENDERED project rather than a profile. The rule is an error at both
-# altitudes (see `_check_privileged_persona_exposure`), and this is the half of
-# the remedy that only applies here: the render, not the profile, may simply
-# predate the base tier's deny floor, and the way out of that is a rebuild
-# rather than an edit.
-_STALE_RENDER_REMEDY = (
-    ". This is what the last `osprey build` rendered — if this render predates the base "
-    "tier's deny floor, `osprey build` re-renders it with the floor in place"
-)
 
 
 @dataclass(frozen=True)
@@ -174,8 +161,7 @@ def lint_web_terminals(
     findings.extend(_check_display_name(users))
     findings.extend(_check_user_theme(users))
     findings.extend(_check_user_tour(users))
-    findings.extend(_check_user_login(web_terminals, users))
-    findings.extend(_check_user_access(web_terminals, users))
+    findings.extend(_check_user_access(users))
     findings.extend(_check_invalid_index(users))
     findings.extend(_check_duplicate_index(users))
     findings.extend(_check_bare_list_port_drift_risk(users))
@@ -556,130 +542,39 @@ def _check_user_tour(users: list[Any]) -> list[Finding]:
     return findings
 
 
-def _check_user_login(web_terminals: dict[str, Any], users: list[Any]) -> list[Finding]:
-    """An object-form entry's optional ``login`` must be a boolean, and only does
-    anything where the perimeter puts something in front of that entry.
-
-    Two findings, for the two ways the key can lie:
-
-    * A non-boolean ``login`` is an ERROR. The normalizer reads anything but
-      the literal ``false`` as "login required" — deliberately fail-closed —
-      so the typo can never open an entry to the world, but the author who
-      wrote ``login: no-thanks`` believes the opposite of what deploys.
-    * ``login: false`` with ``auth.method: token`` is a WARN. That is the one
-      method whose perimeter puts nothing in front of any entry — no login
-      wall and no injected operator secret — so the key is inert and the
-      config claims a distinction the deployment does not have. Under ``none``
-      it is meaningful: it withholds the injected secret from that entry.
-    """
-    findings: list[Finding] = []
-    login_declared = False
-    for user in users:
-        if not isinstance(user, dict) or "login" not in user:
-            continue
-        login = user.get("login")
-        if isinstance(login, bool):
-            login_declared = login_declared or login is False
-            continue
-        name = user.get("name", user)
-        findings.append(
-            Finding(
-                severity="error",
-                code="web_terminals.invalid_user_login",
-                message=(
-                    f"modules.web_terminals.users entry {name!r} has a non-boolean "
-                    f"login {login!r}; login must be true (default: this entry "
-                    f"requires a login) or false (served without authentication). "
-                    f"Anything else deploys as 'login required'"
-                ),
-            )
-        )
-
-    context = _auth_context(web_terminals)
-    # `inject_secret`, not `walled`: under `none` there is no login wall either,
-    # but the key still decides whether nginx injects that entry's operator
-    # secret — so it is inert under `token` alone.
-    inert = context is None or not context["inject_secret"]
-    if login_declared and inert:
-        method = "unset" if context is None else repr(context["auth_method"])
-        findings.append(
-            Finding(
-                severity="warn",
-                code="web_terminals.user_login_inert",
-                message=(
-                    "a modules.web_terminals.users entry sets login: false, but "
-                    f"auth.method is {method} so there is nothing for an entry to be "
-                    "exempt from — no login wall, and no injected operator secret; "
-                    "the key changes nothing until auth.method is none, password "
-                    "or oidc"
-                ),
-            )
-        )
-    return findings
-
-
-def _check_user_access(web_terminals: dict[str, Any], users: list[Any]) -> list[Finding]:
+def _check_user_access(users: list[Any]) -> list[Finding]:
     """An object-form entry's optional ``access`` must be the literal ``own`` or
     ``any``, and ``any`` only does anything where the sidecar stands a wall.
 
-    Two findings, for the two ways the key can lie:
+    One finding, and one deliberate silence:
 
     * Anything but exactly the string ``"own"`` or ``"any"`` is an ERROR. The
       normalizer keeps only the literal ``"any"`` and drops everything else —
       deliberately fail-closed to ``own`` — so ``access: ANY`` (or ``true``, or
       a number) never widens an entry's reach, but the author who wrote it
       believes the opposite of what deploys.
-    * ``access: any`` is a WARN on an entry that also carries ``login: false``
-      under a walled deployment: nginx proxies a login-exempt entry with no
-      ``auth_request``, so there is no authenticated identity for ``access`` to
-      widen, and the key claims a distinction the entry does not have.
-
-    Where the deployment stands no wall at all (``sidecar_active`` is false —
-    under ``token`` and ``none`` alike no login gates the roster) the key is
-    inert too, and deliberately NOT reported. Profile overlays concatenate the
-    roster list rather than merging entries by name, so a passive base that a
-    host variant arms with ``password``/``oidc`` has to carry ``access: any``
-    on the base entry — the same position ``oidc_subject`` already sits in
-    silently (:func:`_check_auth_oidc` reads it only under ``oidc``). A finding
-    there would recur on every validate/build of the base and train operators
-    to skip the WARN block; the key arms the moment the variant is selected,
-    and the merged view is what both commands lint.
+    * ``access: any`` is silent wherever it cannot change anything: the
+      deployment stands no wall at all (``sidecar_active`` is false — under
+      ``token`` and ``none`` alike no login gates the roster, so every entry is
+      as reachable as the key promises to make this one). That silence is
+      deliberate, not an oversight: profile overlays concatenate the roster
+      list rather than merging entries by name, so a passive base that a host
+      variant arms with ``password``/``oidc`` has to carry ``access: any`` on
+      the base entry — the same position ``oidc_subject`` already sits in
+      silently (:func:`_check_auth_oidc` reads it only under ``oidc``). A
+      finding there would recur on every validate/build of the base and train
+      operators to skip the WARN block; the key arms the moment the variant is
+      selected, and the merged view is what both commands lint.
 
     ``access: own`` explicit is silent — a valid spelling of the default, even
     though the normalizer drops it.
     """
     findings: list[Finding] = []
-    # `sidecar_active`, not `inject_secret`: `access` reads the identity the
-    # auth sidecar established, so it is inert under `none` too — where
-    # `login: false` still means something (it withholds the injected secret).
-    context = _auth_context(web_terminals)
-    inert = context is None or not context["sidecar_active"]
-
     for user in users:
         if not isinstance(user, dict) or "access" not in user:
             continue
         access = user.get("access")
-        if isinstance(access, str) and access == "own":
-            continue
-        if isinstance(access, str) and access == "any":
-            # Only where the wall stands: with no sidecar both keys are carried
-            # base-entry state, and the pair becomes this finding on the
-            # variant render that arms the wall.
-            if not inert and user.get("login") is False:
-                name = user.get("name", user)
-                findings.append(
-                    Finding(
-                        severity="warn",
-                        code="web_terminals.user_access_inert",
-                        message=(
-                            f"modules.web_terminals.users entry {name!r} sets "
-                            f"access: any together with login: false; nginx proxies "
-                            f"a login-exempt entry with no auth_request, so there is "
-                            f"no authenticated identity for access to widen — the "
-                            f"key claims a distinction this entry does not have"
-                        ),
-                    )
-                )
+        if isinstance(access, str) and access in ("own", "any"):
             continue
         name = user.get("name", user)
         findings.append(
@@ -1204,8 +1099,8 @@ def _privileges_by_persona(
     nothing, and resolving it would make an unused entry able to fail a build.
 
     BOTH answers are returned because the two rules built on them disagree, on
-    purpose. The ``login: false`` rule reads the absolute set — a terminal
-    served to anyone hands out what its persona holds, not what it holds more
+    purpose. The shared-card rule reads the absolute set — a terminal every
+    login may open hands out what its persona holds, not what it holds more
     than its neighbours — and the ``default_persona`` rule reads the set beyond
     the baseline, because that key is inherited by profiles written before the
     floor existed. See
@@ -1296,11 +1191,10 @@ def _deployment_declares_a_privilege_split(root: dict[str, Any]) -> bool:
     comparison. This is the version for the persona whose document could not be
     read at all.
 
-    NOT a precondition for the ``login: false`` findings, in either their known
-    or their unknown form. That rule is absolute (see
-    :func:`_check_privileged_persona_exposure`), and gating it here is what let
-    a floorless profile serve an unauthenticated admin terminal past all three
-    authoring altitudes.
+    NOT a precondition for the shared-card finding, nor for the advisory
+    ``auth.method: none`` arm of the unreadable-persona rule. The first is
+    absolute (see :func:`_check_privileged_persona_exposure`); the second names
+    an exposure the deployment has whatever it floors.
     """
     return bool(privileges_beyond_baseline(ALL_PRIVILEGES, persona_privileges(root)))
 
@@ -1319,38 +1213,40 @@ def _check_unreadable_persona_privileges(
     which is the fail-OPEN direction on the one question this belt exists to
     answer. A catalog entry whose ``build_profile`` points at ``../admin.yml``
     is neither a delta lint may read nor a preset name that resolves, so it read
-    as unprivileged — and a ``login: false`` entry pointed at it validated
-    clean, built clean, and rendered an unauthenticated terminal holding the
-    deployment-editing setup tool.
+    as unprivileged — and a roster that handed it out validated clean, built
+    clean, and rendered a terminal holding the deployment-editing setup tool.
 
-    Reported only where the answer would decide something, which is exactly the
-    two rules this belt owns: the ``default_persona`` every unlabelled entry
-    inherits, and an entry that opted out of the login wall. A privileged
-    persona behind a login is not an exposure, so an unreadable one behind a
-    login is not one either, and refusing it would fail builds over catalog
-    entries whose real problem — an absent delta, a preset that does not
-    resolve — is already reported, in better words, by the check that owns it.
+    Reported only where the answer would decide something, which is exactly
+    the two rules this belt owns: the ``default_persona`` every unlabelled
+    entry inherits, and a shared card (``access: any``) every login may open —
+    plus, advisorily, a deployment that stands no login wall at all. A
+    privileged persona behind one person's own login is not an exposure, so an
+    unreadable one there is not one either, and refusing it would fail builds
+    over catalog entries whose real problem — an absent delta, a preset that
+    does not resolve — is already reported, in better words, by the check that
+    owns it.
 
-    Three further narrowings, all deliberate:
+    Three narrowings, all deliberate:
 
     * The ``default_persona`` half is reported only where the deployment
       declares a privilege split (:func:`_deployment_declares_a_privilege_split`)
       — the same migration argument that makes the KNOWN version of that rule
       baseline-relative: an inherited default on a floorless deployment has no
-      unprivileged tier to be re-pointed at. The ``login: false`` half is NOT so
+      unprivileged tier to be re-pointed at. The shared-card half is NOT so
       narrowed, for the same reason its known version is absolute: on a
       floorless deployment a persona nobody can read is one nobody can show
-      holds less than everything, and that entry is served to anyone.
+      holds less than everything, and that card is opened by every login.
     * At rendered altitude the ``default_persona`` half is further gated on
       ``image_source: local``. A registry-mode host has no local persona render
       by design, so an unreadable default is that mode's normal state rather
       than drift, and no remedy the operator can execute exists there — the
       profile altitude, where the deltas live, owns that question. Again the
-      ``login: false`` half is not gated: its subject is an entry that typed
-      itself public, and its remedy is that entry's own key.
-    * With ``auth.method: none`` an entry's own ``login`` key is inert, so no
-      entry singled itself out; the deployment-wide exposure is advisory there
-      (see
+      shared-card half is not gated: its subject is an entry that typed itself
+      shared, and its remedy is that entry's own key.
+    * With no login wall (``auth.method`` of ``token`` or ``none``) a shared
+      card is inert (there is no authenticated identity for it to widen), so
+      no entry singled itself out; the
+      deployment-wide exposure is advisory (see
       :func:`~osprey.deployment.web_terminals.personas.deployment_wide_privileged_exposure_problems`)
       and an ERROR on a persona that *might* be privileged would be a harder
       refusal than the one for a persona known to be. So the unreadable persona
@@ -1364,10 +1260,10 @@ def _check_unreadable_persona_privileges(
     altitude-specific halves ("write the delta", "re-run ``osprey build``") both
     presuppose a document that can be made to resolve, which a deployment
     building its images in CI (``image_source: registry``, the default) cannot
-    produce on the host it starts on. Wherever an entry's own ``login: false``
-    is what put the persona at stake, ``login: true`` for that user is offered
+    produce on the host it starts on. Wherever an entry's own ``access: any``
+    is what put the persona at stake, ``access: own`` for that card is offered
     too — the same remedy the KNOWN version of this rule
-    (:func:`~osprey.deployment.web_terminals.personas.unauthenticated_privileged_terminal_problems`)
+    (:func:`~osprey.deployment.web_terminals.personas.shared_card_privileged_problems`)
     leads with, so the two halves of one rule do not disagree about their own
     remedy set.
     """
@@ -1377,21 +1273,21 @@ def _check_unreadable_persona_privileges(
 
     # Persona name → every reason an unknown answer for it is not survivable.
     # A persona can be at stake for BOTH halves at once — it is the
-    # `default_persona` AND a `login: false` entry resolves to it — and the two
-    # reasons have different remedies, so the finding says both rather than
-    # letting whichever ran first win.
+    # `default_persona` AND a shared card resolves to it — and the two reasons
+    # have different remedies, so the finding says both rather than letting
+    # whichever ran first win.
     at_stake: dict[str, list[str]] = {}
-    # Persona name → EVERY user whose `login: false` put it at stake, in roster
-    # order. All of them, not just the first: the known half of this rule emits
-    # one message per entry and names them all, and an operator who sets
-    # `login: true` for the one name they were given only to meet the same
+    # Persona name → EVERY shared card that put it at stake, in roster order.
+    # All of them, not just the first: the known half of this rule emits one
+    # message per entry and names them all, and an operator who sets
+    # `access: own` for the one name they were given only to meet the same
     # refusal for the next has paid for a round trip this message could have
     # saved them.
-    exposed_by: dict[str, list[Any]] = {}
-    # Persona name → the users an `auth.method: none` deployment serves it to.
-    # Kept apart from `exposed_by` because it is the ADVISORY arm: with no wall
-    # standing, no entry singled itself out, and the deployment-wide exposure
-    # this belongs to is deliberately not build-failing.
+    shared_by: dict[str, list[Any]] = {}
+    # Persona name → the users a wall-less deployment serves it to. Kept apart
+    # from `shared_by` because it is the ADVISORY arm: with no wall standing no
+    # entry singled itself out, and the deployment-wide exposure this belongs
+    # to is deliberately not build-failing.
     open_to_everyone: dict[str, list[Any]] = {}
 
     # The default_persona half is a RENDERED-altitude question only where a
@@ -1399,12 +1295,9 @@ def _check_unreadable_persona_privileges(
     # default, and every value but the literal `local` — the images and their
     # deltas are built in CI and the deploy host holds no persona project by
     # design, which is why `verify_persona_renders` is skipped there too. So
-    # "cannot tell" is that mode's normal state rather than drift, nobody opted
-    # out of anything, and no remedy exists that an operator on a pull-only host
-    # can carry out. The profile altitude, where the deltas live, owns that
-    # question. The `login: false` half below is NOT so gated: there an entry
-    # typed itself public, and its remedy is its own login key, which every host
-    # holds.
+    # "cannot tell" is that mode's normal state rather than drift, and no
+    # remedy exists that an operator on a pull-only host can carry out. The
+    # profile altitude, where the deltas live, owns that question.
     reads_a_local_render = not rendered_project or effective_image_source(web_terminals) == "local"
     default_persona = web_terminals.get("default_persona")
     if (
@@ -1425,21 +1318,21 @@ def _check_unreadable_persona_privileges(
         if not auth_is_enforced(web_terminals):
             open_to_everyone.setdefault(persona, []).append(entry.get("name"))
             continue
-        if entry_requires_login(dict(entry)):
+        if not entry_is_shared(dict(entry)):
             continue
-        exposed_by.setdefault(persona, []).append(entry.get("name"))
-    for persona_name, names in exposed_by.items():
+        shared_by.setdefault(persona, []).append(entry.get("name"))
+    for persona_name, names in shared_by.items():
         many = len(names) > 1
         at_stake.setdefault(persona_name, []).append(
             f"{'users' if many else 'user'} {_named_users(names)} "
-            f"{'are' if many else 'is'} served without a login (login: false) and "
+            f"{'are' if many else 'is'} shared with the whole roster (access: any) and "
             f"{'resolve' if many else 'resolves'} to it"
         )
 
     # Why an unknown answer is not assumed harmless, said the way the
     # deployment's own posture makes true — built from the same baseline reading
-    # the remedy beside it uses, so one message cannot claim a floor in one
-    # sentence and name it as missing in the next.
+    # every remedy in this family uses, so one message cannot claim a floor in
+    # one sentence and name it as missing in the next.
     stance = _unknown_privilege_stance(persona_privileges(root))
     findings: list[Finding] = []
 
@@ -1462,56 +1355,64 @@ def _check_unreadable_persona_privileges(
             )
         )
 
-    def altitude_remedy(persona_name: str) -> str:
+    def altitude_remedy(persona_name: str, re_point: str) -> str:
         # The remedy is about the document that was not there, which is a
         # different document at each altitude: a delta the operator writes, or a
-        # render `osprey build` produces.
+        # render `osprey build` produces. `re_point` names the roster edit that
+        # sidesteps the document — the one remedy every host holds.
         if rendered_project:
             return (
-                "Re-run `osprey build` to render it, or point the exposed terminal at a "
-                "persona whose project is rendered"
+                f"Re-run `osprey build` to render it, or point {re_point} at a persona "
+                f"whose project is rendered"
             )
         return (
             f"Point build_profile at the delta beside this profile "
-            f"(personas/{persona_name}.yml), or point the exposed terminal at a persona "
-            f"that does resolve"
+            f"(personas/{persona_name}.yml), or point {re_point} at a persona that does "
+            f"resolve"
         )
 
     for persona_name in sorted(at_stake):
-        remedy = altitude_remedy(persona_name)
+        re_point = (
+            "default_persona and the shared card"
+            if persona_name in shared_by and persona_name == default_persona
+            else "the shared card"
+            if persona_name in shared_by
+            else "default_persona"
+        )
+        remedy = altitude_remedy(persona_name, re_point)
         # The one remedy an operator can always carry out, and the one that
         # actually closes the door this half of the rule is about. Both remedies
         # above presuppose a document that resolves — a delta the operator has
         # to write, a render this deployment may build in CI rather than here —
         # so without this clause a registry-mode or delta-less deployment reads
         # the refusal as a dead end. Said at BOTH altitudes, and only where an
-        # entry named itself, which is what `exposed_by` records. Kept in the
-        # same words as the KNOWN version of this rule
-        # (`unauthenticated_privileged_terminal_problems`), which leads with it.
-        if persona_name in exposed_by:
-            remedy += f", or set login: true for {_named_users(exposed_by[persona_name])}"
+        # entry named itself, which is what `shared_by` records.
+        if persona_name in shared_by:
+            remedy += f", or set access: own for {_named_users(shared_by[persona_name])}"
         report(persona_name, at_stake[persona_name], remedy, "error")
 
-    # The advisory rung. With `auth.method: none` no entry singled itself out,
-    # so nothing here is refused — but a READABLE privileged persona under that
-    # same posture still draws `unauthenticated_privileged_deployment` as a
-    # WARN, and this belt's whole premise is that "cannot tell" is never quieter
-    # than "known privileged". Reported for the personas the error arm did not
-    # already name, so one unreadable persona is one finding.
+    # The advisory rung. With no wall standing no entry singled itself out, so
+    # nothing here is refused — but a READABLE privileged persona under that
+    # same posture still draws
+    # `unauthenticated_privileged_deployment` as a WARN, and this belt's whole
+    # premise is that "cannot tell" is never quieter than "known privileged".
+    # Reported for the personas the error arm did not already name, so one
+    # unreadable persona is one finding.
     for persona_name in sorted(open_to_everyone):
         if persona_name in at_stake:
             continue
         names = open_to_everyone[persona_name]
+        many = len(names) > 1
         report(
             persona_name,
             [
-                f"{'users' if len(names) > 1 else 'user'} {_named_users(names)} "
-                f"{'are' if len(names) > 1 else 'is'} served with no login wall at all "
+                f"{'users' if many else 'user'} {_named_users(names)} "
+                f"{'are' if many else 'is'} served with no login wall at all "
                 f"(modules.web_terminals.auth.method is not password or oidc) and "
-                f"{'resolve' if len(names) > 1 else 'resolves'} to it"
+                f"{'resolve' if many else 'resolves'} to it"
             ],
-            f"{altitude_remedy(persona_name)}, or turn authentication on "
-            f"(auth.method: password or oidc)",
+            f"{altitude_remedy(persona_name, 'the exposed terminal')}, or turn "
+            f"authentication on (auth.method: password or oidc)",
             "warn",
         )
     return findings
@@ -1520,8 +1421,7 @@ def _check_unreadable_persona_privileges(
 def _named_users(names: Sequence[Any]) -> str:
     """``'carol'`` / ``'carol' and 'dave'`` — every user a clause points at.
 
-    Names every entry rather than the first, because the KNOWN half of this rule
-    does and says so in its own docstring: an operator fixing a roster should
+    Names every entry rather than the first: an operator fixing a roster should
     see the whole list, not discover the second one after fixing the first. The
     subject and its verb are left to the caller, which has two of them to
     conjugate and one bare list to paste into a remedy.
@@ -1536,11 +1436,9 @@ def _unknown_privilege_stance(baseline: Sequence[str]) -> str:
     """Why an unreadable persona is not read as holding nothing, per posture.
 
     Built from the deployment's own baseline rather than from a "does it declare
-    a split at all" boolean, so it agrees with
-    :func:`~osprey.deployment.web_terminals.personas._floor_the_base_tier_remedy`,
-    which may be printed one sentence later in the same message family. A
-    PARTIALLY floored deployment used to be told it "floors those surfaces"
-    while one of them was open to every persona it has.
+    a split at all" boolean, so the sentence stays true of the deployment it is
+    printed for. A PARTIALLY floored deployment used to be told it "floors
+    those surfaces" while one of them was open to every persona it has.
     """
     unfloored = tuple(privilege for privilege in ALL_PRIVILEGES if privilege in baseline)
     if not unfloored:
@@ -1598,48 +1496,43 @@ def _check_privileged_persona_exposure(
     project_root: Path | None,
     profile_root: Path | None,
 ) -> list[Finding]:
-    """Deployment-editing privilege must not be inherited by accident or served openly.
+    """Deployment-editing privilege must not be inherited by accident or handed to the roster.
 
     The belt behind the one build-time guard —
     :func:`osprey.cli.profile_cmd._privileged_persona_problems`, which
     :func:`~osprey.cli.profile_cmd._persona_profile_texts` raises at ``osprey
-    init`` — catching the same two mistakes on the paths that guard does not sit
+    init`` — catching the same mistakes on the paths that guard does not sit
     on: a profile edited after ``osprey init`` (``osprey profile validate``,
-    ``osprey build``) and a project already rendered (``osprey up``). Both rules
-    and both messages come from
+    ``osprey build``) and a project already rendered (``osprey up``). Every
+    rule and every message comes from
     :mod:`~osprey.deployment.web_terminals.personas`, so the belt and the brace
     cannot disagree about what counts as privileged or about what to do next.
 
-    **The two rules read two different answers**, which is the one thing to know
-    before reading the code below. The ``login: false`` rule is judged on what a
+    **The rules read two different answers**, which is the one thing to know
+    before reading the code below. The shared-card rule is judged on what a
     persona ABSOLUTELY holds; the ``default_persona`` rule (and the advisory
-    ``auth.method: none`` arm) on what it holds beyond its deployment's
-    baseline. Exempting a floorless deployment from the first was a hole big
-    enough to drive the whole belt through: delete the base tier's deny floor
-    from a profile and every persona is at baseline, so a ``login: false`` admin
-    terminal validated clean, built clean and linted clean while rendering a
-    settings.json with nothing denied. See
+    no-wall arm) on what it holds beyond its deployment's baseline. Exempting a
+    floorless deployment from the first would be a hole big enough to drive the
+    whole belt through: delete the base tier's deny floor from a profile and
+    every persona is at baseline, so a shared admin card would validate clean,
+    build clean and lint clean while rendering a settings.json with nothing
+    denied. See
     :func:`~osprey.deployment.web_terminals.personas.privileges_beyond_baseline`
     for why the other rules keep the relative reading.
 
-    **An unauthenticated privileged terminal is an ERROR at BOTH altitudes.**
-    The exposure is the same one either way — a card on the landing page that
+    **A shared privileged card is an ERROR at BOTH altitudes.** The exposure is
+    the same one either way — a card on the landing page that every login
     opens into a terminal that can edit the deployment — and the rendered
     altitude is the only place a hand-edited ``config.yml`` is ever read, so a
-    warning there is a finding the surfaces that gate on errors discard. A
-    render that predates the base tier's deny floor is refused too, and the
-    message says so and says to rebuild: this release changes the image's
-    entrypoint and privilege split anyway, so every deployment is re-rendering
-    regardless, and "rebuild" is a remedy an operator can carry out rather than
-    a rule with no way back.
+    warning there is a finding the surfaces that gate on errors discard.
 
     A privileged ``default_persona`` stays advisory against a RENDERED project.
     It is an authoring mistake, not an open door — the entries that inherit it
-    are still behind whatever wall the deployment has, and the ones that are not
-    are reported by the rule above, by name. Refusing the start of a running
-    stack over the shape of its roster would stop a shift to fix a profile.
-    ``osprey up`` prints warnings as advisories, so it is said out loud either
-    way, and rebuilding turns it into the error it is at profile altitude.
+    are still behind whatever wall the deployment has. Refusing the start of a
+    running stack over the shape of its roster would stop a shift to fix a
+    profile. ``osprey up`` prints warnings as advisories, so it is said out
+    loud either way, and rebuilding turns it into the error it is at profile
+    altitude.
     """
     absolute, lifted, unreadable = _privileges_by_persona(
         root,
@@ -1681,8 +1574,7 @@ def _check_privileged_persona_exposure(
         findings.append(
             Finding(
                 # See the docstring: an authored default blocks, a rendered one
-                # is advisory — the entries it exposes are named by the rule
-                # below, which does block at both altitudes.
+                # is advisory.
                 severity="warn" if rendered_project else "error",
                 code="web_terminals.privileged_default_persona",
                 message=default_problem,
@@ -1693,17 +1585,17 @@ def _check_privileged_persona_exposure(
         return findings
 
     if not auth_is_enforced(web_terminals):
-        # No wall stands, so no entry's own `login` key means anything and the
-        # exposure is the deployment's, not one entry's. WARN, not error: see
-        # `deployment_wide_privileged_exposure_problems` for why failing a build
-        # over the shipped default would reject deployments nobody exposed.
+        # No wall stands, so the exposure is the deployment's, not one entry's.
+        # WARN, not error: see `deployment_wide_privileged_exposure_problems`
+        # for why failing a build over the shipped default would reject
+        # deployments nobody exposed.
         #
-        # Baseline-RELATIVE, unlike the `login: false` rule below. Not because
-        # the absolute exposure is smaller — it is the same door — but because
-        # this arm names every roster entry at once and never blocks: read
+        # Baseline-RELATIVE, unlike the shared-card rule below. Not because the
+        # absolute exposure is smaller — it is the same door — but because this
+        # arm names every roster entry at once and never blocks: read
         # absolutely, every legacy deployment (no floor, and `auth.method: none`
         # is the default) would print one advisory per user on every `osprey up`
-        # for a posture it has always had. The narrower claim, `login: false`,
+        # for a posture it has always had. The narrower claim, `access: any`,
         # is the one that gets the absolute reading and the refusal.
         return findings + [
             Finding(
@@ -1714,25 +1606,11 @@ def _check_privileged_persona_exposure(
             for problem in deployment_wide_privileged_exposure_problems(resolved, lifted)
         ]
 
-    # ABSOLUTE, and the baseline only picks the remedy: a deployment that floors
-    # nothing hands both surfaces to this open terminal, and reading it
-    # relatively made that case silent at every altitude.
-    for problem in unauthenticated_privileged_terminal_problems(
-        resolved, absolute, baseline_privileges=persona_privileges(root)
-    ):
-        findings.append(
-            Finding(
-                severity="error",
-                code="web_terminals.unauthenticated_privileged_terminal",
-                message=problem + (_STALE_RENDER_REMEDY if rendered_project else ""),
-            )
-        )
-
-    # A shared card is judged on the same ABSOLUTE answer, and only reported
-    # where a wall stands: with no sidecar there is no authenticated identity
-    # for `access: any` to widen (see `_check_user_access` on why that is a
-    # carried key rather than a finding), and the deployment-wide arm above
-    # already names every privileged entry once.
+    # A shared card is judged on the ABSOLUTE answer, and only reported where a
+    # wall stands: with no sidecar there is no authenticated identity for
+    # `access: any` to widen (see `_check_user_access` on why that is a carried
+    # key rather than a finding), and the deployment-wide arm above already
+    # names every privileged entry once.
     for problem in shared_card_privileged_problems(resolved, absolute):
         findings.append(
             Finding(

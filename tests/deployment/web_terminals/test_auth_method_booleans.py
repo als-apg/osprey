@@ -180,7 +180,7 @@ def test_auth_is_enforced_reports_the_walled_boolean(method: str, enforced: bool
 
     ``token`` is the trap: it gates each terminal behind a magic link, so it
     feels enforced, but no entry has a login and the privileged-terminal guards
-    have to treat its terminals the way they treat ``login: false`` ones. A
+    have to treat its terminals as served with no wall at all. A
     ``token`` that reported True here would silence exactly the warning an
     operator running a privileged unauthenticated terminal needs to see.
     """

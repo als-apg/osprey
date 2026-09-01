@@ -170,22 +170,18 @@ def test_seam_auth_method_set_gates_every_user_behind_its_own_internal_target() 
     assert "location = /_osprey_auth {" not in nginx_conf
 
 
-def test_seam_login_false_entry_is_served_ungated_while_the_rest_stay_gated() -> None:
-    """SEAM 1 (deliberate exemption): a roster entry with `login: false` renders
-    with no `auth_request` and no internal verify target, while every other
-    entry keeps both — and the exempt location gets neither of the two things a
-    gated location gets: no operator-secret `include`, and no cookie strip. Both
-    are bound to the same predicate (authenticated AND not exempt), because an
-    exempt container has no gate here to vouch for a request, so there is no
-    authorized identity to inject a secret for; and the app's own token->cookie
-    session becomes the gate in front of it, which only holds if the browser's
-    cookie is allowed to reach the app rather than being cut on the way in.
-    alice's gated location, by contrast, keeps both."""
+def test_seam_no_roster_key_opts_an_entry_out_of_the_wall() -> None:
+    """SEAM 1 (no exemption): `login: false` used to render one entry with no
+    `auth_request`, no verify target, no operator-secret `include` and no
+    cookie strip. The key is retired, so a roster still carrying it renders
+    every entry gated — the two locations here differ in nothing but the name —
+    and a typo'd spelling changes nothing either."""
     # Arrange
     config = _auth_config(
         [
             {"name": "alice", "index": 0},
             {"name": "ariel", "index": 1, "login": False},
+            {"name": "bob", "index": 2, "login": "false"},
         ]
     )
 
@@ -193,46 +189,18 @@ def test_seam_login_false_entry_is_served_ungated_while_the_rest_stay_gated() ->
     nginx_conf = _render_nginx(config)
     directives = _directives(nginx_conf)
 
-    # Assert — exactly one gate, and it is alice's
-    assert directives.count("auth_request ") == 1
-    alice_body = _location_body(nginx_conf, "location /u/alice/")
-    assert "auth_request /_osprey_auth/alice;" in alice_body
-    assert "location = /_osprey_auth/alice {" in nginx_conf
+    # Assert — one gate per entry, each with its own verify target
+    assert directives.count("auth_request ") == 3
+    for user in ("alice", "ariel", "bob"):
+        body = _location_body(nginx_conf, f"location /u/{user}/")
+        assert f"auth_request /_osprey_auth/{user};" in body
+        assert f"location = /_osprey_auth/{user} {{" in nginx_conf
+        assert f"include /etc/nginx/osprey/secret-{user}.conf;" in body
+        assert 'proxy_set_header Cookie "";' in body
 
-    # Assert — alice's gated location gets BOTH the operator-secret include and
-    # the cookie strip, the pair the exemption is defined against.
-    assert "include /etc/nginx/osprey/secret-alice.conf;" in alice_body
-    assert 'proxy_set_header Cookie "";' in alice_body
-
-    # Assert — ariel is proxied with no gate and no verify target at all
-    ariel_body = _location_body(nginx_conf, "location /u/ariel/")
-    assert "auth_request" not in _directives(ariel_body)
-    assert "location = /_osprey_auth/ariel" not in nginx_conf
-
-    # Assert — the exemption drops both halves: no operator secret is injected
-    # (there is no authorized request here to vouch for), and the cookie is NOT
-    # stripped (the app's own session cookie is the gate now and must reach it).
-    assert "include /etc/nginx/osprey/secret-ariel.conf;" not in ariel_body
-    assert 'proxy_set_header Cookie "";' not in ariel_body
-
-
-def test_seam_login_exemption_is_fail_closed_against_typos() -> None:
-    """SEAM 1 (fail-closed): only the literal boolean `false` opts an entry
-    out. A string spelling — the classic YAML quoting accident — deploys as
-    "login required", so a typo can never open a terminal to the world."""
-    # Arrange
-    config = _auth_config(
-        [
-            {"name": "alice", "index": 0, "login": "false"},
-            {"name": "bob", "index": 1, "login": True},
-        ]
-    )
-
-    # Act
-    directives = _directives(_render_nginx(config))
-
-    # Assert — both entries stay gated
-    assert directives.count("auth_request ") == 2
+    # Assert — the rendered perimeter no longer knows the exemption exists
+    assert "login_exempt" not in nginx_conf
+    assert "login: false" not in nginx_conf
 
 
 def test_seam_auth_target_asks_the_sidecar_about_a_render_time_username() -> None:

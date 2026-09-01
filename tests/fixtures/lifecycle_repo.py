@@ -489,9 +489,8 @@ config:
         index: 2
         persona: ariel
         display_name: "ARIEL Logbook Research"
-        # Outside the login wall on purpose — entered through its own login URL
-        # instead (`osprey users login-url ariel`), not open to anyone.
-        login: false
+        # A shared card: any roster login opens it with their own credential.
+        access: any
       # The one login that can change this deployment's configuration — the web
       # Config panel, the scaffold gallery's editors, and the agent's own setup
       # tool. Behind the login wall like every other person on this page: an

@@ -43,7 +43,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # staleness advisory firing on already-deployed projects is the correct
     # signal, not noise.
     # Moved when the control-assistant preset turned password login on for its
-    # web terminals (auth stanza, ariel's `login: false`, demo passwords under
+    # web terminals (auth stanza, ariel outside the wall, demo passwords under
     # `env.defaults`). Every control-assistant entry moved together, as the
     # note above predicts.
     # Moved again when pymongo became a core OSPREY dependency and the preset
@@ -73,6 +73,10 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # now owns the graph tools. A rebuilt project grows
     # `.claude/agents/facility-knowledge-graph.md` and its CLAUDE.md roster
     # entry; deploy-visible, so the advisory firing is correct.
+    # Moved (with every tier extending it) when the roster's `login:` key was
+    # retired and ariel's `login: false` became `access: any` — a shared card
+    # behind the login wall instead of an entry outside it. Deploy-visible: a
+    # rebuilt project gates ariel's location and mints it no password.
     # Re-recorded where the target-switch branch met main: the `target-state`
     # hook and the facility-knowledge-graph agent are both in the resolved
     # content now, so every digest below (bar channel-finder-standalone, on
@@ -179,7 +183,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # `data/channel_limits.json` does not list is now allowed on the `va`
     # target where it was refused, so the staleness advisory firing on
     # already-deployed control-assistant projects is the correct signal.
-    "control-assistant": "sha256:c8d4f280789d363bc418002b27e229c7fc80cedf6bac469cae42ace2318d2098",
+    "control-assistant": "sha256:c8fc8280a0b99e4484069534b65995ebf7b68cadd287ab96979cc6141d0a56ad",
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     # Moved again with the base: permissive `virtual_accelerator` limits block.
     # Moved alone when the admin tier gained the EVENTS/BLUESKY `web_panels`
@@ -189,12 +193,12 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # render grows the two tabs — so the staleness advisory firing on
     # already-deployed admin renders is the correct signal.
     "control-assistant-admin": (
-        "sha256:49d4e563674758724bb6244690499e76f6426305dd372708cd2881fc55aaf691"
+        "sha256:1c82a268bfdf67ed1c52e617846c208cd982c6e648034b5d0404ea6ddb49425a"
     ),
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     # Moved again with the base: permissive `virtual_accelerator` limits block.
     "control-assistant-ariel": (
-        "sha256:25df29b2f388287941c9ce4a1a05531f2fffca06ea8e4229f66b40c9c820a85d"
+        "sha256:d284088e1c5e418a99d3ac22122a4bad656f45360b0862ee01678b648edcc06c"
     ),
     # The two operator tiers below moved together, and alone, when each gained
     # the single dotted key `services.graphdb.port_host: 7687` in its `config:`
@@ -254,12 +258,12 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     # Moved again with the base: permissive `virtual_accelerator` limits block.
     "control-assistant-readonly": (
-        "sha256:d6680f9c8c1e37d249cd3852f293ea9b81ae2ddaa56d5779c76fb350358221ef"
+        "sha256:8443dc2fa3febe78e34f3dff787cefa04452c577f595e2175657eb0fc391665f"
     ),
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     # Moved again with the base: permissive `virtual_accelerator` limits block.
     "control-assistant-readwrite": (
-        "sha256:7c2c8c4ed559f160a225ad7c42078585592b7fece43927454526ac8c9782ef97"
+        "sha256:96ace8e95ce504aa225b866927bffd2604d5bb21f9d7bb0cfb89cd904e06236c"
     ),
     # New with per-target write posture, not a moved entry: the rung between
     # the two flat tiers, armed on the virtual accelerator alone. It pins the
@@ -270,7 +274,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     # Moved again with the base: permissive `virtual_accelerator` limits block.
     "control-assistant-va-readwrite": (
-        "sha256:30aac62fd5b81dfaaaf3ac75c3358278aadd33e35de1cad74d3ecd37262d2704"
+        "sha256:8eaa7973fb5441c4fed5a9ac3007dcc4e3f7f24e4601304381c0ccb88a099c2b"
     ),
     # Moved when the onboarding rewrite dropped the `facility` rule. The
     # wholesale comment rewrite that shipped alongside it contributed nothing:

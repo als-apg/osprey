@@ -939,9 +939,8 @@ def _recovery_html() -> str:
       suppresses the announcement whenever a bind host is declared, because
       nginx owns the way in. Telling the reader to re-open a line nothing
       printed is a dead end, and a browser genuinely does reach this page in
-      that shape (``auth.method: none``, or a roster entry with
-      ``login: false``, leaves the app's own gate as the outermost one). The
-      way in there is ``osprey users login-url``.
+      that shape (``auth.method: none`` leaves the app's own gate as the
+      outermost one). The way in there is ``osprey users login-url``.
     * Unset — single-user, where the launcher did print the line and re-opening
       it is exactly right.
 

@@ -578,57 +578,30 @@ def test_lint_string_display_name_reports_no_error() -> None:
     assert not any(f.code == "web_terminals.invalid_display_name" for f in findings)
 
 
-def test_lint_non_boolean_user_login_is_an_error() -> None:
-    """A non-boolean `login` deploys fail-closed as "login required", which is
-    the opposite of what the author who wrote it believes — so the typo is an
-    ERROR here rather than a silent lock-out."""
+@pytest.mark.parametrize("method", ["token", "none", "password", "oidc"])
+def test_lint_has_no_rule_about_the_retired_login_key(method: str) -> None:
+    """`login:` is no longer a roster key, and lint owns no rule about it.
+
+    Roster keys are linted one check per key rather than against a list of
+    known names, so a retired key draws no finding at all — the same silence
+    any other unknown key gets — and the normalizer projects it away so the
+    entry deploys behind the wall. What must not survive is a code that reads
+    the key: a finding that names `login: false` would be a rule that still
+    believes the exemption exists."""
     # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
+    config = _auth_config({"method": method, "allow_insecure_http": True}, tls=False, fqdn=None)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "thellert", "index": 0, "login": "false"}
-    ]
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    assert any(f.code == "web_terminals.invalid_user_login" for f in _errors(findings))
-
-
-def test_lint_login_false_without_auth_is_an_inert_key_warning() -> None:
-    """`login: false` under the default `auth.method: token` changes nothing —
-    that method puts neither a login wall nor an injected operator secret in
-    front of the entry — and the config should not claim otherwise. Under
-    `none` the key is meaningful and no warning is due."""
-    # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0, "login": False}]
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    assert any(f.code == "web_terminals.user_login_inert" for f in _warnings(findings))
-
-
-def test_lint_login_false_with_auth_on_reports_nothing() -> None:
-    """The intended use — a public entry in an authenticated deployment — is
-    clean; and explicit `login: true` is a well-formed (default) spelling."""
-    # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    web_terminals = config["modules"]["web_terminals"]
-    web_terminals["auth"] = {"method": "password", "allow_insecure_http": True}
-    web_terminals["users"] = [
         {"name": "thellert", "index": 0, "login": True},
         {"name": "ariel", "index": 1, "login": False},
+        {"name": "kiosk", "index": 2, "login": "false"},
     ]
 
     # Act
     findings = lint_web_terminals(config)
 
     # Assert
-    assert not any(f.code == "web_terminals.invalid_user_login" for f in findings)
-    assert not any(f.code == "web_terminals.user_login_inert" for f in findings)
+    assert [f.code for f in findings if "login" in f.code] == []
+    assert not any("login: false" in f.message for f in findings)
 
 
 def test_lint_non_literal_user_access_is_an_error() -> None:
@@ -728,10 +701,12 @@ def test_lint_access_any_under_auth_none_is_silent() -> None:
     assert not any(f.code == "web_terminals.user_access_inert" for f in findings)
 
 
-def test_lint_access_any_on_a_login_exempt_entry_is_an_inert_key_warning() -> None:
-    """`access: any` together with `login: false` under a walled deployment:
-    nginx proxies the login-exempt entry with no auth_request, so there is no
-    authenticated identity for `access` to widen."""
+def test_lint_access_any_beside_the_retired_login_key_is_not_inert() -> None:
+    """`login: false` used to make a shared card inert (nginx proxied the entry
+    with no auth_request, so there was no identity for `access` to widen). The
+    key is gone, so a shared card beside it is a plain shared card behind the
+    wall, and the inert-key warning must not fire for a cause that no longer
+    exists."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     web_terminals = config["modules"]["web_terminals"]
@@ -744,7 +719,7 @@ def test_lint_access_any_on_a_login_exempt_entry_is_an_inert_key_warning() -> No
     findings = lint_web_terminals(config)
 
     # Assert
-    assert any(f.code == "web_terminals.user_access_inert" for f in _warnings(findings))
+    assert not any(f.code == "web_terminals.user_access_inert" for f in findings)
 
 
 def test_lint_access_any_under_walled_auth_reports_nothing() -> None:

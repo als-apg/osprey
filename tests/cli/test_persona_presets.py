@@ -369,18 +369,19 @@ class TestControlAssistantWebTier:
             "persona": "readonly",
             "display_name": "Read-Only View (Bob)",
         }
-        # The standalone research tier is public by design: `login: false`
-        # keeps its card outside the login wall the preset ships enabled.
+        # The standalone research tier is a shared card by design: `access:
+        # any` lets every roster login open it behind the login wall the preset
+        # ships enabled.
         assert wt["users"][2] == {
             "name": "ariel",
             "index": 2,
             "persona": "ariel",
             "display_name": "ARIEL Logbook Research",
-            "login": False,
+            "access": "any",
         }
-        # The admin login carries NO `login: false`: the one account that can
-        # rewrite the deployment must sit behind the login wall, unlike the
-        # deliberately-public research card above it.
+        # The admin login carries NO `access: any`: the one account that can
+        # rewrite the deployment must stay one person's own card, unlike the
+        # deliberately-shared research card above it.
         assert wt["users"][3] == {
             "name": "carol",
             "index": 3,
@@ -447,12 +448,12 @@ class TestControlAssistantWebTier:
         The referenced persona projects do not exist yet at build time. For the
         personas nobody is exposed by, the lint demotes those not-yet-rendered
         paths to WARNINGS (they carry a ``build_profile`` naming the delta
-        ``osprey build`` renders them from). For a persona a ``login: false``
-        entry resolves to, the absent render is an ERROR
+        ``osprey build`` renders them from). For a persona a shared card
+        (``access: any``) resolves to, the absent render is an ERROR
         (``persona_privileges_unknown``): its privileges cannot be read, so
-        "holds nothing" would be a guess about the one terminal that is served
-        to anyone — and `osprey up` now gates on this belt, where that guess
-        would be fail-open on the deploy path itself.
+        "holds nothing" would be a guess about the one terminal every login
+        opens — and `osprey up` gates on this belt, where that guess would be
+        fail-open on the deploy path itself.
 
         Both findings name the same remedy and it is the command that comes
         next anyway: ``osprey build``. What this test pins is that nothing ELSE
@@ -470,8 +471,8 @@ class TestControlAssistantWebTier:
         assert {finding.code for finding in errors} <= {"web_terminals.persona_privileges_unknown"}
         for finding in errors:
             assert "osprey build" in finding.message
-        # And the exposed entry is the one it is about: the shipped stack serves
-        # `ariel` without a login, which is why its unread render is refused.
+        # And the shared entry is the one it is about: the shipped stack shares
+        # `ariel` with the whole roster, which is why its unread render is refused.
         assert any("'ariel'" in finding.message for finding in errors)
 
     def test_ships_companion_panels_multi_user(self) -> None:

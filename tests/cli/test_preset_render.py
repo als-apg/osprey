@@ -349,15 +349,15 @@ class TestControlAssistantAdminPreset:
         assert entry["project"] == Path(entry["project_path"]).name
 
     def test_admin_roster_user_carol_is_authenticated(self) -> None:
-        """Carol is a person, not a public service. The ARIEL card ships
-        ``login: false`` deliberately; an admin card doing the same would hand
-        the Config panel and the setup tool to anyone who opens the landing
-        page, so the absence of that key here is the assertion."""
+        """Carol is a person, not a shared service. The ARIEL card ships
+        ``access: any`` deliberately; an admin card doing the same would hand
+        the Config panel and the setup tool to every roster login, so the
+        absence of that key here is the assertion."""
         wt = resolve_preset("control-assistant").config[WEB_TERMINALS_KEY]
         carol = next(u for u in wt["users"] if u["name"] == "carol")
         assert carol["persona"] == "admin"
         assert carol["index"] == 3
-        assert "login" not in carol
+        assert "access" not in carol
         assert carol["display_name"]
 
     def test_admin_tier_is_not_the_default_persona(self) -> None:
