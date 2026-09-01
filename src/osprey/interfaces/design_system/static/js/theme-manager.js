@@ -849,6 +849,12 @@ export function chartRelayout(gd) {
     paper_bgcolor: paper,
     plot_bgcolor: plot,
     'font.color': text,
+    // The theme's data palette and type: a trace that names no color of its
+    // own follows the colorway on every relayout (supplyDefaults re-runs), so
+    // an author who leaves colors unset gets the same series colors the native
+    // time-series viewer draws with, in all eight themes.
+    colorway: chartSeries(),
+    'font.family': _readVar(styles, '--font-mono') || "'JetBrains Mono', monospace",
     'legend.bgcolor': paper,
     'legend.bordercolor': line,
   };
