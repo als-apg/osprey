@@ -1424,6 +1424,30 @@ def _named_in_prose(names: Sequence[str]) -> str:
     return f"{', '.join(names[:-1])} and {names[-1]}"
 
 
+def _authored_manifest_fact(prepared: Any, data_root: Path) -> str:
+    """The fact for a channel set the project staged rather than derived.
+
+    Same register as the corpus-derivation fact -- what the accelerator will
+    serve, and the file it came from, named as an operator would retype it --
+    with the one thing that differs said outright: nothing here was derived, so
+    none of the derivation's degradations apply and none of its census can be
+    quoted. An authored manifest's ``_metadata`` is the facility's own, so only
+    what every manifest must carry is read off it.
+
+    The limits are named because they are the second half of what an authored
+    manifest changes: they come from beside it, not from the project's live
+    ``channel_limits.json``.
+    """
+    manifest_name = prepared.manifest_path.relative_to(data_root)
+    limits_name = prepared.limits_source.relative_to(data_root)
+    return (
+        f"Virtual-accelerator channel set taken from the manifest this project stages "
+        f"({manifest_name}): {prepared.channel_count} channel(s), served exactly as "
+        f"staged. Nothing is derived from the rest of the data tree, and the drive "
+        f"limits beside it ({limits_name}) are what the accelerator enforces."
+    )
+
+
 def _report_va_manifest_outcome(
     shared: _SharedRenderInputs,
     build_profile: Any,
@@ -1449,6 +1473,10 @@ def _report_va_manifest_outcome(
     (which the tree did not stage, and which it staged but could not read), and
     how the machine-state list reconciled against it.
 
+    A manifest the project STAGED gets one fact instead, naming the file (see
+    :func:`_authored_manifest_fact`): nothing was derived from the tree, so
+    there is no source census to publish and nothing was reconciled against it.
+
     Args:
         shared: The build's shared render inputs, holding what has been said.
         build_profile: The profile this render came from.
@@ -1464,7 +1492,10 @@ def _report_va_manifest_outcome(
         BuildProfileError: when a deployed virtual accelerator has no channels
             of the project's to serve.
     """
-    from osprey.services.virtual_accelerator.manifest.build import manifest_gap_reason
+    from osprey.services.virtual_accelerator.manifest.build import (
+        ManifestSource,
+        manifest_gap_reason,
+    )
 
     if not build_profile.deploy_services or build_profile.virtual_accelerator is None:
         return
@@ -1494,6 +1525,9 @@ def _report_va_manifest_outcome(
         )
 
     shared.va_reported.add(key)
+    if prepared.source is ManifestSource.AUTHORED:
+        _report_fact(_authored_manifest_fact(prepared, data_root))
+        return
     metadata = prepared.manifest["_metadata"]
     corpus = metadata.get("source_corpus")
     absent = metadata["absent_paradigms"]
@@ -1640,6 +1674,7 @@ def _render_project(
     from osprey.build.claude_code_resolver import load_provider_spec
     from osprey.deployment.reach import reach_errors
     from osprey.services.virtual_accelerator.manifest.build import (
+        ManifestSource,
         prepare_project_manifest,
         write_project_manifest,
     )
@@ -1910,9 +1945,13 @@ def _render_project(
 
     if prepared_va_manifest is not None:
         write_project_manifest(prepared_va_manifest, render_dir / "data")
+        # An authored manifest is copied, not generated, and the step says which
+        # it did: a facility reading "generated" over its own file would have
+        # every reason to think the build had replaced it.
         progress(
-            "  ✓ Generated virtual-accelerator channel manifest (%d channels)",
-            prepared_va_manifest.manifest["_metadata"]["total_channels"],
+            "  ✓ %s virtual-accelerator channel manifest (%d channels)",
+            "Staged" if prepared_va_manifest.source is ManifestSource.AUTHORED else "Generated",
+            prepared_va_manifest.channel_count,
         )
 
     # The limits database is read here and not in the `unrunnable` gate above,

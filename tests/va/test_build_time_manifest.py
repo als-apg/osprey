@@ -29,6 +29,7 @@ from osprey.services.virtual_accelerator.manifest.build import (
     LIMITS_FILENAME,
     MANIFEST_FILENAME,
     CorruptChannelSourcesError,
+    ManifestSource,
     NoChannelSourcesError,
     build_manifest,
     manifest_gap_reason,
@@ -744,3 +745,272 @@ class TestGraphYieldsNothing:
             prepare_project_manifest(root, DEFAULT_TIER, config=config)
 
         assert "machine.json" in str(excinfo.value)
+
+
+# --- an authored simulation manifest ----------------------------------------
+
+
+def _authored_channel(address: str, *, subfield: str = "RB", partition: str | None = None) -> dict:
+    """One channel entry in the schema a file-backed manifest must supply."""
+    return {
+        "address": address,
+        "ring": "SR",
+        "system": "MAG",
+        "family": "HCM",
+        "device": "01",
+        "field": "CURRENT",
+        "subfield": subfield,
+        "partition": partition or classify.PARTITION_PYAT_COUPLED,
+        "record_type": classify.RECORD_TYPE_ANALOG,
+        "noise": False,
+    }
+
+
+#: What a facility's own generator writes: identity keys, a setpoint paired
+#: with its readback, and a partition census -- everything the derivation
+#: paths in this module cannot reconstruct from a tree that stages no
+#: hierarchical database.
+_AUTHORED_MANIFEST: dict = {
+    "_metadata": {
+        "generator": "facility.scripts.va_channels",
+        "total_channels": 2,
+        "setpoint_count": 1,
+        "by_partition": {classify.PARTITION_PYAT_COUPLED: 2},
+    },
+    "channels": [
+        _authored_channel("SR:MAG:HCM:01:CURRENT:RB"),
+        _authored_channel("SR:MAG:HCM:01:CURRENT:SP", subfield="SP"),
+    ],
+}
+
+#: The drive limits a facility authors beside that manifest -- distinguishable
+#: from the tree-wide ``channel_limits.json`` a derived manifest is bounded by,
+#: so a test can see WHICH file reached the render.
+_AUTHORED_LIMITS = '{"SR:MAG:HCM:01:CURRENT:SP": {"min_value": -1, "max_value": 1}}\n'
+
+
+def _author_manifest(root: Path, *, manifest: dict | str = _AUTHORED_MANIFEST, limits=True) -> Path:
+    """Stage an authored manifest (and optionally its limits) under ``simulation/``."""
+    simulation = root / "simulation"
+    simulation.mkdir(parents=True, exist_ok=True)
+    path = simulation / MANIFEST_FILENAME
+    path.write_text(manifest if isinstance(manifest, str) else json.dumps(manifest, indent=2))
+    if limits:
+        (simulation / LIMITS_FILENAME).write_text(_AUTHORED_LIMITS)
+    return path
+
+
+class TestAuthoredManifestOutranksDerivation:
+    """A manifest the profile STAGED is the answer, not an input to a derivation.
+
+    ``data/simulation/channel_manifest.json`` is reserved for the profile, so a
+    tree that carries one has already said what its accelerator serves. It is
+    taken as-is: nothing is re-derived from the corpus, and the limits beside it
+    are the limits that land in the render.
+    """
+
+    def test_authored_manifest_wins_over_the_graph_corpus(self, tmp_path):
+        root, config = _graph_tree(tmp_path / "data")
+        # The file the derivation demands and a facility with an authored
+        # manifest has no reason to write: the tree is complete without it.
+        (root / "machine_state_channels.json").unlink()
+        authored = _author_manifest(root)
+
+        prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
+
+        assert prepared is not None
+        assert prepared.source is ManifestSource.AUTHORED
+        assert prepared.manifest == json.loads(authored.read_text())
+        assert prepared.limits_source == root / "simulation" / LIMITS_FILENAME
+        # Nothing from the corpus leaked into it.
+        assert [c["address"] for c in prepared.manifest["channels"]] == [
+            "SR:MAG:HCM:01:CURRENT:RB",
+            "SR:MAG:HCM:01:CURRENT:SP",
+        ]
+
+    def test_without_an_authored_manifest_the_graph_derivation_is_unchanged(self, tmp_path):
+        """The same tree, minus the authored file: today's answer, untouched."""
+        root, config = _graph_tree(tmp_path / "data")
+
+        prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
+
+        assert prepared.source is ManifestSource.GRAPH
+        assert prepared.manifest["_metadata"]["source_paradigms"] == ["graph"]
+        assert prepared.manifest["_metadata"]["total_channels"] == 5
+
+    def test_without_an_authored_manifest_the_graph_refusal_is_unchanged(self, tmp_path):
+        """And a tree that can back neither still refuses, naming both ways out."""
+        root, config = _graph_tree(tmp_path / "data")
+        (root / "machine_state_channels.json").unlink()
+
+        assert prepare_project_manifest(root, DEFAULT_TIER, config=config) is None
+        reason = manifest_gap_reason(root, DEFAULT_TIER, config=config)
+        assert "missing machine_state_channels.json" in reason
+        # The reserved path is one of the ways to satisfy the build, so the
+        # refusal names it rather than leaving it to be discovered.
+        assert f"simulation/{MANIFEST_FILENAME}" in reason
+
+    def test_a_staged_paradigm_database_still_wins(self, tmp_path, facility_tree):
+        """Precedence is databases, then the authored manifest, then the graph."""
+        root, config = _graph_tree(tmp_path / "data")
+        db = root / f"channel_databases/tiers/tier{DEFAULT_TIER}/hierarchical.json"
+        db.parent.mkdir(parents=True)
+        shutil.copy2(
+            facility_tree / f"channel_databases/tiers/tier{DEFAULT_TIER}/hierarchical.json", db
+        )
+        _author_manifest(root)
+
+        prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
+
+        assert prepared.source is ManifestSource.PARADIGM
+        assert prepared.manifest["_metadata"]["source_paradigms"] == ["hierarchical"]
+        assert prepared.limits_source == root / LIMITS_FILENAME
+
+    def test_an_authored_manifest_needs_no_config(self, tmp_path):
+        """It is not graph-derived, so nothing about it depends on the rendered config.
+
+        A ``config=None`` caller keeps the paradigm-database rules for every
+        DERIVATION, as before -- the graph is still never consulted without one
+        -- but an authored manifest is not a derivation. It is read off the
+        tree, so it answers the same for every caller.
+        """
+        root, _ = _graph_tree(tmp_path / "data")
+        (root / "machine_state_channels.json").unlink()
+        _author_manifest(root)
+
+        prepared = prepare_project_manifest(root, DEFAULT_TIER)
+
+        assert prepared is not None
+        assert prepared.source is ManifestSource.AUTHORED
+
+    def test_limits_fall_back_to_the_tree_wide_file(self, tmp_path):
+        """A manifest authored without limits beside it is bounded by the tree's."""
+        root, config = _graph_tree(tmp_path / "data")
+        _author_manifest(root, limits=False)
+
+        prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
+
+        assert prepared.limits_source == root / LIMITS_FILENAME
+
+    def test_an_authored_manifest_with_no_limits_at_all_backs_nothing(self, tmp_path):
+        """Limits and manifest ship together on this path too, or neither does."""
+        root, config = _graph_tree(tmp_path / "data")
+        (root / LIMITS_FILENAME).unlink()
+        _author_manifest(root, limits=False)
+
+        assert prepare_project_manifest(root, DEFAULT_TIER, config=config) is None
+        reason = manifest_gap_reason(root, DEFAULT_TIER, config=config)
+        assert f"missing simulation/{LIMITS_FILENAME}" in reason
+
+
+class TestAuthoredManifestValidation:
+    """A staged file that cannot be served is refused, never derived past.
+
+    Silently falling through to the corpus would replace the facility's own
+    channel set with a derived one -- which is the failure this precedence
+    exists to prevent, arriving by a different door.
+    """
+
+    def test_an_unparseable_authored_manifest_raises_naming_the_file(self, tmp_path):
+        from osprey.errors import BuildProfileError
+
+        root, config = _graph_tree(tmp_path / "data")
+        _author_manifest(root, manifest="{not json\n")
+
+        with pytest.raises(BuildProfileError) as excinfo:
+            prepare_project_manifest(root, DEFAULT_TIER, config=config)
+
+        assert f"simulation/{MANIFEST_FILENAME}" in str(excinfo.value)
+
+    def test_a_wrongly_shaped_authored_manifest_raises_naming_the_file(self, tmp_path):
+        from osprey.errors import BuildProfileError
+
+        root, config = _graph_tree(tmp_path / "data")
+        _author_manifest(root, manifest={"channels": {"SR:MAG:HCM:01:CURRENT:RB": {}}})
+
+        with pytest.raises(BuildProfileError) as excinfo:
+            prepare_project_manifest(root, DEFAULT_TIER, config=config)
+
+        assert f"simulation/{MANIFEST_FILENAME}" in str(excinfo.value)
+
+    def test_an_authored_manifest_missing_schema_keys_raises(self, tmp_path):
+        """The container reads every key of every channel; a build says so first."""
+        from osprey.errors import BuildProfileError
+
+        root, config = _graph_tree(tmp_path / "data")
+        _author_manifest(root, manifest={"channels": [{"address": "SR:MAG:HCM:01:CURRENT:RB"}]})
+
+        with pytest.raises(BuildProfileError) as excinfo:
+            prepare_project_manifest(root, DEFAULT_TIER, config=config)
+
+        assert f"simulation/{MANIFEST_FILENAME}" in str(excinfo.value)
+
+    def test_an_empty_authored_manifest_raises(self, tmp_path):
+        from osprey.errors import BuildProfileError
+
+        root, config = _graph_tree(tmp_path / "data")
+        _author_manifest(root, manifest={"channels": []})
+
+        with pytest.raises(BuildProfileError) as excinfo:
+            prepare_project_manifest(root, DEFAULT_TIER, config=config)
+
+        assert "no channels" in str(excinfo.value)
+
+
+class TestWriteAuthoredManifest:
+    """What the render gets: the authored bytes, and the authored limits."""
+
+    def test_the_authored_bytes_reach_the_render_unchanged(self, tmp_path):
+        root, config = _graph_tree(tmp_path / "data")
+        authored = _author_manifest(root)
+        prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
+        project_data = tmp_path / "project" / "data"
+        project_data.mkdir(parents=True)
+
+        manifest_path = write_project_manifest(prepared, project_data)
+
+        assert manifest_path.read_bytes() == authored.read_bytes()
+
+    def test_the_live_limits_never_overwrite_the_authored_ones(self, tmp_path):
+        """The copy-from-the-project rule is for DERIVED manifests only.
+
+        A built project carries the facility's live ``channel_limits.json`` --
+        the bounds the real machine is driven under, which for a facility that
+        authors its simulation limits is a different, much shorter file. Copying
+        it over the authored one leaves the accelerator enforcing limits its
+        channel set was never written against.
+        """
+        root, config = _graph_tree(tmp_path / "data")
+        _author_manifest(root)
+        prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
+        project_data = tmp_path / "project" / "data"
+        project_data.mkdir(parents=True)
+        (project_data / LIMITS_FILENAME).write_text('{"channels": {}}\n')
+
+        write_project_manifest(prepared, project_data)
+
+        assert (project_data / "simulation" / LIMITS_FILENAME).read_text() == _AUTHORED_LIMITS
+
+    def test_the_written_pair_loads_through_the_container_reader(self, tmp_path):
+        root, config = _graph_tree(tmp_path / "data")
+        _author_manifest(root)
+        prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
+        project_data = tmp_path / "project" / "data"
+        project_data.mkdir(parents=True)
+
+        manifest_path = write_project_manifest(prepared, project_data)
+
+        channels = loaders.load_manifest_file(manifest_path)
+        assert len(channels) == 2
+        assert (project_data / "simulation" / LIMITS_FILENAME).is_file()
+
+    def test_writing_in_place_is_a_no_op_rather_than_a_failure(self, tmp_path):
+        """A build whose render zone IS the data tree must not copy a file onto itself."""
+        root, config = _graph_tree(tmp_path / "data")
+        authored = _author_manifest(root)
+        prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
+
+        manifest_path = write_project_manifest(prepared, root)
+
+        assert manifest_path.read_bytes() == authored.read_bytes()
+        assert (root / "simulation" / LIMITS_FILENAME).read_text() == _AUTHORED_LIMITS

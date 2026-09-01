@@ -18,8 +18,15 @@ A graph-mode project stages no paradigm database at all -- its channels live in
 the knowledge-graph corpus the deploy seeds the graph store from. For such a
 tree the manifest's channel set is derived from the channel roster's graph
 reader (:func:`osprey.channel_roster.registered_channels`, the one membership
-authority), and ``_metadata`` names the corpus as the source. Staged paradigm
-databases always win: the graph is consulted only when the tree stages none.
+authority), and ``_metadata`` names the corpus as the source.
+
+A project may also AUTHOR its manifest outright, at the
+``data/simulation/channel_manifest.json`` the framework reserves for it, and
+then no derivation happens at all: the file is the answer, and the
+``channel_limits.json`` beside it is what bounds the accelerator. So the source
+precedence is staged paradigm databases, then the authored manifest, then the
+graph -- most specific first, and each one only consulted when nothing above it
+is staged.
 
 Run as a script to (re)generate ``channel_manifest.json``::
 
@@ -32,21 +39,39 @@ import json
 import logging
 import shutil
 from dataclasses import asdict, dataclass
+from enum import StrEnum
 from pathlib import Path
 
 from osprey.errors import BuildProfileError
 
 from . import classify, loaders
-from .paths import MANIFEST_OUTPUT, PACKAGE_PATHS, ManifestPaths
+from .paths import (
+    LIMITS_FILENAME,
+    MANIFEST_FILENAME,
+    MANIFEST_OUTPUT,
+    PACKAGE_PATHS,
+    ManifestPaths,
+)
 
 logger = logging.getLogger(__name__)
 
-# Filenames the virtual-accelerator container looks for under its
-# ``/data/simulation`` mount: ``VA_CHANNELS_FILE`` resolves relative names
-# against the data dir, and drive limits are read from ``channel_limits.json``
-# beside it (see services/virtual_accelerator/entrypoint.py).
-MANIFEST_FILENAME = "channel_manifest.json"
-LIMITS_FILENAME = "channel_limits.json"
+
+class ManifestSource(StrEnum):
+    """Where a prepared manifest came from.
+
+    Carried on the prepared manifest rather than re-derived from its
+    ``_metadata``, because the two consumers that branch on it -- the writer
+    and the build's fact -- must agree with the selection that actually
+    happened, and an AUTHORED manifest's metadata is the facility's to write
+    (it may say anything, or nothing at all).
+    """
+
+    #: Expanded from the paradigm channel databases the tree stages.
+    PARADIGM = "paradigm"
+    #: Read verbatim from the profile's own ``data/simulation/`` manifest.
+    AUTHORED = "authored"
+    #: Derived from the project's knowledge-graph corpus.
+    GRAPH = "graph"
 
 
 @dataclass(frozen=True)
@@ -563,7 +588,9 @@ def _prepare_graph_manifest(roster, paths: ManifestPaths) -> PreparedManifest | 
             f"data tree {paths.data_root}: {detail}. Repair the file."
         ) from exc
 
-    return PreparedManifest(manifest=manifest, limits_source=paths.channel_limits)
+    return PreparedManifest(
+        manifest=manifest, limits_source=paths.channel_limits, source=ManifestSource.GRAPH
+    )
 
 
 @dataclass(frozen=True)
@@ -572,13 +599,159 @@ class PreparedManifest:
 
     Holding the built manifest (rather than re-deriving it at write time) is
     what makes the build step atomic: every way generation can fail -- absent
-    sources, disagreeing paradigm DBs -- has already happened by the time a
-    caller holds one of these, so the decision to wire ``VA_CHANNELS_FILE``
-    into the project's ``.env`` can be made before anything is written.
+    sources, disagreeing paradigm DBs, an unreadable authored file -- has
+    already happened by the time a caller holds one of these, so the decision
+    to wire ``VA_CHANNELS_FILE`` into the project's ``.env`` can be made before
+    anything is written.
+
+    Attributes:
+        manifest: The manifest document, parsed.
+        limits_source: The drive limits that ship beside it.
+        source: Which of the three sources answered. The writer and the build's
+            fact branch on this rather than on the manifest's ``_metadata``,
+            which an authored manifest owns.
+        manifest_path: The staged file the manifest was read from, for an
+            authored one; ``None`` for a derived manifest, which exists only in
+            memory until it is written.
     """
 
     manifest: dict
     limits_source: Path
+    source: ManifestSource = ManifestSource.PARADIGM
+    manifest_path: Path | None = None
+
+    @property
+    def channel_count(self) -> int:
+        """How many channels the accelerator will serve.
+
+        Read from ``_metadata`` when it states a count and from the channel
+        list otherwise: a derived manifest always carries the census this
+        package writes, while an authored one carries whatever its facility's
+        generator wrote -- possibly no ``_metadata`` at all. The channels
+        themselves are the one part every manifest must have.
+        """
+        metadata = self.manifest.get("_metadata") or {}
+        total = metadata.get("total_channels")
+        if isinstance(total, int):
+            return total
+        return len(self.manifest.get("channels", []))
+
+
+def _authored_limits_source(paths: ManifestPaths) -> Path | None:
+    """The drive limits an authored manifest is served under, or ``None``.
+
+    Beside the manifest first -- a facility that writes its own simulation
+    channel set writes the bounds for it in the same directory, and those are
+    the ones the accelerator has to enforce. The tree-wide
+    ``channel_limits.json`` is the fallback, so authoring a manifest without a
+    limits file beside it still lands the project's limits in the render rather
+    than none at all. ``None`` means the tree has neither, which is the silent
+    unbounded-setpoint state every source path here refuses.
+    """
+    if paths.authored_limits.is_file():
+        return paths.authored_limits
+    if paths.channel_limits.is_file():
+        return paths.channel_limits
+    return None
+
+
+def _read_authored_manifest(path: Path, data_root: Path) -> dict:
+    """Read and check the manifest a profile staged, or refuse by name.
+
+    Checked through :func:`loaders.load_manifest_file` -- the exact reader the
+    container boots on -- so a file that would kill the accelerator at start is
+    caught at build time instead, and by the same rules rather than by a second
+    opinion written here. That reader takes a path and returns the channel
+    list, so the document itself is read a second time; one extra parse of a
+    file this build is about to copy anyway is cheaper than keeping a private
+    copy of the schema in sync with the one the container enforces.
+
+    A staged file that cannot be served is a REFUSAL, never a fall-through to
+    derivation: deriving past it would quietly replace the facility's own
+    channel set with one this package reconstructed, which is precisely what
+    staging the file said not to do.
+
+    Raises:
+        BuildProfileError: if the file is not readable as a manifest, or reads
+            as one that declares no channels.
+    """
+    relative = path.relative_to(data_root)
+    remedy = (
+        "Repair the file, or remove it so the manifest is derived from the rest of the data tree."
+    )
+    try:
+        channels = loaders.load_manifest_file(path)
+    except loaders.ManifestFileError as exc:
+        raise BuildProfileError(
+            f"the virtual-accelerator channel manifest this project stages at "
+            f"{relative} could not be read: {exc}. {remedy}"
+        ) from exc
+    if not channels:
+        raise BuildProfileError(
+            f"the virtual-accelerator channel manifest this project stages at "
+            f"{relative} declares no channels, so the accelerator has nothing of "
+            f"the project's to serve. {remedy}"
+        )
+    document: dict = json.loads(path.read_text())
+    return document
+
+
+def _prepare_authored_manifest(paths: ManifestPaths) -> PreparedManifest | None:
+    """Take the manifest the project staged, as staged.
+
+    ``data/simulation/channel_manifest.json`` is a path the framework reserves
+    for the profile, so a tree carrying one has already answered the question
+    this module otherwise derives an answer to -- and it can answer it with
+    things no derivation here can reconstruct: identity keys, setpoint/readback
+    pairing, partitions a facility's own lattice knowledge assigned. Nothing is
+    merged into it and nothing is recomputed from it: the file is the manifest.
+
+    Returns:
+        The prepared manifest, or ``None`` when the tree stages no authored
+        manifest at all, or stages one with no drive limits anywhere to serve it
+        under. :func:`manifest_gap_reason` renders which.
+
+    Raises:
+        BuildProfileError: if the staged manifest is present and cannot be read
+            as one.
+    """
+    manifest_path = paths.authored_manifest
+    if not manifest_path.is_file():
+        return None
+
+    manifest = _read_authored_manifest(manifest_path, paths.data_root)
+
+    limits_source = _authored_limits_source(paths)
+    if limits_source is None:
+        logger.debug(
+            "Virtual-accelerator manifest staged at %s not used: neither %s nor %s "
+            "is present, and drive limits ship beside a manifest or the accelerator "
+            "enforces none",
+            manifest_path,
+            paths.authored_limits,
+            paths.channel_limits,
+        )
+        return None
+
+    return PreparedManifest(
+        manifest=manifest,
+        limits_source=limits_source,
+        source=ManifestSource.AUTHORED,
+        manifest_path=manifest_path,
+    )
+
+
+def _authored_alternative(paths: ManifestPaths) -> str:
+    """The clause naming the reserved path a tree could satisfy the build with.
+
+    Appended to every refusal raised by a tree that stages no paradigm
+    database, because for such a tree an authored manifest is the second way
+    out and an operator reading only the first would never learn it exists.
+    """
+    return (
+        f"; no manifest is staged at {paths.authored_manifest.relative_to(paths.data_root)} "
+        f"either, which is the other way to give this accelerator a channel set"
+    )
 
 
 def prepare_project_manifest(
@@ -594,12 +767,20 @@ def prepare_project_manifest(
     the framework's built-in demo namespace.
 
     A tree that stages no paradigm database is not always a tree with no
-    channels: a graph-mode project's channels live in its knowledge-graph
-    corpus. When *config* is given and resolves the project's roster source to
-    the graph, such a tree gets its manifest from the roster's graph reader
-    instead (see :func:`_prepare_graph_manifest`). Staged paradigm databases
-    always win over the graph, exactly as before; a ``config`` of ``None``
-    keeps every existing caller on the paradigm-database rules alone.
+    channels, so two more sources are consulted in order, most specific first:
+
+    1. an AUTHORED ``data/simulation/channel_manifest.json`` -- a path the
+       framework reserves for the profile -- taken as-is, with the
+       ``channel_limits.json`` beside it as its limits (see
+       :func:`_prepare_authored_manifest`);
+    2. a graph-mode project's knowledge-graph corpus, when *config* is given
+       and resolves the project's roster source to the graph (see
+       :func:`_prepare_graph_manifest`).
+
+    Staged paradigm databases always win over both, exactly as before. A
+    ``config`` of ``None`` keeps every existing caller off the graph source; it
+    does NOT hide an authored manifest, which is read off the tree and depends
+    on no rendered configuration to be found.
 
     Args:
         data_root: The ``data/`` tree this build is sourcing from -- the
@@ -611,12 +792,12 @@ def prepare_project_manifest(
 
     Returns:
         The prepared manifest, or ``None`` when this tree cannot back one: it
-        stages no paradigm database at this tier, the databases it stages name
-        no channel, every one of them is present and unreadable, it is missing
-        the scenario seed, the machine-state list or the drive limits, or the
-        databases it does stage disagree. :func:`manifest_gap_reason` says
-        which, in the words the refusal is written in. A caller deploying a
-        virtual accelerator MUST refuse on ``None`` rather than continue.
+        stages no channel source at all at this tier, the databases it stages
+        name no channel, every one of them is present and unreadable, it is
+        missing the scenario seed, the machine-state list or the drive limits,
+        or the databases it does stage disagree. :func:`manifest_gap_reason`
+        says which, in the words the refusal is written in. A caller deploying
+        a virtual accelerator MUST refuse on ``None`` rather than continue.
 
         SOME of the staged databases being corrupt is not one of those cases:
         the manifest is built from the ones that are left, and ``_metadata``
@@ -626,21 +807,26 @@ def prepare_project_manifest(
     Raises:
         BuildProfileError: if the scenario seed or the machine-state list --
             the sources a tree carries one of, rather than one per paradigm --
-            cannot be read. There is nothing left to build from when either is
-            broken, and reading past it would quietly serve a different channel
-            set than the operator believes they are driving.
+            cannot be read, or if an authored manifest is staged and cannot be
+            read as one. There is nothing left to build from when any of them
+            is broken, and reading past it would quietly serve a different
+            channel set than the operator believes they are driving.
     """
     paths = ManifestPaths(data_root=data_root, tier=tier)
     if not paths.staged_paradigms:
+        authored = _prepare_authored_manifest(paths)
+        if authored is not None:
+            return authored
         if config is not None:
             roster = _graph_roster(config)
             if roster is not None:
                 return _prepare_graph_manifest(roster, paths)
         logger.debug(
             "Virtual-accelerator manifest not generated from %s: %s stages no "
-            "paradigm channel database",
+            "paradigm channel database and no manifest is staged at %s",
             data_root,
             paths.tier_dir,
+            paths.authored_manifest,
         )
         return None
 
@@ -709,7 +895,9 @@ def prepare_project_manifest(
         )
         return None
 
-    return PreparedManifest(manifest=manifest, limits_source=paths.channel_limits)
+    return PreparedManifest(
+        manifest=manifest, limits_source=paths.channel_limits, source=ManifestSource.PARADIGM
+    )
 
 
 def _staged_expansion_is_empty(paths: ManifestPaths, expansion: ParadigmExpansion) -> bool:
@@ -754,23 +942,33 @@ def manifest_gap_reason(data_root: Path, tier: int, *, config: dict | None = Non
         different work. A graph-mode tree gets the roster's own absence
         sentence -- the corpus named, with why it yielded nothing -- never the
         absent-paradigms wording, which would send its operator staging
-        database files graph mode does not use.
+        database files graph mode does not use. Every reason a tree staging no
+        database gets also names the reserved manifest path, because staging
+        one there is the other way to satisfy the build.
     """
     paths = ManifestPaths(data_root=data_root, tier=tier)
     if not paths.staged_paradigms:
+        if paths.authored_manifest.is_file():
+            # It is staged and readable -- otherwise the preparation raised
+            # rather than answering None -- so the drive limits are what is
+            # left to be missing.
+            return "missing " + str(paths.authored_limits.relative_to(data_root))
         if config is not None:
             roster = _graph_roster(config)
             if roster is not None:
                 if roster.absence is not None:
-                    return roster.absence.message().rstrip(".")
+                    return roster.absence.message().rstrip(".") + _authored_alternative(paths)
                 missing = _graph_missing_sources(paths)
                 if missing:
-                    return "missing " + ", ".join(
-                        str(path.relative_to(data_root)) for path in missing
+                    return (
+                        "missing "
+                        + ", ".join(str(path.relative_to(data_root)) for path in missing)
+                        + _authored_alternative(paths)
                     )
         return (
             f"no channel database is staged at tier {tier} "
             f"({', '.join(sorted(paths.absent_paradigms))} are all absent)"
+            + _authored_alternative(paths)
         )
     missing = paths.missing_sources()
     if not paths.channel_limits.is_file():
@@ -825,6 +1023,19 @@ def _first_unreadable_source(paths: ManifestPaths) -> Path | None:
     return None
 
 
+def _copy_unless_same_file(source: Path, destination: Path) -> None:
+    """Copy *source* onto *destination*, unless they are already one file.
+
+    A build whose output zone IS the tree the manifest was read from -- the
+    project's own ``data/`` -- would otherwise hand :func:`shutil.copy2` a file
+    and itself, which raises. Nothing to do is the right answer there: the
+    bytes are already where they are wanted.
+    """
+    if destination.exists() and destination.samefile(source):
+        return
+    shutil.copy2(source, destination)
+
+
 def write_project_manifest(prepared: PreparedManifest, project_data_dir: Path) -> Path:
     """Write a prepared manifest and its drive limits into ``data/simulation/``.
 
@@ -834,23 +1045,37 @@ def write_project_manifest(prepared: PreparedManifest, project_data_dir: Path) -
     from beside it. The limits file is copied rather than bind-mounted
     single-file, which fails at container init.
 
-    The limits copy is taken from the built project when it has one (so any
-    facility overlay applied to ``data/channel_limits.json`` is what the VA
-    enforces), falling back to the source tree the manifest was prepared
-    from.
+    For a DERIVED manifest the limits copy is taken from the built project when
+    it has one (so any facility overlay applied to ``data/channel_limits.json``
+    is what the VA enforces), falling back to the source tree the manifest was
+    prepared from.
+
+    An AUTHORED manifest is exempt from that rule, in both halves. Its bytes
+    are copied rather than re-serialized, so what the accelerator serves is the
+    file the facility staged and reviewed; and its limits are the ones prepared
+    with it -- the ``channel_limits.json`` staged beside it -- because the
+    project's live limits file bounds the real machine, and a facility that
+    authors a simulation channel set authors the bounds for it in the same
+    place. Copying the live file over those would leave the accelerator
+    enforcing limits its channel set was never written against.
 
     Returns:
         The path the manifest was written to.
     """
     simulation_dir = project_data_dir / "simulation"
     simulation_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = simulation_dir / MANIFEST_FILENAME
+
+    if prepared.source is ManifestSource.AUTHORED and prepared.manifest_path is not None:
+        _copy_unless_same_file(prepared.limits_source, simulation_dir / LIMITS_FILENAME)
+        _copy_unless_same_file(prepared.manifest_path, manifest_path)
+        return manifest_path
 
     limits_source = project_data_dir / LIMITS_FILENAME
     if not limits_source.is_file():
         limits_source = prepared.limits_source
-    shutil.copy2(limits_source, simulation_dir / LIMITS_FILENAME)
+    _copy_unless_same_file(limits_source, simulation_dir / LIMITS_FILENAME)
 
-    manifest_path = simulation_dir / MANIFEST_FILENAME
     manifest_path.write_text(json.dumps(prepared.manifest, indent=2) + "\n")
     return manifest_path
 

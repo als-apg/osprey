@@ -796,6 +796,128 @@ def test_a_graph_repo_with_an_empty_corpus_refuses_naming_it(tmp_path):
     assert "declares no channels" in message
 
 
+# --- a tree that AUTHORS its manifest ---------------------------------------
+
+#: A manifest a facility's own generator wrote: identity keys, a setpoint
+#: paired with its readback, and a partition census -- none of which the corpus
+#: can state, so the two sources are told apart by what the render carries.
+_AUTHORED_MANIFEST: dict[str, Any] = {
+    "_metadata": {
+        "generator": "facility.scripts.va_channels",
+        "total_channels": 2,
+        "setpoint_count": 1,
+        "by_partition": {"pyat-coupled": 2},
+    },
+    "channels": [
+        {
+            "address": "SR:MAG:HCM:01:CURRENT:RB",
+            "ring": "SR",
+            "system": "MAG",
+            "family": "HCM",
+            "device": "01",
+            "field": "CURRENT",
+            "subfield": "RB",
+            "partition": "pyat-coupled",
+            "record_type": "ai",
+            "noise": False,
+        },
+        {
+            "address": "SR:MAG:HCM:01:CURRENT:SP",
+            "ring": "SR",
+            "system": "MAG",
+            "family": "HCM",
+            "device": "01",
+            "field": "CURRENT",
+            "subfield": "SP",
+            "partition": "pyat-coupled",
+            "record_type": "ai",
+            "noise": False,
+        },
+    ],
+}
+
+#: The bounds the facility wrote for its simulated channel set.
+_AUTHORED_LIMITS = '{"SR:MAG:HCM:01:CURRENT:SP": {"min_value": -1, "max_value": 1}}\n'
+
+
+def _authored_repo(root: Path) -> Path:
+    """A graph-mode repo that stages its own simulation manifest and limits.
+
+    The shape a facility with its own channel generator ships: a corpus for the
+    graph store, no machine-state list (nothing derives a manifest here), and
+    the two reserved ``data/simulation/`` files stating what the accelerator
+    serves.
+    """
+    from osprey.services.virtual_accelerator.manifest.build import MANIFEST_FILENAME
+
+    repo = _graph_repo(root)
+    data = repo / "data"
+    (data / "machine_state_channels.json").unlink()
+    (data / "simulation" / MANIFEST_FILENAME).write_text(json.dumps(_AUTHORED_MANIFEST, indent=2))
+    (data / "simulation" / LIMITS_FILENAME).write_text(_AUTHORED_LIMITS)
+    # The live limits the machine is driven under: a different, narrower set of
+    # bounds, and never what the simulation enforces.
+    (data / LIMITS_FILENAME).write_text(
+        '{"SR:MAG:HCM:01:CURRENT:SP": {"min_value": -0.1, "max_value": 0.1}}\n'
+    )
+    return repo
+
+
+def test_an_authored_manifests_fact_names_the_staged_file(tmp_path, capsys):
+    """The reporting step: the source is named, as the corpus is on a derivation."""
+    from osprey.services.virtual_accelerator.manifest.build import MANIFEST_FILENAME
+
+    root = _authored_repo(tmp_path / "repo")
+    prepared = prepare_project_manifest(root / "data", DEFAULT_TIER, config=_graph_config(root))
+
+    _report(_shared(tmp_path), _profile(data="data"), root / "data", prepared)
+
+    printed = _printed(capsys)
+    assert f"simulation/{MANIFEST_FILENAME}" in printed
+    assert "2 channel(s)" in printed
+    # It is not a derivation, so none of the derivation's wordings apply.
+    assert "knowledge-graph corpus" not in printed
+    assert "channel database(s)" not in printed
+    assert "serves 0 setpoints" not in printed
+    assert _DEAD_FALLBACK_SENTENCE not in printed
+
+
+def test_an_authored_manifest_repo_builds_and_reaches_the_render_unchanged(
+    tmp_path_factory, capsys
+):
+    """The whole build: staged bytes in, the same bytes out, limits included.
+
+    A facility that authors its channel set gets it served. Nothing is derived
+    from the corpus over it, and the live ``channel_limits.json`` -- the bounds
+    of the real machine -- does not replace the simulation limits staged beside
+    the manifest.
+    """
+    from click.testing import CliRunner
+
+    from osprey.cli.build_cmd import build as build_command
+    from osprey.services.virtual_accelerator.manifest.build import MANIFEST_FILENAME
+
+    repo = _authored_repo(tmp_path_factory.mktemp("authored") / "repo")
+
+    previous = Path.cwd()
+    os.chdir(repo)
+    try:
+        result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
+    finally:
+        os.chdir(previous)
+
+    assert result.exit_code == 0, result.output
+    printed = " ".join(result.output.split())
+    assert f"simulation/{MANIFEST_FILENAME}" in printed
+    assert "knowledge-graph corpus" not in printed
+
+    rendered = repo / "build" / "data" / "simulation"
+    assert (rendered / MANIFEST_FILENAME).read_bytes() == (
+        repo / "data" / "simulation" / MANIFEST_FILENAME
+    ).read_bytes()
+    assert (rendered / LIMITS_FILENAME).read_text() == _AUTHORED_LIMITS
+
+
 def test_a_graph_repo_with_an_unreadable_corpus_fails_a_real_build(tmp_path_factory, caplog):
     """The refusing path through the CLI itself, not just the reporting helper.
 

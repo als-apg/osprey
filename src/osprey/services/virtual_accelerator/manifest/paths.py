@@ -24,6 +24,17 @@ _TEMPLATES_ROOT = Path(osprey.templates.__file__).parent
 
 _CONTROL_ASSISTANT_DATA = _TEMPLATES_ROOT / "apps" / "control_assistant" / "data"
 
+# Filenames the virtual-accelerator container looks for under its
+# ``/data/simulation`` mount: ``VA_CHANNELS_FILE`` resolves relative names
+# against the data dir, and drive limits are read from ``channel_limits.json``
+# beside it (see services/virtual_accelerator/entrypoint.py). They live here
+# rather than in ``build`` because the same two names are also the pair a
+# profile may AUTHOR under its ``data/simulation/`` tree -- the paths reserved
+# for it by ``osprey.cli.profile_conventions.RESERVED_PROJECT_PATHS`` -- so the
+# path object that resolves every manifest source has to know them.
+MANIFEST_FILENAME = "channel_manifest.json"
+LIMITS_FILENAME = "channel_limits.json"
+
 # Build-resolved default tier for the control-assistant preset. The preset's
 # `channel_finder_mode` defaults to "hierarchical"
 # (src/osprey/profiles/presets/control-assistant.yml), and
@@ -76,7 +87,35 @@ class ManifestPaths:
 
     @property
     def channel_limits(self) -> Path:
-        return self.data_root / "channel_limits.json"
+        return self.data_root / LIMITS_FILENAME
+
+    @property
+    def authored_manifest(self) -> Path:
+        """The manifest a profile may stage itself, instead of one being derived.
+
+        ``data/simulation/channel_manifest.json`` is a path the framework
+        RESERVES for the profile (see
+        ``osprey.cli.profile_conventions.RESERVED_PROJECT_PATHS``), so a tree
+        carrying one is stating its accelerator's channel set outright: a
+        facility whose channels come from a generator of its own -- lattice
+        coupling, setpoint/readback pairing and partitions included -- rather
+        than from anything this package can reconstruct from the tree.
+        ``build.prepare_project_manifest`` takes it as-is when the tree stages
+        no paradigm database.
+        """
+        return self.data_root / "simulation" / MANIFEST_FILENAME
+
+    @property
+    def authored_limits(self) -> Path:
+        """The drive limits an authored manifest ships beside itself.
+
+        Reserved for the profile by the same table, and read from the same
+        directory the container mounts. It is the limits source for an authored
+        manifest; :attr:`channel_limits` -- the tree-wide file a derived
+        manifest is bounded by -- is the fallback when a profile authors a
+        manifest without one beside it.
+        """
+        return self.data_root / "simulation" / LIMITS_FILENAME
 
     @property
     def paradigm_databases(self) -> dict[str, Path]:
