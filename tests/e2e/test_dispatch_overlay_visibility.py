@@ -355,12 +355,17 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         if os.environ.get("ALS_APG_BASE_URL")
         else ""
     )
-    (repo / ".env").write_text(
-        "EVENT_DISPATCHER_TOKEN=dev-token\n"
-        "DISPATCH_WORKER_TOKEN=dev-token\n"
-        f"ALS_APG_API_KEY={os.environ['ALS_APG_API_KEY']}\n" + base_url_line,
-        encoding="utf-8",
-    )
+    # APPENDED, never rewritten: `osprey init` seeded this file and `osprey
+    # build` appended the keys the virtual-accelerator containers boot from
+    # (VA_CHANNELS_FILE, VA_LATTICE). Rewriting it would drop those, and both
+    # VA instances would refuse to start against an unnamed manifest.
+    with (repo / ".env").open("a", encoding="utf-8") as handle:
+        handle.write(
+            "\n# ── e2e fixture ──\n"
+            "EVENT_DISPATCHER_TOKEN=dev-token\n"
+            "DISPATCH_WORKER_TOKEN=dev-token\n"
+            f"ALS_APG_API_KEY={os.environ['ALS_APG_API_KEY']}\n" + base_url_line
+        )
 
     # Force fresh image builds so the deployed stack runs CURRENT source AND our
     # mutated render. `osprey up --dev` rebuilds these, but removing any stale
