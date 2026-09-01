@@ -23,6 +23,8 @@ here. ``requests`` is a base dependency and is safe at module scope.
 """
 
 import logging
+import shutil
+import subprocess
 import time
 from collections.abc import Callable
 from contextlib import suppress
@@ -51,6 +53,47 @@ def is_docker_available() -> bool:
     except Exception as e:
         logger.warning(f"Docker not available: {e}")
         return False
+
+
+#: How long ``docker info`` may take before the probe gives up. A healthy
+#: daemon on a loaded host can take well over ten seconds to answer; the
+#: figure is generous so that "slow" is reported as slow rather than as absent.
+DOCKER_CLI_PROBE_TIMEOUT = 30.0
+
+
+def docker_cli_unavailable_reason(*, timeout: float = DOCKER_CLI_PROBE_TIMEOUT) -> str | None:
+    """Why the ``docker`` CLI cannot be used right now, or ``None`` when it can.
+
+    For suites that shell out to ``docker build`` / ``docker run`` rather than
+    going through the SDK, so the CLI itself has to be on ``PATH`` and the
+    daemon behind it has to answer. The outcomes are worded apart because they
+    call for different responses, and a skip reason is the only place a test
+    report shows them: a probe that timed out names a loaded host (the suite
+    would run — later), an unreachable daemon names an engine that is off, and
+    a missing CLI names a machine that never had one. Collapsing the three into
+    "docker not available" made a saturated developer box indistinguishable
+    from one with no engine (#820).
+
+    Args:
+        timeout: Seconds to wait for ``docker info``.
+
+    Returns:
+        ``None`` when the CLI works; otherwise a one-line reason suitable for
+        ``pytest.mark.skipif(..., reason=...)``.
+    """
+    if shutil.which("docker") is None:
+        return "docker CLI not on PATH"
+    try:
+        probe = subprocess.run(["docker", "info"], capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return f"docker probe timed out after {timeout:g}s (daemon present but slow?)"
+    except OSError as exc:
+        return f"docker CLI could not be run: {exc}"
+    if probe.returncode != 0:
+        lines = (probe.stderr or probe.stdout).strip().splitlines()
+        detail = lines[-1].strip() if lines else f"exit {probe.returncode}"
+        return f"docker daemon not reachable: {detail}"
+    return None
 
 
 def is_image_present(reference: str) -> bool:

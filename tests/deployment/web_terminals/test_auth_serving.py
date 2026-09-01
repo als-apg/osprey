@@ -79,7 +79,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import shutil
 import socket
 import subprocess
 import textwrap
@@ -121,6 +120,7 @@ from osprey.utils.dotenv import (
     merge_chain,
     parse_dotenv_file,
 )
+from tests._container_support import docker_cli_unavailable_reason
 from tests.services.auth_sidecar.mock_idp import DEFAULT_CLIENT_ID, DEFAULT_CLIENT_SECRET
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -181,18 +181,14 @@ and registry packages behind it. The *versions* are never named here — see
 """
 
 
-def _docker_available() -> bool:
-    if shutil.which("docker") is None:
-        return False
-    try:
-        return subprocess.run(["docker", "info"], capture_output=True, timeout=10).returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
-        return False
-
+# Probed once at import, where the module-level skip needs the answer. The
+# reason carries the cause: a probe that timed out on a loaded host must read
+# differently from a host with no engine (#820).
+_DOCKER_UNAVAILABLE = docker_cli_unavailable_reason()
 
 pytestmark = [
     pytest.mark.dockerbuild,
-    pytest.mark.skipif(not _docker_available(), reason="docker not available"),
+    pytest.mark.skipif(_DOCKER_UNAVAILABLE is not None, reason=_DOCKER_UNAVAILABLE or ""),
 ]
 
 
