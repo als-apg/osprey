@@ -431,7 +431,10 @@ class Stack:
         on ``/auth``, the session cookie on ``/``); a hand-assembled ``Cookie``
         header sends the wrong one and reports a confident false green.
         """
-        return httpx.Client(base_url=self.base_url, follow_redirects=False, timeout=15, **kwargs)
+        # A login POST derives an scrypt key inside the container; on a
+        # saturated host that alone has exceeded a short client timeout, so
+        # the timeout is sized to outlast the load, not the request (#822).
+        return httpx.Client(base_url=self.base_url, follow_redirects=False, timeout=60, **kwargs)
 
 
 def _login_page_status(auth_method: str) -> tuple[int, ...]:
@@ -511,9 +514,18 @@ def _wait_for(
     *,
     names: list[str],
     what: str,
-    timeout: float = 60.0,
+    timeout: float = 240.0,
     ok: tuple[int, ...] = (200,),
 ) -> None:
+    """Poll ``url`` until it answers with an ``ok`` status, else fail with the logs.
+
+    The default deadline is sized for a saturated host, not an idle one: the
+    sidecar's ``docker run`` returns long before uvicorn is listening, and with
+    an image build running alongside that gap has been observed past a minute
+    (#822). A generous deadline costs nothing on a healthy start — the poll
+    returns on the first good answer — and on a dead one the logs, not the
+    deadline, are the diagnosis.
+    """
     deadline = time.monotonic() + timeout
     last = "no attempt made"
     while time.monotonic() < deadline:
@@ -1322,9 +1334,14 @@ def test_expired_entry_no_longer_authorizes(stack: Stack) -> None:
     # Arrange
     codec = stack.codec()
     now = codec.now()
+    # An hour in the past, not a second: the sidecar checks the entry against
+    # the container's clock, and on a loaded Docker Desktop VM that clock has
+    # lagged the host by more than a second, which left a one-second-old
+    # expiry still in the future (#822). The property is "lapsed", and any
+    # past instant proves it.
     state = codec.new_state().with_user(
         "alice",
-        expires_at=now - 1,
+        expires_at=now - 3600,
         generation_tag=generation_tag(stack.stored_hashes["alice"]),
     )
 
