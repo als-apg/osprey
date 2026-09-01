@@ -86,6 +86,16 @@
     must also never be a tab switch away, which is why they sit outside the
     three view containers below and stay on screen for all of them.
 
+    The two halts DO fold behind the "Queue controls" disclosure — but only in
+    states where the panel affirmatively knows they are dormant (idle manager,
+    no running item, no pending stop, no autostart; see haltsCollapsible in
+    queue-client.js). The moment the queue is active or the manager cannot be
+    read, they are on screen with zero clicks and the disclosure disappears:
+    visibility follows the same fail-visible rule as the buttons' wording,
+    and it is never a gate on the halts themselves. First paint counts as
+    "cannot be read", so both halts start VISIBLE — the window before the
+    first frame is exactly when a queue may already be executing.
+
     "Start queue" is deliberately NOT here — it lives inside the Queue tab,
     because arming a queue is a deliberate act, not an always-at-hand one.
   -->
@@ -101,6 +111,13 @@
     <span id="lane-strip" class="lane-strip" role="group" aria-label="Bluesky plan lane" hidden></span>
     <span id="queue-state-badge" class="badge warn">connecting&hellip;</span>
     <span class="status-strip-spacer"></span>
+    <!-- The disclosure for the folded resting state. Starts hidden: until the
+         first frame proves the queue dormant, the halts themselves are shown
+         and this button has no job. queue-view.js swaps it in only while
+         haltsCollapsible says the halts may fold, and hides it again — with
+         the halts pinned open — the moment they may not. -->
+    <button type="button" id="halts-toggle" class="btn halts-toggle"
+            aria-expanded="false" aria-controls="stop-btn abort-btn" hidden>Queue controls ▸</button>
     <!-- NEVER add `disabled` here. The halt has no disabled state (see
          queueControls in queue-client.js), and queue-view.js sets no
          `disabled` property on this button, so anything set here would

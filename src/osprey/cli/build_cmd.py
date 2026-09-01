@@ -81,6 +81,7 @@ from .build_lifecycle import (
     _format_junit_summary,
     _run_lifecycle_phase,
 )
+from .build_limits_check import limits_database_errors
 from .build_persistence import (
     _apply_config_overrides,
     _apply_conventions,
@@ -1913,6 +1914,14 @@ def _render_project(
             "  ✓ Generated virtual-accelerator channel manifest (%d channels)",
             prepared_va_manifest.manifest["_metadata"]["total_channels"],
         )
+
+    # The limits database is read here and not in the `unrunnable` gate above,
+    # because it arrives with the conventions: the profile's `data/` tree is
+    # copied into the render after that gate, and a relative `database_path`
+    # resolves to exactly that copy. Same refusal shape as the gate.
+    limits_errors = limits_database_errors(render_dir)
+    if limits_errors:
+        raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(limits_errors))
 
     if build_profile.mcp_servers:
         _persist_mcp_servers(render_dir, build_profile.mcp_servers)

@@ -896,12 +896,12 @@ def _capture_variant(
         authorize_browser_context(page.context)
         # Two seeded localStorage keys, both about starting from a known state
         # on the fresh profile every capture runs on:
-        #   * the one-time rail hint, pre-dismissed — it floats over the dock
-        #     tab strip, and the sheet documents the shells, not onboarding;
+        #   * the onboarding tour, pre-dismissed — its invite card overlays
+        #     the shell, and the sheet documents the shells, not onboarding;
         #   * the PTY session id, so initTerminal() connects mode=resume on
         #     DEMO_SESSION_ID instead of letting the hub mint a random one.
         page.add_init_script(
-            "try { localStorage.setItem('osprey-rail-hint-dismissed-v1', '1');"
+            "try { localStorage.setItem('osprey-tour-dismissed-v1', '1');"
             f" localStorage.setItem('osprey-pty-session', '{DEMO_SESSION_ID}') }} catch (e) {{}}"
         )
         page.goto(

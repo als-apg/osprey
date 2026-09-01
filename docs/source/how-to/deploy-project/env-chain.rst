@@ -188,7 +188,10 @@ the same proxy, in ``.env`` when this one differs:
 names and nothing else from the chain, so a lowercase ``https_proxy`` never
 reaches it. (Inside a container that does receive the whole chain, an empty
 lowercase name is worse than absent — it turns the proxy off for that scheme —
-which is why only the uppercase spelling is passed through.)
+which is why only the uppercase spelling is passed through.) On a deployment
+whose login service uses OIDC, ``osprey up`` warns when the chain spells one of
+these names in lowercase with no uppercase twin, naming the file and the
+variable; the value is left as written.
 
 On a multi-user deployment the login service reads this set from the chain as
 well, and it is the one worth remembering, because it makes a call of its own:

@@ -87,6 +87,7 @@
   <link rel="stylesheet" href="{{ prefixed('/static/css/sessions.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/settings.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/activity-strip.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/tour.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/10-prompt-gallery.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/20-memory-gallery.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/30-config-structured-renderers.css') }}">
@@ -258,6 +259,16 @@
             </svg>
           </span>
           <span class="panel-utility-label">Feedback</span>
+        </button>
+        <button class="panel-utility-btn" id="panel-tour-btn" type="button"
+                title="Take the tour" aria-label="Tour">
+          <span class="panel-utility-icon" data-icon="tour" aria-hidden="true">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="8" cy="8" r="6"/>
+              <path d="M10.5 5.5L9 9L5.5 10.5L7 7Z"/>
+            </svg>
+          </span>
+          <span class="panel-utility-label">Tour</span>
         </button>
       </div>
     </div>
@@ -434,6 +445,7 @@
             <div class="settings-confirm-dialog">
               <div class="settings-confirm-title">Apply Settings?</div>
               <div class="settings-confirm-message">Applying settings will restart the terminal session. Any running processes will be terminated.</div>
+              <label class="settings-confirm-skip"><input type="checkbox" class="settings-confirm-skip-box"> Don't ask again</label>
               <div class="settings-confirm-actions">
                 <button class="settings-cancel-btn">Cancel</button>
                 <button class="settings-confirm-btn">Apply &amp; Restart</button>
@@ -456,9 +468,9 @@
        binds #activity-strip above to panel-manager's activity seam. -->
   <script type="module" src="{{ prefixed('/static/js/activity-strip.js') }}"></script>
 
-  <!-- One-time rail hint: self-registering module; points operators from the
-       old tab bar to the rail. -->
-  <script type="module" src="{{ prefixed('/static/js/rail-hint.js') }}"></script>
+  <!-- Onboarding tour (replaces the one-time rail hint): self-registering
+       module; invite card + spotlighted steps over the live shell. -->
+  <script type="module" src="{{ prefixed('/static/js/tour.js') }}"></script>
 
 </body>
 </html>

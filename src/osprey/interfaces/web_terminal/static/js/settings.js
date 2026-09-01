@@ -4,6 +4,7 @@ import { fetchJSON, apiRequest } from './api.js';
 import { restartTerminal, startTerminal } from './terminal.js';
 import { showSettingsNotice } from './settings-notice.js';
 import { mountOverlay, fadeOutOverlay } from './modal-overlay.js';
+import { hideApplyConfirm, initApplyConfirmGate } from './settings-apply-confirm.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 
 /**
@@ -97,15 +98,9 @@ export function initSettings() {
     btn.addEventListener('click', () => switchMode(/** @type {string} */ (btn.dataset.mode)));
   });
 
-  // Apply button
-  const applyBtn = agentPanel.querySelector('.settings-apply-btn');
-  if (applyBtn) applyBtn.addEventListener('click', showConfirmDialog);
-
-  // Confirm dialog buttons
-  const confirmBtn = agentPanel.querySelector('.settings-confirm-btn');
-  const cancelBtn = agentPanel.querySelector('.settings-cancel-btn');
-  if (confirmBtn) confirmBtn.addEventListener('click', applySettings);
-  if (cancelBtn) cancelBtn.addEventListener('click', hideConfirmDialog);
+  // Apply button and its confirm dialog, behind the don't-ask-again gate
+  // (settings-apply-confirm.js).
+  initApplyConfirmGate(agentPanel, () => void applySettings());
 
   // Raw editor dirty tracking
   const rawEditor = document.getElementById('settings-raw-editor');
@@ -643,20 +638,8 @@ function deepEqual(a, b) {
   return false;
 }
 
-function showConfirmDialog() {
-  if (!agentPanel) return;
-  const overlay = agentPanel.querySelector('.settings-confirm-overlay');
-  if (overlay) overlay.classList.add('visible');
-}
-
-function hideConfirmDialog() {
-  if (!agentPanel) return;
-  const overlay = agentPanel.querySelector('.settings-confirm-overlay');
-  if (overlay) overlay.classList.remove('visible');
-}
-
 async function applySettings() {
-  hideConfirmDialog();
+  if (agentPanel) hideApplyConfirm(agentPanel);
 
   const status = agentPanel ? agentPanel.querySelector('.settings-status') : null;
   const applyBtn = /** @type {HTMLButtonElement|null} */ (agentPanel ? agentPanel.querySelector('.settings-apply-btn') : null);

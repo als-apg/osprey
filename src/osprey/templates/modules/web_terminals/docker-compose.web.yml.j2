@@ -1070,6 +1070,13 @@ services:
          choice in the display menu still outranks this. #}
       - {{ ("OSPREY_WEB_THEME=" ~ svc.theme) | tojson }}
 {%- endif %}
+{%- if svc.tour %}
+      {#- This user's onboarding-tour invite policy (once/always/never).
+         Quoted the same way as OSPREY_WEB_THEME above, for the same reason.
+         app.py reads OSPREY_WEB_TOUR in preference to config web.tour, and
+         warns+falls back on an unknown value. #}
+      - {{ ("OSPREY_WEB_TOUR=" ~ svc.tour) | tojson }}
+{%- endif %}
 {%- for env in svc.panel_env %}
       - {{ env.name }}={{ env.port }}
 {%- endfor %}

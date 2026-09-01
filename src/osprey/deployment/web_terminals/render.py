@@ -952,6 +952,11 @@ def render_web_terminals(
                 # the template's `{% if svc.theme %}` guard false, so no env
                 # line is emitted and the app falls back to config web.theme.
                 "theme": entry.get("theme"),
+                # Optional per-user onboarding-tour invite policy ->
+                # OSPREY_WEB_TOUR. Same shape again: absent leaves the
+                # template's `{% if svc.tour %}` guard false and the app
+                # falls back to config web.tour.
+                "tour": entry.get("tour"),
                 # Optional per-user OIDC identity -> the auth sidecar's
                 # OSPREY_AUTH_OIDC_SUBJECT_<SUFFIX>. Same shape again: absent
                 # leaves the compose template's `{% if svc.oidc_subject %}`

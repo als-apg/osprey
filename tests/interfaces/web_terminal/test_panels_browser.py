@@ -229,13 +229,12 @@ def _live_server(
 # Page helpers
 # ---------------------------------------------------------------------------
 
-#: Seeded into every page before load: marks the one-time rail hint as already
-#: dismissed. The hint floats over the dock tab strip (dropdown z-index), so on
-#: the fresh profile these tests run under it would intercept the tab clicks and
-#: drags they drive. It has its own dedicated coverage (rail-hint.test.mjs).
-_DISMISS_RAIL_HINT = (
-    "try { localStorage.setItem('osprey-rail-hint-dismissed-v1', '1') } catch (e) {}"
-)
+#: Seeded into every page before load: marks the onboarding tour as already
+#: dismissed. Under the default `once` policy the invite card (scrim + modal)
+#: would otherwise overlay the shell on the fresh profile these tests run
+#: under and intercept the tab clicks and drags they drive. The tour has its
+#: own dedicated coverage (tour.test.mjs).
+_DISMISS_RAIL_HINT = "try { localStorage.setItem('osprey-tour-dismissed-v1', '1') } catch (e) {}"
 
 
 def _open_page(browser, base_url: str) -> Page:
