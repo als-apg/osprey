@@ -333,6 +333,9 @@ export function artifactPath(a) {
  * @returns {boolean}
  */
 export function isNewThisSession(a, sessionStart) {
+  // A shipped example is written when the gallery first starts, which is
+  // "this session" for whoever opened it; it is never news.
+  if (a.origin === "demo") return false;
   return !!(a.timestamp && a.timestamp >= sessionStart);
 }
 
