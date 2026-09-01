@@ -232,30 +232,24 @@ def test_resuming_the_confirmed_id_reuses_the_warm_session(app):
     This is the round trip the fix restores end to end: the client stores the
     id it was given and resumes it on the next page load.
     """
-    with patch(
-        "osprey.interfaces.web_terminal.routes.websocket.SessionDiscovery.discover_new_session",
-        return_value=None,
-    ):
-        with TestClient(app) as client:
-            reg, commands = _patch_spawn(app)
+    with TestClient(app) as client:
+        reg, commands = _patch_spawn(app)
 
-            with client.websocket_connect("/ws/terminal") as ws:
-                _send_resize(ws)
-                session_id = _recv_json(ws, "session_info")["session_id"]
+        with client.websocket_connect("/ws/terminal") as ws:
+            _send_resize(ws)
+            session_id = _recv_json(ws, "session_info")["session_id"]
 
-            with client.websocket_connect(
-                f"/ws/terminal?session_id={session_id}&mode=resume"
-            ) as ws:
-                _send_resize(ws)
-                msg = _recv_json(ws, "session_info")
-                assert msg["session_id"] == session_id
+        with client.websocket_connect(f"/ws/terminal?session_id={session_id}&mode=resume") as ws:
+            _send_resize(ws)
+            msg = _recv_json(ws, "session_info")
+            assert msg["session_id"] == session_id
 
-            # Warm reuse: the second connection spawned nothing.
-            assert len(commands) == 1
-            assert list(reg._sessions) == [session_id]
+        # Warm reuse: the second connection spawned nothing.
+        assert len(commands) == 1
+        assert list(reg._sessions) == [session_id]
 
 
-def test_stale_handler_teardown_spares_the_replacement_session(app):
+def test_stale_handler_teardown_spares_the_replacement_session(app, tmp_path):
     """A first tab closing must not kill the PTY a second tab is using.
 
     Handing every new session an id the client stores and resumes makes two
@@ -263,11 +257,14 @@ def test_stale_handler_teardown_spares_the_replacement_session(app):
     to check ownership: this handler's PTY has died and been replaced under
     the same key, and terminating by key alone would take the live
     replacement — and the operator's terminal — down with it.
+
+    The session was prompted before its CLI exited, so its transcript is on
+    disk: with a dead PTY that is what makes the id resumable at all.
     """
-    with patch(
-        "osprey.interfaces.web_terminal.routes.websocket.SessionDiscovery.discover_new_session",
-        return_value=None,
-    ):
+    sessions_dir = tmp_path / "claude_sessions"
+    sessions_dir.mkdir()
+
+    with patch.object(SessionDiscovery, "_resolve_sessions_dir", lambda self: sessions_dir):
         with TestClient(app) as client, ExitStack() as stack:
             reg, spawned = _patch_spawn_tracking_sessions(app)
 
@@ -276,8 +273,9 @@ def test_stale_handler_teardown_spares_the_replacement_session(app):
             _send_resize(first)
             session_id = _recv_json(first, "session_info")["session_id"]
 
-            # Its CLI exits. The socket stays open, as it does in the browser
-            # — the tab just shows "[Process exited]".
+            # Its CLI exits after a prompt was sent. The socket stays open, as
+            # it does in the browser — the tab just shows "[Process exited]".
+            (sessions_dir / f"{session_id}.jsonl").write_text("")
             spawned[0].terminate()
 
             # Tab two resumes the id tab one stored. The dead PTY is dropped

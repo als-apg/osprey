@@ -36,20 +36,16 @@ function ptySessionStorageKey() {
   return scopedStorageKey(PTY_SESSION_STORAGE_KEY_BASE);
 }
 
-// A resume connection gets a 'session_info' confirmation too —
-// routes/websocket.py discovers the attached id on the stale-resume path (a
-// new session needs no discovery: the server dictates its id and confirms it
-// at once) — carrying the id ACTUALLY attached, which may differ from the
-// requested --resume-id if that id was stale/dead and the server silently
-// started a fresh PTY instead of erroring. The 'session_info' branch in
-// onMessage below treats that confirmation as ground truth: a mismatch
-// clears the stored id (see the isStaleResumeMismatch check there) instead
-// of leaving a dead id in localStorage forever. Confirmation can still take
-// a while to arrive for a genuinely stale id (routes/websocket.py falls
-// back to its full discovery-poll timeout), so we don't rely on it alone
-// for fast failure detection — see the isAutoResumeAttempt handling in
-// startTerminal() and the 'exit' branch in onMessage below, which remain in
-// place as a faster, independent failure signal.
+// Every connection gets a 'session_info' confirmation from
+// routes/websocket.py carrying the id ACTUALLY attached. A resume of an id
+// with no live PTY and no transcript on disk gets 'transcript_missing'
+// instead, and nothing is spawned for it — see that branch in onMessage
+// below, which renders the state and arms Enter to start fresh. The
+// 'session_info' branch treats the confirmation as ground truth: a mismatch
+// clears the stored id (the isStaleResumeMismatch check there) instead of
+// leaving a dead id in localStorage. The two timers in startTerminal() and
+// the 'exit' branch stay as an independent signal for a child that dies
+// early for any other reason.
 const RESUME_LIVENESS_TIMEOUT_MS = 2000;
 
 // How long an 'exit' still counts as "that resume failed". Wider than
@@ -73,6 +69,12 @@ const RESUME_FAILOVER_WINDOW_MS = 10000;
 // fallback.
 /** @type {string|null} */
 let autoResumeFailoverId = null;
+
+// Set by the 'transcript_missing' branch in onMessage once this connection's
+// own resume has been refused and the socket dropped: the terminal shows the
+// state and the next Enter starts a fresh session. Every startTerminal()
+// disarms it, so a fresh start from the picker or the palette wins too.
+let freshStartArmed = false;
 
 /**
  * Read the persisted PTY session ID. Returns null if none is stored or if
@@ -260,8 +262,14 @@ export function initTerminal(containerId) {
   requestAnimationFrame(() => fitAddon.fit());
   document.fonts.ready.then(() => fitAddon.fit());
 
-  // Forward keystrokes to WebSocket
+  // Forward keystrokes to WebSocket — unless the terminal is showing a
+  // refused resume, where Enter is the operator's deliberate fresh start and
+  // there is no PTY for anything else to reach.
   term.onData((/** @type {string} */ data) => {
+    if (freshStartArmed) {
+      if (data.includes('\r')) startTerminal();
+      return;
+    }
     if (wsConnection) wsConnection.send(data);
   });
 
@@ -319,6 +327,7 @@ export function initTerminal(containerId) {
 export function startTerminal(sessionId = null, mode = 'new') {
   if (wsConnection) return;
   if (!term) return;
+  freshStartArmed = false;
 
   let url = wsUrl('/ws/terminal'); // wsUrl prefixes this internally
   // Is this specifically the page-load auto-resume attempt (as opposed to
@@ -328,10 +337,9 @@ export function startTerminal(sessionId = null, mode = 'new') {
   if (mode === 'resume' && sessionId) {
     url += `?session_id=${encodeURIComponent(sessionId)}&mode=resume`;
     currentSessionId = sessionId;
-    // Persist optimistically — the server sends no confirmation for a
-    // resume connection (session_info is only emitted for new sessions),
-    // so this is corrected by the 'exit' fallback below if it turns out
-    // to be wrong.
+    // Persist optimistically so a reload mid-connect resumes the same id;
+    // the server's answer corrects it — 'session_info' with another id, or
+    // 'transcript_missing' — and the 'exit' fallback below covers the rest.
     storeSessionId(sessionId);
   }
 
@@ -368,13 +376,12 @@ export function startTerminal(sessionId = null, mode = 'new') {
             // If this was our page-load auto-resume attempt, treat the exit
             // as the resume having failed: drop the dead id and fall back to
             // a fresh session so the user isn't stuck reconnecting to it
-            // forever. The server does confirm a resume, but only once it has
-            // finished discovering what the CLI actually attached to, which
-            // can take far longer than the CLI takes to fail — so the PTY
-            // exiting is the timely signal, and this is the ONLY place a dead
-            // id leaves storage. It stops counting as a resume failure after
-            // RESUME_FAILOVER_WINDOW_MS (see startTerminal()), past which an
-            // exit is the operator ending a session that did resume.
+            // forever. A missing transcript no longer arrives this way (the
+            // server answers 'transcript_missing' and spawns nothing); this
+            // covers a child that dies early for any other reason. It stops
+            // counting as a resume failure after RESUME_FAILOVER_WINDOW_MS
+            // (see startTerminal()), past which an exit is the operator
+            // ending a session that did resume.
             if (autoResumeFailoverId) {
               autoResumeFailoverId = null;
               clearStoredSessionId();
@@ -404,6 +411,33 @@ export function startTerminal(sessionId = null, mode = 'new') {
             }
             setSessionLabel(msg.session_id);
             notifySessionChange(msg.session_id);
+          } else if (msg.type === 'transcript_missing') {
+            // The server refused to resume msg.session_id: no live PTY and no
+            // transcript on disk, so nothing was spawned (or a --resume child
+            // reported the same and quit). Not a silent fresh session — the
+            // operator picked this chat, and starting another under them
+            // would hide that it is gone. Say so, and make the next move
+            // theirs.
+            autoResumeFailoverId = null;
+            if (msg.session_id === currentSessionId) {
+              // This connection's own resume. Drop the pointer so no reload
+              // asks for it again, drop the socket so the wrapper does not
+              // reconnect to the same refused URL, and arm Enter.
+              clearStoredSessionId();
+              stopTerminal();
+              setSessionLabel(null);
+              term.write(
+                `\r\n\x1b[33mThe transcript for session ${msg.session_id} is missing, so it cannot be resumed.\x1b[0m\r\n` +
+                'Press Enter to start a new session.\r\n'
+              );
+              freshStartArmed = true;
+            } else {
+              // A refused switch_session: the server kept the current PTY
+              // attached, so the operator is still on a live session.
+              term.write(
+                `\r\n\x1b[33mThe transcript for session ${msg.session_id} is missing, so it cannot be switched to.\x1b[0m\r\n`
+              );
+            }
           } else if (msg.type === 'session_switched') {
             term.reset();
             currentSessionId = msg.session_id;
@@ -461,10 +495,11 @@ export function startTerminal(sessionId = null, mode = 'new') {
     // than the CLI takes to start up, fail to find the conversation, and
     // exit. Measured at roughly two seconds on an idle laptop and slower in a
     // container — so the notify timer above is far too tight to double as
-    // this one. Disarming early is not harmless: the 'exit' branch in
-    // onMessage is the only thing that drops a dead id from storage, and a
-    // tab that misses it prints "[Process exited]" and stays there, resuming
-    // the same dead id on every reload.
+    // this one. Disarming early is not harmless: for an early exit with no
+    // 'transcript_missing' verdict, the 'exit' branch in onMessage is what
+    // drops the dead id from storage, and a tab that misses it prints
+    // "[Process exited]" and stays there, resuming the same dead id on every
+    // reload.
     setTimeout(() => {
       if (autoResumeFailoverId === sessionId && wsConnection === socket) {
         autoResumeFailoverId = null;

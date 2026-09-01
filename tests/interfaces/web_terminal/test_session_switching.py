@@ -9,10 +9,10 @@ Tests that terminal_ws calls registry methods in the correct sequence.
 All tests connect in ``mode=resume`` with a pre-set UUID to avoid the
 5-second session-discovery poll that fires for new sessions. The
 ``sessions_dir`` fixture below additionally seeds an on-disk session file
-for the id used on each initial connect, so the resume confirmation added
-in ws-resume-confirmation takes its trusted synchronous path (the file
-already existed pre-spawn) instead of polling discovery — these tests
-exercise registry/pool behavior, not resume-discovery semantics.
+for every id these tests connect to or switch to: ``terminal_ws`` resumes
+only ids whose transcript exists (or whose PTY is still warm), and these
+tests exercise registry/pool behavior, not that boundary — which has its own
+cases at the end of the L1 class and in ``test_ws_resume_confirm.py``.
 """
 
 from __future__ import annotations
@@ -206,6 +206,7 @@ class TestSessionSwitchingProtocol:
         """Switching to a new UUID returns ``session_switched``."""
         initial, target = _uuid(), _uuid()
         _seed_session_file(sessions_dir, initial)
+        _seed_session_file(sessions_dir, target)
         with TestClient(app) as client:
             self._patch_spawn(app)
             with client.websocket_connect(_resume_url(initial)) as ws:
@@ -247,6 +248,7 @@ class TestSessionSwitchingProtocol:
         """A → B → A reuses session A from the pool (no extra spawn)."""
         a, b = _uuid(), _uuid()
         _seed_session_file(sessions_dir, a)
+        _seed_session_file(sessions_dir, b)
         with TestClient(app) as client:
             _, spawned = self._patch_spawn(app)
             with client.websocket_connect(_resume_url(a)) as ws:
@@ -266,6 +268,7 @@ class TestSessionSwitchingProtocol:
         """After A → B, both sessions remain in the registry pool."""
         a, b = _uuid(), _uuid()
         _seed_session_file(sessions_dir, a)
+        _seed_session_file(sessions_dir, b)
         with TestClient(app) as client:
             reg, _ = self._patch_spawn(app)
             with client.websocket_connect(_resume_url(a)) as ws:
@@ -279,7 +282,8 @@ class TestSessionSwitchingProtocol:
     def test_triple_switch_spawns_three(self, app, sessions_dir):
         """A → B → C creates three sessions total."""
         a, b, c = _uuid(), _uuid(), _uuid()
-        _seed_session_file(sessions_dir, a)
+        for sid in (a, b, c):
+            _seed_session_file(sessions_dir, sid)
         with TestClient(app) as client:
             _, spawned = self._patch_spawn(app)
             with client.websocket_connect(_resume_url(a)) as ws:
@@ -289,6 +293,56 @@ class TestSessionSwitchingProtocol:
                 ws.send_json({"type": "switch_session", "session_id": c})
                 _recv_json(ws, "session_switched")
                 assert len(spawned) == 3
+
+    # -- the resume boundary on the switch path --
+
+    def test_switch_to_an_id_without_transcript_is_refused_in_place(self, app, sessions_dir):
+        """No warm PTY and no transcript for the target: refused, nothing torn down.
+
+        The picker lists only ids with a transcript, so this is the race where
+        one vanished between listing and clicking, or a stale pointer replayed
+        through the cold-resume fallback. Spawning ``--resume`` there produced
+        a child that printed ``No conversation found`` and died. The handler
+        answers ``transcript_missing`` for the target and keeps the operator on
+        the session they were on.
+        """
+        initial, missing = _uuid(), _uuid()
+        _seed_session_file(sessions_dir, initial)
+        with TestClient(app) as client:
+            reg, spawned = self._patch_spawn(app)
+            with client.websocket_connect(_resume_url(initial)) as ws:
+                _send_resize(ws)
+                _sync_after_connect(ws, initial)
+
+                ws.send_json({"type": "switch_session", "session_id": missing})
+                msg = _recv_json(ws, "transcript_missing")
+                assert msg["session_id"] == missing
+
+                # Still on the initial session: a switch to it is the no-op
+                # answer, and the pool holds only what it held before.
+                ws.send_json({"type": "switch_session", "session_id": initial})
+                assert _recv_json(ws, "session_switched")["session_id"] == initial
+                assert len(spawned) == 1
+                assert reg.get_session(missing) is None
+                assert reg.get_session(initial) is spawned[0]
+
+    def test_switch_to_a_warm_session_without_transcript_is_allowed(self, app, sessions_dir):
+        """A pooled live PTY is a session whether or not its transcript exists yet."""
+        a, never_prompted = _uuid(), _uuid()
+        _seed_session_file(sessions_dir, a)
+        with TestClient(app) as client:
+            _, spawned = self._patch_spawn(app)
+            # Open a fresh session (no transcript until the first prompt) and
+            # leave it warm in the pool.
+            with client.websocket_connect("/ws/terminal") as ws:
+                _send_resize(ws)
+                never_prompted = _recv_json(ws, "session_info")["session_id"]
+
+            with client.websocket_connect(_resume_url(a)) as ws:
+                _send_resize(ws)
+                ws.send_json({"type": "switch_session", "session_id": never_prompted})
+                assert _recv_json(ws, "session_switched")["session_id"] == never_prompted
+                assert len(spawned) == 2  # a + the warm one, reused
 
 
 # ---------------------------------------------------------------------------
@@ -341,6 +395,7 @@ class TestSessionSwitchingContract:
         """Switch: detach(old) → get_or_create(new) → attach(new), in order."""
         initial, target = _uuid(), _uuid()
         _seed_session_file(sessions_dir, initial)
+        _seed_session_file(sessions_dir, target)
         with TestClient(app) as client:
             mock_reg, _ = self._mock_registry(app)
             with client.websocket_connect(_resume_url(initial)) as ws:

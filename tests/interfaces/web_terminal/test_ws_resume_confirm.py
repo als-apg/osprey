@@ -1,22 +1,23 @@
-"""WebSocket resume-confirmation tests.
+"""WebSocket resume-boundary tests.
 
-Covers the `mode=resume` confirmation added in `terminal_ws`: today
-`session_info` is only emitted on the new-session discovery path, so a
-client resuming a stale/absent `--resume-id` has no way to tell a live
-resume from a silently-fresh PTY. These tests exercise all three outcomes:
+``terminal_ws`` confirms every resume with a ``session_info`` frame carrying
+the id actually attached, and refuses to resume an id whose transcript is not
+on disk. The outcomes covered here:
 
-- A reused warm session confirms synchronously with the requested id.
-- A cold resume whose session file already exists on disk confirms
-  synchronously with the requested id (no discovery needed — the id was
-  genuinely valid).
-- A freshly-spawned PTY for an id with no file on disk (stale/absent)
-  confirms via the discovery mechanism — either the requested id (nothing
-  new appeared) or a newly-discovered id (the CLI started a fresh session
-  instead).
+- A reused warm session confirms synchronously with the requested id — with
+  or without a transcript, because a session that was opened and never
+  prompted has a live PTY and no ``.jsonl`` yet.
+- A cold resume whose transcript already exists on disk confirms
+  synchronously with the requested id.
+- A cold resume of an id with no transcript spawns nothing: the server
+  answers ``transcript_missing`` and closes, and the client renders that
+  state instead of a dead PTY.
+- A ``--resume`` child that the pre-spawn check let through but which still
+  reports ``No conversation found with session ID`` and exits gets the same
+  ``transcript_missing`` frame in place of a bare ``exit``.
 
 Mirrors the harness in ``test_session_switching.py``: real ``PtyRegistry``
-with ``_spawn_session`` patched to a ``FakePtySession``. ``discover_new_session``
-is patched per-test to avoid the real filesystem poll.
+with ``_spawn_session`` patched to a ``FakePtySession``.
 """
 
 from __future__ import annotations
@@ -24,7 +25,6 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
-import threading
 import time
 import uuid as uuid_mod
 from unittest.mock import patch
@@ -39,10 +39,17 @@ pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="PTY not availab
 
 
 class FakePtySession:
-    """Minimal PtySession substitute — stays alive, produces no output."""
+    """Minimal PtySession substitute — alive until told otherwise.
+
+    ``emit`` queues bytes the output loop will forward; ``exit`` ends the
+    child with a code. Queued output is drained before the loop sees the exit,
+    which is what a real PTY does too (:meth:`PtySession.read_output`).
+    """
 
     def __init__(self):
         self._alive = True
+        self._exit_code: int | None = None
+        self._chunks: list[bytes] = []
         self._last_rows = 24
         self._last_cols = 80
         self._command_list = ["fake"]
@@ -53,7 +60,9 @@ class FakePtySession:
 
     @property
     def exit_code(self):
-        return None if self._alive else 0
+        if self._alive:
+            return None
+        return 0 if self._exit_code is None else self._exit_code
 
     def start(self, initial_rows=24, initial_cols=80, extra_env=None, cwd=None):
         self._last_rows = initial_rows
@@ -69,16 +78,22 @@ class FakePtySession:
     def terminate(self):
         self._alive = False
 
+    def emit(self, data: bytes) -> None:
+        self._chunks.append(data)
+
+    def exit(self, code: int) -> None:
+        self._exit_code = code
+        self._alive = False
+
     async def read_output(self):
-        """Async generator that blocks quietly until the session dies."""
         try:
-            while self._alive:
-                await asyncio.sleep(0.05)
+            while self._alive or self._chunks:
+                if self._chunks:
+                    yield self._chunks.pop(0)
+                else:
+                    await asyncio.sleep(0.05)
         except (asyncio.CancelledError, GeneratorExit):
             return
-        # Unreachable yield — makes this function an async generator.
-        if False:
-            yield b""  # pragma: no cover
 
 
 def _recv_json(ws, msg_type: str, max_frames: int = 30):
@@ -103,8 +118,8 @@ def _recv_json(ws, msg_type: str, max_frames: int = 30):
     )
 
 
-def _collect_until(ws, msg_type: str, max_frames: int = 30) -> list[dict]:
-    """Return every JSON message up to and including the first *msg_type*.
+def _collect_json_until(ws, msg_type: str, max_frames: int = 30) -> list[dict]:
+    """Every JSON message up to and including the first *msg_type*.
 
     The twin of :func:`_recv_json` for asserting what did NOT arrive: read to a
     frame the server is guaranteed to send, then inspect the whole run.
@@ -134,6 +149,14 @@ def _send_resize(ws, cols: int = 80, rows: int = 24):
     ws.send_json({"type": "resize", "cols": cols, "rows": rows})
 
 
+def _wait_for_spawn(spawned: list, timeout: float = 5.0) -> FakePtySession:
+    deadline = time.monotonic() + timeout
+    while not spawned and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert spawned, "handler never spawned a PTY"
+    return spawned[-1]
+
+
 @pytest.fixture()
 def app(tmp_path):
     """Create a web terminal app pointed at a temp project dir."""
@@ -142,6 +165,15 @@ def app(tmp_path):
         return_value={"watch_dir": str(tmp_path / "ws")},
     ):
         yield create_app(shell_command="fake-not-used", project_dir=str(tmp_path))
+
+
+@pytest.fixture()
+def sessions_dir(tmp_path):
+    """Point ``SessionDiscovery`` at an empty transcript directory."""
+    d = tmp_path / "claude_sessions"
+    d.mkdir()
+    with patch.object(SessionDiscovery, "_resolve_sessions_dir", lambda self: d):
+        yield d
 
 
 def _patch_spawn(app):
@@ -159,219 +191,143 @@ def _patch_spawn(app):
 
 
 # ---------------------------------------------------------------------------
-# Fresh spawn — no new session file appears (resume genuinely succeeded)
+# Warm session — confirmed synchronously
 # ---------------------------------------------------------------------------
 
 
-def test_fresh_resume_confirms_requested_id(app):
-    """A fresh PTY spawned for a genuinely-valid --resume-id confirms that id."""
+def test_reused_warm_session_confirms_immediately(app, sessions_dir):
+    """Reconnecting to an already-warm session confirms the requested id."""
     sid = _uuid()
-    with patch(
-        "osprey.interfaces.web_terminal.routes.websocket.SessionDiscovery.discover_new_session",
-        return_value=None,
-    ):
-        with TestClient(app) as client:
-            _patch_spawn(app)
-            with client.websocket_connect(_resume_url(sid)) as ws:
-                _send_resize(ws)
-                msg = _recv_json(ws, "session_info")
-                assert msg["session_id"] == sid
-
-
-# ---------------------------------------------------------------------------
-# Fresh spawn — a NEW session file appears (requested id was stale/absent)
-# ---------------------------------------------------------------------------
-
-
-def test_stale_resume_confirms_discovered_id(app):
-    """A stale/absent --resume-id: the CLI starts fresh under a new id, and
-    the confirmation carries that discovered id, not the requested one."""
-    stale_sid = _uuid()
-    discovered_sid = _uuid()
-    with patch(
-        "osprey.interfaces.web_terminal.routes.websocket.SessionDiscovery.discover_new_session",
-        return_value=discovered_sid,
-    ):
-        with TestClient(app) as client:
-            reg, _ = _patch_spawn(app)
-            with client.websocket_connect(_resume_url(stale_sid)) as ws:
-                _send_resize(ws)
-                msg = _recv_json(ws, "session_info")
-                assert msg["session_id"] == discovered_sid
-                assert msg["session_id"] != stale_sid
-
-            # The registry pool entry was rekeyed to the discovered id.
-            assert reg.get_session(discovered_sid) is not None
-            assert reg.get_session(stale_sid) is None
-
-
-# ---------------------------------------------------------------------------
-# Reused warm session — confirmed synchronously, no discovery needed
-# ---------------------------------------------------------------------------
-
-
-def test_reused_warm_session_confirms_immediately(app):
-    """Reconnecting to an already-warm session confirms the requested id
-    without going through discovery (was_reused=True)."""
-    sid = _uuid()
-    with patch(
-        "osprey.interfaces.web_terminal.routes.websocket.SessionDiscovery.discover_new_session",
-        return_value=None,
-    ) as mock_discover:
-        with TestClient(app) as client:
-            _patch_spawn(app)
-
-            # First connect: fresh spawn, keeps the session warm in the pool.
-            with client.websocket_connect(_resume_url(sid)) as ws:
-                _send_resize(ws)
-                msg = _recv_json(ws, "session_info")
-                assert msg["session_id"] == sid
-
-            mock_discover.reset_mock()
-
-            # Second connect: reuses the warm session from the pool.
-            with client.websocket_connect(_resume_url(sid)) as ws:
-                _send_resize(ws)
-                msg = _recv_json(ws, "session_info")
-                assert msg["session_id"] == sid
-
-        # The reused-session confirmation never touched discovery.
-        mock_discover.assert_not_called()
-
-
-# ---------------------------------------------------------------------------
-# Cold resume, session file already on disk — confirmed immediately
-# ---------------------------------------------------------------------------
-
-
-def test_cold_resume_with_existing_file_confirms_immediately(app, tmp_path):
-    """A not-currently-warm resume whose session file already exists on disk
-    is trusted immediately — no discovery poll needed."""
-    sid = _uuid()
-    sessions_dir = tmp_path / "claude_sessions"
-    sessions_dir.mkdir()
     (sessions_dir / f"{sid}.jsonl").write_text("")
+    with TestClient(app) as client:
+        _, spawned = _patch_spawn(app)
 
-    with patch.object(SessionDiscovery, "_resolve_sessions_dir", lambda self: sessions_dir):
-        with patch(
-            "osprey.interfaces.web_terminal.routes.websocket.SessionDiscovery.discover_new_session"
-        ) as mock_discover:
-            with TestClient(app) as client:
-                _patch_spawn(app)
-                with client.websocket_connect(_resume_url(sid)) as ws:
-                    _send_resize(ws)
-                    msg = _recv_json(ws, "session_info")
-                    assert msg["session_id"] == sid
+        # First connect: fresh spawn, keeps the session warm in the pool.
+        with client.websocket_connect(_resume_url(sid)) as ws:
+            _send_resize(ws)
+            assert _recv_json(ws, "session_info")["session_id"] == sid
 
-            mock_discover.assert_not_called()
+        # Second connect: reuses the warm session from the pool.
+        with client.websocket_connect(_resume_url(sid)) as ws:
+            _send_resize(ws)
+            assert _recv_json(ws, "session_info")["session_id"] == sid
 
-
-# ---------------------------------------------------------------------------
-# Stale id, file appears mid-poll — discovery must use the full window
-# ---------------------------------------------------------------------------
+    assert len(spawned) == 1
 
 
-def test_stale_resume_with_delayed_file_confirms_discovered_id(app, tmp_path):
-    """A stale/absent --resume-id whose replacement session file only shows
-    up partway through the discovery window is still caught, and the window
-    used is the full one (not a shortened, easy-to-miss one).
+def test_warm_session_without_transcript_is_reattached(app, sessions_dir):
+    """A session opened and never prompted has a PTY but no transcript yet.
 
-    Every entry into the "no file on disk" branch is racing the CLI's own
-    startup to write its new session file — a too-short window would let
-    that race lose by default and silently confirm the stale requested id
-    instead (defeating the whole point of this confirmation).
+    Claude Code writes ``projects/<encoded>/<id>.jsonl`` on the first prompt,
+    so a reload straight after opening a terminal resumes an id with no file
+    on disk. The warm PTY is the session; the missing file must not be read
+    as a missing transcript.
     """
-    stale_sid = _uuid()
-    discovered_sid = _uuid()
-    sessions_dir = tmp_path / "claude_sessions"
-    sessions_dir.mkdir()
+    with TestClient(app) as client:
+        _, spawned = _patch_spawn(app)
+        with client.websocket_connect("/ws/terminal") as ws:
+            _send_resize(ws)
+            sid = _recv_json(ws, "session_info")["session_id"]
 
-    real_discover_new_session = SessionDiscovery.discover_new_session
-    captured_timeouts: list[float] = []
+        with client.websocket_connect(_resume_url(sid)) as ws:
+            _send_resize(ws)
+            assert _recv_json(ws, "session_info")["session_id"] == sid
 
-    def _delayed_discover(self, before, timeout=15.0):
-        captured_timeouts.append(timeout)
-        # The file doesn't exist yet when polling starts — it shows up
-        # partway through, simulating real (slow, MCP-heavy) CLI startup.
-        # A too-short timeout would give up before this fires.
-        threading.Timer(
-            0.6, lambda: (sessions_dir / f"{discovered_sid}.jsonl").write_text("")
-        ).start()
-        return real_discover_new_session(self, before, timeout=timeout)
-
-    with patch.object(SessionDiscovery, "_resolve_sessions_dir", lambda self: sessions_dir):
-        with patch.object(SessionDiscovery, "discover_new_session", _delayed_discover):
-            with TestClient(app) as client:
-                reg, _ = _patch_spawn(app)
-                with client.websocket_connect(_resume_url(stale_sid)) as ws:
-                    _send_resize(ws)
-                    msg = _recv_json(ws, "session_info", max_frames=60)
-                    assert msg["session_id"] == discovered_sid
-                    assert msg["session_id"] != stale_sid
-
-                assert reg.get_session(discovered_sid) is not None
-                assert reg.get_session(stale_sid) is None
-
-    # The stale branch must use the same (full) window as the new-session
-    # discovery path — not a shortened one that races the CLI and loses.
-    assert captured_timeouts == [15.0]
+    assert len(spawned) == 1
 
 
 # ---------------------------------------------------------------------------
-# Stale id whose PTY died — the resume demonstrably failed, so say nothing
+# Cold resume, transcript on disk — confirmed synchronously
 # ---------------------------------------------------------------------------
 
 
-def test_stale_resume_with_dead_pty_is_not_confirmed(app, tmp_path):
-    """A resume whose PTY has already exited must not have its id confirmed.
+def test_cold_resume_with_existing_file_confirms_immediately(app, sessions_dir):
+    """A not-currently-warm resume whose transcript exists is trusted at once."""
+    sid = _uuid()
+    (sessions_dir / f"{sid}.jsonl").write_text("")
+    with TestClient(app) as client:
+        _, spawned = _patch_spawn(app)
+        with client.websocket_connect(_resume_url(sid)) as ws:
+            _send_resize(ws)
+            assert _recv_json(ws, "session_info")["session_id"] == sid
+    assert len(spawned) == 1
 
-    The no-discovery fallback reasons "nothing new appeared, so the requested
-    id resumed after all". A PTY that has since exited is evidence against
-    exactly that: ``--resume`` found no such conversation and the CLI quit.
-    Confirming the id back there would tell the client to keep an id that
-    resolves to nothing and re-resume it on the next page load, which is how a
-    dead tab becomes a permanently dead one. Silence hands the verdict to the
-    client's own failover, which the ``exit`` frame has already triggered.
+
+# ---------------------------------------------------------------------------
+# Cold resume, no transcript — surfaced, never spawned
+# ---------------------------------------------------------------------------
+
+
+def test_cold_resume_without_transcript_is_surfaced_not_spawned(app, sessions_dir):
+    """No warm PTY and no ``.jsonl``: nothing to resume, so nothing is spawned.
+
+    ``claude --resume <id>`` on such an id prints ``No conversation found``
+    and exits 1, which left the operator on a dead PTY. The server already
+    knows before spawning; it says so and closes, and the client renders the
+    state (terminal.js) instead of a doomed child.
     """
-    dead_sid = _uuid()
-    sessions_dir = tmp_path / "claude_sessions"
-    sessions_dir.mkdir()
+    sid = _uuid()
+    with TestClient(app) as client:
+        reg, spawned = _patch_spawn(app)
+        with client.websocket_connect(_resume_url(sid)) as ws:
+            _send_resize(ws)
+            msg = _recv_json(ws, "transcript_missing")
+            assert msg["session_id"] == sid
+            # The server closes rather than holding a socket with no PTY.
+            assert ws.receive()["type"] == "websocket.close"
 
-    # Order the two events: discovery does not give up until the client has
-    # seen the PTY exit, so the confirm decision is made against a session
-    # that is unambiguously dead.
-    exit_seen = threading.Event()
+        assert spawned == []
+        assert reg.get_session(sid) is None
 
-    def _discover_after_exit(self, before, timeout=15.0):
-        exit_seen.wait(timeout=5.0)
-        return None
 
-    with patch.object(SessionDiscovery, "_resolve_sessions_dir", lambda self: sessions_dir):
-        with patch.object(SessionDiscovery, "discover_new_session", _discover_after_exit):
-            with TestClient(app) as client:
-                _, spawned = _patch_spawn(app)
-                with client.websocket_connect(_resume_url(dead_sid)) as ws:
-                    _send_resize(ws)
-                    # The handler spawns once it has the resize; wait for it.
-                    deadline = time.monotonic() + 5.0
-                    while not spawned and time.monotonic() < deadline:
-                        time.sleep(0.01)
-                    assert spawned, "handler never spawned a PTY"
+# ---------------------------------------------------------------------------
+# Belt and braces — the child itself reports the transcript is gone
+# ---------------------------------------------------------------------------
 
-                    # The CLI cannot find the conversation and quits.
-                    spawned[0].terminate()
-                    assert _recv_json(ws, "exit")["code"] == 0
-                    exit_seen.set()
-                    # Let the confirm task reach its decision and, if it sends,
-                    # get the frame onto the wire ahead of the fence below.
-                    time.sleep(0.5)
 
-                    # Fence: an invalid switch is answered immediately, so a
-                    # confirmation would already be queued in front of it.
-                    ws.send_json({"type": "switch_session", "session_id": "not-a-uuid"})
-                    seen = _collect_until(ws, "error")
+def test_resume_child_that_finds_no_conversation_is_surfaced(app, sessions_dir):
+    """A ``--resume`` child that exits on ``No conversation found`` is surfaced.
 
-        assert [m["type"] for m in seen] == ["error"], (
-            "a dead PTY's resume was confirmed back to the client: "
-            f"{[m for m in seen if m['type'] == 'session_info']}"
-        )
+    The pre-spawn check can be beaten (a transcript removed after the check,
+    or one the CLI refuses to load). The child's own verdict is then the
+    signal: its output names the failure and it exits non-zero. The final
+    frame is ``transcript_missing`` — the same state the pre-spawn refusal
+    produces — not a bare ``exit`` the client would read as the operator
+    ending a session.
+    """
+    sid = _uuid()
+    (sessions_dir / f"{sid}.jsonl").write_text("")
+    with TestClient(app) as client:
+        _, spawned = _patch_spawn(app)
+        with client.websocket_connect(_resume_url(sid)) as ws:
+            _send_resize(ws)
+            assert _recv_json(ws, "session_info")["session_id"] == sid
+            child = _wait_for_spawn(spawned)
+            child.emit(b"No conversation found with session ID:\r\n")
+            child.emit(f"{sid}\r\n".encode())
+            child.exit(1)
+
+            seen = _collect_json_until(ws, "transcript_missing")
+
+    final = seen[-1]
+    assert final == {"type": "transcript_missing", "session_id": sid, "code": 1}
+    assert "exit" not in [m["type"] for m in seen]
+
+
+def test_resume_child_exiting_for_another_reason_still_sends_exit(app, sessions_dir):
+    """Only the missing-transcript verdict is rewritten; other exits stay exits."""
+    sid = _uuid()
+    (sessions_dir / f"{sid}.jsonl").write_text("")
+    with TestClient(app) as client:
+        _, spawned = _patch_spawn(app)
+        with client.websocket_connect(_resume_url(sid)) as ws:
+            _send_resize(ws)
+            assert _recv_json(ws, "session_info")["session_id"] == sid
+            child = _wait_for_spawn(spawned)
+            child.emit(b"Resumed. Goodbye.\r\n")
+            child.exit(0)
+
+            seen = _collect_json_until(ws, "exit")
+
+    assert seen[-1] == {"type": "exit", "code": 0}
+    assert "transcript_missing" not in [m["type"] for m in seen]
