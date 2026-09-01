@@ -1,67 +1,140 @@
+.. _contributing-agent-skills:
+
+============
 Agent Skills
 ============
 
-Osprey ships six installable **agent skills** --- packaged, step-by-step
-instructions that a coding agent picks up automatically when a task matches
-their description. Instead of re-explaining the contribution workflow or the
-release process in every session, you install the skill once and the agent
-follows the project's own playbook.
+Osprey ships six **agent skills** --- packaged, step-by-step instructions that a
+coding agent picks up automatically when a task matches their description.
+Instead of re-explaining the contribution workflow or the release process in
+every session, you install them once and the agent follows the project's own
+playbooks.
 
-Install a skill globally (``~/.claude/skills/``) or into a single repository:
+All six travel together in one plugin, ``osprey``, published from the root of
+the ``als-apg/osprey`` repository. Claude Code and Codex install it from there
+with two commands each.
+
+Install in Claude Code
+----------------------
 
 .. code-block:: bash
 
-   uv run osprey skills install <name>                             # global
-   uv run osprey skills install <name> --target .claude/skills/    # this repo only
+   claude plugin marketplace add als-apg/osprey --sparse .claude-plugin plugins
+   claude plugin install osprey@osprey
 
-The install mechanics --- backups of prior versions, ``--target`` resolution,
-and the authoritative one-line roster --- are in the
-:doc:`CLI reference </reference/cli>` under ``osprey skills``.
+Both commands need Claude Code 2.1.228 or newer.
 
-Skills for contributors
------------------------
+The first command registers the marketplace. The second installs the plugin at
+user scope, which is the default, so the skills are available in every session
+that reads user settings.
 
-Four skills cover the contributor journey, in the order you meet them:
+``--sparse`` keeps the working checkout to the manifest and plugin directories.
+It does not reduce how much git transfers.
+
+Invoke a skill by its namespaced name, for example ``/osprey:contribute``.
+
+.. warning::
+
+   Registering a marketplace named ``osprey`` from a second source --- a local
+   clone, say --- silently repoints the name to that source.
+
+Inside a deployment repository
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Install the plugin a second time at project scope:
+
+.. code-block:: bash
+
+   claude plugin install osprey@osprey --scope project
+
+Sessions launched by ``osprey chat`` and by the web terminal run with
+``--setting-sources project``. Those sessions cannot see user-scope plugins
+(verified 2026-09-01), so without the project-scope install the skills never
+load there. The install writes ``enabledPlugins`` into the repository's
+``.claude/settings.json``.
+
+Updating
+^^^^^^^^
+
+.. code-block:: bash
+
+   claude plugin marketplace update osprey
+   claude plugin update osprey@osprey
+
+The first command refreshes the marketplace listing; the second installs the
+version it now points at. Restart the session to pick it up. Add
+``--scope project`` to the second command to update a project-scope install.
+
+Iterating on a skill locally
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+From a checkout of the repository, load the plugin straight off the working
+tree instead of installing it:
+
+.. code-block:: bash
+
+   claude --plugin-dir plugins/osprey
+
+The session reads the skills from ``plugins/osprey/skills/``, so you can edit a
+``SKILL.md`` and start a new session to try it.
+
+Install in Codex
+----------------
+
+.. code-block:: bash
+
+   codex plugin marketplace add als-apg/osprey --sparse .agents/plugins plugins
+   codex plugin add osprey@osprey
+
+Codex invokes a skill with a leading ``$``, for example ``$contribute``. The
+skills themselves are the same files the Claude Code plugin serves.
+
+.. note::
+
+   Command syntax per `learn.chatgpt.com/docs/developer-commands
+   <https://learn.chatgpt.com/docs/developer-commands>`_, retrieved 2026-09-01.
+   Not verified locally.
+
+The six skills
+--------------
 
 .. list-table::
    :header-rows: 1
-   :widths: 30 70
+   :widths: 32 68
 
    * - Skill
-     - Install when
-   * - ``osprey-design-philosophy``
-     - You are designing, adding, or reviewing a feature. Encodes Osprey's
-       design and architecture principles and the anti-pattern each one
-       prevents --- consult it before adding a config knob, a new abstraction,
-       or anything touching hardware-write safety. See
-       :doc:`development-setup`.
-   * - ``osprey-pre-commit``
-     - You are ready to commit, push, or open a PR. Runs the three-tier
-       check scripts (quick / ci / premerge) at the right gate.
-   * - ``osprey-contribute``
-     - You are taking a working-tree change to a merged PR. Walks through
-       branching, atomic commits, push, PR, and CI iteration, auto-detecting
-       whether you have push access to ``als-apg/osprey`` or work from a
-       fork. The full workflow it follows is :doc:`workflow`.
-   * - ``osprey-release``
-     - You are a maintainer cutting a CalVer release: the release-notes PR,
-       the tag, and verifying the automated PyPI publish.
+     - What it does
+   * - ``/osprey:design-philosophy``
+     - Osprey's design and architecture principles, and the anti-pattern each
+       one prevents. Consult it before adding a config knob, a new
+       abstraction, or anything touching hardware-write safety.
+   * - ``/osprey:contribute``
+     - Takes a working-tree change to a merged PR on ``main``: branch, atomic
+       commits, push, PR, CI iteration. Detects whether you have push access
+       or work from a fork.
+   * - ``/osprey:pre-commit``
+     - Runs the three-tier check scripts --- quick, ci, premerge --- at the
+       gate that matches what you are about to do.
+   * - ``/osprey:release``
+     - Walks a maintainer through a CalVer release: the release-notes PR, the
+       tag, and verifying the automated PyPI publish.
+   * - ``/osprey:build-interview``
+     - Sets up or migrates an Osprey deployment for an accelerator, beamline,
+       or detector through a guided interview.
+   * - ``/osprey:panel``
+     - Authors a themed web-terminal panel that passes the panel validator.
 
-The skills compose: each one routes the agent to its neighbours for adjacent
-tasks, so ``osprey-contribute`` defers to ``osprey-pre-commit`` for a
-standalone validation run and to ``osprey-release`` for cutting a release.
+In Codex the same six are ``$design-philosophy``, ``$contribute``,
+``$pre-commit``, ``$release``, ``$build-interview``, and ``$panel``.
 
-Skills for deployers and extenders
-----------------------------------
+The skills route to each other: ``/osprey:contribute`` hands a standalone
+validation run to ``/osprey:pre-commit`` and a release to ``/osprey:release``.
 
-The remaining two serve neighbouring audiences and are documented where
-their subject lives:
+The workflow behind each one is documented on its own page:
 
-- ``osprey-build-interview`` --- sets up or migrates an Osprey deployment
-  through a guided conversation. This is a deployer's tool, not a
-  contributor's; it has its own page at
-  :doc:`/getting-started/osprey-build-interview`.
-- ``creating-an-osprey-panel`` --- authors a themed web-terminal panel that
-  passes the panel validator. The panel contract is on
-  :doc:`/how-to/web-terminal/panels`, and the extension seam is on
-  :doc:`extending-osprey`.
+- :doc:`workflow` --- the contribution journey ``/osprey:contribute`` follows.
+- :doc:`development-setup` --- the checks ``/osprey:pre-commit`` runs.
+- :doc:`/getting-started/osprey-build-interview` --- the deployer-facing
+  interview, written for someone standing up a deployment.
+- :doc:`/how-to/web-terminal/panels` --- the panel contract, with the
+  extension seam on :doc:`extending-osprey`.
