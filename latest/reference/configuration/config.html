@@ -918,36 +918,44 @@ store, name the deployment, and size the Simple-mode operator-chat pool.</p>
 <td><p>Where the <strong>Documentation</strong> control — in the rail and in the status bar
 — points. Set it to your own hosted copy of the docs.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">web.feedback.github_repo</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">als-apg/osprey</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">owner/repo</span></code> the feedback dialog’s GitHub channel opens a prefilled
-new issue against.</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">web.feedback.trackers</span></code></p></td>
+<td><p>unset (no list)</p></td>
+<td><p>Issue trackers the feedback dialog offers, one channel each. A list of
+<code class="docutils literal notranslate"><span class="pre">{kind,</span> <span class="pre">repo</span> <span class="pre">|</span> <span class="pre">url,</span> <span class="pre">label}</span></code> entries: <code class="docutils literal notranslate"><span class="pre">kind:</span> <span class="pre">github</span></code> with an
+<code class="docutils literal notranslate"><span class="pre">owner/repo</span></code>, or <code class="docutils literal notranslate"><span class="pre">kind:</span> <span class="pre">gitlab</span></code> with the project’s base URL
+(gitlab.com or self-hosted). <code class="docutils literal notranslate"><span class="pre">label</span></code> captions the channel; it defaults
+to the kind’s name. See <a class="reference internal" href="#feedback-trackers"><span class="std std-ref">Issue trackers</span></a> below.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">web.feedback.email</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">web.feedback.github_repo</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">als-apg/osprey</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">owner/repo</span></code> of one more GitHub tracker, captioned <strong>GitHub</strong> —
+shorthand for a <code class="docutils literal notranslate"><span class="pre">github</span></code> entry in <code class="docutils literal notranslate"><span class="pre">trackers</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">web.feedback.email</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">thellert&#64;lbl.gov</span></code></p></td>
 <td><p>Recipient of the prefilled mail draft the dialog’s Email channel opens.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">web.feedback.max_store_bytes</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">web.feedback.max_store_bytes</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">268435456</span></code> (256 MB)</p></td>
 <td><p>Ceiling on the on-disk feedback store. Over it, the oldest saved session
 contexts are dropped; the submissions themselves are always kept.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">web.app_name</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">web.app_name</span></code></p></td>
 <td><p>unset (no badge)</p></td>
 <td><p>Optional name badge in the terminal header, so otherwise-identical
 deployments are told apart. The <code class="docutils literal notranslate"><span class="pre">OSPREY_WEB_APP_NAME</span></code> environment
 variable outranks it, which is what lets several containers sharing one
 baked config image each carry their own name.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">web.chat_turn_timeout_s</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">web.chat_turn_timeout_s</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">600</span></code></p></td>
 <td><p>Ceiling in seconds on a single Simple-mode chat turn.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">web.chat_idle_timeout_s</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">web.chat_idle_timeout_s</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">1800</span></code></p></td>
 <td><p>How long an operator’s chat session may sit idle before it is reaped.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">web.chat_max_sessions</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">web.chat_max_sessions</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">5</span></code></p></td>
 <td><p>Cap on concurrent operator-chat sessions.</p></td>
 </tr>
@@ -957,7 +965,14 @@ baked config image each carry their own name.</p></td>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">docs_url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://docs.example-facility.org/osprey</span>
 <span class="w">  </span><span class="nt">feedback</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">github_repo</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">example-facility/controls</span>
+<span class="w">    </span><span class="nt">trackers</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gitlab</span>
+<span class="w">        </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://git.example-facility.org/controls/osprey</span>
+<span class="w">        </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Facility GitLab</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">github</span>
+<span class="w">        </span><span class="nt">repo</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">als-apg/osprey</span>
+<span class="w">        </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OSPREY upstream</span>
+<span class="w">    </span><span class="nt">github_repo</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&quot;</span>
 <span class="w">    </span><span class="nt">email</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">controls-support@example.org</span>
 <span class="w">    </span><span class="nt">max_store_bytes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">268435456</span>
 </pre></div>
@@ -965,10 +980,35 @@ baked config image each carry their own name.</p></td>
 <p>The last four keys are unset in every shipped template: they are read straight
 from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> when present and fall back to the defaults above when not.</p>
 </section>
+<section id="issue-trackers">
+<span id="feedback-trackers"></span><h3>Issue trackers<a class="headerlink" href="#issue-trackers" title="Link to this heading">#</a></h3>
+<p>The dialog renders one channel per tracker, between <strong>Local</strong> and <strong>Email</strong>,
+in the order listed — <code class="docutils literal notranslate"><span class="pre">trackers</span></code> first, then the <code class="docutils literal notranslate"><span class="pre">github_repo</span></code> shorthand.
+Every tracker channel works the same way the GitHub channel always has: the
+report is recorded on the deployment, and the browser opens the tracker’s
+new-issue form prefilled with it (or with a one-line pointer to the clipboard
+when session context is attached). Nothing is posted on the sender’s behalf.</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">kind:</span> <span class="pre">github</span></code> needs <code class="docutils literal notranslate"><span class="pre">repo</span></code> (<code class="docutils literal notranslate"><span class="pre">owner/name</span></code>); the form is
+<code class="docutils literal notranslate"><span class="pre">https://github.com/&lt;repo&gt;/issues/new</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">kind:</span> <span class="pre">gitlab</span></code> needs <code class="docutils literal notranslate"><span class="pre">url</span></code>, the project’s base URL; the form is
+<code class="docutils literal notranslate"><span class="pre">&lt;url&gt;/-/issues/new</span></code>. The shape is the same on gitlab.com and on a
+self-hosted instance.</p></li>
+</ul>
+<p>An entry that fits neither — an unknown <code class="docutils literal notranslate"><span class="pre">kind</span></code>, a GitHub entry with no
+<code class="docutils literal notranslate"><span class="pre">owner/name</span></code>, a GitLab entry whose <code class="docutils literal notranslate"><span class="pre">url</span></code> is not <code class="docutils literal notranslate"><span class="pre">http(s)://</span></code> — is
+reported in the log and skipped; the rest of the list stands. Two entries
+naming the same target collapse to the first, so listing the upstream
+repository under your own label does not render it twice beside the shorthand.</p>
+<p>With no <code class="docutils literal notranslate"><span class="pre">trackers</span></code> and no <code class="docutils literal notranslate"><span class="pre">github_repo</span></code> written, the one tracker on offer
+is the shipped default, so a bare deployment still reaches the OSPREY
+maintainers. A facility that wants only its own tracker lists it and blanks
+<code class="docutils literal notranslate"><span class="pre">github_repo</span></code>, as in the example above.</p>
+</section>
 <section id="blank-absent-and-written-with-no-value">
 <h3>Blank, absent, and written-with-no-value<a class="headerlink" href="#blank-absent-and-written-with-no-value" title="Link to this heading">#</a></h3>
-<p>Three ways of writing one of the three <strong>string</strong> keys mean three different
-things:</p>
+<p>Three ways of writing one of the three <strong>string</strong> keys (<code class="docutils literal notranslate"><span class="pre">docs_url</span></code>,
+<code class="docutils literal notranslate"><span class="pre">github_repo</span></code>, <code class="docutils literal notranslate"><span class="pre">email</span></code>) mean three different things:</p>
 <ul class="simple">
 <li><p><strong>Leave the key out</strong> and the deployment uses the shipped default above.</p></li>
 <li><p><strong>Set it to an explicitly blank value</strong> (<code class="docutils literal notranslate"><span class="pre">docs_url:</span> <span class="pre">&quot;&quot;</span></code>) and the deployment
@@ -983,8 +1023,10 @@ and it reads as <em>absent</em>, not blank — “I have not decided yet” rath
 “there is none” — so you get the default. Write <code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code> when you mean none.</p></li>
 </ul>
 <p><code class="docutils literal notranslate"><span class="pre">max_store_bytes</span></code> takes a positive byte count; anything else — blank
-included — is reported in the log and the default is used. The feedback
-dialog’s Local channel is always available and needs no configuration at all.</p>
+included — is reported in the log and the default is used. <code class="docutils literal notranslate"><span class="pre">trackers</span></code> has
+no blank posture of its own: an empty list, or none, simply adds no channel.
+The feedback dialog’s Local channel is always available and needs no
+configuration at all.</p>
 <p>A build profile overrides any of these keys from its <code class="docutils literal notranslate"><span class="pre">config:</span></code> block in the
 dotted form, e.g. <code class="docutils literal notranslate"><span class="pre">web.feedback.max_store_bytes:</span> <span class="pre">536870912</span></code>.</p>
 </section>
@@ -1309,6 +1351,7 @@ recorded in <a class="reference internal" href="../contracts/audit-trail.html#re
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#web-documentation-feedback-and-the-chat-pool"><code class="docutils literal notranslate"><span class="pre">web:</span></code> — documentation, feedback and the chat pool</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#documentation-and-feedback-keys">Documentation and feedback keys</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#issue-trackers">Issue trackers</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#blank-absent-and-written-with-no-value">Blank, absent, and written-with-no-value</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#dangerously-allow-bash-waiving-the-bash-launch-token-refusal"><code class="docutils literal notranslate"><span class="pre">dangerously_allow_bash</span></code> — waiving the Bash/launch-token refusal</a></li>
 </ul>

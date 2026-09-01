@@ -528,8 +528,10 @@ channel the sender picks. Facility staff read those records back with
 <a class="reference internal" href="#feedback-retrieval"><span class="std std-ref">Read the feedback a deployment collected</span></a> below.</p>
 <section id="choose-a-channel">
 <h2>Choose a channel<a class="headerlink" href="#choose-a-channel" title="Link to this heading">#</a></h2>
-<p>Switching between the three channels keeps the typed text and both checkboxes
-as they were.</p>
+<p><strong>Local</strong> and <strong>Email</strong> are always offered; between them sits one channel per
+issue tracker the facility configured — a GitHub repository or a GitLab
+project, captioned however the facility named it. Switching between channels
+keeps the typed text and both checkboxes as they were.</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 14.0%" />
@@ -550,13 +552,14 @@ only button.</p></td>
 a control room, and the only one that works with outbound access
 blocked.</p></td>
 </tr>
-<tr class="row-odd"><td><p><strong>GitHub</strong></p></td>
-<td><p>Also opens a new-issue tab on the configured repository. Without session
-context the issue body arrives complete; with it, the whole report —
-text, metadata, session context — is copied to the clipboard and the
-issue body is a single line saying to paste it there, because the
-context is far too large to prefill.</p></td>
-<td><p>The report belongs upstream, and the sender has a GitHub account.</p></td>
+<tr class="row-odd"><td><p><strong>An issue tracker</strong> (GitHub or GitLab)</p></td>
+<td><p>Also opens a new-issue tab on that tracker. Without session context the
+issue body arrives complete; with it, the whole report — text, metadata,
+session context — is copied to the clipboard and the issue body is a
+single line saying to paste it there, because the context is far too
+large to prefill.</p></td>
+<td><p>The report belongs with the people who read that tracker, and the
+sender has an account there.</p></td>
 </tr>
 <tr class="row-even"><td><p><strong>Email</strong></p></td>
 <td><p>Also opens a mail draft to the configured address, following the same
@@ -568,15 +571,17 @@ loop.</p></td>
 </tbody>
 </table>
 </div>
-<p>GitHub and Email never send anything by themselves. OSPREY prefills a tab or a
-draft in the sender’s own browser and mail client; the sender still reviews it
-and presses send. The server posts nothing off the host, on any channel.</p>
+<p>The tracker and Email channels never send anything by themselves. OSPREY
+prefills a tab or a draft in the sender’s own browser and mail client; the
+sender still reviews it and presses send. The server posts nothing off the
+host, on any channel.</p>
 <p>Both outbound channels write the same record on the deployment as a Local send
 does, so the facility keeps its own copy of every report even when the
 conversation continues in a public issue.</p>
-<p>If a channel is not configured for the deployment, its radio button still
-appears but the action is refused with a short explanation rather than aiming
-the report somewhere nobody reads. See <a class="reference internal" href="../../reference/configuration/config.html#feedback-configuration"><span class="std std-ref">Documentation and feedback keys</span></a>.</p>
+<p>A tracker the deployment has not configured is not offered at all; if the
+Email channel has no address behind it, its radio button still appears but the
+action is refused with a short explanation rather than aiming the report
+somewhere nobody reads. See <a class="reference internal" href="../../reference/configuration/config.html#feedback-configuration"><span class="std std-ref">Documentation and feedback keys</span></a>.</p>
 </section>
 <section id="what-gets-attached">
 <h2>What gets attached<a class="headerlink" href="#what-gets-attached" title="Link to this heading">#</a></h2>
@@ -596,9 +601,9 @@ username, which travel either way.</p>
 <p><strong>Session context</strong> — the checkbox is <strong>off</strong> by default, and is greyed out with
 “no session yet” when there is no live session to attach. It adds:</p>
 <ul class="simple">
-<li><p>the session’s id — on the GitHub and Email channels the issue title or mail
-subject also carries a short prefix of it, so the message can be matched to
-the deployment’s own record even if the paste step is missed,</p></li>
+<li><p>the session’s id — on the tracker and Email channels the issue title or
+mail subject also carries a short prefix of it, so the message can be matched
+to the deployment’s own record even if the paste step is missed,</p></li>
 <li><p>the session’s tool-call and agent event log,</p></li>
 <li><p>its chat history,</p></li>
 <li><p>the terminal scrollback,</p></li>
@@ -610,7 +615,7 @@ window, which may include work from other terminal tabs or the chat panel.</p></
 inventory falls back to a time window: an artifact somebody else made in a
 different tab during the same minutes can be listed. Only its title and id
 appear — never its contents — but a sender attaching context to a <strong>public</strong>
-GitHub issue should know that the list is not strictly their own work.</p>
+issue should know that the list is not strictly their own work.</p>
 <p>Session context is triaged newest-first and truncated to fit a size budget, so a
 long session is attached in part rather than in full. The outbound copy — the
 clipboard payload behind a GitHub issue or a mail draft — is trimmed harder
@@ -710,10 +715,12 @@ history of what people reported stays complete.</p>
 </section>
 <section id="point-the-channels-at-your-facility">
 <h2>Point the channels at your facility<a class="headerlink" href="#point-the-channels-at-your-facility" title="Link to this heading">#</a></h2>
-<p>Three string keys under <code class="docutils literal notranslate"><span class="pre">web</span></code> aim the two rail controls, and a fourth bounds
-the store they fill. The table, the shipped defaults, and what a blank value
-means are in <a class="reference internal" href="../../reference/configuration/config.html#config-web"><span class="std std-ref">web: — documentation, feedback and the chat pool</span></a>. The Local channel is always available and needs
-no configuration at all.</p>
+<p><code class="docutils literal notranslate"><span class="pre">web.feedback.trackers</span></code> lists the issue trackers the dialog offers — a
+self-hosted GitLab, the upstream GitHub repository, both — and
+<code class="docutils literal notranslate"><span class="pre">web.feedback.email</span></code> names the address behind the Email channel. The table,
+the shipped defaults, and what a blank value means are in <a class="reference internal" href="../../reference/configuration/config.html#config-web"><span class="std std-ref">web: — documentation, feedback and the chat pool</span></a>;
+the tracker list itself is described in <a class="reference internal" href="../../reference/configuration/config.html#feedback-trackers"><span class="std std-ref">Issue trackers</span></a>. The Local
+channel is always available and needs no configuration at all.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>The feedback dialog is behind the terminal’s own gate: only a browser

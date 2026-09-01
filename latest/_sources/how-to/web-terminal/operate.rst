@@ -338,9 +338,10 @@ says nothing about the chip.
 Documentation and feedback settings
 -----------------------------------
 
-Four ``web`` keys aim the rail's **Documentation** link and **Feedback** button
-and bound the feedback store. The table, the shipped defaults, and what a blank
-value means are in :ref:`config-web`.
+Five ``web`` keys aim the rail's **Documentation** link and **Feedback** button
+— including the issue trackers the dialog offers — and bound the feedback
+store. The table, the shipped defaults, and what a blank value means are in
+:ref:`config-web`.
 
 .. dropdown:: Under the hood
    :icon: gear
