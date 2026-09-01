@@ -30,15 +30,33 @@ from osprey.utils.dotenv import (
 def repo(tmp_path: Path) -> Path:
     """A deployment repo whose build produced a channel manifest.
 
-    The manifest carries a partition census because ``VA_LATTICE`` is DERIVED
-    from it: the built-in lattice moves pyat-coupled channels and nothing else,
-    so a manifest declaring some is what earns ``builtin`` here. A censusless
-    stub would be a manifest claiming no lattice, which is a different case and
-    is covered on its own in ``tests/cli/test_build_va_manifest_honesty.py``.
+    The manifest carries a pyat-coupled channel because ``VA_LATTICE`` is
+    DERIVED from it: the built-in lattice moves pyat-coupled channels and
+    nothing else, so a manifest declaring one is what earns ``builtin`` here.
+    A manifest with no such channel would claim no lattice, which is a
+    different case and is covered on its own in
+    ``tests/cli/test_build_va_manifest_honesty.py``.
     """
     (tmp_path / "build" / "data" / "simulation").mkdir(parents=True)
     (tmp_path / "build" / "data" / "simulation" / MANIFEST_FILENAME).write_text(
-        json.dumps({"_metadata": {"by_partition": {"pyat-coupled": 1}}, "channels": []})
+        json.dumps(
+            {
+                "channels": [
+                    {
+                        "address": "SR:MAG:HCM:01:CURRENT:SP",
+                        "ring": "SR",
+                        "system": "MAG",
+                        "family": "HCM",
+                        "device": "01",
+                        "field": "CURRENT",
+                        "subfield": "SP",
+                        "partition": "pyat-coupled",
+                        "record_type": "analog",
+                        "noise": False,
+                    }
+                ]
+            }
+        )
     )
     return tmp_path
 

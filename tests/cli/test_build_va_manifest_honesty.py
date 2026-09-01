@@ -950,3 +950,19 @@ def test_a_graph_repo_with_an_unreadable_corpus_fails_a_real_build(tmp_path_fact
     env = parse_dotenv_file(env_path) if env_path.is_file() else {}
     assert "VA_CHANNELS_FILE" not in env
     assert "VA_LATTICE" not in env
+
+
+def test_an_authored_manifest_without_a_census_keeps_the_builtin_lattice(tmp_path):
+    """The lattice question is answered off the channels, which every manifest has.
+
+    A facility's own generator need not write the ``_metadata`` block the
+    framework's writer does; the channel list is the schema the container
+    reads, so it is what earns ``builtin`` here.
+    """
+    from osprey.utils.dotenv import VA_LATTICE_DEFAULT
+
+    manifest = {"channels": _AUTHORED_MANIFEST["channels"]}
+
+    env = _wired_env(tmp_path, manifest)
+
+    assert env["VA_LATTICE"] == VA_LATTICE_DEFAULT

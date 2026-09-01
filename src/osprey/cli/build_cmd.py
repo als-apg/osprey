@@ -2607,30 +2607,36 @@ _VA_LATTICE_NONE = "none"
 
 
 def _manifest_has_lattice_channels(manifest_path: Path) -> bool:
-    """Whether a generated manifest carries channels the built-in lattice moves.
+    """Whether the written manifest carries channels the built-in lattice moves.
 
     The PyAT model behind ``VA_LATTICE=builtin`` acts on the ``pyat-coupled``
-    partition and nothing else, so its presence in the manifest's own partition
-    census is the whole question. Read from the written file rather than passed
-    down from the render: this runs after the swap, on the tree that was
-    actually published, which is the manifest the container will mount.
+    partition and nothing else, so whether any channel sits in it is the whole
+    question. Answered off the channel list itself -- the one part of the
+    schema every manifest has, authored or generated -- rather than off a
+    ``_metadata`` census a facility-authored file need not carry. Read from
+    the written file rather than passed down from the render: this runs after
+    the swap, on the tree that was actually published, which is the manifest
+    the container will mount.
 
     Args:
-        manifest_path: The generated ``channel_manifest.json`` in the output zone.
+        manifest_path: The ``channel_manifest.json`` in the output zone.
 
     Returns:
         True when the manifest declares at least one pyat-coupled channel. False
         when it declares none, and also when the file cannot be read as the
         expected shape: a lattice is the claim that needs evidence, so an
-        unreadable census answers no rather than guessing yes.
+        unreadable manifest answers no rather than guessing yes.
     """
     from osprey.services.virtual_accelerator.manifest.classify import PARTITION_PYAT_COUPLED
 
     try:
-        census = json.loads(manifest_path.read_text())["_metadata"]["by_partition"]
+        channels = json.loads(manifest_path.read_text())["channels"]
+        return any(
+            isinstance(channel, dict) and channel.get("partition") == PARTITION_PYAT_COUPLED
+            for channel in channels
+        )
     except (json.JSONDecodeError, KeyError, OSError, TypeError):
         return False
-    return bool(census.get(PARTITION_PYAT_COUPLED))
 
 
 def _wire_build_derived_env(repo_root: Path, build_dir: Path) -> None:
