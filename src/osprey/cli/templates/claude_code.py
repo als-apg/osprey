@@ -374,6 +374,7 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         project_dir: Root of the project being rendered; declared hooks are
             resolved against the files it ships.
     """
+    from osprey.mcp_server.http import phoebus_bridge_default
     from osprey.utils.workspace import agent_data_base_dir
 
     control_system = config.get("control_system", {}) or {}
@@ -419,6 +420,12 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # left out of the render entirely rather than shipped as a tool that
         # can only fail.
         "graphdb_configured": _graphdb_configured(config),
+        # Render-time fallback for the phoebus server's PHOEBUS_BRIDGE_URL env
+        # entry, derived from the same phoebus.host/phoebus.port the backend is
+        # deployed on. One spelling with the runtime resolution (the shared
+        # helper in osprey.mcp_server.http), so the rendered client and the
+        # deployed bridge cannot drift onto different ports (#829).
+        "phoebus_bridge_default": phoebus_bridge_default(config),
         # The device vocabulary the channel-finder terminology partials render
         # their rows from, out of the deployment's own compiled ontology
         # (`facility.ontology`). None when no ontology is declared — the
