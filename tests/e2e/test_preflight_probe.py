@@ -101,6 +101,9 @@ from tests.e2e._volumes import remove_project_volumes
 pytestmark = [
     pytest.mark.e2e,
     pytest.mark.slow,
+    # harness_benchmark: the pre-flight refusal is a harness property -- the
+    # roster decides, not the model-under-test.
+    pytest.mark.harness_benchmark,
     # dockerbuild: full VA/bridge image build + deploy -- runs in the
     # dedicated orm-roundtrip-e2e CI job, never the shared e2e-tests lane
     # (the marker->--ignore pairing is enforced by
