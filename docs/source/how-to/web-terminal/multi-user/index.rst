@@ -19,7 +19,8 @@ host, brought up with a single ``osprey up``.
      personas as capability tiers, and one nginx front door
    - The ``modules.web_terminals`` config block that switches it on
    - Standing the preset's full stack up — its read-only, read-write and admin
-     logins plus a standalone ARIEL terminal
+     logins plus two standalone terminals, logbook research and facility
+     knowledge
    - Day-to-day operations: adding, reseeding, and removing users
    - What each terminal records, and who can read it
 
@@ -103,13 +104,18 @@ move hardware, and an *admin* tier, separated by whether it may change the
 deployment it runs in. :doc:`Privilege Tiers <tiers>` lays out what each one
 carries and what makes the boundary hold.
 
-It also ships a fourth persona that is not a tier of that agent at all.
-``ariel`` is the standalone logbook research assistant: no control-system tool
-servers, no Python executor, no plan queue — a different product, reached from
-its own card. Nothing special makes that possible. A persona is already a
-whole project, so it can differ in what it *is* as easily as in what it may
-write. It shares this deployment's PostgreSQL and logbook, so the operators
-and the research terminal read one logbook together.
+It also ships two personas that are not tiers of that agent at all.
+``logbook`` is the standalone logbook research assistant: no control-system
+tool servers, no Python executor, no plan queue — a different product,
+reached from its own card. It shares this deployment's PostgreSQL and logbook,
+so the operators and the research terminal read one logbook together.
+``knowledge`` is the deployment's knowledge layer: the facility knowledge
+graph, the graph-backed channel finder and the facility knowledge bundle,
+read-only, with nothing that touches the machine. It reads the same graph
+store the operator terminals do. Nothing special makes either possible. A
+persona is already a whole project, so it can differ in what it *is* as
+easily as in what it may write. Both cards are shared — any roster login
+opens them with their own password (:ref:`multi-user-shared-card`).
 
 ``osprey build`` renders one persona project per delta in ``personas/``, and
 ``osprey up`` builds each one's container image locally, so no registry or CI is
@@ -155,10 +161,16 @@ The config block
                   index: 1
                   persona: readonly
                   display_name: "Read-Only View (Bob)"
-                - name: ariel
+                - name: logbook
                   index: 2
-                  persona: ariel
-                  display_name: "ARIEL Logbook Research"
+                  persona: logbook
+                  display_name: "Logbook Research"
+                  access: any
+                - name: knowledge
+                  index: 4
+                  persona: knowledge
+                  display_name: "Facility Knowledge"
+                  access: any
                 - name: carol
                   index: 3
                   persona: admin
@@ -176,10 +188,15 @@ The config block
                     project: control-assistant-admin
                     project_path: build/control-assistant-admin
                     build_profile: personas/admin.yml
-                  ariel:
+                  logbook:
                     project: control-assistant-logbook
                     project_path: build/control-assistant-logbook
-                    build_profile: personas/ariel.yml
+                    build_profile: personas/logbook.yml
+                    landing_group: Standalone deployments
+                  knowledge:
+                    project: control-assistant-knowledge
+                    project_path: build/control-assistant-knowledge
+                    build_profile: personas/knowledge.yml
                     landing_group: Standalone deployments
 
          Each ``build_profile`` names that persona's **delta** in the deployment
@@ -210,9 +227,9 @@ The config block
          channel finder, lattice dashboard, …) plus the terminal itself, and
          each user takes the family's first port plus their index. At the
          default ``deployment.port_base`` that puts alice (index 0) on
-         ``10100``, bob (index 1) on ``10101``, ariel (index 2) on ``10102``
-         and carol (index 3) on ``10103``, with their artifact galleries on
-         ``10200``–``10203``. :ref:`reference-ports-panels` lists every family;
+         ``10100``, bob (index 1) on ``10101``, logbook (index 2) on
+         ``10102``, carol (index 3) on ``10103`` and knowledge (index 4) on
+         ``10104``, with their artifact galleries on ``10200``–``10204``. :ref:`reference-ports-panels` lists every family;
          move the whole deployment with ``deployment.port_base`` rather than a
          family at a time. A facility that must pin one family on its own can
          still set that family's ``modules.web_terminals.<family>_base_port``
@@ -313,8 +330,8 @@ above, so no extra flags or configuration are needed. Alongside the web tier,
 ``osprey up`` brings up everything else the control-assistant tutorial deploys
 — the virtual accelerator, the bluesky services, and the supporting
 PostgreSQL/OpenObserve containers — so the control-room terminals open onto a
-working machine, and the ARIEL terminal onto a live logbook, not an empty
-shell.
+working machine, the logbook terminal onto a live logbook and the knowledge
+terminal onto a seeded facility graph, not an empty shell.
 
 .. note::
 
@@ -338,8 +355,8 @@ What ``osprey build`` and ``osprey up`` do for the web tier
 #. **The build renders the persona projects.** ``osprey build`` renders one
    project per **delta** in ``personas/``, into the build zone beside the main
    render (``build/control-assistant-readonly``,
-   ``build/control-assistant-readwrite``, ``build/control-assistant-admin`` and
-   ``build/control-assistant-logbook``).
+   ``build/control-assistant-readwrite``, ``build/control-assistant-admin``,
+   ``build/control-assistant-logbook`` and ``build/control-assistant-knowledge``).
    Because each delta merges over
    ``profile.yml``, every persona shares its data tree, secrets and artifacts,
    and inherits the choices recorded there (provider, model): edit the profile
@@ -357,8 +374,9 @@ What ``osprey build`` and ``osprey up`` do for the web tier
 #. **Brings up the web tier.** An nginx reverse proxy (container ``ca-nginx``)
    serves the landing page on ``http://127.0.0.1:10000``, and one Web Terminal
    container comes up per user — ``ca-web-alice`` on host port ``10100``,
-   ``ca-web-bob`` on ``10101``, ``ca-web-ariel`` on ``10102`` and
-   ``ca-web-carol`` on ``10103`` — each reached
+   ``ca-web-bob`` on ``10101``, ``ca-web-logbook`` on ``10102``,
+   ``ca-web-carol`` on ``10103`` and ``ca-web-knowledge`` on ``10104`` — each
+   reached
    through the landing page. (The
    ``ca-`` prefix is the preset's ``facility.prefix``; change it for your
    site.)
@@ -387,24 +405,26 @@ each labelled with the persona it resolves to:
 
 .. figure:: /_static/resources/multi_user_landing.png
    :alt: The multi-user landing page — alice's and bob's cards under a Users
-         heading, and the ARIEL terminal in a Standalone deployments panel
-         beneath them
+         heading, and the logbook and knowledge terminals in a Standalone
+         deployments panel beneath them
    :align: center
    :width: 100%
 
    The grouped landing page: alice resolves to the readwrite persona, bob to
-   readonly, and the ariel card opens the standalone logbook terminal. Click
-   a card to open that session.
+   readonly, and the logbook and knowledge cards open the two standalone
+   terminals. Click a card to open that session.
 
 Each operator card names its persona explicitly — alice the readwrite tier,
 bob the readonly one; the preset's roster adds carol on the admin tier, last
 so the operator cards keep their ports. (A bare roster entry would fall back to the
 preset's ``default_persona``, readonly, so an implicit user always lands on
-the safe side.) The ariel card sits apart, in the accent-edged panel its
-persona's ``landing_group`` names — and carries no persona badge, because the
-badge answers *which tier is this user on?* and here the card and its persona
-are the same word. Clicking any card opens that session at ``/u/<name>/``,
-proxied by nginx to its own container.
+the safe side.) The logbook and knowledge cards sit apart, in the
+accent-edged panel their personas' ``landing_group`` names — and carry no
+persona badge, because the badge answers *which tier is this user on?* and
+here the card and its persona are the same word. Both are shared cards: the
+login page asks for a roster name and that person's password, so nobody needs
+a credential for the card itself. Clicking any card opens that session at
+``/u/<name>/``, proxied by nginx to its own container.
 
 What your operators read first
 ------------------------------

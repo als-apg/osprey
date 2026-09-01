@@ -208,15 +208,15 @@ variables and nothing else, and no site CA is mounted into its image. See
 Leave one entry public
 ======================
 
-A roster entry that fronts a read-only service — the preset's ARIEL logbook —
-can opt out of the login wall:
+A roster entry that fronts a read-only service can opt out of the login
+wall:
 
 .. code-block:: yaml
 
    users:
-     - name: ariel
+     - name: status-board
        index: 2
-       persona: ariel
+       persona: readonly
        login: false
 
 Only the literal ``false`` opts out; anything else means "login required". The
@@ -264,6 +264,11 @@ credential:
            index: 2
            persona: readonly
            access: any                # any roster login opens this card
+
+The ``control-assistant`` preset ships its two standalone cards this way —
+``logbook`` and ``knowledge``, each ``access: any`` under ``password`` — so
+the logbook research and facility knowledge terminals are opened with any
+roster login's own password and carry no credential of their own.
 
 Who can open it: anyone this deployment can authenticate. Under ``password``
 that is every roster entry with a provisioned password; under ``oidc``, every
