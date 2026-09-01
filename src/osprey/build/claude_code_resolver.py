@@ -31,6 +31,7 @@ from osprey.build.claude_code_telemetry import (
     _running_in_container,
     resolve_openobserve_port,
 )
+from osprey.models.spend_attribution import apply_attribution_env, gateway_for
 from osprey.models.tiers import VALID_TIERS
 from osprey.utils.dotenv import chain_files
 
@@ -437,6 +438,13 @@ def inject_provider_env(
         if spec.auth_secret_env != spec.auth_env_var:
             environ[spec.auth_secret_env] = secret
 
+    # On a LiteLLM-fronted provider, stamp the acting identity onto every
+    # request the agent makes (ANTHROPIC_CUSTOM_HEADERS), merged into any
+    # corporate-proxy headers the operator already carries there. Resolved
+    # here, at launch, because the identity is a property of the running
+    # container (OSPREY_TERMINAL_USER), not of the render.
+    apply_attribution_env(environ, spec.gateway)
+
     return sorted(spec.env_block.keys())
 
 
@@ -536,6 +544,9 @@ class ClaudeCodeModelSpec:
             model read ``default_model_id or tier_to_model[default_model_tier]``.
         shell_exports: Shell export lines the user must add to their profile
             (e.g. ``export ANTHROPIC_AUTH_TOKEN="$CBORG_API_KEY"``).
+        gateway: ``"litellm"`` when a LiteLLM proxy fronts the provider, else
+            ``None``; the built-ins ``als-apg`` and ``cborg`` are, and a custom
+            provider declares it with ``gateway: litellm``.
     """
 
     provider: str
@@ -549,6 +560,10 @@ class ClaudeCodeModelSpec:
     auth_secret_env: str = ""
     needs_proxy: bool = False
     upstream_base_url: str | None = None
+    #: The gateway kind fronting the provider (``"litellm"``), or ``None`` for a
+    #: direct vendor. Decides whether the launch paths stamp the acting identity
+    #: onto the agent's requests — see :mod:`osprey.models.spend_attribution`.
+    gateway: str | None = None
 
     def agent_tier(self, name: str) -> str:
         """Resolve the tier alias for a named agent (for Claude Code model: frontmatter).
@@ -961,6 +976,7 @@ class ClaudeCodeModelResolver:
             auth_secret_env=auth_secret_env,
             needs_proxy=_needs_proxy,
             upstream_base_url=_upstream_url,
+            gateway=gateway_for(provider_name, api_providers),
         )
 
     @staticmethod
