@@ -60,6 +60,29 @@ _WRITES_SIGNAL_IRI = _NARAD_P + "writesSignal"
 #: A binding that observes a signal -- a readable channel.
 _READS_SIGNAL_IRI = _NARAD_P + "readsSignal"
 
+#: A device's bindings. The corpus groups a device's channels under its
+#: device node, and that grouping is what pairs a setpoint with the readback
+#: reporting it (see :func:`_corpus_readbacks`).
+_HAS_BINDING_IRI = _NARAD_P + "hasBinding"
+
+#: A binding's identifier, ``narad:binding:<facility>:<system>:<family>:
+#: <index>:<Field>:val`` -- the ``<Field>`` token is the binding's field name.
+_BINDING_ID_IRI = _NARAD_P + "bindingId"
+
+#: The NARAD field vocabulary's setpoint/readback pair: a device's
+#: ``<stem>Setpoint`` binding is reported by its ``<stem>Monitor`` binding
+#: (``Setpoint``/``Monitor`` for a magnet's current, ``GapSetpoint``/
+#: ``GapMonitor`` for an insertion device's gap). The same two field names the
+#: facility-knowledge seeder reads off a binding
+#: (``seeder/ttl_seeder._binding_channel_name``). This is the corpus stating
+#: a pair; the ``:SP``/``:RB`` address grammar in :mod:`.pairing` is the
+#: fallback for the records a corpus groups nothing with.
+SETPOINT_FIELD_SUFFIX = "Setpoint"
+MONITOR_FIELD_SUFFIX = "Monitor"
+
+#: The trailing token of a binding id names its value slot, not its field.
+_BINDING_ID_VALUE_TOKEN = "val"
+
 #: Said to an operator when rdflib is missing. rdflib is a core dependency, so
 #: an environment without it is incomplete rather than differently configured.
 RDFLIB_MISSING_DETAIL = (
@@ -88,9 +111,13 @@ def read_graph_roster(source: RosterSource) -> RosterResult:
         :attr:`~osprey.channel_roster.records.RosterAbsenceReason.EMPTY_SOURCE`
         one when it reads cleanly and binds no channel -- an unseeded corpus is
         a staging gap, and serving it as an empty facility would be a lie with
-        a source attached. Readbacks are not
-        assigned here -- pairing is one heuristic applied to both sources, and
-        lives in :mod:`osprey.channel_roster.pairing`.
+        a source attached. A settable record carries the readback the corpus
+        itself states for it -- the ``<stem>Monitor`` binding beside its
+        ``<stem>Setpoint`` binding on the same device
+        (:func:`_corpus_readbacks`); the records the corpus pairs nothing
+        with are left to the address-grammar pass in
+        :mod:`osprey.channel_roster.pairing`, which never overrides a
+        readback the source stated.
     """
     if not source.path.exists():
         # Not there is not the same as unreadable: a corpus a build has not
@@ -143,6 +170,7 @@ def read_graph_roster(source: RosterSource) -> RosterResult:
             for binding, address in graph.subject_objects(URIRef(_FULL_PV_IRI))
             if isinstance(address, Literal) and str(address)
         ]
+        readbacks = _corpus_readbacks(graph, writes, reads, bindings)
     except Exception as e:
         logger.warning(f"The knowledge-graph corpus at {source.path} could not be read ({e}).")
         return RosterResult(
@@ -154,14 +182,7 @@ def read_graph_roster(source: RosterSource) -> RosterResult:
             )
         )
 
-    records = tuple(
-        ChannelRecord(
-            address=address,
-            source=source,
-            direction=_direction(binding, writes, reads),
-        )
-        for address, binding in sorted(bindings, key=lambda binding: binding[0])
-    )
+    records = _records(bindings, source, writes, reads, readbacks)
     if not records:
         logger.warning(
             f"The knowledge-graph corpus at {source.path} parsed cleanly and declares no "
@@ -175,6 +196,120 @@ def read_graph_roster(source: RosterSource) -> RosterResult:
             )
         )
     return RosterResult(records=records, source=source)
+
+
+def _records(
+    bindings: list[tuple[str, object]],
+    source: RosterSource,
+    writes: set,
+    reads: set,
+    readbacks: dict[str, str],
+) -> tuple[ChannelRecord, ...]:
+    """One record per address, in address order.
+
+    The roster is a namespace: two bindings carrying one ``fullPv`` are one
+    channel, however many devices the corpus hangs it under (a timing
+    system's delay generator is bound once per device it serves; a facility
+    corpus can carry a fifth of its bindings this way). Every consumer keys
+    on the address -- the plan-device document names each device for it and
+    the build refuses a name claimed twice, the manifest serves it once -- so
+    the collapse happens here, once, rather than in each of them.
+
+    Direction is the one the address's bindings agree on. A binding that
+    states none abstains; bindings that disagree leave the address with no
+    direction, the same honest unknown a single binding claiming both ways
+    gets. A settable address carries the readback the corpus stated for it,
+    provided the readback ADDRESS resolves readable too -- a pair is stated
+    between bindings, and the binding it names as the monitor may share its
+    address with a write binding elsewhere in the corpus.
+    """
+    votes: dict[str, set[ChannelDirection]] = {}
+    for address, binding in bindings:
+        directions = votes.setdefault(address, set())
+        direction = _direction(binding, writes, reads)
+        if direction is not None:
+            directions.add(direction)
+    resolved: dict[str, ChannelDirection | None] = {
+        address: next(iter(directions)) if len(directions) == 1 else None
+        for address, directions in votes.items()
+    }
+
+    records: list[ChannelRecord] = []
+    for address in sorted(resolved):
+        direction = resolved[address]
+        readback = readbacks.get(address) if direction == "write" else None
+        if readback is not None and resolved.get(readback) != "read":
+            readback = None
+        records.append(
+            ChannelRecord(address=address, source=source, direction=direction, readback=readback)
+        )
+    return tuple(records)
+
+
+def _binding_field(binding_id: str) -> str | None:
+    """The field name a binding id carries, or ``None`` when it carries none.
+
+    ``narad:binding:als:SR:BEND:0:Setpoint:val`` names ``Setpoint``: the
+    tokens are colon-separated, and the trailing ``val`` is the binding's
+    value slot rather than its field, so it is dropped when present.
+    """
+    tokens = binding_id.split(":")
+    if tokens and tokens[-1] == _BINDING_ID_VALUE_TOKEN:
+        tokens = tokens[:-1]
+    if len(tokens) < 2 or not tokens[-1]:
+        return None
+    return tokens[-1]
+
+
+def _corpus_readbacks(
+    graph: object, writes: set, reads: set, bindings: list[tuple[str, object]]
+) -> dict[str, str]:
+    """Return ``setpoint address -> readback address`` for every pair the corpus states.
+
+    A pair is stated by the device grouping: a device (``narad_p:hasBinding``)
+    carrying a write binding whose field is ``<stem>Setpoint`` and a read
+    binding whose field is ``<stem>Monitor``. Both halves are checked against
+    the direction sets the corpus declares -- a ``Monitor`` the corpus calls
+    settable is drift, not a readback -- and a binding without a device, an
+    id or an address states no pair. Where two devices state different
+    readbacks for one setpoint address, the first in sorted device order
+    wins, so the answer does not depend on parse order.
+
+    Args:
+        graph: The parsed corpus.
+        writes: Bindings carrying ``writesSignal``.
+        reads: Bindings carrying ``readsSignal``.
+        bindings: ``(address, binding)`` for every binding with an address.
+    """
+    from rdflib import URIRef
+
+    address_of = {binding: address for address, binding in bindings}
+    fields_by_device: dict[object, dict[str, object]] = {}
+    for device, binding in graph.subject_objects(URIRef(_HAS_BINDING_IRI)):
+        binding_id = graph.value(binding, URIRef(_BINDING_ID_IRI))
+        field = _binding_field(str(binding_id)) if binding_id is not None else None
+        if field is None or binding not in address_of:
+            continue
+        fields_by_device.setdefault(device, {})[field] = binding
+
+    readbacks: dict[str, str] = {}
+    for device in sorted(fields_by_device, key=str):
+        fields = fields_by_device[device]
+        for field, setpoint in fields.items():
+            if not field.endswith(SETPOINT_FIELD_SUFFIX):
+                continue
+            if setpoint not in writes or setpoint in reads:
+                continue
+            stem = field[: -len(SETPOINT_FIELD_SUFFIX)]
+            monitor = fields.get(stem + MONITOR_FIELD_SUFFIX)
+            if monitor is None or monitor not in reads or monitor in writes:
+                continue
+            setpoint_address = address_of[setpoint]
+            readback_address = address_of[monitor]
+            if setpoint_address == readback_address:
+                continue
+            readbacks.setdefault(setpoint_address, readback_address)
+    return readbacks
 
 
 def _direction(binding: object, writes: set, reads: set) -> ChannelDirection | None:

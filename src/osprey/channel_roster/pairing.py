@@ -60,8 +60,14 @@ def assign_readbacks(records: Sequence[ChannelRecord]) -> tuple[ChannelRecord, .
 
 
 def _paired(record: ChannelRecord, readable: frozenset[str] | set[str]) -> ChannelRecord:
-    """Return ``record`` with its readback, or unchanged when it has none."""
-    if record.direction != "write":
+    """Return ``record`` with its readback, or unchanged when it has none.
+
+    A readback the source itself stated (the graph reader's device grouping,
+    :func:`osprey.channel_roster.graph._corpus_readbacks`) is kept as it is:
+    the corpus is the authority on what reports a setpoint, and the grammar
+    here is only for the records it paired nothing with.
+    """
+    if record.direction != "write" or record.readback is not None:
         return record
     candidate = _readback_address(record.address)
     if candidate is None or candidate not in readable:

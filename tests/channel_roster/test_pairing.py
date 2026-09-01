@@ -162,3 +162,64 @@ class TestBothSourcesArePairedAlike:
 
     def test_an_empty_roster_pairs_to_an_empty_roster(self) -> None:
         assert assign_readbacks(()) == ()
+
+
+class TestAStatedReadbackSurvives:
+    """The source is the authority; the grammar only fills what it left unpaired."""
+
+    def test_a_readback_the_source_stated_is_kept_over_the_grammar_candidate(
+        self, source: RosterSource
+    ) -> None:
+        # ``X:RB`` is enumerated and readable -- grammar would choose it -- but
+        # the source itself said ``X:MON`` reports this setpoint.
+        stated = ChannelRecord(address="X:SP", source=source, direction="write", readback="X:MON")
+        records = (stated,) + _records(source, ("X:MON", "read"), ("X:RB", "read"))
+
+        assert assign_readbacks(records)[0].readback == "X:MON"
+
+    def test_a_stated_readback_needs_no_grammar_at_all(self, source: RosterSource) -> None:
+        stated = ChannelRecord(
+            address="SR01C___B______AC00",
+            source=source,
+            direction="write",
+            readback="SR01C___B______AM00",
+        )
+        records = (stated,) + _records(source, ("SR01C___B______AM00", "read"))
+
+        assert assign_readbacks(records)[0].readback == "SR01C___B______AM00"
+
+    def test_the_grammar_still_fills_the_records_the_source_left_unpaired(
+        self, source: RosterSource
+    ) -> None:
+        stated = ChannelRecord(address="A:SP", source=source, direction="write", readback="A:MON")
+        records = (stated,) + _records(
+            source, ("A:MON", "read"), ("B:SP", "write"), ("B:RB", "read")
+        )
+
+        paired = assign_readbacks(records)
+
+        assert [record.readback for record in paired] == ["A:MON", None, "B:RB", None]
+
+    def test_a_graph_corpus_pair_survives_the_pass_end_to_end(self, tmp_path: Path) -> None:
+        """What the roster resolver does: read the corpus, then pair the rest."""
+        corpus = tmp_path / "corpus.ttl"
+        corpus.write_text(
+            "@prefix narad_p: <https://narad.example.org/property/> .\n"
+            "@prefix narad_sem: <https://narad.example.org/schema/shared_semantics/> .\n"
+            "<https://narad.example.org/binding/sp> "
+            'narad_p:fullPv "SR01C___B______AC00" ;\n'
+            "    narad_p:writesSignal narad_sem:bend_sp ;\n"
+            '    narad_p:bindingId "narad:binding:als:SR:BEND:0:Setpoint:val" .\n'
+            "<https://narad.example.org/binding/mon> "
+            'narad_p:fullPv "SR01C___B______AM00" ;\n'
+            "    narad_p:readsSignal narad_sem:bend_mon ;\n"
+            '    narad_p:bindingId "narad:binding:als:SR:BEND:0:Monitor:val" .\n'
+            "<https://narad.example.org/device/bend> narad_p:hasBinding "
+            "<https://narad.example.org/binding/sp>, <https://narad.example.org/binding/mon> .\n",
+            encoding="utf-8",
+        )
+        records = read_graph_roster(RosterSource(kind=RosterSourceKind.GRAPH, path=corpus)).records
+
+        paired = {record.address: record.readback for record in assign_readbacks(records)}
+
+        assert paired == {"SR01C___B______AC00": "SR01C___B______AM00", "SR01C___B______AM00": None}

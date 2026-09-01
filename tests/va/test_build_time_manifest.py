@@ -568,23 +568,33 @@ class TestGraphSourcedManifest:
     def test_census_is_honest_about_what_the_graph_cannot_say(self, tmp_path):
         """No hierarchy identity keys are invented, so nothing is pyat-coupled.
 
-        The corpus states membership and direction, not the hierarchy path the
-        identity keys are read from. Every entry lands pathless in the
-        static-noisy partition -- exactly what a database tree without its
-        hierarchical paradigm gets -- and the setpoint census says 0 rather
-        than guessing from address grammar.
+        The corpus states membership, direction and -- for the one pair the
+        roster vouches for, ``HCM:01:CURRENT:SP``/``:RB`` -- a readback, but
+        not the hierarchy path the identity keys are read from. The pair is
+        served as setpoint-echo, keyed on nothing but itself; every other
+        entry lands pathless in the static-noisy partition -- exactly what a
+        database tree without its hierarchical paradigm gets -- and the
+        setpoint census counts the pair rather than guessing further.
         """
         root, config = _graph_tree(tmp_path / "data")
 
         prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
 
         metadata = prepared.manifest["_metadata"]
-        assert metadata["by_partition"] == {classify.PARTITION_STATIC_NOISY: 5}
-        assert metadata["setpoint_count"] == 0
+        assert metadata["by_partition"] == {
+            classify.PARTITION_SP_ECHO: 2,
+            classify.PARTITION_STATIC_NOISY: 3,
+        }
+        assert metadata["setpoint_count"] == 1
         for channel in prepared.manifest["channels"]:
-            assert channel["partition"] == classify.PARTITION_STATIC_NOISY
-            for key in ("ring", "system", "family", "device", "field", "subfield"):
+            for key in ("ring", "system", "family", "field"):
                 assert channel[key] == ""
+            if channel["partition"] == classify.PARTITION_STATIC_NOISY:
+                assert channel["device"] == "" and channel["subfield"] == ""
+            else:
+                assert channel["partition"] == classify.PARTITION_SP_ECHO
+                assert channel["device"] == "SR:MAG:HCM:01:CURRENT:SP"
+                assert channel["subfield"] == ("SP" if channel["address"].endswith(":SP") else "RB")
 
     def test_duplicate_addresses_in_the_corpus_collapse_to_one_channel(self, tmp_path):
         """The manifest is a namespace: two bindings sharing one fullPv are one channel."""
@@ -640,6 +650,161 @@ class TestGraphSourcedManifest:
         assert prepare_project_manifest(root, DEFAULT_TIER, config=config) is None
         reason = manifest_gap_reason(root, DEFAULT_TIER, config=config)
         assert "no channel database is staged" in reason
+
+
+def _device(name: str, *bindings: str) -> str:
+    """Render one corpus device grouping the named bindings."""
+    objects = ", ".join(f"<https://narad.example.org/binding/{b}>" for b in bindings)
+    return f"<https://narad.example.org/device/{name}> narad_p:hasBinding {objects} .\n"
+
+
+def _bound(name: str, address: str, predicate: str, field: str, device: str = "BEND:0") -> str:
+    """A binding carrying the ``bindingId`` whose field token the device grouping pairs on."""
+    return (
+        f'<https://narad.example.org/binding/{name}> narad_p:fullPv "{address}" ;\n'
+        f"    narad_p:{predicate} narad_sem:{name}_signal ;\n"
+        f'    narad_p:bindingId "narad:binding:als:SR:{device}:{field}:val" .\n'
+    )
+
+
+#: A facility whose addresses carry no ``:SP``/``:RB`` grammar at all: the one
+#: pair here is stated by the corpus's device grouping, and the two leftover
+#: channels (a golden setpoint nobody reports, a beam-current monitor) are not.
+_STATED_PAIR_CORPUS = _TTL_PREAMBLE + "".join(
+    (
+        _bound("bend_sp", "SR01C___B______AC00", "writesSignal", "Setpoint"),
+        _bound("bend_mon", "SR01C___B______AM00", "readsSignal", "Monitor"),
+        _bound("bend_golden", "SR01C:BEND:Setpoint:Golden", "writesSignal", "SetpointGolden"),
+        _device("bend", "bend_sp", "bend_mon", "bend_golden"),
+        _bound("dcct", "SR01C___T______AM00", "readsSignal", "Monitor", device="DCCT:0"),
+        _device("dcct", "dcct"),
+    )
+)
+
+
+class TestGraphStatedPairs:
+    """A pair the corpus states is served as a setpoint-echo pair, nothing more invented."""
+
+    def test_a_stated_pair_becomes_an_sp_echo_pair_keyed_on_the_setpoint(self, tmp_path):
+        root, config = _graph_tree(tmp_path / "data", corpus=_STATED_PAIR_CORPUS)
+
+        prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
+
+        by_address = {c["address"]: c for c in prepared.manifest["channels"]}
+        setpoint = by_address["SR01C___B______AC00"]
+        readback = by_address["SR01C___B______AM00"]
+        assert setpoint["partition"] == readback["partition"] == classify.PARTITION_SP_ECHO
+        assert setpoint["subfield"] == "SP"
+        assert readback["subfield"] == "RB"
+        # The pair shares exactly one identity key -- the setpoint's own
+        # address -- and the other four stay as empty as on a pathless entry:
+        # the graph states no hierarchy path, and none is invented.
+        for channel in (setpoint, readback):
+            assert channel["device"] == "SR01C___B______AC00"
+            assert [channel[key] for key in ("ring", "system", "family", "field")] == [
+                "",
+                "",
+                "",
+                "",
+            ]
+        assert setpoint["record_type"] == readback["record_type"] == classify.RECORD_TYPE_ANALOG
+        assert setpoint["noise"] is False and readback["noise"] is False
+
+    def test_everything_the_corpus_leaves_unpaired_stays_pathless_static_noisy(self, tmp_path):
+        root, config = _graph_tree(tmp_path / "data", corpus=_STATED_PAIR_CORPUS)
+
+        prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
+
+        by_address = {c["address"]: c for c in prepared.manifest["channels"]}
+        for address in ("SR01C:BEND:Setpoint:Golden", "SR01C___T______AM00"):
+            channel = by_address[address]
+            assert channel["partition"] == classify.PARTITION_STATIC_NOISY
+            for key in ("ring", "system", "family", "device", "field", "subfield"):
+                assert channel[key] == ""
+        metadata = prepared.manifest["_metadata"]
+        assert metadata["by_partition"] == {
+            classify.PARTITION_SP_ECHO: 2,
+            classify.PARTITION_STATIC_NOISY: 2,
+        }
+        assert metadata["setpoint_count"] == 1
+        assert metadata["total_channels"] == 4
+
+    def test_the_written_manifest_loads_and_the_container_pairs_the_echo(self, tmp_path):
+        """The shape the IOC reads: through the file loader, then the pvdb pairing.
+
+        ``build_serving_pvdb`` is what pairs the two halves on their identity
+        keys, and it is the one consumer that refuses an echo setpoint with
+        nothing to echo into -- so it is the contract this manifest has to
+        satisfy, proven here on the build host rather than at container boot.
+        """
+        from osprey.services.virtual_accelerator.serving.pvdb import build_serving_pvdb
+
+        root, config = _graph_tree(tmp_path / "data", corpus=_STATED_PAIR_CORPUS)
+        prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
+        project_data = tmp_path / "project" / "data"
+        project_data.mkdir(parents=True)
+
+        manifest_path = write_project_manifest(prepared, project_data)
+
+        channels = loaders.load_manifest_file(manifest_path)
+        assert len(channels) == 4
+        records = build_serving_pvdb(channels)
+        assert records.setpoint_readbacks == {"SR01C___B______AC00": "SR01C___B______AM00"}
+        assert set(records.static_noisy) == {"SR01C:BEND:Setpoint:Golden", "SR01C___T______AM00"}
+
+    def test_a_readback_two_setpoints_claim_pairs_with_neither(self, tmp_path):
+        """An ambiguous pair is served static-noisy on both sides, never half an echo."""
+        from osprey.services.virtual_accelerator.serving.pvdb import build_serving_pvdb
+
+        corpus = _TTL_PREAMBLE + "".join(
+            (
+                _bound("sp_a", "SR01C___B______AC00", "writesSignal", "Setpoint"),
+                _bound("sp_b", "SR01C___B______AC01", "writesSignal", "Setpoint", device="BEND:1"),
+                _bound("mon", "SR01C___B______AM00", "readsSignal", "Monitor"),
+                _device("bend0", "sp_a", "mon"),
+                _bound("mon_dup", "SR01C___B______AM00", "readsSignal", "Monitor", device="BEND:1"),
+                _device("bend1", "sp_b", "mon_dup"),
+            )
+        )
+        root, config = _graph_tree(tmp_path / "data", corpus=corpus)
+
+        prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
+
+        metadata = prepared.manifest["_metadata"]
+        assert metadata["by_partition"] == {classify.PARTITION_STATIC_NOISY: 3}
+        assert metadata["setpoint_count"] == 0
+        # And the IOC's contract holds on it: no echo setpoint left without a readback.
+        assert build_serving_pvdb(prepared.manifest["channels"]).setpoint_readbacks == {}
+
+    def test_a_readback_that_is_itself_a_setpoint_pairs_with_nothing(self, tmp_path):
+        """A chain ``A -> B -> C`` states no clean pair; both links are dropped."""
+        corpus = _TTL_PREAMBLE + "".join(
+            (
+                _bound("a", "SR:A", "writesSignal", "Setpoint"),
+                _bound("b_mon", "SR:B", "readsSignal", "Monitor"),
+                _device("dev_ab", "a", "b_mon"),
+                _bound("b_sp", "SR:B", "writesSignal", "Setpoint", device="BEND:1"),
+                _bound("c", "SR:C", "readsSignal", "Monitor", device="BEND:1"),
+                _device("dev_bc", "b_sp", "c"),
+            )
+        )
+        root, config = _graph_tree(tmp_path / "data", corpus=corpus)
+
+        prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
+
+        metadata = prepared.manifest["_metadata"]
+        assert metadata["by_partition"] == {classify.PARTITION_STATIC_NOISY: 3}
+        assert metadata["setpoint_count"] == 0
+
+    def test_a_readback_is_emitted_once_beside_its_setpoint(self, tmp_path):
+        """The manifest is a namespace: the readback half is one channel, not two."""
+        root, config = _graph_tree(tmp_path / "data", corpus=_STATED_PAIR_CORPUS)
+
+        prepared = prepare_project_manifest(root, DEFAULT_TIER, config=config)
+
+        addresses = [c["address"] for c in prepared.manifest["channels"]]
+        assert addresses == sorted(addresses)
+        assert len(set(addresses)) == len(addresses) == 4
 
 
 class TestStagedDatabasesWinOverTheGraph:
