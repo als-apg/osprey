@@ -94,6 +94,7 @@ def _unlocked(
     stored: str | None = ALICE_HASH,
     ttl: float = 600.0,
     subject: str = "",
+    opener: str = "",
 ) -> UnlockedUser:
     """An unlocked-user entry expiring ``ttl`` seconds from now.
 
@@ -104,12 +105,15 @@ def _unlocked(
         ttl: Seconds until the entry lapses; negative for an expired one.
         subject: The OIDC subject the entry carries, or ``""`` for a password
             entry and any session minted before the subject was carried.
+        opener: The roster user whose credential proved the login, for an entry
+            on a shared card, or ``""`` for an own-card entry.
     """
     return UnlockedUser(
         username=username,
         expires_at=SessionCodec(SESSION_SECRET).now() + ttl,
         generation_tag="" if stored is None else generation_tag(stored),
         oidc_subject=subject,
+        opener=opener,
     )
 
 
@@ -436,6 +440,168 @@ class TestAccountHeader:
             response = _verify(client, "j\u00f6rg", cookie)
         assert response.status_code == 401
         assert self.ACCOUNT_HEADER.lower() not in response.headers
+
+
+class TestSharedCardOpener:
+    """A shared card's session lives and dies with the entry that opened it.
+
+    A shared (``access: any``) card's session names its opener — the roster
+    entry whose credential proved the login — and verify re-validates that
+    opener against the roster's current mapping on every subrequest. Both
+    directions of the correspondence are pinned too: a shared card refuses a
+    session naming no opener, and a card no longer shared refuses one that
+    does, so flipping the access rule in either direction retires the sessions
+    minted under the old one instead of letting them lapse.
+    """
+
+    ACCOUNT_HEADER = "X-Osprey-Auth-Account"
+    SUBJECT_HEADER = "X-Osprey-Auth-Subject"
+    BOB_SUBJECT = "idp|bob"
+
+    SHARED_ENV = {
+        **OIDC_ENV,
+        "OSPREY_AUTH_ROSTER_ACCESS_ALICE": "any",
+        "OSPREY_AUTH_OIDC_SUBJECT_BOB": BOB_SUBJECT,
+    }
+
+    def test_a_valid_opener_authorizes_and_names_both_identities(self) -> None:
+        """The account is the card the request is on, the subject the opener's
+        login — the shared card is exactly where the two headers diverge."""
+        cookie = _mint(_unlocked("alice", stored=None, subject=self.BOB_SUBJECT, opener="bob"))
+        with TestClient(_app(self.SHARED_ENV)) as client:
+            response = _verify(client, "alice", cookie)
+        assert response.status_code == 200
+        assert response.headers[self.ACCOUNT_HEADER] == "alice"
+        assert response.headers[self.SUBJECT_HEADER] == self.BOB_SUBJECT
+
+    def test_an_opener_whose_mapping_was_removed_is_denied(self) -> None:
+        """Taking the opener's subject out of the config closes the shared card
+        immediately, not at each outstanding session's expiry."""
+        cookie = _mint(_unlocked("alice", stored=None, subject=self.BOB_SUBJECT, opener="bob"))
+        env = {k: v for k, v in self.SHARED_ENV.items() if k != "OSPREY_AUTH_OIDC_SUBJECT_BOB"}
+        with TestClient(_app(env)) as client:
+            assert _verify(client, "alice", cookie).status_code == 401
+
+    def test_an_opener_whose_mapping_changed_is_denied(self) -> None:
+        """Remapping the opener's suffix to another IdP identity is a new
+        person; the sessions the old one opened stop verifying."""
+        cookie = _mint(_unlocked("alice", stored=None, subject=self.BOB_SUBJECT, opener="bob"))
+        env = {**self.SHARED_ENV, "OSPREY_AUTH_OIDC_SUBJECT_BOB": "idp|somebody-else"}
+        with TestClient(_app(env)) as client:
+            assert _verify(client, "alice", cookie).status_code == 401
+
+    def test_a_shared_card_session_naming_no_opener_is_denied(self) -> None:
+        """Flipping a card to ``any`` must not widen sessions minted while it
+        was an own card — they carry no opener to re-validate."""
+        cookie = _mint(_unlocked("alice", stored=None, subject=""))
+        with TestClient(_app(self.SHARED_ENV)) as client:
+            assert _verify(client, "alice", cookie).status_code == 401
+
+    def test_an_opener_on_a_card_no_longer_shared_is_denied(self) -> None:
+        """Flipping ``any`` back to own retires every shared session at once."""
+        cookie = _mint(_unlocked("alice", stored=None, subject=self.BOB_SUBJECT, opener="bob"))
+        with TestClient(_app(OIDC_ENV)) as client:
+            assert _verify(client, "alice", cookie).status_code == 401
+
+    def test_only_the_shared_session_dies_when_the_opener_is_remapped(self) -> None:
+        """The asymmetry, pinned side by side. An own card's subject is read
+        off the session and never re-derived, so changing alice's configured
+        subject leaves her own session verifying until it lapses — the
+        documented lapse-with-the-session rule. A shared session keyed on that
+        same opener dies on the next subrequest, because a shared card
+        multiplies one login across the roster."""
+        env = {
+            **OIDC_ENV,
+            "OSPREY_AUTH_OIDC_SUBJECT_ALICE": "idp|changed",
+            "OSPREY_AUTH_ROSTER_ACCESS_BOB": "any",
+        }
+        own = _mint(_unlocked("alice", stored=None, subject="idp|alice"))
+        shared = _mint(_unlocked("bob", stored=None, subject="idp|alice", opener="alice"))
+        with TestClient(_app(env)) as client:
+            assert _verify(client, "alice", own).status_code == 200
+            assert _verify(client, "bob", shared).status_code == 401
+
+
+class TestSharedCardPassword:
+    """A password shared card lives and dies with the *opener's* stored hash.
+
+    The login mints a shared card's generation tag from the opener's hash, so
+    verify checks the tag against that hash and never against the card's own —
+    which may still exist as a stale leftover from before the card was shared.
+    Everything that can happen to the opener's credential (rotation, removal,
+    the opener leaving the roster) therefore closes the card, and nothing that
+    happens to the card's own leftover hash changes the answer either way.
+    """
+
+    ACCOUNT_HEADER = "X-Osprey-Auth-Account"
+    SUBJECT_HEADER = "X-Osprey-Auth-Subject"
+
+    SHARED_ENV = {
+        **PASSWORD_ENV,
+        "OSPREY_AUTH_ROSTER_ACCESS_BOB": "any",
+    }
+    STALE_BOB_HASH = hash_password("bob-old-password")
+
+    def test_a_valid_opener_authorizes_and_names_both_identities(self) -> None:
+        """The account is the card the request is on, the subject the opener —
+        the shared card is where the two headers diverge under password too."""
+        cookie = _mint(_unlocked("bob", opener="alice"))
+        with TestClient(_app(self.SHARED_ENV)) as client:
+            response = _verify(client, "bob", cookie)
+        assert response.status_code == 200
+        assert response.headers[self.ACCOUNT_HEADER] == "bob"
+        assert response.headers[self.SUBJECT_HEADER] == "alice"
+
+    def test_a_rotated_opener_password_is_denied(self) -> None:
+        """Rotating the opener's password retires every shared session it
+        opened, exactly as it retires the opener's own."""
+        cookie = _mint(_unlocked("bob", opener="alice"))
+        env = {**self.SHARED_ENV, "OSPREY_AUTH_PW_HASH_ALICE": ROTATED_ALICE_HASH}
+        with TestClient(_app(env)) as client:
+            assert _verify(client, "bob", cookie).status_code == 401
+
+    def test_an_opener_whose_hash_was_removed_is_denied(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The log names the actual fault: the opener's missing credential,
+        not the card's."""
+        cookie = _mint(_unlocked("bob", opener="alice"))
+        env = {k: v for k, v in self.SHARED_ENV.items() if k != "OSPREY_AUTH_PW_HASH_ALICE"}
+        caplog.set_level(logging.DEBUG)
+        with TestClient(_app(env)) as client:
+            assert _verify(client, "bob", cookie).status_code == 401
+        assert "the opener has no stored credential" in caplog.text
+
+    def test_an_opener_removed_from_the_roster_is_denied(self) -> None:
+        """Stored hashes are roster-scoped, so taking the opener off the
+        roster closes the shared card even while its hash lingers in the env."""
+        cookie = _mint(_unlocked("bob", opener="alice"))
+        env = {**self.SHARED_ENV, "OSPREY_AUTH_USERS": "bob"}
+        with TestClient(_app(env)) as client:
+            assert _verify(client, "bob", cookie).status_code == 401
+
+    def test_a_stale_card_hash_does_not_close_a_valid_shared_session(self) -> None:
+        """The card's own leftover hash disagrees with the tag, and it must not
+        matter: the tag was minted from the opener's hash and that still
+        matches."""
+        cookie = _mint(_unlocked("bob", opener="alice"))
+        env = {**self.SHARED_ENV, "OSPREY_AUTH_PW_HASH_BOB": self.STALE_BOB_HASH}
+        with TestClient(_app(env)) as client:
+            assert _verify(client, "bob", cookie).status_code == 200
+
+    def test_a_stale_card_hash_does_not_keep_a_shared_session_open(self) -> None:
+        """The sharpest pin: the tag *matches* the card's own leftover hash,
+        and the opener's hash is gone. An implementation consulting the card's
+        hash would answer 200 here; the opener's hash is the only authority,
+        so the answer is 401."""
+        cookie = _mint(_unlocked("bob", stored=self.STALE_BOB_HASH, opener="alice"))
+        env = {
+            k: v
+            for k, v in {**self.SHARED_ENV, "OSPREY_AUTH_PW_HASH_BOB": self.STALE_BOB_HASH}.items()
+            if k != "OSPREY_AUTH_PW_HASH_ALICE"
+        }
+        with TestClient(_app(env)) as client:
+            assert _verify(client, "bob", cookie).status_code == 401
 
 
 class TestLogging:

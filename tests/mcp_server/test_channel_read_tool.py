@@ -20,6 +20,7 @@ def _make_channel_value(
     value=500.2,
     units="mA",
     alarm_status="NO_ALARM",
+    alarm_severity=0,
     timestamp="2024-01-15T10:30:00",
     enum_label=None,
     enum_labels=None,
@@ -30,6 +31,7 @@ def _make_channel_value(
     cv.metadata = MagicMock()
     cv.metadata.units = units
     cv.metadata.alarm_status = alarm_status
+    cv.metadata.alarm_severity = alarm_severity
     cv.metadata.precision = 3
     cv.metadata.description = "Test channel"
     cv.metadata.display_low = 0.0
@@ -164,6 +166,7 @@ async def test_channel_read_metadata_disabled(tmp_path, monkeypatch):
     assert "value" in channel
     assert "units" not in channel
     assert "alarm_status" not in channel
+    assert "alarm_severity" not in channel
 
 
 @pytest.mark.unit
@@ -190,6 +193,7 @@ async def test_channel_read_with_metadata(tmp_path, monkeypatch):
     assert channel["units"] == "mA"
     assert channel["value"] == 500.2
     assert channel["alarm_status"] == "NO_ALARM"
+    assert channel["alarm_severity"] == 0  # reported healthy, distinct from None
 
 
 @pytest.mark.unit

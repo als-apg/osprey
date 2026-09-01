@@ -59,14 +59,20 @@ def test_simulation_core_shims_preserve_module_identity():
 def test_connector_shims_preserve_module_identity():
     import osprey.connectors.archiver.base
     import osprey.connectors.control_system.epics_connector
+    import osprey.connectors.control_system.tango_connector
     import osprey.connectors.factory
     import osprey_connectors.archiver.base
     import osprey_connectors.control_system.epics_connector
+    import osprey_connectors.control_system.tango_connector
     import osprey_connectors.factory
 
     assert (
         osprey.connectors.control_system.epics_connector
         is osprey_connectors.control_system.epics_connector
+    )
+    assert (
+        osprey.connectors.control_system.tango_connector
+        is osprey_connectors.control_system.tango_connector
     )
     assert osprey.connectors.archiver.base is osprey_connectors.archiver.base
     assert osprey.connectors.factory is osprey_connectors.factory

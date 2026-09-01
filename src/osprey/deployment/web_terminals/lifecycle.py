@@ -109,6 +109,7 @@ from osprey.deployment.web_terminals.naming import web_container_name, web_conta
 from osprey.deployment.web_terminals.personas import (
     as_dict,
     effective_image_source,
+    entry_is_shared,
     entry_requires_login,
     env_var_suffix,
     freeze_user_indices,
@@ -878,7 +879,10 @@ def rotate_user_password(config_path: str | Path, user: str, password: str) -> N
     Every one of that user's live sessions dies as a side effect — the session
     cookie carries the generation tag of the hash it was issued against — which
     is what makes this usable as a revocation: rotating a password ends the
-    access it granted. No other user's session is affected.
+    access it granted. That includes every shared-card (``access: any``)
+    session this user opened, since those sessions are held open by this same
+    credential; sessions authenticated by other users' passwords are
+    untouched.
 
     The password is never logged, printed, or echoed on this path.
 
@@ -937,6 +941,18 @@ def rotate_user_password(config_path: str | Path, user: str, password: str) -> N
             f"User {user!r} has 'login: false' in modules.web_terminals.users, so its "
             "terminal is served without authentication and has no password to change. "
             "Remove that key to put the entry behind the login wall; nothing was modified."
+        )
+    # On the roster and behind the wall, but shared: /verify checks the
+    # OPENER's credential for a shared card, so no hash of its own is ever
+    # provisioned or consulted — "changing its password" would store a
+    # credential nothing checks while telling the operator it took effect.
+    if any(entry["name"] == user and entry_is_shared(entry) for entry in roster):
+        raise ValueError(
+            f"User {user!r} has 'access: any' in modules.web_terminals.users, so its "
+            "card is opened with another roster user's password and has no password of "
+            "its own to change. Rotate the opener's password to end their shared "
+            "sessions, or remove the 'access' key to make the card its own again; "
+            "nothing was modified."
         )
 
     _require_running_runtime(config)

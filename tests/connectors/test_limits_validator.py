@@ -203,7 +203,7 @@ def _nested_control_system(values: dict) -> dict:
 
     Nesting on every dot is only correct because these keys name built-in
     leaves. A ``control_system.connector.*`` key would be nested on the dots of
-    the connector type too — ``mypackage.TangoConnector`` becoming two levels —
+    the connector type too — ``mypackage.MoatConnector`` becoming two levels —
     which is exactly the mistake the resolvers refuse to make, so a test that
     needs a per-type block passes ``control_system`` itself rather than adding
     one here.
@@ -919,14 +919,14 @@ class TestFromPosture:
         posture = LimitsPosture(
             enabled=None,
             allow_unlisted=None,
-            connector_type="mypackage.TangoConnector",
+            connector_type="mypackage.MoatConnector",
             incomplete=("enabled", "allow_unlisted_channels"),
         )
 
         validator = LimitsValidator._from_posture(posture)
 
         assert validator.failsafe_reason == (
-            "control_system.connector.mypackage.TangoConnector.limits_checking "
+            "control_system.connector.mypackage.MoatConnector.limits_checking "
             "does not state enabled, allow_unlisted_channels as true/false"
         )
 

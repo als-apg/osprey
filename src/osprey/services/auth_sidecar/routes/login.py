@@ -8,9 +8,12 @@ password-mode session comes from.
 
 **The clicked card is the username.** The landing page offers one card per roster
 user, so this page is addressed per user and asks for a password and nothing
-else. There is no username field: a name typed here could only disagree with the
-one the link named, and the page would then either lie about who is being
-unlocked or refuse an operator who typed their own name correctly.
+else. On an own card there is no username field: a name typed here could only
+disagree with the one the link named, and the page would then either lie about
+who is being unlocked or refuse an operator who typed their own name correctly.
+The one exception is a card whose access rule is ``any``: there the person
+opening it types their OWN roster name (:data:`FIELD_OPENER`) — naming
+themselves, never the terminal, which the clicked card still names.
 
 **Every method's unauthenticated browser arrives here.** nginx's 401 handler
 knows nothing about how this deployment authenticates, so it emits the same
@@ -135,6 +138,11 @@ FIELD_NEXT = "next"
 FIELD_PASSWORD = "password"
 """Form field names, matching the hidden inputs and the password input in
 ``login.html``. The browser test and the composed-stack test drive these."""
+
+FIELD_OPENER = "username"
+"""The shared-card form's visible username field, where the person opening the
+card types their OWN roster name. An own-card form has no such field at all —
+there the clicked card is the username, carried in the hidden ``user`` input."""
 
 DENIAL_MESSAGE = "That password was not accepted. Please try again."
 """The one refusal message. Names no user, no roster and no reason: an unknown
@@ -320,6 +328,8 @@ def _page(
     status_code: int = 200,
     error: str | None = None,
     headers: dict[str, str] | None = None,
+    shared: bool,
+    opener: str,
 ) -> Response:
     """Render the password prompt.
 
@@ -335,6 +345,14 @@ def _page(
         status_code: 200 for the prompt, 401 for a refusal, 429 when throttled.
         error: The message to show, or ``None`` for a first prompt.
         headers: Extra response headers, merged over the no-store default.
+        shared: Whether this card admits any roster user (``access: any``), in
+            which case the template shows a username field for the person
+            opening it. Required, no default: every render of this page states
+            which of the two shapes it is, so no re-render can silently drop
+            the username field on a retry.
+        opener: What to prefill that field with — the opener's own roster name
+            on a re-render, empty on a first prompt and everywhere ``shared``
+            is false. Required for the same reason.
 
     Returns:
         The rendered page.
@@ -348,6 +366,8 @@ def _page(
             "error": error,
             "login_path": LOGIN_PATH,
             "theme_blocks": _theme_blocks(),
+            "shared": shared,
+            "opener": opener,
         },
         status_code=status_code,
         headers={**_NO_STORE_HEADERS, **(headers or {})},
@@ -606,7 +626,7 @@ async def login_page(
         # where a credential *is* evaluated, deliberately does not distinguish.
         raise HTTPException(status_code=404, detail="no such user", headers=_NO_STORE_HEADERS)
 
-    return _page(request, user=username, target=target)
+    return _page(request, user=username, target=target, shared=settings.shared(username), opener="")
 
 
 @router.post(LOGIN_PATH)
@@ -657,6 +677,20 @@ async def login_submit(
     uncredentialed roster user and a name that is not on the roster still produce
     one status, one page and one message. A form that named no user was never a
     credential attempt.
+
+    **A shared card (``access: any``) is opened by someone else's credential.**
+    The form gains one field — the opener's own roster name — and exactly two
+    things change hands: the credential checked is the *opener's* stored hash,
+    looked up under the opener's unclamped name on the same oversize rule as the
+    card's, and the throttle keys on the opener's bounded name — the same bucket
+    that user's own card charges, so a guessing run cannot shop between the two
+    surfaces for a fresh window. Everything else stays card-keyed: the session
+    entry, the granted role and the return-to all belong to the card, with the
+    opener riding along in the entry and the audit record (``opener=<name>``) as
+    identity, never privilege. A form that did not name exactly one opener is
+    handled exactly like one that did not name exactly one user, before the
+    throttle is touched; a present-but-empty opener is an evaluated attempt that
+    meets the one shared refusal.
 
     Args:
         request: The inbound request, carrying the submitted form.
@@ -729,13 +763,55 @@ async def login_submit(
     if oversize:
         logger.warning("login submitted an impossible username of %d characters", len(username))
 
+    # The UNCLAMPED name decides whether this is a shared card, on the rule the
+    # credential lookup below already follows: an over-long submission must
+    # never take the shared branch, where a prefix of it could name a real
+    # shared card the browser never posted to. It stays on the ordinary deny
+    # path instead, exactly as it did before shared cards existed.
+    card_shared = not oversize and settings.shared(username)
+
+    opener = ""
+    opener_oversize = False
+    shown_opener = ""
+    if card_shared:
+        opener_values = _form_values(form, FIELD_OPENER)
+        if len(opener_values) != 1:
+            # The user field's own discipline, and before the throttle is
+            # touched: a form that did not name exactly one opener was never a
+            # credential attempt. Missing sends a browser back to the roster
+            # cards; repeated is ambiguous and keeps its 400 for every caller.
+            named = len(opener_values)
+            logger.warning(
+                "shared-card login submitted without exactly one opener field (got %d)", named
+            )
+            if named < 2 and _prefers_html(request):
+                return RedirectResponse(LANDING_PATH, status_code=302, headers=_NO_STORE_HEADERS)
+            raise HTTPException(
+                status_code=400,
+                detail="the login form must name exactly one opener",
+                headers=_NO_STORE_HEADERS,
+            )
+        # A present-but-empty opener proceeds: it is an evaluated attempt that
+        # fails the credential check below, on the one refusal every miss gets.
+        opener = opener_values[0]
+        opener_oversize = len(opener) > MAX_USERNAME_LENGTH
+        shown_opener = opener[:MAX_USERNAME_LENGTH]
+        if opener_oversize:
+            logger.warning(
+                "shared-card login submitted an impossible opener of %d characters", len(opener)
+            )
+
     target = safe_return_to(_only(_form_values(form, FIELD_NEXT)), shown)
     # A missing, repeated or non-string password is simply not a password: it
     # takes the ordinary refusal path rather than a distinguishable one, and
     # `verify_password` answers False for an empty string without deriving a key.
     password = _only(_form_values(form, FIELD_PASSWORD)) or ""
 
-    delay = throttle.retry_after(shown)
+    # On a shared card the credential under test is the OPENER's, so the
+    # opener's bounded name keys the throttle — the same window that user's own
+    # card grows and clears. An own-card attempt keeps keying on the card.
+    throttle_key = shown_opener if card_shared else shown
+    delay = throttle.retry_after(throttle_key)
     if delay > 0:
         # Before evaluation, and without recording a failure: counting attempts
         # that were never evaluated is how a flood of parallel guesses would
@@ -750,28 +826,73 @@ async def login_submit(
             status_code=429,
             error=THROTTLE_MESSAGE,
             headers={"Retry-After": str(math.ceil(delay))},
+            shared=card_shared,
+            opener=shown_opener,
         )
 
-    stored = None if oversize else settings.password_hash(username)
+    # Two lookup spellings, one rule. An own card checks the card's own stored
+    # hash under the UNCLAMPED submitted name; a shared card checks the
+    # OPENER's, under the opener's unclamped name. Clamping either before the
+    # lookup could resolve a prefix of an over-long submission to a real roster
+    # user and unlock a credential the browser never named — so oversize forces
+    # None on both spellings instead.
+    if card_shared:
+        stored = None if opener_oversize else settings.password_hash(opener)
+    else:
+        stored = None if oversize else settings.password_hash(username)
     # `stored is None` covers a roster user with no provisioned credential, a
     # username that is not on the roster at all, and one too long to be either.
     # None derives a key — see the module docstring — and all three leave through
     # the identical refusal below, including the same call into the throttle.
     if stored is None or not verify_password(password, stored):
-        throttle.record_failure(shown)
+        throttle.record_failure(throttle_key)
+        if card_shared:
+            logger.warning(
+                "shared-card login for %r refused: the credential submitted for opener %r "
+                "did not verify",
+                shown,
+                shown_opener,
+            )
+            # The same refusal as the own-card one — one status, one page, one
+            # message — with the username field re-rendered and the bounded
+            # opener riding in `detail`. Only a non-empty opener is recorded:
+            # an empty one would put an empty value in an identifiers-only
+            # envelope field, so that refusal carries no detail at all.
+            audit.record_login_refusal(
+                user=shown,
+                reason=audit.REASON_BAD_CREDENTIAL,
+                detail=f"opener={shown_opener}" if shown_opener else None,
+            )
+            return _page(
+                request,
+                user=shown,
+                target=target,
+                status_code=401,
+                error=DENIAL_MESSAGE,
+                shared=True,
+                opener=shown_opener,
+            )
         logger.warning("login refused for %r: the submitted credential did not verify", shown)
         # `shown` for the same reason the log line and the throttle use it: the
         # ledger is not the caller's to size either. One category for all three
         # ways this branch is reached — see `audit.REASON_BAD_CREDENTIAL`; the
         # record must not say which of them it was any more than the page does.
         audit.record_login_refusal(user=shown, reason=audit.REASON_BAD_CREDENTIAL)
-        return _page(request, user=shown, target=target, status_code=401, error=DENIAL_MESSAGE)
+        return _page(
+            request,
+            user=shown,
+            target=target,
+            status_code=401,
+            error=DENIAL_MESSAGE,
+            shared=False,
+            opener="",
+        )
 
-    # `shown` here too, not `username`: on this path they are the same string —
-    # an over-long name never gets a stored hash — and keying both throttle calls
-    # the same way is what makes "the window this attempt was checked against" and
-    # "the window it clears" provably the same entry.
-    throttle.record_success(shown)
+    # The key the window was checked against — `shown` on an own card, where it
+    # is the same string as `username` (an over-long name never gets a stored
+    # hash), the bounded opener on a shared one — so "the window this attempt
+    # was checked against" and "the window it clears" are provably one entry.
+    throttle.record_success(throttle_key)
 
     # The credential is settled; what it is *worth* is the matrix's answer, and
     # it is asked before anything is minted so a refusal cannot leave the
@@ -819,6 +940,10 @@ async def login_submit(
         # reading of the method here.
         role=role,
         role_source=grant.role_source,
+        # Who proved this login: the opener's own name on a shared card, empty
+        # for an own-card entry. Identity, never privilege — it rides an
+        # identity header and the audit trail, and grants nothing.
+        opener=opener,
     )
 
     response = RedirectResponse(target, status_code=303, headers=_NO_STORE_HEADERS)
@@ -834,9 +959,19 @@ async def login_submit(
         # signed expiry inside it, which is the only one the sidecar can enforce.
         path="/",
     )
-    logger.info("password login succeeded for %r", username)
+    if card_shared:
+        logger.info("password login succeeded for %r, opened by %r", username, opener)
+    else:
+        logger.info("password login succeeded for %r", username)
     # Recorded after the cookie is set and before the response leaves: a ledger
     # that holds only refusals cannot answer "who is in this deployment, and
-    # since when", which is the first question asked of a login trail.
-    audit.record_login_success(user=username, method=settings.method, role=role)
+    # since when", which is the first question asked of a login trail. A shared
+    # card also names who opened it — an empty opener never reaches this line,
+    # because an empty name fails the credential check above.
+    audit.record_login_success(
+        user=username,
+        method=settings.method,
+        role=role,
+        detail=f"opener={opener}" if card_shared else None,
+    )
     return response

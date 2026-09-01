@@ -58,7 +58,12 @@ class ChannelMetadata:
 
     units: str = ""
     precision: int | None = None
+    #: Alarm name reported for the reading, e.g. "NO_ALARM"/"HIHI"; None if not reported.
     alarm_status: str | None = None
+    #: Alarm severity: 0 healthy, higher is worse; ``None`` means "not reported",
+    #: which stays distinct from a reported healthy value (``alarm_severity=0``) —
+    #: the same convention as :attr:`ChannelWriteResult.alarm_severity`.
+    alarm_severity: int | None = None
     timestamp: datetime | None = None
     description: str | None = None
     display_low: float | None = None

@@ -547,6 +547,36 @@ class TestSettingsParsing:
         assert isinstance(app.state.settings, AuthSettings)
         assert app.state.settings.method == "password"
 
+    def test_nobody_is_shared_when_no_access_rule_is_set(self) -> None:
+        settings = AuthSettings.from_env(PASSWORD_ENV)
+        assert settings.shared("alice") is False
+        assert settings.shared("nobody") is False
+
+    def test_roster_access_any_marks_the_user_shared(self) -> None:
+        env = dict(PASSWORD_ENV, OSPREY_AUTH_ROSTER_ACCESS_ALICE="any")
+        settings = AuthSettings.from_env(env)
+        assert settings.shared("alice") is True
+        assert settings.shared("bob") is False
+
+    @pytest.mark.parametrize("value", ["own", "ANY", "Any", "yes", "any-thing", ""])
+    def test_any_other_access_value_fails_closed(self, value: str) -> None:
+        env = dict(PASSWORD_ENV, OSPREY_AUTH_ROSTER_ACCESS_ALICE=value)
+        assert AuthSettings.from_env(env).shared("alice") is False
+
+    def test_access_rules_outside_the_roster_are_not_loaded(self) -> None:
+        env = dict(PASSWORD_ENV, OSPREY_AUTH_ROSTER_ACCESS_MALLORY="any")
+        settings = AuthSettings.from_env(env)
+        assert settings.shared("mallory") is False
+        assert settings.shared_users == frozenset()
+
+    def test_roster_access_uses_the_shared_suffix_mapping(self) -> None:
+        env = dict(
+            PASSWORD_ENV,
+            OSPREY_AUTH_USERS="shift-console",
+            OSPREY_AUTH_ROSTER_ACCESS_SHIFT_CONSOLE="any",
+        )
+        assert AuthSettings.from_env(env).shared("shift-console") is True
+
 
 class TestSharedStores:
     """The revocation store and attempt throttle follow the codec's pattern.

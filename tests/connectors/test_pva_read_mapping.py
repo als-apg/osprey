@@ -143,6 +143,7 @@ class TestNtScalarMapping:
         assert result.metadata.display_low == 0.0
         assert result.metadata.display_high == 10.0
         assert result.metadata.alarm_status == "HIGH"
+        assert result.metadata.alarm_severity == 1
         assert result.metadata.raw_metadata["nt_id"] == "epics:nt/NTScalar:1.0"
         assert result.metadata.raw_metadata["severity"] == 1
         assert result.metadata.raw_metadata["status"] == 3
@@ -204,6 +205,8 @@ class TestNtScalarMapping:
         assert result.value == 3.25
         assert result.metadata.precision == 4
         assert result.metadata.units == "mm"
+        # A reported healthy severity stays 0 — distinct from "not reported".
+        assert result.metadata.alarm_severity == 0
 
     def test_absent_display_leaves_metadata_empty_rather_than_failing(self):
         value = FakeValue("epics:nt/NTScalar:1.0", {"value": 7.0})
@@ -214,6 +217,7 @@ class TestNtScalarMapping:
         assert result.metadata.units == ""
         assert result.metadata.precision is None
         assert result.metadata.alarm_status is None
+        assert result.metadata.alarm_severity is None
 
 
 # ---------------------------------------------------------------------------

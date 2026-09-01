@@ -1516,6 +1516,22 @@ def test_passwd_refuses_a_login_false_user(tmp_path, monkeypatch, fake_runtime):
     assert fake_runtime == []
 
 
+def test_passwd_refuses_a_shared_card(tmp_path, monkeypatch, fake_runtime):
+    """A shared (`access: any`) card is opened with another roster user's
+    password — /verify checks the OPENER's credential — so it has no password
+    of its own, and "changing" it would store a hash nothing ever checks."""
+    monkeypatch.chdir(tmp_path)
+    config_path = _write_config(
+        tmp_path, _auth_config(["alice", {"name": "ops", "index": 1, "access": "any"}])
+    )
+
+    with pytest.raises(ValueError, match="access: any"):
+        lifecycle.rotate_user_password(str(config_path), "ops", "some-password")
+
+    assert not (tmp_path / AUTH_ENV_FILENAME).exists()
+    assert fake_runtime == []
+
+
 def test_passwd_refuses_before_writing_when_the_runtime_is_down(tmp_path, monkeypatch):
     """Gate on the runtime BEFORE the write: otherwise the operator is handed a
     password the deployment was never told about."""

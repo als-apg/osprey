@@ -755,8 +755,53 @@ class TestChannelAccessAlarmNames:
         await asyncio.sleep(0.01)  # let call_soon_threadsafe flush
 
         assert received[0].metadata.alarm_status == "HIGH"
+        assert received[0].metadata.alarm_severity == 1
         assert received[0].metadata.raw_metadata["status"] == 4
         assert received[0].metadata.raw_metadata["severity"] == 1
+
+
+class TestReadAlarmSeverity:
+    """Reads carry the typed severity, not just the alarm name.
+
+    ``ChannelMetadata.alarm_severity`` follows the write-path convention
+    (``ChannelWriteResult.alarm_severity``): 0 healthy, higher is worse,
+    ``None`` = the control system reported no severity. Before this field the
+    severity reached only ``raw_metadata``, which the ``channel_read`` tool
+    never surfaces — so the agent could see MAJOR-vs-MINOR after a write but
+    not on the read it based the write on.
+    """
+
+    @pytest.mark.asyncio
+    async def test_read_reports_the_typed_severity(self):
+        epics = MagicMock()
+        epics.PV.return_value = _connected_pv(status=3, severity=2)
+        connector = _connector(epics=epics)
+
+        result = await connector.read_channel("SR:CH", timeout=1.0)
+
+        assert result.metadata.alarm_severity == 2
+
+    @pytest.mark.asyncio
+    async def test_a_reported_healthy_severity_stays_zero(self):
+        epics = MagicMock()
+        epics.PV.return_value = _connected_pv(status=0, severity=0)
+        connector = _connector(epics=epics)
+
+        result = await connector.read_channel("SR:CH", timeout=1.0)
+
+        assert result.metadata.alarm_severity == 0  # not None: healthy is a report
+
+    @pytest.mark.asyncio
+    async def test_an_unreported_severity_reads_as_none(self):
+        epics = MagicMock()
+        pv = _connected_pv(status=0)
+        pv.severity = None  # PV answered its value but carried no severity
+        epics.PV.return_value = pv
+        connector = _connector(epics=epics)
+
+        result = await connector.read_channel("SR:CH", timeout=1.0)
+
+        assert result.metadata.alarm_severity is None
 
 
 # ---------------------------------------------------------------------------

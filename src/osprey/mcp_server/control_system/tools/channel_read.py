@@ -705,7 +705,9 @@ async def channel_read(
         # Only fields the connectors actually populate. No connector reports the
         # channel's display range, so this tool does not claim to either — and a
         # write bound is a limits-database question, not a control-system read.
-        metadata_fields = ("units", "precision", "alarm_status", "description")
+        # alarm_severity follows the write-path convention: 0 healthy, higher is
+        # worse, None = the control system reported no severity.
+        metadata_fields = ("units", "precision", "alarm_status", "alarm_severity", "description")
         # Enum-only, and reported only when the control system had them: an
         # ordinary analogue channel would otherwise grow two permanently-null
         # keys in every reading, which reads as "this channel has no labels"
