@@ -52,6 +52,12 @@ The window has three working areas plus a header:
   between them.
 - **Workspace** (left) — a live view of your project files. New artifacts,
   plots, and data files appear as the agent creates them, with no refresh.
+  On a fresh deployment the list is not empty: the control-assistant preset
+  ships one interactive example plot (synthetic data), listed under
+  **Examples** at the bottom. It is there for you, not the agent, which
+  never lists or cites it. Delete it from the gallery when you no longer
+  want it; it does not come back. It is switched on by
+  ``artifact_server.example_artifact`` in ``config.yml``.
 - **Side panels** — your control-system tools (Channel Finder, ARIEL, the
   lattice dashboard, and so on), opened from the icon rail and arranged as
   dockable tiles. See :doc:`panels`.

@@ -215,7 +215,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Moved with the base above: graph channel finder.
     # Moved with the base above: the `knowledge` card joined the roster.
     "control-assistant-logbook": (
-        "sha256:b872f2bf54113b94f1919d75034df2c5905eba90707746c9f9d9893b35cb0bbf"
+        "sha256:5ef26ebb9fc0053dc97f871638fbd40629bcc539ed6941989303550b9666e436"
     ),
     # New: the second standalone persona. The facility knowledge graph, the
     # graph-mode channel finder and the knowledge bundle behind one shared
@@ -223,7 +223,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # writes pinned off on all three keys, and the one bundle-writing tool
     # (`draft_concept`) denied.
     "control-assistant-knowledge": (
-        "sha256:c10aed916e3b928464b52314c25fdb8fe08e1a5a00f539938b4c405c329e0a7c"
+        "sha256:e62ec5e657ee93f1e64db5666cece24195f8a4fb93dda94ea4ec5569866684b9"
     ),
     # The two operator tiers below moved together, and alone, when each gained
     # the single dotted key `services.graphdb.port_host: 7687` in its `config:`

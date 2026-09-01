@@ -849,6 +849,9 @@ config:
   # it needs the panel area. Pinned rather than left to the server default for
   # the same reason the other two tiers pin theirs.
   web.ui_mode: expert
+  # No shipped example plot in this WORKSPACE: the example invites the reader
+  # to ask the agent for a live plot, which this persona cannot produce.
+  artifact_server.example_artifact: false
   # The hosting deployment owns the web-terminal tier (nginx, landing, per-user
   # containers). Without this override the inherited roster would make this
   # render try to host a second web tier on the same host ports.
@@ -962,6 +965,9 @@ config:
   # so it needs the panel area. Pinned rather than left to the server default,
   # like the other tiers pin theirs.
   web.ui_mode: expert
+  # No shipped example plot in this WORKSPACE: the example invites the reader
+  # to ask the agent for a live plot, which this persona cannot produce.
+  artifact_server.example_artifact: false
   # The hosting deployment owns the web-terminal tier (nginx, landing, per-user
   # containers). Without this override the inherited roster would make this
   # render try to host a second web tier on the same host ports.

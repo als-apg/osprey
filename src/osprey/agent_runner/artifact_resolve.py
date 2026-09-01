@@ -315,7 +315,7 @@ def describe_run_artifacts(run_id: str) -> list[dict[str, Any]]:
     if not run_id:
         return []
     try:
-        entries = _get_store().list_entries(run_filter=run_id)
+        entries = _get_store().list_entries(run_filter=run_id, exclude_examples=True)
     except Exception:
         logger.warning("Could not read artifact store for run %s", run_id, exc_info=True)
         return []
@@ -356,7 +356,7 @@ def describe_run_input_artifacts(run_id: str) -> list[dict[str, Any]]:
     if not run_id:
         return []
     try:
-        entries = _get_store().list_entries(run_filter=run_id)
+        entries = _get_store().list_entries(run_filter=run_id, exclude_examples=True)
     except Exception:
         logger.warning("Could not read artifact store for run %s", run_id, exc_info=True)
         return []

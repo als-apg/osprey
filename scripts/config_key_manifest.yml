@@ -1232,6 +1232,8 @@ keys:
   artifact_server.host: {covered-by: artifact_server}
   artifact_server.port: {covered-by: artifact_server}
   artifact_server.auto_launch: {evidence: 'auto_launch'}
+  artifact_server.example_artifact:
+    evidence: 'get_config_value\("artifact_server\.example_artifact"'
 
   # ── Health suite ────────────────────────────────────────────────────
   # The `health:` section is unset in all five templates — the built-in checks
