@@ -1196,20 +1196,23 @@ def _inject_project_metadata(config):
     """
     project_name = resolve_project_name(config)
 
-    # Resolve the running framework version so service Dockerfiles can pin the
-    # PyPI install (`pip install osprey-framework==<version>`) for production
-    # builds. Dev builds install a locally-built wheel instead (see --dev).
-    #
-    # This is deliberately the *running* version rather than the release lineage,
-    # and deliberately ungated. The service Dockerfiles hard-fail on an empty
-    # OSPREY_VERSION but tolerate an unreleased one under OSPREY_DEV=1, priming
-    # the layer with the latest release and warning that the pin was unreleased.
-    # Substituting the base release here would silently prime with released code
-    # and suppress that warning. A production build from a development checkout is
-    # refused earlier and more clearly by `_resolve_pip_spec`.
-    from osprey.version import get_running_version
+    # Resolve the framework version service Dockerfiles pin their deps layer
+    # to (`pip install osprey-framework==<version>`). Production builds pin the
+    # running version — the deps install IS the shipped code. Dev builds (the
+    # context's dev_mode, true only when a local wheel actually staged) pin the
+    # BASE RELEASE the checkout descends from: the wheel overlays the code, so
+    # the deps layer only needs the release lineage's dependency set — and a
+    # cache-stable pin is what keeps every commit from re-resolving the world
+    # in every image (an ARG consumed by the deps RUN busts that layer whenever
+    # its value changes, and the running dev version changes per commit). It is
+    # also more correct than what the per-commit bust bought: the dev pin could
+    # never install (not on PyPI), so those layers fell back to *latest*, which
+    # can sit AHEAD of the checkout's lineage. A production build from a
+    # development checkout is still refused earlier and more clearly by
+    # `_resolve_pip_spec`; see `get_image_pin_version` for the full rationale.
+    from osprey.version import get_image_pin_version
 
-    osprey_version = get_running_version()
+    osprey_version = get_image_pin_version(bool(config.get("dev_mode")))
 
     # The deployment repo this render belongs to. Resolved once, here, because
     # three separate things below are derived from it.

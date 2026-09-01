@@ -819,7 +819,7 @@ def _require_auth_sidecar_image(web_terminals: dict) -> None:
     )
 
 
-def _materialize_auth_build_context(repo_root: Path, dev_mode: bool) -> Path:
+def _materialize_auth_build_context(repo_root: Path, dev_mode: bool) -> tuple[Path, bool]:
     """Write the bundled sidecar Dockerfile into this project's build tree.
 
     The sidecar has no rendered project of its own (unlike a persona) and no
@@ -828,7 +828,13 @@ def _materialize_auth_build_context(repo_root: Path, dev_mode: bool) -> Path:
     holds no operator-owned content, only the bundled files plus whatever
     ``--dev`` stages beside them.
 
-    :returns: The build-context directory.
+    :returns: ``(build-context directory, effective dev mode)`` — the second
+        element is True only when ``dev_mode`` was requested AND the wheel
+        actually landed, the same fail-closed gating ``setup_build_dir``
+        applies to compose-rendered services. The caller keys both the
+        ``OSPREY_DEV`` build arg and the deps-layer version pin on it, so a
+        --dev run whose wheel staging failed keeps the fail-loud pinned
+        install rather than silently building released code.
     """
     context_dir = repo_root / AUTH_BUILD_CONTEXT
     context_dir.mkdir(parents=True, exist_ok=True)
@@ -840,8 +846,8 @@ def _materialize_auth_build_context(repo_root: Path, dev_mode: bool) -> Path:
     # the locally-built wheel lands beside the Dockerfile and its optional COPY
     # glob picks it up. Fail-loud rather than silently deploying the pinned PyPI
     # release under a flag that means "run my local code".
-    _stage_dev_wheel_for_context(str(context_dir), dev_mode)
-    return context_dir
+    wheel_staged = _stage_dev_wheel_for_context(str(context_dir), dev_mode)
+    return context_dir, bool(dev_mode and wheel_staged)
 
 
 def build_auth_sidecar_image(
@@ -898,9 +904,14 @@ def build_auth_sidecar_image(
     # to the capture would anchor the spool on the working directory whenever
     # the caller handed nothing down.
     root = _resolved_repo_root(config, repo_root)
-    context_dir = _materialize_auth_build_context(root, dev_mode)
+    context_dir, effective_dev = _materialize_auth_build_context(root, dev_mode)
 
-    from osprey import __version__ as osprey_version
+    # Base release under effective dev (cache-stable deps layer; the staged
+    # wheel overlays the code), running version otherwise — see
+    # `osprey.version.get_image_pin_version` for the full rationale.
+    from osprey.version import get_image_pin_version
+
+    osprey_version = get_image_pin_version(effective_dev)
 
     tag = auth_sidecar_local_tag(config)
     project_label = resolve_project_name(config)
@@ -920,7 +931,11 @@ def build_auth_sidecar_image(
         "--build-arg",
         f"OSPREY_VERSION={osprey_version}",
     ]
-    if dev_mode:
+    if effective_dev:
+        # Keyed on the EFFECTIVE dev mode (wheel actually staged), not the
+        # flag: OSPREY_DEV=1 relaxes the Dockerfile's fail-loud pin, and
+        # relaxing it with no wheel to overlay would silently build released
+        # code under a flag that means "run my local code".
         cmd.extend(["--build-arg", "OSPREY_DEV=1"])
     with_plain_build_progress(cmd)
     cmd.append(str(context_dir))
