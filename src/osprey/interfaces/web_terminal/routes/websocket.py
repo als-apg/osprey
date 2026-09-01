@@ -698,6 +698,59 @@ def _state_dir_names(target_state: Any) -> tuple[str, ...]:
         return ()
 
 
+@dataclass(frozen=True)
+class _PtyState:
+    """What the PTY registry says about a session's process, read in one go.
+
+    ``registered`` is whether the registry holds a PTY under this key at all.
+    ``alive`` and ``exit_code`` are :attr:`PtySession.is_alive` and
+    :attr:`PtySession.exit_code` for a registered PTY — ``None`` for one the
+    registry cannot answer for — and ``None`` for both when none is registered.
+    """
+
+    registered: bool
+    alive: bool | None
+    exit_code: int | None
+
+
+_NO_PTY = _PtyState(registered=False, alive=None, exit_code=None)
+
+
+def _pty_state_for(app: Any, session_key: str) -> _PtyState:
+    """The registry's view of this session's process — see :class:`_PtyState`.
+
+    Read where :func:`_pty_pid_for` reads, through the same accessor and with
+    the same tolerance of a registry that lacks it. The pid alone cannot say
+    whether the process is running: ``PtySession.pid`` is ``Popen.pid`` and
+    outlives the child, so a dead agent and a not-yet-started one look alike
+    to a process-table walk. Liveness is one attribute away and is what the
+    refusal ladder needs to tell the two apart.
+    """
+    registry = getattr(app.state, "pty_registry", None)
+    getter = getattr(registry, "get_session", None)
+    if getter is None:
+        return _NO_PTY
+    try:
+        session = getter(session_key)
+    except Exception:  # noqa: BLE001 — a registry that cannot be asked has no PTY to report
+        logger.warning("Could not ask the PTY registry about session %s", session_key)
+        return _NO_PTY
+    if session is None:
+        return _NO_PTY
+    alive = getattr(session, "is_alive", None)
+    exit_code = getattr(session, "exit_code", None)
+    try:
+        # 0 and negative (signal) codes are exit codes too; only a non-number is not.
+        exit_code = int(exit_code) if exit_code is not None else None
+    except (TypeError, ValueError):
+        exit_code = None
+    return _PtyState(
+        registered=True,
+        alive=alive if isinstance(alive, bool) else None,
+        exit_code=exit_code,
+    )
+
+
 def _pty_pid_for(app: Any, session_key: str) -> int | None:
     """The pid of the PTY this session runs in, or ``None``.
 
@@ -1511,6 +1564,11 @@ class _TargetRequestFacts:
     #: re-derived: the reader that decides the 409, the writer that addresses
     #: the request file and the ledger line must all name one pid.
     server_pid: int | None
+    #: What the PTY registry says about this session's process, read in the
+    #: same hop as ``record`` so the two describe one moment. A record of
+    #: ``None`` means one of three things — no PTY, a dead agent, or a live one
+    #: that has not started its controls server — and only this can say which.
+    pty: _PtyState = _NO_PTY
 
 
 def _target_request_facts(app: Any, session_key: str, config_path: Path | None):
@@ -1540,6 +1598,7 @@ def _target_request_facts(app: Any, session_key: str, config_path: Path | None):
             server_pid=None,
         )
 
+    pty = _pty_state_for(app, session_key)
     record = _session_record(app, session_key)
     server_pid = _pid_or_none((record or {}).get("server_pid"))
     pending = target_state.read_request(server_pid) if server_pid is not None else None
@@ -1550,6 +1609,7 @@ def _target_request_facts(app: Any, session_key: str, config_path: Path | None):
         store_available=True,
         pending=pending,
         server_pid=server_pid,
+        pty=pty,
     )
 
 
@@ -1600,6 +1660,41 @@ def _target_refusal(
                 "This deployment's agent-data root does not resolve, so there is "
                 "nowhere to write a switch request the controls server would read. "
                 "Nothing was requested."
+            ),
+            detail=f"target={body.target}",
+        )
+
+    # One status, three rungs, split by what the registry says about the
+    # session's process. "Send one prompt first" is right only for a live
+    # agent whose controls server has not started; the same sentence for a
+    # dead one is an instruction with no process to follow it, and for no PTY
+    # at all it points at a terminal that is not there.
+    if facts.pty.alive is False:
+        code = facts.pty.exit_code
+        exited = f"exited (exit code {code})" if code is not None else "exited"
+        return _refuse_gesture(
+            app,
+            session_id,
+            subject=subject,
+            status_code=409,
+            error="agent_exited",
+            message=(
+                f"The agent in this terminal has {exited}, so there is no "
+                "control-system server to ask. Start a new session, then switch."
+            ),
+            detail=f"target={body.target} exit_code={code}",
+        )
+
+    if not facts.pty.registered:
+        return _refuse_gesture(
+            app,
+            session_id,
+            subject=subject,
+            status_code=409,
+            error="session_not_started",
+            message=(
+                "This terminal has no running session, so there is nothing to ask "
+                "for a switch. Start a session, then switch."
             ),
             detail=f"target={body.target}",
         )
@@ -1663,9 +1758,14 @@ async def request_terminal_target(body: TargetRequest, request: Request):
     * **400** — an id outside the closed key grammar, or a target this render
       does not configure. Both are identifiers, checked before anything is read
       or written.
+    * **409** ``agent_exited`` — the PTY registered for this session reports
+      its process has exited. There is no server to address and no prompt that
+      could start one; the message names the exit code when it is known.
     * **409** ``session_not_started`` — no controls server has published a
-      record this session's process tree owns. There is nothing to address: the
-      request file's whole addressing scheme is that pid.
+      record this session's process tree owns, and the agent is live or there
+      is no PTY at all. There is nothing to address: the request file's whole
+      addressing scheme is that pid. Only the live-agent case is told to send
+      a prompt, because only there does a prompt start the server.
     * **503** ``store_unavailable`` / ``store_write_failed`` — the state
       directory does not resolve, or the write failed. The gesture did not
       happen and the operator is told so, rather than being shown a request id
