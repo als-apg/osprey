@@ -71,6 +71,23 @@ def web_terminal_url() -> str:
     return f"http://{host}:{port}"
 
 
+def phoebus_bridge_default(config: dict) -> str:
+    """The bridge URL ``phoebus.host``/``phoebus.port`` configure.
+
+    Stock ``http://127.0.0.1:7979`` when the config carries neither key
+    (matches ``bridge_preferences.properties``). This is the ONE spelling of
+    the config half of :func:`phoebus_bridge_url`, shared with the render
+    (``config_derived_context``'s ``phoebus_bridge_default`` context key) so
+    the ``.mcp.json`` fallback the build emits and the resolution the running
+    server performs cannot fork — a fallback rendered from anything else pins
+    the client to a port the backend does not serve (#829).
+    """
+    ph = config.get("phoebus", {}) or {}
+    host = ph.get("host", "127.0.0.1")
+    port = ph.get("port", 7979)
+    return f"http://{host}:{port}"
+
+
 def phoebus_bridge_url() -> str:
     """Build the Phoebus agent-bridge base URL from env or config.
 
@@ -78,9 +95,12 @@ def phoebus_bridge_url() -> str:
     (default ``http://127.0.0.1:7979``). Resolution order:
 
     1. ``PHOEBUS_BRIDGE_URL`` env var (full URL) — set by the framework server
-       definition; wins outright.
+       definition; wins outright. The definition's rendered fallback is
+       :func:`phoebus_bridge_default`, so on a rendered project this step
+       already answers with the configured host/port.
     2. ``PHOEBUS_BRIDGE_PORT`` env var overrides only the port.
-    3. ``phoebus.host`` / ``phoebus.port`` in config.yml.
+    3. ``phoebus.host`` / ``phoebus.port`` in config.yml
+       (:func:`phoebus_bridge_default`).
     4. ``127.0.0.1:7979`` default (matches ``bridge_preferences.properties``).
     """
     import os
@@ -92,10 +112,12 @@ def phoebus_bridge_url() -> str:
         return full.rstrip("/")
 
     config = load_osprey_config()
-    ph = config.get("phoebus", {})
-    host = ph.get("host", "127.0.0.1")
-    port = int(os.environ.get("PHOEBUS_BRIDGE_PORT", ph.get("port", 7979)))
-    return f"http://{host}:{port}"
+    port_env = os.environ.get("PHOEBUS_BRIDGE_PORT")
+    if port_env:
+        ph = config.get("phoebus", {}) or {}
+        host = ph.get("host", "127.0.0.1")
+        return f"http://{host}:{int(port_env)}"
+    return phoebus_bridge_default(config)
 
 
 _PANEL_TOKEN_LATCH: str | None = None
