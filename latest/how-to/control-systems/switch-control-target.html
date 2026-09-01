@@ -588,8 +588,8 @@ and changes nothing, so it is safe to ask at any moment, including before
 anything has ever been switched.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">control_target_set(target)</span></code></dt><dd><p>Moves the session. <code class="docutils literal notranslate"><span class="pre">target</span></code> is <code class="docutils literal notranslate"><span class="pre">va</span></code>, <code class="docutils literal notranslate"><span class="pre">live</span></code> or <code class="docutils literal notranslate"><span class="pre">standin</span></code>, spelled
-exactly. It asks for your approval first, and the prompt names the machine
-you would be moving to.</p>
+exactly. Where the deployment gates it on approval — the shipped presets
+do — the prompt names the machine you would be moving to.</p>
 </dd>
 </dl>
 <p>Ask the OSPREY agent for these in plain language — <em>“what am I pointed at?”</em>,
@@ -598,10 +598,10 @@ session on the machine: reads, writes and the python executor all follow the
 switch.</p>
 <p>In the Web Terminal you can also move the session yourself, without asking the
 agent: the <a class="reference internal" href="../web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">control-target chip</span></a> in the
-header lists every target and offers <strong>Switch</strong> on the ones this session could
-move to. The switch it asks for is the same one — the same gate, the same
-checks, the same refusal words — and a target the gate would refuse shows that
-word where the button would be.</p>
+header opens a popover with a <strong>Switch to</strong> button per machine. The switch it
+asks for is the same one — the same gate, the same checks, the same refusal
+reasons — and a target the gate would refuse shows why where the button
+would be. See <a class="reference internal" href="#from-the-web-terminal">From the Web Terminal</a>.</p>
 <p>Whether writes are <em>allowed</em> follows it too. Write posture is per control
 target, so a deployment can be armed on the simulator and read-only on the
 machine — the same tool call that moved a setpoint before the switch is refused
@@ -650,11 +650,12 @@ checks them in this order and reports the first one that fails, so the answer
 names the nearest thing to fix rather than the whole list.</p>
 <p><strong>The gateways</strong> (<code class="docutils literal notranslate"><span class="pre">gateways_missing</span></code>).
 <code class="docutils literal notranslate"><span class="pre">control_system.connector.epics.gateways</span></code> names where the live machine is
-reached. Like everything else about that machine it ships commented out — a
-facility’s gateways cannot be guessed, and shipped values would point a stock
-deployment at hardware it never configured — so on a fresh deployment this is
-the first gate, and the live target reads <em>not configured</em> until you author
-it. Uncomment the block with your facility’s gateway addresses.</p>
+reached. A facility’s gateways cannot be guessed, so nothing usable ships
+here: the control-assistant template leaves the whole block commented out —
+there this is the first gate, and the live target reads <em>not configured</em>
+until you author it — while the generic project template writes placeholder
+addresses instead, which pass this gate and fail the probe. Either way, the
+edit is the same: put your facility’s gateway addresses in the block.</p>
 <p><strong>A probe channel</strong> (<code class="docutils literal notranslate"><span class="pre">probe_channel_missing</span></code>).
 <code class="docutils literal notranslate"><span class="pre">control_system.connector.epics.probe_channel</span></code> names the channel the switch
 reads to prove the machine answered before the session moves onto it. It ships
@@ -701,6 +702,50 @@ less safe outcome of the two.</p>
 outlives the session: every time the controls server starts it returns to the
 deployment baseline and clears what the previous session left behind. Closing
 the session is enough.</p>
+</section>
+<section id="from-the-web-terminal">
+<h3>From the Web Terminal<a class="headerlink" href="#from-the-web-terminal" title="Link to this heading">#</a></h3>
+<p>Everything above can also be done by hand, without a prompt. Click the
+control-target chip in the header and the popover lists every machine this
+deployment configures — the one the agent stands on as a card, every other as
+a row.</p>
+<div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
+<div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-2 sd-row-cols-lg-2 sd-g-2 sd-g-xs-2 sd-g-sm-2 sd-g-md-2 sd-g-lg-2 docutils">
+<div class="sd-col sd-d-flex-column docutils">
+<a class="reference internal image-reference" href="../../_images/control_target_popover_light.png"><img alt="The control-target popover in the light theme, showing the Rehearsal card with its writes switch, and rows for the real machine and the simulator" src="../../_images/control_target_popover_light.png" style="width: 100%;" />
+</a>
+</div>
+<div class="sd-col sd-d-flex-column docutils">
+<a class="reference internal image-reference" href="../../_images/control_target_popover_dark.png"><img alt="The control-target popover in the dark theme" src="../../_images/control_target_popover_dark.png" style="width: 100%;" />
+</a>
+</div>
+</div>
+</div>
+<p>The popover on the tutorial deployment, whose baseline is the stand-in: the
+<em>Rehearsal</em> card, the real machine still <code class="docutils literal notranslate"><span class="pre">not</span> <span class="pre">set</span> <span class="pre">up</span></code>, and the simulator a
+<strong>Switch to</strong> away. Captured with OSPREY v2026.6.2.post2090+g23b198224.d20260831.</p>
+<p>Each machine carries:</p>
+<ul class="simple">
+<li><p><strong>A writes switch</strong> — the write state on that machine, for your session, and
+the control that changes it, in one widget. Turning writes off applies as
+you click; turning them on asks first. Where the deployment locks writes the
+switch is disabled, with the reason on hover.</p></li>
+<li><p><strong>A small ⓘ</strong> after the name — what writing to this machine means (<em>Writes
+move hardware</em>, or one of the <em>nothing moves</em> lines), the endpoint, and the
+controls server’s own technical label, shown on hover or keyboard focus.</p></li>
+<li><p><strong>Switch to</strong> — a confirmation names where every control read and write goes
+next and the write state the session arrives in; the row reads
+<code class="docutils literal notranslate"><span class="pre">switching…</span></code> while the request is out, and the outcome lands on the row:
+<code class="docutils literal notranslate"><span class="pre">✓</span> <span class="pre">switched</span></code>, or <code class="docutils literal notranslate"><span class="pre">✗</span></code> with an operator phrase for the same refusal code
+the agent is given, the gate’s own sentence on its tooltip. The line leaves
+the row after a minute — an outcome is news for about as long as someone is
+watching for it.</p></li>
+</ul>
+<p>The foot’s <strong>Turn all writes off</strong> takes writes away from every machine it can
+in one click, and reports any machine it could not narrow rather than
+dropping it. Everything in the popover is per session and per machine;
+<a class="reference internal" href="../web-terminal/operate.html"><span class="doc">Run the Web Terminal</span></a> walks the whole surface, including the write
+states themselves.</p>
 </section>
 </section>
 <section id="what-a-deployment-needs-first">
@@ -1087,7 +1132,8 @@ osprey<span class="w"> </span><span class="nb">set</span><span class="w"> </span
 does not run.</p>
 <p><strong>The label stays honest.</strong> Nothing calls the stand-in the live machine. The
 banner reads <code class="docutils literal notranslate"><span class="pre">LIVE</span> <span class="pre">MACHINE</span> <span class="pre">(stand-in)</span></code>, the roster says the same, and the
-header chip reads <code class="docutils literal notranslate"><span class="pre">STAND-IN</span></code>. It carries a real machine’s posture — the
+web terminal’s header chip reads <em>Rehearsal</em> — named for what it is for, with
+the technical label kept on its ⓘ tooltip. It carries a real machine’s posture — the
 same limits, the same approval prompts — because it is operated as one, not
 because a write reaches the facility. What the stand-in rehearses is the procedure, not the risk.</p>
 <p><strong>Telling the two machines apart.</strong> Both run one image over one lattice, so the
@@ -1174,6 +1220,7 @@ target stamp pins them to.</p></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#rehearse-on-the-virtual-accelerator">Rehearse on the virtual accelerator</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#go-live">Go live</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#coming-home">Coming home</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#from-the-web-terminal">From the Web Terminal</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-a-deployment-needs-first">What a deployment needs first</a></li>

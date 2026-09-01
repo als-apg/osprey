@@ -603,9 +603,9 @@ Nothing moves.</p></li>
 </ul>
 <p>A deployment can put its own names on its machines
 (<code class="docutils literal notranslate"><span class="pre">control_system.target_display_names</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — <em>ALS storage
-ring</em> rather than <em>Real machine</em>); what the machine is stays on the popover’s
-descriptor line and the tooltips either way, and the tooltip also keeps the
-controls server’s own technical label.</p>
+ring</em> rather than <em>Real machine</em>); what the machine is stays behind the small
+ⓘ beside its name either way, and that tooltip also keeps the controls
+server’s own technical label.</p>
 <p>The second part is the write state <strong>on that machine</strong>, for <strong>your session</strong>:</p>
 <ul class="simple">
 <li><p><strong>writes on</strong> — the agent may write there, under whatever write gates the
@@ -622,13 +622,15 @@ this.</p></li>
 configures, not only the one you are standing on.</p>
 <section id="the-machine-you-are-on-and-the-others">
 <h3>The machine you are on, and the others<a class="headerlink" href="#the-machine-you-are-on-and-the-others" title="Link to this heading">#</a></h3>
-<p>The machine the agent stands on is a card at the top: its name, what writing
-there means (<em>Writes move hardware</em>, or one of the <em>nothing moves</em> lines), the
-write state, and the one button that changes it. Every other machine is a row
-below the card, carrying the same two facts, its write-state pill, and the
-actions:</p>
+<p>The machine the agent stands on is a card at the top: its name and its writes
+switch. Every other machine is a row below the card with the same shape and
+the actions. What writing to a machine means (<em>Writes move hardware</em>, or one
+of the <em>nothing moves</em> lines) sits with its endpoint and the server’s own
+label behind the small ⓘ beside each name, on hover or keyboard focus:</p>
 <ul class="simple">
-<li><p><strong>Turn writes off / Turn writes on</strong> — per machine, for your session.</p></li>
+<li><p><strong>The writes switch</strong> — per machine, for your session. The switch position
+is the write state and clicking it is the gesture that changes it; where
+writes are locked the switch is disabled, with the reason on hover.</p></li>
 <li><p><strong>Switch to</strong> — moves this session onto that machine. Where a switch is
 not available, the button’s place is taken by a short phrase for the reason
 — <code class="docutils literal notranslate"><span class="pre">not</span> <span class="pre">set</span> <span class="pre">up</span></code>, <code class="docutils literal notranslate"><span class="pre">needs</span> <span class="pre">gateway</span> <span class="pre">ack</span></code> — with the server’s full
@@ -651,9 +653,10 @@ the session keeps working on the simulator, which is the point: you put the
 machine you are worried about out of reach without giving up the one you are
 working on.</p>
 <p>Taking writes away applies as you click — it needs no ceremony. Turning
-writes back on asks you to confirm first, every time and with nothing
-remembered between clicks, and the confirmation names the machine and the
-endpoint the agent would then be able to write to.</p>
+writes back on asks you to confirm first, and the confirmation names the
+machine and the endpoint the agent would then be able to write to. Tick
+<em>Don’t ask again for this machine</em> to skip the dialog from then on
+(Shift-click brings it back). The real machine always asks.</p>
 <p><strong>Nothing is restarted.</strong> Every gate reads the write state at the moment of
 the write, so the change lands on the conversation that is already running:
 the agent obeys it on its very next write, and the turn in flight is not
@@ -712,7 +715,8 @@ started with, so wait for it to finish, or stop it, and try again.</p>
 <p><strong>Switch to</strong> on a row moves the session onto that machine, after a
 confirmation that says where every control read and write goes next and
 whether writes are on or off for you there — the write state is per
-machine, and it does not travel with you. The browser does not perform the
+machine, and it does not travel with you. This dialog too can be skipped
+with <em>Don’t ask again for this machine</em>. The browser does not perform the
 switch: it records the request, and the part of the deployment that owns the
 connection to the machines picks it up, re-checks at that moment that the
 move is allowed and the machine answers, and reports the outcome back. The

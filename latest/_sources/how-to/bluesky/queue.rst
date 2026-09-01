@@ -28,8 +28,9 @@ One queue, three ways to drive it
       - **Start queue** (BLUESKY) — one click; drains every queued item, in
         order.
       - **Stop after current item** and **Abort running plan** (BLUESKY) —
-        always clickable, in every state. Abort asks for a second,
-        confirming click.
+        never disabled, and on screen whenever the queue runs or its state
+        is in doubt; a provably idle queue folds them behind **Queue
+        controls**. Abort asks for a second, confirming click.
       - Every queued row has reorder (↑ ↓) and remove (✕) buttons — the queue
         is editable right up until it runs.
       - A **Simple mode** hides the expert details and leaves the essentials:

@@ -826,6 +826,11 @@ groups (<em>group overage</em>), which lands on a missing-claim refusal. Either
 emit only the groups assigned to this application, or define app roles and
 point <code class="docutils literal notranslate"><span class="pre">claim</span></code> at <code class="docutils literal notranslate"><span class="pre">roles</span></code>.</p>
 </div>
+<p>Behind a proxy that re-signs TLS with a site certificate authority, the
+identity-provider fetch fails inside the login service even with the site-CA
+block in <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> uncommented: that service receives the three proxy
+variables and nothing else, and no site CA is mounted into its image. See
+<a class="reference internal" href="../../deploy-project/env-chain.html#deployment-env-chain"><span class="std std-ref">Environment Variables (the .env chain)</span></a> for what the chain delivers to which container.</p>
 </section>
 <section id="leave-one-entry-public">
 <h2>Leave one entry public<a class="headerlink" href="#leave-one-entry-public" title="Link to this heading">#</a></h2>

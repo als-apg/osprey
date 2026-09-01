@@ -118,7 +118,9 @@ If you need to stop
 ===================
 
 Two buttons on the BLUESKY tab, and they always work — no permission, no
-token, no switch can disable them:
+token, no switch can disable them. Whenever anything runs (or the panel
+cannot tell), both sit in the strip at the top; only a provably idle queue
+folds them behind the **Queue controls** disclosure there:
 
 - **Stop after current item** — gentle. The running plan finishes, then the
   queue stops.
