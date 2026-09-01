@@ -122,7 +122,7 @@ def test_project_key_does_not_disturb_existing_fields(tmp_path):
         "open_tiles_age_s",
         "open_tiles_dock",
         "docs_url",
-        "feedback_github_repo",
+        "feedback_trackers",
         "feedback_email",
         "config_panel_enabled",
         "scaffold_write_enabled",
@@ -143,13 +143,13 @@ def test_blank_utility_targets_reach_the_browser_as_blank(tmp_path):
     """
     app = _make_app(tmp_path)
     app.state.docs_url = ""
-    app.state.feedback_github_repo = ""
+    app.state.feedback_trackers = []
     app.state.feedback_email = ""
 
     body = _panels(app)
 
     assert body["docs_url"] == ""
-    assert body["feedback_github_repo"] == ""
+    assert body["feedback_trackers"] == []
     assert body["feedback_email"] == ""
 
 

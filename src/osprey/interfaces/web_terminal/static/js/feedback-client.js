@@ -2,14 +2,14 @@
 /* OSPREY Web Terminal — Feedback Client (transport)
  *
  * Everything the feedback dialog does that is not DOM: build the POST bodies,
- * put the unified payload on the clipboard, open the GitHub tab or the mail
- * draft, and turn the outcome into one notice line. No element is created or
+ * put the unified payload on the clipboard, open the tracker's new-issue tab
+ * or the mail draft, and turn the outcome into one notice line. No element is created or
  * read here — the dialog owns the DOM and receives a plain result object (and,
  * optionally, an `onNotice` callback) to render.
  *
  * Two properties are load-bearing and easy to break:
  *
- *   1. ORDER. For the GitHub and Email channels the clipboard write and the
+ *   1. ORDER. For the tracker and Email channels the clipboard write and the
  *      navigation must both be issued inside the click turn, BEFORE the POST
  *      settles. Safari drops the transient user activation across an await, so
  *      a copy issued afterwards is refused and a `window.open` afterwards looks
@@ -35,6 +35,7 @@ import { withPrefix } from './api.js';
 import {
   PASTE_POINTER,
   buildGitHubIssueUrl as defaultGitHubIssueUrl,
+  buildGitLabIssueUrl as defaultGitLabIssueUrl,
   buildMailto as defaultMailto,
   buildPrefillBody as defaultPrefillBody,
   utf8Length,
@@ -97,12 +98,14 @@ export const NOTICE_EMPTY_BUNDLE = 'This deployment returned no session context.
 /**
  * Appended to the outbound confirmation of a POINTER-mode send: the draft
  * opened carrying one line that points at the clipboard, and this repeats the
- * instruction in the dialog for whoever comes back to it before pasting.
+ * instruction in the dialog for whoever comes back to it before pasting. One
+ * wording for every tracker kind — GitHub and GitLab both call it the issue
+ * body.
  */
-export const NOTICE_PASTE_GITHUB =
+export const NOTICE_PASTE_ISSUE =
   'your full report is on your clipboard — paste it into the issue body';
 
-/** Email variant of {@link NOTICE_PASTE_GITHUB}. */
+/** Email variant of {@link NOTICE_PASTE_ISSUE}. */
 export const NOTICE_PASTE_EMAIL =
   'your full report is on your clipboard — paste it into the draft';
 
@@ -120,9 +123,22 @@ const TEXT_MIME = 'text/plain';
 const SESSION_TITLE_CHARS = 8;
 
 /**
+ * One of the deployment's configured issue trackers, as the dialog hands it
+ * over: the kind picks the URL builder, the target is what it builds on — an
+ * `owner/name` for GitHub, the project's base URL for GitLab.
+ *
+ * @typedef {object} FeedbackTrackerTarget
+ * @property {'github'|'gitlab'} kind
+ * @property {string} target
+ */
+
+/**
  * @typedef {object} FeedbackForm
  * @property {string} text - what the user typed
- * @property {'local'|'github'|'email'} channel
+ * @property {'local'|'github'|'gitlab'|'email'} channel
+ * @property {FeedbackTrackerTarget|null} [tracker] - which tracker a
+ *   `github`/`gitlab` send opens; a tracker channel without one is sent as
+ *   Local rather than aimed at a URL built from nothing
  * @property {boolean} metadataOn - deployment-metadata checkbox
  * @property {boolean} contextOn - session-context checkbox
  * @property {string|null} [sessionId] - may be null (no session yet) or stale
@@ -167,11 +183,11 @@ const SESSION_TITLE_CHARS = 8;
  * @property {(url: string) => void} [navigate] - assigns `location.href` (mailto)
  * @property {string} [scrollback] - from `captureScrollback(term)`
  * @property {Record<string, unknown>} [metadata] - deployment metadata block
- * @property {string} [githubRepo] - `owner/name` from `web.feedback.github_repo`
  * @property {string} [email] - maintainer address from `web.feedback.email`
  * @property {(payload: string) => void} [showSelectableText] - last copy rung
  * @property {(notice: FeedbackNotice) => void} [onNotice]
  * @property {typeof defaultGitHubIssueUrl} [buildGitHubIssueUrl]
+ * @property {typeof defaultGitLabIssueUrl} [buildGitLabIssueUrl]
  * @property {typeof defaultMailto} [buildMailto]
  * @property {typeof defaultPrefillBody} [buildPrefillBody]
  */
@@ -179,8 +195,8 @@ const SESSION_TITLE_CHARS = 8;
 /**
  * Send the user's feedback over the selected channel.
  *
- * Local waits for the record and reports its id. GitHub and Email fire one
- * paper-trail POST, feed the clipboard from its promise and hand off to the
+ * Local waits for the record and reports its id. The tracker and Email
+ * channels fire one paper-trail POST, feed the clipboard from its promise and hand off to the
  * browser — both inside the click turn — then report what happened; a failed
  * POST downgrades to a notice and never blocks the handoff.
  *
@@ -189,7 +205,7 @@ const SESSION_TITLE_CHARS = 8;
  * @returns {Promise<FeedbackResult>} never rejects
  */
 export async function sendFeedback(form, deps) {
-  const channel = normalizeChannel(form.channel);
+  const channel = effectiveChannel(form);
   const request = postJson(deps, FEEDBACK_PATH, buildSendBody(form, deps));
 
   if (channel === 'local') {
@@ -218,13 +234,13 @@ export async function sendFeedback(form, deps) {
     copying = copyPayload(deps, payload);
   }
   let opened = false;
-  if (channel === 'github') {
-    if (typeof deps.windowOpen === 'function') {
-      deps.windowOpen(link.url, '_blank', 'noopener');
+  if (channel === 'email') {
+    if (typeof deps.navigate === 'function') {
+      deps.navigate(link.url);
       opened = true;
     }
-  } else if (typeof deps.navigate === 'function') {
-    deps.navigate(link.url);
+  } else if (typeof deps.windowOpen === 'function') {
+    deps.windowOpen(link.url, '_blank', 'noopener');
     opened = true;
   }
   // --- end of the synchronous section ---
@@ -446,13 +462,17 @@ async function fallbackCopy(deps, text) {
  */
 function buildSendBody(form, deps) {
   const contextOn = form.contextOn === true;
+  const channel = effectiveChannel(form);
   /** @type {Record<string, unknown>} */
   const body = {
     text: String(form.text ?? ''),
-    channel: normalizeChannel(form.channel),
+    channel,
     include_metadata: form.metadataOn === true,
     include_context: contextOn,
   };
+  // The record names the tracker: with several configured, "github" alone
+  // no longer says where the report went.
+  if (isTrackerKind(channel) && form.tracker) body.tracker = String(form.tracker.target);
   if (contextOn) {
     if (form.sessionId) body.session_id = String(form.sessionId);
     body.scrollback = String(deps.scrollback ?? '');
@@ -490,9 +510,16 @@ function buildOutboundLink(form, deps) {
   }
   const title = deriveTitle(form);
 
-  if (normalizeChannel(form.channel) === 'github') {
+  const channel = effectiveChannel(form);
+  const target = String(form.tracker?.target ?? '');
+  if (channel === 'github') {
     const build = deps.buildGitHubIssueUrl ?? defaultGitHubIssueUrl;
-    const issue = build(String(deps.githubRepo ?? ''), title, body);
+    const issue = build(target, title, body);
+    return { url: issue.url, needsPaste: contextOn || issue.needsPaste === true };
+  }
+  if (channel === 'gitlab') {
+    const build = deps.buildGitLabIssueUrl ?? defaultGitLabIssueUrl;
+    const issue = build(target, title, body);
     return { url: issue.url, needsPaste: contextOn || issue.needsPaste === true };
   }
   const build = deps.buildMailto ?? defaultMailto;
@@ -560,7 +587,7 @@ function localResult(deps, data) {
 }
 
 /**
- * The one line to show after an outbound (GitHub/Email) submission.
+ * The one line to show after an outbound (tracker/Email) submission.
  *
  * A POINTER-mode send is judged in priority order: a clipboard the user has
  * to act on outranks a missing paper trail, which outranks the ordinary
@@ -574,7 +601,7 @@ function localResult(deps, data) {
  * @param {string|null} id
  * @param {string|null} contextStatus
  * @param {CopyRung} copied
- * @param {'local'|'github'|'email'} channel
+ * @param {'local'|'github'|'gitlab'|'email'} channel
  * @param {boolean} needsPaste - the draft opened in POINTER mode
  * @returns {FeedbackNotice}
  */
@@ -588,7 +615,7 @@ function outboundNotice(ok, id, contextStatus, copied, channel, needsPaste) {
   if (!ok) return { kind: 'warning', message: NOTICE_NOT_RECORDED };
   const base = recordedNotice(id, contextStatus);
   if (base.kind !== 'success') return base;
-  const hint = channel === 'email' ? NOTICE_PASTE_EMAIL : NOTICE_PASTE_GITHUB;
+  const hint = channel === 'email' ? NOTICE_PASTE_EMAIL : NOTICE_PASTE_ISSUE;
   return { kind: 'success', message: `${base.message} — ${hint}` };
 }
 
@@ -657,10 +684,24 @@ function readString(data, key) {
 
 /**
  * @param {unknown} channel
- * @returns {'local'|'github'|'email'}
+ * @returns {channel is 'github'|'gitlab'}
  */
-function normalizeChannel(channel) {
-  if (channel === 'github' || channel === 'email') return channel;
+function isTrackerKind(channel) {
+  return channel === 'github' || channel === 'gitlab';
+}
+
+/**
+ * The channel a form is actually sent on. A tracker kind without a tracker
+ * to aim at collapses to Local: a URL built from an empty target would open
+ * a dead tab, and the record is the one deliverable that needs no target.
+ *
+ * @param {FeedbackForm} form
+ * @returns {'local'|'github'|'gitlab'|'email'}
+ */
+function effectiveChannel(form) {
+  const channel = form.channel;
+  if (channel === 'email') return channel;
+  if (isTrackerKind(channel) && form.tracker && form.tracker.kind === channel) return channel;
   return 'local';
 }
 

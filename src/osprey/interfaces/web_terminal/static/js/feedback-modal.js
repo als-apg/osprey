@@ -46,7 +46,7 @@ export const NO_SESSION_HINT = 'no session yet';
 
 /**
  * The two-step statement shown between the checkboxes and the action button on
- * the GitHub and Email channels while session context is ticked. It states, in
+ * the tracker and Email channels while session context is ticked. It states, in
  * order and before the click, exactly what the action button will do — the
  * context cannot ride a prefilled URL, so the report travels by clipboard and
  * the draft opens with a line marking where to paste it. Deliberately plain:
@@ -54,9 +54,10 @@ export const NO_SESSION_HINT = 'no session yet';
  */
 export const PASTE_STEP_COPY = 'Your full report is copied to your clipboard.';
 
-/** Step two of {@link PASTE_STEP_COPY}, per outbound channel. */
+/** Step two of {@link PASTE_STEP_COPY}, per outbound channel kind. */
 export const PASTE_STEP_OPEN = Object.freeze({
   github: 'A GitHub issue draft opens — paste the report into the issue body.',
+  gitlab: 'A GitLab issue draft opens — paste the report into the issue body.',
   email: 'An email draft opens — paste the report into the message body.',
 });
 
@@ -94,8 +95,8 @@ export const FEEDBACK_DISCLOSURE_PARAGRAPHS = Object.freeze([
   'Session context (off by default): this session’s id, its tool-call and ' +
     'agent event log, its chat history, and the terminal scrollback. It is ' +
     'triaged newest-first and truncated to fit a size budget, so a long ' +
-    'session is attached in part rather than in full. On the GitHub and ' +
-    'Email channels it travels by paste: sending copies your full report ' +
+    'session is attached in part rather than in full. On the issue-tracker ' +
+    'and Email channels it travels by paste: sending copies your full report ' +
     'to your clipboard, and the draft opens with one line saying to paste ' +
     'it there.',
   'The artifact inventory lists titles and ids only — artifacts tagged to ' +
@@ -108,26 +109,27 @@ export const FEEDBACK_DISCLOSURE_PARAGRAPHS = Object.freeze([
 /** The disclosure as one string — the form the composer can quote. */
 export const FEEDBACK_DISCLOSURE = FEEDBACK_DISCLOSURE_PARAGRAPHS.join('\n\n');
 
-/** Per-channel caveat shown under the channel picker. */
+/** Per-channel-kind caveat shown under the channel picker. */
 export const CHANNEL_HINTS = Object.freeze({
   local: '',
   github: 'Requires a GitHub account',
+  gitlab: 'Requires a GitLab account',
   email: 'If nothing opens, use Local instead',
 });
 
-/** Label of the channel's "open the outside thing" button. */
+/** Label of the channel kind's "open the outside thing" button. */
 const CHANNEL_ACTION_LABELS = Object.freeze({
   local: '',
   github: 'Open GitHub issue',
+  gitlab: 'Open GitLab issue',
   email: 'Open email draft',
 });
 
-/** Radio labels, in render order. */
-const CHANNELS = Object.freeze([
-  { value: 'local', label: 'Local' },
-  { value: 'github', label: 'GitHub' },
-  { value: 'email', label: 'Email' },
-]);
+/** Radio value of the Local channel. */
+const LOCAL = 'local';
+
+/** Radio value of the Email channel. */
+const EMAIL = 'email';
 
 // Every currently open modal. A Set rather than a boolean so `open()`/`close()`
 // stay idempotent per instance and `isFeedbackModalOpen()` cannot be desynced
@@ -136,13 +138,28 @@ const CHANNELS = Object.freeze([
 const _openModals = new Set();
 
 /**
- * @typedef {'local'|'github'|'email'} FeedbackChannel
+ * @typedef {'local'|'github'|'gitlab'|'email'} FeedbackChannel
+ */
+
+/**
+ * One of the deployment's configured issue trackers (`web.feedback.trackers`
+ * plus the `github_repo` sugar), already normalised by the caller. Each
+ * renders as one radio between Local and Email, captioned by `label`.
+ *
+ * @typedef {object} FeedbackTracker
+ * @property {string} id - unique among the list; the radio's value.
+ * @property {'github'|'gitlab'} kind - picks the wording and the URL builder.
+ * @property {string} label - the radio caption, facility-authored.
+ * @property {string} target - `owner/name` (GitHub) or the project URL (GitLab).
  */
 
 /**
  * @typedef {object} FeedbackFormState
  * @property {string} text - the typed feedback.
- * @property {FeedbackChannel} channel - the selected delivery channel.
+ * @property {FeedbackChannel} channel - the selected delivery channel; a
+ *   tracker reports its kind.
+ * @property {FeedbackTracker|null} tracker - the selected tracker, on the
+ *   tracker channels; null on Local and Email.
  * @property {boolean} metadataOn - attach deployment metadata (default true).
  * @property {boolean} contextOn - attach session context (default false;
  *   reported false whenever there is no session to attach).
@@ -158,12 +175,16 @@ const _openModals = new Set();
  * @property {() => string|null} [getSessionId] - the current terminal session
  *   id. Injected rather than imported from `terminal.js` so the dialog has no
  *   dependency on the terminal module. Defaults to "no session".
+ * @property {FeedbackTracker[]} [trackers] - the issue trackers to offer at
+ *   construction; {@link FeedbackModal#setTrackers} replaces the list later,
+ *   which is how boot hands over a configuration that lands after the first
+ *   open. Defaults to none.
  * @property {(state: FeedbackFormState) => void} [onSubmit] - the `submit`
  *   event: the Local channel's Send button.
  * @property {(state: FeedbackFormState) => void} [onCopy] - the `copy` event:
  *   the inline copy button on the session-context row.
  * @property {(state: FeedbackFormState) => void} [onOpenChannel] - the `open`
- *   event: "Open GitHub issue" / "Open email draft".
+ *   event: "Open GitHub issue" / "Open GitLab issue" / "Open email draft".
  * @property {() => void} [onClose] - called once per close, after teardown.
  */
 
@@ -212,8 +233,13 @@ export class FeedbackModal {
     // a channel switch (which re-renders the action row) and a close/reopen —
     // an accidental Escape must not throw away a half-written report.
     this._text = '';
-    /** @type {FeedbackChannel} */
-    this._channel = 'local';
+    /** @type {FeedbackTracker[]} */
+    this._trackers = (options.trackers ?? []).map((tracker) => ({ ...tracker }));
+    // The checked radio's value: `local`, `email`, or a tracker's id. The
+    // channel and tracker the form reports are derived from it on demand, so
+    // a tracker list that changes underneath cannot leave a stale pair.
+    /** @type {string} */
+    this._selection = LOCAL;
     this._metadataOn = true;
     this._contextOn = false;
 
@@ -227,6 +253,8 @@ export class FeedbackModal {
     this._contextCopyEl = null;
     /** @type {HTMLElement|null} */
     this._channelHintEl = null;
+    /** @type {HTMLElement|null} */
+    this._channelGroupEl = null;
     /** @type {HTMLElement|null} */
     this._stepsEl = null;
     /** @type {HTMLElement|null} */
@@ -243,13 +271,37 @@ export class FeedbackModal {
    */
   formState() {
     const sessionId = this._sessionId();
+    const tracker = this._selectedTracker();
     return {
       text: this._text,
-      channel: this._channel,
+      channel: this._channelKind(),
+      tracker,
       metadataOn: this._metadataOn,
       contextOn: this._contextOn && sessionId !== null,
       sessionId,
     };
+  }
+
+  /**
+   * Replace the offered issue trackers.
+   *
+   * Applied in place while the dialog is open — the radios are rebuilt and
+   * the dependent controls re-derived. A selected tracker that the new list
+   * no longer carries falls back to Local rather than lingering as a radio
+   * that no longer exists.
+   *
+   * @param {FeedbackTracker[]} trackers
+   * @returns {void}
+   */
+  setTrackers(trackers) {
+    this._trackers = trackers.map((tracker) => ({ ...tracker }));
+    if (this._selectedTracker() === null && this._selection !== LOCAL && this._selection !== EMAIL) {
+      this._selection = LOCAL;
+    }
+    if (this._channelGroupEl) {
+      this._renderChannelRadios(this._channelGroupEl);
+      this._syncControls();
+    }
   }
 
   /**
@@ -338,6 +390,7 @@ export class FeedbackModal {
     this._contextHintEl = null;
     this._contextCopyEl = null;
     this._channelHintEl = null;
+    this._channelGroupEl = null;
     this._stepsEl = null;
     this._actionsEl = null;
 
@@ -455,25 +508,8 @@ export class FeedbackModal {
     const group = el('div', 'feedback-channels');
     group.setAttribute('role', 'radiogroup');
     group.setAttribute('aria-label', 'Where to send this');
-
-    for (const { value, label } of CHANNELS) {
-      const wrap = el('label', 'feedback-channel-option');
-      const radio = document.createElement('input');
-      radio.type = 'radio';
-      radio.name = 'feedback-channel';
-      radio.value = value;
-      radio.checked = this._channel === value;
-      radio.addEventListener('change', () => {
-        if (!radio.checked) return;
-        this._channel = /** @type {FeedbackChannel} */ (value);
-        this._syncControls();
-      });
-      const caption = el('span', 'feedback-channel-label');
-      caption.textContent = label;
-      wrap.appendChild(radio);
-      wrap.appendChild(caption);
-      group.appendChild(wrap);
-    }
+    this._channelGroupEl = group;
+    this._renderChannelRadios(group);
 
     const hint = el('p', 'feedback-channel-hint');
     this._channelHintEl = hint;
@@ -482,6 +518,63 @@ export class FeedbackModal {
     section.appendChild(group);
     section.appendChild(hint);
     return section;
+  }
+
+  /**
+   * (Re)build the radios: Local, one per configured tracker in the order
+   * given, Email. Idempotent over `group`, so {@link setTrackers} can call it
+   * on an open dialog.
+   *
+   * @param {HTMLElement} group
+   * @returns {void}
+   */
+  _renderChannelRadios(group) {
+    group.replaceChildren();
+    /** @type {{value: string, label: string}[]} */
+    const rows = [
+      { value: LOCAL, label: 'Local' },
+      ...this._trackers.map((tracker) => ({ value: tracker.id, label: tracker.label })),
+      { value: EMAIL, label: 'Email' },
+    ];
+    for (const { value, label } of rows) {
+      const wrap = el('label', 'feedback-channel-option');
+      const radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = 'feedback-channel';
+      radio.value = value;
+      radio.checked = this._selection === value;
+      radio.addEventListener('change', () => {
+        if (!radio.checked) return;
+        this._selection = value;
+        this._syncControls();
+      });
+      const caption = el('span', 'feedback-channel-label');
+      caption.textContent = label;
+      wrap.appendChild(radio);
+      wrap.appendChild(caption);
+      group.appendChild(wrap);
+    }
+  }
+
+  /**
+   * The tracker the checked radio stands for, or null on Local and Email —
+   * and null for a tracker id the current list no longer carries.
+   *
+   * @returns {FeedbackTracker|null}
+   */
+  _selectedTracker() {
+    return this._trackers.find((tracker) => tracker.id === this._selection) ?? null;
+  }
+
+  /**
+   * The channel kind the checked radio stands for.
+   *
+   * @returns {FeedbackChannel}
+   */
+  _channelKind() {
+    if (this._selection === EMAIL) return 'email';
+    const tracker = this._selectedTracker();
+    return tracker === null ? 'local' : tracker.kind;
   }
 
   /**
@@ -598,8 +691,9 @@ export class FeedbackModal {
    */
   _syncControls() {
     const sessionId = this._sessionId();
+    const kind = this._channelKind();
 
-    if (this._channelHintEl) this._channelHintEl.textContent = CHANNEL_HINTS[this._channel];
+    if (this._channelHintEl) this._channelHintEl.textContent = CHANNEL_HINTS[kind];
 
     if (this._contextCheckEl) {
       this._contextCheckEl.disabled = sessionId === null;
@@ -613,8 +707,8 @@ export class FeedbackModal {
     // what a send would attach.
     if (this._contextCopyEl) this._contextCopyEl.disabled = sessionId === null;
 
-    this._syncSteps(sessionId);
-    this._renderActions();
+    this._syncSteps(sessionId, kind);
+    this._renderActions(kind);
   }
 
   /**
@@ -622,12 +716,12 @@ export class FeedbackModal {
    * the context box ticked, a session to read it from.
    *
    * @param {string|null} sessionId
+   * @param {FeedbackChannel} channel
    * @returns {void}
    */
-  _syncSteps(sessionId) {
+  _syncSteps(sessionId, channel) {
     const panel = this._stepsEl;
     if (!panel) return;
-    const channel = this._channel;
     const applies = channel !== 'local' && this._contextOn && sessionId !== null;
     panel.toggleAttribute('hidden', !applies);
     const list = panel.querySelector('ol');
@@ -643,16 +737,17 @@ export class FeedbackModal {
 
   /**
    * Rebuild the channel-dependent action row: one button per channel — Send
-   * for Local, the "open the outside thing" button for GitHub and Email.
+   * for Local, the "open the outside thing" button for the trackers and Email.
    *
+   * @param {FeedbackChannel} channel
    * @returns {void}
    */
-  _renderActions() {
+  _renderActions(channel) {
     const row = this._actionsEl;
     if (!row) return;
     row.replaceChildren();
 
-    if (this._channel === 'local') {
+    if (channel === 'local') {
       row.appendChild(
         this._actionButton('feedback-send primary', 'Send', () => this._emit(this._options.onSubmit))
       );
@@ -660,7 +755,7 @@ export class FeedbackModal {
     }
 
     row.appendChild(
-      this._actionButton('feedback-open-channel primary', CHANNEL_ACTION_LABELS[this._channel], () =>
+      this._actionButton('feedback-open-channel primary', CHANNEL_ACTION_LABELS[channel], () =>
         this._emit(this._options.onOpenChannel)
       )
     );

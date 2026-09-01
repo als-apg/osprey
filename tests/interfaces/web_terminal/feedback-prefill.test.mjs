@@ -16,9 +16,11 @@ import { test, expect, describe } from 'vitest';
 
 import {
   GITHUB_URL_LIMIT,
+  GITLAB_URL_LIMIT,
   MAILTO_URL_LIMIT,
   PASTE_POINTER,
   buildGitHubIssueUrl,
+  buildGitLabIssueUrl,
   buildMailto,
   buildPrefillBody,
   utf8Length,
@@ -59,6 +61,43 @@ describe('utf8Length', () => {
 
   test('is additive over concatenation', () => {
     expect(utf8Length('é😀abc')).toBe(utf8Length('é') + utf8Length('😀') + 3);
+  });
+});
+
+describe('buildGitLabIssueUrl', () => {
+  const BASE = 'https://git.example.org/controls/osprey';
+
+  test('builds the /-/issues/new form with issue[title] and issue[description]', () => {
+    const result = buildGitLabIssueUrl(BASE, 'Feedback', 'hello world');
+    expect(result.needsPaste).toBe(false);
+    expect(result.url.startsWith(`${BASE}/-/issues/new?issue[title]=`)).toBe(true);
+    expect(param(result.url, 'issue\\[title\\]')).toBe('Feedback');
+    expect(param(result.url, 'issue\\[description\\]')).toBe('hello world');
+  });
+
+  test('the same shape serves gitlab.com and a self-hosted instance', () => {
+    const hosted = buildGitLabIssueUrl('https://gitlab.com/group/project', 'T', 'b').url;
+    const self = buildGitLabIssueUrl('https://git.example.org/group/project', 'T', 'b').url;
+    expect(hosted.replace('https://gitlab.com', '')).toBe(
+      self.replace('https://git.example.org', '')
+    );
+  });
+
+  test('a trailing slash on the base URL does not double up', () => {
+    const result = buildGitLabIssueUrl(`${BASE}/`, 'T', 'b');
+    expect(result.url.startsWith(`${BASE}/-/issues/new?`)).toBe(true);
+  });
+
+  test('a body over the cap collapses to the pointer line', () => {
+    const result = buildGitLabIssueUrl(BASE, 'Feedback', BIG_ASCII);
+    expect(result.needsPaste).toBe(true);
+    expect(result.url.length).toBeLessThanOrEqual(GITLAB_URL_LIMIT);
+    expect(param(result.url, 'issue\\[description\\]')).toBe(PASTE_POINTER);
+  });
+
+  test('a lone surrogate is replaced instead of throwing', () => {
+    const result = buildGitLabIssueUrl(BASE, 'T', `ok\uD800tail`);
+    expect(param(result.url, 'issue\\[description\\]')).toBe('ok\uFFFDtail');
   });
 });
 

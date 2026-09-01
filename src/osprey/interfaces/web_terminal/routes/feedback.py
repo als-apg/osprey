@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from osprey.interfaces.web_terminal.feedback_composer import (
     assemble_payload,
@@ -89,9 +89,16 @@ This check is the single-user backstop — a bare uvicorn has no body limit at
 all, and without it the same client could spool an unbounded record there and
 not in production."""
 
-OUTBOUND_CHANNELS = ("github", "email")
+OUTBOUND_CHANNELS = ("github", "gitlab", "email")
 """Channels whose payload leaves this host, and whose record therefore carries
 the size and digest of the exact string the operator pasted."""
+
+TRACKER_CHANNELS = ("github", "gitlab")
+"""Channels that open a prefilled new-issue form on one of the deployment's
+configured trackers (``web.feedback.trackers``); the record names which."""
+
+MAX_TRACKER_CHARS = 512
+"""Ceiling on the ``tracker`` field — an ``owner/name`` or a project URL."""
 
 
 class FeedbackRequest(BaseModel):
@@ -104,11 +111,14 @@ class FeedbackRequest(BaseModel):
     """
 
     text: str
-    channel: Literal["local", "github", "email"]
+    channel: Literal["local", "github", "gitlab", "email"]
     include_metadata: bool = True
     include_context: bool = False
     session_id: str | None = None
     scrollback: str | None = None
+    tracker: str | None = Field(default=None, max_length=MAX_TRACKER_CHARS)
+    """The tracker a ``github``/``gitlab`` send opened: the ``owner/name`` or
+    the project URL, as configured. Ignored on the other channels."""
 
 
 class BundleRequest(BaseModel):
@@ -385,6 +395,8 @@ def submit_feedback(request: Request, body: FeedbackRequest) -> dict[str, Any]:
         "text_truncated": text_truncated,
         "context_truncated": context_truncated,
     }
+    if body.channel in TRACKER_CHANNELS and body.tracker:
+        header["tracker"] = _encodable(body.tracker)
     if body.channel in OUTBOUND_CHANNELS:
         encoded = payload.encode("utf-8", "surrogatepass")
         header["bundle_bytes"] = len(encoded)

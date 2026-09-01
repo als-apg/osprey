@@ -34,7 +34,7 @@ import {
   NOTICE_NO_SESSION,
   NOTICE_NO_TRANSCRIPT,
   NOTICE_PASTE_EMAIL,
-  NOTICE_PASTE_GITHUB,
+  NOTICE_PASTE_ISSUE,
   NOTICE_TOO_LARGE,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/feedback-client.js';
 import { PASTE_POINTER } from '../../../src/osprey/interfaces/web_terminal/static/js/feedback-prefill.js';
@@ -165,7 +165,6 @@ function makeDeps(opts = {}) {
     }),
     scrollback: 'line one\nline two',
     metadata: { version: '1.2.3', app_name: 'OSPREY' },
-    githubRepo: 'als-apg/osprey',
     email: 'maintainers@example.org',
   };
 
@@ -189,10 +188,24 @@ function sentBody(/** @type {any} */ fetchSpy, n = 0) {
   return JSON.parse(fetchSpy.mock.calls[n][1].body);
 }
 
-/** @type {{text: string, channel: any, metadataOn: boolean, contextOn: boolean, sessionId: string|null}} */
+/** The deployment's GitHub tracker, as the dialog hands it to the transport. */
+const GITHUB = {
+  channel: /** @type {const} */ ('github'),
+  tracker: { kind: /** @type {const} */ ('github'), target: 'als-apg/osprey' },
+};
+
+/** A self-hosted GitLab tracker. */
+const GITLAB_URL = 'https://git.example.org/controls/osprey';
+const GITLAB = {
+  channel: /** @type {const} */ ('gitlab'),
+  tracker: { kind: /** @type {const} */ ('gitlab'), target: GITLAB_URL },
+};
+
+/** @type {{text: string, channel: any, tracker: any, metadataOn: boolean, contextOn: boolean, sessionId: string|null}} */
 const BASE_FORM = {
   text: 'The rail button does not render in top mode.',
   channel: 'local',
+  tracker: null,
   metadataOn: true,
   contextOn: false,
   sessionId: '11111111-2222-3333-4444-555555555555',
@@ -325,7 +338,7 @@ describe('sendFeedback — GitHub channel', () => {
     const gate = deferred();
     const { deps, order, fetchSpy } = makeDeps({ fetchPromise: gate.promise });
 
-    const pending = sendFeedback({ ...BASE_FORM, channel: 'github', contextOn: true }, deps);
+    const pending = sendFeedback({ ...BASE_FORM, ...GITHUB, contextOn: true }, deps);
     // Asserted with no await at all: both side effects must have happened in
     // the caller's own turn, not merely "before the POST resolved". A single
     // deferred microtask is already too late for Safari's user activation.
@@ -345,7 +358,7 @@ describe('sendFeedback — GitHub channel', () => {
   test('a full-mode send opens the complete draft and leaves the clipboard alone', async () => {
     const { deps, order } = makeDeps();
 
-    const result = await sendFeedback({ ...BASE_FORM, channel: 'github' }, deps);
+    const result = await sendFeedback({ ...BASE_FORM, ...GITHUB }, deps);
 
     expect(order).toEqual(['fetch', 'open']);
     expect(deps.clipboard.write).not.toHaveBeenCalled();
@@ -356,7 +369,7 @@ describe('sendFeedback — GitHub channel', () => {
   test('opens a prefilled new-issue URL with noopener', async () => {
     const { deps } = makeDeps();
 
-    await sendFeedback({ ...BASE_FORM, channel: 'github' }, deps);
+    await sendFeedback({ ...BASE_FORM, ...GITHUB }, deps);
 
     expect(deps.windowOpen).toHaveBeenCalledTimes(1);
     const [url, target, features] = deps.windowOpen.mock.calls[0];
@@ -372,7 +385,7 @@ describe('sendFeedback — GitHub channel', () => {
       response: jsonResponse({ id: 'fb-4', payload: 'TEXT\n---\nBUNDLE' }),
     });
 
-    const result = await sendFeedback({ ...BASE_FORM, channel: 'github', contextOn: true }, deps);
+    const result = await sendFeedback({ ...BASE_FORM, ...GITHUB, contextOn: true }, deps);
 
     expect(result.copied).toBe('clipboard');
     expect(await copiedText(written[0])).toBe('TEXT\n---\nBUNDLE');
@@ -385,7 +398,7 @@ describe('sendFeedback — GitHub channel', () => {
       fetchPromise: Promise.reject(new Error('network down')),
     });
 
-    const result = await sendFeedback({ ...BASE_FORM, channel: 'github', contextOn: true }, deps);
+    const result = await sendFeedback({ ...BASE_FORM, ...GITHUB, contextOn: true }, deps);
 
     expect(deps.windowOpen).toHaveBeenCalledTimes(1);
     expect(result.opened).toBe(true);
@@ -399,7 +412,7 @@ describe('sendFeedback — GitHub channel', () => {
   test('a failed POST on a full-mode send says the draft is unaffected', async () => {
     const { deps } = makeDeps({ response: htmlErrorResponse(413) });
 
-    const result = await sendFeedback({ ...BASE_FORM, channel: 'github' }, deps);
+    const result = await sendFeedback({ ...BASE_FORM, ...GITHUB }, deps);
 
     expect(result.ok).toBe(false);
     expect(result.error).toBe(NOTICE_TOO_LARGE);
@@ -413,7 +426,7 @@ describe('sendFeedback — GitHub channel', () => {
     const { deps, written } = makeDeps();
     const huge = 'x'.repeat(20000);
 
-    const result = await sendFeedback({ ...BASE_FORM, channel: 'github', text: huge }, deps);
+    const result = await sendFeedback({ ...BASE_FORM, ...GITHUB, text: huge }, deps);
 
     expect(result.needsPaste).toBe(true);
     const url = deps.windowOpen.mock.calls[0][0];
@@ -425,7 +438,7 @@ describe('sendFeedback — GitHub channel', () => {
   test('drops the metadata block from the prefill when the box is unticked', async () => {
     const { deps } = makeDeps();
 
-    await sendFeedback({ ...BASE_FORM, channel: 'github', metadataOn: false }, deps);
+    await sendFeedback({ ...BASE_FORM, ...GITHUB, metadataOn: false }, deps);
 
     const url = deps.windowOpen.mock.calls[0][0];
     expect(url).not.toContain(encodeURIComponent('Deployment metadata'));
@@ -465,7 +478,7 @@ describe('outbound prefill — title, subject and body mode', () => {
   test('the issue title is generic, never the first line of the report', async () => {
     const { deps } = makeDeps();
 
-    await sendFeedback({ ...BASE_FORM, channel: 'github' }, deps);
+    await sendFeedback({ ...BASE_FORM, ...GITHUB }, deps);
 
     expect(param(deps.windowOpen.mock.calls[0][0], 'title')).toBe(DEFAULT_TITLE);
   });
@@ -474,7 +487,7 @@ describe('outbound prefill — title, subject and body mode', () => {
     const { deps } = makeDeps();
     const oneLongLine = 'the beam dropped and the archiver shows nothing '.repeat(25);
 
-    await sendFeedback({ ...BASE_FORM, channel: 'github', text: oneLongLine }, deps);
+    await sendFeedback({ ...BASE_FORM, ...GITHUB, text: oneLongLine }, deps);
 
     expect(param(deps.windowOpen.mock.calls[0][0], 'title')).toBe(DEFAULT_TITLE);
   });
@@ -482,7 +495,7 @@ describe('outbound prefill — title, subject and body mode', () => {
   test('the title names the session when context is attached', async () => {
     const { deps } = makeDeps();
 
-    await sendFeedback({ ...BASE_FORM, channel: 'github', contextOn: true }, deps);
+    await sendFeedback({ ...BASE_FORM, ...GITHUB, contextOn: true }, deps);
 
     expect(param(deps.windowOpen.mock.calls[0][0], 'title')).toBe(
       `${DEFAULT_TITLE} (session 11111111)`
@@ -493,7 +506,7 @@ describe('outbound prefill — title, subject and body mode', () => {
     const { deps } = makeDeps();
 
     await sendFeedback(
-      { ...BASE_FORM, channel: 'github', title: 'Rail button dead in top mode' },
+      { ...BASE_FORM, ...GITHUB, title: 'Rail button dead in top mode' },
       deps
     );
 
@@ -513,7 +526,7 @@ describe('outbound prefill — title, subject and body mode', () => {
   test('with context attached the body is the pointer line alone', async () => {
     const { deps } = makeDeps();
 
-    await sendFeedback({ ...BASE_FORM, channel: 'github', contextOn: true }, deps);
+    await sendFeedback({ ...BASE_FORM, ...GITHUB, contextOn: true }, deps);
 
     // No text, no metadata block: the whole report travels on the clipboard,
     // so anything prefilled here would be duplicated by the paste.
@@ -531,7 +544,7 @@ describe('outbound prefill — title, subject and body mode', () => {
   test('without context the body carries the text and metadata, no pointer', async () => {
     const { deps } = makeDeps();
 
-    await sendFeedback({ ...BASE_FORM, channel: 'github' }, deps);
+    await sendFeedback({ ...BASE_FORM, ...GITHUB }, deps);
 
     const body = param(deps.windowOpen.mock.calls[0][0], 'body');
     expect(body).toContain(BASE_FORM.text);
@@ -540,15 +553,85 @@ describe('outbound prefill — title, subject and body mode', () => {
   });
 });
 
+describe('sendFeedback — tracker identity', () => {
+  test('a GitLab tracker opens the /-/issues/new form in a new tab', async () => {
+    const { deps, order } = makeDeps();
+
+    const result = await sendFeedback({ ...BASE_FORM, ...GITLAB }, deps);
+
+    expect(order).toEqual(['fetch', 'open']);
+    const [url, target, features] = deps.windowOpen.mock.calls[0];
+    expect(url.startsWith(`${GITLAB_URL}/-/issues/new?issue[title]=`)).toBe(true);
+    expect(url).toContain(encodeURIComponent('The rail button does not render'));
+    expect(target).toBe('_blank');
+    expect(features).toBe('noopener');
+    expect(deps.navigate).not.toHaveBeenCalled();
+    expect(result.opened).toBe(true);
+  });
+
+  test('a GitLab send with context copies first and opens the pointer draft', async () => {
+    const gate = deferred();
+    const { deps, order } = makeDeps({ fetchPromise: gate.promise });
+
+    const pending = sendFeedback({ ...BASE_FORM, ...GITLAB, contextOn: true }, deps);
+    expect(order).toEqual(['fetch', 'write', 'open']);
+    expect(param(deps.windowOpen.mock.calls[0][0], 'issue\\[description\\]')).toBe(
+      PASTE_POINTER
+    );
+
+    gate.resolve(jsonResponse({ id: 'fb-3', payload: 'SERVER PAYLOAD' }));
+    const result = await pending;
+    expect(result.needsPaste).toBe(true);
+    expect(result.notice.message).toBe(
+      `Recorded on this deployment (fb-3) — ${NOTICE_PASTE_ISSUE}`
+    );
+  });
+
+  test('the URL is built from the tracker the form carries, not a fixed repo', async () => {
+    const { deps } = makeDeps();
+    const fork = { kind: /** @type {const} */ ('github'), target: 'facility/fork' };
+
+    await sendFeedback({ ...BASE_FORM, channel: 'github', tracker: fork }, deps);
+
+    expect(deps.windowOpen.mock.calls[0][0].startsWith('https://github.com/facility/fork/')).toBe(
+      true
+    );
+  });
+
+  test('the paper-trail POST names the tracker on tracker channels only', async () => {
+    const { deps, fetchSpy } = makeDeps();
+
+    await sendFeedback({ ...BASE_FORM, ...GITLAB }, deps);
+    await sendFeedback({ ...BASE_FORM, ...GITHUB }, deps);
+    await sendFeedback({ ...BASE_FORM, channel: 'email' }, deps);
+    await sendFeedback({ ...BASE_FORM, channel: 'local' }, deps);
+
+    expect(sentBody(fetchSpy, 0)).toMatchObject({ channel: 'gitlab', tracker: GITLAB_URL });
+    expect(sentBody(fetchSpy, 1)).toMatchObject({ channel: 'github', tracker: 'als-apg/osprey' });
+    expect(sentBody(fetchSpy, 2)).not.toHaveProperty('tracker');
+    expect(sentBody(fetchSpy, 3)).not.toHaveProperty('tracker');
+  });
+
+  test('a tracker channel with no tracker falls back to Local rather than a dead URL', async () => {
+    const { deps, fetchSpy } = makeDeps();
+
+    const result = await sendFeedback({ ...BASE_FORM, channel: 'gitlab', tracker: null }, deps);
+
+    expect(deps.windowOpen).not.toHaveBeenCalled();
+    expect(sentBody(fetchSpy).channel).toBe('local');
+    expect(result.opened).toBe(false);
+  });
+});
+
 describe('outbound notices — the paste step is announced', () => {
   test('a successful GitHub send with context points at the clipboard paste', async () => {
     const { deps } = makeDeps();
 
-    const result = await sendFeedback({ ...BASE_FORM, channel: 'github', contextOn: true }, deps);
+    const result = await sendFeedback({ ...BASE_FORM, ...GITHUB, contextOn: true }, deps);
 
     expect(result.notice.kind).toBe('success');
     expect(result.notice.message).toBe(
-      `Recorded on this deployment (fb-1) — ${NOTICE_PASTE_GITHUB}`
+      `Recorded on this deployment (fb-1) — ${NOTICE_PASTE_ISSUE}`
     );
   });
 
@@ -578,7 +661,7 @@ describe('outbound notices — the paste step is announced', () => {
   test('an outbound send with nothing to paste keeps the plain confirmation', async () => {
     const { deps } = makeDeps();
 
-    const result = await sendFeedback({ ...BASE_FORM, channel: 'github' }, deps);
+    const result = await sendFeedback({ ...BASE_FORM, ...GITHUB }, deps);
 
     expect(result.notice.message).toBe('Recorded on this deployment (fb-1)');
   });
@@ -597,7 +680,7 @@ describe('clipboard fallback ladder', () => {
     vi.stubGlobal('ClipboardItem', undefined);
     const { deps, writtenText } = makeDeps();
 
-    const result = await sendFeedback({ ...BASE_FORM, channel: 'github', contextOn: true }, deps);
+    const result = await sendFeedback({ ...BASE_FORM, ...GITHUB, contextOn: true }, deps);
 
     expect(deps.clipboard.write).not.toHaveBeenCalled();
     expect(writtenText).toEqual(['SERVER PAYLOAD']);
@@ -618,7 +701,7 @@ describe('clipboard fallback ladder', () => {
         }),
       },
     });
-    const result = await sendFeedback({ ...BASE_FORM, channel: 'github', contextOn: true }, deps);
+    const result = await sendFeedback({ ...BASE_FORM, ...GITHUB, contextOn: true }, deps);
 
     expect(result.copied).toBe('clipboard-text');
     expect(sink).toEqual(['SERVER PAYLOAD']);
@@ -627,7 +710,7 @@ describe('clipboard fallback ladder', () => {
   test('falls back to a selectable payload when the clipboard API is absent', async () => {
     const { deps, selectable } = makeDeps({ clipboard: {} });
 
-    const result = await sendFeedback({ ...BASE_FORM, channel: 'github', contextOn: true }, deps);
+    const result = await sendFeedback({ ...BASE_FORM, ...GITHUB, contextOn: true }, deps);
 
     expect(result.copied).toBe('manual');
     expect(selectable).toEqual(['SERVER PAYLOAD']);
@@ -640,7 +723,7 @@ describe('clipboard fallback ladder', () => {
     // @ts-expect-error - deliberately removing the last rung
     deps.showSelectableText = undefined;
 
-    const result = await sendFeedback({ ...BASE_FORM, channel: 'github', contextOn: true }, deps);
+    const result = await sendFeedback({ ...BASE_FORM, ...GITHUB, contextOn: true }, deps);
 
     expect(result.copied).toBe('none');
     expect(result.notice.kind).toBe('error');
