@@ -644,6 +644,61 @@ class QueueBackend:
         if self._manager is not None:
             await self._manager.close()
 
+    @property
+    def external_worker(self) -> bool:
+        """Whether this backend fronts an externally-run RE Manager."""
+        return self._external_worker
+
+    async def external_plan_catalog(self) -> list[dict[str, Any]]:
+        """The external manager's ``plans_allowed``, in ``GET /plans``' dict shape.
+
+        The facility's startup profile — not this deployment's plan
+        directories — decides what an external worker runs, so the catalog the
+        panel composes against is downloaded from the manager rather than
+        scanned from disk. Upstream *describes* parameters (name, default,
+        per-parameter docs) but publishes no typed model, so the schema here
+        is derived: an object whose properties carry those descriptions, with
+        a parameter that declares no default listed as required. Provenance is
+        ``"facility"`` — the facility authored these plans, whatever host they
+        run on.
+
+        Sorted by name so the catalog is stable across calls; entries the
+        manager describes with anything other than a mapping are carried
+        name-only rather than dropped — the name is the part an enqueue needs.
+        """
+        result = await self._call("plans_allowed")
+        allowed = result.get("plans_allowed") or {}
+        catalog: list[dict[str, Any]] = []
+        for name in sorted(allowed):
+            desc = allowed[name] if isinstance(allowed[name], dict) else {}
+            properties: dict[str, Any] = {}
+            required: list[str] = []
+            for param in desc.get("parameters") or []:
+                if not isinstance(param, dict) or not param.get("name"):
+                    continue
+                pname = str(param["name"])
+                prop: dict[str, Any] = {"title": pname}
+                if param.get("description"):
+                    prop["description"] = str(param["description"])
+                if "default" in param:
+                    prop["default"] = param["default"]
+                else:
+                    required.append(pname)
+                properties[pname] = prop
+            schema: dict[str, Any] = {"title": name, "type": "object", "properties": properties}
+            if required:
+                schema["required"] = required
+            catalog.append(
+                {
+                    "name": name,
+                    "description": str(desc.get("description") or ""),
+                    "schema": schema,
+                    "metadata": None,
+                    "provenance": "facility",
+                }
+            )
+        return catalog
+
     # ------------------------------------------------------------- queue reads
 
     async def status(self, *, reload: bool = False) -> dict[str, Any]:

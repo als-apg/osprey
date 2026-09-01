@@ -845,3 +845,37 @@ def test_from_env_reads_the_external_worker_flag(monkeypatch: pytest.MonkeyPatch
 
     monkeypatch.setenv(qb.EXTERNAL_WORKER_ENV, "0")
     assert QueueBackend.from_env()._external_worker is False
+
+
+async def test_external_plan_catalog_is_the_managers_own(connector, fast_backend) -> None:
+    """The panel composes against plans_allowed, not this deployment's plan scan."""
+    connector("epics")
+    manager = FakeManager(
+        plans_allowed={
+            "success": True,
+            "plans_allowed": {
+                "geecs_scan_request_plan": {
+                    "name": "geecs_scan_request_plan",
+                    "description": "Run one validated ScanRequest.",
+                    "parameters": [
+                        {"name": "request", "description": "The ScanRequest document."},
+                        {"name": "dry_run", "default": "False"},
+                    ],
+                },
+                "geecs_run_action_plan": "not-a-mapping",
+            },
+        }
+    )
+    catalog = await fast_backend(manager, external_worker=True).external_plan_catalog()
+
+    assert [entry["name"] for entry in catalog] == [
+        "geecs_run_action_plan",
+        "geecs_scan_request_plan",
+    ]
+    scan = catalog[1]
+    assert scan["provenance"] == "facility"
+    assert scan["description"] == "Run one validated ScanRequest."
+    assert scan["schema"]["required"] == ["request"]
+    assert scan["schema"]["properties"]["dry_run"]["default"] == "False"
+    # A non-mapping description still yields a name-only entry.
+    assert catalog[0]["schema"]["properties"] == {}

@@ -1154,3 +1154,50 @@ class TestWebSocketBoundary:
         import websockets
 
         assert callable(getattr(websockets.connect, "process_redirect", None))
+
+
+class TestRedirectPrefixIdempotence:
+    """A prefix-AWARE backend's Location is never double-prefixed.
+
+    Backends that honor the ``X-Forwarded-Prefix`` this proxy sends emit
+    Locations already inside the panel namespace; re-basing those again
+    produced ``/u/a/panel/x/u/a/panel/x/...`` and a terminal 404 (seen live
+    with GEECS-DataPortal 0.9.0). Prefix-naive backends keep the old re-base.
+    """
+
+    PREFIX = "/u/alice/panel/dataview"
+    BACKEND = "http://192.168.6.14:8200"
+
+    def _rewrite(self, location: str) -> str | None:
+        from osprey.interfaces.web_terminal.routes.proxy import _rewrite_redirect_location
+
+        return _rewrite_redirect_location(
+            location,
+            self.BACKEND,
+            self.PREFIX,
+            base_path=self.PREFIX + "/",
+            terminal_origin="http://127.0.0.1:10000",
+        )
+
+    def test_naive_root_absolute_location_still_gains_the_prefix(self):
+        assert self._rewrite("/day/2026-08-31") == self.PREFIX + "/day/2026-08-31"
+
+    def test_prefix_aware_root_absolute_location_is_relayed_unchanged(self):
+        aware = self.PREFIX + "/day/2026-08-31"
+        assert self._rewrite(aware) == aware
+
+    def test_prefix_aware_location_with_query_is_relayed_unchanged(self):
+        aware = self.PREFIX + "?experiment=Undulator"
+        assert self._rewrite(aware) == aware
+
+    def test_bare_prefix_location_is_relayed_unchanged(self):
+        assert self._rewrite(self.PREFIX) == self.PREFIX
+
+    def test_a_panel_id_sharing_a_prefix_is_not_conflated(self):
+        # `/u/alice/panel/dataview-2/...` is NOT inside `/u/alice/panel/dataview`.
+        other = self.PREFIX + "-2/day/2026-08-31"
+        assert self._rewrite(other) == self.PREFIX + other
+
+    def test_prefix_aware_absolute_backend_location_is_rebasded_without_doubling(self):
+        aware = self.BACKEND + self.PREFIX + "/day/2026-08-31"
+        assert self._rewrite(aware) == self.PREFIX + "/day/2026-08-31"

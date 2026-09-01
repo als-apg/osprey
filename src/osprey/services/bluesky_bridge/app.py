@@ -475,20 +475,44 @@ def stop_run(run_id: str) -> dict:
 
 
 @app.get("/plans")
-def list_plans() -> list:
-    """Registered plans: `plan_loader.get_facility_plans()`'s trust-resolved set.
+async def list_plans() -> list:
+    """Registered plans: the set this deployment's manager can actually run.
 
-    `plan_loader.py` is the sole plan registry — a layered directory scan
-    (`shipped`/`preset`/`facility`/`session`) plus the legacy single-module
-    facility-injection contract, merged fail-closed by trust tier (see that
-    module's docstring). It is import-clean of bluesky, so this route never
-    needs a guarded import.
+    Two sources, exclusive by worker ownership:
 
-    Each entry (`PlanSpec.to_dict()`) carries `metadata` (the plan's
-    authoring-declared `PLAN_METADATA`, or `None` if it doesn't author one)
-    and `provenance` (its loader-assigned trust tier) alongside
+    - **Own worker** (the default): `plan_loader.get_facility_plans()`'s
+      trust-resolved set — a layered directory scan
+      (`shipped`/`preset`/`facility`/`session`) plus the legacy single-module
+      facility-injection contract, merged fail-closed by trust tier (see that
+      module's docstring). The worker's namespace is built from the same
+      loader, so the catalog and the runnable set are one list.
+    - **External worker** (`BLUESKY_EXTERNAL_WORKER`): the manager's own
+      ``plans_allowed``. The facility's startup profile — not this
+      deployment's plan directories — decides what runs there, so serving the
+      local scan would advertise plans the manager refuses on every enqueue.
+      Entries are mapped to the same dict shape (`name`/`description`/
+      `schema`/`metadata`/`provenance`); the schema is derived from the
+      manager's parameter descriptions (names, defaults, and per-parameter
+      docs — upstream describes parameters, it does not publish a typed
+      model), and provenance is ``"facility"``: the facility authored them.
+      An unreachable manager yields an empty list rather than the local scan —
+      a wrong catalog is worse than a missing one.
+
+    Each own-worker entry (`PlanSpec.to_dict()`) carries `metadata` (the
+    plan's authoring-declared `PLAN_METADATA`, or `None` if it doesn't author
+    one) and `provenance` (its loader-assigned trust tier) alongside
     `name`/`description`/`schema` — see `plan_types.py`.
     """
+    backend = get_queue_backend()
+    if getattr(backend, "external_worker", False):
+        from .queue_backend import QueueBackendError
+
+        try:
+            return await backend.external_plan_catalog()
+        except QueueBackendError as exc:
+            logger.warning("external plan catalog unavailable: %s", exc)
+            return []
+
     from .plan_loader import get_facility_plans
 
     return [spec.to_dict() for spec in get_facility_plans().plans.values()]
