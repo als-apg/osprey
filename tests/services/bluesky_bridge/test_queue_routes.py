@@ -254,11 +254,11 @@ def test_enqueue_on_an_idle_queue_is_ungated_and_threads_the_run_id(
     }
 
     # Arming checks bypass the client's status cache: the capability probe is
-    # a plain read, but the device pre-check's uid read, the arming pre-check
-    # and the unarmed post-add re-check MUST all reload.
+    # a plain read, but the arming pre-check and the unarmed post-add re-check
+    # MUST both reload. The device pre-check reads no status of its own — it
+    # takes its `devices_allowed_uid` off the arming pre-check's document.
     assert manager.kwargs_for("status") == [
         {"reload": False},
-        {"reload": True},
         {"reload": True},
         {"reload": True},
     ]
@@ -357,13 +357,9 @@ def test_armed_enqueue_while_active_succeeds(
     assert resp.status_code == 200
     assert len(manager.kwargs_for("item_add")) == 1
     assert "item_remove" not in manager.method_names()
-    # An armed caller needs no post-add re-check: capability probe, the device
-    # pre-check's uid read, then the arming pre-check.
-    assert manager.kwargs_for("status") == [
-        {"reload": False},
-        {"reload": True},
-        {"reload": True},
-    ]
+    # An armed caller needs no post-add re-check: the capability probe, then
+    # the arming pre-check, whose document also feeds the device pre-check.
+    assert manager.kwargs_for("status") == [{"reload": False}, {"reload": True}]
 
 
 def test_post_add_recheck_removes_the_item_and_refuses(
@@ -377,7 +373,6 @@ def test_post_add_recheck_removes_the_item_and_refuses(
     manager = FakeManager(
         status=[
             status_doc(),  # capability probe
-            status_doc(),  # device pre-check: the cached device names' uid
             status_doc(),  # arming pre-check: idle, unarmed add allowed
             status_doc(manager_state="starting_queue"),  # post-add re-check
         ],
@@ -412,7 +407,6 @@ def test_recheck_refusal_reports_a_stranded_item_when_removal_fails(
     manager = FakeManager(
         status=[
             status_doc(),  # capability probe
-            status_doc(),  # device pre-check: the cached device names' uid
             status_doc(),  # arming pre-check
             status_doc(manager_state="starting_queue"),  # post-add re-check
         ],
@@ -482,7 +476,6 @@ def test_recheck_failure_fails_closed_by_withdrawing_the_item(
     manager = FakeManager(
         status=[
             status_doc(),  # capability probe
-            status_doc(),  # device pre-check: the cached device names' uid
             status_doc(),  # arming pre-check
             RequestTimeoutError("no answer", {}),  # post-add re-check
         ],
@@ -509,7 +502,6 @@ def test_recheck_failure_reports_a_stranded_item_when_withdrawal_also_fails(
     manager = FakeManager(
         status=[
             status_doc(),  # capability probe
-            status_doc(),  # device pre-check: the cached device names' uid
             status_doc(),  # arming pre-check
             RequestTimeoutError("no answer", {}),  # post-add re-check
         ],
@@ -1078,7 +1070,9 @@ async def test_an_unreadable_plan_registry_skips_the_precheck(
     monkeypatch.setattr(plan_loader, "get_facility_plans", _unreadable)
     manager = FakeManager(devices_allowed=_devices("BPM1"))
 
-    await queue._check_devices_exist(QueueBackend(manager), "grid_scan", _GRID_SCAN_ARGS)
+    await queue._check_devices_exist(
+        QueueBackend(manager), "grid_scan", _GRID_SCAN_ARGS, status_doc()
+    )
 
     assert manager.method_names() == []
 
@@ -1129,25 +1123,20 @@ async def test_an_unchanged_devices_allowed_uid_fetches_the_device_tree_once() -
     manager versions it with ``devices_allowed_uid``, so an unchanged uid means
     the cached names are still the worker's.
 
-    Driven directly rather than through the route: the enqueue route reads
-    status for its own arming checks, and those calls would drown out the one
-    this check makes.
+    Driven directly rather than through the route, with the status document
+    the route reads under its arming lock handed in. The check makes no status
+    read of its own — the route's one ``reload=True`` read is where the uid
+    comes from — so the only manager traffic here is the tree fetch, and the
+    pin is that an unchanged uid never repeats it.
     """
-    manager = FakeManager(
-        status=status_doc(devices_allowed_uid="d-1"),
-        devices_allowed=_devices("BPM1", "COR1", uid="d-1"),
-    )
+    manager = FakeManager(devices_allowed=_devices("BPM1", "COR1", uid="d-1"))
     backend = QueueBackend(manager)
+    status = status_doc(devices_allowed_uid="d-1")
 
-    await queue._check_devices_exist(backend, "grid_scan", _GRID_SCAN_ARGS)
-    await queue._check_devices_exist(backend, "grid_scan", _GRID_SCAN_ARGS)
+    await queue._check_devices_exist(backend, "grid_scan", _GRID_SCAN_ARGS, status)
+    await queue._check_devices_exist(backend, "grid_scan", _GRID_SCAN_ARGS, status)
 
-    assert manager.method_names().count("devices_allowed") == 1
-    # Each enqueue still asks the manager where the namespace stands: the SSE
-    # poller runs only while a subscriber is connected, so nothing else keeps
-    # that answer fresh, and `reload=True` is what makes the read authoritative
-    # rather than a ~0.5 s-old client cache.
-    assert manager.kwargs_for("status") == [{"reload": True}, {"reload": True}]
+    assert manager.method_names() == ["devices_allowed"]
 
 
 async def test_a_moved_devices_allowed_uid_refetches_the_device_tree() -> None:
@@ -1155,7 +1144,6 @@ async def test_a_moved_devices_allowed_uid_refetches_the_device_tree() -> None:
     names must be refetched — a cache that outlived the worker's tree would
     pass a name the new namespace lacks, or refuse one it just gained."""
     manager = FakeManager(
-        status=[status_doc(devices_allowed_uid="d-1"), status_doc(devices_allowed_uid="d-2")],
         devices_allowed=[
             _devices("BPM1", "COR1", uid="d-1"),
             _devices("COR1", uid="d-2"),
@@ -1163,9 +1151,13 @@ async def test_a_moved_devices_allowed_uid_refetches_the_device_tree() -> None:
     )
     backend = QueueBackend(manager)
 
-    await queue._check_devices_exist(backend, "grid_scan", _GRID_SCAN_ARGS)
+    await queue._check_devices_exist(
+        backend, "grid_scan", _GRID_SCAN_ARGS, status_doc(devices_allowed_uid="d-1")
+    )
     with pytest.raises(HTTPException) as excinfo:
-        await queue._check_devices_exist(backend, "grid_scan", _GRID_SCAN_ARGS)
+        await queue._check_devices_exist(
+            backend, "grid_scan", _GRID_SCAN_ARGS, status_doc(devices_allowed_uid="d-2")
+        )
 
     assert manager.method_names().count("devices_allowed") == 2
     assert excinfo.value.status_code == 400
@@ -1177,29 +1169,13 @@ async def test_a_manager_stating_no_devices_allowed_uid_is_never_cached() -> Non
     every enqueue refetches — exactly the behaviour that shipped before this
     cache existed. The cache is an optimization the manager has to opt into by
     versioning its own tree, never an assumption about it."""
-    manager = FakeManager(status=status_doc(), devices_allowed=_devices("BPM1", "COR1"))
+    manager = FakeManager(devices_allowed=_devices("BPM1", "COR1"))
     backend = QueueBackend(manager)
 
-    await queue._check_devices_exist(backend, "grid_scan", _GRID_SCAN_ARGS)
-    await queue._check_devices_exist(backend, "grid_scan", _GRID_SCAN_ARGS)
+    await queue._check_devices_exist(backend, "grid_scan", _GRID_SCAN_ARGS, status_doc())
+    await queue._check_devices_exist(backend, "grid_scan", _GRID_SCAN_ARGS, status_doc())
 
     assert manager.method_names().count("devices_allowed") == 2
-
-
-async def test_an_unreadable_status_still_reads_devices_allowed() -> None:
-    """Fail-open at the cache too: a status read that will not answer leaves the
-    uid unknown, which costs the fetch this cache saves and nothing else. It
-    must never turn into a skipped pre-check, and never into a refusal."""
-    manager = FakeManager(
-        status=RequestTimeoutError("no answer", {}),
-        devices_allowed=_devices("COR1", uid="d-1"),
-    )
-
-    with pytest.raises(HTTPException) as excinfo:
-        await queue._check_devices_exist(QueueBackend(manager), "grid_scan", _GRID_SCAN_ARGS)
-
-    assert "devices_allowed" in manager.method_names()
-    assert excinfo.value.detail["devices"] == ["BPM1"]
 
 
 def test_enqueue_records_no_progress_denominator(client: TestClient, connector) -> None:

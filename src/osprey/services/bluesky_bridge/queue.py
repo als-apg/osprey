@@ -73,6 +73,7 @@ import json
 import logging
 import os
 import uuid
+from collections.abc import Mapping
 from collections.abc import Set as AbstractSet
 from typing import Any, NoReturn
 
@@ -589,7 +590,9 @@ def _refuse_unknown_devices(
     raise HTTPException(status_code=400, detail=detail)
 
 
-async def _built_device_names(backend: QueueBackend) -> frozenset[str] | None:
+async def _built_device_names(
+    backend: QueueBackend, status: Mapping[str, Any]
+) -> frozenset[str] | None:
     """The names the worker's namespace holds, refetched only when they change.
 
     ``devices_allowed`` returns the whole device tree — one entry per built
@@ -598,31 +601,26 @@ async def _built_device_names(backend: QueueBackend) -> frozenset[str] | None:
     would put a large, entirely redundant round trip in the add path. The
     manager versions that tree itself: `devices_allowed_uid` moves whenever the
     worker rebuilds the namespace, and it rides in the status document. So the
-    per-enqueue cost is a status read, and the tree is refetched only when the
-    uid says the cached names are no longer the worker's.
+    tree is refetched only when the uid says the cached names are no longer
+    the worker's.
 
-    ``reload=True`` because the client caches status for ~0.5 s and, more to
-    the point, the SSE poller that would otherwise keep it warm runs only while
-    a subscriber is connected — an enqueue from an agent with no panel open
-    would read whatever the last subscriber left behind. The round trip is
-    bounded and subscriber-independent; the tree fetch it replaces is neither.
+    ``status`` is the document the enqueue already read under the arming lock
+    — a ``reload=True`` read, so it is the manager's current answer rather than
+    the client's ~0.5 s cache or whatever the SSE poller (which runs only while
+    a subscriber is connected) last left behind. Reading it here again would
+    put a second round trip in the add path for the same document; a status
+    that could not be read never reaches this point, because the enqueue is
+    refused on it first.
 
     Returns the built names, or ``None`` when there is nothing certain to check
-    against: an unreadable status is not fatal (the uid is simply unknown and
-    the tree is fetched, exactly as before this cache existed), but an
-    unreadable or empty tree leaves the pre-check with no opinion at all.
+    against: a status carrying no uid just costs the fetch this cache saves
+    (exactly the behaviour before it existed), but an unreadable or empty tree
+    leaves the pre-check with no opinion at all.
     """
     global _devices_allowed_cache
 
-    uid: str | None = None
-    try:
-        status = await backend.status(reload=True)
-    except Exception as exc:
-        # Not a skip: an unknown uid only costs the fetch this cache saves.
-        logger.warning("device-list cache bypassed; manager status is unreadable: %s", exc)
-    else:
-        status_uid = status.get("devices_allowed_uid")
-        uid = status_uid if isinstance(status_uid, str) else None
+    status_uid = status.get("devices_allowed_uid")
+    uid = status_uid if isinstance(status_uid, str) else None
 
     cached = _devices_allowed_cache
     if uid is not None and cached is not None and cached[0] == uid:
@@ -655,7 +653,9 @@ async def _built_device_names(backend: QueueBackend) -> frozenset[str] | None:
     return built
 
 
-async def _check_devices_exist(backend: QueueBackend, plan_name: str, plan_args: Any) -> None:
+async def _check_devices_exist(
+    backend: QueueBackend, plan_name: str, plan_args: Any, status: Mapping[str, Any]
+) -> None:
     """Refuse the enqueue if it names a device the worker's namespace lacks.
 
     Deliberately narrow, and fail-open at every step where the answer is not
@@ -677,7 +677,9 @@ async def _check_devices_exist(backend: QueueBackend, plan_name: str, plan_args:
 
     The names themselves come from `_built_device_names`, which keeps the
     worker's device tree across enqueues and refetches it only when the
-    manager's `devices_allowed_uid` says it changed.
+    manager's `devices_allowed_uid` says it changed. ``status`` is the manager
+    document the enqueue read for its arming decision; the uid is taken from
+    it rather than from a second status read.
     """
     from .plan_loader import get_facility_plans
 
@@ -703,7 +705,7 @@ async def _check_devices_exist(backend: QueueBackend, plan_name: str, plan_args:
     if not movable and not readable:
         return
 
-    built = await _built_device_names(backend)
+    built = await _built_device_names(backend, status)
     if built is None:
         return
 
@@ -970,17 +972,23 @@ async def add_queue_item(
     3. The validation gate runs unchanged (session plans need a current
        passing record; sync file I/O, so it runs in a thread) before anything
        reaches the manager.
-    4. `_check_devices_exist` refuses (400) a plan whose role-typed channel
-       parameters name something the worker's namespace lacks — the one class
-       of mistake the schema cannot catch and the run would otherwise report on
-       its first iteration, after a start.
-    5. Under ``_arming_lock``: status pre-check (active + unarmed → refuse
-       before adding), the session-plan admissibility re-check
-       (`session_upload.check_session_plan_ready` — 409 for a session plan
-       with no current passing record in the live namespace), the add itself,
-       then — for unarmed callers only — the post-add ``status(reload=True)``
-       re-check that removes the item and refuses if the manager transitioned
-       underneath the add.
+    4. Under ``_arming_lock``: ONE ``status(reload=True)`` read, then the
+       arming pre-check on it (active + unarmed → refuse before adding), then
+       `_check_devices_exist` — refusing (400) a plan whose role-typed channel
+       parameters name something the worker's namespace lacks, the one class
+       of mistake the schema cannot catch and the run would otherwise report
+       on its first iteration, after a start. The device check keys its
+       cached device tree on the ``devices_allowed_uid`` of that same status
+       document, so it costs no manager round trip of its own unless the
+       worker rebuilt its namespace. Then the session-plan admissibility
+       re-check (`session_upload.check_session_plan_ready` — 409 for a
+       session plan with no current passing record in the live namespace),
+       the add itself, and — for unarmed callers only — the post-add
+       ``status(reload=True)`` re-check that removes the item and refuses if
+       the manager transitioned underneath the add.
+    5. Everything inside the lock happens after the arming refusal, so the
+       call sequence a concurrent start observes is fixed: a refused unarmed
+       add makes exactly one manager read after the capability probe.
     6. Only then is the reservation consumed and the draft's ``launched`` frame
        broadcast; the SSE poller is nudged so panels see the new item
        immediately. Nothing here records a progress denominator: a run declares
@@ -1023,17 +1031,19 @@ async def add_queue_item(
         # `_validate_launchable_request` reads.
         await asyncio.to_thread(_validate_launchable_request, checked)
 
-        # Channel names resolve to devices in the worker, on the run's first
-        # iteration, so an unresolvable one is checked here or not at all until
-        # a failed run.
-        # Outside the arming lock: it is a manager read that starts nothing.
-        await _check_devices_exist(backend, checked.plan_name, checked.plan_args)
-
         try:
             async with _arming_lock:
                 status = await backend.status(reload=True)
                 if not armed and _requires_arming(status):
                     _refuse_unarmed(x_launch_token, status)
+
+                # Channel names resolve to devices in the worker, on the run's
+                # first iteration, so an unresolvable one is checked here or
+                # not at all until a failed run. After the arming refusal and
+                # on the status it was decided on: the device tree is versioned
+                # by that document's `devices_allowed_uid`, and reading status
+                # a second time for it would double the add path's round trips.
+                await _check_devices_exist(backend, checked.plan_name, checked.plan_args, status)
 
                 # Session-plan re-check, inside the lock so
                 # the admissibility answer and the add are atomic relative to
