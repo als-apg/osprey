@@ -693,10 +693,12 @@ def test_lint_user_access_skips_non_dict_entries() -> None:
     assert not any(f.code == "web_terminals.user_access_inert" for f in findings)
 
 
-def test_lint_access_any_without_sidecar_is_an_inert_key_warning() -> None:
+def test_lint_access_any_without_sidecar_is_silent() -> None:
     """`access: any` under the default `auth.method: token` changes nothing —
-    no sidecar stands a login wall, so every terminal is already as reachable
-    as the key promises to make this one."""
+    no sidecar stands a login wall — but it is a carried roster key, not a
+    mistake: overlays concatenate the roster list, so a passive base that a
+    host variant arms with `password`/`oidc` has to carry the key on the base
+    entry, exactly where `oidc_subject` already sits silently."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
@@ -707,13 +709,12 @@ def test_lint_access_any_without_sidecar_is_an_inert_key_warning() -> None:
     findings = lint_web_terminals(config)
 
     # Assert
-    assert any(f.code == "web_terminals.user_access_inert" for f in _warnings(findings))
+    assert not any(f.code == "web_terminals.user_access_inert" for f in findings)
 
 
-def test_lint_access_any_under_auth_none_is_an_inert_key_warning() -> None:
-    """Under `auth.method: none` the key is inert too: `login: false` still
-    means something there (it withholds the injected secret), but `access`
-    reads the sidecar-established identity, and there is none."""
+def test_lint_access_any_under_auth_none_is_silent() -> None:
+    """Under `auth.method: none` the same carried-key reading holds: the open,
+    tunnel-only posture is the usual passive base an `sso` variant arms."""
     # Arrange
     config = _auth_config({"method": "none"}, tls=False, fqdn=None)
     config["modules"]["web_terminals"]["users"] = [
@@ -724,7 +725,7 @@ def test_lint_access_any_under_auth_none_is_an_inert_key_warning() -> None:
     findings = lint_web_terminals(config)
 
     # Assert
-    assert any(f.code == "web_terminals.user_access_inert" for f in _warnings(findings))
+    assert not any(f.code == "web_terminals.user_access_inert" for f in findings)
 
 
 def test_lint_access_any_on_a_login_exempt_entry_is_an_inert_key_warning() -> None:
