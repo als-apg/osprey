@@ -1,7 +1,7 @@
 // @ts-check
 /* OSPREY Web Terminal — Feedback Prefill Builders (pure)
  *
- * Builds the two outbound prefill URLs of the feedback dialog — a GitHub
+ * Builds the outbound prefill URLs of the feedback dialog — a GitHub or GitLab
  * new-issue link and a `mailto:` draft — plus the issue body they carry.
  * Deliberately pure: no DOM, no fetch, no module state. The dialog owns the
  * clipboard, the window.open and the paper-trail POST; this module only does
@@ -32,6 +32,13 @@
 
 /** Percent-encoded length cap for the GitHub new-issue URL. */
 export const GITHUB_URL_LIMIT = 8000;
+
+/**
+ * Percent-encoded length cap for a GitLab new-issue URL. The same figure as
+ * GitHub's: a self-hosted instance sits behind a reverse proxy whose default
+ * request-line budget is 8 KB, and gitlab.com is no more generous.
+ */
+export const GITLAB_URL_LIMIT = 8000;
 
 /**
  * Percent-encoded length cap for a `mailto:` URL. Well under the ~2000-char
@@ -104,6 +111,32 @@ export function buildGitHubIssueUrl(repo, title, body) {
 
   const full = render(sanitize(body));
   if (full.length <= GITHUB_URL_LIMIT) return { url: full, needsPaste: false };
+  return { url: render(PASTE_POINTER), needsPaste: true };
+}
+
+/**
+ * Build a prefilled GitLab new-issue URL.
+ *
+ * The same form serves gitlab.com and a self-hosted instance: the project's
+ * base URL, then `/-/issues/new` with the `issue[title]` and
+ * `issue[description]` parameters GitLab reads. The base is a facility-authored
+ * URL and travels verbatim (minus a trailing slash); only the values are
+ * encoded.
+ *
+ * @param {string} baseUrl - the project URL, e.g. `https://git.example.org/group/project`
+ * @param {string} title - issue title, never truncated
+ * @param {string} body - the desired issue description
+ * @returns {{url: string, needsPaste: boolean}} as {@link buildGitHubIssueUrl}
+ */
+export function buildGitLabIssueUrl(baseUrl, title, body) {
+  const base = sanitize(baseUrl).replace(/\/+$/, '');
+  const encodedTitle = encodeURIComponent(sanitize(title));
+  /** @param {string} candidate */
+  const render = (candidate) =>
+    `${base}/-/issues/new?issue[title]=${encodedTitle}&issue[description]=${encodeURIComponent(candidate)}`;
+
+  const full = render(sanitize(body));
+  if (full.length <= GITLAB_URL_LIMIT) return { url: full, needsPaste: false };
   return { url: render(PASTE_POINTER), needsPaste: true };
 }
 

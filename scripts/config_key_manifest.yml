@@ -1352,6 +1352,12 @@ keys:
       last of them rather than outliving them all.
   web.feedback.github_repo:
     evidence: 'get_config_value\(\s*"web\.feedback\.github_repo",\s*DEFAULT_FEEDBACK_GITHUB_REPO\s*\)'
+  web.feedback.trackers:
+    # Documented in every template as a commented example beside github_repo,
+    # never rendered as a live key: the shipped posture is the github_repo
+    # shorthand alone, and a facility adds trackers by hand.
+    rendered: false
+    evidence: 'get_config_value\(\s*"web\.feedback\.trackers",\s*None\s*\)'
   web.feedback.email:
     evidence: 'get_config_value\(\s*"web\.feedback\.email",\s*DEFAULT_FEEDBACK_EMAIL\s*\)'
   web.feedback.max_store_bytes:

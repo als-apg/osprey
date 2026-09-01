@@ -284,6 +284,11 @@ DEFAULT_DOCS_URL = "https://als-apg.github.io/osprey"
 #: ``web.feedback.github_repo`` is absent.
 DEFAULT_FEEDBACK_GITHUB_REPO = "als-apg/osprey"
 
+#: Tracker kinds ``web.feedback.trackers`` accepts, each with the radio caption
+#: used when an entry names no ``label`` of its own. The client's URL builders
+#: (``static/js/feedback-prefill.js``) are keyed by the same two words.
+FEEDBACK_TRACKER_LABELS: dict[str, str] = {"github": "GitHub", "gitlab": "GitLab"}
+
 #: Recipient of the prefilled ``mailto:`` draft when ``web.feedback.email``
 #: is absent — the OSPREY maintainers.
 DEFAULT_FEEDBACK_EMAIL = "thellert@lbl.gov"
@@ -341,6 +346,102 @@ def coerce_config_str(key: str, value: object, default: str) -> str:
     if value is not None:
         logger.warning("%s is %r, not a string; using %r instead", key, value, default)
     return default
+
+
+def coerce_feedback_trackers(value: object) -> list[dict[str, str]]:
+    """Return ``web.feedback.trackers`` as a list of normalised tracker entries.
+
+    Each usable entry becomes ``{"kind", "label", "repo"}`` (GitHub, ``repo`` an
+    ``owner/name``) or ``{"kind", "label", "url"}`` (GitLab, ``url`` the
+    project's base URL — gitlab.com or self-hosted, trailing slash dropped).
+    A missing ``label`` takes the kind's own name.
+
+    Lenient per entry, strict per field: one malformed line — an unknown
+    ``kind``, a GitHub entry without an ``owner/name`` repo, a GitLab entry
+    whose ``url`` is not ``http(s)://`` — is reported and dropped while the rest
+    of the list stands, because one typo must not retire every tracker the
+    facility configured. A value that is not a list at all is reported and
+    reads as no list.
+
+    Args:
+        value: Whatever the config reader returned for the key.
+
+    Returns:
+        The usable entries, in the order written.
+    """
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        logger.warning("web.feedback.trackers is %r, not a list; ignoring it", value)
+        return []
+    trackers: list[dict[str, str]] = []
+    for index, entry in enumerate(value):
+        tracker = _coerce_feedback_tracker(entry)
+        if tracker is None:
+            logger.warning("web.feedback.trackers[%d] is %r; dropping it", index, entry)
+            continue
+        trackers.append(tracker)
+    return trackers
+
+
+def _coerce_feedback_tracker(entry: object) -> dict[str, str] | None:
+    """One entry of :func:`coerce_feedback_trackers`, or ``None`` when unusable."""
+    if not isinstance(entry, dict):
+        return None
+    kind = entry.get("kind")
+    if not isinstance(kind, str) or kind.strip() not in FEEDBACK_TRACKER_LABELS:
+        return None
+    kind = kind.strip()
+    label = entry.get("label")
+    label = label.strip() if isinstance(label, str) and label.strip() else ""
+    tracker = {"kind": kind, "label": label or FEEDBACK_TRACKER_LABELS[kind]}
+    if kind == "github":
+        repo = entry.get("repo")
+        repo = repo.strip() if isinstance(repo, str) else ""
+        if repo.count("/") != 1 or any(ch.isspace() for ch in repo) or not all(repo.split("/")):
+            return None
+        tracker["repo"] = repo
+    else:
+        url = entry.get("url")
+        url = url.strip().rstrip("/") if isinstance(url, str) else ""
+        if not url.startswith(("http://", "https://")) or any(ch.isspace() for ch in url):
+            return None
+        tracker["url"] = url
+    return tracker
+
+
+def resolve_feedback_trackers(
+    trackers: list[dict[str, str]], github_repo: str
+) -> list[dict[str, str]]:
+    """The tracker list the dialog offers: the configured list plus the sugar.
+
+    ``web.feedback.github_repo`` keeps its meaning as a single GitHub tracker,
+    appended after the facility-authored list (blank retires it — that is the
+    posture :func:`coerce_config_str` preserves). Two entries naming the same
+    target collapse to the first, so a facility that lists the upstream repo
+    under its own label does not get it rendered twice by the sugar.
+
+    Args:
+        trackers: Output of :func:`coerce_feedback_trackers`.
+        github_repo: Resolved ``web.feedback.github_repo`` (``""`` when blank).
+
+    Returns:
+        The de-duplicated list, in render order.
+    """
+    candidates = list(trackers)
+    if github_repo:
+        candidates.append(
+            {"kind": "github", "label": FEEDBACK_TRACKER_LABELS["github"], "repo": github_repo}
+        )
+    seen: set[tuple[str, str]] = set()
+    resolved: list[dict[str, str]] = []
+    for tracker in candidates:
+        key = (tracker["kind"], tracker.get("repo") or tracker.get("url") or "")
+        if key in seen:
+            continue
+        seen.add(key)
+        resolved.append(dict(tracker))
+    return resolved
 
 
 #: Words a human writes when they mean a boolean but YAML kept a string —
@@ -1232,6 +1333,7 @@ def _create_lifespan(
                 "web.feedback.github_repo", DEFAULT_FEEDBACK_GITHUB_REPO
             )
             raw_email = get_config_value("web.feedback.email", DEFAULT_FEEDBACK_EMAIL)
+            raw_trackers = get_config_value("web.feedback.trackers", None)
             raw_max_store_bytes = get_config_value(
                 "web.feedback.max_store_bytes", DEFAULT_FEEDBACK_MAX_STORE_BYTES
             )
@@ -1240,10 +1342,13 @@ def _create_lifespan(
                 "Could not read web.docs_url / web.feedback.* config keys; using defaults",
                 exc_info=True,
             )
-            raw_docs_url = raw_github_repo = raw_email = raw_max_store_bytes = None
+            raw_docs_url = raw_github_repo = raw_email = raw_trackers = raw_max_store_bytes = None
         app.state.docs_url = coerce_config_str("web.docs_url", raw_docs_url, DEFAULT_DOCS_URL)
         app.state.feedback_github_repo = coerce_config_str(
             "web.feedback.github_repo", raw_github_repo, DEFAULT_FEEDBACK_GITHUB_REPO
+        )
+        app.state.feedback_trackers = resolve_feedback_trackers(
+            coerce_feedback_trackers(raw_trackers), app.state.feedback_github_repo
         )
         app.state.feedback_email = coerce_config_str(
             "web.feedback.email", raw_email, DEFAULT_FEEDBACK_EMAIL
