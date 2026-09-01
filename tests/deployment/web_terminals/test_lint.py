@@ -693,10 +693,12 @@ def test_lint_user_access_skips_non_dict_entries() -> None:
     assert not any(f.code == "web_terminals.user_access_inert" for f in findings)
 
 
-def test_lint_access_any_without_sidecar_is_an_inert_key_warning() -> None:
+def test_lint_access_any_without_sidecar_is_silent() -> None:
     """`access: any` under the default `auth.method: token` changes nothing —
-    no sidecar stands a login wall, so every terminal is already as reachable
-    as the key promises to make this one."""
+    no sidecar stands a login wall — but it is a carried roster key, not a
+    mistake: overlays concatenate the roster list, so a passive base that a
+    host variant arms with `password`/`oidc` has to carry the key on the base
+    entry, exactly where `oidc_subject` already sits silently."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
@@ -707,13 +709,12 @@ def test_lint_access_any_without_sidecar_is_an_inert_key_warning() -> None:
     findings = lint_web_terminals(config)
 
     # Assert
-    assert any(f.code == "web_terminals.user_access_inert" for f in _warnings(findings))
+    assert not any(f.code == "web_terminals.user_access_inert" for f in findings)
 
 
-def test_lint_access_any_under_auth_none_is_an_inert_key_warning() -> None:
-    """Under `auth.method: none` the key is inert too: `login: false` still
-    means something there (it withholds the injected secret), but `access`
-    reads the sidecar-established identity, and there is none."""
+def test_lint_access_any_under_auth_none_is_silent() -> None:
+    """Under `auth.method: none` the same carried-key reading holds: the open,
+    tunnel-only posture is the usual passive base an `sso` variant arms."""
     # Arrange
     config = _auth_config({"method": "none"}, tls=False, fqdn=None)
     config["modules"]["web_terminals"]["users"] = [
@@ -724,7 +725,7 @@ def test_lint_access_any_under_auth_none_is_an_inert_key_warning() -> None:
     findings = lint_web_terminals(config)
 
     # Assert
-    assert any(f.code == "web_terminals.user_access_inert" for f in _warnings(findings))
+    assert not any(f.code == "web_terminals.user_access_inert" for f in findings)
 
 
 def test_lint_access_any_on_a_login_exempt_entry_is_an_inert_key_warning() -> None:
@@ -3230,7 +3231,7 @@ def test_lint_duplicate_subject_with_a_shared_card_is_an_error() -> None:
     config["modules"]["web_terminals"]["users"] = [
         {"name": "thellert", "index": 0, "oidc_subject": "thorsten@example.org"},
         {"name": "thellert-admin", "index": 1, "oidc_subject": " thorsten@example.org "},
-        {"name": "control", "index": 2, "access": "any", "oidc_subject": "svc@example.org"},
+        {"name": "control", "index": 2, "access": "any"},
     ]
 
     # Act
@@ -3282,6 +3283,68 @@ def test_lint_distinct_subjects_with_a_shared_card_report_nothing() -> None:
 
     # Assert
     assert not any(f.code == "web_terminals.shared_card_duplicate_subject" for f in findings)
+
+
+def test_lint_shared_card_with_a_subject_is_a_warning() -> None:
+    """`access: any` beside a non-empty `oidc_subject`, under `oidc`: a shared
+    card is opened with the OPENER's identity, so the card's own subject only
+    lets that one identity open it as itself. The hazard is the other
+    reading — `access: any` typo'd onto a personal card, which hands the
+    terminal to every mapped roster identity the moment `oidc` is in force —
+    so the finding names the entry and both ways out."""
+    # Arrange
+    config = _auth_config({"method": "oidc", "oidc": {"issuer": "https://idp.example.org"}})
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "access": "any", "oidc_subject": "thorsten@example.org"},
+        {"name": "gmartino", "index": 1, "oidc_subject": "gmartino@example.org"},
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    offenders = [f for f in _warnings(findings) if f.code == "web_terminals.shared_card_subject"]
+    assert len(offenders) == 1
+    assert "'thellert'" in offenders[0].message
+    assert "'gmartino'" not in offenders[0].message
+    assert "thorsten@example.org" not in offenders[0].message
+    assert "access: any" in offenders[0].message
+    assert "oidc_subject" in offenders[0].message
+
+
+def test_lint_shared_card_with_a_blank_subject_reports_nothing() -> None:
+    """An empty or whitespace-only `oidc_subject` maps no identity — there is
+    nothing on the card for the finding to be about."""
+    # Arrange
+    config = _auth_config({"method": "oidc", "oidc": {"issuer": "https://idp.example.org"}})
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "control", "index": 0, "access": "any", "oidc_subject": "  "},
+        {"name": "gmartino", "index": 1, "oidc_subject": "gmartino@example.org"},
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.shared_card_subject" for f in findings)
+
+
+def test_lint_shared_card_subject_check_is_mode_gated() -> None:
+    """Only `oidc` reads the subject mapping. On a passive `none` base that an
+    `oidc` variant arms, both keys are carried base-entry state (see the
+    `access: any` carried-key tests above); the finding belongs to the merged
+    render where the wall stands, not to every build of the base."""
+    # Arrange
+    config = _auth_config({"method": "none"}, tls=False, fqdn=None)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "access": "any", "oidc_subject": "thorsten@example.org"},
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.shared_card_subject" for f in findings)
 
 
 def test_lint_duplicate_subject_check_is_mode_gated() -> None:
