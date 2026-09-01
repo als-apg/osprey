@@ -902,7 +902,7 @@ def _find_layer_source_path(name: str) -> tuple[Any, Provenance] | None:
 
 
 @app.get("/plans/{name}/source")
-def get_plan_source(
+async def get_plan_source(
     name: str,
     max_chars: int = Query(default=_SOURCE_TRUNCATE_CHARS, ge=1, le=_SOURCE_TRUNCATE_CHARS_MAX),
 ) -> dict:
@@ -940,6 +940,43 @@ def get_plan_source(
     else:
         found = _find_layer_source_path(name)
         if found is None:
+            # External-worker mode: a plan the facility manager owns has no
+            # local file BY DESIGN — its code lives in the facility worker's
+            # startup profile, and this deployment only ever holds what the
+            # manager publishes about it. Answer honestly instead of 404-ing:
+            # the panel's detail view treats a failed source fetch as a failed
+            # selection and tears the parameter form down with it, and the
+            # approval hook embeds this text as its what-would-run evidence —
+            # both are better served by the truth than by an error.
+            backend = get_queue_backend()
+            if getattr(backend, "external_worker", False):
+                from .queue_backend import QueueBackendError
+
+                try:
+                    external_names = {
+                        entry["name"] for entry in await backend.external_plan_catalog()
+                    }
+                except QueueBackendError:
+                    external_names = set()
+                if name in external_names:
+                    return {
+                        "name": name,
+                        "provenance": "facility",
+                        # Trusted the way shipped/preset/facility tiers are —
+                        # by construction: the facility manager only runs what
+                        # its own startup profile defines.
+                        "validated": True,
+                        "truncated": False,
+                        "external": True,
+                        "source": (
+                            "# Source not held by this deployment.\n"
+                            f"# {name!r} is defined by the facility worker's startup\n"
+                            "# profile (external-worker mode): the RunEngine, its devices,\n"
+                            "# and this plan's code live on the facility qserver host.\n"
+                            "# What runs is exactly what that profile defines — consult its\n"
+                            "# repository for the source.\n"
+                        ),
+                    }
             raise HTTPException(status_code=404, detail=f"no source file found for plan {name!r}")
         path, provenance = found
         content = path.read_text(encoding="utf-8")
