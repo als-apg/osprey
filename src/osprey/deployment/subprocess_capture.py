@@ -246,10 +246,55 @@ def diagnose_captured_failure(exc: BaseException) -> str | None:
     return diagnose_build_failure(output)
 
 
+def captured_failure_detail(
+    exc: BaseException, *, config: Mapping[str, object] | None = None
+) -> str | None:
+    """What the failed child's output points at but does not contain, or ``None``.
+
+    The sibling of :func:`diagnose_captured_failure` for the other half of a
+    failure report -- its cause rather than its remedy. Today it answers one
+    shape: ``compose up`` aborting on a container whose healthcheck never
+    passed, where the spool names the container and the container's own log
+    holds the reason. The log is read here, through the runtime the deployment
+    resolved, and returned as text the verb appends beneath the exception's own
+    line.
+
+    Total by construction, like its sibling: no spool, an unreadable one, a
+    runtime that cannot be resolved, or output naming no container all yield
+    ``None`` or a shorter answer, never a second failure.
+
+    :param exc: The exception a verb is about to fail on.
+    :param config: The deployment's config, for runtime selection only.
+        ``None`` resolves the runtime from the environment and the host.
+    :returns: Operator-facing detail, or ``None`` when there is nothing to add.
+    """
+    from osprey.deployment.runtime_helper import (
+        explain_unhealthy_containers,
+        get_runtime_command,
+        unhealthy_containers_in,
+    )
+
+    spool_path = getattr(exc, "spool_path", None)
+    if spool_path is None:
+        return None
+    try:
+        output = Path(spool_path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    if not unhealthy_containers_in(output):
+        return None
+    try:
+        runtime: str | None = get_runtime_command(config)[0]
+    except (RuntimeError, FileNotFoundError):
+        runtime = None
+    return explain_unhealthy_containers(output, runtime)
+
+
 __all__ = [
     "SPOOL_DIR",
     "SPOOL_RETENTION",
     "CapturedProcess",
+    "captured_failure_detail",
     "diagnose_captured_failure",
     "run_captured",
 ]

@@ -827,6 +827,103 @@ def diagnose_build_failure(output: str) -> str | None:
     return None
 
 
+# ---------------------------------------------------------------------------
+# compose up on an unhealthy container: what the container itself said
+#
+# `compose up` waits on every `depends_on: condition: service_healthy` edge,
+# and when a dependency's healthcheck never passes it aborts with one line --
+# "dependency failed to start: container <name> is unhealthy" -- that names
+# the container and nothing about why. The reason is in that container's own
+# log, which the compose log does not carry, so the operator is sent to a
+# spool that cannot answer the question.
+
+#: The line compose ends on. Docker Compose v2 and podman-compose both spell
+#: it this way; the name is whatever the runtime called the container.
+_UNHEALTHY_CONTAINER_RE = re.compile(r"container (\S+) is unhealthy")
+
+#: How much of an unhealthy container's log the failure report carries. A
+#: startup refusal is a traceback plus its own message, and thirty lines holds
+#: one whole; more would push the line that names the failure off the screen.
+UNHEALTHY_LOG_TAIL_LINES = 30
+
+
+def unhealthy_containers_in(output: str) -> list[str]:
+    """The containers a compose failure blamed as unhealthy, in order, once each.
+
+    :param output: Captured compose output, whole or partial.
+    :returns: Container names as the runtime spelled them; empty when the
+        output carries no such line.
+    """
+    names: list[str] = []
+    for match in _UNHEALTHY_CONTAINER_RE.finditer(output or ""):
+        name = match.group(1).rstrip(".,;:")
+        if name not in names:
+            names.append(name)
+    return names
+
+
+def container_log_tail(
+    runtime: str, container: str, *, lines: int = UNHEALTHY_LOG_TAIL_LINES
+) -> str | None:
+    """The last ``lines`` of a container's log, both streams merged; ``None`` if unreadable.
+
+    Advisory by contract: a runtime that will not answer, a container that is
+    already gone, or a log that is empty all yield ``None`` rather than a second
+    failure inside the report of the first.
+
+    :param runtime: The container runtime binary (``docker`` or ``podman``).
+    :param container: The container's name as the runtime reports it.
+    :param lines: How many trailing lines to return.
+    """
+    try:
+        result = subprocess.run(
+            [runtime, "logs", "--tail", str(lines), container],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            errors="replace",
+            check=False,
+            timeout=15,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    text = (result.stdout or "").strip()
+    return text or None
+
+
+def explain_unhealthy_containers(output: str, runtime: str | None) -> str | None:
+    """What each container compose blamed as unhealthy said before it was; ``None`` if none.
+
+    One block per container: the name, then that container's last
+    :data:`UNHEALTHY_LOG_TAIL_LINES` log lines indented beneath it, so the
+    reason the healthcheck never passed is in the failure report instead of a
+    ``logs`` invocation away. When the tail cannot be read -- no runtime to
+    ask, a container already removed -- the block still names the container
+    and the verb that shows its log.
+
+    :param output: Captured compose output, whole or partial.
+    :param runtime: The runtime binary to read logs with, or ``None`` when the
+        caller could not resolve one.
+    :returns: Operator-facing text, or ``None`` when nothing was blamed.
+    """
+    names = unhealthy_containers_in(output)
+    if not names:
+        return None
+    blocks: list[str] = []
+    for name in names:
+        tail = container_log_tail(runtime, name) if runtime else None
+        if tail is None:
+            blocks.append(f"{name} is unhealthy. Run `osprey logs` to see why.")
+            continue
+        blocks.append(
+            f"{name} is unhealthy. Its last {UNHEALTHY_LOG_TAIL_LINES} log lines:\n"
+            + textwrap.indent(tail, "  ")
+        )
+    return "\n".join(blocks)
+
+
 #: The one action that resolves the pairing, rendered in the CLI's remedy slot
 #: rather than inside the advisory so it is not said twice.
 PODMAN_COMPOSE_PROVIDER_REMEDY = (
