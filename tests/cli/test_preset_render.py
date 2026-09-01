@@ -84,7 +84,7 @@ FLOOR_PRESETS = [
     "control-assistant",
     "control-assistant-readonly",
     "control-assistant-readwrite",
-    "control-assistant-ariel",
+    "control-assistant-logbook",
 ]
 
 
@@ -405,7 +405,7 @@ class TestControlAssistantRenderedAdmin:
         renders a project per, so a catalog entry with no file here is a tier
         that exists on the landing page and in nothing else."""
         deltas = sorted(p.stem for p in (rendered_preset_repo / "personas").glob("*.yml"))
-        assert deltas == ["admin", "ariel", "readonly", "readwrite"]
+        assert deltas == ["admin", "logbook", "readonly", "readwrite"]
 
     def test_admin_render_leaves_setup_patch_out_of_the_deny_list(
         self, rendered_admin_settings: dict

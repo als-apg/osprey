@@ -177,8 +177,8 @@ The config block
                     project_path: build/control-assistant-admin
                     build_profile: personas/admin.yml
                   ariel:
-                    project: control-assistant-ariel
-                    project_path: build/control-assistant-ariel
+                    project: control-assistant-logbook
+                    project_path: build/control-assistant-logbook
                     build_profile: personas/ariel.yml
                     landing_group: Standalone deployments
 
@@ -339,7 +339,7 @@ What ``osprey build`` and ``osprey up`` do for the web tier
    project per **delta** in ``personas/``, into the build zone beside the main
    render (``build/control-assistant-readonly``,
    ``build/control-assistant-readwrite``, ``build/control-assistant-admin`` and
-   ``build/control-assistant-ariel``).
+   ``build/control-assistant-logbook``).
    Because each delta merges over
    ``profile.yml``, every persona shares its data tree, secrets and artifacts,
    and inherits the choices recorded there (provider, model): edit the profile

@@ -88,7 +88,7 @@ EXEMPLAR_DIRNAME = "als-exemplar"
 EXEMPLAR_PRESET = "control-assistant"
 PERSONA_PRESETS: Mapping[str, str] = {
     "admin": "control-assistant-admin",
-    "ariel": "control-assistant-ariel",
+    "logbook": "control-assistant-logbook",
     "readonly": "control-assistant-readonly",
     "readwrite": "control-assistant-readwrite",
 }
@@ -465,7 +465,7 @@ config:
       footer: OSPREY multi-user web terminal stack. Experimental system. Proceed with caution.
       groups:
         # `users` renders the roster. It also SPLITS it: any entry whose
-        # persona declares a `landing_group` (see `ariel` below) moves into a
+        # persona declares a `landing_group` (see `logbook` below) moves into a
         # section of its own, drawn as an accent-edged panel underneath it.
         # So the page reads people first, services after.
         - type: users
@@ -485,13 +485,13 @@ config:
       # Not a person: a second product running beside them. Same machinery as
       # any other entry — its own container, ports and volumes — but what is
       # behind the card is the ARIEL logbook assistant, not a control terminal.
-      - name: ariel
+      - name: logbook
         index: 2
-        persona: ariel
-        display_name: "ARIEL Logbook Research"
-        # Outside the login wall on purpose — entered through its own login URL
-        # instead (`osprey users login-url ariel`), not open to anyone.
-        login: false
+        persona: logbook
+        display_name: "Logbook Research"
+        # A shared card: everyone on this roster opens it with their own
+        # password. It has no password of its own, so none is set in .env.
+        access: any
       # The one login that can change this deployment's configuration — the web
       # Config panel, the scaffold gallery's editors, and the agent's own setup
       # tool. Behind the login wall like every other person on this page: an
@@ -516,10 +516,10 @@ config:
         project: als-exemplar-admin
         project_path: build/als-exemplar-admin
         build_profile: personas/admin.yml
-      ariel:
-        project: als-exemplar-ariel
-        project_path: build/als-exemplar-ariel
-        build_profile: personas/ariel.yml
+      logbook:
+        project: als-exemplar-logbook
+        project_path: build/als-exemplar-logbook
+        build_profile: personas/logbook.yml
         # Puts this persona's users under their own landing-page heading
         # instead of in with the people. Presentation only — it changes
         # nothing about the container, its ports, or what it can do.
@@ -722,20 +722,20 @@ WEB_TERMINALS_IMAGE_SOURCE_LINE = (
 # SOURCE zone — persona deltas
 # ─────────────────────────────────────────────────────────────────────────────
 
-PERSONA_ARIEL_YML = """\
-# Als Exemplar (ariel) — settings for one web login
+PERSONA_LOGBOOK_YML = """\
+# Als Exemplar (logbook) — settings for one web login
 #
 # Only the differences from profile.yml belong here. The build merges this
 # file over that one, picking up any edit you make there. To see the combined
 # result:
-#   osprey validate personas/ariel.yml
+#   osprey validate personas/logbook.yml
 #
-# Made from the bundled `control-assistant-ariel` preset.
+# Made from the bundled `control-assistant-logbook` preset.
 #
 #   emitted by OSPREY @OSPREY_VERSION@
-#   preset content hash: @PRESET_HASH:control-assistant-ariel@
+#   preset content hash: @PRESET_HASH:control-assistant-logbook@
 
-name: Als Exemplar (ariel)
+name: Als Exemplar (logbook)
 
 # Attached render: this persona builds a per-user terminal image only and
 # connects to the shared web tier the hosting deployment runs on the same host.
@@ -1712,7 +1712,7 @@ if wants web; then
   probe_http 'landing page'      http://localhost:10000/
   probe_http 'terminal (alice)'  http://localhost:10100/health
   probe_http 'terminal (bob)'    http://localhost:10101/health
-  probe_http 'terminal (ariel)'  http://localhost:10102/health
+  probe_http 'terminal (logbook)'  http://localhost:10102/health
   probe_http 'terminal (carol)'  http://localhost:10103/health
 fi
 
@@ -2077,12 +2077,12 @@ BASE_SOURCE_FILES: Mapping[str, str] = {
     "README.md": README_MD,
     "ci-extra.yml": CI_EXTRA_YML,
     "triggers.yml": TRIGGERS_YML,
-    "personas/ariel.yml": PERSONA_ARIEL_YML,
+    "personas/logbook.yml": PERSONA_LOGBOOK_YML,
     "personas/readonly.yml": PERSONA_READONLY_YML,
     "personas/readwrite.yml": PERSONA_READWRITE_YML,
     "personas/admin.yml": PERSONA_ADMIN_YML,
     "web-terminal-context/alice/.gitkeep": "",
-    "web-terminal-context/ariel/.gitkeep": "",
+    "web-terminal-context/logbook/.gitkeep": "",
     "web-terminal-context/bob/.gitkeep": "",
     "data/README.md": DATA_README_MD,
     "data/channel_databases/TEMPLATE_EXAMPLE.json": CHANNEL_DB_TEMPLATE_EXAMPLE_JSON,

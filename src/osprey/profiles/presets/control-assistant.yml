@@ -329,7 +329,7 @@ config:
       footer: OSPREY multi-user web terminal stack. Experimental system. Proceed with caution.
       groups:
         # `users` renders the roster. It also SPLITS it: any entry whose
-        # persona declares a `landing_group` (see `ariel` below) moves into a
+        # persona declares a `landing_group` (see `logbook` below) moves into a
         # section of its own, drawn as an accent-edged panel underneath it.
         # So the page reads people first, services after.
         - type: users
@@ -349,13 +349,13 @@ config:
       # Not a person: a second product running beside them. Same machinery as
       # any other entry — its own container, ports and volumes — but what is
       # behind the card is the ARIEL logbook assistant, not a control terminal.
-      - name: ariel
+      - name: logbook
         index: 2
-        persona: ariel
-        display_name: "ARIEL Logbook Research"
-        # Outside the login wall on purpose — entered through its own login URL
-        # instead (`osprey users login-url ariel`), not open to anyone.
-        login: false
+        persona: logbook
+        display_name: "Logbook Research"
+        # A shared card: everyone on this roster opens it with their own
+        # password. It has no password of its own, so none is set in .env.
+        access: any
       # The one login that can change this deployment's configuration — the web
       # Config panel, the scaffold gallery's editors, and the agent's own setup
       # tool. Behind the login wall like every other person on this page: an
@@ -380,10 +380,10 @@ config:
         project: control-assistant-admin
         project_path: build/control-assistant-admin
         build_profile: control-assistant-admin
-      ariel:
-        project: control-assistant-ariel
-        project_path: build/control-assistant-ariel
-        build_profile: control-assistant-ariel
+      logbook:
+        project: control-assistant-logbook
+        project_path: build/control-assistant-logbook
+        build_profile: control-assistant-logbook
         # Puts this persona's users under their own landing-page heading
         # instead of in with the people. Presentation only — it changes
         # nothing about the container, its ports, or what it can do.

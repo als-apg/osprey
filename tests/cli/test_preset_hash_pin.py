@@ -57,7 +57,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # `landing.notices` and `landing.footer`, so its landing page grows a
     # collapsible "working safely" section and a footer line. Both are
     # deploy-visible, so the staleness advisory firing on already-deployed
-    # projects is correct. `control-assistant-ariel` excludes the skill by
+    # projects is correct. `control-assistant-logbook` excludes the skill by
     # name, so only the notices moved its digest.
     # Moved again — and this time EVERY bundled preset moved, which is the
     # signature of a change to the shared hook list rather than to one tier.
@@ -179,7 +179,13 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # `data/channel_limits.json` does not list is now allowed on the `va`
     # target where it was refused, so the staleness advisory firing on
     # already-deployed control-assistant projects is the correct signal.
-    "control-assistant": "sha256:c8d4f280789d363bc418002b27e229c7fc80cedf6bac469cae42ace2318d2098",
+    # Moved when the standalone card became a shared one: the roster entry is
+    # `logbook` (persona `logbook`, preset `control-assistant-logbook`) and
+    # carries `access: any` instead of `login: false`. Deploy-visible — the
+    # card sits behind the login wall and is opened with any roster login —
+    # so the staleness advisory on already-deployed stacks is the correct
+    # signal.
+    "control-assistant": "sha256:6f567aeeb4cea8ea4dde6681b478e9b48255c53d32970a25a34eaee3d01cd7ee",
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     # Moved again with the base: permissive `virtual_accelerator` limits block.
     # Moved alone when the admin tier gained the EVENTS/BLUESKY `web_panels`
@@ -188,20 +194,23 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # surface without the operator tabs". Deploy-visible — a rebuilt admin
     # render grows the two tabs — so the staleness advisory firing on
     # already-deployed admin renders is the correct signal.
+    # Moved with the base above: the standalone card is a shared `logbook`.
     "control-assistant-admin": (
-        "sha256:49d4e563674758724bb6244690499e76f6426305dd372708cd2881fc55aaf691"
+        "sha256:112c858685d49236524ab21554be929dc7cc8607cd01b2e634672e3ec71f7888"
     ),
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     # Moved again with the base: permissive `virtual_accelerator` limits block.
-    "control-assistant-ariel": (
-        "sha256:25df29b2f388287941c9ce4a1a05531f2fffca06ea8e4229f66b40c9c820a85d"
+    # Renamed from `control-assistant-ariel` when its roster entry became the
+    # shared `logbook` card, and moved with the base for the same change.
+    "control-assistant-logbook": (
+        "sha256:31064328a89e7ebf1357a377966a0e1e4e8866eae15b24b28c7748c8a8b4ae1b"
     ),
     # The two operator tiers below moved together, and alone, when each gained
     # the single dotted key `services.graphdb.port_host: 7687` in its `config:`
     # block — the attached-render personas scaffold no services of their own, so
     # without it their terminals would dial the shipped default port rather than
     # the port the hosting deployment publishes its graph store on. The base
-    # `control-assistant` and the `control-assistant-ariel` tier are untouched
+    # `control-assistant` and the `control-assistant-logbook` tier are untouched
     # (the change is in these two leaves, not in the base they extend), which is
     # why only two of the four digests above move here. NOT behavior-neutral: a
     # rebuilt operator terminal gains the `graph` MCP server and its tools, so
@@ -213,7 +222,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # content, so the digest here is neither branch's recorded value but the one
     # the merged preset actually hashes to. Deploy-visible for both reasons at
     # once, which is what the advisory should say.
-    # Moved again — with `control-assistant-ariel` this time, all three leaves
+    # Moved again — with `control-assistant-logbook` this time, all three leaves
     # and not the base — when each gained the single dotted key
     # `services.qmd.port: 8180`: the same attached-render reasoning as the graph
     # port above, for the qmd sidecar that hybrid logbook search dials. NOT
@@ -253,13 +262,15 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # exactly as the note at the top of this table says.
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     # Moved again with the base: permissive `virtual_accelerator` limits block.
+    # Moved with the base above: the standalone card is a shared `logbook`.
     "control-assistant-readonly": (
-        "sha256:d6680f9c8c1e37d249cd3852f293ea9b81ae2ddaa56d5779c76fb350358221ef"
+        "sha256:97b7a83a9a00eba7af51d14f88ae5b07189d90dc8ab6465d54730b8ec5423618"
     ),
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     # Moved again with the base: permissive `virtual_accelerator` limits block.
+    # Moved with the base above: the standalone card is a shared `logbook`.
     "control-assistant-readwrite": (
-        "sha256:7c2c8c4ed559f160a225ad7c42078585592b7fece43927454526ac8c9782ef97"
+        "sha256:a3072dd14706a7a6c01f994798f0c95874b6103f23454fa95e140f607c9ad972"
     ),
     # New with per-target write posture, not a moved entry: the rung between
     # the two flat tiers, armed on the virtual accelerator alone. It pins the
@@ -269,8 +280,9 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # land.
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     # Moved again with the base: permissive `virtual_accelerator` limits block.
+    # Moved with the base above: the standalone card is a shared `logbook`.
     "control-assistant-va-readwrite": (
-        "sha256:30aac62fd5b81dfaaaf3ac75c3358278aadd33e35de1cad74d3ecd37262d2704"
+        "sha256:5d9ea9b1409ba8fef16ddb80a2d68352dcaf435b1db7305f35e9a668f5ccbe25"
     ),
     # Moved when the onboarding rewrite dropped the `facility` rule. The
     # wholesale comment rewrite that shipped alongside it contributed nothing:

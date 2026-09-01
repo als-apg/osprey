@@ -47,7 +47,7 @@ Three regressions, in the order a deployment meets them:
 
 The bundled ``control-assistant`` preset is the exemplar throughout: its roster
 is already the shape this matters for — a privileged ``admin`` tier, an
-unprivileged ``ariel`` tier served with no login, and a ``default_persona``
+unprivileged ``logbook`` card shared with the roster, and a ``default_persona``
 some entries inherit — so a regression that let the two spellings diverge shows
 up in a real deployment's artifacts rather than in a fixture built to show it.
 """
@@ -268,9 +268,10 @@ class TestRoleOnlyRosterIsIndistinguishable:
         allowance cannot quietly widen into "the compose file may differ by any
         line whose name starts with the prefix". One line per role-carrying
         entry, in roster order, each naming that user's variable and that
-        user's role — including ``ariel``, whose entry is opted out of the login
-        wall and whose role is therefore inert but still rendered, because the
-        roster the sidecar keys this table from lists it.
+        user's role — including ``logbook``, the shared card that is opened
+        with other users' credentials and whose own role is therefore inert
+        but still rendered, because the roster the sidecar keys this table
+        from lists it.
         """
         # Arrange
         role_bound = _deploy_config(_role_bound(exemplar_web_terminals))
@@ -282,7 +283,7 @@ class TestRoleOnlyRosterIsIndistinguishable:
         assert _session_role_lines(overlay) == [
             f'      - "{_ROLE_VAR_PREFIX}ALICE=readwrite-role"',
             f'      - "{_ROLE_VAR_PREFIX}BOB=readonly-role"',
-            f'      - "{_ROLE_VAR_PREFIX}ARIEL=ariel-role"',
+            f'      - "{_ROLE_VAR_PREFIX}LOGBOOK=logbook-role"',
             f'      - "{_ROLE_VAR_PREFIX}CAROL=admin-role"',
         ]
 

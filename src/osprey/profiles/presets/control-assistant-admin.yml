@@ -21,7 +21,7 @@
 #
 # The control-system tiers are `control-assistant-readonly`,
 # `control-assistant-va-readwrite` and `control-assistant-readwrite`; the
-# standalone one is `control-assistant-ariel`.
+# standalone one is `control-assistant-logbook`.
 
 name: Control Assistant (Admin)
 

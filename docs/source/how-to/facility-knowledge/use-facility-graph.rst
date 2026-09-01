@@ -439,7 +439,7 @@ Two consequences worth knowing before you move anything:
 The read-only persona receives ``GRAPHDB_PASSWORD`` as well. The store has a
 single write-capable account, so read-only-ness here is enforced by the graph
 server's read transaction rather than by the credential — the same posture the
-ARIEL database credential already takes. ``control-assistant-ariel`` has no
+ARIEL database credential already takes. ``control-assistant-logbook`` has no
 control surface and no graph tools by design.
 
 

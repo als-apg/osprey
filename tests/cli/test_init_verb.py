@@ -263,7 +263,7 @@ def test_no_emitted_artifact_names_a_retired_verb(exemplar_repo: Path) -> None:
 #: ``personas/admin.yml`` joined this list when the ``admin`` tier landed.
 RENDERED_FILES = (
     "profile.yml",
-    "personas/ariel.yml",
+    "personas/logbook.yml",
     "personas/readonly.yml",
     "personas/readwrite.yml",
     "personas/admin.yml",
@@ -340,7 +340,7 @@ def test_persona_renders_land_in_the_build_zone(exemplar_repo: Path) -> None:
 
     # Fourth entry, ``admin``, joined the catalog with the admin tier:
     # carol's login resolves to it.
-    assert sorted(catalog) == ["admin", "ariel", "readonly", "readwrite"]
+    assert sorted(catalog) == ["admin", "logbook", "readonly", "readwrite"]
     for persona_name, entry in catalog.items():
         assert entry["project"] == f"{EXEMPLAR_DIRNAME}-{persona_name}"
         assert entry["project_path"] == f"build/{EXEMPLAR_DIRNAME}-{persona_name}"
@@ -861,7 +861,7 @@ EXEMPLAR_REPORT = f"""\
 
   profile.yml   your assistant's settings; edit this
   data/         channel lists and facility docs; edit these
-  personas/     one per web login: admin, ariel, readonly, readwrite
+  personas/     one per web login: admin, logbook, readonly, readwrite
   .env          seeded: OSPREY_AUTH_PW_ALICE, OSPREY_AUTH_PW_BOB, OSPREY_AUTH_PW_CAROL. Add your API key; not in git
   .env.shared   settings shared by every host; your .env wins
   README.md     what everything here does
