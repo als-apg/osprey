@@ -1851,7 +1851,7 @@ def _stub_the_sidecar_build(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     context.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker"])
     monkeypatch.setattr(
-        provision, "_materialize_auth_build_context", lambda repo_root, dev_mode: context
+        provision, "_materialize_auth_build_context", lambda repo_root, dev_mode: (context, False)
     )
     monkeypatch.setattr(provision, "run_captured", lambda *a, **k: None)
 
