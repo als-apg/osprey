@@ -6613,6 +6613,64 @@ def _repo_label_filter(repo_root: Path) -> str:
     return f"label={REPO_ID_LABEL}={repo_identity(repo_root)}"
 
 
+def unhealthy_containers(repo_root: Path | str) -> list[str]:
+    """This checkout's containers whose healthcheck reports ``unhealthy``, by name.
+
+    What the closing line of a detached start reads before it says everything
+    is running. ``compose up -d`` returns once every ``depends_on`` edge is
+    satisfied, and a container nothing depends on is free to fail its own
+    healthcheck after that — the verb has already succeeded, and a card that
+    says everything is running is then describing a stack that is not.
+
+    Selected by the repo label the render bakes into every container, the same
+    filter :func:`_down_by_label` stops by, so a second project on the host is
+    never reported here. Read through ``ps --format json`` and the health
+    probe's parsers, so Docker's NDJSON and podman's array are one answer.
+
+    Advisory by contract: a runtime that will not answer, a listing that will
+    not parse, or a render that cannot be read all yield the empty list. The
+    card is the last thing a successful verb prints, and it must not be what
+    fails it.
+
+    :param repo_root: The deployment repo whose containers are asked after.
+    :return: Container names as the runtime reports them, sorted; empty when
+        nothing is unhealthy or nothing could be asked.
+    """
+    from osprey.health.probes.container import _extract_health, _parse_ps_json
+
+    root = Path(repo_root)
+    try:
+        config_path = as_built_config_path(root)
+        config = (
+            load_project_config(str(config_path), wrap_errors=True)
+            if config_path.is_file()
+            else None
+        )
+        runtime = get_runtime_command(config)[0]
+        listing = subprocess.run(
+            [runtime, "ps", "-a", "--filter", _repo_label_filter(root), "--format", "json"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=15,
+        )
+        if listing.returncode != 0:
+            logger.debug("Container health skipped: `%s ps` exited %s", runtime, listing.returncode)
+            return []
+        names: list[str] = []
+        for container in _parse_ps_json(listing.stdout or ""):
+            if _extract_health(container) != "unhealthy":
+                continue
+            raw = container.get("Names", "")
+            name = str(raw[0]) if isinstance(raw, list) and raw else str(raw)
+            if name:
+                names.append(name)
+    except Exception as exc:  # noqa: BLE001 - advisory: the card must not fail the verb
+        logger.debug("Container health skipped: %s", exc)
+        return []
+    return sorted(names)
+
+
 def _down_by_label(config: dict | None, repo_root: Path) -> None:
     """Stop this repo's containers by label, when ``build/`` cannot say which.
 

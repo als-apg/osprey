@@ -187,6 +187,14 @@ def print_call_to_action(repo_root: Path | str, state: str) -> None:
     otherwise. A backend-only project has no front door to send anyone to, and
     the card's ``next`` row is already the right answer for it.
 
+    Said only when it is true. ``compose up -d`` returns once every dependency
+    edge is satisfied, and a container nothing depends on can fail its own
+    healthcheck after that with the verb already reporting success. The
+    containers are asked before the line is printed
+    (:func:`~osprey.deployment.container_lifecycle.unhealthy_containers`), and
+    an unhealthy one replaces the line with its name and the verb that shows
+    its log -- for a backend-only project too, which otherwise gets no line.
+
     The address is the deployment's own external origin -- the value each
     terminal checks a mutating request's ``Origin`` against -- not the deploy
     host's loopback. Sending an operator to an address the terminals refuse
@@ -206,15 +214,23 @@ def print_call_to_action(repo_root: Path | str, state: str) -> None:
     :param repo_root: The deployment repo
     :param state: One of ``created``, ``built``, ``running``, ``stopped``
     """
+    from osprey.deployment.container_lifecycle import unhealthy_containers
     from osprey.deployment.deploy_summary import as_built_closing_facts
 
     if state != "running":
         return
     facts = as_built_closing_facts(repo_root)
-    if not facts.landing_url:
+    unhealthy = unhealthy_containers(repo_root)
+    if not facts.landing_url and not unhealthy:
         return
     output.report("")
-    output.report(f"Everything is running. Open {facts.landing_url} to start.")
+    if unhealthy:
+        verb = "is" if len(unhealthy) == 1 else "are"
+        output.report(f"{', '.join(unhealthy)} {verb} unhealthy. Run `osprey logs` to see why.")
+    else:
+        output.report(f"Everything is running. Open {facts.landing_url} to start.")
+    if not facts.landing_url:
+        return
     if not facts.landing_url_is_external_origin:
         # The address is the deploy host's own loopback, which is where the
         # landing page answers and nowhere a terminal will accept a write: each
