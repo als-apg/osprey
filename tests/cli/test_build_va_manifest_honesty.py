@@ -265,10 +265,9 @@ def test_a_hierarchical_trees_fact_states_no_degradation(whole_tree, tmp_path, c
 #: build has every reason to believe it holds the facility's channels.
 _SCHEMA_INVALID_DB = '{"channels": {"FACILITY:TIER:SRC": {"description": "profile"}}}\n'
 
-#: A body no parser can get past at all: the schema-invalid one above reads as
-#: an empty tree to the middle-layer parser, which navigates any nesting it is
-#: given, so a test that needs EVERY staged database unreadable truncates the
-#: JSON instead.
+#: A body no parser can get past at all -- truncated JSON. Every paradigm
+#: parser rejects the schema-invalid one above too; this one makes the refusal
+#: come from the JSON decoder rather than from a parser's shape check.
 _UNPARSEABLE_DB = '{"channels": [\n'
 
 

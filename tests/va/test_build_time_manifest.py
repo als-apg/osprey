@@ -320,11 +320,10 @@ class TestParadigmMismatchYieldsNoManifest:
 #: reading it raises from deep inside a parser.
 _SCHEMA_INVALID_DB = '{"channels": {"FACILITY:TIER:SRC": {"description": "profile"}}}\n'
 
-#: A body no parser can get past at all. The schema-invalid one above is
-#: rejected by the flat and hierarchical parsers but reads as an empty tree to
-#: the middle-layer one, which navigates any nesting it is given -- so a test
-#: that needs EVERY staged database to be unreadable truncates the JSON
-#: instead.
+#: A body no parser can get past at all -- truncated JSON. Every paradigm
+#: parser rejects the schema-invalid one above too; this one is for tests
+#: that want the refusal to come from the JSON decoder rather than from a
+#: parser's shape check, whichever parser reads it.
 _UNPARSEABLE_DB = '{"channels": [\n'
 
 
@@ -386,6 +385,27 @@ class TestCorruptDatabaseDegrades:
 
         assert "hierarchical" not in metadata["source_paradigms"]
         assert metadata["setpoint_count"] == 0
+
+    def test_a_shape_invalid_middle_layer_database_is_corrupt_not_seeds_only(self, editable_tree):
+        """Valid JSON in the wrong shape is a corrupt source, not an empty facility.
+
+        The middle-layer parser used to skip any system or family that was not
+        a mapping and read such a file as zero channels; on a tier that stages
+        only that database, the build then fell through to the scenario seeds
+        while the build fact said "N channels from its middle_layer database".
+        The body here is the flat paradigm's list of channels, which is what a
+        half-migrated file looks like.
+        """
+        paths = ManifestPaths(data_root=editable_tree, tier=DEFAULT_TIER)
+        paths.hierarchical_db.unlink()
+        paths.in_context_db.unlink()
+        _corrupt(paths.middle_layer_db, '{"channels": [{"address": "FACILITY:TIER:SRC"}]}\n')
+
+        assert prepare_project_manifest(editable_tree, DEFAULT_TIER) is None
+        with pytest.raises(CorruptChannelSourcesError) as excinfo:
+            build_manifest(paths)
+
+        assert "middle_layer" in str(excinfo.value)
 
     def test_every_database_corrupt_backs_no_manifest(self, editable_tree, caplog):
         paths = ManifestPaths(data_root=editable_tree, tier=DEFAULT_TIER)

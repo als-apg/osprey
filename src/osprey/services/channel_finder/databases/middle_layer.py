@@ -95,9 +95,26 @@ class MiddleLayerDatabase(BaseDatabase):
         super().__init__(db_path)
 
     def load_database(self) -> None:
-        """Load middle layer database from JSON file."""
+        """Load middle layer database from JSON file.
+
+        Raises:
+            ValueError: The file is valid JSON in a shape this parser does not
+                read. Raised rather than read as an empty tree: every consumer
+                turns a loader exception into a corrupt-source verdict, while a
+                database that "loaded" zero channels is indistinguishable from
+                an empty facility.
+        """
         with open(self.db_path) as f:
             self.data = json.load(f)
+
+        if not isinstance(self.data, dict):
+            raise ValueError(
+                "Invalid database format: a middle-layer database is a dict of "
+                "systems -> families -> fields, keyed by name at every level; this "
+                f"file's root is a {type(self.data).__name__}. See "
+                "data/channel_databases/tiers/tier3/middle_layer.json for the "
+                "expected format."
+            )
 
         # Build flat channel map for validation and lookup
         self.channel_map = self._build_channel_map()
@@ -106,18 +123,42 @@ class MiddleLayerDatabase(BaseDatabase):
         """
         Flatten MML hierarchy into channel map for O(1) validation.
 
+        Keys starting with ``_`` are metadata (``_description``, ``_meta``) at
+        any level and are skipped. Any other value that is not a mapping is a
+        shape error, and is named rather than skipped: a system or family that
+        silently contributed nothing would read as a facility with fewer
+        channels, not as a broken file.
+
         Returns:
             Dict mapping channel names to metadata
+
+        Raises:
+            ValueError: A system or family whose value is not a mapping.
         """
         channels = {}
 
         for system, families in self.data.items():
-            if not isinstance(families, dict):
+            if system.startswith("_"):
                 continue
+            if not isinstance(families, dict):
+                raise ValueError(
+                    f"Invalid database format: system '{system}' must map family "
+                    f"names to their fields, got a {type(families).__name__}. See "
+                    "data/channel_databases/tiers/tier3/middle_layer.json for the "
+                    "expected format."
+                )
 
             for family, fields in families.items():
-                if not isinstance(fields, dict):
+                if family.startswith("_"):
                     continue
+                if not isinstance(fields, dict):
+                    raise ValueError(
+                        f"Invalid database format: family '{system}:{family}' must "
+                        f"map field names to their definitions, got a "
+                        f"{type(fields).__name__}. See "
+                        "data/channel_databases/tiers/tier3/middle_layer.json for the "
+                        "expected format."
+                    )
 
                 # Process each field in the family
                 self._extract_channels_from_field(channels, system, family, fields, path=[])
