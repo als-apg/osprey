@@ -1296,3 +1296,30 @@ class TestOneResolutionPerRequest:
             get_posture(client)
 
         assert resolve.call_count <= 1
+
+
+class TestUnresolvableRoots:
+    """Neither resolver is only a filesystem call, and neither may crash the GET.
+
+    The web server is never stamped with ``OSPREY_AGENT_DATA_ROOT`` — that
+    goes into the child's environment — so both ``target_state.state_dir()``
+    and ``session_store.store_path()`` fall back to loading the config, and
+    raise whatever loading it raises. A config that does not load is a
+    directory the server cannot read and a store with no location; the route
+    still answers, the way the gesture routes answer their 503.
+    """
+
+    def test_a_state_dir_that_raises_reads_as_no_record(self, client):
+        with (
+            attached_pty(client),
+            patch.object(target_state, "state_dir", side_effect=RuntimeError("no config")),
+        ):
+            payload = get_posture(client)
+        # No record could be read, so the session is one this server cannot
+        # reach — the toggles govern nothing — rather than an error page.
+        assert payload["enforceable"] is False
+
+    def test_a_store_path_that_raises_reads_as_store_unavailable(self, client):
+        with patch.object(session_store, "store_path", side_effect=RuntimeError("no config")):
+            payload = get_posture(client)
+        assert payload["store_available"] is False

@@ -258,9 +258,17 @@ def _posture_store_path() -> Path | None:
 
     Delegates to :func:`osprey_connectors.session_store.store_path` — the ONE
     path rule (env ``OSPREY_AGENT_DATA_ROOT``, else
-    ``resolve_shared_data_root()``) that `session_store` owns.
+    ``resolve_shared_data_root()``) that `session_store` owns. That rule can
+    raise as well as answer ``None``: the web server carries no stamp, so the
+    fallback loads the config, and a config that does not load is a store
+    with no location — the 503 on a gesture, ``store_available: false`` on the
+    GET — not a crash.
     """
-    return session_store.store_path()
+    try:
+        return session_store.store_path()
+    except Exception:  # noqa: BLE001 — an unresolvable root is a location-less store
+        logger.warning("The posture store's location does not resolve", exc_info=True)
+        return None
 
 
 #: Prefix of the ``/ws/operator`` session keys (``operator-<hex8>``, minted per
@@ -691,10 +699,16 @@ def _state_dir_names(target_state: Any) -> tuple[str, ...]:
     only watched its own file would go on happily naming a target while the
     live resolver had stopped being able to.
     """
+    # ``state_dir()`` is not only a filesystem call: the web server is never
+    # stamped with ``OSPREY_AGENT_DATA_ROOT`` (that goes into the CHILD's
+    # environment), so the resolver takes its config branch and raises whatever
+    # loading the config raises. Any failure is "cannot read", the same
+    # answer :func:`_target_request_facts` gives an unresolvable root.
     try:
         directory = target_state.state_dir()
         return tuple(sorted(p.name for p in directory.glob(target_state.STATE_FILE_GLOB)))
-    except OSError:
+    except Exception:  # noqa: BLE001 — an unreadable directory is an empty one, not a crash
+        logger.warning("The control-target state directory could not be read", exc_info=True)
         return ()
 
 
@@ -1622,16 +1636,12 @@ def _target_refusal(
     :func:`_posture_refusal` is split out of its own route, so the ladder
     reads as the ordered list of reasons it is and the handler as what it
     does once nothing refuses: mint an id, write the request, record, answer.
+    The rungs, in order and with their reasons, are documented on the route.
 
     Only the rungs decided BEFORE the write live here. The second
     ``request_pending`` — the one that answers a ``RequestSuperseded`` — is
     not a rung: it is what the write itself came back with, and moving it
     here would mean refusing before finding out.
-
-    The order differs from the posture route's and is load-bearing in its
-    own right: 400 for a target this render does not configure, then the 503
-    ahead of the 409, because the state directory is where a record would
-    have been found and "cannot look" is not "never started".
     """
     subject = AUDIT_SUBJECT_TARGET_SET
 
@@ -1758,6 +1768,10 @@ async def request_terminal_target(body: TargetRequest, request: Request):
     * **400** — an id outside the closed key grammar, or a target this render
       does not configure. Both are identifiers, checked before anything is read
       or written.
+    * **503** ``store_unavailable`` — the state directory does not resolve.
+      It comes before every 409 because it is where a record would have been
+      looked for: "cannot look" is not "never started", and a server that
+      cannot look must not tell the operator to send a prompt.
     * **409** ``agent_exited`` — the PTY registered for this session reports
       its process has exited. There is no server to address and no prompt that
       could start one; the message names the exit code when it is known.
@@ -1766,14 +1780,16 @@ async def request_terminal_target(body: TargetRequest, request: Request):
       is no PTY at all. There is nothing to address: the request file's whole
       addressing scheme is that pid. Only the live-agent case is told to send
       a prompt, because only there does a prompt start the server.
-    * **503** ``store_unavailable`` / ``store_write_failed`` — the state
-      directory does not resolve, or the write failed. The gesture did not
-      happen and the operator is told so, rather than being shown a request id
-      nothing will ever read.
     * **409** ``request_pending`` — a fresh request is already addressed to
       that server. One outstanding gesture at a time; the pending file is left
       exactly as it is, because overwriting it would strand the operator who is
       still watching for the first one's outcome.
+
+    After the ladder, the write itself can still answer **503**
+    ``store_write_failed`` (the request file could not be written) or **409**
+    ``request_pending`` (a concurrent gesture landed first). Both mean the
+    gesture did not happen, and the operator is told so rather than shown a
+    request id nothing will ever read.
     """
     session_id = body.session_id
     _require_session_uuid(session_id)
@@ -2053,10 +2069,8 @@ def _posture_refusal(
     around it: refuse, apply, persist, record, answer. Everything here is
     decided from :class:`_PostureRequestFacts`; the one refusal that fires
     BEFORE that threadpool hop stays in the handler, where it can be reached
-    without paying for the facts.
-
-    The order is load-bearing and is documented on the route: 400 before 503
-    before 403, because each rung answers a question the next one assumes.
+    without paying for the facts. The rungs, in order and with their reasons,
+    are documented on the route.
 
     Returns the exception rather than raising it, for the same reason
     :func:`_refuse_gesture` does: the audit record is filed here, and the

@@ -334,6 +334,11 @@ def only_alive(*pids):
         yield
 
 
+#: The 400's sentence for a target this render does not configure, spelled
+#: once in ``_unknown_target_message`` and pinned on both gesture routes.
+UNKNOWN_TARGET_SENTENCE = "This deployment configures no control target by that name."
+
+
 def post_posture(client, *, session_id=SESSION_A, target="standin", posture="sandbox"):
     return client.post(
         "/api/terminal/posture",
@@ -373,6 +378,7 @@ class TestGrammar:
             resp = post_posture(client, target="banana")
         assert resp.status_code == 400
         assert resp.json()["detail"]["error"] == "unknown_target"
+        assert resp.json()["detail"]["message"].startswith(UNKNOWN_TARGET_SENTENCE + " It has: ")
 
     def test_all_plus_writes_is_400(self, client, agent_data_root):
         """Widening is per target, always.
@@ -406,6 +412,7 @@ class TestGrammar:
             resp = post_posture(client, target=target, posture=posture)
         assert resp.status_code == 400
         assert resp.json()["detail"]["error"] == "unknown_target"
+        assert resp.json()["detail"]["message"] == UNKNOWN_TARGET_SENTENCE + " It has: none."
 
 
 class TestUnspokenSessions:
