@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from osprey.services.ariel_search import ARIELConfig
+    from osprey.services.ariel_search.ingestion.scheduler import StopReason
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
 
 
@@ -599,30 +600,54 @@ async def run_watch(
     interval: int | None,
     dry_run: bool,
     progress: _ProgressCb = None,
+    *,
+    require_initial_ingest: bool | None = None,
+    install_signal_handlers: bool = True,
+    stop_reason_out: list[str] | None = None,
 ) -> WatchOnceResult | None:
     """Watch a source for new logbook entries.
 
-    Returns a ``WatchOnceResult`` when *once* is ``True``.
-    In daemon mode runs until stopped and returns ``None``.
+    Args:
+        config_dict: Raw ARIEL configuration mapping.
+        source: Override for ``ingestion.source_url``.
+        adapter: Override for ``ingestion.adapter``.
+        once: Run a single poll cycle instead of the daemon loop.
+        interval: Override for ``ingestion.poll_interval_seconds``.
+        dry_run: Poll without writing entries.
+        progress: Optional callback for human-readable progress lines.
+        require_initial_ingest: When not ``None``, overrides
+            ``ingestion.watch.require_initial_ingest`` in *config_dict*.
+        install_signal_handlers: Install SIGINT/SIGTERM handlers that stop the
+            daemon loop. A caller that already owns the process signals, such as
+            one running the watch alongside other work, passes ``False``.
+        stop_reason_out: When given, the reason the daemon loop ended is
+            appended to this list. A loop that reports no reason appends
+            nothing.
+
+    Returns:
+        A ``WatchOnceResult`` when *once* is ``True``.
+        In daemon mode runs until stopped and returns ``None``.
     """
     import asyncio
     import signal
 
     from osprey.services.ariel_search import create_ariel_service
     from osprey.services.ariel_search.ingestion.scheduler import IngestionScheduler
+    from osprey.utils.logger import get_logger
 
-    if source or adapter:
-        if "ingestion" not in config_dict:
-            config_dict["ingestion"] = {}
+    # Only an actual override may mint the block: a config with no `ingestion`
+    # at all must reach `_ariel_config` still missing it, or the "no ingestion
+    # source configured" refusal below turns into an empty-source crash.
+    if source or adapter or interval is not None or require_initial_ingest is not None:
+        ingestion = config_dict.setdefault("ingestion", {})
         if source:
-            config_dict["ingestion"]["source_url"] = source
+            ingestion["source_url"] = source
         if adapter:
-            config_dict["ingestion"]["adapter"] = adapter
-
-    if interval is not None:
-        if "ingestion" not in config_dict:
-            config_dict["ingestion"] = {}
-        config_dict["ingestion"]["poll_interval_seconds"] = interval
+            ingestion["adapter"] = adapter
+        if interval is not None:
+            ingestion["poll_interval_seconds"] = interval
+        if require_initial_ingest is not None:
+            ingestion.setdefault("watch", {})["require_initial_ingest"] = require_initial_ingest
 
     config = _ariel_config(config_dict)
 
@@ -661,24 +686,113 @@ async def run_watch(
             progress(f"Poll interval: {poll_secs}s")
             progress("Press Ctrl+C to stop\n")
 
-        loop = asyncio.get_event_loop()
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, lambda: asyncio.ensure_future(scheduler.stop()))
+        if install_signal_handlers:
+            loop = asyncio.get_event_loop()
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                loop.add_signal_handler(sig, lambda: asyncio.ensure_future(scheduler.stop()))
 
         # Every loop iteration re-exports the entries that changed outside the
-        # enhancement pipeline before it polls for new ones. The scheduler owns
-        # the loop, so the pre-step is attached to the call it makes each pass
-        # rather than to a loop this function can see.
+        # enhancement pipeline before it polls for new ones, and retries the
+        # enhancements an earlier pass left incomplete after it. The scheduler
+        # owns the loop, so both steps are attached to the call it makes each
+        # pass rather than to a loop this function can see. The cleanup runs in
+        # its own guard: the wrapper stands in for ``poll_once``, so an
+        # exception escaping it would be counted as an ingestion failure and
+        # could stop the daemon on the consecutive-failure cap.
         inner_poll_once = scheduler.poll_once
 
         async def _poll_once_with_resync(*args: Any, **kwargs: Any):
             await resync_qmd_mirror_best_effort(config_dict, progress)
-            return await inner_poll_once(*args, **kwargs)
+            result = await inner_poll_once(*args, **kwargs)
+            try:
+                await run_enhance(
+                    config_dict,
+                    module=None,
+                    force=False,
+                    limit=1000,
+                    progress=progress,
+                )
+            except Exception as e:  # noqa: BLE001 -- cleanup is not an ingestion failure.
+                get_logger("ariel").warning(f"Enhance cleanup failed, continuing: {e}")
+            return result
 
         scheduler.poll_once = _poll_once_with_resync  # type: ignore[method-assign]
 
-        await scheduler.run_forever()
+        stop_reason = await scheduler.run_forever()
+        if stop_reason_out is not None and stop_reason is not None:
+            stop_reason_out.append(stop_reason)
         return None
+
+
+async def run_sync_watch(
+    config_dict: dict,
+    progress: _ProgressCb = None,
+) -> StopReason | None:
+    """Sync once, then watch the source until a signal or the failure cap.
+
+    The long-running form of :func:`run_sync`, and the entry point a container
+    that owns an ARIEL database runs. Both halves run inside one task, so the
+    single SIGINT/SIGTERM handler installed here -- before the sync starts --
+    ends whichever half is in flight; ``run_watch`` installs none of its own.
+    Cancellation is how a signalled run stops, so it leaves an in-flight ingest
+    recorded as a run that did not succeed and the next start ignores it.
+
+    A sync that fails is logged and does not stop the daemon: the watch that
+    follows is asked for a full first ingest, so a container that started while
+    its source was unreachable still ingests everything on the first poll that
+    succeeds, and the scheduler's backoff owns the retries in between.
+
+    Args:
+        config_dict: Raw ARIEL configuration mapping. Mutated in place with the
+            watch override, as the other overrides on ``run_watch`` are.
+        progress: Optional callback for human-readable progress lines.
+
+    Returns:
+        The reason the daemon loop ended, or ``None`` when it reported none.
+
+    Raises:
+        asyncio.CancelledError: When a signal cancelled the run. ``CancelledError``
+            is a ``BaseException``, so it passes through the fail-soft sync guard.
+    """
+    import asyncio
+    import signal
+
+    from osprey.services.ariel_search.ingestion.scheduler import StopReason
+    from osprey.utils.logger import get_logger
+
+    async def _sync_then_watch() -> StopReason | None:
+        try:
+            await run_sync(config_dict, progress=progress)
+        except Exception as e:  # noqa: BLE001 -- the loop's backoff owns the retries.
+            failure = f"{type(e).__name__}: {e}"
+            get_logger("ariel").warning(f"Initial sync failed, watching anyway: {failure}")
+            if progress:
+                progress(f"  Initial sync failed ({failure}); watching anyway")
+
+        reasons: list[str] = []
+        await run_watch(
+            config_dict,
+            source=None,
+            adapter=None,
+            once=False,
+            interval=None,
+            dry_run=False,
+            progress=progress,
+            require_initial_ingest=False,
+            install_signal_handlers=False,
+            stop_reason_out=reasons,
+        )
+        return StopReason(reasons[0]) if reasons else None
+
+    loop = asyncio.get_running_loop()
+    task = asyncio.ensure_future(_sync_then_watch())
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, task.cancel)
+    try:
+        return await task
+    finally:
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.remove_signal_handler(sig)
 
 
 # ---------------------------------------------------------------------------

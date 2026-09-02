@@ -11,7 +11,9 @@ ingestion run:
 * ``run_ingest`` — the storing branch: upsert, per-enhancer success/failure
   accounting, run bookkeeping, and the every-100-entries progress lines.
 * ``run_watch`` — the source/adapter/interval config overrides, the single-poll
-  result projection, and daemon mode with its SIGINT/SIGTERM handlers.
+  result projection, and daemon mode with its SIGINT/SIGTERM handlers, plus the
+  keyword-only ``require_initial_ingest`` / ``install_signal_handlers`` /
+  ``stop_reason_out`` controls an embedded caller drives it with.
 * ``run_enhance`` — entry selection (force / single module / dedupe across all
   enhancers) and the per-entry enhancement loop.
 * ``seed_logbook_entries`` — the progress branches.
@@ -42,6 +44,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from osprey.services.ariel_search import cli_operations as ops
+from osprey.services.ariel_search.ingestion.scheduler import StopReason
 from tests.services.ariel_search._cli_ops_doubles import (
     _Adapter,
     _Enhancer,
@@ -124,6 +127,7 @@ class _StubScheduler:
     """Recording stand-in for ``IngestionScheduler`` (built by the patch below)."""
 
     poll_result: Any = None
+    stop_reason: Any = StopReason.SIGNAL
     made: list[_StubScheduler] = []
 
     def __init__(self, config: Any, repository: Any) -> None:
@@ -137,15 +141,24 @@ class _StubScheduler:
         self.poll_calls.append({"dry_run": dry_run, "limit": limit})
         return self.poll_result
 
-    async def run_forever(self) -> None:
+    async def run_forever(self) -> Any:
         self.run_forever_calls += 1
+        return self.stop_reason
 
     async def stop(self) -> None:
         self.stop_calls += 1
 
 
-def _patch_scheduler(monkeypatch: pytest.MonkeyPatch, poll_result: Any = None) -> list[Any]:
-    """Route ``IngestionScheduler`` to a recording stub; returns its instances."""
+def _patch_scheduler(
+    monkeypatch: pytest.MonkeyPatch,
+    poll_result: Any = None,
+    stop_reason: Any = StopReason.SIGNAL,
+) -> list[Any]:
+    """Route ``IngestionScheduler`` to a recording stub; returns its instances.
+
+    ``stop_reason`` is what the stub's ``run_forever`` hands back. Pass ``None``
+    to stand in for a scheduler that returns nothing.
+    """
     import osprey.services.ariel_search.ingestion.scheduler as sched_mod
 
     made: list[Any] = []
@@ -154,6 +167,7 @@ def _patch_scheduler(monkeypatch: pytest.MonkeyPatch, poll_result: Any = None) -
         def __init__(self, config, repository):
             super().__init__(config, repository)
             self.poll_result = poll_result if poll_result is not None else _poll_result()
+            self.stop_reason = stop_reason
             made.append(self)
 
     monkeypatch.setattr(sched_mod, "IngestionScheduler", _Recorded)
@@ -662,6 +676,8 @@ class TestRunWatchDaemon:
             assert out is None
             assert schedulers[0].run_forever_calls == 1
             assert schedulers[0].poll_calls == []
+            # Defaults: watch mode keeps the config's own require_initial_ingest.
+            assert schedulers[0].config.ingestion.watch.require_initial_ingest is True
             assert messages == [
                 f"Watching: {_SOURCE}",
                 "Poll interval: 120s",
@@ -708,6 +724,124 @@ class TestRunWatchDaemon:
         finally:
             for sig in handlers:
                 loop.remove_signal_handler(sig)
+
+    async def test_signal_handlers_can_be_left_uninstalled(self, monkeypatch, mock_repository):
+        """An embedded caller owning the process signals opts the handlers out."""
+        schedulers = _patch_scheduler(monkeypatch)
+        _patch_service(monkeypatch, _StubService(mock_repository))
+        loop = asyncio.get_running_loop()
+
+        try:
+            out = await ops.run_watch(
+                _config(source_url=_SOURCE),
+                source=None,
+                adapter=None,
+                once=False,
+                interval=None,
+                dry_run=False,
+                install_signal_handlers=False,
+            )
+
+            assert out is None
+            assert schedulers[0].run_forever_calls == 1
+            assert loop.remove_signal_handler(signal.SIGINT) is False
+            assert loop.remove_signal_handler(signal.SIGTERM) is False
+        finally:
+            loop.remove_signal_handler(signal.SIGINT)
+            loop.remove_signal_handler(signal.SIGTERM)
+
+    async def test_stop_reason_out_collects_the_reason_the_loop_ended_on(
+        self, monkeypatch, mock_repository
+    ):
+        _patch_scheduler(monkeypatch, stop_reason=StopReason.FAILURE_CAP)
+        _patch_service(monkeypatch, _StubService(mock_repository))
+        reasons: list[str] = []
+
+        loop = asyncio.get_running_loop()
+        try:
+            await ops.run_watch(
+                _config(source_url=_SOURCE),
+                source=None,
+                adapter=None,
+                once=False,
+                interval=None,
+                dry_run=False,
+                stop_reason_out=reasons,
+            )
+        finally:
+            loop.remove_signal_handler(signal.SIGINT)
+            loop.remove_signal_handler(signal.SIGTERM)
+
+        assert reasons == [StopReason.FAILURE_CAP]
+        assert reasons[0] == "failure_cap"
+
+    async def test_stop_reason_out_stays_empty_when_the_loop_returns_nothing(
+        self, monkeypatch, mock_repository
+    ):
+        """A scheduler that reports no reason appends nothing rather than ``None``."""
+        _patch_scheduler(monkeypatch, stop_reason=None)
+        _patch_service(monkeypatch, _StubService(mock_repository))
+        reasons: list[str] = []
+
+        loop = asyncio.get_running_loop()
+        try:
+            await ops.run_watch(
+                _config(source_url=_SOURCE),
+                source=None,
+                adapter=None,
+                once=False,
+                interval=None,
+                dry_run=False,
+                install_signal_handlers=False,
+                stop_reason_out=reasons,
+            )
+        finally:
+            loop.remove_signal_handler(signal.SIGINT)
+            loop.remove_signal_handler(signal.SIGTERM)
+
+        assert reasons == []
+
+    async def test_require_initial_ingest_override_reaches_the_scheduler_config(
+        self, monkeypatch, mock_repository
+    ):
+        schedulers = _patch_scheduler(monkeypatch)
+        _patch_service(monkeypatch, _StubService(mock_repository))
+        config_dict = _config(source_url=_SOURCE)
+
+        await ops.run_watch(
+            config_dict,
+            source=None,
+            adapter=None,
+            once=False,
+            interval=None,
+            dry_run=False,
+            require_initial_ingest=False,
+            install_signal_handlers=False,
+        )
+
+        assert schedulers[0].config.ingestion.watch.require_initial_ingest is False
+        assert config_dict["ingestion"]["watch"]["require_initial_ingest"] is False
+
+    async def test_require_initial_ingest_override_keeps_the_rest_of_the_watch_block(
+        self, monkeypatch, mock_repository
+    ):
+        schedulers = _patch_scheduler(monkeypatch)
+        _patch_service(monkeypatch, _StubService(mock_repository))
+
+        await ops.run_watch(
+            _config(source_url=_SOURCE, watch={"max_consecutive_failures": 3}),
+            source=None,
+            adapter=None,
+            once=False,
+            interval=None,
+            dry_run=False,
+            require_initial_ingest=True,
+            install_signal_handlers=False,
+        )
+
+        watch = schedulers[0].config.ingestion.watch
+        assert watch.require_initial_ingest is True
+        assert watch.max_consecutive_failures == 3
 
 
 # ---------------------------------------------------------------------------
