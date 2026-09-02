@@ -219,6 +219,26 @@ describe('<osprey-display-menu>', () => {
       );
     });
 
+    test('clicking the already-active view segment does not broadcast a flip', () => {
+      // The segment stays a live button (the card stays open across a pick),
+      // so re-clicking it is an ordinary gesture. The hub's dock treats every
+      // broadcast as a flip and stashes the current layout under the OTHER
+      // view's key, so a same-value pick must persist and nothing more.
+      document.documentElement.setAttribute('data-ui-mode', 'expert');
+      const postSpy = vi.spyOn(window, 'postMessage').mockImplementation(() => {});
+      const el = mount();
+
+      qs(el, '.display-menu-view .display-seg-option[data-mode="expert"]').click();
+      expect(postSpy).not.toHaveBeenCalled();
+      expect(window.localStorage.getItem(MODE_KEY)).toBe('expert');
+
+      qs(el, '.display-menu-view .display-seg-option[data-mode="simple"]').click();
+      expect(postSpy).toHaveBeenCalledWith(
+        { type: 'osprey-mode-change', mode: 'simple' },
+        window.location.origin
+      );
+    });
+
     test('strips a leftover one-shot ?mode= so it cannot out-rank the pick on reload', () => {
       window.history.replaceState({}, '', '/?mode=expert&embedded=true');
       const el = mount();

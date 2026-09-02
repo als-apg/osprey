@@ -21,6 +21,7 @@ import {
   applyEmbedded,
   isEmbedded,
   onModeChange,
+  pickUiMode,
   stripQueryMode,
   CONTRACT_VERSION,
 } from '../../../../src/osprey/interfaces/design_system/static/js/frame-params.js';
@@ -205,5 +206,48 @@ describe('onModeChange', () => {
     deliverMessage({ type: 'osprey-mode-change', mode: 'simple' });
 
     expect(document.documentElement.getAttribute('data-ui-mode')).toBe('simple');
+  });
+});
+
+describe('pickUiMode', () => {
+  afterEach(() => {
+    document.documentElement.removeAttribute('data-ui-mode');
+    window.localStorage.removeItem('osprey-ui-mode');
+    vi.restoreAllMocks();
+  });
+
+  test('persists the pick and broadcasts it when the mode changes', () => {
+    document.documentElement.setAttribute('data-ui-mode', 'expert');
+    const postSpy = vi.spyOn(window, 'postMessage').mockImplementation(() => {});
+
+    pickUiMode('simple');
+
+    expect(window.localStorage.getItem('osprey-ui-mode')).toBe('simple');
+    expect(postSpy).toHaveBeenCalledWith(
+      { type: 'osprey-mode-change', mode: 'simple' },
+      window.location.origin
+    );
+  });
+
+  test('a pick of the mode already stamped persists but does not broadcast', () => {
+    // Every listener treats a broadcast as a flip: the web terminal's dock
+    // stashes the on-screen layout under the view being LEFT. Re-broadcasting
+    // the current mode would therefore file this view's layout under the
+    // other view's key -- the one thing a same-value pick must never do.
+    document.documentElement.setAttribute('data-ui-mode', 'expert');
+    const postSpy = vi.spyOn(window, 'postMessage').mockImplementation(() => {});
+
+    pickUiMode('expert');
+
+    expect(window.localStorage.getItem('osprey-ui-mode')).toBe('expert');
+    expect(postSpy).not.toHaveBeenCalled();
+  });
+
+  test('with nothing stamped yet, the first pick still broadcasts', () => {
+    const postSpy = vi.spyOn(window, 'postMessage').mockImplementation(() => {});
+
+    pickUiMode('expert');
+
+    expect(postSpy).toHaveBeenCalledTimes(1);
   });
 });
