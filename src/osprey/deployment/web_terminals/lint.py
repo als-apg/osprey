@@ -69,6 +69,7 @@ from osprey.deployment.web_terminals.render import (
 )
 from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
 from osprey.port_layout import _MAX_PORT, default_port, resolve_port_base
+from osprey.services.auth_sidecar.identity_headers import CASE_INSENSITIVE_CLAIMS
 from osprey_connectors.types import TYPE_WRITES_ENABLED_LEAF, WRITES_ENABLED_KEY
 
 # Both listeners in the gated auth/TLS seam are config-driven: nginx's TLS
@@ -3207,13 +3208,22 @@ def _check_shared_card_duplicate_subject(
     Scoped to ``method: oidc`` — no other method reads the subject mapping —
     and grouped like :func:`_check_auth_credential_collisions`: exact strings
     (stripped of surrounding whitespace) across the raw roster, one finding
-    per colliding subject. The message names the entries, never the subject —
-    same reasoning as the ``$`` scan above: echoing a value invites pasting
-    it, and the names are what the operator edits.
+    per colliding subject. Under an ``email`` claim the grouping is
+    case-insensitive as well, because that is how the sidecar matches such a
+    claim (:data:`~osprey.services.auth_sidecar.identity_headers.CASE_INSENSITIVE_CLAIMS`):
+    two entries spelling one mailbox in two cases ARE the ambiguity it would
+    refuse, and lint has to see the collision the callback would. The message
+    names the entries, never the subject — same reasoning as the ``$`` scan
+    above: echoing a value invites pasting it, and the names are what the
+    operator edits.
     """
     context = _auth_context(web_terminals)
     if context is None or context["auth_method"] != "oidc":
         return []
+    # `None` is render's "unset" — the sidecar's own default (`sub`) applies,
+    # which is not on the case-insensitive list, so the exact grouping holds.
+    claim = context.get("auth_oidc_claim") or ""
+    fold = claim in CASE_INSENSITIVE_CLAIMS
     # Only the literal `access: "any"` survives normalization, so reading it
     # off the raw entry through the shared predicate cannot disagree with
     # what deploys.
@@ -3227,7 +3237,8 @@ def _check_shared_card_duplicate_subject(
         subject = user.get("oidc_subject")
         if name is None or not isinstance(subject, str) or not subject.strip():
             continue
-        by_subject.setdefault(subject.strip(), []).append(name)
+        key = subject.strip()
+        by_subject.setdefault(key.casefold() if fold else key, []).append(name)
     return [
         Finding(
             severity="error",

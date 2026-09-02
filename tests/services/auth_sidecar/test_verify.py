@@ -490,6 +490,26 @@ class TestSharedCardOpener:
         with TestClient(_app(env)) as client:
             assert _verify(client, "alice", cookie).status_code == 401
 
+    def test_an_email_opener_re_spelled_in_another_case_is_still_the_opener(self) -> None:
+        """Under ``claim: email`` an operator changing only the case of the
+        opener's mapping has remapped nobody — the same comparator the login
+        went through keeps the card open; under ``sub`` the same edit is a new
+        identity and closes it."""
+        cookie = _mint(_unlocked("alice", stored=None, subject="bob@example.org", opener="bob"))
+        env = {
+            **self.SHARED_ENV,
+            "OSPREY_AUTH_OIDC_CLAIM": "email",
+            "OSPREY_AUTH_OIDC_SUBJECT_BOB": "Bob@Example.ORG",
+        }
+        with TestClient(_app(env)) as client:
+            response = _verify(client, "alice", cookie)
+        assert response.status_code == 200
+        assert response.headers[self.SUBJECT_HEADER] == "bob@example.org"
+
+        env_sub = {**self.SHARED_ENV, "OSPREY_AUTH_OIDC_SUBJECT_BOB": self.BOB_SUBJECT.upper()}
+        with TestClient(_app(env_sub)) as client:
+            assert _verify(client, "alice", cookie).status_code == 401
+
     def test_a_shared_card_session_naming_no_opener_is_denied(self) -> None:
         """Flipping a card to ``any`` must not widen sessions minted while it
         was an own card — they carry no opener to re-validate."""

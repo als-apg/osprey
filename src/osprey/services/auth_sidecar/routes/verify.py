@@ -48,7 +48,7 @@ from ..identity_headers import (
     ROLE_SOURCE_HEADER,
     SUBJECT_HEADER,
     is_header_safe,
-    same_value,
+    same_identity,
 )
 from ..passwords import verify_generation_tag
 from ..revocation import RevocationStore
@@ -219,7 +219,10 @@ async def verify(
             # Checked explicitly, and first, so the comparison below can never
             # run against ``None``.
             return _deny(username, "the opener is no longer a mapped roster user")
-        if not same_value(expected, entry.oidc_subject):
+        # Under the claim's own rule, like the login that minted the entry: an
+        # operator re-spelling an `email` mapping in a different case has not
+        # remapped anyone, and must not log the whole roster out of the card.
+        if not same_identity(expected, entry.oidc_subject, claim=settings.oidc_claim):
             return _deny(username, "the opener's mapped subject has changed")
 
     if settings.method != "oidc":

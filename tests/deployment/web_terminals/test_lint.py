@@ -3224,6 +3224,51 @@ def test_lint_duplicate_subject_with_a_shared_card_is_an_error() -> None:
     assert "one of them only" in offenders[0].message
 
 
+def test_lint_duplicate_email_subjects_differing_only_in_case_are_an_error() -> None:
+    """Under ``claim: email`` the sidecar matches a mailbox without regard to
+    case, so two entries spelling one address in two cases are the same
+    ambiguity a byte-identical pair is — and lint sees it the way the
+    callback would."""
+    # Arrange
+    config = _auth_config(
+        {"method": "oidc", "oidc": {"issuer": "https://idp.example.org", "claim": "email"}}
+    )
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "oidc_subject": "THellert@lbl.gov"},
+        {"name": "thellert-admin", "index": 1, "oidc_subject": "thellert@lbl.gov"},
+        {"name": "control", "index": 2, "access": "any"},
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    offenders = [
+        f for f in _errors(findings) if f.code == "web_terminals.shared_card_duplicate_subject"
+    ]
+    assert len(offenders) == 1
+    assert "thellert" in offenders[0].message
+    assert "thellert-admin" in offenders[0].message
+
+
+def test_lint_sub_subjects_differing_only_in_case_are_distinct() -> None:
+    """The default ``sub`` claim is case-sensitive at the sidecar, so the
+    same two spellings are two identities there — and two here."""
+    # Arrange
+    config = _auth_config({"method": "oidc", "oidc": {"issuer": "https://idp.example.org"}})
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "oidc_subject": "IDP|Thorsten"},
+        {"name": "thellert-admin", "index": 1, "oidc_subject": "idp|thorsten"},
+        {"name": "control", "index": 2, "access": "any"},
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.shared_card_duplicate_subject" for f in findings)
+
+
 def test_lint_duplicate_subject_without_a_shared_card_reports_nothing() -> None:
     """The same two-cards-one-person roster with no shared entry is silent:
     every login still arrives through the card that was clicked, so nothing
