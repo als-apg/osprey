@@ -1219,10 +1219,13 @@ async def queue_add(draft_revision: int, lane: str | None = None) -> str:
             session is on now.
 
     Returns:
-        JSON ``{"run_id", "revision", "item", "lane"}`` — ``run_id`` is
-        OSPREY's id for the eventual run (use it with get_run / get_run_data
-        once it executes), and ``item.item_uid`` is the queue handle for this
-        item. ``lane`` is the plan lane the item was queued on, and on a
+        JSON ``{"run_id", "revision", "item", "lane", "armed"}`` — ``run_id``
+        is OSPREY's id for the eventual run (use it with get_run /
+        get_run_data once it executes), and ``item.item_uid`` is the queue
+        handle for this item. ``armed`` is the bridge's word on what this add
+        did: true, the queue was armed or already draining and the plan is on
+        its way with no further action of yours; false, the item waits for a
+        start. ``lane`` is the plan lane the item was queued on, and on a
         deployment with two lanes it is what ``queue_start(lane=...)`` must be
         given: it pins the start to the machine this item was composed for,
         even if the session switches targets in between. A single-lane

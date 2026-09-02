@@ -192,10 +192,11 @@ arming gate sits there rather than on composition.
 This queues exactly the draft the human can see in their plan panel at that
 revision — never anything you pass here. On an armed queue it runs now; on a
 stopped queue it waits. It is the agent analog of the plan panel's *Run* /
-*Add to queue* button. On success it returns `{run_id, revision, item}`:
-`run_id` is OSPREY's id for the eventual run (use it with `get_run` /
-`get_run_data` / `get_run_figure`), and `item.item_uid` is the queue handle.
-Tell the human which of the two happened.
+*Add to queue* button. On success it returns `{run_id, revision, item,
+armed}`: `run_id` is OSPREY's id for the eventual run (use it with `get_run` /
+`get_run_data` / `get_run_figure`), `item.item_uid` is the queue handle, and
+`armed` says which of the two happened — true, the plan is on its way; false,
+it waits for a start. Tell the human which.
 
 **A revision is consumable exactly once.** Queuing the same plan again — a
 repeat plan, a retry — needs a `set_draft` edit to mint a new revision first;

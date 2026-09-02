@@ -1009,6 +1009,14 @@ async def add_queue_item(
        denominator — an accepted gap, and an honest one, since the number a plan
        will actually produce is the plan's to state and not this route's to
        infer from the enqueued parameters.
+
+    The response's ``armed`` says whether this add sent the plan toward
+    hardware: true when the status the arming pre-check was decided on had
+    the queue draining or autostart on (the item runs with no further
+    action), false when the item waits for a start. Decided once, under the
+    lock, on the same read that decided whether the token was required — so
+    a caller learns which of the two happened without a second manager read
+    that could already disagree with the first.
     """
     backend = _get_backend()
 
@@ -1036,6 +1044,7 @@ async def add_queue_item(
     }
 
     enqueued = False
+    arming_add = False
     result: dict[str, Any] = {}
     try:
         # Unchanged validation gate (session-plan passing record); the
@@ -1046,7 +1055,8 @@ async def add_queue_item(
         try:
             async with _arming_lock:
                 status = await backend.status(reload=True)
-                if not armed and _requires_arming(status):
+                arming_add = _requires_arming(status)
+                if not armed and arming_add:
                     _refuse_unarmed(x_launch_token, status)
 
                 # Channel names resolve to devices in the worker, on the run's
@@ -1113,6 +1123,7 @@ async def add_queue_item(
         "run_id": run_id,
         "revision": checked.revision,
         "item": returned_item if isinstance(returned_item, dict) else None,
+        "armed": arming_add,
     }
 
 

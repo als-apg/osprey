@@ -598,10 +598,12 @@ def test_enqueue_puts_the_pinned_draft_in_the_managers_queue(
 
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert set(body) == {"run_id", "revision", "item"}
+    assert set(body) == {"run_id", "revision", "item", "armed"}
     assert body["revision"] == revision
     assert body["item"]["item_uid"] == "item-1"
     assert body["run_id"]
+    # An idle, unarmed manager: the item waits for a start, and the add says so.
+    assert body["armed"] is False
     # Negative controls: a success is never shaped like a refusal.
     assert "code" not in body
     assert "capability" not in body
@@ -733,6 +735,8 @@ def test_enqueueing_onto_a_running_queue_requires_the_launch_token(
     )
     assert armed.status_code == 200, armed.text
     assert manager.item_uids() == ["item-1"]
+    # ...and the add reports that it was the launch: the item is on its way.
+    assert armed.json()["armed"] is True
 
 
 def test_stopping_is_ungated_but_withdrawing_a_stop_requires_the_token(

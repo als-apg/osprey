@@ -53,9 +53,16 @@ the orbit-bump class. An agent that picks a differently-named but structurally
 equivalent plan still passes, and the predicates are PAIRWISE exclusive, so no
 live test can be satisfied by another class's run.
 
-**Both queue steps.** Execution is two calls: ``queue_add`` puts the pinned
-draft in the queue and moves nothing; only ``queue_start`` drains it. A floor
-satisfied by the add alone would pass a run in which no measurement was ever
+**The launch step.** The trace has to show the plan being sent toward the
+machine, and which call does that depends on the queue's posture. On a
+stopped queue ``queue_add`` moves nothing and only a successful
+``queue_start`` drains it. On an armed queue — the shipped control-assistant
+posture, ``bluesky.queue_autostart`` — the add itself is the launch, and the
+bridge says so in the add's own answer (``armed: true``); a start there is
+refused as busy while the plan runs, and is a no-op re-arm once it has
+finished. So the floor takes an add the bridge reports armed as the launch,
+and an unarmed add only with a successful start after it. A floor satisfied
+by an unarmed add alone would pass a run in which no measurement was ever
 taken, which is the one thing this module exists to detect. ``get_run_data``
 closes it, and closes it on the RIGHT run: the add's own result names the run id
 the bridge assigned, and the read is required to ask for that id. Every live
@@ -66,17 +73,20 @@ one that took its own.
 The third live test grades the ARMING GATE, not a measurement
 -------------------------------------------------------------
 
-Starting a queued plan is the moment hardware moves, and it costs the operator
-exactly ONE action: they approve the agent's ``queue_start``, and the queue
-drains. The measurement tests above cannot see that — they run headless with
+Sending a queued plan toward the machine is the moment hardware moves, and it
+costs the operator exactly ONE action: they approve the agent's arming call —
+``queue_start`` on a stopped queue, ``queue_add`` on an armed one, where the
+add runs the plan — and the queue drains. The measurement tests above cannot
+see that — they run headless with
 the approval gate deliberately disarmed, because a headless session has no
 responder and an unanswered prompt is a hard denial. So they prove the flow
 WORKS while saying nothing about how many human actions it took, which is the
 one property this feature changed.
 
-:func:`test_starting_a_queued_scan_costs_one_operator_approval` re-arms the
-shipped approval hook for ``queue_start`` alone, answers the prompt from the
-test, and asserts the transcript: one prompt, for the arming step, allowed
+:func:`test_starting_a_queued_scan_costs_one_operator_approval` reads the
+deployed queue's posture off the bridge, re-arms the shipped approval hook
+for that posture's arming call alone, answers the prompt from the test, and
+asserts the transcript: one prompt, for the arming step, allowed
 once — followed by a plan that really ran. It also probes the deployed bridge
 for the route that used to carry the second action. That probe is the only
 place in the suite where the MCP server's expectations meet the bridge's real
@@ -425,37 +435,34 @@ def _first_successful_after(
     return None
 
 
-def _launched_run_id(add_trace: ToolTrace) -> str | None:
-    """The run id the bridge assigned to the plan a ``queue_add`` pinned.
+def _add_body(add_trace: ToolTrace) -> dict[str, Any] | None:
+    """The JSON object a ``queue_add`` answered with, out of its transport envelope.
 
-    ``queue_add`` answers with ``json.dumps({"run_id", "revision", "item"})``,
-    and ``run_id`` is OSPREY's handle for the run that add will produce — the
-    same value ``get_run_data`` takes as its required argument.
+    ``queue_add`` answers with ``json.dumps({"run_id", "revision", "item",
+    "lane", "armed"})``. That body does not reach the transcript bare. FastMCP
+    surfaces a ``str``-returning tool as structured content under a single
+    ``result`` key, so what the SDK records for a real run is ``{"result":
+    "<that JSON string>"}`` — the body one layer down, inside a re-encoded
+    string. A direct call yields the bare body instead, so both forms are
+    read: the sole-key ``result`` envelope is peeled (bounded, and only when
+    ``result`` is the ONLY key, so a real body carrying its own ``result``
+    field is never mistaken for transport), and a bare body is taken as-is.
 
-    That body does not reach the transcript bare. FastMCP surfaces a
-    ``str``-returning tool as structured content under a single ``result``
-    key, so what the SDK records for a real run is ``{"result": "<that JSON
-    string>"}`` — the id one layer down, inside a re-encoded string. A direct
-    call yields the bare body instead, so both forms are read: the sole-key
-    ``result`` envelope is peeled (bounded, and only when ``result`` is the
-    ONLY key, so a real body carrying its own ``result`` field is never
-    mistaken for transport), and a bare body is taken as-is.
-
-    Returns ``None`` when the result is not parseable JSON or carries no
-    usable id, which is what makes the binding in :func:`find_satisfying_chain`
-    degrade instead of hard-failing.
+    Returns ``None`` when the result is not parseable JSON or is not an
+    object, which is what makes every reader of it — the run id, the armed
+    flag — degrade instead of hard-failing.
     """
     body: Any = add_trace.result
     # Bounded so a pathological body cannot spin. The ceiling is derived, not
     # padded: every iteration consumes exactly ONE step — parse a string, peel
-    # one envelope, or read the id and return — so N envelope layers cost
-    # 2N + 2. A bare body is 2 (parse, read); the live single-envelope shape is
-    # 4 (parse outer, peel, parse inner, read). 8 is therefore "tolerate up to
+    # one envelope, or return the body — so N envelope layers cost 2N + 2. A
+    # bare body is 2 (parse, return); the live single-envelope shape is 4
+    # (parse outer, peel, parse inner, return). 8 is therefore "tolerate up to
     # THREE nested envelopes", which is the real boundary this number encodes.
     # Raising it buys deeper nesting and nothing else; lowering it below 4
     # silently reverts to the bug this helper exists to fix — an earlier draft
     # used 3 and returned None on the real payload while passing hand-written
-    # tests, because 3 lands one step short of reading the id it just parsed.
+    # tests, because 3 lands one step short of reading the body it just parsed.
     for _ in range(8):
         if isinstance(body, str):
             try:
@@ -465,14 +472,53 @@ def _launched_run_id(add_trace: ToolTrace) -> str | None:
             continue
         if not isinstance(body, dict):
             return None
-        run_id = body.get("run_id")
-        if isinstance(run_id, str) and run_id:
-            return run_id
         if set(body) == {"result"}:  # FastMCP str-return transport envelope
             body = body["result"]
             continue
-        return None
+        return body
     return None
+
+
+def _launched_run_id(add_trace: ToolTrace) -> str | None:
+    """The run id the bridge assigned to the plan a ``queue_add`` pinned.
+
+    ``run_id`` is OSPREY's handle for the run that add will produce — the
+    same value ``get_run_data`` takes as its required argument. ``None`` when
+    the body carries no usable id (see :func:`_add_body`), which is what makes
+    the binding in :func:`find_satisfying_chain` degrade instead of
+    hard-failing.
+    """
+    body = _add_body(add_trace)
+    run_id = body.get("run_id") if body is not None else None
+    return run_id if isinstance(run_id, str) and run_id else None
+
+
+def _add_was_armed(add_trace: ToolTrace) -> bool:
+    """Whether the bridge reported this ``queue_add`` as the launch itself.
+
+    The bridge answers ``armed: true`` when the add sent the plan toward
+    hardware — the queue was armed (autostart on) or already draining on the
+    status the add was decided on — and false when the item waits for a
+    start. Only a literal ``True`` counts: a missing key (an older bridge, a
+    hand-written body) reads as not armed, so the floor then insists on the
+    start the stopped-queue flow needs rather than inventing a launch.
+    """
+    body = _add_body(add_trace)
+    return body is not None and body.get("armed") is True
+
+
+def _launch_index(traces: list[ToolTrace], add_idx: int) -> int | None:
+    """The trace index at which the plan ``traces[add_idx]`` pinned was launched.
+
+    The add itself when the bridge reported it armed (the plan is already on
+    its way — see :func:`_add_was_armed`), otherwise the first successful
+    ``queue_start`` after it, or ``None`` when nothing launched it. The read
+    that closes a chain must come after this index, which is what keeps a
+    data read of an item still waiting in a stopped queue from counting.
+    """
+    if _add_was_armed(traces[add_idx]):
+        return add_idx
+    return _first_successful_after(traces, add_idx, QUEUE_START)
 
 
 def _reads_run(run_id: str) -> Callable[[ToolTrace], bool]:
@@ -487,13 +533,15 @@ def _reads_run(run_id: str) -> Callable[[ToolTrace], bool]:
 def find_satisfying_chain(
     traces: list[ToolTrace], predicate: PlanClassPredicate
 ) -> tuple[int, int, int] | None:
-    """Locate a launch → start → read chain that satisfies ``predicate``.
+    """Locate a stage → launch → read chain that satisfies ``predicate``.
 
-    Returns the ``(queue_add, queue_start, get_run_data)`` trace indices of the
+    Returns the ``(queue_add, launch, get_run_data)`` trace indices of the
     first satisfying chain, or ``None`` if there is none. Satisfying means: a
     SUCCESSFUL ``queue_add`` whose accumulated draft state passes ``predicate``,
-    followed later by a successful ``queue_start``, followed later by a
-    successful ``get_run_data`` OF THE RUN THAT ADD LAUNCHED.
+    launched — the add's own index when the bridge reported the add armed,
+    else a later successful ``queue_start`` (see :func:`_launch_index`) —
+    followed later by a successful ``get_run_data`` OF THE RUN THAT ADD
+    LAUNCHED.
 
     That last binding is what keeps the read honest across tests. Both live
     tests share one module deploy, so from the second one onward an EARLIER
@@ -511,9 +559,9 @@ def find_satisfying_chain(
     discrimination; it can never turn a correct run red.
 
     Greedy first-match on the two tail anchors is exhaustive, not a shortcut:
-    the earliest successful ``queue_start`` after an add leaves the widest
-    window for a subsequent read, so if any start/read pair exists for that
-    add, the first-match pair does too. Only the add itself needs the full
+    the earliest launch of an add leaves the widest window for a subsequent
+    read, so if any launch/read pair exists for that add, the first-match
+    pair does too. Only the add itself needs the full
     scan, since a later add can carry state an earlier one did not.
     """
     states = accumulated_draft_states(traces)
@@ -522,19 +570,19 @@ def find_satisfying_chain(
             continue
         if not predicate(states[add_idx]):
             continue
-        start_idx = _first_successful_after(traces, add_idx, QUEUE_START)
-        if start_idx is None:
+        launch_idx = _launch_index(traces, add_idx)
+        if launch_idx is None:
             continue
         run_id = _launched_run_id(trace)
         read_idx = _first_successful_after(
             traces,
-            start_idx,
+            launch_idx,
             GET_RUN_DATA,
             matches=None if run_id is None else _reads_run(run_id),
         )
         if read_idx is None:
             continue
-        return add_idx, start_idx, read_idx
+        return add_idx, launch_idx, read_idx
     return None
 
 
@@ -562,7 +610,8 @@ def assert_scan_executed(
         f"{'REFUSED' if t.is_error else 'ok'} {t.input}" for t in traces if t.name == SET_DRAFT
     ]
     add_states = [
-        f"{'REFUSED' if t.is_error else 'ok'} launched={_launched_run_id(t)!r} state={states[i]}"
+        f"{'REFUSED' if t.is_error else 'ok'} launched={_launched_run_id(t)!r} "
+        f"armed={_add_was_armed(t)} state={states[i]}"
         for i, t in enumerate(traces)
         if t.name == QUEUE_ADD
     ]
@@ -574,8 +623,9 @@ def assert_scan_executed(
     raise AssertionError(
         f"no {plan_class} plan was staged, launched, and read back. The floor "
         "needs a SUCCESSFUL queue_add whose accumulated draft state satisfies "
-        f"the {plan_class} contract, then a successful queue_start (an item "
-        "sitting in the queue is not a measurement), then a successful "
+        f"the {plan_class} contract, then the launch — the add itself where the "
+        "bridge answered armed=True, else a successful queue_start after it (an "
+        "item waiting in a stopped queue is not a measurement) — then a successful "
         "get_run_data OF THE RUN THAT ADD LAUNCHED (reading an earlier run "
         "back is not this measurement — compare 'launched' below against the "
         "run_id each read asked for).\n"
@@ -704,8 +754,9 @@ def find_authored_run_chain(
     first successful ``queue_add`` whose staged plan name was previously
     AUTHORED (a successful ``write_plan`` of that name) and then VALIDATED
     with a pass (a successful, passing ``validate_plan`` of that name, after
-    the authoring), followed by a successful ``queue_start`` and a successful
-    ``get_run_data`` of the run the add launched — the same tail binding, and
+    the authoring), launched (an armed add, or a successful ``queue_start``
+    after it) and followed by a successful ``get_run_data`` of the run the
+    add launched — the same tail binding, and
     the same graceful run-id degradation, as :func:`find_satisfying_chain`.
 
     The name binding is the class check here: a run of ``orm`` or
@@ -737,13 +788,13 @@ def find_authored_run_chain(
         staged = staged_names[add_idx]
         if staged not in validated or not states[add_idx]:
             continue
-        start_idx = _first_successful_after(traces, add_idx, QUEUE_START)
-        if start_idx is None:
+        launch_idx = _launch_index(traces, add_idx)
+        if launch_idx is None:
             continue
         run_id = _launched_run_id(trace)
         read_idx = _first_successful_after(
             traces,
-            start_idx,
+            launch_idx,
             GET_RUN_DATA,
             matches=None if run_id is None else _reads_run(run_id),
         )
@@ -780,7 +831,7 @@ def assert_authored_scan_executed(result: SDKWorkflowResult) -> tuple[str | None
     staged_names = accumulated_draft_plan_names(traces)
     adds = [
         f"{'REFUSED' if t.is_error else 'ok'} staged_plan={staged_names[i]!r} "
-        f"launched={_launched_run_id(t)!r}"
+        f"launched={_launched_run_id(t)!r} armed={_add_was_armed(t)}"
         for i, t in enumerate(traces)
         if t.name == QUEUE_ADD
     ]
@@ -789,7 +840,8 @@ def assert_authored_scan_executed(result: SDKWorkflowResult) -> tuple[str | None
         "floor needs a successful write_plan, then a successful PASSING "
         "validate_plan of that same plan (after the authoring — a re-author "
         "invalidates an earlier pass), then a successful queue_add staging "
-        "exactly that plan, a successful queue_start, and a successful "
+        "exactly that plan, the launch (the add itself where the bridge answered "
+        "armed=True, else a successful queue_start after it), and a successful "
         "get_run_data of the run that add launched. A run of a registered "
         "plan cannot satisfy this floor — authoring is the capability under "
         "test.\n"
@@ -1433,9 +1485,13 @@ def _draft(
     )
 
 
-def _add(*, is_error: bool = False, revision: int = 1, run_id: str = "run-1") -> ToolTrace:
+def _add(
+    *, is_error: bool = False, revision: int = 1, run_id: str = "run-1", armed: bool = False
+) -> ToolTrace:
     """A ``queue_add`` trace. The success body carries ``run_id`` because the
-    real tool's does, and the floor binds the later data read to it.
+    real tool's does, and the floor binds the later data read to it; ``armed``
+    is the bridge's word on whether the add was the launch (false by default:
+    the stopped-queue shape, where the start still has to follow).
 
     Wrapped in the ``{"result": "<json>"}`` transport envelope that FastMCP
     puts around a ``str``-returning tool, because that is the form the SDK
@@ -1446,7 +1502,10 @@ def _add(*, is_error: bool = False, revision: int = 1, run_id: str = "run-1") ->
     body = (
         '{"code": "stale_revision"}'
         if is_error
-        else f'{{"run_id": "{run_id}", "revision": 1, "item": {{"item_uid": "item-1"}}}}'
+        else (
+            f'{{"run_id": "{run_id}", "revision": 1, "item": {{"item_uid": "item-1"}}, '
+            f'"armed": {json.dumps(armed)}}}'
+        )
     )
     return ToolTrace(
         name=QUEUE_ADD,
@@ -1571,15 +1630,48 @@ def test_floor_rejects_out_of_order_calls() -> None:
 @pytest.mark.harness_benchmark
 @pytest.mark.parametrize("missing", [QUEUE_ADD, QUEUE_START])
 def test_floor_requires_both_queue_steps(missing: str) -> None:
-    """Non-vacuity for the two-step execution contract: dropping EITHER queue
-    call must fail the floor.
+    """Non-vacuity for the stopped-queue execution contract: dropping EITHER
+    queue call must fail the floor when the add was not the launch.
 
     ``queue_start`` is the one that matters most. An agent that composes a
-    plan and queues it has moved nothing, so a floor satisfied by the add
-    alone would pass a run in which no measurement was taken. Reversing the
-    whole trace (above) does not prove this — it perturbs every call at once.
+    plan and queues it onto a stopped queue has moved nothing, so a floor
+    satisfied by such an add alone would pass a run in which no measurement
+    was taken. Reversing the whole trace (above) does not prove this — it
+    perturbs every call at once. The armed-queue counterpart is
+    :func:`test_floor_takes_an_armed_add_as_the_launch`.
     """
     assert not _floor_passes([t for t in _orm_run_trace() if t.name != missing])
+
+
+@pytest.mark.harness_benchmark
+def test_floor_takes_an_armed_add_as_the_launch() -> None:
+    """On an armed queue the add IS the launch, and the floor reads that off
+    the bridge's own answer: an add reporting ``armed: true`` needs no
+    ``queue_start`` after it, while the same trace with the add reporting
+    ``armed: false`` still does. The run-id binding is unchanged either way —
+    an armed add followed by a read of some other run is not this measurement
+    — and a refused start after an armed add (what the manager answers while
+    the plan it launched is still running) does not cost the chain.
+    """
+    armed_add = [_draft(patch=_ORM_ARGS), _add(armed=True), _read()]
+    chain = find_satisfying_chain(armed_add, is_orbit_response_state)
+    assert chain == (1, 1, 2), "the add is its own launch, and the read follows it"
+
+    assert not _floor_passes([_draft(patch=_ORM_ARGS), _add(armed=False), _read()])
+    assert not _floor_passes([_draft(patch=_ORM_ARGS), _add(armed=True), _read(run_id="run-0")])
+    assert _floor_passes(
+        [_draft(patch=_ORM_ARGS), _add(armed=True), _start(is_error=True), _read()]
+    )
+    # A read BEFORE the add cannot close the chain, armed or not.
+    assert not _floor_passes([_draft(patch=_ORM_ARGS), _read(), _add(armed=True)])
+    # The launch rule is shared by every class floor.
+    assert _grid_floor_passes(
+        [
+            _draft(plan_name="grid_scan", patch=_GRID_ARGS),
+            _add(armed=True),
+            _read(data=_GRID_RUN_DATA),
+        ]
+    )
 
 
 @pytest.mark.harness_benchmark
@@ -1691,7 +1783,8 @@ def test_floor_binds_the_data_read_to_the_run_the_add_launched() -> None:
     assert _floor_passes(unparseable_add_result)
 
 
-# A ``queue_add`` result captured verbatim off a live deployed stack. FastMCP
+# A ``queue_add`` result captured verbatim off a live deployed stack, with the
+# ``armed`` key spliced in by hand when the bridge began reporting it. FastMCP
 # surfaces a ``str``-returning tool as structured content under a single
 # ``result`` key whose value is the tool's own JSON string, so what the SDK
 # records is double-encoded. This is the form every real run produces; the
@@ -1706,7 +1799,7 @@ _LIVE_ENVELOPED_ADD_RESULT = (
     r"\"orm\", \"kwargs\": {\"correctors\": [\"SR:MAG:HCM:01:CURRENT:SP\"], \"readbacks\": "
     r"[\"SR:DIAG:BPM:01:POSITION:X\"], \"span_a\": 2.0, \"num\": 5, \"sweep\": "
     r"\"bidirectional\"}}}, \"user\": \"Queue Server API User\", \"user_group\": \"primary\", "
-    r'\"item_uid\": \"c575be41-db28-4047-a667-2b434408be8d\"}}"}'
+    r'\"item_uid\": \"c575be41-db28-4047-a667-2b434408be8d\"}, \"armed\": true}"}'
 )
 _LIVE_RUN_ID = "5f2d23d785c042dfa3eeeaeddc898ee3"
 
@@ -1736,12 +1829,13 @@ def test_launched_run_id_reads_the_transport_envelope_a_live_run_produces() -> N
         name=QUEUE_ADD, input={"draft_revision": 5}, result=_LIVE_ENVELOPED_ADD_RESULT
     )
     assert _launched_run_id(trace) == _LIVE_RUN_ID
+    assert _add_was_armed(trace), "the armed flag is read out of the same envelope"
 
     outer = json.loads(_LIVE_ENVELOPED_ADD_RESULT)
     assert set(outer) == {"result"}, "the FastMCP envelope carries exactly one key"
     body = json.loads(outer["result"])
-    assert set(body) == {"run_id", "revision", "item"}, (
-        "queue_add's documented response keys — see the tool's own docstring"
+    assert set(body) == {"run_id", "revision", "item", "armed"}, (
+        "the bridge's documented response keys — see the tool's own docstring"
     )
     assert body["run_id"] == _LIVE_RUN_ID
     item = body["item"]
@@ -1794,6 +1888,16 @@ def test_launched_run_id_reads_every_nesting_depth_and_rejects_junk() -> None:
     assert _launched_run_id(_add_result('{"run_id": 5}')) is None
     assert _launched_run_id(_add_result("[1, 2, 3]")) is None
     assert _launched_run_id(ToolTrace(name=QUEUE_ADD, input={}, result=None)) is None
+    # The armed flag degrades the same way: only a literal true, at any depth.
+    assert _add_was_armed(_add_result('{"run_id": "run-7", "armed": true}'))
+    assert _add_was_armed(
+        _add_result('{"result":"{\\"run_id\\": \\"run-7\\", \\"armed\\": true}"}')
+    )
+    assert not _add_was_armed(_add_result('{"run_id": "run-7", "armed": false}'))
+    assert not _add_was_armed(_add_result('{"run_id": "run-7", "armed": "true"}'))
+    assert not _add_was_armed(_add_result('{"run_id": "run-7"}'))
+    assert not _add_was_armed(_add_result("queued at revision 1"))
+    assert not _add_was_armed(ToolTrace(name=QUEUE_ADD, input={}, result=None))
 
 
 @pytest.mark.harness_benchmark
@@ -1999,9 +2103,17 @@ def test_bump_floor_rejects_targets_that_name_no_displacement() -> None:
 @pytest.mark.harness_benchmark
 @pytest.mark.parametrize("missing", [QUEUE_ADD, QUEUE_START])
 def test_bump_floor_requires_both_queue_steps(missing: str) -> None:
-    """The bump class inherits the two-step execution contract: a queued bump
-    has moved no corrector, so an add-only trace is not a measurement."""
+    """The bump class inherits the stopped-queue execution contract: a bump
+    queued unarmed has moved no corrector, so an add-only trace is not a
+    measurement — and the armed-add launch rule, inherited the same way."""
     assert not _bump_floor_passes([t for t in _bump_run_trace() if t.name != missing])
+    assert _bump_floor_passes(
+        [
+            _draft(plan_name="orbit_bump_sweep", patch=_BUMP_ARGS),
+            _add(armed=True),
+            _read(data=_BUMP_RUN_DATA),
+        ]
+    )
 
 
 @pytest.mark.harness_benchmark
@@ -2119,6 +2231,9 @@ def test_any_class_floor_still_requires_the_whole_chain() -> None:
     assert not _any_class_floor_passes(
         [_draft(patch=_ORM_ARGS), _add(is_error=True), _start(is_error=True), _read(is_error=True)]
     )
+    # An armed add is the launch; an unarmed one still needs the start.
+    assert _any_class_floor_passes([_draft(patch=_ORM_ARGS), _add(armed=True), _read()])
+    assert not _any_class_floor_passes([_draft(patch=_ORM_ARGS), _add(armed=False), _read()])
 
 
 # ---------------------------------------------------------------------------
@@ -2203,6 +2318,23 @@ def test_authored_floor_accepts_the_healthy_chain() -> None:
     assert plan_name == _HYST_PLAN_NAME
     result = SDKWorkflowResult(tool_traces=_authored_loop_trace())
     assert assert_authored_scan_executed(result) == ("run-1", _HYST_PLAN_NAME)
+
+
+@pytest.mark.harness_benchmark
+def test_authored_floor_takes_an_armed_add_as_the_launch() -> None:
+    """Same launch rule as the class floors: an authored plan added to an
+    armed queue is launched by the add, and the read of its run closes the
+    chain; the unarmed twin still waits for a start."""
+    traces = [
+        _author(),
+        _validate(),
+        _draft(plan_name=_HYST_PLAN_NAME, patch=_HYST_ARGS),
+        _add(armed=True),
+        _read(data=json.dumps(_HYST_RUN_DATA)),
+    ]
+    assert find_authored_run_chain(traces) == (3, "run-1", _HYST_PLAN_NAME)
+    traces[3] = _add(armed=False)
+    assert find_authored_run_chain(traces) is None
 
 
 @pytest.mark.harness_benchmark
@@ -3614,16 +3746,18 @@ def _one_action_approval_policy(tool_name: str, tool_input: dict[str, Any]) -> b
 
 
 @contextmanager
-def approval_hook_armed_for_queue_start(repo: Path) -> Iterator[None]:
-    """Restore the SHIPPED approval gate on ``queue_start`` for one test.
+def approval_hook_armed_for(repo: Path, tool: str) -> Iterator[None]:
+    """Restore the SHIPPED approval gate on one queue tool for one test.
 
-    ``_EXTRA_CONFIG`` pins ``approval.tools.queue_start: skip`` on this
-    deployment so the two headless measurement tests can run at all (an "ask"
-    they cannot answer is a hard denial). This test needs the opposite: the
-    prompt has to fire so there is a transcript to count. Dropping the key
-    puts the tool back on ``approval.default_policy``, which ships ``always``
-    — the same gate a real deployment has, reached the same way, rather than a
-    gate this test invented.
+    ``tool`` is the bare tool name (``queue_start``, ``queue_add``) — the
+    arming call for the posture the test found the queue in. ``_EXTRA_CONFIG``
+    pins ``approval.tools.<tool>: skip`` on this deployment so the headless
+    measurement tests can run at all (an "ask" they cannot answer is a hard
+    denial). A gate test needs the opposite: the prompt has to fire so there
+    is a transcript to count. Dropping the key puts the tool back on
+    ``approval.default_policy``, which ships ``always`` — the same gate a real
+    deployment has, reached the same way, rather than a gate this test
+    invented.
 
     Edits the RENDER's ``config.yml``, which is what the host-side
     ``.claude/hooks/osprey_approval.py`` reads (no ``OSPREY_CONFIG`` is
@@ -3647,13 +3781,13 @@ def approval_hook_armed_for_queue_start(repo: Path) -> Iterator[None]:
     original = config_path.read_text(encoding="utf-8")
     config = yaml.safe_load(original) or {}
     tools = (config.get("approval") or {}).get("tools") or {}
-    assert "queue_start" in tools, (
-        f"{config_path} has no approval.tools.queue_start to remove (approval "
-        f"tools: {sorted(tools)}). This test arms the queue_start prompt by "
+    assert tool in tools, (
+        f"{config_path} has no approval.tools.{tool} to remove (approval "
+        f"tools: {sorted(tools)}). This test arms the {tool} prompt by "
         "dropping the module's `skip` override; with the override already "
         "gone it would be arming nothing"
     )
-    del config["approval"]["tools"]["queue_start"]
+    del config["approval"]["tools"][tool]
     config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
     try:
         yield
@@ -3661,31 +3795,35 @@ def approval_hook_armed_for_queue_start(repo: Path) -> Iterator[None]:
         config_path.write_text(original, encoding="utf-8")
 
 
-def assert_one_arming_approval(events: list[HookEvent]) -> None:
+def assert_one_arming_approval(events: list[HookEvent], arming_tool: str) -> None:
     """Assert the operator was asked to arm the queue exactly once, and agreed.
 
-    ``queue_start`` is the moment hardware moves, and it is the ONE action this
-    flow costs an operator. Two prompts would mean the first start did not
-    take — which is what the removed mechanism did: a start that could not arm
-    used to come back having filed a request for someone to confirm elsewhere,
-    leaving the agent to ask again for an action it had already been granted.
+    ``arming_tool`` is the call that sends the plan toward the machine on the
+    posture the test found the queue in — ``queue_start`` on a stopped queue,
+    ``queue_add`` on an armed one. That call is the moment hardware moves, and
+    it is the ONE action this flow costs an operator. Two prompts would mean
+    the first did not take — which is what the removed mechanism did: a start
+    that could not arm used to come back having filed a request for someone
+    to confirm elsewhere, leaving the agent to ask again for an action it had
+    already been granted.
 
-    The second clause reads every queue-control tool, not just the start, so a
-    new consent appearing anywhere on the way to motion — a second start, a
-    stop, a confirmation-shaped step — fails here rather than passing as "still
-    one start". Note what it does NOT prove: ``queue_add`` is ask-gated in the
-    shipped posture too, and its prompt is absent from this transcript only
-    because this deployment pins ``approval.tools.queue_add: skip`` (see
-    ``_EXTRA_CONFIG``). Composing a plan and arming the queue are separate
-    consents by design; the count this feature moved is the arming one.
+    The second clause reads every queue-control tool, not just the arming
+    one, so a new consent appearing anywhere on the way to motion — a second
+    start, a stop, a confirmation-shaped step — fails here rather than passing
+    as "still one". Note what it does NOT prove on a stopped queue:
+    ``queue_add`` is ask-gated in the shipped posture too, and its prompt is
+    absent from that transcript only because this deployment pins
+    ``approval.tools.queue_add: skip`` (see ``_EXTRA_CONFIG``). Composing a
+    plan and arming the queue are separate consents by design; the count this
+    feature moved is the arming one.
     """
-    arming = [e for e in events if e.tool_name == QUEUE_START]
+    arming = [e for e in events if e.tool_name == arming_tool]
     assert len(arming) == 1, (
         f"arming the queue took {len(arming)} approval prompt(s), not one. "
-        "Starting a queued plan is one operator action: approve queue_start, "
-        "and the queue drains. Zero prompts means the gate never fired at all "
-        "(the approval hook still has a policy for queue_start, so this test "
-        "counted nothing); two or more mean a start did not take.\n"
+        f"Sending a queued plan toward the machine is one operator action: approve "
+        f"{arming_tool}, and the queue drains. Zero prompts means the gate never "
+        f"fired at all (the approval hook still has a policy for {arming_tool}, so "
+        "this test counted nothing); two or more mean the arming call did not take.\n"
         f"  every approval prompt, in order: "
         f"{[(e.tool_name, e.decision) for e in events] or '(none)'}"
     )
@@ -3696,7 +3834,7 @@ def assert_one_arming_approval(events: list[HookEvent]) -> None:
     )
 
     queue_prompts = [e.tool_name for e in events if e.tool_name in QUEUE_CONTROL]
-    assert queue_prompts == [QUEUE_START], (
+    assert queue_prompts == [arming_tool], (
         f"the run stopped for a human {len(queue_prompts)} time(s) on the way "
         f"to hardware motion: {queue_prompts}. Exactly one — the arming step — "
         "is the flow this feature leaves. A second consent anywhere in staging, "
@@ -3789,6 +3927,12 @@ async def test_starting_a_queued_scan_costs_one_operator_approval(
     The plan class is deliberately unpinned (:func:`is_any_staged_plan_state`).
     Which measurement the agent picks says nothing about the arming gate, and
     asking for the cheapest honest plan keeps this run short.
+
+    Which call is the arming one depends on the posture the deployed queue is
+    in, so it is read off the bridge before the run rather than assumed: the
+    add on an armed queue (the shipped preset arms it at startup, and the add
+    then runs the plan), the start on a stopped one. The hook is re-armed for
+    exactly that call, and the count is taken on it.
     """
     repo = deployed_scan_stack.repo
     monkeypatch.setenv("BLUESKY_BRIDGE_URL", BRIDGE_URL)
@@ -3800,7 +3944,11 @@ async def test_starting_a_queued_scan_costs_one_operator_approval(
     # expectations meet the bridge's real routing table.
     _queue_drive.assert_start_request_route_is_gone(BRIDGE_URL)
 
-    with approval_hook_armed_for_queue_start(repo):
+    queue_armed = bool(_queue_snapshot()["status"].get("queue_autostart_enabled"))
+    arming_key = bluesky_tool_names.QUEUE_ADD if queue_armed else bluesky_tool_names.QUEUE_START
+    arming_tool = bluesky_tool_names.matcher(arming_key)
+
+    with approval_hook_armed_for(repo, arming_key):
         result = await run_sdk_query_with_hooks(
             repo,
             ONE_ACTION_OPERATOR_REQUEST,
@@ -3818,7 +3966,7 @@ async def test_starting_a_queued_scan_costs_one_operator_approval(
     # The plan itself first: a transcript assertion over a run that never
     # staged anything would be counting prompts that were never going to fire.
     assert_a_scan_executed(result)
-    assert_one_arming_approval(result.hook_events)
+    assert_one_arming_approval(result.hook_events, arming_tool)
     assert_no_start_request_was_filed(result.tool_traces)
 
     # ...and the queue really drained. The floor reads the agent's own trace;
@@ -4158,7 +4306,9 @@ async def test_rearming_an_aborted_plan_costs_a_fresh_approval(
     snapshot = _wait_for_settled_manager(ABORT_SETTLE_TIMEOUT_SEC)
     stranded_uid = _requeued_interrupted_item(snapshot)["item_uid"]
 
-    with approval_hook_armed_for_queue_start(repo):
+    # The abort disarmed the queue (the bridge switches autostart off on an
+    # abort), so the restart is a start whatever posture the stack booted in.
+    with approval_hook_armed_for(repo, bluesky_tool_names.QUEUE_START):
         result = await run_sdk_query_with_hooks(
             repo,
             REARM_OPERATOR_REQUEST,
