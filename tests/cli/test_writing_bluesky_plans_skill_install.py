@@ -179,6 +179,9 @@ class TestWritingBlueskyPlansSkillStructure:
         assert "grid_scan" in skill_text
         assert "plans_core/orm.py" in skill_text
         assert "plans_core/grid_scan.py" in skill_text
+        # Relative to the installed package, never a source-checkout path: a
+        # facility runs the wheel and has no src/ tree to open.
+        assert "src/osprey/" not in skill_text
 
     # --- the allowlist ---
 

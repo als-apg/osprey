@@ -574,7 +574,7 @@ def test_minted_secrets_survive_a_rebuild_and_a_redeploy(tmp_path: Path) -> None
             "the repo .env holds this deployment's secrets and must be kept private"
         )
         env_text = env_path.read_text(encoding="utf-8")
-        assert MINTED_ENV_BANNERS[0] in env_text, (
+        assert any(banner in env_text for banner in MINTED_ENV_BANNERS), (
             "minted secrets landed in .env without the banner that marks them as "
             f"deploy-minted, which is what `osprey reset` strips them by:\n{env_text}"
         )

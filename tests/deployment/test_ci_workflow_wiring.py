@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import ast
 import copy
+import fnmatch
 import importlib.util
 import json
 import re
@@ -2275,6 +2276,88 @@ def test_browser_lane_is_triggered_by_the_bluesky_web_tests(workflow: dict[str, 
     ``src/osprey/interfaces/**`` already, but a PR that only edits the tests
     (fixtures, assertions) would otherwise green-skip the job."""
     assert COMBOBOX_TESTS_FILTER_PATH in _browser_lane_filter_paths(workflow)
+
+
+# ---------------------------------------------------------------------------
+# (h3) every browser suite on disk: (h) and (h2) each pin one file by name,
+# which is exactly how the next one gets forgotten. The lane's explicit file
+# list is checked against a glob over the tree instead, so a ``*_browser.py``
+# that nobody registers is red here rather than silently never collected.
+# ---------------------------------------------------------------------------
+
+TESTS_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = TESTS_ROOT.parent
+
+
+def _browser_suites_on_disk() -> list[str]:
+    """Every ``tests/**/test_*_browser.py``, repo-relative, POSIX-spelled."""
+    return sorted(
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in TESTS_ROOT.rglob("test_*_browser.py")
+        if "__pycache__" not in path.parts
+    )
+
+
+def _browser_lane_named_files(wf: dict[str, Any]) -> set[str]:
+    """The pytest file arguments of the lane's run step, one token at a time —
+    not a substring search, so ``test_panel_browser.py`` is never satisfied by
+    ``test_panels_browser.py``."""
+    return {tok for tok in _browser_lane_files(wf).split() if tok.endswith(".py")}
+
+
+def _armed_by_filter(path: str, filter_paths: list[str]) -> bool:
+    return any(fnmatch.fnmatchcase(path, pattern) for pattern in filter_paths)
+
+
+def test_browser_suite_discovery_has_a_floor() -> None:
+    """A glob that finds nothing would make the guards below vacuous."""
+    found = _browser_suites_on_disk()
+    assert AUTH_BROWSER_TEST_FILE in found
+    assert COMBOBOX_BROWSER_TEST_FILE in found
+
+
+def test_every_browser_suite_on_disk_is_named_in_the_browser_lane(
+    workflow: dict[str, Any],
+) -> None:
+    named = _browser_lane_named_files(workflow)
+    missing = [suite for suite in _browser_suites_on_disk() if suite not in named]
+    assert missing == [], (
+        f"browser suites on disk that the '{BROWSER_JOB}' lane never runs (the unit lane "
+        f"skips them without chromium, so nothing collects them anywhere): {missing}"
+    )
+
+
+def test_every_browser_suite_on_disk_is_named__mutation_drops_one_suite() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
+    step["run"] = step["run"].replace(f"{AUTH_BROWSER_TEST_FILE} \\\n", "")
+    named = _browser_lane_named_files(mutated)
+    assert [s for s in _browser_suites_on_disk() if s not in named] == [AUTH_BROWSER_TEST_FILE]
+
+
+def test_every_browser_suite_on_disk_arms_the_browser_lane(workflow: dict[str, Any]) -> None:
+    """Being named in the run step is not enough: the paths filter must also
+    fire for the suite's own file, or a PR that only edits the suite reports
+    the lane green without running it."""
+    filter_paths = _browser_lane_filter_paths(workflow)
+    unarmed = [s for s in _browser_suites_on_disk() if not _armed_by_filter(s, filter_paths)]
+    assert unarmed == [], (
+        f"browser suites whose own path does not trigger the '{BROWSER_JOB}' lane: {unarmed}"
+    )
+
+
+def test_every_browser_suite_on_disk_arms_the_lane__mutation_drops_a_directory() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_FILTER_STEP)
+    filters = yaml.safe_load(step["with"]["filters"])
+    filters["theming"] = [p for p in filters["theming"] if p != COMBOBOX_TESTS_FILTER_PATH]
+    step["with"]["filters"] = yaml.safe_dump(filters)
+    filter_paths = _browser_lane_filter_paths(mutated)
+    unarmed = [s for s in _browser_suites_on_disk() if not _armed_by_filter(s, filter_paths)]
+    # Every suite under the dropped directory, and only those, comes back unarmed.
+    assert COMBOBOX_BROWSER_TEST_FILE in unarmed, unarmed
+    dropped_dir = COMBOBOX_TESTS_FILTER_PATH.removesuffix("**")
+    assert all(s.startswith(dropped_dir) for s in unarmed), unarmed
 
 
 # ---------------------------------------------------------------------------

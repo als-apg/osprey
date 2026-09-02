@@ -80,26 +80,24 @@
   </nav>
 
   <!--
-    Persistent status strip. NOT a tab and NEVER contributed to the tile bar:
+    The queue control strip. NOT a tab and NEVER contributed to the tile bar:
     the queue state and the two halts must be live from first paint in EVERY
     UI mode, and the tile bar is collapsed to zero height in Simple mode. They
-    must also never be a tab switch away, which is why they sit outside the
-    three view containers below and stay on screen for all of them.
+    must also never be a tab switch away, which is why the ONE set of controls
+    sits outside the three view containers below and stays on screen for all
+    of them.
 
-    The two halts DO fold behind the "Queue controls" disclosure — but only in
-    states where the panel affirmatively knows they are dormant (idle manager,
-    no running item, no pending stop, no autostart; see haltsCollapsible in
-    queue-client.js). The moment the queue is active or the manager cannot be
-    read, they are on screen with zero clicks and the disclosure disappears:
-    visibility follows the same fail-visible rule as the buttons' wording,
-    and it is never a gate on the halts themselves. First paint counts as
-    "cannot be read", so both halts start VISIBLE — the window before the
-    first frame is exactly when a queue may already be executing.
-
-    "Start queue" is deliberately NOT here — it lives inside the Queue tab,
-    because arming a queue is a deliberate act, not an always-at-hand one.
+    What the strip SHOWS depends on the tab (stripControls in queue-client.js).
+    On the Queue tab it is the control panel — Start, Stop, Abort, in every
+    state. On Plans and Results a dormant queue is a badge alone, and the two
+    halts appear the moment anything is moving or the manager cannot be read
+    (haltsPinned): visibility follows the same fail-visible rule as the
+    buttons' wording, and it is never a gate on the halts themselves. First
+    paint counts as "cannot be read", so both halts start VISIBLE — the window
+    before the first frame is exactly when a queue may already be executing.
+    Start shows on the Queue tab only: arming a queue is a deliberate act.
   -->
-  <div class="status-strip">
+  <div class="status-strip" id="status-strip">
     <!-- Plan-lane picker, hidden unless this deployment renders more than one
          lane (panel.js fills it from GET /lanes). It lives HERE, beside the
          queue badge and the two halts, because which machine this panel is
@@ -109,23 +107,33 @@
          lane is a different machine, and one document never shows two (see
          lane-client.js). -->
     <span id="lane-strip" class="lane-strip" role="group" aria-label="Bluesky plan lane" hidden></span>
+    <span class="strip-kicker">Queue</span>
     <span id="queue-state-badge" class="badge warn">connecting&hellip;</span>
+    <!-- One plain sentence per control, in the design system's shared info
+         tip (base.css): a bubble on hover or keyboard focus, no click state.
+         Shown on the Queue tab only, beside the controls it explains. -->
+    <button type="button" id="queue-help-btn" class="osprey-info"
+            aria-label="What these buttons do" hidden>?<span id="queue-help"
+            class="osprey-tip" role="tooltip">
+        <span><b>Start</b> runs the queued plans, and any plan you add later.</span>
+        <span><b>Stop</b> lets the current plan finish, then stops the queue.</span>
+        <span><b>Abort</b> stops the running plan right now.</span>
+        <span><b>Clear</b> removes every waiting plan.</span>
+      </span></button>
     <span class="status-strip-spacer"></span>
-    <!-- The disclosure for the folded resting state. Starts hidden: until the
-         first frame proves the queue dormant, the halts themselves are shown
-         and this button has no job. queue-view.js swaps it in only while
-         haltsCollapsible says the halts may fold, and hides it again — with
-         the halts pinned open — the moment they may not. -->
-    <button type="button" id="halts-toggle" class="btn halts-toggle"
-            aria-expanded="false" aria-controls="stop-btn abort-btn" hidden>Queue controls ▸</button>
+    <!-- Start arms the queue: it drains what is queued and whatever arrives
+         later. Its `disabled` IS managed (see queueControls) — that is what
+         distinguishes it from the two halts beside it. -->
+    <button type="button" id="start-btn" class="btn" disabled>Start</button>
     <!-- NEVER add `disabled` here. The halt has no disabled state (see
          queueControls in queue-client.js), and queue-view.js sets no
          `disabled` property on this button, so anything set here would
          survive every render forever. It must also be live from FIRST PAINT:
          the window before the first frame arrives is exactly when a queue may
          already be executing. The class is the resting one — stopButtonClass
-         adds `confirm` only for the armed withdrawal. -->
-    <button type="button" id="stop-btn" class="btn">Stop after current item</button>
+         adds `confirm` only for the armed withdrawal, and the view adds
+         `halt-idle` (a quieter look, never a gate) while nothing is moving. -->
+    <button type="button" id="stop-btn" class="btn">Stop</button>
     <!-- The emergency halt. NEVER add `disabled` here either, and for a
          stronger version of the same reason: this is the only control that
          stops a plan already moving hardware, and queue-view.js sets no
@@ -134,11 +142,17 @@
          one — abortButtonClass adds `confirm` only on the armed second
          click (see abortButtonLabel for why this one confirms and the plain
          stop does not). -->
-    <button type="button" id="abort-btn" class="btn">Abort running plan</button>
+    <button type="button" id="abort-btn" class="btn">Abort</button>
+    <span class="strip-divider" aria-hidden="true"></span>
+    <!-- Clear drops every WAITING plan; the running one is Abort's. Its
+         `disabled` IS managed (clearControl) — a usability gate, like Start's,
+         not a halt — and it confirms on a second click. -->
+    <button type="button" id="clear-btn" class="btn btn-quiet" disabled>Clear</button>
   </div>
   <p id="queue-note" class="queue-note" hidden></p>
   <p id="stop-note" class="queue-note stop-note" hidden></p>
   <p id="abort-note" class="queue-note stop-note" hidden></p>
+  <p id="clear-note" class="queue-note stop-note" hidden></p>
   <!-- Outcome of a queue write. Lives beside the strip rather than inside the
        Queue tab, because the two halts it reports on are reachable from every
        tab — a refusal sentence the operator cannot see is a refusal that did
@@ -254,11 +268,12 @@
                 <span id="unvalidated-note" class="muted" hidden>
                   not validated — cannot queue
                 </span>
-                <span class="footnote">
-                  Adding to the queue never starts anything: a queued plan runs
-                  only once the queue is started, gated by the same arming as
-                  the agent path. The connector is the sole write gate.
-                </span>
+                <!-- What the click does next, in the queue's current state
+                     (enqueuePresentation in queue-client.js): runs now, runs
+                     after the current plan, or waits for a start. Filled by
+                     plans-view.js from the same frames the strip badge reads,
+                     so the two can never disagree. -->
+                <span id="queue-footnote" class="footnote"></span>
               </div>
               <div class="foot-actions">
                 <!-- Reset is purely local (re-renders this form from the plan's
@@ -276,17 +291,10 @@
 
   <!-- ==== Queue ==== -->
   <div id="view-queue" class="view view-scroll" role="tabpanel" aria-labelledby="view-tab-queue" hidden>
+    <!-- The controls live in the strip above (the Queue tab is where all of
+         them show); this card is the queue's contents. -->
     <section class="card" id="queue-card">
-      <div class="card-head">
-        <h2>Queue</h2>
-        <span class="card-head-spacer"></span>
-        <!-- Start is the ONE queue control that stays behind a tab: it arms a
-             queue to drain toward hardware, which is a deliberate act, unlike
-             the two halts in the always-visible strip above. Its `disabled` IS
-             managed (see queueControls) — that is what distinguishes it from
-             the halts. -->
-        <button type="button" id="start-btn" class="btn" disabled>Start queue</button>
-      </div>
+      <h2>Queued</h2>
 
       <div id="running-card" class="running" hidden>
         <div class="running-head">
@@ -312,7 +320,15 @@
     </section>
 
     <section class="card" id="history-card">
-      <h2>Completed runs</h2>
+      <div class="card-head">
+        <h2>History</h2>
+        <span class="card-head-spacer"></span>
+        <!-- Drops every completed run from the manager's history. A usability
+             gate (dead with nothing listed) and a second-click confirm, like
+             the queue's Clear. Run data stays in Tiled. -->
+        <button type="button" id="history-clear-btn" class="btn btn-quiet" disabled>Clear</button>
+      </div>
+      <p id="history-clear-note" class="queue-note stop-note" hidden></p>
       <ul id="history-items" class="queue-items"></ul>
       <p id="history-empty" class="queue-empty">Completed runs could not be loaded.</p>
     </section>
@@ -324,6 +340,11 @@
       <div class="card-head">
         <h2>Results</h2>
         <span id="run-status-badge" class="badge info" hidden></span>
+        <span class="card-head-spacer"></span>
+        <!-- Shown for a FINISHED run only (results-view.js). The write itself
+             is the queue view's (`DELETE /runs/{id}`), so this file stays
+             read-only; panel.js carries the click across. -->
+        <button type="button" id="run-remove-btn" class="btn btn-quiet" hidden>Remove from history</button>
       </div>
       <p id="run-meta" class="run-meta" hidden></p>
       <p id="run-note" class="run-note" hidden></p>

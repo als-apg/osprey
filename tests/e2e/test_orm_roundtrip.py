@@ -540,9 +540,9 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
 
     token = _orm_stack.minted_launch_token(deployed_orm_stack.repo)
     run_id = _queue_drive.stage_and_enqueue(
-        BRIDGE_URL, "orm", plan_args, client_id="orm-roundtrip-e2e"
+        BRIDGE_URL, "orm", plan_args, client_id="orm-roundtrip-e2e", token=token
     )
-    _queue_drive.start_queue(BRIDGE_URL, token)
+    _queue_drive.start_draining(BRIDGE_URL, token, run_id)
 
     # --- (c) the figure while the run is still filling in ------------------
     # One in-flight reading, taken at whatever moment the poll below first

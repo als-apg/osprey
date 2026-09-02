@@ -226,6 +226,12 @@ MINTED_ENV_BANNERS: tuple[str, ...] = (
     # that is otherwise brand new. Stripping it is what lets the provisioner
     # create the account again and write the token the new store issued.
     "Harvested OpenObserve ingest token (osprey up)",
+    # The two blocks the deploy writes today, under the command that exists.
+    # Their retired spellings stay at the top of this tuple: a `.env` written
+    # before the rename carries the old banner, and a block is matched by its
+    # banner exactly.
+    "Auto-generated service auth tokens (osprey up)",
+    "Auto-generated bluesky RE manager control-socket keypair (osprey up)",
 )
 
 

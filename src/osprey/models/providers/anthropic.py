@@ -20,9 +20,9 @@ class AnthropicProviderAdapter(LiteLLMDelegatingProvider):
     requires_model_id = True
     supports_proxy = True
     default_base_url = None
-    default_model_id = "claude-haiku-4-5-20251001"
-    health_check_model_id = "claude-haiku-4-5-20251001"
-    available_models = ["claude-sonnet-4-5-20250929", "claude-haiku-4-5-20251001"]
+    default_model_id = "claude-haiku-4-5"
+    health_check_model_id = "claude-haiku-4-5"
+    available_models = ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"]
 
     # API key acquisition information
     api_key_url = "https://console.anthropic.com/"

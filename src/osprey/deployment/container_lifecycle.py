@@ -870,7 +870,7 @@ def _ensure_service_tokens(
         if generated:
             _append_env_block(
                 env_path,
-                "Auto-generated service auth tokens (osprey deploy up)",
+                "Auto-generated service auth tokens (osprey up)",
                 generated,
             )
             # Only the names minted OVER an empty `.env` entry are in the
@@ -1805,7 +1805,7 @@ def _ensure_bluesky_lane_control_plane_keys(lane_key: str, env_path: Path) -> No
 
     _append_env_block(
         env_path,
-        "Auto-generated bluesky RE manager control-socket keypair (osprey deploy up)",
+        "Auto-generated bluesky RE manager control-socket keypair (osprey up)",
         generated,
     )
     # Names only, never values -- and that applies to BOTH halves, not just the

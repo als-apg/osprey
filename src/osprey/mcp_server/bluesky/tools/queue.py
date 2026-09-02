@@ -1,11 +1,11 @@
 """MCP tools: the agent's side of the bridge's plan queue.
 
-Execution is two steps, deliberately: ``queue_add`` puts the pinned draft into
-the queue (which starts nothing), and ``queue_start`` begins draining it (which
-starts a real plan). Splitting them is what lets a human review a composed queue
-before
-anything moves, and it is why the arming gate sits on *start* rather than on
-composition.
+The queue is either ARMED or STOPPED. ``queue_add`` puts the pinned draft into
+the queue — on an armed queue that runs it at once, on a stopped queue it
+waits — and ``queue_start`` arms a stopped queue, which runs everything waiting
+and everything added after. Either halt disarms it. Whichever call sends a plan
+toward the machine is the armed one, so the arming gate sits there rather than
+on composition, and composing a draft never needs anything.
 
 ==========================  =================================================
 Tool                        Bridge endpoint
@@ -1219,10 +1219,13 @@ async def queue_add(draft_revision: int, lane: str | None = None) -> str:
             session is on now.
 
     Returns:
-        JSON ``{"run_id", "revision", "item", "lane"}`` — ``run_id`` is
-        OSPREY's id for the eventual run (use it with get_run / get_run_data
-        once it executes), and ``item.item_uid`` is the queue handle for this
-        item. ``lane`` is the plan lane the item was queued on, and on a
+        JSON ``{"run_id", "revision", "item", "lane", "armed"}`` — ``run_id``
+        is OSPREY's id for the eventual run (use it with get_run /
+        get_run_data once it executes), and ``item.item_uid`` is the queue
+        handle for this item. ``armed`` is the bridge's word on what this add
+        did: true, the queue was armed or already draining and the plan is on
+        its way with no further action of yours; false, the item waits for a
+        start. ``lane`` is the plan lane the item was queued on, and on a
         deployment with two lanes it is what ``queue_start(lane=...)`` must be
         given: it pins the start to the machine this item was composed for,
         even if the session switches targets in between. A single-lane
@@ -1376,11 +1379,13 @@ async def queue_add(draft_revision: int, lane: str | None = None) -> str:
 async def queue_start(lane: str | None = None) -> str:
     """Start draining the queue. THE arming action — real motion follows.
 
-    Step two of two, and the only way execution ever begins: the manager's own
-    autostart stays disabled, so every start originates from a deliberate call
-    here or from the human's start control. This runs the queue as it stands —
-    every pending item, in order, not just the one you added — so read
-    queue_list first and be sure the whole queue is what should run.
+    Needed only while the queue is STOPPED (queue_status says so): a deployment
+    whose queue runs by default (``bluesky.queue_autostart``) comes up armed,
+    and there queue_add alone runs the plan. Starting ARMS the queue — it runs
+    the queue as it stands (every pending item, in order, not just the one you
+    added) and keeps running whatever is added until a stop or abort disarms
+    it — so read queue_list first and be sure the whole queue is what should
+    run.
 
     Three local gates run in this order, and the order is the contract: the
     LANE is bound first, so a two-lane deployment that named no lane hears

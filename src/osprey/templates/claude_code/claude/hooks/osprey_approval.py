@@ -1204,9 +1204,8 @@ def _queue_activity_lines(snapshot) -> list[str]:
         )
     elif status.get("queue_autostart_enabled"):
         headline = (
-            f"⚠️  AUTOSTART IS ENABLED on the manager (state: {state}) — OSPREY never "
-            f"enables it, so something armed this queue out of band. An item added "
-            f"now can execute with no further approval."
+            f"⚠️  THE QUEUE IS STARTED (autostart on, manager state: {state}) — an item "
+            f"added now runs as soon as the queue reaches it, with no further approval."
         )
     elif raw_state != _IDLE_MANAGER_STATE:
         headline = (
@@ -2173,7 +2172,7 @@ def main():
     # `can_use_tool` fires and the unarmed invariant is violated.
     #
     # How much this defer carries depends on the render, and posture is per
-    # target, so `src/osprey/cli/templates/claude_code.py` renders three ways:
+    # target, so `osprey.cli.templates.claude_code` renders three ways:
     #
     # * NO target may write — every write tool is hard-denied in
     #   `permissions.deny`, which blocks before any PreToolUse hook fires. There

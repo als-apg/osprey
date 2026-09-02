@@ -81,7 +81,7 @@ variables:
 # -----------------------------------------------------------------------------
 render-build:
   stage: validate
-  image: python:3.11-slim
+  image: python:3.12-slim
   before_script:
     # The floor the profile itself declares (requires_osprey_version), so the
     # pipeline can never run an OSPREY that does not understand it.
@@ -106,9 +106,9 @@ render-build:
 # -----------------------------------------------------------------------------
 .service-image:
   stage: images
-  image: docker:27
+  image: docker:29
   services:
-    - docker:27-dind
+    - docker:29-dind
   before_script:
     - docker login -u "$CI_REGISTRY_USER" -p "${{ ctx.registry_token_var }}" "$REGISTRY_HOST"
   script:
@@ -143,9 +143,9 @@ image:{{ service }}:
 
 external:{{ project.name }}:
   stage: images
-  image: docker:27
+  image: docker:29
   services:
-    - docker:27-dind
+    - docker:29-dind
   script:
 {% if project.token_env_var %}
     - docker login -u "$CI_REGISTRY_USER" -p "${{ project.token_env_var }}" "{{ project.url.split('/')[0] }}"
@@ -191,7 +191,7 @@ external:{{ project.name }}:
 # -----------------------------------------------------------------------------
 deploy:
   stage: deploy
-  image: alpine:3.20
+  image: alpine:3.23
   needs:
     - render-build
   before_script:

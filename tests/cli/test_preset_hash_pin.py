@@ -193,7 +193,13 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Moved again when the second standalone card, `knowledge` (persona
     # `knowledge`, preset `control-assistant-knowledge`), joined the roster
     # and the catalog. Deploy-visible: a new terminal container.
-    "control-assistant": "sha256:e01a78b53c8b703969c873f2739fd866e118e68a8fd7214f73c720a163cd9bd1",
+    # Moved again — all seven control-assistant entries together — when the
+    # base preset pinned `bluesky.queue_autostart: true`: the plan queue comes
+    # up armed, so a plan added to it runs at once instead of waiting for a
+    # separate Start. Deploy-visible on the bridge: a rebuilt project's queue
+    # starts in the armed posture, so the staleness advisory firing on
+    # already-deployed control-assistant projects is the correct signal.
+    "control-assistant": "sha256:f20e0a2a42d1f0fd054505c1e5a35d4c9afb6acc33aa3e399ccdeef008264ef1",
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     # Moved again with the base: permissive `virtual_accelerator` limits block.
     # Moved alone when the admin tier gained the EVENTS/BLUESKY `web_panels`
@@ -205,8 +211,9 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Moved with the base above: the standalone card is a shared `logbook`.
     # Moved with the base above: graph channel finder.
     # Moved with the base above: the `knowledge` card joined the roster.
+    # Moved with the base above: the plan queue comes up armed.
     "control-assistant-admin": (
-        "sha256:1722ea5bc85ac57c232463a3423c7869f85072f7041e6f6c0184d91cd23fa184"
+        "sha256:c087379741bf8a14679cb6b46973d3e7e37e2208e99970ca38942decd65949fa"
     ),
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     # Moved again with the base: permissive `virtual_accelerator` limits block.
@@ -214,16 +221,18 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # shared `logbook` card, and moved with the base for the same change.
     # Moved with the base above: graph channel finder.
     # Moved with the base above: the `knowledge` card joined the roster.
+    # Moved with the base above: the plan queue comes up armed.
     "control-assistant-logbook": (
-        "sha256:5ef26ebb9fc0053dc97f871638fbd40629bcc539ed6941989303550b9666e436"
+        "sha256:0190871b889dccba18826481961c4078b2c1ad5f510e1ea7c324f08d67660124"
     ),
     # New: the second standalone persona. The facility knowledge graph, the
     # graph-mode channel finder and the knowledge bundle behind one shared
     # card; every control, sandbox, health and logbook server switched off,
     # writes pinned off on all three keys, and the one bundle-writing tool
     # (`draft_concept`) denied.
+    # Moved with the base above: the plan queue comes up armed.
     "control-assistant-knowledge": (
-        "sha256:e62ec5e657ee93f1e64db5666cece24195f8a4fb93dda94ea4ec5569866684b9"
+        "sha256:661b1cce7930685b27c5414bce56be95e059ef40fb4390d16da58de43ce2b873"
     ),
     # The two operator tiers below moved together, and alone, when each gained
     # the single dotted key `services.graphdb.port_host: 7687` in its `config:`
@@ -285,16 +294,18 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Moved with the base above: the standalone card is a shared `logbook`.
     # Moved with the base above: graph channel finder.
     # Moved with the base above: the `knowledge` card joined the roster.
+    # Moved with the base above: the plan queue comes up armed.
     "control-assistant-readonly": (
-        "sha256:2b4cab67b08ce87a4b062e4d37f793e5e78553bf4ec69a6d78d83ce7f6fbdc23"
+        "sha256:2976482d462ba979595e9cf495ac8cc36c124377af0880a84f12b5938861e603"
     ),
     # Moved with the base above: `live_standin` baseline + strict limits pair.
     # Moved again with the base: permissive `virtual_accelerator` limits block.
     # Moved with the base above: the standalone card is a shared `logbook`.
     # Moved with the base above: graph channel finder.
     # Moved with the base above: the `knowledge` card joined the roster.
+    # Moved with the base above: the plan queue comes up armed.
     "control-assistant-readwrite": (
-        "sha256:8ebfd4db2df0a9c68d30190ac21b2c33dab5e1556e02f870cdf84bcffc144fae"
+        "sha256:ba4d533bfabcc7696eff52b0c58196406bd1719c75af57287abacfa8096c5fad"
     ),
     # New with per-target write posture, not a moved entry: the rung between
     # the two flat tiers, armed on the virtual accelerator alone. It pins the
@@ -307,8 +318,9 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # Moved with the base above: the standalone card is a shared `logbook`.
     # Moved with the base above: graph channel finder.
     # Moved with the base above: the `knowledge` card joined the roster.
+    # Moved with the base above: the plan queue comes up armed.
     "control-assistant-va-readwrite": (
-        "sha256:5d10df8c1c4710c0e14fe5981d4b18b2380b4ed450ad67fa585234f51e795764"
+        "sha256:969539a57fc48ce9610d36c635f9de9c1b162659d759daa898f1da9d9e237a20"
     ),
     # Moved when the onboarding rewrite dropped the `facility` rule. The
     # wholesale comment rewrite that shipped alongside it contributed nothing:

@@ -31,7 +31,8 @@ the box with no external service.
 1. **Edit `.claude/rules/facility.md`** to describe your facility naming scheme.
    The default ships with placeholder content; it is auto-claimed as user-owned,
    so `osprey build` preserves your edits.
-2. Set `ANTHROPIC_API_KEY` (or `CBORG_API_KEY` for the LBL proxy) in `.env`.
+2. Set `ANTHROPIC_API_KEY` (or `CBORG_API_KEY` for the LBL proxy) in the
+   `.env` at the repo root, one level above this directory.
 3. Replace `data/channel_databases/hierarchical.json` with your own channel
    database, or switch pipelines: create a deployment repo from this preset and
    set `channel_finder_mode: in_context|middle_layer` with the matching
@@ -54,7 +55,8 @@ it, and every verb below works from anywhere inside the repo.
 
 ## Configuration Files
 
-- `config.yml` — project settings (channel-finder pipeline, providers, panel)
+- `profile.yml` (one level up) — the settings you edit; `config.yml` here is
+  generated from it
 - `.claude/` — agent rules, hooks, MCP server configuration
 - `CLAUDE.md` — agent persona (channel/PV address finder; `osprey build` overwrites
   unless claimed as user-owned)

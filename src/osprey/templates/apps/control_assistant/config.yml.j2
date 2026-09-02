@@ -84,23 +84,23 @@ api:
     openai:
       api_key: ${OPENAI_API_KEY}
       base_url: https://api.openai.com/v1
-      models:                        # GPT-5 sizes mapped onto the standard tiers
-        haiku: gpt-5-nano
-        sonnet: gpt-5-mini
-        opus: gpt-5
+      models:                        # GPT-5.6 sizes mapped onto the standard tiers
+        haiku: gpt-5.6-luna
+        sonnet: gpt-5.6-terra
+        opus: gpt-5.6-sol
     anthropic:
       api_key: ${ANTHROPIC_API_KEY}
       base_url: https://api.anthropic.com
       models:
-        haiku: claude-haiku-4-5-20251001
-        sonnet: claude-sonnet-4-5-20250929
-        opus: claude-opus-4-6
+        haiku: claude-haiku-4-5
+        sonnet: claude-sonnet-5
+        opus: claude-opus-5
     google:
       api_key: ${GOOGLE_API_KEY}
       base_url: https://generativelanguage.googleapis.com/v1beta
-      models:                        # Gemini 2.5 sizes mapped onto the standard tiers
-        haiku: gemini-2.5-flash-lite
-        sonnet: gemini-2.5-flash
+      models:                        # Current stable Gemini sizes on the standard tiers
+        haiku: gemini-3.5-flash-lite
+        sonnet: gemini-3.8-flash
         opus: gemini-2.5-pro
     ollama:
       api_key: ollama
@@ -195,7 +195,9 @@ services:
     port_host: {{ osprey_ports.postgres }}
 
   # Local telemetry backend for the OSPREY agent — a single-binary OTLP
-  # logs/metrics store (see docs/how-to/monitor-agent.rst). This reference
+  # logs/metrics store (see
+  # https://als-apg.github.io/osprey/how-to/health-and-monitoring/monitor-agent.html).
+  # This reference
   # facility ships it LIVE: it is deployed below and the agent emits to it (see
   # the `telemetry:` block under `claude_code:`), so `osprey up` +
   # `osprey web` gives you a working, production-shaped observability wiring to
@@ -752,6 +754,14 @@ archiver:
 # bluesky:
 #   plan_dirs:
 #     - /app/project/extra_plans
+#
+# `bluesky.queue_autostart` — whether the plan queue runs by default. On, the
+# bridge arms the queue at startup: a plan added to it runs as soon as the
+# queue reaches it, with no separate Start, and Stop/Abort disarm it until the
+# next Start. Off (the default), the queue comes up stopped and drains only
+# after a Start. The control-assistant preset turns it on.
+# bluesky:
+#   queue_autostart: true
 
 # Migration from tutorial to production. Every key named below is a field INSIDE
 # its section — edit `type:` under `control_system:`, not a new top-level
@@ -1394,7 +1404,7 @@ claude_code:
   # every prompt, response, and API body to disk, so this adds no new exposure —
   # it just makes that data queryable in a local store you own. To turn it off,
   # set `enabled: false`. Tracing and OTEL_LOG_TOOL_CONTENT are intentionally NOT
-  # wired. See docs/how-to/monitor-agent.rst.
+  # wired. See https://als-apg.github.io/osprey/how-to/health-and-monitoring/monitor-agent.html.
   telemetry:
     enabled: true                        # Master switch (on for this reference facility)
     backend: openobserve                 # openobserve | generic
@@ -1420,9 +1430,12 @@ claude_code:
       user: ${ZO_INGEST_USER_EMAIL:-ingest@example.com}
       password: ${ZO_INGEST_SA_TOKEN}
       org: default
-    # Content gates — all default ON. This store captures full transcripts; it
-    # is local and air-gapped, so full capture is the default posture. Set any
-    # to false to suppress that category from emitted telemetry.
+    # Content gates — all default ON. This store captures full transcripts. It
+    # is local to the compose network, but its UI and OTLP ingest are published
+    # on host port {{ osprey_ports.openobserve }} behind the ZO_ROOT_USER_PASSWORD
+    # that `osprey up` writes into .env — anyone with that password and a route
+    # to the host can read everything captured. Set any gate to false to
+    # suppress that category from emitted telemetry.
     log_user_prompts: true               # Operator chat prompts
     log_assistant_responses: true        # Agent replies
     log_tool_details: true               # Tool names + arguments
@@ -1651,6 +1664,7 @@ web:
 #       safety notice, or set it to [] for none. `landing.footer` sets the
 #       line underneath.
 #
-# See docs/how-to/web-terminal/multi-user.rst for the full schema. The build
+# See https://als-apg.github.io/osprey/how-to/web-terminal/multi-user/index.html
+# for the full schema. The build
 # interview (/osprey:build-interview) fills these in when you tell it the
 # deployment serves several operators.

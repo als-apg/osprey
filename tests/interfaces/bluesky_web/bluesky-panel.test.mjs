@@ -23,9 +23,13 @@ import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 import {
   ABORT_LABEL,
+  CLEAR_LABEL,
   CONFIRM_ABORT_LABEL,
+  CONFIRM_CLEAR_LABEL,
+  CONTROL_HINTS,
   CONFIRM_WITHDRAW_STOP_LABEL,
   QUEUE_ACTIVE_MANAGER_STATES,
+  START_LABEL,
   STOP_LABEL,
   WITHDRAW_STOP_LABEL,
   abortButtonClass,
@@ -35,25 +39,30 @@ import {
   abortRefusalTone,
   abortSuccessMessage,
   classifyQueueRefusal,
+  clearControl,
   createInitialQueueState,
   createQueueStream,
   describeProgress,
   describeQueueStatus,
-  haltsCollapsible,
+  enqueuePresentation,
+  haltsPinned,
   finishedRunId,
   historyChanged,
+  historyClearControl,
   historyEmptyState,
   historyRecords,
   itemParamSummary,
   itemRunId,
   moveDownBody,
   moveUpBody,
+  queueArmed,
   queueControls,
   queueEmptyState,
   reduceQueueFrame,
   refusalTone,
   stopButtonClass,
   stopButtonLabel,
+  stripControls,
   writeOutcomeTone,
 } from '../../../src/osprey/interfaces/bluesky_web/panels/bluesky/queue-client.js';
 import {
@@ -210,18 +219,73 @@ describe('describeQueueStatus', () => {
     expect(described.note).toContain('manager_unreachable');
   });
 
-  test('an idle manager is ok, a draining one is in-flight', () => {
-    expect(describeQueueStatus(summary()).tone).toBe('ok');
-    expect(describeQueueStatus(summary({ manager_state: 'executing_queue' })).tone).toBe('info');
+  test('the badge speaks the operator vocabulary, never the raw manager word', () => {
+    // "idle" is the queue server's word for "nothing to do"; to an operator it
+    // reads as "waiting for input", which is exactly wrong for a queue that
+    // was never started. The badge says which of the two it is.
+    expect(describeQueueStatus(summary())).toMatchObject({ label: 'stopped', tone: 'neutral' });
+    expect(describeQueueStatus(summary({ queue_autostart_enabled: true }))).toMatchObject({
+      label: 'ready',
+      tone: 'ok',
+    });
+    expect(describeQueueStatus(summary({ manager_state: 'starting_queue' }))).toMatchObject({
+      label: 'starting',
+      tone: 'info',
+    });
+    for (const managerState of ['executing_queue', 'executing_task']) {
+      expect(describeQueueStatus(summary({ manager_state: managerState }))).toMatchObject({
+        label: 'running',
+        tone: 'info',
+      });
+    }
+    expect(describeQueueStatus(summary({ manager_state: 'paused' }))).toMatchObject({
+      label: 'paused',
+      tone: 'warn',
+    });
   });
 
-  test('autostart is surfaced — it is observed, never assumed off', () => {
-    const described = describeQueueStatus(summary({ queue_autostart_enabled: true }));
-    expect(described.note).toContain('Autostart');
+  test('a pending stop outranks running — the operator asked for it', () => {
+    const described = describeQueueStatus(
+      summary({ manager_state: 'executing_queue', queue_stop_pending: true })
+    );
+    expect(described.label).toBe('stopping after current');
+    expect(described.tone).toBe('warn');
+  });
+
+  test('an armed queue with no worker environment is not "ready"', () => {
+    // Autostart drains only once the environment is open; saying "ready"
+    // while it is closed promises a run that will not happen.
+    const described = describeQueueStatus(
+      summary({ queue_autostart_enabled: true, worker_environment_exists: false })
+    );
+    expect(described.label).toBe('environment closed');
+    expect(described.tone).toBe('warn');
+  });
+
+  test('the raw manager word is kept for the tooltip', () => {
+    expect(describeQueueStatus(summary()).raw).toBe('idle');
+    expect(describeQueueStatus(summary({ manager_state: 'executing_task' })).raw).toBe(
+      'executing_task'
+    );
+  });
+
+  test('an unrecognized manager state is shown raw, as doubt', () => {
+    const described = describeQueueStatus(summary({ manager_state: 'closing_environment' }));
+    expect(described.label).toBe('closing_environment');
+    expect(described.tone).toBe('warn');
   });
 
   test('a null status reads as unavailable rather than throwing', () => {
     expect(describeQueueStatus(null).label).toBe('unavailable');
+  });
+});
+
+describe('queueArmed', () => {
+  test('armed means the manager will drain what it is given', () => {
+    expect(queueArmed(summary({ queue_autostart_enabled: true }))).toBe(true);
+    expect(queueArmed(summary())).toBe(false);
+    expect(queueArmed(null)).toBe(false);
+    expect(queueArmed({ available: false, queue_autostart_enabled: true })).toBe(false);
   });
 });
 
@@ -245,53 +309,26 @@ describe('queueControls', () => {
     expect(controls.stop.note).toContain('still sent');
   });
 
-  test('start is live once something is queued', () => {
-    const controls = queueControls(stateWith(summary(), [item()]));
-    expect(controls.start.disabled).toBe(false);
-    expect(controls.start.reason).toBeNull();
-  });
-
-  test('start is off with an empty queue, and off again while it drains', () => {
-    expect(queueControls(stateWith(summary())).start.reason).toContain('Nothing');
-    const draining = queueControls(stateWith(summary({ manager_state: 'executing_queue' }), [item()]));
-    expect(draining.start.disabled).toBe(true);
-    expect(draining.start.reason).toContain('already running');
-  });
-
-  test('the three start states carry the exact words the operator reads', () => {
-    // The reason is the whole explanation an operator gets for a dead button,
-    // so each one is pinned verbatim rather than by substring.
+  test('start is live on a stopped queue, with or without items', () => {
+    // Start arms the queue: it drains what is there AND what arrives later,
+    // so an empty stopped queue is a legitimate thing to start.
     expect(queueControls(stateWith(summary(), [item()])).start).toEqual({
       disabled: false,
       reason: null,
     });
-    expect(queueControls(stateWith(summary())).start).toEqual({
-      disabled: true,
-      reason: 'Nothing is queued.',
-    });
-    const running = queueControls(
-      stateWith(summary({ manager_state: 'executing_queue' }), [item()])
-    );
-    expect(running.start).toEqual({ disabled: true, reason: 'The queue is already running.' });
+    expect(queueControls(stateWith(summary())).start).toEqual({ disabled: false, reason: null });
   });
 
-  test('a running queue reads as running even when nothing is left to start', () => {
-    // Both gates are shut at once here — active AND empty. The running one
-    // wins, because 'Nothing is queued.' would read as an invitation to queue
-    // something and then click a button that is dead for another reason.
-    const controls = queueControls(stateWith(summary({ manager_state: 'executing_queue' })));
-    expect(controls.start).toEqual({ disabled: true, reason: 'The queue is already running.' });
+  test('start is off once the queue is armed — there is nothing left to start', () => {
+    const armed = queueControls(stateWith(summary({ queue_autostart_enabled: true })));
+    expect(armed.start).toEqual({ disabled: true, reason: 'The queue is already started.' });
   });
 
-  test('every active manager state closes start, and a drained one opens it', () => {
+  test('every active manager state closes start with the running wording', () => {
     for (const managerState of QUEUE_ACTIVE_MANAGER_STATES) {
       const controls = queueControls(stateWith(summary({ manager_state: managerState }), [item()]));
       expect(controls.start).toEqual({ disabled: true, reason: 'The queue is already running.' });
     }
-    // `idle` is where the bridge parks a drained manager, and it is the state
-    // an operator starts from.
-    const idle = queueControls(stateWith(summary({ manager_state: 'idle' }), [item()]));
-    expect(idle.start).toEqual({ disabled: false, reason: null });
   });
 
   test('an unreadable manager outranks whatever else the summary claims', () => {
@@ -350,7 +387,7 @@ describe('queueControls', () => {
   });
 });
 
-describe('haltsCollapsible', () => {
+describe('haltsPinned', () => {
   /**
    * @param {any} status
    * @param {any} [runningItem]
@@ -360,48 +397,243 @@ describe('haltsCollapsible', () => {
     return { status, items: [], runningItem, connected, frames: connected ? 1 : 0 };
   }
 
-  test('a provably dormant queue may fold its halts', () => {
-    expect(haltsCollapsible(stateWith(summary()))).toBe(true);
+  test('a provably dormant queue does not pin the halts onto every tab', () => {
+    expect(haltsPinned(stateWith(summary()))).toBe(false);
+    // Armed but idle is dormant too: nothing is moving. The moment an item
+    // lands the manager leaves idle, and the next frame pins them.
+    expect(haltsPinned(stateWith(summary({ queue_autostart_enabled: true })))).toBe(false);
   });
 
-  test('no frame yet keeps the halts pinned open', () => {
-    // First paint is exactly when a queue may already be executing; folding
-    // is earned by knowledge, and before the first frame there is none.
-    expect(haltsCollapsible(createInitialQueueState())).toBe(false);
+  test('no frame yet pins the halts', () => {
+    // First paint is exactly when a queue may already be executing; hiding is
+    // earned by knowledge, and before the first frame there is none.
+    expect(haltsPinned(createInitialQueueState())).toBe(true);
   });
 
-  test('a dropped stream keeps them open even with a stale idle summary', () => {
-    expect(haltsCollapsible(stateWith(summary(), null, false))).toBe(false);
+  test('a dropped stream pins them even with a stale idle summary', () => {
+    expect(haltsPinned(stateWith(summary(), null, false))).toBe(true);
   });
 
-  test('an unreadable manager keeps them open', () => {
-    expect(haltsCollapsible(stateWith({ available: false, reason: 'x' }))).toBe(false);
-    expect(haltsCollapsible(stateWith(null))).toBe(false);
+  test('an unreadable manager pins them', () => {
+    expect(haltsPinned(stateWith({ available: false, reason: 'x' }))).toBe(true);
+    expect(haltsPinned(stateWith(null))).toBe(true);
   });
 
-  test('a missing or unrecognized manager state keeps them open', () => {
+  test('a missing or unrecognized manager state pins them', () => {
     // An unknown state string is doubt, and doubt shows the halts — the
-    // default direction is EXPANDED, so only states this predicate can
-    // positively call dormant may fold.
-    expect(haltsCollapsible(stateWith(summary({ manager_state: null })))).toBe(false);
+    // default direction is VISIBLE, so only states this predicate can
+    // positively call dormant may hide.
+    expect(haltsPinned(stateWith(summary({ manager_state: null })))).toBe(true);
+    expect(haltsPinned(stateWith(summary({ manager_state: 'closing_environment' })))).toBe(true);
   });
 
-  test('every active manager state keeps them open', () => {
+  test('every active manager state pins them', () => {
     for (const managerState of QUEUE_ACTIVE_MANAGER_STATES) {
-      expect(haltsCollapsible(stateWith(summary({ manager_state: managerState })))).toBe(false);
+      expect(haltsPinned(stateWith(summary({ manager_state: managerState })))).toBe(true);
     }
   });
 
-  test('a pending stop keeps them open — the withdrawal must stay visible', () => {
-    expect(haltsCollapsible(stateWith(summary({ queue_stop_pending: true })))).toBe(false);
+  test('a pending stop pins them — the withdrawal must stay visible', () => {
+    expect(haltsPinned(stateWith(summary({ queue_stop_pending: true })))).toBe(true);
   });
 
-  test('autostart keeps them open — an idle autostarting queue is not dormant', () => {
-    expect(haltsCollapsible(stateWith(summary({ queue_autostart_enabled: true })))).toBe(false);
+  test('a running item pins them regardless of the summary', () => {
+    expect(haltsPinned(stateWith(summary(), item()))).toBe(true);
+  });
+});
+
+describe('stripControls', () => {
+  /**
+   * @param {any} status
+   * @param {any} [runningItem]
+   */
+  function stateWith(status, runningItem = null) {
+    return { status, items: [], runningItem, connected: true, frames: 1 };
+  }
+
+  test('the Queue tab is the control panel: every control, every state', () => {
+    expect(stripControls(stateWith(summary()), 'queue')).toEqual({
+      start: true,
+      halts: true,
+      clear: true,
+      dormant: true,
+    });
+    expect(stripControls(stateWith(summary({ manager_state: 'executing_queue' })), 'queue')).toEqual(
+      { start: true, halts: true, clear: true, dormant: false }
+    );
+    expect(stripControls(createInitialQueueState(), 'queue')).toEqual({
+      start: true,
+      halts: true,
+      clear: true,
+      dormant: false,
+    });
   });
 
-  test('a running item keeps them open regardless of the summary', () => {
-    expect(haltsCollapsible(stateWith(summary(), item()))).toBe(false);
+  test('on the other tabs a dormant queue is a badge, nothing more', () => {
+    for (const view of ['plans', 'results']) {
+      expect(stripControls(stateWith(summary()), view)).toMatchObject({
+        start: false,
+        halts: false,
+        clear: false,
+      });
+      expect(stripControls(stateWith(summary({ queue_autostart_enabled: true })), view)).toMatchObject(
+        { start: false, halts: false, clear: false }
+      );
+    }
+  });
+
+  test('on the other tabs the halts appear the moment anything is moving or in doubt', () => {
+    for (const view of ['plans', 'results']) {
+      expect(stripControls(stateWith(summary(), item()), view)).toMatchObject({
+        start: false,
+        halts: true,
+        dormant: false,
+      });
+      expect(stripControls(stateWith(summary({ manager_state: 'paused' })), view)).toMatchObject({
+        start: false,
+        halts: true,
+        dormant: false,
+      });
+      expect(stripControls(createInitialQueueState(), view)).toMatchObject({
+        start: false,
+        halts: true,
+        dormant: false,
+      });
+    }
+  });
+
+  test('start and clear never leave the Queue tab', () => {
+    for (const view of ['plans', 'results']) {
+      expect(stripControls(stateWith(summary(), item()), view).start).toBe(false);
+      expect(stripControls(stateWith(summary(), item()), view).clear).toBe(false);
+      expect(stripControls(createInitialQueueState(), view).start).toBe(false);
+    }
+  });
+
+  test('dormant is a visual weight, decided by the same rule that pins the halts', () => {
+    // A quiet halt is still a halt: `dormant` never hides or disables — it
+    // only says whether the panel positively knows nothing is moving.
+    expect(stripControls(stateWith(summary()), 'queue').dormant).toBe(true);
+    expect(stripControls(stateWith(summary({ queue_stop_pending: true })), 'queue').dormant).toBe(
+      false
+    );
+    expect(stripControls(stateWith(null), 'queue').dormant).toBe(false);
+  });
+});
+
+describe('historyClearControl', () => {
+  test('dead until history has been read, and with nothing listed', () => {
+    expect(historyClearControl([], false)).toEqual({
+      disabled: true,
+      reason: 'Completed runs could not be loaded.',
+    });
+    expect(historyClearControl([], true)).toEqual({ disabled: true, reason: 'No completed runs.' });
+  });
+
+  test('live once a completed run is listed', () => {
+    expect(historyClearControl([{ id: 'r1', status: 'completed', planName: null, error: null }], true)).toEqual({
+      disabled: false,
+      reason: null,
+    });
+  });
+});
+
+describe('historyChanged: the bridge-owned key', () => {
+  test('a run removed elsewhere moves runs_removed and nothing else — still a re-fetch', () => {
+    expect(historyChanged(summary({ runs_removed: 0 }), summary({ runs_removed: 1 }))).toBe(true);
+  });
+});
+
+describe('clearControl', () => {
+  /** @param {any} status @param {any[]} [items] */
+  function stateWith(status, items = []) {
+    return { status, items, runningItem: null, connected: true, frames: 1 };
+  }
+
+  test('live only when there is something waiting to remove', () => {
+    expect(clearControl(stateWith(summary(), [item()]))).toEqual({ disabled: false, reason: null });
+    expect(clearControl(stateWith(summary()))).toEqual({
+      disabled: true,
+      reason: 'Nothing is waiting.',
+    });
+    expect(clearControl(stateWith(null, [item()]))).toEqual({
+      disabled: true,
+      reason: 'The queue manager could not be read.',
+    });
+  });
+
+  test('the running plan is not the clear control’s business', () => {
+    // Items are the WAITING plans; a running item alone leaves nothing to clear.
+    const running = { status: summary(), items: [], runningItem: item(), connected: true, frames: 1 };
+    expect(clearControl(running).disabled).toBe(true);
+  });
+
+  test('both confirming controls arm to the same one-word label', () => {
+    expect(CONFIRM_CLEAR_LABEL).toBe(CONFIRM_ABORT_LABEL);
+    expect(CLEAR_LABEL).toBe('Clear');
+  });
+});
+
+describe('plain-language hints', () => {
+  test('every control has one sentence, and the badge one per state', () => {
+    for (const key of /** @type {const} */ (['start', 'stop', 'abort', 'clear'])) {
+      expect(CONTROL_HINTS[key]).toMatch(/^[A-Z].*\.$/);
+    }
+    const states = [
+      summary(),
+      summary({ queue_autostart_enabled: true }),
+      summary({ manager_state: 'executing_queue' }),
+      summary({ manager_state: 'starting_queue' }),
+      summary({ manager_state: 'paused' }),
+      summary({ manager_state: 'executing_queue', queue_stop_pending: true }),
+      summary({ queue_autostart_enabled: true, worker_environment_exists: false }),
+      { available: false, reason: 'x' },
+      null,
+    ];
+    for (const status of states) {
+      expect(describeQueueStatus(status).hint).toMatch(/^[A-Z]/);
+    }
+    // The manager's own word rides in the hint, so it is never hidden.
+    expect(describeQueueStatus(summary()).hint).toContain('manager: idle');
+    expect(describeQueueStatus(summary()).hint).toContain('Start');
+  });
+});
+
+describe('enqueuePresentation', () => {
+  test('an armed idle queue runs the plan — and the button says so', () => {
+    const shown = enqueuePresentation(summary({ queue_autostart_enabled: true }));
+    expect(shown.label).toBe('Run');
+    expect(shown.note).toBe('Runs now.');
+  });
+
+  test('an armed busy queue takes its turn', () => {
+    const shown = enqueuePresentation(
+      summary({ queue_autostart_enabled: true, manager_state: 'executing_queue' })
+    );
+    expect(shown.label).toBe('Add to queue');
+    expect(shown.note).toBe('Runs after the current plan.');
+  });
+
+  test('a stopped queue says where the start is', () => {
+    const shown = enqueuePresentation(summary());
+    expect(shown.label).toBe('Add to queue');
+    expect(shown.note).toBe('The queue is stopped. Start it from the Queue tab.');
+  });
+
+  test('an unreadable queue promises nothing', () => {
+    for (const status of [null, { available: false, reason: 'x' }]) {
+      const shown = enqueuePresentation(status);
+      expect(shown.label).toBe('Add to queue');
+      expect(shown.note).toBe('');
+    }
+  });
+
+  test('a busy queue that is not armed still queues behind the running plan', () => {
+    // Autostart off, a start already in progress: the item sits behind the
+    // running plan and drains with it — nothing here needs the Queue tab.
+    const shown = enqueuePresentation(summary({ manager_state: 'executing_queue' }));
+    expect(shown.label).toBe('Add to queue');
+    expect(shown.note).toBe('Runs after the current plan.');
   });
 });
 
@@ -896,7 +1128,8 @@ describe('createResultsView', () => {
           <button type="button" id="export-btn">Export CSV</button>
         </div>
         <p id="export-note" hidden></p>
-      </div>`;
+      </div>
+      <button type="button" id="run-remove-btn" hidden>Remove from history</button>`;
     /** @param {string} id */
     const byId = (id) => /** @type {any} */ (document.getElementById(id));
     return {
@@ -915,6 +1148,7 @@ describe('createResultsView', () => {
       figureCard: byId('figure-card'),
       figurePanels: byId('figure-panels'),
       figureNote: byId('figure-note'),
+      removeButton: byId('run-remove-btn'),
     };
   }
 
@@ -1033,6 +1267,39 @@ describe('createResultsView', () => {
     expect(elements.figurePanels.querySelectorAll('.figure-panel')).toHaveLength(1);
     expect(elements.figureNote.hidden).toBe(false);
     expect(elements.figureNote.textContent).toContain('live data');
+  });
+
+  test('"Remove from history" is offered for a finished run only, and hands the id up', async () => {
+    const routes = {
+      '/runs/r1': { status: 200, body: { id: 'r1', status: 'completed', plan_name: 'orm' } },
+      '/runs/r1/data': { status: 200, body: DATA },
+      '/runs/r1/figure': { status: 200, body: FIGURE },
+      '/runs/r2': { status: 200, body: { id: 'r2', status: 'running' } },
+      '/runs/r2/data': { status: 200, body: { ...DATA, partial: true } },
+      '/runs/r2/figure': { status: 200, body: { ...FIGURE, partial: true } },
+    };
+    vi.stubGlobal('fetch', stubFetch(routes));
+    const elements = mountElements();
+    /** @type {string[]} */
+    const removed = [];
+    view = createResultsView({ api: (p) => p, elements, onRemove: (id) => removed.push(id) });
+
+    view.follow('r1');
+    await vi.waitFor(() => expect(elements.removeButton.hidden).toBe(false));
+    elements.removeButton.click();
+    expect(removed).toEqual(['r1']);
+
+    // A running run is halted, not removed: the button stays away.
+    view.follow('r2');
+    expect(elements.removeButton.hidden).toBe(true);
+    await vi.waitFor(() => expect(elements.statusBadge.textContent).toBe('running'));
+    expect(elements.removeButton.hidden).toBe(true);
+
+    // Nothing selected: nothing to remove.
+    view.follow(null);
+    expect(elements.removeButton.hidden).toBe(true);
+    elements.removeButton.click();
+    expect(removed).toEqual(['r1']);
   });
 
   test('a default figure carries its reason and is drawn like any other', async () => {
@@ -1700,8 +1967,8 @@ describe('abortControl', () => {
   test('names the consequence while a plan is running', () => {
     const control = abortControl(stateWith({ runningItem: item() }));
     expect(control.running).toBe(true);
-    expect(control.note).toContain('Discards the rest of the running plan');
-    expect(control.note).toContain('Hardware is left wherever the plan stopped');
+    expect(control.note).toContain('the rest of the running plan is dropped');
+    expect(control.note).toContain('hardware stays where it is');
   });
 
   test('an unreadable manager summary says the abort is still sent', () => {
@@ -1723,29 +1990,47 @@ describe('abortControl', () => {
 });
 
 describe('abort button label and class', () => {
-  test('two steps, and the armed one names the act', () => {
+  test('two steps, and the armed note names the act', () => {
     expect(abortButtonLabel(false)).toBe(ABORT_LABEL);
     expect(abortButtonLabel(true)).toBe(CONFIRM_ABORT_LABEL);
-    expect(CONFIRM_ABORT_LABEL.toLowerCase()).toContain('abort');
+    // The armed label is the one word "Confirm" (shared with Clear, and the
+    // width floor is sized to it); the act is named by the note that renders
+    // on arm, which is where an operator's eye lands anyway.
+    const armed = abortControl({
+      status: summary({ manager_state: 'executing_queue' }),
+      items: [],
+      runningItem: item(),
+      connected: true,
+      frames: 1,
+    });
+    expect(armed.note?.toLowerCase()).toContain('abort');
   });
 
-  test('the armed label never outgrows the resting one, so Stop cannot move', () => {
-    // The status strip is a right-anchored cluster, so a member's position
-    // depends only on the widths of the members AFTER it — which makes Abort,
-    // the rightmost, the thing that positions the plain Stop beside it.
-    // panel.css floors #abort-btn at its resting label width; the floor only
-    // holds while every other label this button can show is shorter. A longer
-    // one pushes the box past its floor and drags Stop sideways at the moment
-    // an operator is choosing between the two halts — and the widened Abort
-    // lands on the pixels Stop just vacated, so a click meant for Stop commits
-    // the abort. That is the defect the two-step confirm exists to prevent, so
-    // the confirm must not reintroduce it.
+  test('the CSS floor on Abort covers its longest label, so Stop cannot move', () => {
+    // The strip is a right-anchored cluster, so a member's position depends
+    // only on the widths of the members AFTER it — which makes Abort, the
+    // rightmost, the thing that positions the plain Stop beside it. panel.css
+    // floors #abort-btn at one `ch` per character of its LONGEST label; a
+    // label past the floor pushes the box wider and drags Stop sideways at the
+    // moment an operator is choosing between the two halts — and the widened
+    // Abort lands on the pixels Stop just vacated, so a click meant for Stop
+    // commits the abort. That is the defect the two-step confirm exists to
+    // prevent, so the confirm must not reintroduce it.
     //
-    // Asserted on the constants, not rendered geometry: the CSS floor is safe
-    // by construction (1ch per resting character), the copy is what drifts.
-    // Stop's own labels are deliberately NOT constrained — it is inboard of
-    // Abort, so its width moves nothing but itself.
-    expect(CONFIRM_ABORT_LABEL.length).toBeLessThanOrEqual(ABORT_LABEL.length);
+    // Asserted on the constants against the stylesheet, not rendered geometry:
+    // the floor is safe by construction (1ch clears any Latin glyph), the copy
+    // and the number are what drift. Stop's own labels are deliberately NOT
+    // constrained — it is inboard of Abort, so its width moves nothing but
+    // itself.
+    const css = readFileSync(
+      `${cwd()}/src/osprey/interfaces/bluesky_web/panels/bluesky/panel.css`,
+      'utf-8'
+    );
+    const floor = css.match(/#abort-btn\s*\{[^}]*min-width:\s*(\d+)ch/);
+    expect(floor).not.toBeNull();
+    if (!floor) throw new Error('unreachable: floor asserted present');
+    const longest = Math.max(ABORT_LABEL.length, CONFIRM_ABORT_LABEL.length);
+    expect(Number(floor[1])).toBeGreaterThanOrEqual(longest);
   });
 
   test('the caution class is on the armed step only', () => {
@@ -1828,21 +2113,24 @@ describe('bundle wiring', () => {
     expect(html).toContain('OSPREY Bluesky');
   });
 
-  test('the two halts render OUTSIDE the three view containers', () => {
-    // The whole point of the status strip: a halt must never be a tab switch
-    // away. If either button ever migrates inside a view container, it becomes
-    // invisible on the other two tabs.
+  test('the queue controls render OUTSIDE the three view containers', () => {
+    // The whole point of the control strip: a halt must never be a tab switch
+    // away while a plan is moving. If either halt ever migrates inside a view
+    // container, it becomes invisible on the other two tabs. Start lives in
+    // the same strip — the Queue tab is where it is SHOWN (stripControls),
+    // but there is exactly one set of controls, not one per tab.
     const html = readFileSync(`${BUNDLE}index.html`, 'utf-8');
     const firstView = html.indexOf('id="view-plans"');
     expect(firstView).toBeGreaterThan(-1);
-    for (const id of ['stop-btn', 'abort-btn', 'queue-state-badge', 'queue-banner']) {
+    for (const id of ['start-btn', 'stop-btn', 'abort-btn', 'queue-state-badge', 'queue-banner']) {
       expect(html.indexOf(`id="${id}"`), `${id} must precede the view containers`).toBeLessThan(
         firstView
       );
     }
-    // Start is the counter-example — arming a queue stays a deliberate act
-    // behind the Queue tab.
-    expect(html.indexOf('id="start-btn"')).toBeGreaterThan(firstView);
+    // The folded "Queue controls ▸" disclosure is gone for good: the halts
+    // hide and show by state, never behind a click.
+    expect(html).not.toContain('halts-toggle');
+    expect(html).not.toContain('Queue controls');
   });
 
   test('the figure renders ABOVE the data table, and the table ships collapsed', () => {
@@ -2085,10 +2373,16 @@ describe('booting the shipped bundle', () => {
     await import(`${BUNDLE}panel.js`);
 
     panel.pushFrame({ type: 'queue', status: summary(), items: [], running_item: null });
-    expect(panel.startBtn.disabled).toBe(true); // nothing queued
+    expect(panel.startBtn.disabled).toBe(false); // stopped: can be started
+    expect(panel.startBtn.textContent).toBe(START_LABEL);
 
-    panel.pushFrame({ type: 'queue', status: summary(), items: [item()], running_item: null });
-    expect(panel.startBtn.disabled).toBe(false); // something to start
+    panel.pushFrame({
+      type: 'queue',
+      status: summary({ queue_autostart_enabled: true }),
+      items: [],
+      running_item: null,
+    });
+    expect(panel.startBtn.disabled).toBe(true); // already started
 
     panel.pushFrame({
       type: 'queue',
@@ -2097,6 +2391,194 @@ describe('booting the shipped bundle', () => {
       running_item: null,
     });
     expect(panel.startBtn.disabled).toBe(true); // already draining
+  });
+
+  test('the halts go quiet while nothing moves, and stay live', async () => {
+    const panel = boot();
+    await import(`${BUNDLE}panel.js`);
+
+    panel.pushFrame({ type: 'queue', status: summary(), items: [], running_item: null });
+    expect(panel.stopBtn.className).toContain('halt-idle');
+    expect(panel.abortBtn.className).toContain('halt-idle');
+    expect(panel.stopBtn.disabled).toBe(false);
+    expect(panel.abortBtn.disabled).toBe(false);
+
+    panel.pushFrame({
+      type: 'queue',
+      status: summary({ manager_state: 'executing_queue', running_item_uid: 'uid-r' }),
+      items: [],
+      running_item: item({ item_uid: 'uid-r' }),
+    });
+    expect(panel.stopBtn.className).not.toContain('halt-idle');
+    expect(panel.abortBtn.className).not.toContain('halt-idle');
+    // Armed for the second click: the caution colour wins over quiet.
+    panel.pushFrame({ type: 'queue', status: summary(), items: [], running_item: null });
+    panel.abortBtn.click();
+    expect(panel.abortBtn.className).toContain('confirm');
+    expect(panel.abortBtn.className).not.toContain('halt-idle');
+  });
+
+  test('clear is two clicks, dead with nothing waiting, and sends DELETE /queue/items', async () => {
+    const panel = boot();
+    await import(`${BUNDLE}panel.js`);
+    const fetchMock = /** @type {any} */ (globalThis.fetch);
+    const clearBtn = /** @type {any} */ (document.getElementById('clear-btn'));
+
+    panel.pushFrame({ type: 'queue', status: summary(), items: [], running_item: null });
+    expect(clearBtn.disabled).toBe(true);
+
+    panel.pushFrame({
+      type: 'queue',
+      status: summary({ items_in_queue: 2 }),
+      items: [item(), item({ item_uid: 'uid-2' })],
+      running_item: null,
+    });
+    expect(clearBtn.disabled).toBe(false);
+    expect(clearBtn.textContent).toBe(CLEAR_LABEL);
+
+    const before = fetchMock.mock.calls.length;
+    clearBtn.click();
+    expect(fetchMock.mock.calls.length).toBe(before); // armed only
+    expect(clearBtn.textContent).toBe(CONFIRM_CLEAR_LABEL);
+    expect(document.getElementById('clear-note')?.textContent).toContain('2 waiting plans');
+
+    clearBtn.click();
+    expect(fetchMock.mock.calls.length).toBe(before + 1);
+    const [url, init] = fetchMock.mock.calls[before];
+    expect(String(url)).toContain('/queue/items');
+    expect(String(url)).not.toContain('/queue/items/');
+    expect(init.method).toBe('DELETE');
+    expect(clearBtn.textContent).toBe(CLEAR_LABEL);
+
+    // A frame with nothing waiting disarms a half-armed confirm.
+    clearBtn.click();
+    expect(clearBtn.textContent).toBe(CONFIRM_CLEAR_LABEL);
+    panel.pushFrame({ type: 'queue', status: summary(), items: [], running_item: null });
+    expect(clearBtn.textContent).toBe(CLEAR_LABEL);
+  });
+
+  test('a success banner is a receipt: it leaves by itself, a refusal stays', async () => {
+    vi.useFakeTimers();
+    try {
+      const panel = boot();
+      await import(`${BUNDLE}panel.js`);
+      const banner = /** @type {any} */ (document.getElementById('queue-banner'));
+
+      panel.pushFrame({ type: 'queue', status: summary(), items: [], running_item: null });
+      panel.startBtn.click();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(banner.hidden).toBe(false);
+      expect(banner.textContent).toContain('Queue started');
+      await vi.advanceTimersByTimeAsync(6000);
+      expect(banner.hidden).toBe(true);
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({
+          ok: false,
+          status: 403,
+          json: async () => ({
+            detail: { code: 'launch_token_required', detail: 'no token', manager_state: 'idle' },
+          }),
+        }))
+      );
+      panel.startBtn.click();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(banner.hidden).toBe(false);
+      await vi.advanceTimersByTimeAsync(60000);
+      expect(banner.hidden).toBe(false); // a refusal is a state, not a receipt
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('the help tip is the shared info tip, on the Queue tab, with four plain sentences', async () => {
+    boot();
+    await import(`${BUNDLE}panel.js`);
+    const helpBtn = /** @type {any} */ (document.getElementById('queue-help-btn'));
+    const tip = /** @type {any} */ (document.getElementById('queue-help'));
+    // The design system's hover/focus tip, not a click toggle: the bubble
+    // lives inside the disc, and no open state is kept on the button.
+    expect(helpBtn.classList.contains('osprey-info')).toBe(true);
+    expect(tip.classList.contains('osprey-tip')).toBe(true);
+    expect(tip.getAttribute('role')).toBe('tooltip');
+    expect(tip.parentElement).toBe(helpBtn);
+    expect(helpBtn.hasAttribute('aria-expanded')).toBe(false);
+    expect(helpBtn.getAttribute('aria-label')).toBeTruthy();
+    const text = tip.textContent.replace(/\s+/g, ' ').trim();
+    for (const verb of ['Start', 'Stop', 'Abort', 'Clear']) expect(text).toContain(verb);
+    expect(text.split('. ').length).toBe(4);
+    // Boot lands on Plans: the help affordance is hidden with the controls.
+    expect(helpBtn.hidden).toBe(true);
+  });
+
+  /**
+   * A fetch stub for the history tests: `GET /runs` serves two finished runs,
+   * every other call (the writes, the streams' first reads) answers 200.
+   * @param {Array<Record<string, unknown>>} [runs]
+   */
+  function stubHistoryFetch(runs = HISTORY_RUNS) {
+    return vi.fn(async (/** @type {any} */ url, /** @type {any} */ init) => {
+      const method = init?.method || 'GET';
+      if (method === 'GET' && String(url).endsWith('/runs')) {
+        return { ok: true, status: 200, json: async () => runs };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    });
+  }
+  const HISTORY_RUNS = [
+    { id: 'r2', status: 'error', plan_name: 'orm', error: 'boom' },
+    { id: 'r1', status: 'completed', plan_name: 'orm' },
+  ];
+
+  test('each finished run has a remove control: one click drops it and re-reads the list', async () => {
+    const fetchMock = stubHistoryFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    boot();
+    await import(`${BUNDLE}panel.js`);
+    const list = /** @type {any} */ (document.getElementById('history-items'));
+    await vi.waitFor(() => expect(list.querySelectorAll('.queue-row')).toHaveLength(2));
+
+    const removes = list.querySelectorAll('button[data-action="remove-run"]');
+    expect(removes).toHaveLength(2);
+    expect(removes[0].dataset.uid).toBe('r2');
+    expect(removes[0].getAttribute('aria-label')).toContain('Removes this run');
+
+    const before = fetchMock.mock.calls.length;
+    removes[0].click();
+    await vi.waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(before + 2));
+    const [url, init] = fetchMock.mock.calls[before];
+    expect(String(url)).toContain('/runs/r2');
+    expect(init.method).toBe('DELETE');
+    // The list is re-read right away, not left to the next frame.
+    const [again, againInit] = fetchMock.mock.calls[before + 1];
+    expect(String(again)).toMatch(/\/runs$/);
+    expect(againInit?.method ?? 'GET').toBe('GET');
+  });
+
+  test('the history Clear is dead until runs are listed, then two clicks send DELETE /history', async () => {
+    const fetchMock = stubHistoryFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    boot();
+    const clearBtn = /** @type {any} */ (document.getElementById('history-clear-btn'));
+    // The shipped markup ships it dead: nothing has been read yet.
+    expect(clearBtn.disabled).toBe(true);
+    await import(`${BUNDLE}panel.js`);
+    await vi.waitFor(() => expect(clearBtn.disabled).toBe(false));
+    expect(clearBtn.textContent).toBe(CLEAR_LABEL);
+
+    const before = fetchMock.mock.calls.length;
+    clearBtn.click();
+    expect(fetchMock.mock.calls.length).toBe(before); // armed only
+    expect(clearBtn.textContent).toBe(CONFIRM_CLEAR_LABEL);
+    expect(document.getElementById('history-clear-note')?.textContent).toContain('2 completed runs');
+
+    clearBtn.click();
+    expect(clearBtn.textContent).toBe(CLEAR_LABEL);
+    await vi.waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(before + 1));
+    const [url, init] = fetchMock.mock.calls[before];
+    expect(String(url)).toMatch(/\/history$/);
+    expect(init.method).toBe('DELETE');
   });
 
   test('the withdrawal takes two clicks and the plain stop takes one', async () => {
@@ -2749,9 +3231,15 @@ describe('the merged panel shell', () => {
     expect(visibleViews()).toEqual(['results']);
   });
 
-  test('the two halts are live on every view, not just the Queue one', async () => {
+  test('the two halts are live on every view while a plan is moving', async () => {
     mount();
     await import(`${BUNDLE}panel.js`);
+    pushQueueFrame({
+      type: 'queue',
+      status: summary({ manager_state: 'executing_queue', running_item_uid: 'uid-r' }),
+      items: [],
+      running_item: item({ item_uid: 'uid-r' }),
+    });
     for (const view of ['plans', 'queue', 'results']) {
       byId(`view-tab-${view}`).click();
       expect(byId('stop-btn').disabled, `stop dead on ${view}`).toBe(false);
@@ -2760,5 +3248,49 @@ describe('the merged panel shell', () => {
       expect(byId('stop-btn').closest('[hidden]'), `stop hidden on ${view}`).toBeNull();
       expect(byId('abort-btn').closest('[hidden]'), `abort hidden on ${view}`).toBeNull();
     }
+  });
+
+  test('before the first frame the halts are on every view — doubt shows them', async () => {
+    mount();
+    await import(`${BUNDLE}panel.js`);
+    for (const view of ['plans', 'queue', 'results']) {
+      byId(`view-tab-${view}`).click();
+      expect(byId('stop-btn').closest('[hidden]'), `stop hidden on ${view}`).toBeNull();
+      expect(byId('abort-btn').closest('[hidden]'), `abort hidden on ${view}`).toBeNull();
+    }
+  });
+
+  test('a dormant queue keeps its controls on the Queue tab only', async () => {
+    mount();
+    await import(`${BUNDLE}panel.js`);
+    pushQueueFrame({ type: 'queue', status: summary(), items: [], running_item: null });
+
+    byId('view-tab-queue').click();
+    for (const id of ['start-btn', 'stop-btn', 'abort-btn']) {
+      expect(byId(id).closest('[hidden]'), `${id} hidden on queue`).toBeNull();
+    }
+    for (const view of ['plans', 'results']) {
+      byId(`view-tab-${view}`).click();
+      for (const id of ['start-btn', 'stop-btn', 'abort-btn']) {
+        expect(byId(id).closest('[hidden]'), `${id} shown on ${view}`).not.toBeNull();
+      }
+      // The badge stays: the queue's state is never a tab switch away.
+      expect(byId('queue-state-badge').closest('[hidden]')).toBeNull();
+    }
+  });
+
+  test('start shows on the Queue tab alone, even while a plan is moving', async () => {
+    mount();
+    await import(`${BUNDLE}panel.js`);
+    pushQueueFrame({
+      type: 'queue',
+      status: summary({ manager_state: 'executing_queue', running_item_uid: 'uid-r' }),
+      items: [],
+      running_item: item({ item_uid: 'uid-r' }),
+    });
+    byId('view-tab-plans').click();
+    expect(byId('start-btn').closest('[hidden]')).not.toBeNull();
+    byId('view-tab-queue').click();
+    expect(byId('start-btn').closest('[hidden]')).toBeNull();
   });
 });

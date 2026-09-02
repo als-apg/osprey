@@ -582,9 +582,9 @@ async def _run_scan(
     """
     token = _minted_token(repo)
     run_id = _queue_drive.stage_and_enqueue(
-        BRIDGE_URL, plan_name, plan_args, client_id=_QUEUE_CLIENT_ID
+        BRIDGE_URL, plan_name, plan_args, client_id=_QUEUE_CLIENT_ID, token=token
     )
-    _queue_drive.start_queue(BRIDGE_URL, token)
+    _queue_drive.start_draining(BRIDGE_URL, token, run_id)
 
     deadline = time.monotonic() + timeout
     last_status_body: dict = {}
@@ -877,8 +877,9 @@ async def test_p4_concurrent_scan_and_read(deployed_stack: DeployedStack) -> Non
             "axes": [{"setpoint": SCAN_MOTOR, "start": start, "stop": stop, "num_points": num}],
         },
         client_id=_QUEUE_CLIENT_ID,
+        token=token,
     )
-    _queue_drive.start_queue(BRIDGE_URL, token)
+    _queue_drive.start_draining(BRIDGE_URL, token, run_id)
 
     # Launch the host read in its OWN process immediately after the start, before
     # any polling sleep, so it genuinely overlaps the bridge's in-flight run (a

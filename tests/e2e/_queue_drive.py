@@ -3,9 +3,10 @@
 The bridge has no direct-execute route any more: ``POST /runs`` and
 ``POST /runs/{id}/launch`` both answer 410 ``use_the_queue``. Running a plan is
 now four steps -- stage it in the shared draft, enqueue the exact revision that
-was staged, arm the queue with the launch token, poll the run record -- and
-this module is the single place they are spelled out, so a change to the flow
-lands in one file rather than in every deploy proof that happens to run a plan.
+was staged with the launch token, start the queue where it is stopped, poll the
+run record -- and this module is the single place they are spelled out, so a
+change to the flow lands in one file rather than in every deploy proof that
+happens to run a plan.
 
 ``tests/e2e/test_bluesky_queue_e2e.py`` deliberately does NOT import this: that
 module is the acceptance instrument for the queue surface itself, and a proof
@@ -27,9 +28,15 @@ WHY EACH STEP IS SHAPED THE WAY IT IS:
   ``osprey down`` deliberately keeps -- so a previous run's leftovers would go
   back on the hardware under this run's start. Removal goes through the
   bridge's own ``DELETE /queue/items/{uid}``, never into Redis.
-* The enqueue is UNARMED (no token). The queue is idle at that point, so an
-  added item just sits there until the armed start -- the designed
-  compose-now/arm-later split.
+* The enqueue CARRIES THE TOKEN, and the start is conditional. A deployment
+  is either armed (``bluesky.queue_autostart`` on -- what the shipped
+  ``control-assistant`` preset does) or stopped. On an armed queue the add is
+  the arming write: the item runs the moment the manager reaches it, an
+  unarmed add is refused ``launch_token_required``, and a ``POST /queue/start``
+  afterwards is refused ``manager_not_idle`` while the plan is in motion. On a
+  stopped queue the add just sits there until an armed start. ``start_draining``
+  reads which of the two the manager reports and does only what that posture
+  needs, so one flow serves both kinds of deployment.
 
 ``wait_for_worker_environment`` is the one piece here that belongs to a deploy
 FIXTURE rather than to the flow: it is the readiness gate an enqueue depends on
@@ -206,9 +213,16 @@ def stage_draft(base_url: str, plan_name: str, plan_args: dict[str, Any], *, cli
     return revision
 
 
-def enqueue(base_url: str, revision: int) -> str:
-    """Enqueue the plan staged at ``revision``; return its OSPREY run id."""
-    status, body = request(base_url, "/queue/items", "POST", {"draft_revision": revision})
+def enqueue(base_url: str, revision: int, *, token: str | None = None) -> str:
+    """Enqueue the plan staged at ``revision``; return its OSPREY run id.
+
+    ``token`` is what an armed deployment requires of every add (the add runs
+    the plan there), and what a stopped one ignores -- so a caller that means
+    to run the plan always sends it.
+    """
+    status, body = request(
+        base_url, "/queue/items", "POST", {"draft_revision": revision}, token=token
+    )
     assert status == 200, f"POST /queue/items failed: {status} {body}"
     run_id = body.get("run_id")
     assert run_id, f"no run_id in the enqueue response: {body}"
@@ -217,19 +231,70 @@ def enqueue(base_url: str, revision: int) -> str:
 
 
 def start_queue(base_url: str, token: str) -> None:
-    """Arm and start the queue -- the one action that puts plans on hardware."""
+    """Arm and start a STOPPED queue -- the action that puts waiting plans on hardware.
+
+    Only for a caller that knows the queue is stopped; a start on an armed
+    queue with a plan in motion is refused ``manager_not_idle``. A plan that
+    was just enqueued wants `start_draining`, which reads the posture first.
+    """
     status, body = request(base_url, "/queue/start", "POST", token=token, timeout=120.0)
     assert status == 200, f"armed POST /queue/start failed: {status} {body}"
     assert body.get("started") is True, f"start did not report started: {body}"
 
 
+def queue_is_armed(base_url: str) -> bool:
+    """Whether the manager reports autostart on -- an added plan runs by itself."""
+    status, queue = request(base_url, "/queue", "GET")
+    assert status == 200, f"GET /queue failed: {status} {queue}"
+    manager = queue.get("status") if isinstance(queue, dict) else None
+    return bool(isinstance(manager, dict) and manager.get("queue_autostart_enabled"))
+
+
+def start_draining(base_url: str, token: str, run_id: str) -> None:
+    """Make sure the queue is draining the plan just enqueued as ``run_id``.
+
+    Posture-aware, read off the manager rather than assumed from config:
+
+    * armed (autostart on) -- the add already put the plan in motion, so there
+      is nothing to start and a start would be refused ``manager_not_idle``;
+    * stopped -- the armed start is what drains the queue.
+
+    The bridge arms an autostart deployment right after the worker environment
+    opens, a moment `wait_for_worker_environment` cannot see, so a start that
+    loses that race is tolerated when it was refused because OUR plan is
+    already moving: the queue is draining the run either way.
+    """
+    if queue_is_armed(base_url):
+        return
+    status, body = request(base_url, "/queue/start", "POST", token=token, timeout=120.0)
+    if status == 409 and _refusal_code(body) == "manager_not_idle":
+        record_status, record = run_record(base_url, run_id)
+        assert record_status == 200 and record.get("status") in ("running", *TERMINAL_STATUSES), (
+            f"POST /queue/start was refused manager_not_idle, but run {run_id} is not the "
+            f"plan in motion: {body} (run record: {record})"
+        )
+        return
+    assert status == 200, f"armed POST /queue/start failed: {status} {body}"
+    assert body.get("started") is True, f"start did not report started: {body}"
+
+
+def _refusal_code(body: Any) -> str | None:
+    detail = body.get("detail") if isinstance(body, dict) else None
+    return detail.get("code") if isinstance(detail, dict) else None
+
+
 def stage_and_enqueue(
-    base_url: str, plan_name: str, plan_args: dict[str, Any], *, client_id: str
+    base_url: str,
+    plan_name: str,
+    plan_args: dict[str, Any],
+    *,
+    client_id: str,
+    token: str | None = None,
 ) -> str:
     """Drain leftovers, stage the plan, enqueue it. Returns the OSPREY run id."""
     drain_pending_queue(base_url)
     revision = stage_draft(base_url, plan_name, plan_args, client_id=client_id)
-    return enqueue(base_url, revision)
+    return enqueue(base_url, revision, token=token)
 
 
 def run_record(base_url: str, run_id: str) -> tuple[int, Any]:
@@ -296,11 +361,11 @@ def run_plan(
     timeout: float,
     poll: float = 0.5,
 ) -> tuple[str, dict[str, Any]]:
-    """The whole flow: stage -> enqueue -> armed start -> poll.
+    """The whole flow: stage -> armed enqueue -> start where stopped -> poll.
 
     Returns ``(run_id, last_run_record)``. The record is returned rather than
     asserted on so each proof can say what a non-completion means in ITS terms.
     """
-    run_id = stage_and_enqueue(base_url, plan_name, plan_args, client_id=client_id)
-    start_queue(base_url, token)
+    run_id = stage_and_enqueue(base_url, plan_name, plan_args, client_id=client_id, token=token)
+    start_draining(base_url, token, run_id)
     return run_id, wait_for_terminal_status(base_url, run_id, timeout=timeout, poll=poll)

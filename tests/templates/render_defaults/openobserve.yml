@@ -1,7 +1,9 @@
 # Opt-in local telemetry backend for the OSPREY agent. OpenObserve is a
 # single-binary logs/traces/metrics store that speaks OTLP natively, so the
 # agent can emit its telemetry to it directly (see the `claude_code.telemetry`
-# block in config.yml and docs/how-to/monitor-agent.rst). Unlike the framework's
+# block in config.yml and
+# https://als-apg.github.io/osprey/how-to/health-and-monitoring/monitor-agent.html).
+# Unlike the framework's
 # own services this pulls a single PUBLIC upstream image — there is no Dockerfile,
 # no wheel, and no osprey source baked in.
 #

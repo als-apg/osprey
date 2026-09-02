@@ -188,7 +188,7 @@ def _display_report(report, json_output: bool, verbose: bool, cost=None, turns=N
 @click.command()
 @click.argument("target", type=click.Path(exists=True))
 @click.option("--build", "build_first", is_flag=True, help="Build profile in temp dir, then audit")
-@click.option("--model", default="claude-sonnet-4-6", help="Model for reviewer agent")
+@click.option("--model", default="claude-sonnet-5", help="Model for reviewer agent")
 @click.option("--budget", default=5.0, type=float, help="Max budget in USD")
 @click.option("--verbose", "-v", is_flag=True, help="Show verbose output")
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
