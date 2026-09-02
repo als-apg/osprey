@@ -574,15 +574,12 @@ not an inconvenience around it.</p>
 <section id="osprey-agent-workflow-skill">
 <h2>Osprey Agent Workflow Skill<a class="headerlink" href="#osprey-agent-workflow-skill" title="Link to this heading">#</a></h2>
 <p>If you use the Osprey agent (e.g., via <a class="reference external" href="https://docs.claude.com/en/docs/claude-code">Claude Code</a>),
-install the bundled <code class="docutils literal notranslate"><span class="pre">osprey-contribute</span></code> skill to get guided help following
-this workflow:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>osprey<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span>osprey-contribute
-</pre></div>
-</div>
-<p>The skill walks you through branching, commits, push, PR, and CI iteration,
+the <code class="docutils literal notranslate"><span class="pre">/osprey:contribute</span></code> skill gives guided help following this workflow. It
+walks you through branching, commits, push, PR, and CI iteration,
 auto-detecting whether you have push access to <code class="docutils literal notranslate"><span class="pre">als-apg/osprey</span></code> or are
-contributing from a fork. It is one of six installable skills — which one
-fits which step of the journey is on <a class="reference internal" href="agent-skills.html"><span class="doc">Agent Skills</span></a>.</p>
+contributing from a fork. It ships in the <code class="docutils literal notranslate"><span class="pre">osprey</span></code> plugin alongside five
+others; how to install it, and which skill fits which step of the journey, is
+on <a class="reference internal" href="agent-skills.html"><span class="doc">Agent Skills</span></a>.</p>
 </section>
 </section>
 

@@ -447,75 +447,133 @@
                 <article class="bd-article">
                   
   <section id="agent-skills">
-<h1>Agent Skills<a class="headerlink" href="#agent-skills" title="Link to this heading">#</a></h1>
-<p>Osprey ships six installable <strong>agent skills</strong> — packaged, step-by-step
-instructions that a coding agent picks up automatically when a task matches
-their description. Instead of re-explaining the contribution workflow or the
-release process in every session, you install the skill once and the agent
-follows the project’s own playbook.</p>
-<p>Install a skill globally (<code class="docutils literal notranslate"><span class="pre">~/.claude/skills/</span></code>) or into a single repository:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>osprey<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span>&lt;name&gt;<span class="w">                             </span><span class="c1"># global</span>
-uv<span class="w"> </span>run<span class="w"> </span>osprey<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span>&lt;name&gt;<span class="w"> </span>--target<span class="w"> </span>.claude/skills/<span class="w">    </span><span class="c1"># this repo only</span>
+<span id="contributing-agent-skills"></span><h1>Agent Skills<a class="headerlink" href="#agent-skills" title="Link to this heading">#</a></h1>
+<p>Osprey ships six <strong>agent skills</strong> — packaged, step-by-step instructions that a
+coding agent picks up automatically when a task matches their description.
+Instead of re-explaining the contribution workflow or the release process in
+every session, you install them once and the agent follows the project’s own
+playbooks.</p>
+<p>All six travel together in one plugin, <code class="docutils literal notranslate"><span class="pre">osprey</span></code>, published from the root of
+the <code class="docutils literal notranslate"><span class="pre">als-apg/osprey</span></code> repository. Claude Code and Codex install it from there
+with two commands each.</p>
+<section id="install-in-claude-code">
+<h2>Install in Claude Code<a class="headerlink" href="#install-in-claude-code" title="Link to this heading">#</a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>claude<span class="w"> </span>plugin<span class="w"> </span>marketplace<span class="w"> </span>add<span class="w"> </span>als-apg/osprey<span class="w"> </span>--sparse<span class="w"> </span>.claude-plugin<span class="w"> </span>plugins
+claude<span class="w"> </span>plugin<span class="w"> </span>install<span class="w"> </span>osprey@osprey
 </pre></div>
 </div>
-<p>The install mechanics — backups of prior versions, <code class="docutils literal notranslate"><span class="pre">--target</span></code> resolution,
-and the authoritative one-line roster — are in the
-<a class="reference internal" href="../reference/cli.html"><span class="doc">CLI reference</span></a> under <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">skills</span></code>.</p>
-<section id="skills-for-contributors">
-<h2>Skills for contributors<a class="headerlink" href="#skills-for-contributors" title="Link to this heading">#</a></h2>
-<p>Four skills cover the contributor journey, in the order you meet them:</p>
+<p>Both commands need Claude Code 2.1.228 or newer.</p>
+<p>The first command registers the marketplace. The second installs the plugin at
+user scope, which is the default, so the skills are available in every session
+that reads user settings.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--sparse</span></code> keeps the working checkout to the manifest and plugin directories.
+It does not reduce how much git transfers.</p>
+<p>Invoke a skill by its namespaced name, for example <code class="docutils literal notranslate"><span class="pre">/osprey:contribute</span></code>.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Registering a marketplace named <code class="docutils literal notranslate"><span class="pre">osprey</span></code> from a second source — a local
+clone, say — silently repoints the name to that source.</p>
+</div>
+<section id="inside-a-deployment-repository">
+<h3>Inside a deployment repository<a class="headerlink" href="#inside-a-deployment-repository" title="Link to this heading">#</a></h3>
+<p>Install the plugin a second time at project scope:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>claude<span class="w"> </span>plugin<span class="w"> </span>install<span class="w"> </span>osprey@osprey<span class="w"> </span>--scope<span class="w"> </span>project
+</pre></div>
+</div>
+<p>Sessions launched by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code> and by the web terminal run with
+<code class="docutils literal notranslate"><span class="pre">--setting-sources</span> <span class="pre">project</span></code>. Those sessions cannot see user-scope plugins
+(verified 2026-09-01), so without the project-scope install the skills never
+load there. The install writes <code class="docutils literal notranslate"><span class="pre">enabledPlugins</span></code> into the repository’s
+<code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code>.</p>
+</section>
+<section id="updating">
+<h3>Updating<a class="headerlink" href="#updating" title="Link to this heading">#</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>claude<span class="w"> </span>plugin<span class="w"> </span>marketplace<span class="w"> </span>update<span class="w"> </span>osprey
+claude<span class="w"> </span>plugin<span class="w"> </span>update<span class="w"> </span>osprey@osprey
+</pre></div>
+</div>
+<p>The first command refreshes the marketplace listing; the second installs the
+version it now points at. Restart the session to pick it up. Add
+<code class="docutils literal notranslate"><span class="pre">--scope</span> <span class="pre">project</span></code> to the second command to update a project-scope install.</p>
+</section>
+<section id="iterating-on-a-skill-locally">
+<h3>Iterating on a skill locally<a class="headerlink" href="#iterating-on-a-skill-locally" title="Link to this heading">#</a></h3>
+<p>From a checkout of the repository, load the plugin straight off the working
+tree instead of installing it:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>claude<span class="w"> </span>--plugin-dir<span class="w"> </span>plugins/osprey
+</pre></div>
+</div>
+<p>The session reads the skills from <code class="docutils literal notranslate"><span class="pre">plugins/osprey/skills/</span></code>, so you can edit a
+<code class="docutils literal notranslate"><span class="pre">SKILL.md</span></code> and start a new session to try it.</p>
+</section>
+</section>
+<section id="install-in-codex">
+<h2>Install in Codex<a class="headerlink" href="#install-in-codex" title="Link to this heading">#</a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>codex<span class="w"> </span>plugin<span class="w"> </span>marketplace<span class="w"> </span>add<span class="w"> </span>als-apg/osprey<span class="w"> </span>--sparse<span class="w"> </span>.agents/plugins<span class="w"> </span>plugins
+codex<span class="w"> </span>plugin<span class="w"> </span>add<span class="w"> </span>osprey@osprey
+</pre></div>
+</div>
+<p>Codex invokes a skill with a leading <code class="docutils literal notranslate"><span class="pre">$</span></code>, for example <code class="docutils literal notranslate"><span class="pre">$contribute</span></code>. The
+skills themselves are the same files the Claude Code plugin serves.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Command syntax per <a class="reference external" href="https://learn.chatgpt.com/docs/developer-commands">learn.chatgpt.com/docs/developer-commands</a>, retrieved 2026-09-01.
+Not verified locally.</p>
+</div>
+</section>
+<section id="the-six-skills">
+<h2>The six skills<a class="headerlink" href="#the-six-skills" title="Link to this heading">#</a></h2>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
-<col style="width: 30.0%" />
-<col style="width: 70.0%" />
+<col style="width: 32.0%" />
+<col style="width: 68.0%" />
 </colgroup>
 <thead>
 <tr class="row-odd"><th class="head"><p>Skill</p></th>
-<th class="head"><p>Install when</p></th>
+<th class="head"><p>What it does</p></th>
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey-design-philosophy</span></code></p></td>
-<td><p>You are designing, adding, or reviewing a feature. Encodes Osprey’s
-design and architecture principles and the anti-pattern each one
-prevents — consult it before adding a config knob, a new abstraction,
-or anything touching hardware-write safety. See
-<a class="reference internal" href="development-setup.html"><span class="doc">Development Setup</span></a>.</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">/osprey:design-philosophy</span></code></p></td>
+<td><p>Osprey’s design and architecture principles, and the anti-pattern each
+one prevents. Consult it before adding a config knob, a new
+abstraction, or anything touching hardware-write safety.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey-pre-commit</span></code></p></td>
-<td><p>You are ready to commit, push, or open a PR. Runs the three-tier
-check scripts (quick / ci / premerge) at the right gate.</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">/osprey:contribute</span></code></p></td>
+<td><p>Takes a working-tree change to a merged PR on <code class="docutils literal notranslate"><span class="pre">main</span></code>: branch, atomic
+commits, push, PR, CI iteration. Detects whether you have push access
+or work from a fork.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey-contribute</span></code></p></td>
-<td><p>You are taking a working-tree change to a merged PR. Walks through
-branching, atomic commits, push, PR, and CI iteration, auto-detecting
-whether you have push access to <code class="docutils literal notranslate"><span class="pre">als-apg/osprey</span></code> or work from a
-fork. The full workflow it follows is <a class="reference internal" href="workflow.html"><span class="doc">Git and GitHub Workflow</span></a>.</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">/osprey:pre-commit</span></code></p></td>
+<td><p>Runs the three-tier check scripts — quick, ci, premerge — at the
+gate that matches what you are about to do.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey-release</span></code></p></td>
-<td><p>You are a maintainer cutting a CalVer release: the release-notes PR,
-the tag, and verifying the automated PyPI publish.</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">/osprey:release</span></code></p></td>
+<td><p>Walks a maintainer through a CalVer release: the release-notes PR, the
+tag, and verifying the automated PyPI publish.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">/osprey:build-interview</span></code></p></td>
+<td><p>Sets up or migrates an Osprey deployment for an accelerator, beamline,
+or detector through a guided interview.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">/osprey:panel</span></code></p></td>
+<td><p>Authors a themed web-terminal panel that passes the panel validator.</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<p>The skills compose: each one routes the agent to its neighbours for adjacent
-tasks, so <code class="docutils literal notranslate"><span class="pre">osprey-contribute</span></code> defers to <code class="docutils literal notranslate"><span class="pre">osprey-pre-commit</span></code> for a
-standalone validation run and to <code class="docutils literal notranslate"><span class="pre">osprey-release</span></code> for cutting a release.</p>
-</section>
-<section id="skills-for-deployers-and-extenders">
-<h2>Skills for deployers and extenders<a class="headerlink" href="#skills-for-deployers-and-extenders" title="Link to this heading">#</a></h2>
-<p>The remaining two serve neighbouring audiences and are documented where
-their subject lives:</p>
+<p>In Codex the same six are <code class="docutils literal notranslate"><span class="pre">$design-philosophy</span></code>, <code class="docutils literal notranslate"><span class="pre">$contribute</span></code>,
+<code class="docutils literal notranslate"><span class="pre">$pre-commit</span></code>, <code class="docutils literal notranslate"><span class="pre">$release</span></code>, <code class="docutils literal notranslate"><span class="pre">$build-interview</span></code>, and <code class="docutils literal notranslate"><span class="pre">$panel</span></code>.</p>
+<p>The skills route to each other: <code class="docutils literal notranslate"><span class="pre">/osprey:contribute</span></code> hands a standalone
+validation run to <code class="docutils literal notranslate"><span class="pre">/osprey:pre-commit</span></code> and a release to <code class="docutils literal notranslate"><span class="pre">/osprey:release</span></code>.</p>
+<p>The workflow behind each one is documented on its own page:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">osprey-build-interview</span></code> — sets up or migrates an Osprey deployment
-through a guided conversation. This is a deployer’s tool, not a
-contributor’s; it has its own page at
-<a class="reference internal" href="../getting-started/osprey-build-interview.html"><span class="doc">Guided Project Setup</span></a>.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">creating-an-osprey-panel</span></code> — authors a themed web-terminal panel that
-passes the panel validator. The panel contract is on
-<a class="reference internal" href="../how-to/web-terminal/panels.html"><span class="doc">Panels</span></a>, and the extension seam is on
-<a class="reference internal" href="extending-osprey.html"><span class="doc">Extending Osprey</span></a>.</p></li>
+<li><p><a class="reference internal" href="workflow.html"><span class="doc">Git and GitHub Workflow</span></a> — the contribution journey <code class="docutils literal notranslate"><span class="pre">/osprey:contribute</span></code> follows.</p></li>
+<li><p><a class="reference internal" href="development-setup.html"><span class="doc">Development Setup</span></a> — the checks <code class="docutils literal notranslate"><span class="pre">/osprey:pre-commit</span></code> runs.</p></li>
+<li><p><a class="reference internal" href="../getting-started/osprey-build-interview.html"><span class="doc">Guided Project Setup</span></a> — the deployer-facing
+interview, written for someone standing up a deployment.</p></li>
+<li><p><a class="reference internal" href="../how-to/web-terminal/panels.html"><span class="doc">Panels</span></a> — the panel contract, with the
+extension seam on <a class="reference internal" href="extending-osprey.html"><span class="doc">Extending Osprey</span></a>.</p></li>
 </ul>
 </section>
 </section>
@@ -558,8 +616,14 @@ passes the panel validator. The panel contract is on
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#skills-for-contributors">Skills for contributors</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#skills-for-deployers-and-extenders">Skills for deployers and extenders</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#install-in-claude-code">Install in Claude Code</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#inside-a-deployment-repository">Inside a deployment repository</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#updating">Updating</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#iterating-on-a-skill-locally">Iterating on a skill locally</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#install-in-codex">Install in Codex</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-six-skills">The six skills</a></li>
 </ul>
   </nav></div>
 

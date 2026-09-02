@@ -451,7 +451,7 @@
   <section id="guided-project-setup">
 <h1>Guided Project Setup<a class="headerlink" href="#guided-project-setup" title="Link to this heading">#</a></h1>
 <p>If you’re setting up OSPREY for a specific detector, beamline, or accelerator
-subsystem, the <code class="docutils literal notranslate"><span class="pre">/osprey-build-interview</span></code> skill turns a guided conversation
+subsystem, the <code class="docutils literal notranslate"><span class="pre">/osprey:build-interview</span></code> skill turns a guided conversation
 into a working deployment repository tailored to your system — created up
 front from a curated preset, then refined with you piece by piece.</p>
 <p>A minimal setup takes a few minutes; how much further you go is up to you,
@@ -463,7 +463,7 @@ and you can stop, build, and resume at any point.</p>
 <ul class="simple">
 <li><p class="sd-card-text"><strong>OSPREY installed</strong> — follow <a class="reference internal" href="installation.html"><span class="doc">Installation &amp; Setup</span></a> if you haven’t yet.</p></li>
 <li><p class="sd-card-text"><strong>The Osprey agent CLI</strong> — the interview runs inside an Osprey agent session via the
-<code class="docutils literal notranslate"><span class="pre">/osprey-build-interview</span></code> command. Install it from
+<code class="docutils literal notranslate"><span class="pre">/osprey:build-interview</span></code> command. Install it from
 <a class="reference external" href="https://claude.ai/code">claude.ai/code</a> and make sure <code class="docutils literal notranslate"><span class="pre">claude</span> <span class="pre">--version</span></code>
 works in your terminal.</p></li>
 <li><p class="sd-card-text"><strong>An Anthropic API key</strong> (or any provider the Osprey agent is configured to use) —
@@ -483,14 +483,17 @@ having it handy speeds things up considerably.</p></li>
 </div>
 </details><section id="install-the-interview-skill">
 <h2>Install the interview skill<a class="headerlink" href="#install-the-interview-skill" title="Link to this heading">#</a></h2>
-<p>Install the interview skill with the OSPREY CLI:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span>osprey-build-interview
+<p>The interview ships in the <code class="docutils literal notranslate"><span class="pre">osprey</span></code> plugin. Register the marketplace, then
+install the plugin:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># skip-ci</span>
+claude<span class="w"> </span>plugin<span class="w"> </span>marketplace<span class="w"> </span>add<span class="w"> </span>als-apg/osprey<span class="w"> </span>--sparse<span class="w"> </span>.claude-plugin<span class="w"> </span>plugins
+claude<span class="w"> </span>plugin<span class="w"> </span>install<span class="w"> </span>osprey@osprey
 </pre></div>
 </div>
-<p>This copies the skill into <code class="docutils literal notranslate"><span class="pre">~/.claude/skills/osprey-build-interview</span></code> and makes the
-<code class="docutils literal notranslate"><span class="pre">/osprey-build-interview</span></code> command available in any Osprey agent session. Re-running
-the command preserves your previous copy under
-<code class="docutils literal notranslate"><span class="pre">~/.claude/skills/osprey-build-interview.bak.&lt;timestamp&gt;</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">/osprey:build-interview</span></code> is then available in any Osprey agent session. The
+same plugin carries the other Osprey skills; how to update it, install it into
+a deployment repository, or run it from a checkout is on
+<a class="reference internal" href="../contributing/agent-skills.html"><span class="doc">Agent Skills</span></a>.</p>
 </section>
 <section id="run-the-interview">
 <h2>Run the interview<a class="headerlink" href="#run-the-interview" title="Link to this heading">#</a></h2>
@@ -502,7 +505,7 @@ claude
 </pre></div>
 </div>
 <p>In the Osprey agent session, type:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/osprey-build-interview
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>/osprey:build-interview
 </pre></div>
 </div>
 <p>The interview creates your <strong>deployment repository first</strong> — one <code class="docutils literal notranslate"><span class="pre">osprey</span>

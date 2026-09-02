@@ -499,7 +499,6 @@ osprey<span class="w"> </span>web<span class="w">                </span><span cl
 osprey<span class="w"> </span>theme-lab<span class="w">          </span><span class="c1"># Design and preview a theme in the browser</span>
 osprey<span class="w"> </span>scaffold<span class="w">           </span><span class="c1"># CI files, boot unit, build artifact overrides</span>
 osprey<span class="w"> </span>audit<span class="w">              </span><span class="c1"># Audit project or profile safety</span>
-osprey<span class="w"> </span>skills<span class="w">             </span><span class="c1"># Manage bundled Osprey skills</span>
 osprey<span class="w"> </span>vendor<span class="w">             </span><span class="c1"># Manage locally bundled vendor assets</span>
 </pre></div>
 </div>
@@ -1428,48 +1427,6 @@ osprey<span class="w"> </span>scaffold<span class="w"> </span>web-terminals<span
 </pre></div>
 </div>
 </section>
-<section id="osprey-skills">
-<h2>osprey skills<a class="headerlink" href="#osprey-skills" title="Link to this heading">#</a></h2>
-<p>Manage bundled Osprey skills — agent skills shipped with OSPREY that
-can be installed either globally or into a specific project’s
-<code class="docutils literal notranslate"><span class="pre">.claude/skills/</span></code> directory.</p>
-<dl>
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">skills</span> <span class="pre">install</span> <span class="pre">NAME</span> <span class="pre">[--target</span> <span class="pre">PATH]</span></code></dt><dd><p>Install a bundled skill into <code class="docutils literal notranslate"><span class="pre">&lt;target&gt;/&lt;name&gt;/</span></code> (defaults to
-<code class="docutils literal notranslate"><span class="pre">~/.claude/skills/&lt;name&gt;/</span></code>). If the target already exists and is
-non-empty, the prior content is renamed to
-<code class="docutils literal notranslate"><span class="pre">&lt;name&gt;.bak.&lt;YYYYMMDD-HHMMSS&gt;/</span></code> before the new copy is written, so a
-previous version is never lost.</p>
-<p><code class="docutils literal notranslate"><span class="pre">--target</span> <span class="pre">PATH</span></code> — directory to install into. Tilde is expanded. Use a
-project-local <code class="docutils literal notranslate"><span class="pre">.claude/skills/</span></code> path to scope the skill to one repo
-(e.g., a facility repository’s <code class="docutils literal notranslate"><span class="pre">.claude/skills/</span></code>). Omit for the global
-install.</p>
-<p>Currently supported skills:</p>
-<ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">osprey-build-interview</span></code> — set up or migrate an OSPREY deployment
-through a guided conversation anchored on the live deployment repo (see
-<a class="reference internal" href="../getting-started/osprey-build-interview.html"><span class="doc">Guided Project Setup</span></a>). Typically installed
-globally so it is available in any Osprey agent session.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">osprey-contribute</span></code> — walks a contributor through the GitHub Flow
-journey from a working-tree change to a merged PR on <code class="docutils literal notranslate"><span class="pre">main</span></code> (branching,
-atomic commits, push, PR, rebase, merge).</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">osprey-pre-commit</span></code> — runs the quick / ci / premerge check scripts at
-the right gate before committing, pushing, or opening a PR.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">osprey-release</span></code> — cuts a CalVer release: opens the version-bump PR,
-tags the merge commit, and verifies the automated PyPI publish.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">osprey-design-philosophy</span></code> — OSPREY’s design and architecture principles
-for designing, adding, or reviewing a feature. Useful for framework
-contributors; install globally to have it available when working on
-<code class="docutils literal notranslate"><span class="pre">src/osprey</span></code> in any session.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">creating-an-osprey-panel</span></code> — author a themed, token-only web-terminal
-panel.</p></li>
-</ul>
-</dd>
-</dl>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span>osprey-build-interview
-osprey<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span>creating-an-osprey-panel<span class="w"> </span>--target<span class="w"> </span>.claude/skills/
-</pre></div>
-</div>
-</section>
 <section id="osprey-vendor">
 <h2>osprey vendor<a class="headerlink" href="#osprey-vendor" title="Link to this heading">#</a></h2>
 <p>Manage locally bundled vendor assets (JS/CSS/fonts) for firewalled
@@ -1593,7 +1550,6 @@ osprey<span class="w"> </span>vendor<span class="w"> </span>verify<span class="w
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-theme-lab">osprey theme-lab</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-audit">osprey audit</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-scaffold">osprey scaffold</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-skills">osprey skills</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-vendor">osprey vendor</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-variables">Environment Variables</a></li>
 </ul>

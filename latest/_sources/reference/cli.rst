@@ -47,7 +47,6 @@ names another one explicitly.
    osprey theme-lab          # Design and preview a theme in the browser
    osprey scaffold           # CI files, boot unit, build artifact overrides
    osprey audit              # Audit project or profile safety
-   osprey skills             # Manage bundled Osprey skills
    osprey vendor             # Manage locally bundled vendor assets
 
 Global Options
@@ -1141,50 +1140,6 @@ All subcommands accept a common flag:
    osprey scaffold unclaim rules/safety           # Restore framework management
    osprey scaffold web-terminals lint             # lint this project's stanza
    osprey scaffold web-terminals render -o deploy/
-
-osprey skills
-=============
-
-Manage bundled Osprey skills — agent skills shipped with OSPREY that
-can be installed either globally or into a specific project's
-``.claude/skills/`` directory.
-
-``osprey skills install NAME [--target PATH]``
-   Install a bundled skill into ``<target>/<name>/`` (defaults to
-   ``~/.claude/skills/<name>/``). If the target already exists and is
-   non-empty, the prior content is renamed to
-   ``<name>.bak.<YYYYMMDD-HHMMSS>/`` before the new copy is written, so a
-   previous version is never lost.
-
-   ``--target PATH`` — directory to install into. Tilde is expanded. Use a
-   project-local ``.claude/skills/`` path to scope the skill to one repo
-   (e.g., a facility repository's ``.claude/skills/``). Omit for the global
-   install.
-
-   Currently supported skills:
-
-   * ``osprey-build-interview`` — set up or migrate an OSPREY deployment
-     through a guided conversation anchored on the live deployment repo (see
-     :doc:`/getting-started/osprey-build-interview`). Typically installed
-     globally so it is available in any Osprey agent session.
-   * ``osprey-contribute`` — walks a contributor through the GitHub Flow
-     journey from a working-tree change to a merged PR on ``main`` (branching,
-     atomic commits, push, PR, rebase, merge).
-   * ``osprey-pre-commit`` — runs the quick / ci / premerge check scripts at
-     the right gate before committing, pushing, or opening a PR.
-   * ``osprey-release`` — cuts a CalVer release: opens the version-bump PR,
-     tags the merge commit, and verifies the automated PyPI publish.
-   * ``osprey-design-philosophy`` — OSPREY's design and architecture principles
-     for designing, adding, or reviewing a feature. Useful for framework
-     contributors; install globally to have it available when working on
-     ``src/osprey`` in any session.
-   * ``creating-an-osprey-panel`` — author a themed, token-only web-terminal
-     panel.
-
-.. code-block:: bash
-
-   osprey skills install osprey-build-interview
-   osprey skills install creating-an-osprey-panel --target .claude/skills/
 
 osprey vendor
 =============

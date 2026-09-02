@@ -571,15 +571,15 @@ saying to make it <code class="docutils literal notranslate"><span class="pre">a
 <section id="panel">
 <span id="extending-panel"></span><h2>Panel<a class="headerlink" href="#panel" title="Link to this heading">#</a></h2>
 <p>A panel is a tab in the Web Terminal. The supported route is the guided skill
-— <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">skills</span> <span class="pre">install</span> <span class="pre">creating-an-osprey-panel</span></code>, whose source is
-<code class="docutils literal notranslate"><span class="pre">src/osprey/templates/skills/creating-an-osprey-panel/</span></code> — which walks a
-coding agent through a bundle that already meets every rule: a directory under
-the project’s <code class="docutils literal notranslate"><span class="pre">panels/</span></code> holding a <code class="docutils literal notranslate"><span class="pre">manifest.json</span></code> and an entry HTML file.
-Discovery is off until a deployer sets <code class="docutils literal notranslate"><span class="pre">web.allow_runtime_panels</span></code>, and it is
-fail-closed, so a malformed bundle is skipped rather than served. Pinning test:
+— <code class="docutils literal notranslate"><span class="pre">/osprey:panel</span></code>, whose source is <code class="docutils literal notranslate"><span class="pre">plugins/osprey/skills/panel/</span></code> —
+which walks a coding agent through a bundle that already meets every rule: a
+directory under the project’s <code class="docutils literal notranslate"><span class="pre">panels/</span></code> holding a <code class="docutils literal notranslate"><span class="pre">manifest.json</span></code> and an
+entry HTML file. Discovery is off until a deployer sets
+<code class="docutils literal notranslate"><span class="pre">web.allow_runtime_panels</span></code>, and it is fail-closed, so a malformed bundle is
+skipped rather than served. Pinning test:
 <code class="docutils literal notranslate"><span class="pre">tests/interfaces/web_terminal/test_panel_discovery.py</span></code>. What a panel may
-and may not do at runtime — notably the proxy’s header stripping, which rules
-out backends that authenticate their own callers — is on
+and may not do at runtime — notably the proxy’s header stripping, which
+rules out backends that authenticate their own callers — is on
 <a class="reference internal" href="../how-to/web-terminal/panels.html"><span class="doc">Panels</span></a>.</p>
 </section>
 <section id="lume-model">
