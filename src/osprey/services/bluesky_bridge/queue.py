@@ -1200,12 +1200,16 @@ async def start_queue(x_launch_token: str = Header(default="")) -> dict[str, Any
     - and re-checked for admissibility (`check_session_plans_ready`; one stale
       session plan refuses the whole start, all-or-nothing).
 
-    Only then is the queue ARMED: autostart is switched on, so the manager
-    drains what it holds and whatever arrives until a halt disarms it, and a
-    ``queue_start`` is sent for anything already waiting (the manager refuses
-    a start on an empty queue, and an empty stopped queue is a legitimate
-    thing to arm). If the environment closes again in the gap, the manager
-    refuses the start (409/503) — fail-closed either way.
+    Only then does the queue START, in two calls whose order is load-bearing:
+    a ``queue_start`` for anything already waiting (the manager refuses a
+    start on an empty queue, and an empty stopped queue is a legitimate thing
+    to arm, so this call is skipped when nothing is pending), and THEN
+    autostart on, so the manager keeps draining whatever arrives until a halt
+    disarms it. Arming first would not work: the manager begins draining a
+    non-empty queue the moment autostart flips on, and a ``queue_start``
+    landing after that is refused as "RE Manager is busy". If the environment
+    closes again in the gap, the manager refuses the start (409/503) —
+    fail-closed either way.
     """
     _require_arming_token(x_launch_token, "starting the queue")
     backend = _get_backend()
@@ -1246,8 +1250,8 @@ async def start_queue(x_launch_token: str = Header(default="")) -> dict[str, Any
             except SessionPlanNotReadyError as exc:
                 raise _session_refusal(exc) from exc
 
-            await backend.autostart(True)
             result = await backend.start() if drained else {}
+            await backend.autostart(True)
     except QueueBackendError as exc:
         raise _http_error(exc) from exc
     _notify_change()

@@ -1535,9 +1535,11 @@ def test_start_still_starts_when_nothing_is_running(
     assert resp.status_code == 200
     assert resp.json()["started"] is True
     names = manager.method_names()
-    # Armed first, then the pending item is kicked off: the arm is what keeps
-    # the queue running past this item, the start is what runs it now.
-    assert names.index("queue_autostart") < names.index("queue_start")
+    # The pending item is kicked off FIRST, then the queue is armed: the start
+    # is what runs it now, the arm is what keeps the queue running past it.
+    # The order matters on a real manager -- it begins draining the moment
+    # autostart flips on, and a queue_start sent after that is refused busy.
+    assert names.index("queue_start") < names.index("queue_autostart")
     assert manager.kwargs_for("queue_autostart") == [{"enable": True}]
 
 
