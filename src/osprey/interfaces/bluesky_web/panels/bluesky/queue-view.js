@@ -43,13 +43,14 @@ import {
   abortRefusalTone,
   abortSuccessMessage,
   classifyQueueRefusal,
+  clearControl,
   createInitialQueueState,
   createQueueStream,
   describeProgress,
   describeQueueStatus,
   finishedRunId,
-  haltsCollapsible,
   historyChanged,
+  historyClearControl,
   historyEmptyState,
   historyRecords,
   itemParamSummary,
@@ -62,7 +63,12 @@ import {
   refusalTone,
   stopButtonClass,
   stopButtonLabel,
+  stripControls,
   writeOutcomeTone,
+  CLEAR_LABEL,
+  CONFIRM_CLEAR_LABEL,
+  CONTROL_HINTS,
+  START_LABEL,
 } from './queue-client.js';
 import { badgeToneForStatus } from './results-view.js';
 
@@ -72,16 +78,23 @@ import { badgeToneForStatus } from './results-view.js';
  *   is looked up beneath it, including the status-strip controls that sit
  *   OUTSIDE the Queue tab's own container.
  * @property {(path: string) => string} api  Prefix-relative URL builder.
- * @property {(runId: string, activate: boolean) => void} onSelectRun  A run
- *   was picked. `activate` is true for an operator's click — which opens the
+ * @property {(runId: string|null, activate: boolean) => void} onSelectRun  A run
+ *   was picked, or (`null`) the selected run was removed and nothing is
+ *   selected now. `activate` is true for an operator's click — which opens the
  *   Results tab — and false for the Simple-mode auto-pick, which fills the
  *   Results view without yanking the operator off the tab they are on.
+ * @property {(status: import('./queue-client.js').QueueStatus|null) => void} [onStatus]
+ *   The manager summary changed (or the stream dropped: `null`). The shell
+ *   forwards it to the Plans view, whose enqueue button says what the click
+ *   does in the queue's current state — from the same frames as the badge.
  */
 
 /**
  * @typedef {object} QueueView
  * @property {(runId: string|null) => void} setSelected  Adopt the shell's
  *   current selection so the queue and history rows highlight it.
+ * @property {(view: string) => void} setView  The tab now showing. Decides
+ *   which of the strip's controls are on screen (`stripControls`).
  * @property {(mode: 'expert'|'simple') => void} onModeChange
  */
 
@@ -89,7 +102,7 @@ import { badgeToneForStatus } from './results-view.js';
  * @param {QueueViewDeps} deps
  * @returns {QueueView}
  */
-export function createQueueView({ root, api, onSelectRun }) {
+export function createQueueView({ root, api, onSelectRun, onStatus = () => {} }) {
   /**
    * The panel owns its own shell, so every id below is present by
    * construction — a missing one is a bundle bug, not a runtime condition to
@@ -107,10 +120,12 @@ export function createQueueView({ root, api, onSelectRun }) {
   const queueBanner = byId('queue-banner');
   const startBtn = /** @type {HTMLButtonElement} */ (byId('start-btn'));
   const stopBtn = /** @type {HTMLButtonElement} */ (byId('stop-btn'));
-  const haltsToggle = /** @type {HTMLButtonElement} */ (byId('halts-toggle'));
   const stopNote = byId('stop-note');
   const abortBtn = /** @type {HTMLButtonElement} */ (byId('abort-btn'));
   const abortNote = byId('abort-note');
+  const clearBtn = /** @type {HTMLButtonElement} */ (byId('clear-btn'));
+  const clearNote = byId('clear-note');
+  const helpBtn = /** @type {HTMLButtonElement} */ (byId('queue-help-btn'));
   const runningCard = byId('running-card');
   const runningSelect = /** @type {HTMLButtonElement} */ (byId('running-select'));
   const runningName = byId('running-name');
@@ -122,6 +137,8 @@ export function createQueueView({ root, api, onSelectRun }) {
   const queueEmpty = byId('queue-empty');
   const historyList = /** @type {HTMLUListElement} */ (byId('history-items'));
   const historyEmpty = byId('history-empty');
+  const historyClearBtn = /** @type {HTMLButtonElement} */ (byId('history-clear-btn'));
+  const historyClearNote = byId('history-clear-note');
 
   /** @type {{
    *   queue: ReturnType<typeof createInitialQueueState>,
@@ -167,14 +184,35 @@ export function createQueueView({ root, api, onSelectRun }) {
   let abortConfirmArmed = false;
 
   /**
-   * The operator opened the folded halts by hand — panel-local UI state, like
-   * the two confirm flags above. Only consulted while `haltsCollapsible` says
-   * folding is allowed at all: an active or unreadable queue shows the halts
-   * regardless, and this flag then records nothing but the operator's resting
-   * preference for the next time the queue goes dormant. Never persisted — a
-   * fresh document starts folded, which is the calm default this exists for.
+   * The tab on screen, as the shell reports it (`setView`). Decides which of
+   * the strip's controls show (`stripControls`): all of them on the Queue
+   * tab, only what is moving on the other two. Starts as Plans, the shell's
+   * boot default.
+   *
+   * @type {string}
    */
-  let haltsManualOpen = false;
+  let activeView = 'plans';
+
+  /**
+   * The Clear control's "clicked once" flag — the same shape as the abort's,
+   * and separate for the same reason. Cleared by its own handler, whenever a
+   * frame shows nothing waiting (there is nothing left to clear), and when the
+   * stream drops.
+   */
+  let clearConfirmArmed = false;
+
+  /** The history Clear's "clicked once" flag — the same two-step as the queue's. */
+  let historyClearConfirmArmed = false;
+
+  /**
+   * A success banner leaves by itself; a refusal stays until the next write.
+   * The queue's state badge is the durable answer to "did it work" — the
+   * banner is the receipt, and a receipt that never goes away reads as a
+   * state of its own.
+   */
+  const SUCCESS_BANNER_MS = 5000;
+  /** @type {ReturnType<typeof setTimeout>|null} */
+  let bannerTimer = null;
 
   // -------------------------------------------------------------------------
   // Banner
@@ -183,8 +221,13 @@ export function createQueueView({ root, api, onSelectRun }) {
   /**
    * @param {'ok'|'warn'|'err'|'info'|null} tone Pass `null` to clear.
    * @param {string} [message]
+   * @param {boolean} [transient] Leave by itself after `SUCCESS_BANNER_MS`.
    */
-  function setBanner(tone, message = '') {
+  function setBanner(tone, message = '', transient = false) {
+    if (bannerTimer !== null) {
+      clearTimeout(bannerTimer);
+      bannerTimer = null;
+    }
     if (tone === null) {
       queueBanner.hidden = true;
       queueBanner.textContent = '';
@@ -193,6 +236,7 @@ export function createQueueView({ root, api, onSelectRun }) {
     queueBanner.className = `banner banner-${tone}`;
     queueBanner.textContent = message;
     queueBanner.hidden = false;
+    if (transient) bannerTimer = setTimeout(() => setBanner(null), SUCCESS_BANNER_MS);
   }
 
   // -------------------------------------------------------------------------
@@ -255,7 +299,8 @@ export function createQueueView({ root, api, onSelectRun }) {
 
     if (response.ok) {
       const message = typeof okMessage === 'function' ? okMessage(parsed) : okMessage;
-      if (message) setBanner(okTone, message);
+      // A receipt, not a state: it leaves by itself. The badge is the state.
+      if (message) setBanner(okTone, message, true);
       return true;
     }
 
@@ -273,6 +318,9 @@ export function createQueueView({ root, api, onSelectRun }) {
     const described = describeQueueStatus(queue.status);
     queueBadge.textContent = queue.connected ? described.label : 'connecting…';
     queueBadge.className = `badge ${queue.connected ? described.tone : 'warn'}`;
+    // One plain sentence on what the state means, with the manager's own
+    // word after it — one hover away from the operator's word for it.
+    queueBadge.title = queue.connected ? described.hint : 'Waiting for the queue stream.';
 
     const notes = [];
     if (!queue.connected) notes.push('Waiting for the queue stream.');
@@ -281,14 +329,15 @@ export function createQueueView({ root, api, onSelectRun }) {
     queueNote.hidden = notes.length === 0;
 
     const controls = queueControls(queue);
+    startBtn.textContent = START_LABEL;
     startBtn.disabled = controls.start.disabled;
-    startBtn.title = controls.start.reason || '';
+    startBtn.title = controls.start.reason || CONTROL_HINTS.start;
 
     // The stop button is never disabled — see `queueControls`. Whatever this
     // panel believes about the manager is a tooltip, not a gate.
     stopBtn.textContent = stopButtonLabel(controls.stop, stopConfirmArmed);
     stopBtn.className = stopButtonClass(controls.stop, stopConfirmArmed);
-    stopBtn.title = controls.stop.note || '';
+    stopBtn.title = controls.stop.note || CONTROL_HINTS.stop;
     stopBtn.dataset.cancel = controls.stop.body.cancel ? 'true' : 'false';
     setNote(stopNote, stopConfirmArmed ? controls.stop.note : null);
 
@@ -299,22 +348,41 @@ export function createQueueView({ root, api, onSelectRun }) {
     const abort = abortControl(queue);
     abortBtn.textContent = abortButtonLabel(abortConfirmArmed);
     abortBtn.className = abortButtonClass(abortConfirmArmed);
-    abortBtn.title = abort.note || '';
+    abortBtn.title = abortConfirmArmed ? abort.note || '' : CONTROL_HINTS.abort;
     setNote(abortNote, abortConfirmArmed ? abort.note : null);
 
-    // Fold the halts only while the panel affirmatively knows they are
-    // dormant (`haltsCollapsible`); every doubtful state pins them open and
-    // hides the toggle, so an active queue's halts cannot be folded at all.
-    // This is `hidden`, never `disabled` — a visible halt is always live, and
-    // the states that permit folding are a subset of the states that already
-    // cleared both confirm-armed flags, so no half-armed confirm can vanish.
-    const collapsible = haltsCollapsible(queue);
-    const haltsShown = !collapsible || haltsManualOpen;
-    stopBtn.hidden = !haltsShown;
-    abortBtn.hidden = !haltsShown;
-    haltsToggle.hidden = !collapsible;
-    haltsToggle.textContent = haltsManualOpen ? 'Queue controls ▾' : 'Queue controls ▸';
-    haltsToggle.setAttribute('aria-expanded', haltsManualOpen ? 'true' : 'false');
+    // Clear: a usability gate like Start's (dead with nothing waiting), and
+    // two-step like the abort, since the plans it drops are staged work.
+    const clear = clearControl(queue);
+    clearBtn.disabled = clear.disabled;
+    clearBtn.textContent = clearConfirmArmed ? CONFIRM_CLEAR_LABEL : CLEAR_LABEL;
+    clearBtn.className = clearConfirmArmed ? 'btn confirm' : 'btn btn-quiet';
+    clearBtn.title = clear.reason || CONTROL_HINTS.clear;
+    setNote(
+      clearNote,
+      clearConfirmArmed
+        ? `Click again to remove ${queue.items.length === 1 ? 'the waiting plan' : `all ${queue.items.length} waiting plans`}.`
+        : null
+    );
+
+    // Which controls are on screen is decided per tab (`stripControls`): the
+    // Queue tab shows all three; the other two hide the halts only while the
+    // panel affirmatively knows they are dormant (`haltsPinned`), and every
+    // doubtful state pins them on. This is `hidden`, never `disabled` — a
+    // visible halt is always live, and the states that permit hiding are a
+    // subset of the states that already cleared both confirm-armed flags, so
+    // no half-armed confirm can vanish.
+    const shown = stripControls(queue, activeView);
+    startBtn.hidden = !shown.start;
+    stopBtn.hidden = !shown.halts;
+    abortBtn.hidden = !shown.halts;
+    clearBtn.hidden = !shown.clear;
+    // Quiet halts while nothing is moving — a visual weight, never a gate:
+    // both stay live, and the armed confirm colour still wins.
+    stopBtn.classList.toggle('halt-idle', shown.dormant && !stopConfirmArmed);
+    abortBtn.classList.toggle('halt-idle', shown.dormant && !abortConfirmArmed);
+    // The "?" is a hover/focus tip (base.css); it has no open state to keep.
+    helpBtn.hidden = !shown.clear;
 
     renderRunningItem();
     renderPendingItems();
@@ -461,7 +529,22 @@ export function createQueueView({ root, api, onSelectRun }) {
     historyEmpty.textContent = empty.message;
     historyEmpty.hidden = empty.hidden;
 
-    for (const record of state.history) {
+    // Clear: a usability gate (dead with nothing listed) and two-step, like
+    // the queue's. It drops the manager's whole history; run data is kept.
+    const clear = historyClearControl(state.history, state.historyLoaded);
+    if (clear.disabled) historyClearConfirmArmed = false;
+    historyClearBtn.disabled = clear.disabled;
+    historyClearBtn.textContent = historyClearConfirmArmed ? CONFIRM_CLEAR_LABEL : CLEAR_LABEL;
+    historyClearBtn.className = historyClearConfirmArmed ? 'btn confirm' : 'btn btn-quiet';
+    historyClearBtn.title = clear.reason || CONTROL_HINTS.clearHistory;
+    setNote(
+      historyClearNote,
+      historyClearConfirmArmed
+        ? `Click again to remove ${state.history.length === 1 ? 'the completed run' : `all ${state.history.length} completed runs`} from the list.`
+        : null
+    );
+
+    state.history.forEach((record, index) => {
       const row = document.createElement('li');
       row.className = 'queue-row';
       if (record.id === state.selected) row.classList.add('selected');
@@ -470,12 +553,45 @@ export function createQueueView({ root, api, onSelectRun }) {
       badge.className = `badge ${badgeToneForStatus(record.status)}`;
       badge.textContent = record.status;
 
+      // One action per finished run: drop it from the list. Single-click, like
+      // a pending row's remove — it forgets a record, it moves nothing.
+      const actions = document.createElement('span');
+      actions.className = 'queue-actions';
+      actions.append(
+        iconButton('remove-run', '✕', CONTROL_HINTS.removeRun, record.id, index, false)
+      );
+
       row.append(
         badge,
-        selectLabel(record.id, record.planName || '(unnamed plan)', record.error || record.id)
+        selectLabel(record.id, record.planName || '(unnamed plan)', record.error || record.id),
+        actions
       );
       historyList.appendChild(row);
-    }
+    });
+  }
+
+  /**
+   * Drop one finished run from the history view. The bridge records the
+   * removal on its side (the manager cannot drop a single history entry),
+   * so the list is re-read here rather than waiting for the next frame — and
+   * a run that was on screen in Results is deselected, since its record is
+   * gone.
+   *
+   * @param {string} runId
+   * @returns {Promise<boolean>}
+   */
+  async function removeRun(runId) {
+    const ok = await queueWrite(
+      'DELETE',
+      `/runs/${encodeURIComponent(runId)}`,
+      undefined,
+      'Run removed from history.',
+      writeOutcomeTone(false)
+    );
+    if (!ok) return false;
+    if (state.selected === runId) onSelectRun(null, false);
+    await refreshHistory();
+    return true;
   }
 
   async function refreshHistory() {
@@ -555,6 +671,12 @@ export function createQueueView({ root, api, onSelectRun }) {
     if (uid === '' || Number.isNaN(index)) return;
     const encoded = encodeURIComponent(uid);
 
+    if (button.dataset.action === 'remove-run') {
+      // A history row: `uid` is the run id, not a queue item uid.
+      await removeRun(uid);
+      return;
+    }
+
     if (button.dataset.action === 'remove') {
       await queueWrite('DELETE', `/queue/items/${encoded}`);
       return;
@@ -576,18 +698,13 @@ export function createQueueView({ root, api, onSelectRun }) {
     if (runningSelect.dataset.runId) onSelectRun(runningSelect.dataset.runId, true);
   });
 
-  haltsToggle.addEventListener('click', () => {
-    haltsManualOpen = !haltsManualOpen;
-    renderQueue();
-  });
-
   startBtn.addEventListener('click', () => {
     if (startBtn.disabled) return;
     void queueWrite(
       'POST',
       '/queue/start',
       {},
-      'Queue started — it is now draining toward hardware.',
+      'Queue started — it runs what is queued, and whatever is added.',
       writeOutcomeTone(true)
     );
   });
@@ -646,6 +763,41 @@ export function createQueueView({ root, api, onSelectRun }) {
     );
   });
 
+  // Two-step, like the abort: the plans this drops are somebody's staged
+  // work. Never touches the running item.
+  clearBtn.addEventListener('click', () => {
+    if (clearBtn.disabled) return;
+    if (!clearConfirmArmed) {
+      clearConfirmArmed = true;
+      renderQueue();
+      return;
+    }
+    clearConfirmArmed = false;
+    renderQueue();
+    void queueWrite('DELETE', '/queue/items', undefined, 'Waiting plans removed.', writeOutcomeTone(false));
+  });
+
+  // Two-step as well: the records it drops are the operator's own log of what
+  // ran. The manager forgets them; Tiled keeps every run's data.
+  historyClearBtn.addEventListener('click', () => {
+    if (historyClearBtn.disabled) return;
+    if (!historyClearConfirmArmed) {
+      historyClearConfirmArmed = true;
+      renderHistory();
+      return;
+    }
+    historyClearConfirmArmed = false;
+    renderHistory();
+    void (async () => {
+      const ok = await queueWrite('DELETE', '/history', undefined, 'History cleared.', writeOutcomeTone(false));
+      if (!ok) return;
+      if (state.selected && state.history.some((record) => record.id === state.selected)) {
+        onSelectRun(null, false);
+      }
+      await refreshHistory();
+    })();
+  });
+
   // -------------------------------------------------------------------------
   // Boot
   // -------------------------------------------------------------------------
@@ -668,7 +820,10 @@ export function createQueueView({ root, api, onSelectRun }) {
       // Same rule for the abort confirm: with no running item there is nothing
       // for it to refer to, so it must not sit armed over whatever runs next.
       if (next.runningItem === null) abortConfirmArmed = false;
+      // And the clear confirm: with nothing waiting there is nothing to clear.
+      if (next.items.length === 0) clearConfirmArmed = false;
       renderQueue();
+      if (previousStatus !== next.status) onStatus(next.status);
       // The history list is re-fetched on a manager *history* move rather
       // than on a timer: the SSE summary is the change detector, so a settled
       // queue costs no polling at all.
@@ -697,8 +852,12 @@ export function createQueueView({ root, api, onSelectRun }) {
         stopConfirmArmed = false;
         // The abort confirm refers to a run this panel can no longer see.
         abortConfirmArmed = false;
+        clearConfirmArmed = false;
       }
       renderQueue();
+      // A dropped stream is an unknown queue as far as the Plans view is
+      // concerned: its button must not keep promising "Runs now".
+      onStatus(connected ? state.queue.status : null);
     },
   });
 
@@ -710,9 +869,23 @@ export function createQueueView({ root, api, onSelectRun }) {
       renderQueue();
       renderHistory();
     },
+    /** @param {string} view */
+    setView(view) {
+      if (view === activeView) return;
+      activeView = view;
+      renderQueue();
+    },
     /** @param {'expert'|'simple'} mode */
     onModeChange(mode) {
       if (mode === 'simple') maybeAutoSelectLatest();
     },
+    /**
+     * Drop one finished run from the history view — the Results tab's
+     * "Remove from history" lands here, so the write and its banner live in
+     * one place.
+     * @param {string} runId
+     * @returns {Promise<boolean>}
+     */
+    removeRun,
   };
 }

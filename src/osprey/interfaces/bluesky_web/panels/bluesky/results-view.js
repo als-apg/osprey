@@ -51,7 +51,7 @@ import { subscribe } from '/design-system/js/theme-manager.js';
 
 import { exportFilename, saveCsv, toCsv } from './csv-export.js';
 import { renderFigure } from './figure-renderer.js';
-import { describeProgress } from './queue-client.js';
+import { TERMINAL_RUN_STATUSES, describeProgress } from './queue-client.js';
 
 /** @typedef {{
  *   id: string,
@@ -175,6 +175,7 @@ function count(value) {
  *   figureCard: HTMLElement,
  *   figurePanels: HTMLElement,
  *   figureNote: HTMLElement,
+ *   removeButton: HTMLButtonElement,
  * }} ResultsElements `figurePanels` is handed straight to the renderer, which
  *   empties and refills it; nothing else in this file writes to it.
  *   `figureNote` takes the renderer's provenance line (source, partial,
@@ -191,6 +192,7 @@ function count(value) {
  *   api: (path: string) => string,
  *   elements: ResultsElements,
  *   onPollingChange?: (polling: boolean) => void,
+ *   onRemove?: (runId: string) => void,
  *   saveFile?: (filename: string, text: string) => Promise<{saved: boolean, method: 'picker'|'download'}>,
  * }} deps `onPollingChange` reports whether this view is currently polling for
  *   a run — i.e. whether data is still arriving. The panel shell turns that
@@ -201,9 +203,19 @@ function count(value) {
  *   `saveFile` defaults to `csv-export.js`'s `saveCsv`. It is a seam rather
  *   than a hard import so the three save outcomes (dialog, cancelled, download
  *   fallback) are reachable under a DOM shim with no File System Access API.
+ *
+ *   `onRemove` fires when the operator asks to drop the run on screen from
+ *   the history. The button is offered for a FINISHED run only; the write
+ *   itself is the caller's, so this view stays read-only.
  * @returns {{follow: (runId: string|null) => void, currentRunId: () => string|null, destroy: () => void}}
  */
-export function createResultsView({ api, elements, onPollingChange, saveFile = saveCsv }) {
+export function createResultsView({
+  api,
+  elements,
+  onPollingChange,
+  onRemove = () => {},
+  saveFile = saveCsv,
+}) {
   /** @type {{
    *   runId: string|null,
    *   timer: ReturnType<typeof setTimeout>|null,
@@ -528,6 +540,9 @@ export function createResultsView({ api, elements, onPollingChange, saveFile = s
     elements.statusBadge.textContent = run.status;
     elements.statusBadge.className = `badge ${badgeToneForStatus(run.status)}`;
     show(elements.statusBadge);
+    // Removable once finished: a pending run is withdrawn from the queue and a
+    // running one is halted, and neither is this button's business.
+    elements.removeButton.hidden = !TERMINAL_RUN_STATUSES.includes(run.status);
 
     elements.meta.replaceChildren();
     for (const [label, value] of runMetaParts(run)) {
@@ -656,6 +671,9 @@ export function createResultsView({ api, elements, onPollingChange, saveFile = s
   }
 
   elements.exportButton.addEventListener('click', exportCsv);
+  elements.removeButton.addEventListener('click', () => {
+    if (state.runId) onRemove(state.runId);
+  });
 
   /**
    * Hand a figure to the renderer and reveal the card.
@@ -710,6 +728,7 @@ export function createResultsView({ api, elements, onPollingChange, saveFile = s
       hide(elements.tableCard);
       hide(elements.figureCard);
       hide(elements.statusBadge);
+      hide(elements.removeButton);
       hide(elements.meta);
       setNote(null);
       // `tableDetails.open` is deliberately NOT reset here — see the module

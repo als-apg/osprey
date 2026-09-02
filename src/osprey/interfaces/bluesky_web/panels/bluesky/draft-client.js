@@ -653,7 +653,7 @@ export function queueOutcomeBanner(outcome) {
     case 'queued':
       return {
         kind: 'ok',
-        message: `added to the queue — run ${outcome.runId}. It runs when the queue is started.`,
+        message: `added to the queue — run ${outcome.runId}.`,
       };
     case 'stale_draft_revision':
       return {

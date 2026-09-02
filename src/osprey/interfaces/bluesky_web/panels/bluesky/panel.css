@@ -127,13 +127,14 @@ html:not([data-ui-mode="simple"]) body.embedded .panel-tabs { display: none; }
   color: var(--text-primary);
 }
 
-/* ---- Persistent status strip ----
+/* ---- Queue control strip ----
  *
- * Queue state plus the two halts, on screen for EVERY view and in every UI
- * mode. Nothing here is ever contributed to the tile bar: the hub collapses
+ * Queue state plus Start · Stop · Abort, on screen for EVERY view and in every
+ * UI mode. Nothing here is ever contributed to the tile bar: the hub collapses
  * that bar in Simple mode, and a halt that disappears with the chrome is not a
- * halt. "Start queue" is not here either — it lives inside the Queue view,
- * because arming a queue is a deliberate act. */
+ * halt. Which buttons SHOW is decided per tab in queue-view.js
+ * (stripControls): the Queue tab is the control panel and shows them all; the
+ * other tabs show a dormant queue as its badge alone. */
 .status-strip {
   display: flex;
   align-items: center;
@@ -144,6 +145,65 @@ html:not([data-ui-mode="simple"]) body.embedded .panel-tabs { display: none; }
   border-bottom: 1px solid var(--border-default);
 }
 .status-strip-spacer { flex: 1 1 auto; }
+.strip-kicker {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+/* On the Queue tab the strip IS the control panel: a filled band, so the row
+   of verbs reads as one instrument rather than a status line with buttons
+   appended. `#panel-root[data-view]` is stamped by panel.js on every switch. */
+#panel-root[data-view="queue"] .status-strip {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  padding: 10px 14px;
+  box-shadow: var(--shadow-panel);
+  /* The same reading measure as the Queue view's cards (.view-scroll), so the
+     panel sits as the first card of that column rather than as a full-width
+     band above a narrower stack. */
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 900px;
+  margin-left: auto;
+  margin-right: auto;
+}
+/* The verbs share one compact width, so the row reads as one instrument and
+   no label swap (Abort's and Clear's "Confirm") resizes its neighbour. The
+   floor is the longest label any of them shows at rest or armed — see the
+   `#abort-btn` note below for why that number is load-bearing. Stop's
+   withdrawal label is the one exception and is allowed to grow: Stop is
+   inboard of Abort, so its width moves nothing but itself. */
+.status-strip .btn {
+  box-sizing: content-box;
+  min-width: 7ch;
+  padding: 6px 12px;
+  text-align: center;
+}
+/* The halts while the panel affirmatively knows nothing is moving: quiet, so
+   the row shows which verbs have a job right now — but never disabled, and
+   never hidden on the Queue tab. A greyed halt is still a halt (see
+   queueControls / abortControl for why the two have no disabled state). */
+.status-strip .btn.halt-idle {
+  color: var(--text-secondary);
+  background: transparent;
+  border-color: var(--border-default);
+}
+.status-strip .btn.halt-idle:hover,
+.status-strip .btn.halt-idle:focus-visible {
+  color: var(--text-primary);
+  background: var(--neutral-tint-08);
+}
+.strip-divider {
+  width: 1px;
+  height: 22px;
+  background: var(--border-default);
+  margin: 0 2px;
+}
+/* The "?" beside the badge is the design system's shared info tip
+   (`.osprey-info` / `.osprey-tip` in base.css); nothing here restates it. */
 
 /* ---- Plan-lane picker ----
  * Hidden unless the deployment renders more than one plan lane (panel.js).
@@ -193,35 +253,19 @@ html:not([data-ui-mode="simple"]) body.embedded .panel-tabs { display: none; }
  *
  * Only ABORT needs the floor. Stop is inboard of it, so Stop's own label swaps
  * (the stop-pending withdrawal, and its confirm) move Stop's left edge into
- * the spacer and nothing else — which is why those labels are left long and
- * explicit. Abort is the one whose width is load-bearing for a neighbour.
+ * the spacer and nothing else. Abort is the one whose width is load-bearing
+ * for a neighbour.
  *
- * The floor is one `ch` per character of the resting label. `ch` is the "0"
- * advance, comfortably wider than the mean glyph advance of this Latin string
- * in a proportional face, so the floor clears the resting text without anyone
- * measuring a pixel — slack in the box rather than a number that goes stale
- * when the type changes. The armed label is kept SHORTER than the resting one
- * (queue-client.js), so the box never changes size in either direction. */
+ * The floor is one `ch` per character of the LONGER of its two labels, the
+ * armed 'Confirm abort'. `ch` is the "0" advance, comfortably wider than the
+ * mean glyph advance of this Latin string in a proportional face, so the
+ * floor clears the text without anyone measuring a pixel — slack in the box
+ * rather than a number that goes stale when the type changes. Both labels fit
+ * inside it, so the box never changes size in either direction. */
 #abort-btn {
   box-sizing: content-box;
-  min-width: 18ch; /* 'Abort running plan' — the resting label */
-}
-
-/* The folded resting state's disclosure (queue-view.js shows it only while
- * haltsCollapsible allows folding at all). A ghost, deliberately: at idle the
- * strip should read as a status line, not as a row of actions, and the solid
- * accent fill of `.btn` is reserved for the halts themselves. It keeps the
- * `.btn` box metrics so the strip's height does not change as the halts and
- * the toggle swap places. */
-.halts-toggle {
-  color: var(--text-muted);
-  background: transparent;
-  border-color: var(--border-default);
-}
-.halts-toggle:hover:not(:disabled),
-.halts-toggle:focus-visible:not(:disabled) {
-  color: var(--text-primary);
-  background: var(--bg-inset, transparent);
+  min-width: 7ch; /* 'Confirm' — the armed label (queue-client.js) */
+  text-align: center;
 }
 
 /* `body.embedded` zeroes the body padding so the scrolling views can meet the
@@ -1239,7 +1283,6 @@ code {
   font-weight: 600;
   color: var(--text-primary);
 }
-#history-card h2,
 .card > h2:first-child {
   margin-bottom: 10px;
 }
@@ -1287,6 +1330,13 @@ code {
   background: var(--accent-tint-06);
   border-color: var(--border-accent);
 }
+/* A stopped queue is a normal resting state, not a warning and not a success:
+   the neutral tone says "nothing happening" without colouring it. */
+.badge.neutral {
+  color: var(--text-secondary);
+  background: var(--neutral-tint-08);
+  border-color: var(--border-default);
+}
 
 .icon-btn {
   font-family: var(--font-mono);
@@ -1309,7 +1359,8 @@ code {
   color: var(--text-muted);
   opacity: 0.5;
 }
-.icon-remove:hover:not(:disabled) {
+.icon-remove:hover:not(:disabled),
+.icon-remove-run:hover:not(:disabled) {
   color: var(--color-error);
   border-color: var(--color-error);
 }

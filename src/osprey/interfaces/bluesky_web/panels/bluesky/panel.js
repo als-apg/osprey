@@ -31,8 +31,8 @@
  *   remedy (which token is missing, or the `osprey set connector=…` flip
  *   command for a browse-only deployment).
  *
- * The persistent status strip (queue state, "Stop after current item", "Abort
- * running plan") is NEVER contributed, for the same reason read in reverse:
+ * The persistent control strip (queue state badge, "Stop", "Abort") is NEVER
+ * contributed, for the same reason read in reverse:
  * anything safety-bearing has to survive Simple mode, and the tile bar does
  * not. It renders in the body on every tab — see index.html.
  *
@@ -151,13 +151,29 @@ const resultsView = createResultsView({
     figureCard: byId('figure-card'),
     figurePanels: byId('figure-panels'),
     figureNote: byId('figure-note'),
+    removeButton: /** @type {HTMLButtonElement} */ (byId('run-remove-btn')),
   },
   onPollingChange(polling) {
     if (polling === resultsPolling) return;
     resultsPolling = polling;
     publishContribution();
   },
+  onRemove(runId) {
+    // The write is the queue view's (`DELETE /runs/{id}`, banner, history
+    // re-read); a success deselects through `onSelectRun(null)` below.
+    void queueView.removeRun(runId);
+  },
 });
+
+/**
+ * The Plans view, once built. The queue view is created first (it owns the
+ * strip every tab shares) and reports queue state to Plans through this
+ * reference, so the enqueue button's label can say what the click does.
+ * Frames arrive after boot; the boot render itself reports nothing.
+ *
+ * @type {import('./plans-view.js').PlansView|null}
+ */
+let plansViewRef = null;
 
 const queueView = createQueueView({
   root,
@@ -168,6 +184,9 @@ const queueView = createQueueView({
     // auto-pick is the panel's own housekeeping and must not move anyone off
     // the tab they chose.
     if (activate) setActiveView('results');
+  },
+  onStatus(status) {
+    if (plansViewRef) plansViewRef.setQueueStatus(status);
   },
 });
 
@@ -210,6 +229,7 @@ const plansView = createPlansView({
     setActiveView('results');
   },
 });
+plansViewRef = plansView;
 
 // ---------------------------------------------------------------------------
 // Selection
@@ -252,6 +272,11 @@ function setActiveView(id) {
     entry.tab.setAttribute('aria-selected', active ? 'true' : 'false');
     entry.view.hidden = !active;
   }
+  // The strip's controls are shown per tab (stripControls): the Queue tab is
+  // the control panel, the others show a dormant queue as a badge alone. The
+  // attribute is for panel.css; the call is what decides which buttons show.
+  root.dataset.view = activeView;
+  queueView.setView(activeView);
   publishContribution();
 }
 
@@ -366,7 +391,9 @@ if (initialRunId) {
   selectRun(initialRunId);
   setActiveView('results');
 } else {
-  publishContribution();
+  // Through setActiveView even for the default, so the strip and the
+  // `data-view` stamp agree with the tab from first paint.
+  setActiveView('plans');
 }
 
 /**
