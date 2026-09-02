@@ -131,6 +131,22 @@ class TestTargetResolution:
         rows = await _run(_cfg({"broken": {"label": "BROKEN"}}))
         assert "web_panels.broken" not in rows
 
+    async def test_disabled_custom_panel_is_not_probed(self):
+        """A url-backed block the build switched off (a tab this render does
+        not select) is no more a panel to probe than a disabled builtin."""
+        seen: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(str(request.url))
+            return httpx.Response(200)
+
+        rows = await _run(
+            _cfg({"beam": {"label": "BEAM", "url": "http://localhost:10920", "enabled": False}}),
+            handler=handler,
+        )
+        assert "web_panels.beam" not in rows
+        assert not any("10920" in url for url in seen)
+
     async def test_row_names_are_category_prefixed_with_the_panel_id(self):
         """`<category>.<id>` so the dashboard's fmtName() strips the prefix."""
         rows = await _run(_cfg({"channel-finder": True}))

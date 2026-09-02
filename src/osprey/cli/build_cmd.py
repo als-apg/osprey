@@ -1654,9 +1654,9 @@ def _render_project(
 
     from .build_profile_archiver import va_archiver_config_overrides
     from .build_profile_deploy import deploy_config_overrides
+    from .build_profile_panels import panel_selection_overrides
     from .build_profile_reach import (
         attached_render_overrides,
-        orphan_panel_fragments,
         reach_override_errors,
         selected_panel_errors,
     )
@@ -1830,19 +1830,6 @@ def _render_project(
             )
             for key, value in projected.items():
                 progress("      %s: %s (from %s)", key, value, told_by)
-        # The reverse: a tab this profile does NOT select, inherited from the
-        # hosting profile's `config:` as a url-less fragment (a pinned route),
-        # would render as an empty-url panel. Dropped — the selection is what
-        # puts a projected tab in an attached render.
-        from osprey.utils.config_writer import config_delete_field
-
-        for key in orphan_panel_fragments(
-            build_profile.web_panels or (), _rendered_config(render_dir)
-        ):
-            config_delete_field(render_dir / "config.yml", key)
-            progress(
-                "  ✓ Dropped %s: a tab this profile does not select, inherited with no url", key
-            )
         # A tab this profile selects (`web_panels:`) that the projection gave
         # no address — the host it was told about runs no such sidecar — would
         # otherwise vanish from the render without a word.
@@ -1855,6 +1842,27 @@ def _render_project(
     injected = _inject_services(build_profile, repo_root, render_dir)
     if injected_out is not None:
         injected_out.extend(injected)
+
+    # The selection, projected. The tab strip is read from `web.panels` alone,
+    # and by now every block this render will carry is there: the template's
+    # own for a selected builtin, the profile's `config:` facts about a custom
+    # panel, the facts a persona inherits for a tab it excluded, the blocks the
+    # injectors just wrote for a tab only a persona selects. Each is told
+    # whether THIS render shows it — the facts stay (a persona cannot subtract
+    # `config:`, and the Reach Contract copies addresses from the host's
+    # render); only `enabled` moves, and it says one thing: selected here.
+    projected_tabs = panel_selection_overrides(
+        build_profile.web_panels or (), _rendered_config(render_dir)
+    )
+    if projected_tabs:
+        _apply_config_overrides(render_dir, projected_tabs)
+        off = sorted(key.split(".")[2] for key, shown in projected_tabs.items() if not shown)
+        if off:
+            progress(
+                "  ✓ Switched off %d panel block(s) this profile does not select: %s",
+                len(off),
+                ", ".join(off),
+            )
 
     # The ground truth every client loads is the rendered config, so this is
     # where a consumer switched on with nothing to dial is refused — for a

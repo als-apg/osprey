@@ -179,6 +179,30 @@ class TestLoadPanelConfig:
         assert custom[0]["url"] == "http://grafana.local:3000"
         assert custom[0]["healthEndpoint"] == "/api/health"
 
+    def test_custom_panel_disabled_is_not_served(self):
+        """``enabled: false`` switches a custom panel off exactly as it does a
+        builtin: the build writes it onto every block the profile does not
+        select, so a persona that inherits a url-backed block for a tab it
+        excluded must not get the tab."""
+        with patch(
+            "osprey.utils.workspace.load_osprey_config",
+            return_value={
+                "web": {
+                    "panels": {
+                        "beam-viewer": {
+                            "label": "BEAM",
+                            "url": "http://localhost:10920",
+                            "enabled": False,
+                        },
+                        "my-grafana": {"label": "GRAFANA", "url": "http://grafana.local:3000"},
+                    }
+                }
+            },
+        ):
+            enabled, custom, _default = _load_panel_config()
+        assert [cp["id"] for cp in custom] == ["my-grafana"]
+        assert enabled == UNIVERSAL_PANELS
+
     def test_mixed_builtin_and_custom(self):
         """Both builtin and custom panels are handled correctly."""
         with patch(

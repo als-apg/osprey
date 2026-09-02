@@ -38,6 +38,7 @@ from osprey.bluesky_bridge_connection import (
     lane_declared_target,
 )
 from osprey.deployment.graphdb_service import resolve_graphdb_service_config
+from osprey.profiles.web_panels import panel_spec_enabled
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 from osprey.utils.workspace import BUILD_DIR_NAME
 from osprey_connectors.types import (
@@ -257,13 +258,14 @@ def config_declares_panel(config: Any, panel_id: str) -> bool:
     The one definition of "this project shows that panel", shared by the render
     (for persona-less roster entries) and by :func:`personas_needing_dispatcher_token`
     (for catalog personas), so the two cannot answer differently for the same
-    config. ``enabled: false`` counts as *not* declared: a panel switched off is
-    one whose credential is not needed.
+    config — and read through the same predicate the web terminal and the
+    health probe read a block with (:func:`panel_spec_enabled`). ``enabled:
+    false`` counts as *not* declared: a panel switched off is one whose
+    credential is not needed, and the build switches off every block a render
+    carries for a tab its profile does not select.
     """
     panel = as_dict(as_dict(as_dict(config).get("web")).get("panels")).get(panel_id)
-    if not isinstance(panel, dict):
-        return False
-    return panel.get("enabled", True) is not False
+    return panel_spec_enabled(panel)
 
 
 def config_needs_dispatcher_token(config: Any) -> bool:

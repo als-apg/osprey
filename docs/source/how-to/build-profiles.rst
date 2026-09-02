@@ -545,6 +545,18 @@ Bare exclusion accepts ``skills``, ``rules``, ``hooks``, ``agents``,
 accepts any convention directory. Excluding something that is not there is a
 silent no-op.
 
+An excluded ``web_panels`` entry renders no tab, whatever the persona still
+inherits about that panel under ``config:``. ``exclude:`` never reaches inside
+``config:`` — a ``web.panels.lattice.label`` or a custom panel's
+``web.panels.<id>.url`` the base profile set is still in the persona's render —
+but ``web_panels`` is what shows a tab: the build writes ``enabled`` onto every
+``web.panels.<id>`` block a render carries, ``true`` for a selected panel and
+``false`` for any other, and the web terminal, the health probe and the
+credential grants all read that one flag. The facts stay so the Reach Contract
+can keep copying a host's addresses into the personas that *do* select the tab.
+A ``config:`` line that says ``web.panels.<id>.enabled`` and contradicts the
+selection is refused at validation, as two spellings of one fact disagreeing.
+
 Excluding a **declared hook** takes one more line: the same delta has to unwire
 it with ``claude_code.hooks.<Event>: null``, or the build refuses the wiring
 that now points at a file the persona dropped. See :ref:`profile-unwire-hook`.

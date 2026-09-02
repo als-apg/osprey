@@ -51,3 +51,30 @@ BUILTIN_PANEL_LABELS: dict[str, str] = {
 # Frontend fallback when a profile/config doesn't pin a default tab.
 # The web terminal opens this tab first on cold load.
 DEFAULT_PANEL_FALLBACK: str = "artifacts"
+
+
+def panel_spec_enabled(spec: object) -> bool:
+    """Whether a ``web.panels.<id>`` value is a panel this render shows.
+
+    The one predicate behind every reader of a panel block — the web terminal's
+    tab strip, the health probe, the credential grants keyed on a panel
+    declaration — so they cannot answer differently for the same block. Builtin
+    and custom blocks are read alike: a bare ``true`` or a mapping without
+    ``enabled: false`` is on; ``enabled: false`` is off; anything that is not a
+    block is off (fail closed). The build writes ``enabled`` onto every block a
+    render carries from the profile's ``web_panels`` selection
+    (:func:`osprey.cli.build_profile_panels.panel_selection_overrides`), so a
+    block inherited for a tab the profile does not select reads as off here.
+
+    Args:
+        spec: The value under ``web.panels.<id>`` — a mapping, ``true``, or
+            whatever a hand-edited config holds there.
+
+    Returns:
+        ``True`` if the panel is on.
+    """
+    if spec is True:
+        return True
+    if isinstance(spec, dict):
+        return spec.get("enabled", True) is not False
+    return False
