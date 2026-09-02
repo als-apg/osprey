@@ -834,12 +834,12 @@ variables and nothing else, and no site CA is mounted into its image. See
 </section>
 <section id="leave-one-entry-public">
 <h2>Leave one entry public<a class="headerlink" href="#leave-one-entry-public" title="Link to this heading">#</a></h2>
-<p>A roster entry that fronts a read-only service — the preset’s ARIEL logbook —
-can opt out of the login wall:</p>
+<p>A roster entry that fronts a read-only service can opt out of the login
+wall:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">users</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ariel</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">status-board</span>
 <span class="w">    </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
-<span class="w">    </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ariel</span>
+<span class="w">    </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readonly</span>
 <span class="w">    </span><span class="nt">login</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
 </pre></div>
 </div>
@@ -884,6 +884,10 @@ credential:</p>
 <span class="w">        </span><span class="nt">access</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">any</span><span class="w">                </span><span class="c1"># any roster login opens this card</span>
 </pre></div>
 </div>
+<p>The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships its two standalone cards this way —
+<code class="docutils literal notranslate"><span class="pre">logbook</span></code> and <code class="docutils literal notranslate"><span class="pre">knowledge</span></code>, each <code class="docutils literal notranslate"><span class="pre">access:</span> <span class="pre">any</span></code> under <code class="docutils literal notranslate"><span class="pre">password</span></code> — so
+the logbook research and facility knowledge terminals are opened with any
+roster login’s own password and carry no credential of their own.</p>
 <p>Who can open it: anyone this deployment can authenticate. Under <code class="docutils literal notranslate"><span class="pre">password</span></code>
 that is every roster entry with a provisioned password; under <code class="docutils literal notranslate"><span class="pre">oidc</span></code>, every
 entry that carries an <code class="docutils literal notranslate"><span class="pre">oidc_subject:</span></code> — <code class="docutils literal notranslate"><span class="pre">login:</span> <span class="pre">false</span></code> entries included,

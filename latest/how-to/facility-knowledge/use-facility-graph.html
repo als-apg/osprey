@@ -895,17 +895,16 @@ starts as usual, and the graph tools keep answering from the store.</p>
 </section>
 <section id="multi-user-operator-terminals">
 <h2>Multi-User Operator Terminals<a class="headerlink" href="#multi-user-operator-terminals" title="Link to this heading">#</a></h2>
-<p>The <code class="docutils literal notranslate"><span class="pre">control-assistant-readonly</span></code> and <code class="docutils literal notranslate"><span class="pre">control-assistant-readwrite</span></code> personas
-(<a class="reference internal" href="../web-terminal/multi-user/index.html"><span class="doc">Multi-User Support</span></a>) get the same facility-knowledge-graph agent and its tools,
-reading the hosting deployment’s store. They are attached renders — they deploy no services of their own — so
-they have to be told which port that store is published on. Per-user web
-terminal containers run with <code class="docutils literal notranslate"><span class="pre">network_mode:</span> <span class="pre">host</span></code>, so a container’s
-<code class="docutils literal notranslate"><span class="pre">localhost</span></code> <em>is</em> the deployment host, and both presets pin the bolt port
-directly:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">services.graphdb.port_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">7687</span>
-</pre></div>
-</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">control-assistant-readonly</span></code>, <code class="docutils literal notranslate"><span class="pre">control-assistant-readwrite</span></code> and
+<code class="docutils literal notranslate"><span class="pre">control-assistant-admin</span></code> personas (<a class="reference internal" href="../web-terminal/multi-user/index.html"><span class="doc">Multi-User Support</span></a>)
+get the same facility-knowledge-graph agent and its tools, reading the hosting
+deployment’s store, and — the preset runs <code class="docutils literal notranslate"><span class="pre">channel_finder_mode:</span> <span class="pre">graph</span></code> — a
+channel finder that answers from it too. They are attached renders — they
+deploy no services of their own — so they have to be told which port that
+store is published on. Per-user web terminal containers run with
+<code class="docutils literal notranslate"><span class="pre">network_mode:</span> <span class="pre">host</span></code>, so a container’s <code class="docutils literal notranslate"><span class="pre">localhost</span></code> <em>is</em> the deployment
+host, and the build copies the bolt port from the hosting deployment’s own
+render into each persona.</p>
 <p>Two consequences worth knowing before you move anything:</p>
 <ul class="simple">
 <li><p><strong>Move the port on the hosting deployment and every persona follows.</strong> A
@@ -923,8 +922,12 @@ deployment that moves off loopback has to revisit both.</p></li>
 <p>The read-only persona receives <code class="docutils literal notranslate"><span class="pre">GRAPHDB_PASSWORD</span></code> as well. The store has a
 single write-capable account, so read-only-ness here is enforced by the graph
 server’s read transaction rather than by the credential — the same posture the
-ARIEL database credential already takes. <code class="docutils literal notranslate"><span class="pre">control-assistant-ariel</span></code> has no
-control surface and no graph tools by design.</p>
+ARIEL database credential already takes. <code class="docutils literal notranslate"><span class="pre">control-assistant-logbook</span></code> has no
+control surface and no graph tools by design. <code class="docutils literal notranslate"><span class="pre">control-assistant-knowledge</span></code>
+is the persona built around the graph: it keeps the facility-knowledge-graph
+agent, the graph-backed channel finder and the KNOWLEDGE panel, and nothing
+that reads or writes the machine — the standalone card for “how is the
+machine put together” questions.</p>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <dl class="simple">

@@ -623,11 +623,12 @@ deployment, whatever else you write below.</p></li>
 and <code class="docutils literal notranslate"><span class="pre">bluesky-plans</span></code>.</p></li>
 <li><p>from <code class="docutils literal notranslate"><span class="pre">agents:</span></code> — <code class="docutils literal notranslate"><span class="pre">logbook-search</span></code> and <code class="docutils literal notranslate"><span class="pre">logbook-deep-research</span></code>. Both
 query a logbook database at runtime, and this facility does not deploy one.</p></li>
-<li><p>for the same reason, the <code class="docutils literal notranslate"><span class="pre">ariel</span></code> entries under <code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code>
-in <code class="docutils literal notranslate"><span class="pre">config:</span></code> — the roster entry (<code class="docutils literal notranslate"><span class="pre">-</span> <span class="pre">name:</span> <span class="pre">ariel</span></code>) and the <code class="docutils literal notranslate"><span class="pre">ariel:</span></code>
-persona — plus the <code class="docutils literal notranslate"><span class="pre">personas/ariel.yml</span></code> delta they point at. That login is
-the standalone ARIEL logbook terminal, and it needs the logbook database
-this facility does not run.</p></li>
+<li><p>for the same reason, the <code class="docutils literal notranslate"><span class="pre">logbook</span></code> entries under <code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code>
+in <code class="docutils literal notranslate"><span class="pre">config:</span></code> — the roster entry (<code class="docutils literal notranslate"><span class="pre">-</span> <span class="pre">name:</span> <span class="pre">logbook</span></code>) and the <code class="docutils literal notranslate"><span class="pre">logbook:</span></code>
+persona — plus the <code class="docutils literal notranslate"><span class="pre">personas/logbook.yml</span></code> delta they point at. That card
+is the standalone ARIEL logbook terminal, and it needs the logbook database
+this facility does not run. The <code class="docutils literal notranslate"><span class="pre">knowledge</span></code> card stays: it reads the graph
+store this facility keeps.</p></li>
 <li><p>from <code class="docutils literal notranslate"><span class="pre">web_panels:</span></code> — <code class="docutils literal notranslate"><span class="pre">ariel</span></code>, <code class="docutils literal notranslate"><span class="pre">events</span></code> and <code class="docutils literal notranslate"><span class="pre">bluesky</span></code>.</p></li>
 <li><p>from <code class="docutils literal notranslate"><span class="pre">config:</span></code> — the <code class="docutils literal notranslate"><span class="pre">claude_code.servers.bluesky.enabled</span></code> line and every
 <code class="docutils literal notranslate"><span class="pre">web.panels.events.*</span></code> and <code class="docutils literal notranslate"><span class="pre">web.panels.bluesky.*</span></code> override. The panels they

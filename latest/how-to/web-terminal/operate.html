@@ -558,7 +558,13 @@ restart — their sessions live in a store on disk; <code class="docutils litera
 reconnects, and you can keep a few background conversations alive and hop
 between them.</p></li>
 <li><p><strong>Workspace</strong> (left) — a live view of your project files. New artifacts,
-plots, and data files appear as the agent creates them, with no refresh.</p></li>
+plots, and data files appear as the agent creates them, with no refresh.
+On a fresh deployment the list is not empty: the control-assistant preset
+ships one interactive example plot (synthetic data), listed under
+<strong>Examples</strong> at the bottom. It is there for you, not the agent, which
+never lists or cites it. Delete it from the gallery when you no longer
+want it; it does not come back. It is switched on by
+<code class="docutils literal notranslate"><span class="pre">artifact_server.example_artifact</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p></li>
 <li><p><strong>Side panels</strong> — your control-system tools (Channel Finder, ARIEL, the
 lattice dashboard, and so on), opened from the icon rail and arranged as
 dockable tiles. See <a class="reference internal" href="panels.html"><span class="doc">Panels</span></a>.</p></li>

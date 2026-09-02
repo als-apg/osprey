@@ -531,7 +531,8 @@ mode is the right tool</p></li>
 personas as capability tiers, and one nginx front door</p></li>
 <li><p class="sd-card-text">The <code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code> config block that switches it on</p></li>
 <li><p class="sd-card-text">Standing the preset’s full stack up — its read-only, read-write and admin
-logins plus a standalone ARIEL terminal</p></li>
+logins plus two standalone terminals, logbook research and facility
+knowledge</p></li>
 <li><p class="sd-card-text">Day-to-day operations: adding, reseeding, and removing users</p></li>
 <li><p class="sd-card-text">What each terminal records, and who can read it</p></li>
 </ul>
@@ -673,13 +674,18 @@ a <em>read-only</em> and a <em>read-write</em> tier, separated by whether the se
 move hardware, and an <em>admin</em> tier, separated by whether it may change the
 deployment it runs in. <a class="reference internal" href="tiers.html"><span class="doc">Privilege Tiers</span></a> lays out what each one
 carries and what makes the boundary hold.</p>
-<p>It also ships a fourth persona that is not a tier of that agent at all.
-<code class="docutils literal notranslate"><span class="pre">ariel</span></code> is the standalone logbook research assistant: no control-system tool
-servers, no Python executor, no plan queue — a different product, reached from
-its own card. Nothing special makes that possible. A persona is already a
-whole project, so it can differ in what it <em>is</em> as easily as in what it may
-write. It shares this deployment’s PostgreSQL and logbook, so the operators
-and the research terminal read one logbook together.</p>
+<p>It also ships two personas that are not tiers of that agent at all.
+<code class="docutils literal notranslate"><span class="pre">logbook</span></code> is the standalone logbook research assistant: no control-system
+tool servers, no Python executor, no plan queue — a different product,
+reached from its own card. It shares this deployment’s PostgreSQL and logbook,
+so the operators and the research terminal read one logbook together.
+<code class="docutils literal notranslate"><span class="pre">knowledge</span></code> is the deployment’s knowledge layer: the facility knowledge
+graph, the graph-backed channel finder and the facility knowledge bundle,
+read-only, with nothing that touches the machine. It reads the same graph
+store the operator terminals do. Nothing special makes either possible. A
+persona is already a whole project, so it can differ in what it <em>is</em> as
+easily as in what it may write. Both cards are shared — any roster login
+opens them with their own password (<a class="reference internal" href="login.html#multi-user-shared-card"><span class="std std-ref">Share a card with the whole roster</span></a>).</p>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders one persona project per delta in <code class="docutils literal notranslate"><span class="pre">personas/</span></code>, and
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> builds each one’s container image locally, so no registry or CI is
 involved.</p>
@@ -719,10 +725,16 @@ the <code class="docutils literal notranslate"><span class="pre">control-assista
 <span class="w">      </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
 <span class="w">      </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readonly</span>
 <span class="w">      </span><span class="nt">display_name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Read-Only</span><span class="nv"> </span><span class="s">View</span><span class="nv"> </span><span class="s">(Bob)&quot;</span>
-<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ariel</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">logbook</span>
 <span class="w">      </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
-<span class="w">      </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ariel</span>
-<span class="w">      </span><span class="nt">display_name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;ARIEL</span><span class="nv"> </span><span class="s">Logbook</span><span class="nv"> </span><span class="s">Research&quot;</span>
+<span class="w">      </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">logbook</span>
+<span class="w">      </span><span class="nt">display_name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Logbook</span><span class="nv"> </span><span class="s">Research&quot;</span>
+<span class="w">      </span><span class="nt">access</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">any</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">knowledge</span>
+<span class="w">      </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span>
+<span class="w">      </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">knowledge</span>
+<span class="w">      </span><span class="nt">display_name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Facility</span><span class="nv"> </span><span class="s">Knowledge&quot;</span>
+<span class="w">      </span><span class="nt">access</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">any</span>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">carol</span>
 <span class="w">      </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
 <span class="w">      </span><span class="nt">persona</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">admin</span>
@@ -740,10 +752,15 @@ the <code class="docutils literal notranslate"><span class="pre">control-assista
 <span class="w">        </span><span class="nt">project</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">control-assistant-admin</span>
 <span class="w">        </span><span class="nt">project_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build/control-assistant-admin</span>
 <span class="w">        </span><span class="nt">build_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">personas/admin.yml</span>
-<span class="w">      </span><span class="nt">ariel</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">project</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">control-assistant-ariel</span>
-<span class="w">        </span><span class="nt">project_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build/control-assistant-ariel</span>
-<span class="w">        </span><span class="nt">build_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">personas/ariel.yml</span>
+<span class="w">      </span><span class="nt">logbook</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">project</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">control-assistant-logbook</span>
+<span class="w">        </span><span class="nt">project_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build/control-assistant-logbook</span>
+<span class="w">        </span><span class="nt">build_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">personas/logbook.yml</span>
+<span class="w">        </span><span class="nt">landing_group</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Standalone deployments</span>
+<span class="w">      </span><span class="nt">knowledge</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">project</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">control-assistant-knowledge</span>
+<span class="w">        </span><span class="nt">project_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">build/control-assistant-knowledge</span>
+<span class="w">        </span><span class="nt">build_profile</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">personas/knowledge.yml</span>
 <span class="w">        </span><span class="nt">landing_group</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Standalone deployments</span>
 </pre></div>
 </div>
@@ -774,9 +791,9 @@ hundred-port family per companion panel (artifact gallery, ARIEL,
 channel finder, lattice dashboard, …) plus the terminal itself, and
 each user takes the family’s first port plus their index. At the
 default <code class="docutils literal notranslate"><span class="pre">deployment.port_base</span></code> that puts alice (index 0) on
-<code class="docutils literal notranslate"><span class="pre">10100</span></code>, bob (index 1) on <code class="docutils literal notranslate"><span class="pre">10101</span></code>, ariel (index 2) on <code class="docutils literal notranslate"><span class="pre">10102</span></code>
-and carol (index 3) on <code class="docutils literal notranslate"><span class="pre">10103</span></code>, with their artifact galleries on
-<code class="docutils literal notranslate"><span class="pre">10200</span></code>–<code class="docutils literal notranslate"><span class="pre">10203</span></code>. <a class="reference internal" href="../../../reference/ports.html#reference-ports-panels"><span class="std std-ref">The panel bands</span></a> lists every family;
+<code class="docutils literal notranslate"><span class="pre">10100</span></code>, bob (index 1) on <code class="docutils literal notranslate"><span class="pre">10101</span></code>, logbook (index 2) on
+<code class="docutils literal notranslate"><span class="pre">10102</span></code>, carol (index 3) on <code class="docutils literal notranslate"><span class="pre">10103</span></code> and knowledge (index 4) on
+<code class="docutils literal notranslate"><span class="pre">10104</span></code>, with their artifact galleries on <code class="docutils literal notranslate"><span class="pre">10200</span></code>–<code class="docutils literal notranslate"><span class="pre">10204</span></code>. <a class="reference internal" href="../../../reference/ports.html#reference-ports-panels"><span class="std std-ref">The panel bands</span></a> lists every family;
 move the whole deployment with <code class="docutils literal notranslate"><span class="pre">deployment.port_base</span></code> rather than a
 family at a time. A facility that must pin one family on its own can
 still set that family’s <code class="docutils literal notranslate"><span class="pre">modules.web_terminals.&lt;family&gt;_base_port</span></code>
@@ -885,8 +902,8 @@ above, so no extra flags or configuration are needed. Alongside the web tier,
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> brings up everything else the control-assistant tutorial deploys
 — the virtual accelerator, the bluesky services, and the supporting
 PostgreSQL/OpenObserve containers — so the control-room terminals open onto a
-working machine, and the ARIEL terminal onto a live logbook, not an empty
-shell.</p>
+working machine, the logbook terminal onto a live logbook and the knowledge
+terminal onto a seeded facility graph, not an empty shell.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>The personas’ agent needs your provider credentials at run time. Add them
@@ -909,8 +926,8 @@ instead.</p>
 <li><p><strong>The build renders the persona projects.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders one
 project per <strong>delta</strong> in <code class="docutils literal notranslate"><span class="pre">personas/</span></code>, into the build zone beside the main
 render (<code class="docutils literal notranslate"><span class="pre">build/control-assistant-readonly</span></code>,
-<code class="docutils literal notranslate"><span class="pre">build/control-assistant-readwrite</span></code>, <code class="docutils literal notranslate"><span class="pre">build/control-assistant-admin</span></code> and
-<code class="docutils literal notranslate"><span class="pre">build/control-assistant-ariel</span></code>).
+<code class="docutils literal notranslate"><span class="pre">build/control-assistant-readwrite</span></code>, <code class="docutils literal notranslate"><span class="pre">build/control-assistant-admin</span></code>,
+<code class="docutils literal notranslate"><span class="pre">build/control-assistant-logbook</span></code> and <code class="docutils literal notranslate"><span class="pre">build/control-assistant-knowledge</span></code>).
 Because each delta merges over
 <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, every persona shares its data tree, secrets and artifacts,
 and inherits the choices recorded there (provider, model): edit the profile
@@ -926,8 +943,9 @@ no registry, no CI.</p></li>
 <li><p><strong>Brings up the web tier.</strong> An nginx reverse proxy (container <code class="docutils literal notranslate"><span class="pre">ca-nginx</span></code>)
 serves the landing page on <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:10000</span></code>, and one Web Terminal
 container comes up per user — <code class="docutils literal notranslate"><span class="pre">ca-web-alice</span></code> on host port <code class="docutils literal notranslate"><span class="pre">10100</span></code>,
-<code class="docutils literal notranslate"><span class="pre">ca-web-bob</span></code> on <code class="docutils literal notranslate"><span class="pre">10101</span></code>, <code class="docutils literal notranslate"><span class="pre">ca-web-ariel</span></code> on <code class="docutils literal notranslate"><span class="pre">10102</span></code> and
-<code class="docutils literal notranslate"><span class="pre">ca-web-carol</span></code> on <code class="docutils literal notranslate"><span class="pre">10103</span></code> — each reached
+<code class="docutils literal notranslate"><span class="pre">ca-web-bob</span></code> on <code class="docutils literal notranslate"><span class="pre">10101</span></code>, <code class="docutils literal notranslate"><span class="pre">ca-web-logbook</span></code> on <code class="docutils literal notranslate"><span class="pre">10102</span></code>,
+<code class="docutils literal notranslate"><span class="pre">ca-web-carol</span></code> on <code class="docutils literal notranslate"><span class="pre">10103</span></code> and <code class="docutils literal notranslate"><span class="pre">ca-web-knowledge</span></code> on <code class="docutils literal notranslate"><span class="pre">10104</span></code> — each
+reached
 through the landing page. (The
 <code class="docutils literal notranslate"><span class="pre">ca-</span></code> prefix is the preset’s <code class="docutils literal notranslate"><span class="pre">facility.prefix</span></code>; change it for your
 site.)</p></li>
@@ -952,23 +970,25 @@ this one its own block rather than moving services one by one — for example
 <p>Open <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:10000</span></code>. The landing page groups the users into cards,
 each labelled with the persona it resolves to:</p>
 <figure class="align-center" id="id1">
-<a class="reference internal image-reference" href="../../../_images/multi_user_landing.png"><img alt="The multi-user landing page — alice's and bob's cards under a Users heading, and the ARIEL terminal in a Standalone deployments panel beneath them" src="../../../_images/multi_user_landing.png" style="width: 100%;" />
+<a class="reference internal image-reference" href="../../../_images/multi_user_landing.png"><img alt="The multi-user landing page — alice's, bob's and carol's cards under a Users heading, and the logbook and knowledge terminals in a Standalone deployments panel beneath them" src="../../../_images/multi_user_landing.png" style="width: 100%;" />
 </a>
 <figcaption>
 <p><span class="caption-text">The grouped landing page: alice resolves to the readwrite persona, bob to
-readonly, and the ariel card opens the standalone logbook terminal. Click
-a card to open that session.</span><a class="headerlink" href="#id1" title="Link to this image">#</a></p>
+readonly, carol to admin, and the logbook and knowledge cards open the two
+standalone terminals. Click a card to open that session.</span><a class="headerlink" href="#id1" title="Link to this image">#</a></p>
 </figcaption>
 </figure>
 <p>Each operator card names its persona explicitly — alice the readwrite tier,
 bob the readonly one; the preset’s roster adds carol on the admin tier, last
 so the operator cards keep their ports. (A bare roster entry would fall back to the
 preset’s <code class="docutils literal notranslate"><span class="pre">default_persona</span></code>, readonly, so an implicit user always lands on
-the safe side.) The ariel card sits apart, in the accent-edged panel its
-persona’s <code class="docutils literal notranslate"><span class="pre">landing_group</span></code> names — and carries no persona badge, because the
-badge answers <em>which tier is this user on?</em> and here the card and its persona
-are the same word. Clicking any card opens that session at <code class="docutils literal notranslate"><span class="pre">/u/&lt;name&gt;/</span></code>,
-proxied by nginx to its own container.</p>
+the safe side.) The logbook and knowledge cards sit apart, in the
+accent-edged panel their personas’ <code class="docutils literal notranslate"><span class="pre">landing_group</span></code> names — and carry no
+persona badge, because the badge answers <em>which tier is this user on?</em> and
+here the card and its persona are the same word. Both are shared cards: the
+login page asks for a roster name and that person’s password, so nobody needs
+a credential for the card itself. Clicking any card opens that session at
+<code class="docutils literal notranslate"><span class="pre">/u/&lt;name&gt;/</span></code>, proxied by nginx to its own container.</p>
 </section>
 <section id="what-your-operators-read-first">
 <h3>What your operators read first<a class="headerlink" href="#what-your-operators-read-first" title="Link to this heading">#</a></h3>
