@@ -284,9 +284,14 @@ def compose_env_file_args(repo_root):
         # The remedy rides on the warning rather than on a line of its own: it
         # is the second half of the same fact, and on its own it reads as an
         # instruction nobody asked for.
+        remedy = (
+            "cp .env.example .env, then edit .env to fill in the API keys"
+            if (Path(repo_root) / ".env.example").is_file()
+            else "create .env at the repo root with this deployment's secrets in it"
+        )
         logger.warning(
             "No .env file found - services will start with default/empty environment variables\n"
-            "  → cp .env.example .env, then edit .env to fill in the API keys"
+            f"  → {remedy}"
         )
         return []
 

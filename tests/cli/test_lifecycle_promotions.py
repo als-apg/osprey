@@ -1052,13 +1052,26 @@ class TestAbsorbedRowsSayNothingOfTheirOwn:
 
     def test_the_missing_env_remedy_rides_on_its_warning(self, tmp_path, caplog):
         """Row 12: the remedy is the warning's second half, not a fact of its own."""
+        (tmp_path / ".env.example").write_text("# documented variables\n", encoding="utf-8")
         with caplog.at_level(logging.DEBUG):
             assert compose_generator.compose_env_file_args(tmp_path) == []
 
-        remedies = [r for r in caplog.records if ".env.example" in r.getMessage()]
+        remedies = [r for r in caplog.records if "cp .env.example .env" in r.getMessage()]
         assert len(remedies) == 1, remedies
         assert remedies[0].levelno == logging.WARNING
         assert "No .env file found" in remedies[0].getMessage()
+
+    def test_the_missing_env_remedy_never_names_an_example_that_is_not_there(
+        self, tmp_path, caplog
+    ):
+        """A repo without ``.env.example`` is told to create ``.env``, not to copy."""
+        with caplog.at_level(logging.DEBUG):
+            assert compose_generator.compose_env_file_args(tmp_path) == []
+
+        warnings = [r for r in caplog.records if "No .env file found" in r.getMessage()]
+        assert len(warnings) == 1, warnings
+        assert ".env.example" not in warnings[0].getMessage()
+        assert "create .env at the repo root" in warnings[0].getMessage()
 
     def test_activating_scenarios_says_nothing_of_its_own(self):
         """Row 2: the reseed's closing step and ``osprey sim apply`` both say it."""

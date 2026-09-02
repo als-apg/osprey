@@ -464,17 +464,17 @@ def test_each_retirement_pattern_still_matches_its_own_example(what: str) -> Non
 #: `container_lifecycle` in particular is where a new remediation string naming
 #: a dead verb is most likely to be written next.
 _RETIRED_SPELLING_ALLOWLIST: dict[tuple[str, str], str] = {
-    # The three `.env` banner headers. `reset` removes a minted section by
-    # matching its header string EXACTLY against files already on operators'
-    # disks, so this text is a data format, not a message: re-wording it would
-    # orphan every block written by an earlier release, leaving stale tokens in
-    # place while reset reported them stripped. Written in container_lifecycle,
-    # matched in reset — hence the same three strings under both files.
+    # The retired `.env` banner headers, carried by `reset` alone. `reset`
+    # removes a minted section by matching its header string EXACTLY against
+    # files already on operators' disks, so this text is a data format, not a
+    # message: dropping a spelling would orphan every block written by an
+    # earlier release, leaving stale tokens in place while reset reported them
+    # stripped. The deploy now writes these blocks under the current command
+    # (`tests/deployment/test_env_block_banners.py` pins that), so the retired
+    # spellings survive only here, as lookup keys.
     **{
-        (path, line): "`.env` banner header matched against files already on disk"
-        for path in (
-            "src/osprey/deployment/reset.py",
-            "src/osprey/deployment/container_lifecycle.py",
+        ("src/osprey/deployment/reset.py", line): (
+            "`.env` banner header matched against files already on disk"
         )
         for line in (
             '"Auto-generated service auth tokens (osprey deploy up)",',
@@ -491,20 +491,20 @@ _RETIRED_SPELLING_ALLOWLIST: dict[tuple[str, str], str] = {
         "src/osprey/deployment/reset.py",
         '"Auto-configured bluesky bridge plan devices (osprey deploy up)",',
     ): "`.env` banner header matched against files already on disk",
-    # The web-terminal auth banners, for the same reason as the three above and
-    # found by the same criterion once it learned to see the group name with no
-    # verb after it. `auth_credentials` locates an existing block by matching
-    # these strings against the `.env.auth` on the operator's disk
-    # (`if _HASH_HEADER in lines`, `lines.index(_HASH_HEADER)`), so the text is
-    # a lookup key, not a message: re-word it and the next mint appends a
-    # SECOND block instead of extending the one already there.
+    # The retired web-terminal auth banners, for the same reason as the three
+    # above and found by the same criterion once it learned to see the group
+    # name with no verb after it. `auth_credentials` locates an existing block
+    # by matching every spelling in `_HASH_HEADERS` against the `.env.auth` on
+    # the operator's disk, so the text is a lookup key, not a message: drop it
+    # and the next mint appends a SECOND block instead of extending the one
+    # already there. The header written today is the tuple's last entry.
     **{
         ("src/osprey/deployment/web_terminals/auth_credentials.py", line): (
             "`.env.auth` block header matched against files already on disk"
         )
         for line in (
-            '_HASH_HEADER = "# Auto-generated web-terminal auth password hashes (osprey deploy)"',
-            '_SECRET_HEADER = "# Auto-generated web-terminal auth signing secrets (osprey deploy)"',
+            '"# Auto-generated web-terminal auth password hashes (osprey deploy)",',
+            '"# Auto-generated web-terminal auth signing secrets (osprey deploy)",',
         )
     },
     # Deliberate history: the sentence exists to contrast today's read-only

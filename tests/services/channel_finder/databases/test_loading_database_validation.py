@@ -130,7 +130,7 @@ def _required_instance_without_container_doc() -> dict:
 DOCUMENT_REJECTIONS = [
     pytest.param(
         _no_hierarchy_doc,
-        "must contain 'hierarchy' section",
+        "must contain a 'hierarchy' section",
         id="missing-hierarchy-section",
     ),
     pytest.param(

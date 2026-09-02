@@ -59,16 +59,17 @@ optional fourth, `render` — see *The plan's own view* below):
    `bluesky.preprocessors`).
 
 **Study the three shipped plans for the full worked pattern — do not
-invent new accelerator physics:**
-- `orm` (`src/osprey/services/bluesky_bridge/plans_core/orm.py`)
+invent new accelerator physics** (paths are inside the installed `osprey`
+package directory, not a source checkout):
+- `orm` (`services/bluesky_bridge/plans_core/orm.py`)
   — kicks each corrector channel either side of its own pre-scan working
   point, reading every BPM channel at each point, to measure an
   orbit-response matrix.
-- `grid_scan` (`src/osprey/services/bluesky_bridge/plans_core/grid_scan.py`)
+- `grid_scan` (`services/bluesky_bridge/plans_core/grid_scan.py`)
   — steps a set of movable channels over a rectangular grid, reading a set of
   channels at every grid point.
 - `orbit_bump_sweep`
-  (`src/osprey/services/bluesky_bridge/plans_core/orbit_bump_sweep.py`)
+  (`services/bluesky_bridge/plans_core/orbit_bump_sweep.py`)
   — drives three or four correctors together in a combination whose kicks
   cancel outside the bump region, ramping a closed local orbit bump up and
   back down in steps and verifying the orbit against the requested tolerance
