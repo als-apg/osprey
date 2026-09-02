@@ -436,11 +436,6 @@ function wireDockTheme(root) {
 
 /* ---- Terminal tile presence (first-class open/close/reopen) ---- */
 
-/** @returns {boolean} whether the terminal tile currently exists in the grid. */
-export function isTerminalOpen() {
-  return !!dockApi?.getPanel(PANEL_TERMINAL);
-}
-
 /**
  * Surface the terminal tile: focus it when present, re-create it when closed
  * (the rail entry's activate path). Re-adding by the same component re-adopts
