@@ -661,8 +661,8 @@ export function notifySessionChange(sessionId) {
 
 /**
  * The fitted size xterm settled on, or null before `initTerminal()` has run.
- * The in-page reader is the `terminal-size` bar item, which imports this
- * directly.
+ * Nothing in the page reads it today (the terminal-size bar item that did is
+ * retired); the `window` seam below is its one consumer.
  */
 export function getTerminalDimensions() {
   if (!term) return null;

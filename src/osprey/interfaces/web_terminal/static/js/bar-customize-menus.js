@@ -30,7 +30,7 @@
  * mid-edit and reversed who ran first.
  */
 
-import { BAR_CATALOG, DENSITY_BY_HOST, barItemType } from './bar-catalog.js';
+import { BAR_CATALOG, DENSITY_BY_HOST } from './bar-catalog.js';
 import { docOf, isLive, registerBarPopover, shellForKey } from './bar-host.js';
 import { dragJustEnded } from './bar-customize-drag.js';
 
@@ -46,15 +46,6 @@ const HOST_LABEL = /** @type {Readonly<Record<BarHost, string>>} */ (
 
 /** How each density is named to the operator. */
 const DENSITY_LABEL = Object.freeze({ comfortable: 'Comfortable', compact: 'Compact' });
-
-/**
- * The one sentence for the one rule. Three surfaces state it — the popover's
- * foot, the context menu, and the refusal a drag out of the bars answers with —
- * and four different phrasings of it read as four different rules. The sheet's
- * standing note is deliberately not this: it teaches ("Locked items can be
- * moved, not removed"), where these three refuse.
- */
-export const LOCKED_NOTE = 'Locked by the deployment';
 
 /** Undo the document listeners. @type {(() => void) | null} */
 let stopListening = null;
@@ -171,16 +162,12 @@ function optionsFoot(owner, ctrl, place) {
       })
     );
   }
-  if (barItemType(place.type)?.locked) {
-    foot.append(make(owner, 'span', 'bar-pop-note', LOCKED_NOTE));
-  } else {
-    foot.append(
-      button(owner, 'bar-btn is-danger', 'Remove', 'remove', () => {
-        closeOptions();
-        void ctrl.removeAt(place.host, place.index);
-      })
-    );
-  }
+  foot.append(
+    button(owner, 'bar-btn is-danger', 'Remove', 'remove', () => {
+      closeOptions();
+      void ctrl.removeAt(place.host, place.index);
+    })
+  );
   return foot;
 }
 
@@ -229,6 +216,11 @@ export function openOptions(shell, ctrl) {
     );
   }
   if (keys.length === 0) pop.append(make(owner, 'div', 'bar-pop-note', 'No options'));
+  // The width field's one convention, stated beside it: zero is the flexible
+  // space. The grip on the item itself is the other way to set this.
+  if (place.type === 'space') {
+    pop.append(make(owner, 'div', 'bar-pop-note', '0 fills the remaining room'));
+  }
   pop.append(optionsFoot(owner, ctrl, place));
 
   shell.append(pop);
@@ -266,19 +258,22 @@ export function closeOptions() {
 /**
  * Open the context menu at a point, for an item or for the bar itself.
  *
- * OUTSIDE EDIT MODE THE MENU IS ONE ROW: "Customize bars…". Every other row
- * changes the layout, and a refused change is answered in the sheet — which
- * does not exist until edit mode has been entered, so a refusal made from here
- * would be written into nothing and the operator would watch a menu pick do
- * nothing at all. Right-click stays a way IN; it is not a second, surfaceless
- * editor.
+ * Customize (or Done) on either bar, and Hide/Show for THE BAR UNDER THE
+ * POINTER: the row names the bar it acts on, and offered from the other bar it
+ * read as "hide this one". Hiding needs no sheet to answer into (it cannot be
+ * refused), so a bar offers it before edit mode as well as during it. A hidden
+ * bar is not stranded: every tile header's menu offers Show for it
+ * (panel-menu-policy.js), as does the command palette's Customize bars, and
+ * edit mode shows every bar. An item under the pointer while editing adds its
+ * own two rows above: its options, and Remove.
  * @param {Document} owner
  * @param {BarEditController} ctrl
  * @param {number} x
  * @param {number} y
  * @param {HTMLElement | null} shell
+ * @param {BarHost | null} host - the bar under the pointer
  */
-function openMenu(owner, ctrl, x, y, shell) {
+function openMenu(owner, ctrl, x, y, shell, host) {
   closeMenu();
   closeOptions();
   const editing = ctrl.isEditing();
@@ -297,16 +292,12 @@ function openMenu(owner, ctrl, x, y, shell) {
         if (live) openOptions(live, ctrl);
       })
     );
-    if (barItemType(place.type)?.locked) {
-      menu.append(make(owner, 'span', 'bar-context-note', LOCKED_NOTE));
-    } else {
-      menu.append(
-        button(owner, 'bar-context-row', `Remove ${label}`, 'remove', () => {
-          closeMenu();
-          void ctrl.removeAt(place.host, place.index);
-        })
-      );
-    }
+    menu.append(
+      button(owner, 'bar-context-row', `Remove ${label}`, 'remove', () => {
+        closeMenu();
+        void ctrl.removeAt(place.host, place.index);
+      })
+    );
     menu.append(make(owner, 'hr', 'bar-context-rule'));
   }
 
@@ -323,27 +314,13 @@ function openMenu(owner, ctrl, x, y, shell) {
       }
     )
   );
-  if (editing) {
-    const visible = ctrl.statusVisible();
+  if (host) {
+    const visible = ctrl.barVisible(host);
+    const name = HOST_LABEL[host].toLowerCase();
     menu.append(
-      button(
-        owner,
-        'bar-context-row',
-        visible ? 'Hide status bar' : 'Show status bar',
-        'status',
-        () => {
-          closeMenu();
-          void ctrl.setStatusVisible(!visible);
-        }
-      )
-    );
-    // Last row, where the mock puts it. No confirmation: the arrangement it
-    // discards is the operator's own and the deployment default is one gesture
-    // away in either direction.
-    menu.append(
-      button(owner, 'bar-context-row', 'Reset to default', 'reset', () => {
+      button(owner, 'bar-context-row', visible ? `Hide ${name}` : `Show ${name}`, host, () => {
         closeMenu();
-        void ctrl.resetToDefault();
+        void ctrl.setBarVisible(host, !visible);
       })
     );
   }
@@ -440,10 +417,18 @@ export function armMenus(ctrl, root) {
     const shell = /** @type {HTMLElement | null} */ (
       target.closest('.bar-item[data-bar-item]') ?? null
     );
-    const inBar = !!target.closest('[data-bar-host]');
-    if (!inBar && !(shell && isLive(shell))) return;
+    const bar = /** @type {HTMLElement | null} */ (target.closest('[data-bar-host]'));
+    if (!bar && !(shell && isLive(shell))) return;
     event.preventDefault();
-    openMenu(owner, ctrl, pointer.clientX, pointer.clientY, shell && isLive(shell) ? shell : null);
+    const host = /** @type {BarHost | null} */ (bar?.dataset.barHost ?? null);
+    openMenu(
+      owner,
+      ctrl,
+      pointer.clientX,
+      pointer.clientY,
+      shell && isLive(shell) ? shell : null,
+      host
+    );
   };
 
   /** @param {Event} event */

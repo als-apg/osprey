@@ -29,8 +29,8 @@
  */
 
 import { BAR_CATALOG, BAR_HOSTS, barItemType, defaultOptions } from './bar-catalog.js';
-import { MAX_ITEMS_PER_HOST, PRESETS, normalize } from './bar-layout.js';
-import { closeBarPopovers, docOf, hostElement } from './bar-host.js';
+import { MAX_ITEMS_PER_HOST, normalize } from './bar-layout.js';
+import { closeBarPopovers, docOf } from './bar-host.js';
 import {
   BarSyncError,
   currentLayout,
@@ -48,7 +48,7 @@ import {
   sheetNotice,
 } from './bar-customize-sheet.js';
 import { armDrag, disarmDrag } from './bar-customize-drag.js';
-import { LOCKED_NOTE, barSurfaceOpen, closeBarSurfaces } from './bar-customize-menus.js';
+import { barSurfaceOpen, closeBarSurfaces } from './bar-customize-menus.js';
 import { initEntryPoints, stopEntryPoints } from './bar-customize-entry.js';
 
 /** @typedef {import('./bar-catalog.js').BarHost} BarHost */
@@ -70,7 +70,7 @@ import { initEntryPoints, stopEntryPoints } from './bar-customize-entry.js';
  * @typedef {object} BarEditController
  * @property {(type: string, host: BarHost) => string | null} refusalFor
  * @property {(type: string, host: BarHost, from: BarHost | null) => string | null} dropRefusal
- * @property {(type: string) => BarHost} defaultHostFor
+ * @property {() => BarHost} defaultHostFor
  * @property {(type: string, host: BarHost, index?: number) => Promise<boolean>} addItem
  * @property {(shell: Element) => BarItemPlace | null} locate
  * @property {(from: BarHost, fromIndex: number, to: BarHost, toIndex: number)
@@ -80,10 +80,11 @@ import { initEntryPoints, stopEntryPoints } from './bar-customize-entry.js';
  *            => Promise<boolean>} setOption
  * @property {(host: BarHost, index: number) => BarLayoutItem | null} itemAt
  * @property {(host: BarHost) => readonly BarLayoutItem[]} hostItems
- * @property {(id: string) => Promise<boolean>} applyPreset
+ * @property {(type: string) => BarHost | null} placedIn
+ * @property {() => boolean} readonly
  * @property {() => Promise<boolean>} resetToDefault
- * @property {(visible: boolean) => Promise<boolean>} setStatusVisible
- * @property {() => boolean} statusVisible
+ * @property {(host: BarHost, visible: boolean) => Promise<boolean>} setBarVisible
+ * @property {(host: BarHost) => boolean} barVisible
  * @property {(text: string) => void} notice
  * @property {() => void} enterEditMode
  * @property {() => void} exitEditMode
@@ -120,6 +121,22 @@ export function editContext(root = activeRoot) {
 /* ---- the refusal rules ---- */
 
 /**
+ * Where a type already sits in the held document, or null when it is placed
+ * nowhere. Asked of the whole document, header first — the answer a
+ * single-node item's tile dims itself on.
+ * @param {string} type
+ * @returns {BarHost | null}
+ */
+export function placedIn(type) {
+  const layout = currentLayout();
+  if (!layout) return null;
+  for (const host of BAR_HOSTS) {
+    if (layout[host].some((item) => item.type === type)) return host;
+  }
+  return null;
+}
+
+/**
  * Why `type` cannot be added to `host` right now, or null when it can.
  *
  * The order matters: the read-only latch answers first because it makes every
@@ -128,16 +145,20 @@ export function editContext(root = activeRoot) {
  * @param {string} type
  * @param {BarHost} host
  * @param {BarRoot} [root]
+ * @param {{moving?: boolean}} [gesture] - `moving` when the item being judged
+ *   is already placed and is on its way to `host`, so its own presence is not
+ *   a duplicate
  * @returns {string | null}
  */
-export function refusalFor(type, host, root = activeRoot) {
+export function refusalFor(type, host, root = activeRoot, gesture = {}) {
   if (isLayoutReadonly()) return 'Layout not editable';
   const entry = barItemType(type);
   if (!entry) return 'Not available in this build';
-  if (!entry.hosts.includes(host)) {
-    return entry.hosts.length === 1 ? `${HOST_LABEL[entry.hosts[0]]} only` : 'Not allowed here';
-  }
   if (!entry.available({ ...editContext(root), host })) return 'Not in this deployment';
+  // A single-node item exists once: its body is one server-rendered node or
+  // one id-owning dot, and a second shell for it could only ever be empty.
+  const sitting = entry.multi || gesture.moving ? null : placedIn(type);
+  if (sitting) return `Already in the ${HOST_LABEL[sitting].toLowerCase()}`;
   const layout = currentLayout();
   if (layout && layout[host].length >= MAX_ITEMS_PER_HOST) return `${HOST_LABEL[host]} is full`;
   return null;
@@ -150,7 +171,7 @@ export function refusalFor(type, host, root = activeRoot) {
  * hold, and asking `refusalFor` would refuse a bar that is legitimately full of
  * the items being reordered. Only the read-only latch still applies. Moving to
  * the OTHER bar, or dragging a new item in from the sheet, is an addition and
- * gets the full judgment.
+ * gets the full judgment — except that a moving item is not its own duplicate.
  * @param {string} type
  * @param {BarHost} host - where the pointer is
  * @param {BarHost | null} from - where the item is now; null when it is new
@@ -159,17 +180,17 @@ export function refusalFor(type, host, root = activeRoot) {
  */
 export function dropRefusal(type, host, from, root = activeRoot) {
   if (from === host) return isLayoutReadonly() ? 'Layout not editable' : null;
-  return refusalFor(type, host, root);
+  return refusalFor(type, host, root, { moving: from !== null });
 }
 
 /**
- * The host a tile adds to when the operator just clicks it: the first host the
- * type declares. Dropping an item into the other bar is the drag gesture's job.
- * @param {string} type
+ * The host a tile adds to when the operator just clicks it. Every type may
+ * live in either bar, so a click lands in the header; dropping an item into
+ * the status bar is the drag gesture's job.
  * @returns {BarHost}
  */
-export function defaultHostFor(type) {
-  return barItemType(type)?.hosts[0] ?? 'header';
+export function defaultHostFor() {
+  return 'header';
 }
 
 /**
@@ -232,7 +253,7 @@ function reasonText(drop) {
   const host = /** @type {BarHost} */ (drop.host);
   if (drop.reason === 'overflow') return `${HOST_LABEL[host] ?? 'Bar'} is full`;
   if (drop.reason === 'unavailable') return 'Not in this deployment';
-  if (drop.reason === 'host-mismatch') return `Not allowed in the ${(HOST_LABEL[host] ?? 'bar').toLowerCase()}`;
+  if (drop.reason === 'duplicate') return `Already in the ${(HOST_LABEL[host] ?? 'bar').toLowerCase()}`;
   return 'Not available in this build';
 }
 
@@ -250,6 +271,7 @@ function draftOf(layout) {
     rev: layout.rev,
     header: layout.header.map((item) => ({ type: item.type, options: { ...item.options } })),
     status: layout.status.map((item) => ({ type: item.type, options: { ...item.options } })),
+    header_visible: layout.header_visible,
     status_visible: layout.status_visible,
   };
 }
@@ -344,14 +366,15 @@ export async function moveItem(from, fromIndex, to, toIndex, root = activeRoot) 
     // right of its own position has shifted by one.
     const at = from === to && fromIndex < toIndex ? toIndex - 1 : toIndex;
     draft[to].splice(Math.max(0, Math.min(at, draft[to].length)), 0, moved);
-    if (to === 'status') draft.status_visible = true;
+    // Dropping into a withdrawn bar brings it back: the operator put something
+    // there to see it.
+    draft[`${to}_visible`] = true;
     return draft;
   }, root);
 }
 
 /**
- * Remove one placed item. A locked item refuses: the deployment placed it and
- * the operator may move it but never take it away.
+ * Remove one placed item.
  * @param {BarHost} host
  * @param {number} index
  * @param {BarRoot} [root]
@@ -360,10 +383,6 @@ export async function moveItem(from, fromIndex, to, toIndex, root = activeRoot) 
 export async function removeAt(host, index, root = activeRoot) {
   const item = itemAt(host, index);
   if (!item) return false;
-  if (barItemType(item.type)?.locked) {
-    sheetNotice(LOCKED_NOTE, root);
-    return false;
-  }
   return applyEdit((draft) => {
     draft[host].splice(index, 1);
     return draft;
@@ -420,54 +439,13 @@ export async function setOption(host, index, key, value, root = activeRoot) {
 }
 
 /**
- * Which of a preset's items this deployment can actually render.
- *
- * A preset is a STOCK ARRANGEMENT, not a gesture on one item: a deployment with
- * no identity block cannot render the identity the `clean` preset names, and
- * refusing the whole preset over an item the operator never chose would leave
- * presets unusable there. So these are filtered out silently — the same
- * judgment `normalize()` makes about a config-supplied document — while every
- * per-item edit stays refused-and-named.
- * @param {readonly BarLayoutItem[]} items
- * @param {BarHost} host
- * @param {import('./bar-layout.js').BarLayoutContext} ctx
- * @returns {any[]}
- */
-function renderable(items, host, ctx) {
-  return items
-    .filter((item) => {
-      const entry = barItemType(item.type);
-      return !!entry && entry.hosts.includes(host) && entry.available({ ...ctx, host });
-    })
-    .map((item) => ({ type: item.type, options: { ...item.options } }));
-}
-
-/**
- * Apply one stock arrangement. Applying a preset is an ordinary edit: same
- * normalize, same single PUT, same revision.
- * @param {string} id
- * @param {BarRoot} [root]
- * @returns {Promise<boolean>}
- */
-export async function applyPreset(id, root = activeRoot) {
-  const preset = PRESETS.find((entry) => entry.id === id);
-  if (!preset) return false;
-  const ctx = editContext(root);
-  return applyEdit((draft) => {
-    draft.header = renderable(preset.layout.header, 'header', ctx);
-    draft.status = renderable(preset.layout.status, 'status', ctx);
-    draft.status_visible = preset.layout.status_visible;
-    return draft;
-  }, root);
-}
-
-/**
- * Give up this operator's arrangement and take back the deployment's own.
+ * Give up this operator's arrangement and take back the deployment's own —
+ * the sheet's one preset, "Default", and what `web.bar_items` configures.
  *
  * NOT `applyEdit`, and deliberately outside the one-write-path rule: there is no
  * document to normalize and nothing to PUT. The deployment default is not a
- * document this client can hold — a deployment may have configured something no
- * preset describes — so the only honest way to ask for it is to delete what the
+ * document this client can hold — only the server knows what the deployment
+ * configured — so the only honest way to ask for it is to delete what the
  * operator saved and let the server answer.
  *
  * It is also the only edit offered while the layout is READ-ONLY: the latch
@@ -492,21 +470,25 @@ export async function resetToDefault(root = activeRoot) {
 }
 
 /**
- * Show or withdraw the status bar.
+ * Show or withdraw one bar. Either bar may go: a hidden bar comes back from
+ * the other bar's menu, from the Customize sheet, from the command palette's
+ * Customize bars, or from any tile header's menu (panel-menu-policy.js
+ * appends a Show row for each hidden bar), so hiding both is never a trap.
+ * @param {BarHost} host
  * @param {boolean} visible
  * @param {BarRoot} [root]
  * @returns {Promise<boolean>}
  */
-export function setStatusVisible(visible, root = activeRoot) {
+export function setBarVisible(host, visible, root = activeRoot) {
   return applyEdit((draft) => {
-    draft.status_visible = visible;
+    draft[`${host}_visible`] = visible;
     return draft;
   }, root);
 }
 
-/** Whether the held document shows the status bar. @returns {boolean} */
-function statusVisible() {
-  return currentLayout()?.status_visible !== false;
+/** Whether the held document shows `host`. @param {BarHost} host @returns {boolean} */
+export function barVisible(host) {
+  return currentLayout()?.[`${host}_visible`] !== false;
 }
 
 /* ---- edit mode ---- */
@@ -548,10 +530,12 @@ const CONTROLLER = Object.freeze({
   ) => setOption(host, index, key, value, activeRoot),
   itemAt,
   hostItems,
-  applyPreset: (/** @type {string} */ id) => applyPreset(id, activeRoot),
+  placedIn,
+  readonly: () => isLayoutReadonly(),
   resetToDefault: () => resetToDefault(activeRoot),
-  setStatusVisible: (/** @type {boolean} */ visible) => setStatusVisible(visible, activeRoot),
-  statusVisible,
+  setBarVisible: (/** @type {BarHost} */ host, /** @type {boolean} */ visible) =>
+    setBarVisible(host, visible, activeRoot),
+  barVisible,
   notice: (/** @type {string} */ text) => sheetNotice(text, activeRoot),
   enterEditMode: () => {
     enterEditMode(activeRoot);
@@ -595,27 +579,6 @@ function onKeydown(event) {
 }
 
 /**
- * Mark or unmark the locked shells, so the edit-mode CSS can say which items
- * may be moved but not removed. Locked-ness is a catalog fact and the shells
- * carry no attribute for it; this is the one place that state exists in the
- * DOM, and it exists only while editing.
- * @param {BarRoot} root
- * @param {boolean} on
- */
-function markLocked(root, on) {
-  for (const host of /** @type {BarHost[]} */ (['header', 'status'])) {
-    const container = hostElement(host, /** @type {any} */ (root));
-    if (!container) continue;
-    for (const shell of container.querySelectorAll('[data-bar-item]')) {
-      const element = /** @type {HTMLElement} */ (shell);
-      const locked = BAR_CATALOG[element.dataset.barItem ?? '']?.locked === true;
-      if (on && locked) element.dataset.barLocked = 'true';
-      else delete element.dataset.barLocked;
-    }
-  }
-}
-
-/**
  * Enter edit mode. Returns false when the mode refuses it — today only Simple
  * mode does, and it refuses silently because no surface is open to speak into.
  * @param {BarRoot} [root]
@@ -634,7 +597,6 @@ export function enterEditMode(root = activeRoot) {
   // CSS cannot reach up from the body to undo either for the duration of the
   // edit. This is what lets the operator drop an item into a hidden bar.
   owner.documentElement?.setAttribute('data-bar-editing', 'true');
-  markLocked(root, true);
   openSheet(CONTROLLER, /** @type {any} */ (root));
   armDrag(CONTROLLER, root);
   owner.addEventListener('keydown', onKeydown);
@@ -654,7 +616,6 @@ export function exitEditMode(root = activeRoot) {
   disarmDrag();
   owner.body?.classList.remove('bar-editing');
   owner.documentElement?.removeAttribute('data-bar-editing');
-  markLocked(root, false);
   closeSheet(/** @type {any} */ (root));
   closeBarPopovers();
   for (const listener of listeners) listener(false);

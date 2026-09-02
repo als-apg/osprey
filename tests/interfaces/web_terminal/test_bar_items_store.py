@@ -43,22 +43,24 @@ LOGGER_NAME = "osprey.interfaces.web_terminal.bar_items_store"
 
 
 #: A fixture catalog shaped exactly like ``static/js/bar-catalog.js``: every
-#: type declares the hosts that may hold it and a spec per option it accepts.
-#: Four types are enough to exercise every refusal class — a header-only type,
-#: an option-free type, an enum/boolean pair, and a bounded number.
+#: type declares a spec per option it accepts and whether it may be placed
+#: more than once. Any type may sit in either bar, so no entry names hosts.
+#: Four types are enough to exercise every refusal class — two option-free
+#: types, an enum/boolean pair, and a bounded number on the one type that
+#: repeats.
 CATALOG: dict[str, dict[str, Any]] = {
-    "logo": {"hosts": ("header",), "options": {}},
-    "activity": {"hosts": ("header", "status"), "options": {}},
+    "logo": {"options": {}},
+    "feedback": {"options": {}},
     "clock": {
-        "hosts": ("header", "status"),
         "options": {
-            "zone": {"kind": "enum", "values": ("local", "utc", "both"), "default": "local"},
+            "zone": {"kind": "enum", "values": ("none", "local", "utc", "both"), "default": "none"},
+            "format": {"kind": "enum", "values": ("24h", "12h"), "default": "24h"},
             "seconds": {"kind": "boolean", "default": False},
         },
     },
-    "gap": {
-        "hosts": ("header", "status"),
-        "options": {"size": {"kind": "number", "min": 4, "max": 400, "default": 12}},
+    "space": {
+        "options": {"width": {"kind": "number", "min": 0, "max": 2000, "default": 0}},
+        "multi": True,
     },
 }
 
@@ -68,7 +70,7 @@ VOCABULARY = BarVocabulary(items=CATALOG, version=1, max_items_per_host=20)
 DEFAULT_LAYOUT: dict[str, Any] = {
     "version": 1,
     "rev": 0,
-    "header": [{"type": "logo"}, {"type": "activity"}],
+    "header": [{"type": "logo"}, {"type": "feedback"}],
     "status": [{"type": "clock", "options": {"zone": "utc", "seconds": True}}],
     "status_visible": True,
 }
@@ -90,7 +92,8 @@ def document(**overrides: Any) -> dict[str, Any]:
         "version": 1,
         "rev": 0,
         "header": [{"type": "logo"}],
-        "status": [{"type": "activity"}],
+        "status": [{"type": "feedback"}],
+        "header_visible": True,
         "status_visible": True,
     }
     base.update(overrides)
@@ -103,7 +106,8 @@ def document(**overrides: Any) -> dict[str, Any]:
 def test_load_returns_the_deployment_default_when_nothing_is_stored(tmp_path: Path) -> None:
     result = load(tmp_path)
 
-    assert result["header"] == [{"type": "logo"}, {"type": "activity"}]
+    assert result["header"] == [{"type": "logo"}, {"type": "feedback"}]
+    assert result["header_visible"] is True
     assert result["status_visible"] is True
     # Never saved, so the revision a conditional save compares against is zero.
     assert result["rev"] == 0
@@ -125,7 +129,7 @@ def test_load_returns_a_copy_the_caller_cannot_mutate_the_default_through(
     first["header"].append({"type": "clock"})
     first["status_visible"] = False
 
-    assert load(tmp_path)["header"] == [{"type": "logo"}, {"type": "activity"}]
+    assert load(tmp_path)["header"] == [{"type": "logo"}, {"type": "feedback"}]
     assert load(tmp_path)["status_visible"] is True
 
 
@@ -133,8 +137,9 @@ def test_load_reads_back_what_save_wrote(tmp_path: Path) -> None:
     saved = save(
         tmp_path,
         document(
-            header=[{"type": "logo"}, {"type": "gap", "options": {"size": 40}}],
+            header=[{"type": "logo"}, {"type": "space", "options": {"width": 40}}],
             status=[{"type": "clock", "options": {"zone": "utc", "seconds": True}}],
+            header_visible=False,
             status_visible=False,
         ),
     )
@@ -142,8 +147,9 @@ def test_load_reads_back_what_save_wrote(tmp_path: Path) -> None:
     assert load(tmp_path) == saved
     assert saved["header"] == [
         {"type": "logo", "options": {}},
-        {"type": "gap", "options": {"size": 40}},
+        {"type": "space", "options": {"width": 40}},
     ]
+    assert saved["header_visible"] is False
     assert saved["status_visible"] is False
 
 
@@ -177,6 +183,7 @@ def test_load_falls_back_to_the_default_for_an_unreadable_schema_version(
         ("header", "logo"),
         ("header", {"type": "logo"}),
         ("status", None),
+        ("header_visible", "yes"),
         ("status_visible", "yes"),
         ("rev", -1),
         ("rev", 1.5),
@@ -225,6 +232,7 @@ def test_load_falls_back_to_an_empty_document_when_the_default_is_itself_broken(
         "rev": 0,
         "header": [],
         "status": [],
+        "header_visible": True,
         "status_visible": True,
     }
 
@@ -248,25 +256,23 @@ def test_save_refuses_an_unknown_item_type(tmp_path: Path) -> None:
     assert "telemetry" in str(excinfo.value)
 
 
-def test_save_refuses_a_type_the_bar_cannot_hold(tmp_path: Path) -> None:
-    # `hosts` is a hard capability on the client: a 28 px wordmark has no body
-    # that fits a status bar, so a status placement is refused, not re-homed.
-    with pytest.raises(BarLayoutInvalid) as excinfo:
-        save(tmp_path, document(header=[], status=[{"type": "logo"}]))
+def test_save_keeps_any_type_in_either_bar(tmp_path: Path) -> None:
+    # The wordmark used to be refused here as `host-mismatch`; every type may
+    # now sit in either bar, and the store has no placement axis to refuse on.
+    saved = save(tmp_path, document(header=[], status=[{"type": "logo"}]))
 
-    assert excinfo.value.reason == "host-mismatch"
-    assert "logo" in str(excinfo.value)
+    assert saved["status"] == [{"type": "logo", "options": {}}]
 
 
 def test_save_refuses_more_items_than_a_bar_may_carry(tmp_path: Path) -> None:
     with pytest.raises(BarLayoutInvalid) as excinfo:
-        save(tmp_path, document(header=[{"type": "activity"}] * 21))
+        save(tmp_path, document(header=[{"type": "feedback"}] * 21))
 
     assert excinfo.value.reason == "overflow"
 
 
 def test_save_accepts_a_bar_filled_to_the_cap(tmp_path: Path) -> None:
-    saved = save(tmp_path, document(header=[{"type": "activity"}] * 20))
+    saved = save(tmp_path, document(header=[{"type": "space"}] * 20))
 
     assert len(saved["header"]) == 20
 
@@ -276,10 +282,29 @@ def test_save_caps_each_bar_separately(tmp_path: Path) -> None:
     # what is in the status bar.
     saved = save(
         tmp_path,
-        document(header=[{"type": "activity"}] * 20, status=[{"type": "activity"}] * 20),
+        document(header=[{"type": "space"}] * 20, status=[{"type": "space"}] * 20),
     )
 
     assert (len(saved["header"]), len(saved["status"])) == (20, 20)
+
+
+def test_save_refuses_a_second_copy_of_a_single_node_type(tmp_path: Path) -> None:
+    # Counted across the whole document, header first: the status-bar copy is
+    # the duplicate, and the message names it.
+    with pytest.raises(BarLayoutInvalid) as excinfo:
+        save(tmp_path, document(header=[{"type": "feedback"}], status=[{"type": "feedback"}]))
+
+    assert excinfo.value.reason == "duplicate"
+    assert "status[0]" in str(excinfo.value)
+
+
+def test_save_accepts_a_multi_type_more_than_once(tmp_path: Path) -> None:
+    saved = save(
+        tmp_path,
+        document(header=[{"type": "space"}, {"type": "logo"}, {"type": "space"}], status=[]),
+    )
+
+    assert [item["type"] for item in saved["header"]] == ["space", "logo", "space"]
 
 
 @pytest.mark.parametrize(
@@ -312,22 +337,22 @@ def test_save_refuses_an_option_value_outside_its_spec(
     assert excinfo.value.reason == "bad-option"
 
 
-@pytest.mark.parametrize("size", [3, 401, "12", True, None, float("nan")])
-def test_save_refuses_a_number_option_outside_its_bounds(tmp_path: Path, size: Any) -> None:
+@pytest.mark.parametrize("width", [-1, 2001, "12", True, None, float("nan")])
+def test_save_refuses_a_number_option_outside_its_bounds(tmp_path: Path, width: Any) -> None:
     with pytest.raises(BarLayoutInvalid) as excinfo:
-        save(tmp_path, document(header=[{"type": "gap", "options": {"size": size}}]))
+        save(tmp_path, document(header=[{"type": "space", "options": {"width": width}}]))
 
     assert excinfo.value.reason == "bad-option"
-    assert "size" in str(excinfo.value)
+    assert "width" in str(excinfo.value)
 
 
 def test_save_accepts_a_number_option_at_its_bounds(tmp_path: Path) -> None:
     saved = save(
         tmp_path,
-        document(header=[{"type": "gap", "options": {"size": 4}}], status=[]),
+        document(header=[{"type": "space", "options": {"width": 2000}}], status=[]),
     )
 
-    assert saved["header"] == [{"type": "gap", "options": {"size": 4}}]
+    assert saved["header"] == [{"type": "space", "options": {"width": 2000}}]
 
 
 @pytest.mark.parametrize(
@@ -363,9 +388,9 @@ def test_save_does_not_check_availability(tmp_path: Path) -> None:
     # The client refuses an item whose runtime dependency is missing; the server
     # cannot see that, and refusing here would make a layout unsavable for as
     # long as a bridge happened to be down.
-    saved = save(tmp_path, document(status=[{"type": "activity"}]))
+    saved = save(tmp_path, document(status=[{"type": "feedback"}]))
 
-    assert saved["status"] == [{"type": "activity", "options": {}}]
+    assert saved["status"] == [{"type": "feedback", "options": {}}]
 
 
 # ── save_layout: options are completed, not trusted ────────────────────────
@@ -376,7 +401,9 @@ def test_save_fills_in_every_option_the_type_declares(tmp_path: Path) -> None:
 
     # A complete document normalizes clean in the browser; a partial one would
     # arrive `changed` and make a freshly saved layout look edited.
-    assert saved["status"] == [{"type": "clock", "options": {"zone": "local", "seconds": False}}]
+    assert saved["status"] == [
+        {"type": "clock", "options": {"zone": "none", "format": "24h", "seconds": False}}
+    ]
 
 
 def test_save_discards_an_option_the_type_does_not_declare(tmp_path: Path) -> None:
@@ -387,7 +414,9 @@ def test_save_discards_an_option_the_type_does_not_declare(tmp_path: Path) -> No
         document(status=[{"type": "clock", "options": {"zone": "utc", "blink": True}}]),
     )
 
-    assert saved["status"] == [{"type": "clock", "options": {"zone": "utc", "seconds": False}}]
+    assert saved["status"] == [
+        {"type": "clock", "options": {"zone": "utc", "format": "24h", "seconds": False}}
+    ]
 
 
 def test_save_gives_an_option_free_type_an_empty_option_map(tmp_path: Path) -> None:
@@ -443,7 +472,7 @@ def test_save_refuses_a_stale_expected_revision(tmp_path: Path) -> None:
     save(tmp_path, document())
 
     with pytest.raises(BarLayoutConflict) as excinfo:
-        save(tmp_path, document(header=[{"type": "activity"}]), expected_rev=1)
+        save(tmp_path, document(header=[{"type": "clock"}]), expected_rev=1)
 
     assert (excinfo.value.expected, excinfo.value.actual) == (1, 2)
     # The losing write left nothing behind.
@@ -498,7 +527,7 @@ def test_save_returns_a_copy_the_caller_cannot_mutate_the_store_through(
 
 
 def test_reset_deletes_the_document(tmp_path: Path) -> None:
-    save(tmp_path, document(header=[{"type": "activity"}]))
+    save(tmp_path, document(header=[{"type": "clock"}]))
 
     assert bar_items_store.reset_layout(tmp_path) is True
     assert not bar_items_store.layout_path(tmp_path).exists()
@@ -532,7 +561,7 @@ def test_reset_leaves_a_corrupt_document_gone_rather_than_stuck(tmp_path: Path) 
 
 def test_the_store_holds_no_item_knowledge_of_its_own(tmp_path: Path) -> None:
     narrow = BarVocabulary(
-        items={"widget": {"hosts": ("status",), "options": {}}},
+        items={"widget": {"options": {}}},
         version=1,
         max_items_per_host=2,
     )

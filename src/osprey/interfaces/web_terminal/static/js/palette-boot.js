@@ -39,6 +39,8 @@ import { setRailPosition } from './rail-position.js';
 import { startTour } from './tour.js';
 import { openPalette, closePalette, isOpen } from './palette.js';
 import { enterEditMode } from './bar-customize.js';
+import { logout } from './logout.js';
+import { pickUiMode } from '/design-system/js/frame-params.js';
 import { isFeedbackModalOpen } from './feedback-modal.js';
 
 /** True on macOS/iPadOS, where the palette hotkey is Cmd+K instead of Ctrl+K. */
@@ -96,12 +98,14 @@ function buildPaletteDeps() {
     actions.push({ label: 'New session', run: () => { startNewSession(); } });
   }
 
-  // Always offer the mode the operator is NOT in, and reuse the header
-  // <osprey-display-menu>'s View row rather than re-implementing the flip.
+  // Always offer the mode the operator is NOT in. The pick is frame-params'
+  // own, the same call the header <osprey-display-menu>'s View row makes, not
+  // a click on that row: the display menu is a bar item the operator may have
+  // removed, and the palette must not depend on any bar item being present.
   const otherMode = simple ? 'expert' : 'simple';
   actions.push({
     label: `Switch to ${simple ? 'Expert' : 'Simple'} mode`,
-    run: () => document.querySelector(`osprey-display-menu .display-menu-view .display-seg-option[data-mode="${otherMode}"]`)?.dispatchEvent(new MouseEvent('click', { bubbles: true })),
+    run: () => pickUiMode(otherMode),
   });
 
   // Rearranging the bars is one of the three Expert-only entry points (the
@@ -131,9 +135,13 @@ function buildPaletteDeps() {
   actions.push({ label: 'Open Prompt gallery', run: () => { openDrawerTab('tab-behavior'); } });
   // On-demand tour entry — works regardless of the web.tour invite policy.
   actions.push({ label: 'Take the tour', run: () => startTour() });
-  // Logout only exists in multi-user deployments (the button is server-gated).
-  if (document.getElementById('logout-btn')) {
-    actions.push({ label: 'Log out', run: () => document.getElementById('logout-btn')?.click() });
+  // Logout only exists in multi-user deployments: the server stamps the
+  // landing URL on <html> when it renders a logout at all. Read from there,
+  // not from either logout button — both are bar items the operator may have
+  // removed, and this row is the way out that survives that.
+  const landingUrl = document.documentElement.dataset.landingUrl;
+  if (landingUrl) {
+    actions.push({ label: 'Log out', run: () => { void logout(landingUrl); } });
   }
 
   /** @type {import('./palette-registry.js').PaletteDeps} */

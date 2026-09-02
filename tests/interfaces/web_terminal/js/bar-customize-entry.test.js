@@ -184,7 +184,13 @@ describe('a teardown while the display menu is still upgrading', () => {
     vi.spyOn(window.customElements, 'whenDefined').mockReturnValue(upgraded);
     const entry = await import(ENTRY_PATH);
     entry.initEntryPoints(
-      { isEditing: () => false, enterEditMode() {}, exitEditMode() {} },
+      {
+        isEditing: () => false,
+        enterEditMode() {},
+        exitEditMode() {},
+        barVisible: () => true,
+        setBarVisible: async () => true,
+      },
       document
     );
     // What the component's own connectedCallback builds: the card, and the
@@ -244,7 +250,7 @@ describe('flipping the ui mode', () => {
 
   test('the saved layout is the same in both modes, and the flip writes nothing', async () => {
     ({ customize, sync } = await boot({
-      fetch: endpoint({ get: doc(['logo', 'clock'], ['activity', 'docs']) }),
+      fetch: endpoint({ get: doc(['logo', 'clock'], ['stopwatch', 'docs']) }),
     }));
     const before = { header: rendered('header'), status: rendered('status') };
 

@@ -571,14 +571,12 @@ web:
   # and the status bar are both item hosts: each renders one list of items
   # from the same catalog. Leave this out and every deployment gets the
   # shipped arrangement below; a user's own rearrangement is saved per user
-  # and overrides it. `locked` names items a user may move but never remove,
-  # on top of the ones the catalog already locks (logo, identity, the
-  # control-target chip, the display menu).
+  # and overrides it.
   # bar_items:
   #   header: [logo, identity, space, control-target, search, display]
-  #   status: [connection, panel-health, terminal-size, activity, docs, clock]
+  #   status: [space, system-health, clock]
+  #   header_visible: true
   #   status_visible: true
-  #   locked: [connection]
 
   # Where the Feedback dialog's two outbound channels send a user. Nothing is
   # ever posted for them: the browser opens a prefilled GitHub issue form or a

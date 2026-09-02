@@ -27,12 +27,22 @@
  * consumer actually needs it. What this module does export are helpers for
  * one named param each ({@link applyEmbedded}, {@link stripQueryMode}).
  *
- * Beyond query params, this module also owns the receive side of the host's
- * runtime `osprey-mode-change` postMessage broadcast — see
- * {@link onModeChange}.
+ * Beyond query params, this module also owns both sides of the host's runtime
+ * `osprey-mode-change` postMessage broadcast — {@link pickUiMode} sends it,
+ * {@link onModeChange} receives it.
  *
  * @module frame-params
  */
+
+import { scopedStorageKey } from '/design-system/js/storage-scope.js';
+
+/**
+ * Base Expert/Simple key — the one mode-boot.js resolves from. Never used
+ * bare: it goes through `scopedStorageKey()` so that on a multi-user mount the
+ * pick lands in this persona's own slot instead of the shared origin-wide one
+ * every persona would otherwise overwrite in turn.
+ */
+const MODE_STORAGE_KEY = 'osprey-ui-mode';
 
 /**
  * Version of the micro-frontend query-param contract described in this
@@ -87,6 +97,27 @@ export function stripQueryMode() {
     const url = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`;
     window.history.replaceState(window.history.state, '', url);
   } catch { /* non-browser environment or a blocked history API — non-fatal */ }
+}
+
+/**
+ * Pick the Expert/Simple mode: persist the explicit choice, drop a leftover
+ * one-shot `?mode=`, then broadcast it to this window for the page's
+ * same-origin listener ({@link onModeChange}, every `<osprey-display-menu>`
+ * included) to apply. The display menu's View row calls this; so does the
+ * web terminal's command palette, which must flip the mode with no display
+ * menu on the page, since that menu is a bar item the operator may remove.
+ *
+ * @param {'expert'|'simple'} mode
+ * @returns {void}
+ */
+export function pickUiMode(mode) {
+  try {
+    // Key resolved at write time, not at module load: the scope attribute is
+    // a property of the document this call ended up in.
+    window.localStorage.setItem(scopedStorageKey(MODE_STORAGE_KEY), mode);
+  } catch { /* storage blocked — the mode still applies for this session */ }
+  stripQueryMode();
+  window.postMessage({ type: 'osprey-mode-change', mode }, window.location.origin);
 }
 
 /**

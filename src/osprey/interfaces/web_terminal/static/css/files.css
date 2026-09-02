@@ -346,21 +346,6 @@
   color: var(--color-accent-secondary-light);
 }
 
-.status-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--text-muted);
-}
-
-.status-dot.live {
-  background: var(--color-success);
-}
-
-.status-dot.error {
-  background: var(--color-error);
-}
-
 /* ---- Responsive ---- */
 
 @media (max-width: 768px) {

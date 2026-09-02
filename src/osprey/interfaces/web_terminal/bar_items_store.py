@@ -1,6 +1,7 @@
 """The per-user bar layout on disk.
 
-One JSON document — ``{version, rev, header[], status[], status_visible}`` —
+One JSON document — ``{version, rev, header[], status[], header_visible,
+status_visible}`` —
 holding how one operator arranged their header and status bar. It is the
 persistence half of the bar-items contract; the browser's normalizer
 (``static/js/bar-layout.js``) owns the rendering half, and this module is
@@ -80,7 +81,9 @@ LAYOUT_FILENAME = "layout.json"
 BarOptionSpec = Mapping[str, Any]
 
 #: One item type, mirroring a ``BAR_CATALOG`` entry as far as this module cares:
-#: ``{"hosts": ("header", "status"), "options": {name: BarOptionSpec}}``.
+#: ``{"options": {name: BarOptionSpec}, "multi": bool}``. ``multi`` false (or
+#: absent) means the type may be placed once per document. Any type may sit
+#: in either bar, so the spec names no hosts.
 BarItemSpec = Mapping[str, Any]
 
 
@@ -123,9 +126,9 @@ class BarLayoutInvalid(BarLayoutError):
 
     Attributes:
         reason: One of ``malformed``, ``version``, ``unknown-type``,
-            ``host-mismatch``, ``overflow`` or ``bad-option``. The first four
-            after ``version`` are spelled exactly as ``bar-layout.js`` spells
-            its drop reasons, so client logs and server responses read alike.
+            ``duplicate``, ``overflow`` or ``bad-option``. The four after
+            ``version`` are spelled exactly as ``bar-layout.js`` spells its
+            drop reasons, so client logs and server responses read alike.
     """
 
     def __init__(self, reason: str, detail: str) -> None:
@@ -293,7 +296,7 @@ def _empty_layout(vocabulary: BarVocabulary) -> dict[str, Any]:
     layout: dict[str, Any] = {"version": vocabulary.version, "rev": 0}
     for host in vocabulary.hosts:
         layout[host] = []
-    layout["status_visible"] = True
+        layout[f"{host}_visible"] = True
     return layout
 
 
@@ -309,8 +312,8 @@ def _copy_layout(document: Mapping[str, Any]) -> dict[str, Any]:
 def _read_envelope(raw: Any, vocabulary: BarVocabulary) -> dict[str, Any] | None:
     """A document's structure as this build reads it, or ``None`` if it cannot.
 
-    Checks the schema version, the revision, both item lists and the visibility
-    flag; each entry only has to *look* like an item. Item types are the
+    Checks the schema version, the revision, both item lists and the two
+    visibility flags; each entry only has to *look* like an item. Item types are the
     browser's to judge — see :func:`load_layout`.
     """
     if not isinstance(raw, Mapping):
@@ -321,10 +324,6 @@ def _read_envelope(raw: Any, vocabulary: BarVocabulary) -> dict[str, Any] | None
     rev = raw.get("rev", 0)
     # ``bool`` is an ``int`` in Python and ``True`` is not a revision.
     if isinstance(rev, bool) or not isinstance(rev, int) or rev < 0:
-        return None
-
-    status_visible = raw.get("status_visible", True)
-    if not isinstance(status_visible, bool):
         return None
 
     document: dict[str, Any] = {"version": vocabulary.version, "rev": rev}
@@ -338,7 +337,10 @@ def _read_envelope(raw: Any, vocabulary: BarVocabulary) -> dict[str, Any] | None
                 return None
             items.append(dict(entry))
         document[host] = items
-    document["status_visible"] = status_visible
+        visible = raw.get(f"{host}_visible", True)
+        if not isinstance(visible, bool):
+            return None
+        document[f"{host}_visible"] = visible
     return document
 
 
@@ -355,13 +357,10 @@ def _validate(layout: Mapping[str, Any], vocabulary: BarVocabulary) -> dict[str,
             f"bar layout version {layout.get('version')!r} is not {vocabulary.version}",
         )
 
-    status_visible = layout.get("status_visible", True)
-    if not isinstance(status_visible, bool):
-        raise BarLayoutInvalid(
-            "malformed", f"status_visible must be true or false, not {status_visible!r}"
-        )
-
     document: dict[str, Any] = {"version": vocabulary.version, "rev": 0}
+    # Single-node types are counted across the whole document, header first,
+    # exactly as the browser's normalizer counts them.
+    placed: set[str] = set()
     for host in vocabulary.hosts:
         entries = layout.get(host)
         if not isinstance(entries, Sequence) or isinstance(entries, (str, bytes)):
@@ -373,18 +372,26 @@ def _validate(layout: Mapping[str, Any], vocabulary: BarVocabulary) -> dict[str,
                 f"{vocabulary.max_items_per_host}",
             )
         document[host] = [
-            _validate_item(entry, host, index, vocabulary) for index, entry in enumerate(entries)
+            _validate_item(entry, host, index, vocabulary, placed)
+            for index, entry in enumerate(entries)
         ]
-    document["status_visible"] = status_visible
+        visible = layout.get(f"{host}_visible", True)
+        if not isinstance(visible, bool):
+            raise BarLayoutInvalid(
+                "malformed", f"{host}_visible must be true or false, not {visible!r}"
+            )
+        document[f"{host}_visible"] = visible
     return document
 
 
-def _validate_item(raw: Any, host: str, index: int, vocabulary: BarVocabulary) -> dict[str, Any]:
+def _validate_item(
+    raw: Any, host: str, index: int, vocabulary: BarVocabulary, placed: set[str]
+) -> dict[str, Any]:
     """One placed item, with its options completed, or raise.
 
     The order of the checks matters and matches the browser's: a type has to be
-    known before its hosts can be asked, and its hosts before its options mean
-    anything.
+    known before its options mean anything. *placed* is the single-node types
+    already seen in this document; a type is added to it here.
     """
     where = f"{host}[{index}]"
     if not isinstance(raw, Mapping) or not isinstance(raw.get("type"), str):
@@ -395,13 +402,12 @@ def _validate_item(raw: Any, host: str, index: int, vocabulary: BarVocabulary) -
     if spec is None:
         raise BarLayoutInvalid("unknown-type", f"{where} names unknown bar item {item_type!r}")
 
-    hosts = spec.get("hosts", ())
-    if host not in hosts:
-        raise BarLayoutInvalid(
-            "host-mismatch",
-            f"{where} places {item_type!r} in a bar that cannot hold it "
-            f"(allowed: {', '.join(hosts) or 'none'})",
-        )
+    if not spec.get("multi", False):
+        if item_type in placed:
+            raise BarLayoutInvalid(
+                "duplicate", f"{where} places {item_type!r} a second time; it renders once"
+            )
+        placed.add(item_type)
 
     raw_options = raw.get("options", {})
     if raw_options is None:

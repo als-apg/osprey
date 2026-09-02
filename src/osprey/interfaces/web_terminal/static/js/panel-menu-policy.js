@@ -40,6 +40,18 @@
  * the terminal in simple mode, where the xterm card is replaced by the operator
  * console and every terminal verb would act on a surface the operator cannot
  * see.
+ *
+ * THE WAY BACK TO A HIDDEN BAR
+ * ----------------------------
+ * The header and the status bar can each be hidden from their own right-click
+ * menu (bar-customize-menus.js). A hidden bar cannot be right-clicked, so the
+ * surfaces that are still on screen — every tile header and rail entry — carry
+ * a "Show header" / "Show status bar" row for each hidden bar, appended below
+ * the panel's own verbs. They are offered in both ui modes: showing a bar is
+ * recovery, not customizing, and an operator who hid the header in Expert and
+ * then switched to Simple from the palette must still be able to get it back.
+ * With a bar to restore, a surface whose own verbs are empty (the simple-mode
+ * terminal) opens a menu of just that row rather than declining.
  */
 
 import { openContextMenu } from './panel-context-menu.js';
@@ -51,6 +63,8 @@ import { restartTerminal, startTerminal } from './terminal.js';
 import { startNewSession } from './sessions.js';
 import { railDragStart, railDragEnd } from './rail-drag.js';
 import { getEntry } from './panel-rail.js';
+import { BAR_HOSTS } from './bar-catalog.js';
+import { barVisible, setBarVisible } from './bar-customize.js';
 
 /**
  * The panel-manager state and actions this module's closures act through. Every
@@ -181,7 +195,8 @@ export function openRailContextMenu(id, x, y) {
  * The tile-header counterpart of openRailContextMenu, registered into
  * dock-tab.js at init. Same verb sets, so a panel's two surfaces cannot offer
  * different actions, and the same decline-by-empty-list contract: the terminal
- * header in simple mode reports false and keeps the browser's native menu.
+ * header in simple mode reports false and keeps the browser's native menu,
+ * unless a hidden bar leaves a Show row to offer.
  *
  * The rail's enabled gate has no counterpart here on purpose. It exists so a
  * panel that has never answered cannot be acted on from an offline entry; a
@@ -200,18 +215,26 @@ export function openTileContextMenu(id, opts) {
 }
 
 /**
- * The shared tail of both surface openers: build the id's verb rows, decline
- * by empty list, and open the popover. Items, label and the decline signal
- * live in this one place, so the two-surfaces-one-verb-set contract is
- * mechanical rather than maintained in parallel.
+ * The shared tail of both surface openers: build the id's verb rows, append
+ * the Show row for any hidden bar, decline by empty list, and open the
+ * popover. Items, label and the decline signal live in this one place, so the
+ * two-surfaces-one-verb-set contract is mechanical rather than maintained in
+ * parallel.
  * @param {string} id  service panel id, or TERMINAL_RAIL_ID
  * @param {number} x  @param {number} y
  * @param {HTMLElement} anchorEl  scopes the menu's scroll dismissal
  * @returns {boolean} true when a menu was opened
  */
 function openSurfaceMenu(id, x, y, anchorEl) {
-  const items = id === TERMINAL_RAIL_ID ? buildTerminalMenuItems() : buildServiceMenuItems(id);
-  // No rows is a decline, never an empty popover — simple mode's terminal.
+  const verbs = id === TERMINAL_RAIL_ID ? buildTerminalMenuItems() : buildServiceMenuItems(id);
+  const restore = buildBarRestoreItems();
+  const items = [
+    ...verbs,
+    ...(verbs.length && restore.length ? [{ divider: true }] : []),
+    ...restore,
+  ];
+  // No rows is a decline, never an empty popover — simple mode's terminal
+  // with both bars showing.
   if (!items.length) return false;
   const label = id === TERMINAL_RAIL_ID ? TERMINAL_RAIL_LABEL : ctx().labelOf(id);
   openContextMenu({ x, y, anchorEl, ariaLabel: `${label} actions`, items });
@@ -245,6 +268,22 @@ export function buildServiceMenuItems(id) {
     // The one server-side membership change in the menu — same POST as the "×".
     { label: 'Remove from rail', glyph: '×', danger: true, run: () => setPanelVisibility(id, false) },
   ];
+}
+
+/**
+ * One "Show <bar>" row per hidden bar, for every panel surface. Empty while
+ * both bars are showing, which is the common case — the rows exist only so a
+ * hidden bar, which has no surface of its own to right-click, can be brought
+ * back from the surfaces that remain. Bound to the same setBarVisible the
+ * bar's own menu and the Customize sheet call, so the restore is one code path
+ * whichever surface offered it.
+ * @returns {import('./panel-context-menu.js').MenuItem[]}
+ */
+export function buildBarRestoreItems() {
+  return BAR_HOSTS.filter((host) => !barVisible(host)).map((host) => ({
+    label: host === 'header' ? 'Show header' : 'Show status bar',
+    run: () => { void setBarVisible(host, true); },
+  }));
 }
 
 /**

@@ -14,7 +14,6 @@
  * @property {string} label
  * @property {string | null} configEndpoint
  * @property {string | null} [healthEndpoint] - null/undefined means skip health polling
- * @property {string | null} statusBarId
  * @property {string} [path] - iframe subpath for custom panels (e.g. "/panel/")
  */
 
@@ -37,37 +36,31 @@ export const PANELS = [
     label: 'WORKSPACE',
     configEndpoint: '/api/artifact-server',
     healthEndpoint: null,    // embedded same-origin — skip health polling
-    statusBarId: null,       // no dedicated status-bar item
   },
   {
     id: 'ariel',
     label: 'ARIEL',
     configEndpoint: '/api/ariel-server',
-    statusBarId: 'ariel-status',
   },
   {
     id: 'channel-finder',
     label: 'CHANNELS',
     configEndpoint: '/api/channel-finder-server',
-    statusBarId: null,
   },
   {
     id: 'lattice',
     label: 'LATTICE',
     configEndpoint: '/api/lattice-server',
-    statusBarId: null,
   },
   {
     id: 'okf',
     label: 'KNOWLEDGE',
     configEndpoint: '/api/okf-server',
-    statusBarId: null,
   },
   {
     id: 'system-health',
     label: 'SYSTEM',
     configEndpoint: '/api/system-health-server', // data string; fetchJSON prefixes it in initPanel()
     healthEndpoint: '/health', // EXPLICIT — omitting/null skips polling and pins the panel healthy, which would leave the rail entry enabled with the sidecar down
-    statusBarId: null,
   },
 ];

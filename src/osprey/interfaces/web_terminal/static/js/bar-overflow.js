@@ -16,7 +16,7 @@
  *      spacing item — not to fold it, not to resize it. If it did, it would be
  *      racing CSS for the same pixels.
  *
- *   1. Text ellipsizes. Also CSS (`min-width: 0` on the activity shell). The
+ *   1. Text ellipsizes. Also CSS (`min-width: 0` on a space shell). The
  *      only thing this module does for rung 1 is stay out of the way: it does
  *      not fold anything while the bar is merely tight, because a probe that
  *      reports no overflow is a bar whose text has already absorbed it.
@@ -30,7 +30,7 @@
  *      `#bar-item-pool` through the host's own move machinery, which keeps the
  *      node alive (and lets bar-items.js dispose its subscriptions), and adds
  *      an `overflowLabel` row to the bar's overflow menu. Only the six types
- *      whose `overflowLabel(ctx)` is non-null fold; locked chrome never does.
+ *      whose `overflowLabel(ctx)` is non-null fold; the rest never do.
  *
  * Folding is NEVER `shell.hidden`. That attribute is the hidden-mirror's
  * output channel in bar-host.js — it is rewritten on every placement pass and
@@ -273,8 +273,8 @@ function undoStep(step, container, host) {
 
 /**
  * The next item to fold: the lowest-priority foldable this host shows, with
- * anything the operator promoted out of the menu kept for last. Locked chrome,
- * search and the spacing items all declare a null `overflowLabel` and are
+ * anything the operator promoted out of the menu kept for last. The header
+ * chrome, search and the spacing items all declare a null `overflowLabel` and are
  * therefore never candidates — the catalog is the whole policy.
  * @param {HTMLElement} container
  * @param {BarHost} host
@@ -305,7 +305,7 @@ function nextFoldable(container, host) {
  */
 function foldRank(shell, host) {
   const entry = barItemType(shell.dataset.barItem ?? '');
-  if (!entry || entry.locked) return null;
+  if (!entry) return null;
   if (!entry.overflowLabel(contextFor(shell, host))) return null;
   return [promoted.has(shell) ? 1 : 0, entry.priority];
 }

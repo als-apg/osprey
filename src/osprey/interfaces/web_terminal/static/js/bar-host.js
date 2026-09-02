@@ -10,16 +10,16 @@
  * three are why `reconcile()` is a keyed pass over element identities rather
  * than a `replaceChildren`:
  *
- *   Adopted nodes are MOVED, never rebuilt. Seven chrome nodes (`#activity-strip`,
- *   `#docs-link`, `#command-palette-btn`, the logo, the identity block, the
- *   display menu, the status dots) are rendered server-side and carry live
- *   state that no builder can reconstruct: `#activity-strip` is an `aria-live`
- *   region that `activity-history.js` mutates into its own trigger, and it
- *   self-boots from its own module before any layout arrives. Rebuilding it
- *   would leave a dead strip with no error anywhere. So a shell whose SSR body
- *   already exists is stamped `data-bar-adopted` at hydration and its subtree
- *   is never touched again — `document.getElementById('activity-strip')`
- *   returns the same node object across any number of pool round-trips.
+ *   Adopted nodes are MOVED, never rebuilt. Five chrome nodes (`#docs-link`,
+ *   `#command-palette-btn`, the logo, the identity block, the display menu)
+ *   are rendered server-side and carry live state that no builder can
+ *   reconstruct: the display menu is a custom element with its own listeners,
+ *   and the docs link is filled in by boot before any layout arrives.
+ *   Rebuilding one would leave a dead body with no error anywhere. So a shell
+ *   whose SSR body already exists is stamped `data-bar-adopted` at hydration
+ *   and its subtree is never touched again — `document.getElementById(
+ *   'docs-link')` returns the same node object across any number of pool
+ *   round-trips.
  *
  *   Focus and selection survive a move. Re-parenting a node blurs it, so a
  *   reconcile that lands while the operator is typing in the search item would
@@ -326,8 +326,7 @@ export function closeBarPopovers() {
  * item. `.bar-item[hidden]` in bars.css is the other half.
  *
  * A shell holding several bodies collapses only once every one of them is
- * hidden: panel-health renders one dot per panel, each revealed on its own
- * schedule, and one live dot is reason enough to keep the box.
+ * hidden: one live body is reason enough to keep the box.
  * @param {HTMLElement} shell
  */
 function syncHidden(shell) {
@@ -382,7 +381,7 @@ function isShell(node) {
 
 /**
  * The layout key for the n-th item of a type. First occurrence keys on the bare
- * type, so the common (singleton) case reads as `data-bar-key="activity"`.
+ * type, so the common (singleton) case reads as `data-bar-key="docs"`.
  * @param {string} type
  * @param {Map<string, number>} counts
  * @returns {string}
@@ -437,7 +436,7 @@ function stampShell(shell, type, options, density) {
  * Stamp the catalog's flex hint on the shell. This is what makes spacing
  * back-pressure CSS-owned: gaps and spaces shrink through the `flex-shrink`
  * declared here, continuously and ahead of every JS ladder rung, so a spacing
- * item can never clip the locked chrome next to it.
+ * item can never clip the chrome next to it.
  * @param {HTMLElement} shell
  * @param {string} type
  * @param {BarItemOptions} options
@@ -565,7 +564,7 @@ export function reconcile(layout, root = activeRoot ?? document) {
     const container = hostElement(host, root);
     if (container) placeItems(container, host, items, root);
   }
-  applyStatusVisibility(layout, root);
+  applyBarVisibility(layout, root);
   restoreFocus(focus);
 }
 
@@ -846,15 +845,20 @@ export function restoreShell(shell, host) {
 }
 
 /**
- * Mirror `status_visible` onto the root element, which is where the server
- * stamps it and where the shell-body height math reads it.
+ * Mirror `header_visible` and `status_visible` onto the root element, which is
+ * where the server stamps them and where the shell-body height math reads them.
  * @param {BarLayout} layout
  * @param {BarRoot} root
  */
-function applyStatusVisibility(layout, root) {
-  if (typeof layout.status_visible !== 'boolean') return;
+function applyBarVisibility(layout, root) {
   const html = docOf(root).documentElement;
-  if (html) html.dataset.statusBar = layout.status_visible ? 'visible' : 'hidden';
+  if (!html) return;
+  if (typeof layout.header_visible === 'boolean') {
+    html.dataset.headerBar = layout.header_visible ? 'visible' : 'hidden';
+  }
+  if (typeof layout.status_visible === 'boolean') {
+    html.dataset.statusBar = layout.status_visible ? 'visible' : 'hidden';
+  }
 }
 
 /* ---- focus ---- */

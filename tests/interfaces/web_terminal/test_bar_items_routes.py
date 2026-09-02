@@ -128,18 +128,21 @@ def document(
     *,
     header: list | None = None,
     status: list | None = None,
+    header_visible: bool = True,
     status_visible: bool = True,
 ) -> dict:
     """A document this build stores, at *rev*.
 
-    ``logo`` is header-only and ``clock`` takes options, so the default pair
-    exercises both halves of the vocabulary without any test spelling them out.
+    ``logo`` is a single-node type and ``clock`` takes options, so the default
+    pair exercises both halves of the vocabulary without any test spelling them
+    out.
     """
     return {
         "version": BAR_LAYOUT_VERSION,
         "rev": rev,
         "header": [{"type": "logo"}] if header is None else header,
         "status": [{"type": "clock"}] if status is None else status,
+        "header_visible": header_visible,
         "status_visible": status_visible,
     }
 
@@ -163,9 +166,17 @@ class TestGet:
 
         assert response.status_code == 200
         body = response.json()
-        assert set(body) == {"version", "rev", "header", "status", "status_visible"}
+        assert set(body) == {
+            "version",
+            "rev",
+            "header",
+            "status",
+            "header_visible",
+            "status_visible",
+        }
         assert body["version"] == BAR_LAYOUT_VERSION
         assert body["rev"] == 0
+        assert body["header_visible"] is True
         assert body["status_visible"] is True
         assert body["header"] and body["status"]
         assert not (store_dir / LAYOUT_FILENAME).exists(), "a read must never create the store"
@@ -200,13 +211,22 @@ class TestPut:
     def test_completes_declared_options_from_their_defaults(self, client):
         body = client.put("/api/bar-items", json=document(0)).json()
 
-        assert body["status"] == [{"type": "clock", "options": {"zone": "local", "seconds": False}}]
+        assert body["status"] == [
+            {"type": "clock", "options": {"zone": "none", "format": "24h", "seconds": False}}
+        ]
 
     def test_stores_the_visibility_flag(self, client):
         body = client.put("/api/bar-items", json=document(0, status_visible=False)).json()
 
         assert body["status_visible"] is False
         assert client.get("/api/bar-items").json()["status_visible"] is False
+
+    def test_a_hidden_header_round_trips_like_the_status_bar(self, client):
+        body = client.put("/api/bar-items", json=document(0, header_visible=False)).json()
+
+        assert body["header_visible"] is False
+        assert body["status_visible"] is True
+        assert client.get("/api/bar-items").json()["header_visible"] is False
 
     def test_a_stale_revision_is_a_409_carrying_the_current_document(self, client):
         client.put("/api/bar-items", json=document(0, header=[{"type": "logo"}]))
@@ -230,9 +250,6 @@ class TestPut:
         [
             pytest.param(document(0, header=[{"type": "nonesuch"}]), "unknown-type", id="unknown"),
             pytest.param(
-                document(0, status=[{"type": "logo"}]), "host-mismatch", id="host-mismatch"
-            ),
-            pytest.param(
                 document(0, header=[{"type": "clock"}] * (MAX_BAR_ITEMS_PER_HOST + 1)),
                 "overflow",
                 id="overflow",
@@ -243,14 +260,22 @@ class TestPut:
                 document(0, status_visible="yes"), "malformed", id="visibility-not-a-boolean"
             ),
             pytest.param(
+                document(0, header_visible=0), "malformed", id="header-visibility-not-a-boolean"
+            ),
+            pytest.param(
                 document(0, status=[{"type": "clock", "options": {"zone": "mars"}}]),
                 "bad-option",
                 id="enum-out-of-spec",
             ),
             pytest.param(
-                document(0, status=[{"type": "gap", "options": {"size": 4000}}]),
+                document(0, status=[{"type": "space", "options": {"width": 4000}}]),
                 "bad-option",
                 id="number-out-of-range",
+            ),
+            pytest.param(
+                document(0, status=[{"type": "docs"}, {"type": "docs"}]),
+                "duplicate",
+                id="single-node-type-twice",
             ),
         ],
     )
@@ -772,7 +797,7 @@ class TestALayoutSaveIsNotAFileChange:
 _STORE_SOURCE = inspect.getsource(bar_items_store)
 
 #: Every reason the *store* raises, read off its own source rather than copied.
-#: A seventh reason added there fails the union test below until this route has
+#: A new reason added there fails the union test below until this route has
 #: a case for it — which is the whole point of deriving it.
 STORE_REASONS = frozenset(re.findall(r'BarLayoutInvalid\(\s*"([a-z-]+)"', _STORE_SOURCE))
 
@@ -829,8 +854,8 @@ class TestTheRefusalVocabulary:
         "malformed": document(0, header="logo"),
         "version": {**document(0), "version": BAR_LAYOUT_VERSION + 1},
         "unknown-type": document(0, header=[{"type": "nonesuch"}]),
-        "host-mismatch": document(0, status=[{"type": "logo"}]),
         "overflow": document(0, header=[{"type": "clock"}] * (MAX_BAR_ITEMS_PER_HOST + 1)),
+        "duplicate": document(0, status=[{"type": "docs"}, {"type": "docs"}]),
         "bad-option": document(0, status=[{"type": "clock", "options": {"zone": "mars"}}]),
         "bad-rev": {key: value for key, value in document(0).items() if key != "rev"},
     }
@@ -840,14 +865,14 @@ class TestTheRefusalVocabulary:
             "malformed",
             "version",
             "unknown-type",
-            "host-mismatch",
             "overflow",
+            "duplicate",
             "bad-option",
         }
 
     def test_the_scrape_read_every_place_the_store_raises(self):
         """Otherwise the derivation above could under-count in silence, and a
-        seventh reason spelled some other way would leave every assertion in
+        new reason spelled some other way would leave every assertion in
         this class green while the route emitted a word nobody pinned."""
         matched = re.findall(r'raise BarLayoutInvalid\(\s*"[a-z-]+"', _STORE_SOURCE)
 

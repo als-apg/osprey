@@ -130,7 +130,7 @@ const CONTEXT_ATTR = 'data-bar-context';
 const OFFERS_EVERYTHING = {
   identityAvailable: true,
   blueskyAvailable: true,
-  statusBarIds: ['ariel-status'],
+  systemHealthAvailable: true,
 };
 
 /**
@@ -219,13 +219,13 @@ describe('the boot GET reconciles and is never a first-paint dependency', () => 
 
   test('the served document is reconciled into the bars', async () => {
     await boot({
-      fetch: endpoint({ get: doc(['logo', 'search'], ['connection'], { rev: 3 }) }),
+      fetch: endpoint({ get: doc(['logo', 'search'], ['stopwatch'], { rev: 3 }) }),
       headerShells: LOGO_SHELL,
     });
     await settle();
 
     expect(typesIn('header')).toEqual(['logo', 'search']);
-    expect(typesIn('status')).toEqual(['connection']);
+    expect(typesIn('status')).toEqual(['stopwatch']);
     expect(sync.currentLayout()?.rev).toBe(3);
   });
 
@@ -242,6 +242,7 @@ describe('the boot GET reconciles and is never a first-paint dependency', () => 
     const shell = document.querySelector('[data-bar-item="clock"]');
     expect(JSON.parse(/** @type {any} */ (shell).dataset.barOptions)).toEqual({
       zone: 'utc',
+      format: '24h',
       seconds: true,
     });
   });
@@ -256,7 +257,7 @@ describe('the boot GET reconciles and is never a first-paint dependency', () => 
     const open = new Promise((resolve) => {
       release = () => resolve(undefined);
     });
-    const served = endpoint({ get: doc(['logo'], ['connection']) });
+    const served = endpoint({ get: doc(['logo'], ['stopwatch']) });
     let restore = () => {};
     await boot({
       fetch: vi.fn(async (/** @type {any} */ url, /** @type {any} */ init) => {
@@ -518,7 +519,7 @@ describe('the deployment context is served, not inferred', () => {
     await boot({
       fetch: endpoint({ get: doc(['logo', 'identity'], []) }),
       headerShells: LOGO_SHELL,
-      context: { identityAvailable: true, blueskyAvailable: false, statusBarIds: [] },
+      context: { identityAvailable: true, blueskyAvailable: false, systemHealthAvailable: false },
     });
     await settle();
 
@@ -529,7 +530,7 @@ describe('the deployment context is served, not inferred', () => {
   test('an item the deployment does not offer is dropped and latches read-only', async () => {
     await boot({
       fetch: endpoint({ get: doc([], ['bluesky-queue', 'clock']) }),
-      context: { identityAvailable: false, blueskyAvailable: false, statusBarIds: [] },
+      context: { identityAvailable: false, blueskyAvailable: false, systemHealthAvailable: false },
     });
     await settle();
 
@@ -547,7 +548,7 @@ describe('the deployment context is served, not inferred', () => {
         get: doc(['logo'], ['clock'], { rev: 2 }),
         puts: [jsonResponse(200, doc(['logo', 'search'], ['clock'], { rev: 3 }))],
       }),
-      context: { identityAvailable: false, blueskyAvailable: false, statusBarIds: [] },
+      context: { identityAvailable: false, blueskyAvailable: false, systemHealthAvailable: false },
     });
     await settle();
 
@@ -556,12 +557,12 @@ describe('the deployment context is served, not inferred', () => {
     expect(putBodies()).toHaveLength(1);
   });
 
-  test('panel health follows the stamped dots, not the shipped panel catalog', async () => {
-    // The inference read `PANELS`, which ships `ariel-status` on every build,
-    // so the item read as available on a deployment serving no such panel.
+  test('system health follows the stamp, not a guess from the page', async () => {
+    // Nothing on the page says whether the SYSTEM panel is enabled; only the
+    // stamp does, and without it the item is refused.
     await boot({
-      fetch: endpoint({ get: doc([], ['panel-health', 'clock']) }),
-      context: { identityAvailable: false, blueskyAvailable: false, statusBarIds: [] },
+      fetch: endpoint({ get: doc([], ['system-health', 'clock']) }),
+      context: { identityAvailable: false, blueskyAvailable: false, systemHealthAvailable: false },
     });
     await settle();
 
@@ -569,18 +570,18 @@ describe('the deployment context is served, not inferred', () => {
     expect(sync.isLayoutReadonly()).toBe(true);
   });
 
-  test('a stamped dot keeps the panel-health item', async () => {
+  test('a stamped SYSTEM panel keeps the system-health item', async () => {
     await boot({
-      fetch: endpoint({ get: doc([], ['panel-health', 'clock']) }),
+      fetch: endpoint({ get: doc([], ['system-health', 'clock']) }),
       context: {
         identityAvailable: false,
         blueskyAvailable: false,
-        statusBarIds: ['ariel-status'],
+        systemHealthAvailable: true,
       },
     });
     await settle();
 
-    expect(typesIn('status')).toEqual(['panel-health', 'clock']);
+    expect(typesIn('status')).toEqual(['system-health', 'clock']);
     expect(sync.isLayoutReadonly()).toBe(false);
   });
 

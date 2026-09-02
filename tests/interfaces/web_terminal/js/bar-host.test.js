@@ -6,7 +6,7 @@
  * Two of these assertions are the reason the host exists at all, and both are
  * named in the proposal's FR2:
  *
- *   - `document.getElementById('activity-strip')` returns the SAME node object
+ *   - `document.getElementById('docs-link')` returns the SAME node object
  *     across host -> pool -> host round-trips. The strip self-boots from its
  *     own module, is an `aria-live` region, and is mutated into its own history
  *     trigger by a third module. Every one of those lookups is null-guarded, so
@@ -55,11 +55,11 @@ const BARS_CSS = join(
 let cleanups = [];
 
 /**
- * A layout document. Only `header`, `status` and `status_visible` are read by
+ * A layout document. Only the two item lists and the two visibility flags are read by
  * the host; the schema fields are carried so the fixture is a real document.
  * @param {string[]} header
  * @param {string[]} status
- * @param {{statusVisible?: boolean, options?: Record<string, Record<string, string | number | boolean>>}} [extra]
+ * @param {{headerVisible?: boolean, statusVisible?: boolean, options?: Record<string, Record<string, string | number | boolean>>}} [extra]
  * @returns {BarLayout}
  */
 function layoutOf(header, status, extra = {}) {
@@ -70,6 +70,7 @@ function layoutOf(header, status, extra = {}) {
     rev: 0,
     header: header.map(item),
     status: status.map(item),
+    header_visible: extra.headerVisible ?? true,
     status_visible: extra.statusVisible ?? true,
   };
 }
@@ -91,11 +92,9 @@ function seedDom(headerShells = '', statusShells = '') {
   hydrate(document);
 }
 
-/** An adopted-chrome shell: a body the server rendered, which must never be rebuilt. */
-const ACTIVITY_SHELL =
-  '<div class="bar-item" data-bar-item="activity"><div id="activity-strip" aria-live="polite"></div></div>';
-
-/** The docs link, adopted, already revealed — the item hides it again itself. */
+/** The docs link, adopted, already revealed — the item hides it again itself.
+ *  Also the adopted-chrome shell of record below: a body the server rendered,
+ *  which must never be rebuilt. */
 const DOCS_SHELL =
   '<div class="bar-item" data-bar-item="docs"><a class="status-link" id="docs-link">Docs</a></div>';
 
@@ -165,22 +164,22 @@ afterEach(() => {
 });
 
 describe('adopted nodes are moved, never rebuilt', () => {
-  test('#activity-strip is the same node object across a pool round-trip', () => {
-    seedDom(ACTIVITY_SHELL);
-    const original = document.getElementById('activity-strip');
+  test('#docs-link is the same node object across a pool round-trip', () => {
+    seedDom(DOCS_SHELL);
+    const original = document.getElementById('docs-link');
     expect(original).toBeTruthy();
     // A marker no builder could reproduce: if the node is ever rebuilt from the
     // type's builder instead of moved, this is what disappears.
     /** @type {any} */ (original).__ospreyLiveRegion = Symbol('live');
 
     reconcile(layoutOf([], []));
-    const parked = document.getElementById('activity-strip');
+    const parked = document.getElementById('docs-link');
     expect(parked).toBe(original);
     expect(poolElement(document)?.contains(/** @type {Node} */ (parked))).toBe(true);
     expect(typesIn('header')).toEqual([]);
 
-    reconcile(layoutOf(['activity'], []));
-    const back = document.getElementById('activity-strip');
+    reconcile(layoutOf(['docs'], []));
+    const back = document.getElementById('docs-link');
     expect(back).toBe(original);
     expect(/** @type {any} */ (back).__ospreyLiveRegion).toBe(
       /** @type {any} */ (original).__ospreyLiveRegion
@@ -189,28 +188,28 @@ describe('adopted nodes are moved, never rebuilt', () => {
   });
 
   test('a shell parked by one reconcile is reused by the next, not recreated', () => {
-    seedDom(ACTIVITY_SHELL);
-    const shell = shellForKey('activity');
+    seedDom(DOCS_SHELL);
+    const shell = shellForKey('docs');
     expect(shell).toBeTruthy();
 
     reconcile(layoutOf([], []));
-    reconcile(layoutOf(['activity'], []));
+    reconcile(layoutOf(['docs'], []));
 
-    expect(shellForKey('activity')).toBe(shell);
+    expect(shellForKey('docs')).toBe(shell);
   });
 
   test('an adopted body is left alone even when the type has a builder', () => {
-    seedDom(ACTIVITY_SHELL);
-    useBuilder('activity', () => {
+    seedDom(DOCS_SHELL);
+    useBuilder('docs', () => {
       const span = document.createElement('span');
       span.className = 'rebuilt';
       return span;
     });
-    const original = document.getElementById('activity-strip');
+    const original = document.getElementById('docs-link');
 
-    reconcile(layoutOf(['activity'], []));
+    reconcile(layoutOf(['docs'], []));
 
-    expect(document.getElementById('activity-strip')).toBe(original);
+    expect(document.getElementById('docs-link')).toBe(original);
     expect(document.querySelector('.rebuilt')).toBeNull();
   });
 });
@@ -297,10 +296,10 @@ describe('order and parking', () => {
   });
 
   test('repeated spacing types keep distinct shells', () => {
-    reconcile(layoutOf(['gap', 'clock', 'gap'], []));
+    reconcile(layoutOf(['separator', 'clock', 'separator'], []));
 
-    expect(typesIn('header')).toEqual(['gap', 'clock', 'gap']);
-    expect(shellForKey('gap')).not.toBe(shellForKey('gap#1'));
+    expect(typesIn('header')).toEqual(['separator', 'clock', 'separator']);
+    expect(shellForKey('separator')).not.toBe(shellForKey('separator#1'));
   });
 
   test('a non-item child of the host is left in place', () => {
@@ -336,24 +335,26 @@ describe('order and parking', () => {
     reconcile(layoutOf([], [], { statusVisible: true }));
     expect(document.documentElement.dataset.statusBar).toBe('visible');
   });
+
+  test('header_visible is mirrored the same way, independently', () => {
+    reconcile(layoutOf([], [], { headerVisible: false }));
+    expect(document.documentElement.dataset.headerBar).toBe('hidden');
+    expect(document.documentElement.dataset.statusBar).toBe('visible');
+
+    reconcile(layoutOf([], [], { headerVisible: true }));
+    expect(document.documentElement.dataset.headerBar).toBe('visible');
+  });
 });
 
 describe('catalog flex hints are stamped on the shell', () => {
-  test('activity absorbs spare space and may ellipsize', () => {
-    reconcile(layoutOf(['activity'], []));
-    const shell = /** @type {HTMLElement} */ (shellForKey('activity'));
-    expect(flexOf(shell)).toEqual(['1', '1', '0px']);
-    expect(shell.style.getPropertyValue('min-width')).toBe('0');
+  test('a space at width 0 fills the bar', () => {
+    reconcile(layoutOf(['space'], [], { options: { space: { width: 0 } } }));
+    expect(flexOf(/** @type {HTMLElement} */ (shellForKey('space')))).toEqual(['1', '1', '0px']);
   });
 
-  test('a space scales its grow factor by its share option', () => {
-    reconcile(layoutOf(['space'], [], { options: { space: { share: 3 } } }));
-    expect(flexOf(/** @type {HTMLElement} */ (shellForKey('space')))).toEqual(['3', '1', '0px']);
-  });
-
-  test('a gap holds its size until the bar runs out of room', () => {
-    reconcile(layoutOf(['gap'], [], { options: { gap: { size: 40 } } }));
-    const shell = /** @type {HTMLElement} */ (shellForKey('gap'));
+  test('a space at a width holds it until the bar runs out of room', () => {
+    reconcile(layoutOf(['space'], [], { options: { space: { width: 40 } } }));
+    const shell = /** @type {HTMLElement} */ (shellForKey('space'));
     expect(flexOf(shell)).toEqual(['0', '1', '40px']);
     expect(shell.style.getPropertyValue('min-width')).toBe('0');
   });
@@ -381,10 +382,10 @@ describe('catalog flex hints are stamped on the shell', () => {
 
 describe('isLive', () => {
   test('true for a node in a host, false for a node in the pool', () => {
-    seedDom(ACTIVITY_SHELL);
-    const strip = /** @type {HTMLElement} */ (document.getElementById('activity-strip'));
+    seedDom(DOCS_SHELL);
+    const strip = /** @type {HTMLElement} */ (document.getElementById('docs-link'));
 
-    reconcile(layoutOf(['activity'], []));
+    reconcile(layoutOf(['docs'], []));
     expect(isLive(strip)).toBe(true);
 
     reconcile(layoutOf([], []));
@@ -445,11 +446,11 @@ describe('one builder per type', () => {
 
   test('a builder re-runs when the item changes host or options', () => {
     const builder = vi.fn(() => document.createElement('span'));
-    useBuilder('gap', builder);
+    useBuilder('space', builder);
 
-    reconcile(layoutOf(['gap'], [], { options: { gap: { size: 12 } } }));
-    reconcile(layoutOf(['gap'], [], { options: { gap: { size: 40 } } }));
-    reconcile(layoutOf([], ['gap'], { options: { gap: { size: 40 } } }));
+    reconcile(layoutOf(['space'], [], { options: { space: { width: 12 } } }));
+    reconcile(layoutOf(['space'], [], { options: { space: { width: 40 } } }));
+    reconcile(layoutOf([], ['space'], { options: { space: { width: 40 } } }));
 
     expect(builder).toHaveBeenCalledTimes(3);
   });
@@ -517,35 +518,30 @@ describe('popovers close before their item moves', () => {
 
 describe('first paint', () => {
   test('hydration is synchronous and indexes the server-rendered shells', () => {
-    seedDom(ACTIVITY_SHELL + `<div class="bar-item" data-bar-item="clock"></div>`);
+    seedDom(DOCS_SHELL + `<div class="bar-item" data-bar-item="clock"></div>`);
 
     // No reconcile has run: everything below is what the SSR pass alone gives.
-    expect(shellForKey('activity')).toBeTruthy();
+    expect(shellForKey('docs')).toBeTruthy();
     expect(shellForKey('clock')).toBeTruthy();
-    expect(/** @type {HTMLElement} */ (shellForKey('activity')).dataset.barAdopted).toBe('true');
+    expect(/** @type {HTMLElement} */ (shellForKey('docs')).dataset.barAdopted).toBe('true');
     expect(/** @type {HTMLElement} */ (shellForKey('clock')).dataset.barAdopted).toBeUndefined();
-    expect(flexOf(/** @type {HTMLElement} */ (shellForKey('activity')))).toEqual([
-      '1',
-      '1',
-      '0px',
-    ]);
   });
 
   test('shells parked in the pool by the server are hydrated too', () => {
     document.body.innerHTML = `
       <header class="header"><div class="header-actions" data-bar-host="header"></div></header>
       <footer class="status-bar" data-bar-host="status"></footer>
-      <div id="bar-item-pool" hidden>${ACTIVITY_SHELL}</div>
+      <div id="bar-item-pool" hidden>${DOCS_SHELL}</div>
     `;
     hydrate(document);
 
-    const strip = document.getElementById('activity-strip');
+    const strip = document.getElementById('docs-link');
     expect(strip).toBeTruthy();
     expect(isLive(strip)).toBe(false);
 
-    reconcile(layoutOf(['activity'], []));
+    reconcile(layoutOf(['docs'], []));
 
-    expect(document.getElementById('activity-strip')).toBe(strip);
+    expect(document.getElementById('docs-link')).toBe(strip);
     expect(isLive(strip)).toBe(true);
   });
 
@@ -554,7 +550,7 @@ describe('first paint', () => {
     // path would make the header and the status bar wait on the network before
     // they could paint at all, so importing the module afresh — hydration and
     // everything else it does at module scope — must touch no transport.
-    seedDom(ACTIVITY_SHELL);
+    seedDom(DOCS_SHELL);
     const fetchSpy = vi.fn();
     const originalFetch = globalThis.fetch;
     globalThis.fetch = /** @type {typeof globalThis.fetch} */ (fetchSpy);
@@ -625,12 +621,12 @@ describe('an item that hides its body collapses its shell', () => {
   });
 
   test('a rebuilt body takes the mirror over from the one it replaced', async () => {
-    useBuilder('gap', () => document.createElement('span'));
-    reconcile(layoutOf(['gap'], [], { options: { gap: { size: 12 } } }));
-    const shell = /** @type {HTMLElement} */ (shellForKey('gap'));
+    useBuilder('space', () => document.createElement('span'));
+    reconcile(layoutOf(['space'], [], { options: { space: { width: 12 } } }));
+    const shell = /** @type {HTMLElement} */ (shellForKey('space'));
     const first = /** @type {HTMLElement} */ (shell.firstElementChild);
 
-    reconcile(layoutOf(['gap'], [], { options: { gap: { size: 40 } } }));
+    reconcile(layoutOf(['space'], [], { options: { space: { width: 40 } } }));
     const second = /** @type {HTMLElement} */ (shell.firstElementChild);
     expect(second).not.toBe(first);
 
@@ -644,16 +640,16 @@ describe('an item that hides its body collapses its shell', () => {
     expect(shell.hidden).toBe(true);
   });
 
-  test('a shell of several dots collapses only once every dot is hidden', async () => {
-    // The panel-health shape: one `.status-item` per declaring panel, each
-    // revealed by panel-status-bar.js when that panel's own config lands.
+  test('a shell of several bodies collapses only once every body is hidden', async () => {
+    // A server-rendered shell may carry more than one body, each revealed on
+    // its own schedule; one live body is reason enough to keep the box.
     seedDom(
-      '<div class="bar-item" data-bar-item="panel-health">' +
+      '<div class="bar-item" data-bar-item="docs">' +
         '<div class="status-item" id="dot-a" hidden></div>' +
         '<div class="status-item" id="dot-b" hidden></div>' +
         '</div>'
     );
-    const shell = /** @type {HTMLElement} */ (shellForKey('panel-health'));
+    const shell = /** @type {HTMLElement} */ (shellForKey('docs'));
     expect(shell.hidden).toBe(true);
 
     const first = /** @type {HTMLElement} */ (document.getElementById('dot-a'));
@@ -667,8 +663,8 @@ describe('an item that hides its body collapses its shell', () => {
   });
 
   test('an empty shell keeps its own visibility', () => {
-    reconcile(layoutOf(['gap', 'space'], []));
-    expect(/** @type {HTMLElement} */ (shellForKey('gap')).hidden).toBe(false);
+    reconcile(layoutOf(['separator', 'space'], []));
+    expect(/** @type {HTMLElement} */ (shellForKey('separator')).hidden).toBe(false);
     expect(/** @type {HTMLElement} */ (shellForKey('space')).hidden).toBe(false);
   });
 });
@@ -801,12 +797,17 @@ describe('a shell this module builds is styled like one the server rendered', ()
     }
   });
 
-  test('a gap placed at runtime matches its stylesheet selectors too', () => {
-    reconcile(layoutOf(['gap'], []));
-    const shell = /** @type {HTMLElement} */ (shellForKey('gap'));
+  test('a separator placed at runtime matches its stylesheet selectors too', () => {
+    reconcile(layoutOf(['separator'], []));
+    const shell = /** @type {HTMLElement} */ (shellForKey('separator'));
 
-    for (const selector of styledBy('gap')) {
-      expect(shell.matches(selector), `a client-built gap does not match ${selector}`).toBe(true);
+    const selectors = styledBy('separator');
+    expect(selectors.length, 'bars.css styles no separator item').toBeGreaterThan(0);
+    for (const selector of selectors) {
+      expect(
+        shell.matches(selector),
+        `a client-built separator does not match ${selector}`
+      ).toBe(true);
     }
   });
 });

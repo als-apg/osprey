@@ -4,10 +4,10 @@ The web terminal's header and status bar are item HOSTS: ``root()`` renders one
 ordered run of ``.bar-item`` shells per bar from the effective layout, so the
 operator's order is on the page before a single module script has run.
 
-Seven chrome nodes are ADOPTED — they are resolved by id by other modules
-(``#activity-strip``, ``#docs-link``, ``#command-palette-btn``,
-``#display-menu-settings``, ``#logout-btn``, the identity trigger and menu, the
-panel health dots), so they are rendered on **every** request whichever way the
+Five chrome nodes are ADOPTED — they are resolved by id by other modules
+(``#docs-link``, ``#command-palette-btn``, ``#display-menu-settings``,
+``#logout-btn``, the identity trigger and menu), so
+they are rendered on **every** request whichever way the
 layout falls: into their shell when it places them, into ``#bar-item-pool``
 when it does not. That is the invariant this file exists for (FR6), and it is
 asserted in both directions:
@@ -15,11 +15,11 @@ asserted in both directions:
 * the pool never **subtracts** — a saved layout naming none of the adopted
   types still resolves every one of them, in the pool;
 * the pool never **adds** — an id this deployment would not render today
-  (an identity block with no user, a health dot for a disabled panel) is absent
-  from the shells and from the pool alike.
+  (an identity block with no user) is absent from the shells and from the
+  pool alike.
 
 Two fixtures carry that: a plain single-user app, and a configured one
-(``terminal_user`` + ``landing_url`` + an enabled panel that declares a dot).
+(``terminal_user`` + ``landing_url`` + the SYSTEM panel enabled).
 """
 
 from __future__ import annotations
@@ -35,18 +35,16 @@ from fastapi.testclient import TestClient
 from osprey.interfaces.web_terminal.app import (
     ADOPTED_BAR_ITEM_TYPES,
     BAR_ITEM_AVAILABILITY,
-    BAR_ITEM_HOSTS,
     BAR_ITEM_OPTIONS,
+    BAR_ITEM_TYPES,
     BAR_LAYOUT_VERSION,
     DEFAULT_BAR_LAYOUT,
-    PANEL_HEALTH_STATUS_BAR_IDS,
     STATIC_DIR,
     create_app,
 )
 
 #: Ids the terminal renders on every deployment, whatever the layout says.
 _UNIVERSAL_IDS = (
-    "activity-strip",
     "docs-link",
     "command-palette-btn",
     "display-menu-settings",
@@ -81,12 +79,13 @@ def workspace_dir(tmp_path):
     return ws
 
 
-def _build_app(workspace_dir, *, enabled_panels=None, env=None):
+def _build_app(workspace_dir, *, enabled_panels=None, custom_panels=None, env=None):
     """Boot an app the way the other route tests do, and return (app, client).
 
     Args:
         workspace_dir: The watched directory.
         enabled_panels: Enabled built-in panel ids, or None for the universal set.
+        custom_panels: Config-declared panel dicts, or None for none.
         env: Environment overrides applied across ``create_app`` and lifespan.
     """
     panels = {"artifacts"} if enabled_panels is None else set(enabled_panels)
@@ -97,7 +96,7 @@ def _build_app(workspace_dir, *, enabled_panels=None, env=None):
         ),
         patch(
             "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=(panels, [], None),
+            return_value=(panels, list(custom_panels or []), None),
         ),
         patch(
             "osprey.interfaces.web_terminal.app._launch_panel_server",
@@ -108,7 +107,7 @@ def _build_app(workspace_dir, *, enabled_panels=None, env=None):
 
 @pytest.fixture
 def plain_app(workspace_dir):
-    """A single-user deployment: no terminal user, no landing page, no dots."""
+    """A single-user deployment: no terminal user, no landing page, no SYSTEM panel."""
     cfg, panels, launch, env = _build_app(workspace_dir)
     with cfg, panels, launch, env:
         app = create_app(shell_command="echo")
@@ -118,10 +117,10 @@ def plain_app(workspace_dir):
 
 @pytest.fixture
 def configured_app(workspace_dir):
-    """A multi-user deployment with an identity, a way out and a health dot."""
+    """A multi-user deployment with an identity, a way out and the SYSTEM panel."""
     cfg, panels, launch, env = _build_app(
         workspace_dir,
-        enabled_panels={"artifacts", "ariel"},
+        enabled_panels={"artifacts", "system-health"},
         env={
             "OSPREY_TERMINAL_USER": "alice",
             "OSPREY_TERMINAL_LANDING_URL": "https://facility.example/portal",
@@ -246,24 +245,19 @@ class TestShellRuns:
         assert _shell_types(_body(client), "header") == expected
 
     def test_status_run_matches_the_default_layout(self, configured_app):
-        """The shipped default is the clean set: activity stretching from the
-        left edge to a right-hand cluster of the panel dots, documentation and
-        the clock. Spelled out rather than read back from the constant, so a
-        change to what a fresh deployment shows is a change to this file."""
+        """The shipped default is nearly bare: a space, the system-health dot
+        and the clock at the right edge. Spelled out rather than read back
+        from the constant, so a change to what a fresh deployment shows is a
+        change to this file."""
         _, client = configured_app
-        assert _shell_types(_body(client), "status") == [
-            "activity",
-            "panel-health",
-            "docs",
-            "clock",
-        ]
+        assert _shell_types(_body(client), "status") == ["space", "system-health", "clock"]
 
-    def test_the_plain_status_run_drops_the_panel_dots(self, plain_app):
-        """``panel-health`` is in the default because a deployment that enables
-        a panel declaring a dot should show it; one that enables none renders
-        the rest of the clean set and no empty shell in its place."""
+    def test_the_plain_status_run_drops_the_health_dot(self, plain_app):
+        """``system-health`` is in the default because a deployment that
+        enables the SYSTEM panel should show it; one that does not renders the
+        rest and no empty shell in its place."""
         _, client = plain_app
-        assert _shell_types(_body(client), "status") == ["activity", "docs", "clock"]
+        assert _shell_types(_body(client), "status") == ["space", "clock"]
 
     def test_saved_layout_is_rendered_in_its_own_order(self, plain_app):
         """The seam the phase-2 store plugs into, exercised end to end."""
@@ -272,12 +266,12 @@ class TestShellRuns:
             "version": 1,
             "rev": 3,
             "header": [{"type": "display"}, {"type": "space"}, {"type": "logo"}],
-            "status": [{"type": "docs"}, {"type": "activity"}],
+            "status": [{"type": "docs"}, {"type": "stopwatch"}],
             "status_visible": True,
         }
         body = _body(client)
         assert _shell_types(body, "header") == ["display", "space", "logo"]
-        assert _shell_types(body, "status") == ["docs", "activity"]
+        assert _shell_types(body, "status") == ["docs", "stopwatch"]
 
     def test_shells_name_the_item_they_follow(self, configured_app):
         """`data-follows` is how the identity middot knows it sits after the
@@ -300,6 +294,7 @@ class TestShellRuns:
             "rev": 12,
             "header": [{"type": "display"}],
             "status": [],
+            "header_visible": False,
             "status_visible": False,
         }
         body = _body(client)
@@ -307,10 +302,11 @@ class TestShellRuns:
             item["type"] for item in DEFAULT_BAR_LAYOUT["header"] if item["type"] != "identity"
         ]
         assert "data-status-bar" not in _html_tag(body)
+        assert "data-header-bar" not in _html_tag(body)
 
 
 class TestUnavailableItemsAreAbsentNotEmpty:
-    """The catalog's words: "absent rather than locked-but-empty"."""
+    """The catalog's words: "absent rather than empty"."""
 
     def test_the_plain_header_has_no_identity_shell_at_all(self, plain_app):
         """An empty shell is not free: bars.css keys the identity middot off
@@ -337,36 +333,34 @@ class TestUnavailableItemsAreAbsentNotEmpty:
         assert 'data-follows="logo"' in shells[1]
         assert body.count('data-follows="logo"') == 1
 
-    def test_the_plain_status_bar_has_no_panel_health_shell(self, plain_app):
-        """No enabled panel declares a dot here, so the item is absent — not an
-        empty shell holding no dots."""
-        assert "panel-health" not in _shell_types(_body(plain_app[1]), "status")
+    def test_the_plain_status_bar_has_no_system_health_shell(self, plain_app):
+        """The SYSTEM panel is not enabled here, so the item is absent — not an
+        empty shell with nothing to read."""
+        assert "system-health" not in _shell_types(_body(plain_app[1]), "status")
 
 
-class TestHostCapability:
-    """`hosts` is a hard capability, enforced on the server as on the client."""
+class TestKnownTypes:
+    """Any known type renders in either bar; an unknown one renders nowhere."""
 
-    def test_a_header_only_type_named_in_the_status_bar_is_not_rendered_there(self, plain_app):
-        """A 28px wordmark inside a 20px bar, yanked back out on hydration, is
-        exactly the flash the SSR exists to prevent."""
+    def test_a_type_named_in_the_status_bar_renders_there(self, plain_app):
+        """The wordmark used to be refused from the status bar; every type may
+        now sit in either bar, and the SSR paints it where the layout says."""
         app, client = plain_app
         app.state.bar_layout = {
             "version": BAR_LAYOUT_VERSION,
             "rev": 4,
-            "header": [{"type": "logo"}],
+            "header": [],
             "status": [{"type": "logo"}, {"type": "clock"}],
             "status_visible": True,
         }
         body = _body(client)
-        assert _shell_types(body, "status") == ["clock"]
+        assert _shell_types(body, "status") == ["logo", "clock"]
         footer = body[body.index('data-bar-host="status"') : body.index("</footer>")]
-        assert "header-logo" not in footer
+        assert "header-logo" in footer
 
-    def test_an_adopted_item_in_the_wrong_host_is_pooled_not_dropped(self, configured_app):
-        """Unlike an unavailable item, this one EXISTS — the client drops the
-        entry and parks the node in the pool, and the pool must never subtract
-        an id. (This is the one place the review's suggested fix would have
-        made `#logout-btn` vanish outright.)"""
+    def test_an_adopted_item_in_the_status_bar_is_rendered_not_pooled(self, configured_app):
+        """The node moves with its shell: placed in the status bar it is
+        rendered there, and the pool holds no second copy of its ids."""
         app, client = configured_app
         app.state.bar_layout = {
             "version": BAR_LAYOUT_VERSION,
@@ -376,9 +370,11 @@ class TestHostCapability:
             "status_visible": True,
         }
         body = _body(client)
-        assert "identity" not in _shell_types(body, "status")
-        for element_id in _IDENTITY_IDS:
-            assert _has_id(_pool(body), element_id), element_id
+        assert "identity" in _shell_types(body, "status")
+        footer = body[body.index('data-bar-host="status"') : body.index("</footer>")]
+        for element_id in ("header-identity-trigger", "header-identity-menu", "logout-btn"):
+            assert _has_id(footer, element_id), element_id
+            assert not _has_id(_pool(body), element_id), element_id
 
     def test_an_unknown_type_renders_nothing(self, plain_app):
         """The client's normalizer drops an unknown type; so does this."""
@@ -394,23 +390,20 @@ class TestHostCapability:
         assert _shell_types(body, "header") == ["logo"]
         assert "not-a-real-item" not in body
 
-    def test_the_host_table_mirrors_the_js_catalog(self):
+    def test_the_type_table_mirrors_the_js_catalog(self):
         """The server's copy exists because it renders first; a copy that
-        drifts is worse than none, so it is pinned against the source."""
+        drifts is worse than none, so it is pinned against the source, in the
+        catalog's own order."""
         source = (STATIC_DIR / "js" / "bar-catalog.js").read_text()
-        declared = dict(
-            re.findall(
-                r"^  '?([a-z-]+)'?: \{\n(?:.*\n)*?    hosts: (HEADER_ONLY|BOTH_HOSTS),",
-                source,
-                re.MULTILINE,
-            )
-        )
-        assert declared, "could not read the catalog's host declarations"
-        expected = {
-            item_type: ("header",) if group == "HEADER_ONLY" else ("header", "status")
-            for item_type, group in declared.items()
-        }
-        assert BAR_ITEM_HOSTS == expected
+        declared = re.findall(r"^  '?([a-z-]+)'?: \{\n    type: '", source, re.MULTILINE)
+        assert declared, "could not read the catalog's type declarations"
+        assert list(BAR_ITEM_TYPES) == declared
+
+    def test_no_entry_declares_a_placement_axis(self):
+        """`hosts` is gone from both sides; an entry that grew it back would
+        refuse a bar the server had already painted it in."""
+        source = (STATIC_DIR / "js" / "bar-catalog.js").read_text()
+        assert re.search(r"^    hosts:", source, re.MULTILINE) is None
 
 
 #: One catalog entry's ``options:`` declaration — either ``NO_OPTIONS`` or an
@@ -507,13 +500,18 @@ class TestOptionSpecsMirrorTheJsCatalog:
     The store validates a saved layout against these specs, so a bound that
     drifts is worse than one-sided: the customize sheet would offer a value the
     store then refuses with a 422 the client cannot explain. Pinned here rather
-    than restated, exactly as ``hosts`` is.
+    than restated, exactly as the type table is.
     """
 
     def test_the_scrape_finds_the_types_that_declare_options(self):
         """A scrape that silently matched nothing would pass every assertion
         below."""
-        assert set(_catalog_option_specs()) == {"clock", "space", "gap"}
+        assert set(_catalog_option_specs()) == {
+            "clock",
+            "space",
+            "system-health",
+            "bluesky-queue",
+        }
 
     def test_the_option_table_mirrors_the_js_catalog(self):
         assert BAR_ITEM_OPTIONS == _catalog_option_specs()
@@ -521,7 +519,7 @@ class TestOptionSpecsMirrorTheJsCatalog:
     def test_every_other_type_declares_no_options(self):
         """``NO_OPTIONS`` in the catalog is absence here, which
         ``bar_item_vocabulary()`` reads as an empty spec mapping."""
-        assert set(BAR_ITEM_OPTIONS) < set(BAR_ITEM_HOSTS)
+        assert set(BAR_ITEM_OPTIONS) < set(BAR_ITEM_TYPES)
         assert "logo" not in BAR_ITEM_OPTIONS
 
 
@@ -533,22 +531,10 @@ class TestAdoptedNodesArePresentOnEveryDeployment:
         for element_id in _UNIVERSAL_IDS:
             assert _has_id(body, element_id), element_id
 
-    def test_configured_deployment_adds_identity_and_one_dot(self, configured_app):
+    def test_configured_deployment_adds_identity(self, configured_app):
         body = _body(configured_app[1])
         for element_id in (*_UNIVERSAL_IDS, *_IDENTITY_IDS):
             assert _has_id(body, element_id), element_id
-        assert _has_id(body, "ariel-status")
-        assert _has_id(body, "ariel-dot")
-
-    def test_the_dot_ships_hidden_as_an_attribute_never_an_inline_style(self, configured_app):
-        """panel-status-bar.js reveals the dot by clearing the `hidden`
-        attribute, and bar-host.js mirrors that attribute onto the shell. An
-        inline `display: none` would leave the mirror watching an attribute
-        nothing sets — and the dot could never reveal at all."""
-        body = _body(configured_app[1])
-        dot = body[body.index('id="ariel-status"') - 40 : body.index('id="ariel-dot"')]
-        assert " hidden" in dot
-        assert "display: none" not in dot
 
     @pytest.mark.parametrize("fixture", ["plain_app", "configured_app"])
     def test_a_layout_naming_none_of_them_still_resolves_every_one(self, fixture, request):
@@ -560,7 +546,7 @@ class TestAdoptedNodesArePresentOnEveryDeployment:
 
         expected = list(_UNIVERSAL_IDS)
         if fixture == "configured_app":
-            expected += [*_IDENTITY_IDS, "ariel-status", "ariel-dot"]
+            expected += list(_IDENTITY_IDS)
         for element_id in expected:
             assert _has_id(body, element_id), element_id
             assert _has_id(pool, element_id), f"{element_id} is live, not pooled"
@@ -580,13 +566,13 @@ class TestAdoptedNodesArePresentOnEveryDeployment:
         pool = _pool(_body(client))
 
         parked = re.findall(r'<div class="bar-item" data-bar-item="([^"]+)"', pool)
-        expected = ["logo", "search", "display", "activity", "docs"]
+        expected = ["logo", "search", "display", "docs"]
         if fixture == "configured_app":
-            expected += ["identity", "panel-health"]
+            expected += ["identity"]
         assert sorted(parked) == sorted(expected)
         # The bodies sit INSIDE those shells: the first thing in the pool is a
         # shell, never an adopted node.
-        assert pool.index('<div class="bar-item"') < pool.index('id="activity-strip"')
+        assert pool.index('<div class="bar-item"') < pool.index('id="docs-link"')
 
     @pytest.mark.parametrize("fixture", ["plain_app", "configured_app"])
     def test_every_adopted_node_is_rendered_exactly_once(self, fixture, request):
@@ -605,14 +591,23 @@ class TestAdoptedNodesArePresentOnEveryDeployment:
         body = _body(client)
         expected = list(_UNIVERSAL_IDS)
         if fixture == "configured_app":
-            expected += [*_IDENTITY_IDS, "ariel-status", "ariel-dot"]
+            expected += list(_IDENTITY_IDS)
         for element_id in expected:
             assert body.count(f'id="{element_id}"') == 1, element_id
 
     def test_the_pool_element_exists_even_when_it_is_empty(self, plain_app):
         """A pool that appears only when something is missing is a pool every
         reader has to check for before it can use it."""
-        body = _body(plain_app[1])
+        app, client = plain_app
+        # Place every adopted type this deployment renders, so nothing is parked.
+        app.state.bar_layout = {
+            "version": 1,
+            "rev": 1,
+            "header": [{"type": t} for t in ("logo", "search", "display")],
+            "status": [{"type": "docs"}],
+            "status_visible": True,
+        }
+        body = _body(client)
         assert 'id="bar-item-pool"' in body
         assert _pool(body).strip() == ""
 
@@ -638,19 +633,19 @@ class TestNothingIsAddedThatTheDeploymentWouldNotRender:
         assert _has_id(body, "header-identity-trigger")
         assert not _has_id(body, "logout-btn")
         assert not _has_id(body, "display-menu-logout-btn")
+        assert "data-landing-url=" not in body
 
-    def test_no_health_dot_for_a_panel_this_deployment_does_not_serve(self, plain_app):
-        """ARIEL is not enabled here, so its dot is absent rather than dark."""
-        body = _body(plain_app[1])
-        assert not _has_id(body, "ariel-status")
-        assert not _has_id(body, "ariel-dot")
-
-    def test_no_dot_for_a_declaration_the_markup_never_had(self, configured_app):
-        """``channel-finder`` declares a statusBarId in the JS catalog but has
-        never had a node in this document; seeding one would be the pool adding
-        an id the deployment does not render."""
+    def test_the_landing_url_is_stamped_on_html_beside_the_buttons(self, configured_app):
+        """The command palette's Log out reads the landing URL off ``<html>``,
+        so it works with both logout buttons removed from the bars. Stamped
+        under exactly the condition that renders the buttons."""
         body = _body(configured_app[1])
-        assert "channel-finder-status" not in body
+        assert _has_id(body, "logout-btn")
+        assert 'data-landing-url="https://facility.example/portal"' in body
+
+    def test_no_landing_url_on_html_without_a_user(self, plain_app):
+        body = _body(plain_app[1])
+        assert "data-landing-url=" not in body
 
 
 class TestStatusBarStamp:
@@ -683,13 +678,39 @@ class TestStatusBarStamp:
         assert hidden is not bool(stored)
 
 
-#: A saved layout naming the plan queue, which only a deployment running a
-#: Bluesky bridge can render.
-_LAYOUT_WITH_BLUESKY = {
+class TestHeaderBarStamp:
+    """``html[data-header-bar="hidden"]`` — the header goes the same way."""
+
+    def test_absent_while_the_bar_is_shown(self, plain_app):
+        assert "data-header-bar" not in _html_tag(_body(plain_app[1]))
+
+    def test_stamped_when_the_layout_hides_the_bar(self, configured_app):
+        app, client = configured_app
+        app.state.bar_layout = {**DEFAULT_BAR_LAYOUT, "header_visible": False}
+        body = _body(client)
+        assert 'data-header-bar="hidden"' in _html_tag(body)
+        assert "data-status-bar" not in _html_tag(body)
+        # Hidden, not emptied: the items are still rendered, so showing the bar
+        # again is a CSS fact rather than a re-render.
+        assert _shell_types(body, "header") == [
+            item["type"] for item in DEFAULT_BAR_LAYOUT["header"]
+        ]
+
+    @pytest.mark.parametrize("stored", [False, None, 0, "", "false"])
+    def test_the_flag_is_coerced_not_identity_compared(self, plain_app, stored):
+        app, client = plain_app
+        app.state.bar_layout = {**DEFAULT_BAR_LAYOUT, "header_visible": stored}
+        hidden = 'data-header-bar="hidden"' in _html_tag(_body(client))
+        assert hidden is not bool(stored)
+
+
+#: A saved layout naming the identity block, which only a deployment that
+#: knows who is signed in can render.
+_LAYOUT_WITH_IDENTITY = {
     "version": 1,
     "rev": 4,
-    "header": [{"type": "logo"}],
-    "status": [{"type": "bluesky-queue"}, {"type": "clock"}],
+    "header": [{"type": "logo"}, {"type": "identity"}],
+    "status": [{"type": "clock"}],
     "status_visible": True,
 }
 
@@ -744,82 +765,105 @@ class TestDeploymentContextIsServerSupplied:
         assert set(_context(_body(plain_app[1]))) == {
             "identityAvailable",
             "blueskyAvailable",
-            "statusBarIds",
+            "systemHealthAvailable",
         }
 
     def test_a_plain_deployment_stamps_what_it_does_not_have(self, plain_app):
         assert _context(_body(plain_app[1])) == {
             "identityAvailable": False,
             "blueskyAvailable": False,
-            "statusBarIds": [],
+            "systemHealthAvailable": False,
         }
 
-    def test_a_configured_deployment_stamps_its_identity_and_its_dots(self, configured_app):
-        """Truthful in both halves: every stamped id is a dot on the page."""
+    def test_a_configured_deployment_stamps_its_identity_and_its_panel(self, configured_app):
+        """Truthful in both halves: the stamp says what the page renders."""
         body = _body(configured_app[1])
         assert _context(body) == {
             "identityAvailable": True,
             "blueskyAvailable": False,
-            "statusBarIds": ["ariel-status"],
+            "systemHealthAvailable": True,
         }
-        assert _has_id(body, "ariel-dot")
+        assert "system-health" in _shell_types(body, "status")
 
     def test_no_shell_for_an_item_this_deployment_cannot_render(self, plain_app):
-        """The defect this fix is about: availability was consulted for the
-        ADOPTED types only, so a deployment with no bridge still painted a
-        ``bluesky-queue`` shell — an empty box on first paint that the client
-        then took away again."""
+        """An unavailable item is ABSENT, not empty: a single-user deployment
+        paints no ``identity`` shell — an empty box on first paint that the
+        client would only take away again."""
         app, client = plain_app
-        app.state.bar_layout = _LAYOUT_WITH_BLUESKY
-        assert _shell_types(_body(client), "status") == ["clock"]
+        app.state.bar_layout = _LAYOUT_WITH_IDENTITY
+        assert _shell_types(_body(client), "header") == ["logo"]
 
-    def test_the_same_item_renders_once_the_bridge_is_configured(self, plain_app):
-        app, client = plain_app
-        app.state.bluesky_available = True
-        app.state.bar_layout = _LAYOUT_WITH_BLUESKY
+    def test_the_same_item_renders_once_the_deployment_has_an_identity(self, configured_app):
+        app, client = configured_app
+        app.state.bar_layout = _LAYOUT_WITH_IDENTITY
         body = _body(client)
-        assert _shell_types(body, "status") == ["bluesky-queue", "clock"]
-        assert _context(body)["blueskyAvailable"] is True
+        assert _shell_types(body, "header") == ["logo", "identity"]
+        assert _context(body)["identityAvailable"] is True
 
     def test_an_unrenderable_item_is_not_seeded_into_the_pool_either(self, plain_app):
-        """The pool holds the adopted nodes; a JS-built item this deployment
-        cannot render has no node anywhere in the document."""
+        """The pool holds the adopted nodes; an item this deployment cannot
+        render has no node anywhere in the document."""
         app, client = plain_app
-        app.state.bar_layout = _LAYOUT_WITH_BLUESKY
+        app.state.bar_layout = _LAYOUT_WITH_IDENTITY
         body = _body(client)
-        assert 'data-bar-item="bluesky-queue"' not in body
+        assert 'data-bar-item="identity"' not in body
 
-    def test_the_bridge_fact_comes_from_the_deployment_config(self, workspace_dir):
-        """``claude_code.servers.bluesky.enabled`` is the existing opt-in the
-        MCP registry gates the bridge on — no second key for the same fact,
-        and it is read through the persona helper that owns the question."""
+    def test_a_second_copy_of_a_single_node_type_renders_no_shell(self, plain_app):
+        """One node, one home — and no empty box for the copy either. The
+        client's normalizer drops the duplicate, so a shell for it would only
+        be taken away on the first reconcile."""
+        app, client = plain_app
+        app.state.bar_layout = {
+            "version": 1,
+            "rev": 4,
+            "header": [{"type": "logo"}, {"type": "docs"}, {"type": "separator"}],
+            "status": [{"type": "docs"}, {"type": "separator"}, {"type": "clock"}],
+            "status_visible": True,
+        }
+        body = _body(client)
+        assert _shell_types(body, "header") == ["logo", "docs", "separator"]
+        assert _shell_types(body, "status") == ["separator", "clock"]
+        assert body.count('data-bar-item="docs"') == 1
+
+    def test_the_bluesky_fact_is_the_declared_panel(self, workspace_dir):
+        """The plan-queue item reads the queue through the Bluesky panel's
+        proxy, so the panel's declaration (``web.panels.bluesky``) is the one
+        fact it is offered on — the same declaration that is the bridge
+        entitlement, so no second key for the same fact."""
+        cfg, panels, launch, env = _build_app(
+            workspace_dir,
+            custom_panels=[{"id": "bluesky", "label": "BLUESKY", "url": "http://bluesky-web:8080"}],
+        )
+        with cfg, panels, launch, env:
+            app = create_app(shell_command="echo")
+            with TestClient(app) as client:
+                assert app.state.bluesky_available is True
+                assert _context(_body(client))["blueskyAvailable"] is True
+
+    def test_the_plan_queue_renders_where_the_panel_is_declared(self, workspace_dir):
+        """An available, JS-built item gets its shell on first paint; the
+        same layout on a deployment without the panel paints no shell."""
+        layout = {
+            "version": BAR_LAYOUT_VERSION,
+            "rev": 7,
+            "header": [{"type": "logo"}],
+            "status": [{"type": "bluesky-queue"}, {"type": "clock"}],
+            "status_visible": True,
+        }
+        cfg, panels, launch, env = _build_app(
+            workspace_dir, custom_panels=[{"id": "bluesky", "url": "http://bluesky-web:8080"}]
+        )
+        with cfg, panels, launch, env:
+            app = create_app(shell_command="echo")
+            with TestClient(app) as client:
+                app.state.bar_layout = layout
+                assert _shell_types(_body(client), "status") == ["bluesky-queue", "clock"]
         cfg, panels, launch, env = _build_app(workspace_dir)
         with cfg, panels, launch, env:
-            with patch(
-                "osprey.utils.workspace.load_osprey_config",
-                return_value={"claude_code": {"servers": {"bluesky": {"enabled": True}}}},
-            ):
-                app = create_app(shell_command="echo")
-                with TestClient(app) as client:
-                    assert app.state.bluesky_available is True
-                    assert _context(_body(client))["blueskyAvailable"] is True
-
-    def test_the_stamped_dot_ids_are_ones_the_client_can_accept(self):
-        """The one availability fact whose two mirrors are NOT the same table.
-
-        The server stamps the ids of the dots it renders (from
-        ``_PANEL_STATUS_BAR_ITEMS``); ``bar-catalog.js`` answers
-        ``available()`` against its own closed set, derived from
-        ``panel-catalog.js``'s ``statusBarId`` declarations. Stamping an id
-        outside that set would render the shell, have the client refuse the
-        entry, and latch the stored layout read-only — saving dead for the
-        session, which is the failure this whole task exists to close. The
-        subset relation is what keeps that impossible.
-        """
-        source = (STATIC_DIR / "js" / "panel-catalog.js").read_text()
-        declared = set(re.findall(r"statusBarId:\s*'([^']+)'", source))
-        assert declared, "could not read the panel catalog's status-bar ids"
-        assert set(PANEL_HEALTH_STATUS_BAR_IDS) <= declared
+            app = create_app(shell_command="echo")
+            with TestClient(app) as client:
+                app.state.bar_layout = layout
+                assert _shell_types(_body(client), "status") == ["clock"]
 
     def test_the_availability_table_mirrors_the_js_catalog(self):
         """The server's copy of ``available()`` exists because it renders
@@ -844,7 +888,7 @@ class TestDeploymentContextIsServerSupplied:
         expected = {
             "identity": {"identityAvailable"},
             "bluesky-queue": {"blueskyAvailable"},
-            "panel-health": {"statusBarIds"},
+            "system-health": {"systemHealthAvailable"},
         }
         assert set(expected) == set(BAR_ITEM_AVAILABILITY), "a gated type grew or vanished"
         for item_type, keys in expected.items():

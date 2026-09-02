@@ -9,11 +9,11 @@
     storage sites read this attribute and never parse the URL. Its absence
     means single-user: keys stay unscoped, exactly as they were. Never emit
     it empty. See resolve_storage_scope() in app.py. -#}
-{#- data-status-bar is present ONLY as "hidden", when the effective bar layout
-    hides the status bar. It is stamped here, with the other pre-paint layout
-    facts, because it changes .shell-body's height: a page that learned it from
-    JS would paint a 26px bar and then reflow the whole shell under it on every
-    single load. Absence means the bar is shown. -#}
+{#- data-header-bar / data-status-bar are present ONLY as "hidden", when the
+    effective bar layout hides that bar. They are stamped here, with the other
+    pre-paint layout facts, because each changes .shell-body's height: a page
+    that learned it from JS would paint the bar and then reflow the whole shell
+    under it on every single load. Absence means the bar is shown. -#}
 {#- data-bar-context is what this deployment OFFERS, in the vocabulary
     bar-catalog.js's available(ctx) predicates ask in — always present, and the
     only place the browser learns these facts. bar-sync.js reads it and hands
@@ -23,7 +23,7 @@
     stored layout read-only for the session. JSON in an attribute, exactly as
     the shells carry data-bar-options; SINGLE-quoted because Jinja's tojson
     escapes ' (and < > &) but leaves " alone. -#}
-<html lang="en" data-bar-context='{{ bar_context|tojson }}' data-theme="{{ web_theme_id }}"{% if web_theme_mode %} data-theme-mode="{{ web_theme_mode }}"{% endif %} data-ui-mode="{{ web_ui_mode }}" data-rail-position="{{ web_rail_position }}"{% if storage_scope %} data-osprey-storage-scope="{{ storage_scope }}"{% endif %}{% if not bar_status_visible %} data-status-bar="hidden"{% endif %}>
+<html lang="en" data-bar-context='{{ bar_context|tojson }}' data-theme="{{ web_theme_id }}"{% if web_theme_mode %} data-theme-mode="{{ web_theme_mode }}"{% endif %} data-ui-mode="{{ web_ui_mode }}" data-rail-position="{{ web_rail_position }}"{% if storage_scope %} data-osprey-storage-scope="{{ storage_scope }}"{% endif %}{% if not bar_header_visible %} data-header-bar="hidden"{% endif %}{% if not bar_status_visible %} data-status-bar="hidden"{% endif %}{% if terminal_user and landing_url %} data-landing-url="{{ landing_url }}"{% endif %}>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -105,7 +105,6 @@
   <link rel="stylesheet" href="{{ prefixed('/static/css/feedback-modal.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/sessions.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/settings.css') }}">
-  <link rel="stylesheet" href="{{ prefixed('/static/css/activity-strip.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/tour.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/10-prompt-gallery.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/20-memory-gallery.css') }}">
@@ -120,10 +119,10 @@
     bodies are built by JS, keyed by type, so the same code runs at first paint
     and when the operator drags the item in later.
 
-    These seven are the exception. Every one of them is resolved BY ID by some
-    other module — #activity-strip, #docs-link, #command-palette-btn,
-    #display-menu-settings, #logout-btn, the identity trigger and menu, the
-    panel health dots — so they are rendered on EVERY request whichever way the
+    These five are the exception. Every one of them is resolved BY ID by some
+    other module — #docs-link, #command-palette-btn, #display-menu-settings,
+    #logout-btn, the identity trigger and menu — so they are rendered on
+    EVERY request whichever way the
     layout falls: into their shell when the layout places them, into
     #bar-item-pool at the end of this document when it does not. A removed item
     must never make an id go dark; the module looking it up cannot tell "the
@@ -151,9 +150,10 @@
           to open, so it stays the plain label it has always been.
 
           The popover is rendered here rather than built on demand: `#logout-btn`
-          is looked up BY ID by app.js's initLogoutButton() and by
-          palette-boot.js's "Log out" command, so it has to be in the DOM while
-          the menu is closed. Hidden by CSS, not by absence. -#}
+          is looked up BY ID by app.js's initLogoutButton(), so it has to be in
+          the DOM while the menu is closed. Hidden by CSS, not by absence. The
+          command palette's Log out does not go through this button: it reads
+          `data-landing-url` off <html>, so it works with this item removed. -#}
       {% if terminal_user %}
       <div class="header-identity">
         <button class="header-deployment header-identity-trigger" id="header-identity-trigger"
@@ -226,10 +226,10 @@
              Log out lives in BOTH places — the identity chip is where
              operators reach for it (the name in the corner reads as "who am
              I"), while this row keeps the way out discoverable from the card
-             they already have open. The chip's copy owns `#logout-btn`
-             (app.js's initLogoutButton() and palette-boot.js both resolve
-             that id), so this one carries its own id; initLogoutButton()
-             binds both. Deliberately NOT closed by the component: every path
+             they already have open. The chip's copy owns `#logout-btn`, so
+             this one carries its own id; app.js's initLogoutButton() binds
+             both to logout.js's flow, which the command palette runs on its
+             own from `data-landing-url` on <html>. Deliberately NOT closed by the component: every path
              out of that handler navigates away, and closing the card first
              would hide the button's own aria-busy state while the POST is
              still in flight. -->
@@ -247,14 +247,6 @@
           </button>
           {% endif %}
         </osprey-display-menu>
-{%- elif type == 'activity' -%}
-        <!-- Agent activity strip: most recent agent action ("agent wrote …").
-             Populated by activity-strip.js via panel-manager's
-             setActivityStripHandler seam, which finds it by id. The item is
-             the one that absorbs its bar's spare room (the catalog's flex
-             hint), so entries appear inside reserved space rather than
-             shifting whatever sits after them. -->
-        <div class="status-activity" id="activity-strip" role="status" aria-live="polite"></div>
 {%- elif type == 'docs' -%}
         <!-- Same destination as the rail's Documentation control, under the
              same rule and in the same shape: href-less and hidden until boot
@@ -265,25 +257,6 @@
              display:flex would otherwise beat the user-agent [hidden] rule. -->
         <a class="status-item status-link" id="docs-link"
            target="_blank" rel="noopener" hidden>Docs</a>
-{%- elif type == 'panel-health' -%}
-        {#- One dot per ENABLED built-in panel that declares a status-bar id
-            (app.py's panel_health_dots(), the Python mirror of panel-catalog.js's
-            statusBarId). A disabled panel has no dot at all rather than a grey
-            one: panel-status-bar.js reveals a dot only once that panel's config
-            has loaded, so a dot for a panel this deployment does not serve
-            could only ever sit dark forever.
-
-            Ships `hidden`, the ATTRIBUTE — never an inline display style.
-            panel-status-bar.js clears the attribute to reveal the dot, and
-            bar-host.js mirrors that same attribute onto the surrounding shell
-            so a dot that never reveals costs the bar no shell and no gap. An
-            inline `display: none` would leave the mirror watching an attribute
-            nothing sets, and the dot could never appear at all. Same contract
-            the docs link follows; `.status-item[hidden]` in files.css is what
-            makes it beat that class's display:flex. -#}
-        {% for dot in panel_health_dots %}<div class="status-item" id="{{ dot.id }}" hidden>
-          <span class="status-dot" id="{{ dot.dot_id }}"></span><span>{{ dot.label }}</span>
-        </div>{% endfor %}
 {%- endif -%}
 {%- endmacro %}
 
@@ -298,7 +271,9 @@
        dragged in at runtime carries the same attribute and therefore the same
        rules. Plus `data-follows`, naming the preceding item's type — the one
        thing a bar item is allowed to know about its neighbours, and the reason
-       no rule in bars.css uses a sibling combinator. -->
+       no rule in bars.css uses a sibling combinator.
+       Hidden by html[data-header-bar="hidden"], stamped on <html> above, the
+       same way the status bar is. -->
   <header class="header">
     <div class="header-actions" data-bar-host="header">
       {%- for item in bar_header %}
@@ -429,7 +404,7 @@
   <!-- Status bar — the second bar-item host. It holds its items directly
        rather than through wrappers: the old .status-left / .status-right
        groups (and the space-between that spread them to the two edges) are
-       gone, so every item sits on the bar's one uniform gap and the `activity`
+       gone, so every item sits on the bar's one uniform gap and a `space`
        item is what pushes the trailing items right — spacing an operator can
        see and move, instead of a layout mode they cannot.
        Hidden by html[data-status-bar="hidden"], stamped on <html> above, so
@@ -563,10 +538,6 @@
 
   <!-- App entry point -->
   <script type="module" src="{{ prefixed('/static/js/app.js') }}"></script>
-
-  <!-- Activity strip: self-registering module (like osprey-theme-switcher);
-       binds #activity-strip above to panel-manager's activity seam. -->
-  <script type="module" src="{{ prefixed('/static/js/activity-strip.js') }}"></script>
 
   <!-- Onboarding tour (replaces the one-time rail hint): self-registering
        module; invite card + spotlighted steps over the live shell. -->

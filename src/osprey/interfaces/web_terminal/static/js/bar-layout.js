@@ -4,13 +4,14 @@
  * server, a config file or an older build hands us into a document this build
  * can render:
  *
- *   {version, rev, header[], status[], status_visible}
+ *   {version, rev, header[], status[], header_visible, status_visible}
  *
  * `normalize()` is the whole contract. It never throws and always returns a
  * valid document, because every input it sees is untrusted: a saved layout
  * written by a NEWER deployment, a hand-edited config block, a half-written
  * file. Items it cannot honour are dropped silently — unknown types, types the
- * host cannot render, items this deployment has no body for, and anything past
+ * host cannot render, items this deployment has no body for, a second copy of
+ * a type the catalog marks single (`multi: false`), and anything past
  * `MAX_ITEMS_PER_HOST`.
  *
  * Silence is safe only because the result says what happened. Dropping is
@@ -21,20 +22,14 @@
  * client must render what it got, offer no Customize entry, and issue ZERO
  * PUTs until the user explicitly resets. `changed` answers the weaker question
  * — is this document byte-identical to the input — and is true for lossless
- * completions too, such as an option arriving with its declared default.
- *
- * `merge()` is the second half of the contract: a user document says what the
- * user arranged, and a LOCKED item is one they were never allowed to remove.
- * Merge puts back the locked items a document is missing — at the index the
- * deployment default gives them — and touches nothing else.
- *
- * `PRESETS` is the stock arrangements the customize sheet offers. They are
- * plain documents, so applying one is the same operation as any other edit.
+ * completions too, such as an option arriving with its declared default. A
+ * dropped DUPLICATE is on the lossless side: a second copy of a single-node
+ * item never rendered anything, so removing it takes nothing away.
  *
  * Pure: no DOM, no storage, no network, and no runtime dependency on the
  * catalog either. The catalog is a PARAMETER, so this module can be exercised
  * against a fixture catalog and cannot drift into holding item knowledge of
- * its own — including which types are locked, which `merge()` is TOLD.
+ * its own.
  */
 
 /** @typedef {import('./bar-catalog.js').BarHost} BarHost */
@@ -63,13 +58,14 @@
 
 /**
  * The schema-v1 document. `rev` is the server's monotonic revision (0 for a
- * document that has never been saved); `status_visible` hides the status bar
- * without emptying it.
+ * document that has never been saved); `header_visible` and `status_visible`
+ * hide a bar without emptying it.
  * @typedef {object} BarLayout
  * @property {number} version
  * @property {number} rev
  * @property {readonly BarLayoutItem[]} header
  * @property {readonly BarLayoutItem[]} status
+ * @property {boolean} header_visible
  * @property {boolean} status_visible
  */
 
@@ -80,18 +76,7 @@
  * @property {BarHost} host
  * @property {number} index
  * @property {string} type - '' when the entry carried no readable type
- * @property {'malformed' | 'unknown-type' | 'host-mismatch' | 'unavailable' | 'overflow'} reason
- */
-
-/**
- * One stock arrangement offered by the customize sheet. `layout` is an ordinary
- * document at `rev: 0` — applying a preset is an edit like any other, so it
- * goes through the same normalize/merge/PUT path a drag does.
- * @typedef {object} BarPreset
- * @property {string} id
- * @property {string} label - the sheet's button text
- * @property {string} description - one line, what the arrangement is for
- * @property {BarLayout} layout
+ * @property {'malformed' | 'unknown-type' | 'unavailable' | 'duplicate' | 'overflow'} reason
  */
 
 /**
@@ -132,6 +117,7 @@ export function emptyLayout() {
     rev: 0,
     header: [],
     status: [],
+    header_visible: true,
     status_visible: true,
   });
 }
@@ -150,75 +136,6 @@ export function normalize(raw, catalog, ctx = {}) {
   // build cannot claim to understand the content, so it must not overwrite it.
   if (!doc || doc.version !== BAR_LAYOUT_VERSION) return fallback(catalog, ctx);
   return normalizeDocument(doc, catalog, ctx, false);
-}
-
-/**
- * Put back the locked items a user document is missing.
- *
- * Locked means movable, never removable — so a document that lacks one is not
- * a user preference to be honoured but a document that predates the lock, or
- * came from a deployment that did not have it. The missing item returns at the
- * index the DEFAULT gives it, which is the only opinion about placement anyone
- * has; everything the user did arrange keeps its order and its options.
- *
- * Presence is asked of the WHOLE document, not one host: a locked item the user
- * moved to the other bar is still present, and re-inserting it in its default
- * host would silently duplicate it. Locked types the default never places are
- * not invented — there is no index to place them at.
- *
- * Which types are locked is the CALLER's to state: it unions the catalog's own
- * locked types with the deployment's `web.bar_items.locked`, so a deployment
- * can lock more without this module learning any item names.
- *
- * Pure and idempotent: `merge(d, merge(d, u, l), l)` is `merge(d, u, l)`.
- *
- * @param {BarLayout} defaultLayout - the deployment default; the source of both
- *   the restored items and their indices
- * @param {BarLayout} userLayout - a NORMALIZED user document
- * @param {readonly string[]} [locked] - every type this deployment locks
- * @returns {BarLayout}
- */
-export function merge(defaultLayout, userLayout, locked = []) {
-  const lockedTypes = new Set(locked);
-  const present = new Set(
-    [...userLayout.header, ...userLayout.status].map((entry) => entry.type)
-  );
-  return freezeLayout({
-    version: BAR_LAYOUT_VERSION,
-    rev: userLayout.rev,
-    header: restoreLocked(defaultLayout.header, userLayout.header, lockedTypes, present),
-    status: restoreLocked(defaultLayout.status, userLayout.status, lockedTypes, present),
-    status_visible: userLayout.status_visible,
-  });
-}
-
-/**
- * One host's list with its missing locked items spliced back in.
- *
- * Insertion walks the default in order and places each missing item at its own
- * default index, clamped to the current length, so a run of restored items
- * lands in default-relative order around whatever the user kept. `present` is
- * shared across both hosts and grows as items are restored — a type restored
- * into the header is not restored into the status bar too.
- *
- * The result is capped exactly as `normalizeHost` caps: the tail goes. Without
- * that, restoring an item into a full bar would hand back a document whose next
- * normalization drops something and turns the layout read-only.
- *
- * @param {readonly BarLayoutItem[]} defaults
- * @param {readonly BarLayoutItem[]} userItems
- * @param {ReadonlySet<string>} lockedTypes
- * @param {Set<string>} present - types already placed anywhere in the document
- * @returns {BarLayoutItem[]}
- */
-function restoreLocked(defaults, userItems, lockedTypes, present) {
-  const items = [...userItems];
-  defaults.forEach((entry, index) => {
-    if (!lockedTypes.has(entry.type) || present.has(entry.type)) return;
-    items.splice(Math.min(index, items.length), 0, entry);
-    present.add(entry.type);
-  });
-  return items.slice(0, MAX_ITEMS_PER_HOST);
 }
 
 /**
@@ -245,13 +162,19 @@ function fallback(catalog, ctx) {
  * @returns {BarLayoutResult}
  */
 function normalizeDocument(doc, catalog, ctx, isDefault) {
-  const header = normalizeHost(doc.header, 'header', catalog, ctx);
-  const status = normalizeHost(doc.status, 'status', catalog, ctx);
+  // Single-node types are counted across the WHOLE document, header first:
+  // a second `docs` in the status bar is a duplicate of the one in the header.
+  /** @type {Set<string>} */
+  const seen = new Set();
+  const header = normalizeHost(doc.header, 'header', catalog, ctx, seen);
+  const status = normalizeHost(doc.status, 'status', catalog, ctx, seen);
 
   const rev = isDefault ? 0 : asRev(doc.rev);
   const revChanged = !isDefault && rev !== doc.rev;
+  const headerVisible = typeof doc.header_visible === 'boolean' ? doc.header_visible : true;
   const statusVisible = typeof doc.status_visible === 'boolean' ? doc.status_visible : true;
-  const visibleChanged = typeof doc.status_visible !== 'boolean';
+  const visibleChanged =
+    typeof doc.header_visible !== 'boolean' || typeof doc.status_visible !== 'boolean';
 
   return {
     layout: freezeLayout({
@@ -259,6 +182,7 @@ function normalizeDocument(doc, catalog, ctx, isDefault) {
       rev,
       header: header.items,
       status: status.items,
+      header_visible: headerVisible,
       status_visible: statusVisible,
     }),
     changed: header.changed || status.changed || revChanged || visibleChanged,
@@ -275,9 +199,10 @@ function normalizeDocument(doc, catalog, ctx, isDefault) {
  * @param {BarHost} host
  * @param {BarCatalog} catalog
  * @param {BarLayoutContext} ctx
+ * @param {Set<string>} seen - single-node types already placed in this document
  * @returns {HostResult}
  */
-function normalizeHost(rawList, host, catalog, ctx) {
+function normalizeHost(rawList, host, catalog, ctx, seen) {
   /** @type {BarLayoutItem[]} */
   const items = [];
   /** @type {BarLayoutDrop[]} */
@@ -293,11 +218,12 @@ function normalizeHost(rawList, host, catalog, ctx) {
   rawList.forEach((entry, index) => {
     const raw = asRecord(entry);
     const type = raw && typeof raw.type === 'string' ? raw.type : '';
-    const reason = refuse(raw, type, host, catalog, hostCtx, items.length);
+    const reason = refuse(raw, type, catalog, hostCtx, items.length, seen);
     if (reason) {
       dropped.push({ host, index, type, reason });
       return;
     }
+    if (!catalog[type].multi) seen.add(type);
     const options = normalizeOptions(raw?.options, catalog[type]);
     if (options.changed) changed = true;
     if (options.lossy) lossy = true;
@@ -307,31 +233,30 @@ function normalizeHost(rawList, host, catalog, ctx) {
   return {
     items,
     changed: changed || dropped.length > 0,
-    lossy: lossy || dropped.length > 0,
+    lossy: lossy || dropped.some((drop) => drop.reason !== 'duplicate'),
     dropped,
   };
 }
 
 /**
  * Why this entry cannot be placed, or null when it can. The order matters: a
- * type must be known before its hosts can be asked, and the cap is checked LAST
- * so a rejected entry never consumes a slot a good one could have used.
+ * type must be known before its availability can be asked, and the cap is
+ * checked LAST so a rejected entry never consumes a slot a good one could have
+ * used. Either bar may hold any known type — there is no placement axis.
  * @param {Record<string, unknown> | null} raw
  * @param {string} type
- * @param {BarHost} host
  * @param {BarCatalog} catalog
  * @param {BarCatalogContext} hostCtx
  * @param {number} kept - how many items already survived in this host
+ * @param {ReadonlySet<string>} seen - single-node types already placed
  * @returns {BarLayoutDrop['reason'] | null}
  */
-function refuse(raw, type, host, catalog, hostCtx, kept) {
+function refuse(raw, type, catalog, hostCtx, kept, seen) {
   if (!raw || !type) return 'malformed';
   if (!hasOwn(catalog, type)) return 'unknown-type';
   const entry = catalog[type];
-  // `hosts` is a hard capability: a header-only body cannot render in a 26 px
-  // status bar, so a status placement is refused rather than re-homed.
-  if (!entry.hosts.includes(host)) return 'host-mismatch';
   if (!entry.available(hostCtx)) return 'unavailable';
+  if (seen.has(type)) return 'duplicate';
   if (kept >= MAX_ITEMS_PER_HOST) return 'overflow';
   return null;
 }
@@ -428,7 +353,8 @@ function hasOwn(target, key) {
  * Freeze a document through its items, so a consumer that mutates what it was
  * handed fails loudly instead of corrupting the next comparison.
  * @param {{version: number, rev: number, header: BarLayoutItem[],
- *          status: BarLayoutItem[], status_visible: boolean}} layout
+ *          status: BarLayoutItem[], header_visible: boolean,
+ *          status_visible: boolean}} layout
  * @returns {BarLayout}
  */
 function freezeLayout(layout) {
@@ -446,123 +372,3 @@ function freezeLayout(layout) {
 function freezeItem(item) {
   return Object.freeze({ type: item.type, options: Object.freeze(item.options) });
 }
-
-// --- Presets -----------------------------------------------------------------
-//
-// Stock arrangements for the customize sheet. Each is a complete document, with
-// every option written out at the value the catalog declares as its default, so
-// a preset normalizes CLEAN — a preset that arrived `changed` would make a fresh
-// user document look edited, and one that arrived `readonly` could not be
-// applied at all. That is the property the suite pins.
-//
-// The item names live here as data, not as knowledge: nothing in this module
-// reads them, and a deployment whose catalog lacks one of these types simply
-// normalizes it away, exactly as it does for a saved layout.
-
-/**
- * One placed item at its declared options.
- * @param {string} type
- * @param {Record<string, string | number | boolean>} [options]
- * @returns {BarLayoutItem}
- */
-function presetItem(type, options = {}) {
-  return { type, options };
-}
-
-/**
- * @param {string} id
- * @param {string} label
- * @param {string} description
- * @param {BarLayoutItem[]} header
- * @param {BarLayoutItem[]} status
- * @returns {BarPreset}
- */
-function preset(id, label, description, header, status) {
-  return Object.freeze({
-    id,
-    label,
-    description,
-    layout: freezeLayout({
-      version: BAR_LAYOUT_VERSION,
-      rev: 0,
-      header,
-      status,
-      status_visible: true,
-    }),
-  });
-}
-
-/**
- * The header every preset ships: the four locked items, the command palette and
- * the display menu, with a flexible space holding the wordmark and the identity
- * text apart from the action cluster. Every preset carries all four locked ids,
- * so applying one never depends on `merge()` to repair it.
- * @returns {BarLayoutItem[]}
- */
-function standardHeader() {
-  return [
-    presetItem('logo'),
-    presetItem('identity'),
-    presetItem('space', { share: 1 }),
-    presetItem('control-target'),
-    presetItem('search'),
-    presetItem('display'),
-  ];
-}
-
-/**
- * The arrangements the sheet offers, in the order it renders them.
- *
- * `full` is the status bar as it stood before the bars became item hosts;
- * `clean` is the shipped deployment default — activity stretching across to a
- * right-hand cluster of documentation, the panel dots and the clock, with the
- * connection dot and the terminal size available but not placed. `minimal`
- * strips back to the locked chrome plus what an unattended screen needs.
- *
- * There is no "deployment default" preset: resetting to the deployment's own
- * layout is a DELETE, not a document the client can hold, since a deployment
- * may have configured something none of these describe.
- *
- * @type {readonly BarPreset[]}
- */
-export const PRESETS = Object.freeze([
-  preset(
-    'clean',
-    'Clean',
-    'Activity across the bar, with documentation, panel health and the clock at the right.',
-    standardHeader(),
-    [
-      presetItem('activity'),
-      presetItem('panel-health'),
-      presetItem('docs'),
-      presetItem('clock', { zone: 'local', seconds: false }),
-    ]
-  ),
-  preset(
-    'full',
-    'Everything',
-    'Adds the connection dot and the terminal size to the clean status bar.',
-    standardHeader(),
-    [
-      presetItem('connection'),
-      presetItem('panel-health'),
-      presetItem('terminal-size'),
-      presetItem('activity'),
-      presetItem('docs'),
-      presetItem('clock', { zone: 'local', seconds: false }),
-    ]
-  ),
-  preset(
-    'minimal',
-    'Minimal',
-    'The chrome that cannot be removed, plus activity and the clock.',
-    [
-      presetItem('logo'),
-      presetItem('identity'),
-      presetItem('space', { share: 1 }),
-      presetItem('control-target'),
-      presetItem('display'),
-    ],
-    [presetItem('activity'), presetItem('clock', { zone: 'local', seconds: false })]
-  ),
-]);

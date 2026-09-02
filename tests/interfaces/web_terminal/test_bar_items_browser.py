@@ -20,34 +20,36 @@ Coverage (one test each):
   (b) a drag inside one bar reorders it — the permutation case, which
       ``dropRefusal`` deliberately exempts from the full refusal ladder.
   (c) a drag across the two bars moves the item, leaving the source bar. Both
-      directions, including into a bar whose last item is locked — the one that
-      caught edit mode's decoration reporting crowding the bar did not have.
+      directions, including into a bar whose last item never folds — the one
+      that caught edit mode's decoration reporting crowding the bar did not have.
   (d) a drag that releases over NEITHER bar removes the item.
   (e) the arrangement survives a reload — it is stored server-side (``PUT
       /api/bar-items``), not in the tab, so the second paint is server-rendered
       from the same document.
-  (f) a locked item released outside the bars is a NAMED no-op: it stays, and
-      the sheet says why.
-  (g) a header-only type is refused by the status bar with the reason on the
-      sheet, and a type this deployment cannot render is a disabled tile
-      carrying its reason.
+  (f) no item is exempt from (d): the wordmark released outside the bars is
+      removed like any other.
+  (g) a header item dragged onto the status bar moves there — every type may
+      sit in either bar — and a type this deployment cannot render is a
+      disabled tile carrying its reason.
   (h) Simple mode renders the same saved arrangement and offers NO way into
       edit mode — no right-click menu, no display-menu row, no palette action —
       each absence paired with its presence in Expert on a cold page, because
       an entry point that mounts in neither mode reads the same as a gated one.
   (i) a header packed to the per-host cap with max-width gaps does not
-      overflow a 1024 px viewport, the locked chrome stays on screen, and the
+      overflow a 1024 px viewport, the header chrome stays on screen, and the
       run's non-shrinking content leaves a stated margin rather than merely
       fitting. This is the declared ``flex`` hints doing the work, not a JS
       ladder rung.
-  (j) the three status readouts are LIVE on a real page: the connection dot's
-      class agrees with the state it names, the terminal size reads ``NN×NN``
-      once xterm has fitted, and the clock reads ``HH:MM``.
+  (j) the clock is LIVE on a real page: it reads ``HH:MM`` through the real
+      boot path, not a hand-driven builder.
   (k) a deployment with no identity block paints no separator after the
       wordmark — the ``[data-follows]`` middot is keyed on the identity item,
       so a spacer inheriting the logo's follower slot must stay bare.
-  (l) "Reset to default" discards the stored document (``DELETE``), the file
+  (l) the "Default" preset discards the stored document (``DELETE``), the file
       leaves the store, and the bars come back as the deployment renders them.
+  (m) a hidden header comes back from the terminal tile header's right-click
+      menu -- the header has no surface of its own to right-click once hidden,
+      so the tile headers carry the way back, and the restore is stored.
 
 Fixtures follow ``test_osprey_drawer.py``'s ``_launch_web_terminal`` — a real
 uvicorn web_terminal on a free port with the companion-backend spawns patched
@@ -118,11 +120,6 @@ DISPLAY_MENU_CARD = "#display-menu .display-menu-card"
 
 VIEWPORT = {"width": 1280, "height": 800}
 NARROW_VIEWPORT = {"width": 1024, "height": 768}
-
-#: The sentence a locked item answers a removal with, spelled here rather than
-#: imported: it is user-visible copy, and a test that read it from the module it
-#: is checking would pass whatever the module said.
-LOCKED_NOTE = "Locked by the deployment"
 
 #: How much of a packed bar must still be free of NON-SHRINKING content. The
 #: overflow test measures a real margin rather than just "it fits", because it
@@ -201,6 +198,7 @@ def _seed_layout(
     *,
     header: list[str | dict],
     status: list[str | dict],
+    header_visible: bool = True,
     status_visible: bool = True,
 ) -> dict:
     """Store an arrangement through the real route, before the page is opened.
@@ -215,6 +213,7 @@ def _seed_layout(
         "rev": 0,
         "header": _items(header),
         "status": _items(status),
+        "header_visible": header_visible,
         "status_visible": status_visible,
     }
     response = requests.put(f"{base_url}/api/bar-items", json=body, timeout=10)
@@ -362,36 +361,36 @@ def test_a_tile_dragged_from_the_sheet_lands_where_it_was_dropped(tmp_path, chro
 def test_a_drag_inside_one_bar_reorders_it(tmp_path, chromium_browser):
     """A reorder is a permutation, and a full bar must still accept one.
 
-    The seeded status bar holds three fixed-width readouts (no ``activity``,
-    which stretches and would make the midpoint arithmetic depend on the
-    viewport). The rightmost is dragged onto the left half of the leftmost.
+    The seeded status bar holds three fixed-width items (no ``space``, which
+    stretches and would make the midpoint arithmetic depend on the viewport).
+    The rightmost is dragged onto the left half of the leftmost.
     """
     with _launch_web_terminal(tmp_path) as (base_url, _app):
         _seed_layout(
             base_url,
             header=["logo", "space", "display"],
-            status=["clock", "terminal-size", "connection"],
+            status=["clock", "stopwatch", "feedback"],
         )
         page = _open(chromium_browser, base_url)
-        assert _types(page, "status") == ["clock", "terminal-size", "connection"]
+        assert _types(page, "status") == ["clock", "stopwatch", "feedback"]
         _enter_edit_mode(page)
 
-        connection = _shell(page, "status", "connection")
+        feedback = _shell(page, "status", "feedback")
         clock_box = _shell(page, "status", "clock").bounding_box()
         assert clock_box is not None
         _drag(
             page,
-            _center(connection),
+            _center(feedback),
             (clock_box["x"] + 2, clock_box["y"] + clock_box["height"] / 2),
         )
 
         expect(page.locator(f"{STATUS_HOST} > .bar-item")).to_have_count(3)
         page.wait_for_function(
             "() => document.querySelector('[data-bar-host=\"status\"] > .bar-item')"
-            "?.dataset.barItem === 'connection'",
+            "?.dataset.barItem === 'feedback'",
             timeout=5_000,
         )
-        assert _types(page, "status") == ["connection", "clock", "terminal-size"]
+        assert _types(page, "status") == ["feedback", "clock", "stopwatch"]
 
         page.close()
 
@@ -436,7 +435,8 @@ def test_an_item_dropped_into_the_header_is_not_folded_away(tmp_path, chromium_b
     """An item dropped into a bar stays in that bar.
 
     The mirror of the test above, and the direction that exposes the crowding
-    probe: the header ends in a locked item, the status bar does not. Asserted
+    probe: the header ends in an item that never folds, the status bar does
+    not. Asserted
     twice over — the bar must not report crowding it does not have, and the
     dropped item must be on screen rather than parked in the pool behind the
     overflow trigger.
@@ -524,15 +524,16 @@ def test_the_arrangement_survives_a_reload(tmp_path, chromium_browser, store_dir
 
 
 # ---------------------------------------------------------------------------
-# (f) a locked item cannot be dragged out
+# (f) no item is exempt from removal
 # ---------------------------------------------------------------------------
 
 
-def test_a_locked_item_dropped_outside_is_a_named_no_op(tmp_path, chromium_browser):
-    """Locked means movable, never removable — and the refusal is spoken.
+def test_the_wordmark_dropped_outside_is_removed_like_any_item(tmp_path, chromium_browser):
+    """Nothing in the bars is locked: the wordmark goes the way the clock does.
 
-    A gesture that silently did nothing would read as a broken drag, so the
-    sheet carries the sentence and the item stays exactly where it was.
+    The terminal depends on no bar item being present — the command palette
+    still reaches Customize, Settings, the mode switch and Log out without the
+    header items — so there is no item the operator may not remove.
     """
     with _launch_web_terminal(tmp_path) as (base_url, _app):
         _seed_layout(base_url, header=["logo", "space", "display"], status=["clock"])
@@ -541,8 +542,8 @@ def test_a_locked_item_dropped_outside_is_a_named_no_op(tmp_path, chromium_brows
 
         _drag(page, _center(_shell(page, "header", "logo")), _outside_the_bars(page))
 
-        expect(page.locator(SHEET_NOTICE)).to_have_text(LOCKED_NOTE, timeout=5_000)
-        assert _types(page, "header") == ["logo", "space", "display"]
+        expect(_shell(page, "header", "logo")).to_have_count(0, timeout=5_000)
+        assert _types(page, "header") == ["space", "display"]
 
         page.close()
 
@@ -552,16 +553,14 @@ def test_a_locked_item_dropped_outside_is_a_named_no_op(tmp_path, chromium_brows
 # ---------------------------------------------------------------------------
 
 
-def test_a_header_only_type_is_refused_by_the_status_bar(tmp_path, chromium_browser):
-    """Two refusals, both stated rather than silent.
+def test_a_header_item_moves_to_the_status_bar(tmp_path, chromium_browser):
+    """One move and one refusal, the refusal stated rather than silent.
 
-    Dragging a header-only item down onto the footer names the host it belongs
-    to and moves nothing; a type this deployment cannot render is a DISABLED
-    tile wearing the reason, so the operator reads it without a gesture at all.
-
-    The gesture is a placed ITEM rather than a sheet tile: a refused tile is
-    disabled and cannot be dragged at all, so a placed item is the only way to
-    make a drop that is refused for its HOST rather than for its type.
+    Dragging the search trigger down onto the footer moves it there and it
+    keeps working: every type may sit in either bar (this drop used to be
+    refused as "Header only"). A type this deployment cannot render is a
+    DISABLED tile wearing the reason, so the operator reads it without a
+    gesture at all.
     """
     with _launch_web_terminal(tmp_path) as (base_url, _app):
         _seed_layout(base_url, header=["logo", "search", "space", "display"], status=["clock"])
@@ -576,13 +575,18 @@ def test_a_header_only_type_is_refused_by_the_status_bar(tmp_path, chromium_brow
             (status_box["x"] + status_box["width"] / 2, status_box["y"] + status_box["height"] / 2),
         )
 
-        expect(page.locator(SHEET_NOTICE)).to_have_text("Header only", timeout=5_000)
-        assert _types(page, "status") == ["clock"]
-        assert _types(page, "header") == ["logo", "search", "space", "display"]
+        expect(_shell(page, "status", "search")).to_be_visible(timeout=5_000)
+        assert "search" in _types(page, "status")
+        assert _types(page, "header") == ["logo", "space", "display"]
+        # The trigger is the same node, at the status bar's density.
+        trigger = page.locator(f"{STATUS_HOST} #command-palette-btn")
+        expect(trigger).to_be_visible()
+        box = trigger.bounding_box()
+        assert box is not None and box["height"] <= 22, box
 
-        # panel-health needs an enabled built-in panel that declares a status-bar
-        # dot; this deployment enables `artifacts`, which declares none.
-        unavailable = _tile(page, "panel-health")
+        # system-health needs the SYSTEM panel; this deployment enables only
+        # `artifacts`.
+        unavailable = _tile(page, "system-health")
         expect(unavailable).to_be_disabled()
         expect(unavailable.locator(".bar-tile-reason")).to_have_text("Not in this deployment")
 
@@ -677,13 +681,13 @@ def test_a_header_full_of_max_width_gaps_does_not_overflow_at_1024(tmp_path, chr
 
     Fifteen gaps at their maximum 400 px ask for 6000 px inside a 1024 px
     viewport. Each declares ``flex: 0 1 <size>px`` with ``min-width: 0``, so
-    spacing YIELDS continuously and the locked chrome beside it is never
+    spacing YIELDS continuously and the chrome beside it is never
     clipped. The bar is filled to the per-host cap, which is the worst case the
     store will accept.
 
     Asserted as a MARGIN, not just as a fit — see :data:`MIN_BAR_HEADROOM_RATIO`.
     """
-    gaps: list[str | dict] = [{"type": "gap", "options": {"size": 400}} for _ in range(15)]
+    gaps: list[str | dict] = [{"type": "space", "options": {"width": 400}} for _ in range(15)]
     with _launch_web_terminal(tmp_path) as (base_url, _app):
         _seed_layout(
             base_url,
@@ -729,7 +733,7 @@ def test_a_header_full_of_max_width_gaps_does_not_overflow_at_1024(tmp_path, chr
             " const kids = [...bar.children];"
             " const gap = parseFloat(getComputedStyle(bar).columnGap) || 0;"
             " const fixed = kids"
-            "  .filter((kid) => kid.dataset.barItem !== 'gap')"
+            "  .filter((kid) => kid.dataset.barItem !== 'space')"
             "  .reduce((sum, kid) => sum + kid.offsetWidth, 0);"
             " return {"
             "  fixed: Math.round(fixed + gap * Math.max(0, kids.length - 1)),"
@@ -744,7 +748,7 @@ def test_a_header_full_of_max_width_gaps_does_not_overflow_at_1024(tmp_path, chr
             f"clip it: {floor}"
         )
 
-        # The locked chrome is still on screen and reachable, not squeezed past
+        # The header chrome is still on screen and reachable, not squeezed past
         # the right edge -- the reason gaps declare a shrink at all.
         for selector in (PALETTE_BTN, DISPLAY_MENU_BTN):
             control = page.locator(selector)
@@ -764,42 +768,19 @@ def test_a_header_full_of_max_width_gaps_does_not_overflow_at_1024(tmp_path, chr
 
 
 def test_the_status_readouts_are_live_on_a_real_page(tmp_path, chromium_browser):
-    """Connection, terminal size and clock report the page they are on.
+    """The clock reports the page it is on.
 
-    All three are off the shipped default status bar and one Customize gesture
-    away, so this is the first place they are rendered against a live terminal
-    at all. The connection assertion pairs the dot's CLASS with the state its
-    own title names, which is the pairing a stuck dot would break.
+    The unit suites drive the builder by hand; this is the one place it is
+    rendered against a live terminal, through the real boot path.
     """
     with _launch_web_terminal(tmp_path) as (base_url, _app):
         _seed_layout(
             base_url,
             header=["logo", "space", "display"],
-            status=["connection", "terminal-size", "clock"],
+            status=["clock"],
         )
         page = _open(chromium_browser, base_url)
 
-        # The dot's modifier is CONNECTION_DOT_CLASS's mapping of the state the
-        # body names; which state a short-lived shell settles in is not this
-        # test's business, but the two agreeing is.
-        connection = page.locator(f"{STATUS_HOST} .bar-connection")
-        expect(connection).to_be_visible(timeout=10_000)
-        paired = page.evaluate(
-            "() => {"
-            " const body = document.querySelector('[data-bar-host=\"status\"] .bar-connection');"
-            " const dot = body.querySelector('.status-dot');"
-            " const state = (body.title.split(': ')[1] || '').trim();"
-            " const expected = {connected: 'status-dot live', connecting: 'status-dot',"
-            "  disconnected: 'status-dot error'}[state];"
-            " return {state, cls: dot.className, expected};"
-            "}"
-        )
-        assert paired["expected"] is not None, f"unknown connection state: {paired}"
-        assert paired["cls"] == paired["expected"], f"the dot disagrees with its state: {paired}"
-
-        expect(page.locator(f"{STATUS_HOST} .bar-terminal-size-value")).to_have_text(
-            re.compile(r"^\d+×\d+$"), timeout=20_000
-        )
         expect(page.locator(f"{STATUS_HOST} .bar-clock-time")).to_have_text(
             re.compile(r"^\d{2}:\d{2}$"), timeout=10_000
         )
@@ -867,23 +848,83 @@ def test_reset_to_default_discards_the_stored_arrangement(tmp_path, chromium_bro
         assert _types(page, "status") == ["stopwatch", "clock"]
         assert (store_dir / LAYOUT_FILENAME).is_file()
 
-        # Reset is offered only while editing: the context menu outside edit
-        # mode carries the way IN and nothing that changes a layout.
+        # The Default preset is the sheet's one pill, so it exists only while
+        # editing.
         _enter_edit_mode(page)
-        page.locator(HEADER_HOST).click(button="right", position={"x": 4, "y": 4})
-        page.locator(f'{CONTEXT_MENU} [data-bar-action="reset"]').click()
+        page.locator('.bar-sheet-presets [data-bar-preset="default"]').click()
 
-        # The deployment default: activity stretches from the left, then the
-        # documentation link and the clock. `panel-health` is dropped because no
-        # enabled panel here declares a status-bar dot.
+        # The deployment default: a space, then the clock at the right edge.
+        # `system-health` is dropped because the SYSTEM panel is not enabled
+        # here.
         page.wait_for_function(
             "() => !document.querySelector("
             ' \'[data-bar-host="status"] > .bar-item[data-bar-item="stopwatch"]\')',
             timeout=5_000,
         )
-        assert _types(page, "status") == ["activity", "docs", "clock"]
+        assert _types(page, "status") == ["space", "clock"]
         assert not (store_dir / LAYOUT_FILENAME).exists(), (
             "a reset must remove the document, not rewrite it with the default"
         )
+
+        page.close()
+
+
+# ---------------------------------------------------------------------------
+# (m) a hidden header comes back from a tile header's menu
+# ---------------------------------------------------------------------------
+
+#: The terminal tile's menu is wired on the adopted `.terminal-header` node,
+#: not on the tab around it, so the press lands on the session label -- the
+#: same way the panels suite reaches a service tile's menu through its title.
+TERMINAL_TILE_HEADER = ".tile-tab-terminal .terminal-label"
+PANEL_MENU = ".rail-context-menu"
+PANEL_MENU_ITEM = ".rail-context-item"
+
+
+def test_a_hidden_header_comes_back_from_the_terminal_tile_menu(tmp_path, chromium_browser):
+    """Hiding the header must not strand the operator.
+
+    The header's own right-click menu is what hides it, and a hidden bar has
+    no surface left to right-click. The tile headers are what remains on
+    screen, so every one of them offers **Show header** while the header is
+    hidden -- proved here on the terminal tile, from a page that loaded with
+    the header already hidden (the server-stamped state, not a client toggle).
+    The restore is a stored change: a reload comes back with the header shown.
+    """
+    with _launch_web_terminal(tmp_path) as (base_url, _app):
+        _seed_layout(
+            base_url,
+            header=["logo", "space", "display"],
+            status=["clock", "docs"],
+            header_visible=False,
+        )
+        page = chromium_browser.new_page(viewport=VIEWPORT)
+        page.add_init_script(_DISMISS_TOUR)
+        page.goto(base_url, wait_until="domcontentloaded")
+        # The header is withdrawn, so its hydrated shell is attached but not
+        # visible -- the default "visible" wait would sit out the timeout.
+        page.wait_for_selector(HYDRATED_SHELL, state="attached", timeout=15_000)
+        expect(page.locator("html")).to_have_attribute("data-header-bar", "hidden")
+        expect(page.locator(HEADER_HOST)).to_be_hidden()
+
+        page.locator(TERMINAL_TILE_HEADER).click(button="right")
+        menu = page.locator(PANEL_MENU)
+        expect(menu).to_have_count(1, timeout=5_000)
+        show = menu.locator(PANEL_MENU_ITEM).filter(has_text="Show header")
+        expect(show).to_have_count(1)
+        show.click()
+
+        expect(page.locator(HEADER_HOST)).to_be_visible(timeout=5_000)
+        expect(page.locator("html")).not_to_have_attribute("data-header-bar", "hidden")
+
+        # With the header back, the tile menu carries only the terminal's verbs.
+        page.locator(TERMINAL_TILE_HEADER).click(button="right")
+        expect(page.locator(PANEL_MENU)).to_have_count(1, timeout=5_000)
+        expect(page.locator(PANEL_MENU_ITEM).filter(has_text="Show header")).to_have_count(0)
+        page.keyboard.press("Escape")
+
+        page.reload(wait_until="domcontentloaded")
+        page.wait_for_selector(HYDRATED_SHELL, timeout=15_000)
+        expect(page.locator("html")).not_to_have_attribute("data-header-bar", "hidden")
 
         page.close()

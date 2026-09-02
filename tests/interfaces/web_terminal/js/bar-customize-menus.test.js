@@ -1,5 +1,5 @@
 /**
- * Bar customize — the options popover, the context menu and the presets row,
+ * Bar customize — the options popover, the context menu and the Default preset,
  * happy-dom environment:
  *   npx vitest run tests/interfaces/web_terminal/js/bar-customize-menus.test.js
  *
@@ -15,11 +15,11 @@
  *     says so.
  *
  *   - "Move to the other bar" is offered only where the move would be allowed,
- *     and "Remove" never appears on a locked item.
+ *     and "Remove" is offered on every item, the wordmark included.
  *
- *   - a preset is a stock arrangement: it drops what this deployment cannot
- *     render rather than refusing the whole apply, which is the one place this
- *     build drops silently on purpose.
+ *   - the one preset, Default, is the deployment's own arrangement: applying it
+ *     DELETES the operator's document and renders what the server hands back,
+ *     because only the server knows what `web.bar_items` configured.
  */
 
 import { test, expect, describe, afterEach } from 'vitest';
@@ -114,8 +114,9 @@ describe('the options popover', () => {
     await openOptions('clock');
 
     expect(row('zone')).not.toBe(null);
+    expect(row('format')).not.toBe(null);
     expect(row('seconds')).not.toBe(null);
-    expect(document.querySelectorAll('.bar-option').length).toBe(2);
+    expect(document.querySelectorAll('.bar-option').length).toBe(3);
   });
 
   test('a type with no options says so', async () => {
@@ -158,51 +159,46 @@ describe('the options popover', () => {
   });
 
   test('a number above the catalog bound is clamped before the PUT', async () => {
-    await editing(doc([{ type: 'gap', options: { size: 12 } }], []));
-    await openOptions('gap');
+    await editing(doc([{ type: 'space', options: { width: 12 } }], []));
+    await openOptions('space');
 
-    const input = row('size').querySelector('input');
+    const input = row('width').querySelector('input');
     input.value = '9999';
     input.dispatchEvent(new Event('change'));
     await settle();
 
-    expect(putBodies()[0].header[0].options.size).toBe(400);
+    expect(putBodies()[0].header[0].options.width).toBe(2000);
   });
 
   test('a number below the catalog bound is clamped before the PUT', async () => {
-    await editing(doc([{ type: 'gap', options: { size: 12 } }], []));
-    await openOptions('gap');
-
-    const input = row('size').querySelector('input');
-    input.value = '0';
-    input.dispatchEvent(new Event('change'));
-    await settle();
-
-    expect(putBodies()[0].header[0].options.size).toBe(4);
-  });
-
-  test('a flexible space share is clamped to the catalog range', async () => {
-    await editing(doc([{ type: 'space', options: { share: 1 } }], []));
+    await editing(doc([{ type: 'space', options: { width: 12 } }], []));
     await openOptions('space');
 
-    const input = row('share').querySelector('input');
-    input.value = '7';
+    const input = row('width').querySelector('input');
+    input.value = '-4';
     input.dispatchEvent(new Event('change'));
     await settle();
 
-    expect(putBodies()[0].header[0].options.share).toBe(3);
+    expect(putBodies()[0].header[0].options.width).toBe(0);
+  });
+
+  test('a space says what width 0 means', async () => {
+    await editing(doc([{ type: 'space', options: { width: 12 } }], []));
+    const pop = await openOptions('space');
+
+    expect(pop.textContent).toContain('0 fills the remaining room');
   });
 
   test('an unreadable number falls back to the option default', async () => {
-    await editing(doc([{ type: 'gap', options: { size: 40 } }], []));
-    await openOptions('gap');
+    await editing(doc([{ type: 'space', options: { width: 40 } }], []));
+    await openOptions('space');
 
-    const input = row('size').querySelector('input');
+    const input = row('width').querySelector('input');
     input.value = 'wide';
     input.dispatchEvent(new Event('change'));
     await settle();
 
-    expect(putBodies()[0].header[0].options.size).toBe(12);
+    expect(putBodies()[0].header[0].options.width).toBe(0);
   });
 });
 
@@ -218,12 +214,12 @@ describe('moving and removing from the popover', () => {
     expect(rendered('status')).toEqual(['clock']);
   });
 
-  test('a header-only type is not offered a move', async () => {
+  test('every type is offered a move to the other bar', async () => {
     await editing(doc(['logo', 'search'], []));
 
     await openOptions('search');
 
-    expect(popover().querySelector('[data-bar-action="move"]')).toBe(null);
+    expect(popover().querySelector('[data-bar-action="move"]')).not.toBe(null);
   });
 
   test('Remove takes the item out', async () => {
@@ -236,13 +232,12 @@ describe('moving and removing from the popover', () => {
     expect(putBodies()[0].header.map((/** @type {any} */ i) => i.type)).toEqual(['logo']);
   });
 
-  test('a locked item is not offered a remove and is told why', async () => {
+  test('the wordmark is offered a remove like every other item', async () => {
     await editing(doc(['logo', 'clock'], []));
 
     await openOptions('logo');
 
-    expect(popover().querySelector('[data-bar-action="remove"]')).toBe(null);
-    expect(popover().textContent).toContain('Locked by the deployment');
+    expect(popover().querySelector('[data-bar-action="remove"]')).not.toBe(null);
   });
 });
 
@@ -307,19 +302,23 @@ describe('the context menu', () => {
     expect(menuRow('customize')).not.toBe(null);
   });
 
-  test('a locked item is offered no remove', async () => {
+  test('the wordmark is offered a remove', async () => {
     await editing(doc(['logo'], []));
 
     rightClick(shell('logo'));
 
-    expect(menuRow('remove')).toBe(null);
+    expect(menuRow('remove')).not.toBe(null);
   });
 
   test('right-clicking the bar itself offers only the bar rows', async () => {
     await editing(doc(['logo'], []));
 
     rightClick(document.querySelector('[data-bar-host="header"]'));
+    expect(menuRow('options')).toBe(null);
+    expect(menuRow('customize')).not.toBe(null);
+    expect(menuRow('status')).toBe(null);
 
+    rightClick(document.querySelector('[data-bar-host="status"]'));
     expect(menuRow('options')).toBe(null);
     expect(menuRow('customize')).not.toBe(null);
     expect(menuRow('status')).not.toBe(null);
@@ -338,7 +337,7 @@ describe('the context menu', () => {
   test('the status row hides the bar', async () => {
     await editing(doc(['logo'], ['clock']));
 
-    rightClick(document.querySelector('[data-bar-host="header"]'));
+    rightClick(document.querySelector('[data-bar-host="status"]'));
     menuRow('status').click();
     await settle();
 
@@ -365,38 +364,77 @@ describe('the context menu', () => {
   });
 });
 
-describe('outside edit mode the menu is only the way in', () => {
+describe('outside edit mode the menu is the way in, plus Hide on the status bar', () => {
   /** Boot in Expert without entering edit mode. @param {Record<string, unknown>} layout */
   async function notEditing(layout) {
     ({ customize, sync } = await boot({ fetch: endpoint({ get: layout }) }));
     return customize;
   }
 
-  test('an item offers no edits, only Customize', async () => {
-    // Every other row changes the layout, and a refused change is answered in
-    // the sheet — which does not exist until edit mode has been entered. A
-    // refusal made from here would be written into nothing.
-    await notEditing(doc(['logo', 'clock'], ['activity']));
+  test('the header offers Customize and Hide header, and nothing else', async () => {
+    // An item's rows change the layout, and a refused change is answered in
+    // the sheet — which does not exist until edit mode has been entered. The
+    // Hide row names the bar under the pointer: offered from the top bar,
+    // "Hide status bar" read as "hide this one".
+    await notEditing(doc(['logo', 'clock'], ['stopwatch']));
 
     rightClick(shell('clock'));
 
-    expect(menuRow('customize')).not.toBe(null);
+    expect(menuRow('customize')?.textContent).toBe('Customize bars…');
+    expect(menuRow('header')?.textContent).toBe('Hide header');
+    expect(document.querySelectorAll('.bar-context-row')).toHaveLength(2);
+    expect(menuRow('status')).toBe(null);
     expect(menuRow('options')).toBe(null);
     expect(menuRow('remove')).toBe(null);
-    expect(menuRow('status')).toBe(null);
     expect(menuRow('reset')).toBe(null);
   });
 
-  test('entering edit mode brings the rest of the rows', async () => {
-    await notEditing(doc(['logo', 'clock'], ['activity']));
+  test('Hide header withdraws the top bar and reads Show once hidden', async () => {
+    await notEditing(doc(['logo', 'clock'], ['stopwatch']));
+
+    rightClick(shell('clock'));
+    menuRow('header').click();
+    await settle();
+
+    expect(putBodies()).toHaveLength(1);
+    expect(putBodies()[0].header_visible).toBe(false);
+    expect(putBodies()[0].status_visible).toBe(true);
+    rightClick(shell('clock'));
+    expect(menuRow('header')?.textContent).toBe('Show header');
+  });
+
+  test('the status bar offers Hide status bar, which reads Show once hidden', async () => {
+    await notEditing(doc(['logo', 'clock'], ['stopwatch']));
+
+    rightClick(shell('stopwatch'));
+    expect(menuRow('customize')?.textContent).toBe('Customize bars…');
+    expect(menuRow('status')?.textContent).toBe('Hide status bar');
+    expect(menuRow('header')).toBe(null);
+    expect(document.querySelectorAll('.bar-context-row')).toHaveLength(2);
+    menuRow('status').click();
+    await settle();
+
+    expect(putBodies()).toHaveLength(1);
+    expect(putBodies()[0].status_visible).toBe(false);
+    rightClick(shell('stopwatch'));
+    expect(menuRow('status')?.textContent).toBe('Show status bar');
+  });
+
+  test('entering edit mode brings the item rows', async () => {
+    await notEditing(doc(['logo', 'clock'], ['stopwatch']));
     customize.enterEditMode();
 
     rightClick(shell('clock'));
-
     expect(menuRow('options')).not.toBe(null);
     expect(menuRow('remove')).not.toBe(null);
-    expect(menuRow('status')).not.toBe(null);
-    expect(menuRow('reset')).not.toBe(null);
+    expect(menuRow('status')).toBe(null);
+    expect(menuRow('header')?.textContent).toBe('Hide header');
+    expect(menuRow('customize')?.textContent).toBe('Done customizing');
+    expect(menuRow('reset')).toBe(null);
+
+    rightClick(shell('stopwatch'));
+    expect(menuRow('options')).not.toBe(null);
+    expect(menuRow('status')?.textContent).toBe('Hide status bar');
   });
 
   test('Escape closes it there too, and nothing else owns the key', async () => {
@@ -464,12 +502,18 @@ describe('Escape has one owner at a time', () => {
   });
 });
 
-describe('Reset to default', () => {
-  test('the menu offers it, and it deletes rather than writes', async () => {
+/** The sheet's one preset pill. */
+function defaultPill() {
+  return /** @type {any} */ (document.querySelector('.bar-sheet-presets [data-bar-preset]'));
+}
+
+describe('the Default preset', () => {
+  test('it is the only pill, and it deletes rather than writes', async () => {
     await editing(doc(['logo', 'clock'], []));
 
-    rightClick(shell('clock'));
-    menuRow('reset').click();
+    expect(document.querySelectorAll('.bar-sheet-presets .bar-pill')).toHaveLength(1);
+    expect(defaultPill().textContent).toBe('Default');
+    defaultPill().click();
     await settle();
 
     expect(deleteCount()).toBe(1);
@@ -483,17 +527,16 @@ describe('Reset to default', () => {
     ({ customize, sync } = await boot({
       fetch: endpoint({
         get: doc(['logo', 'clock', 'docs'], []),
-        reset: doc(['logo'], ['activity']),
+        reset: doc(['logo'], ['stopwatch']),
       }),
     }));
     customize.enterEditMode();
 
-    rightClick(document.querySelector('[data-bar-host="header"]'));
-    menuRow('reset').click();
+    defaultPill().click();
     await settle();
 
     expect(rendered('header')).toEqual(['logo']);
-    expect(rendered('status')).toEqual(['activity']);
+    expect(rendered('status')).toEqual(['stopwatch']);
   });
 
   test('it is the one edit a read-only layout still allows', async () => {
@@ -509,9 +552,11 @@ describe('Reset to default', () => {
     customize.enterEditMode();
     expect(sync.isLayoutReadonly()).toBe(true);
     expect(tileFor('clock').disabled).toBe(true);
+    expect(document.querySelector('.bar-sheet-notice')?.textContent).toBe(
+      'Layout not editable. Default resets it.'
+    );
 
-    rightClick(document.querySelector('[data-bar-host="header"]'));
-    menuRow('reset').click();
+    defaultPill().click();
     await settle();
 
     expect(sync.isLayoutReadonly()).toBe(false);
@@ -527,54 +572,10 @@ describe('Reset to default', () => {
     }));
     customize.enterEditMode();
 
-    rightClick(shell('clock'));
-    menuRow('reset').click();
+    defaultPill().click();
     await settle();
 
     expect(rendered('header')).toEqual(['logo', 'clock']);
     expect(document.querySelector('.bar-sheet-notice')?.textContent).toBe('Layout not reset');
-  });
-});
-
-describe('the presets row', () => {
-  test('the sheet offers one pill per stock arrangement', async () => {
-    await editing(doc(['logo'], []));
-    const layout = await import(
-      '../../../../src/osprey/interfaces/web_terminal/static/js/bar-layout.js'
-    );
-
-    const pills = document.querySelectorAll('.bar-sheet-presets .bar-pill');
-
-    expect(pills.length).toBe(layout.PRESETS.length);
-    expect(Array.from(pills).map((p) => p.textContent)).toEqual(
-      layout.PRESETS.map((/** @type {any} */ preset) => preset.label)
-    );
-  });
-
-  test('applying one writes the whole arrangement in a single PUT', async () => {
-    await editing(doc(['logo'], []));
-
-    /** @type {any} */ (document.querySelector('[data-bar-preset="minimal"]')).click();
-    await settle();
-
-    const bodies = putBodies();
-    expect(bodies).toHaveLength(1);
-    expect(bodies[0].status.map((/** @type {any} */ i) => i.type)).toEqual(['activity', 'clock']);
-  });
-
-  test('it leaves out what this deployment cannot render', async () => {
-    // No `data-bar-context` on this page, so nothing gated is available — the
-    // preset applies without identity rather than refusing outright.
-    await editing(doc(['logo'], []));
-
-    /** @type {any} */ (document.querySelector('[data-bar-preset="minimal"]')).click();
-    await settle();
-
-    expect(putBodies()[0].header.map((/** @type {any} */ i) => i.type)).toEqual([
-      'logo',
-      'space',
-      'control-target',
-      'display',
-    ]);
   });
 });

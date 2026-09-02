@@ -1,7 +1,7 @@
 """The per-user bar layout, over HTTP.
 
 Three verbs on one document — ``{version, rev, header, status,
-status_visible}`` — the arrangement of one operator's header and status bar:
+header_visible, status_visible}`` — the arrangement of one operator's header and status bar:
 
 * ``GET /api/bar-items`` answers what this deployment would render right now.
 * ``PUT /api/bar-items`` saves an arrangement, conditional on the revision the
@@ -23,10 +23,11 @@ machine-readable token; there are five rungs:
   before it is parsed.
 * **422** — the document is not one this build can store, with the store's own
   ``reason`` naming the class: ``malformed``, ``version``, ``unknown-type``,
-  ``host-mismatch``, ``overflow`` or ``bad-option``. The last five are spelled
+  ``duplicate``, ``overflow`` or ``bad-option``. The last five are spelled
   exactly as ``bar-layout.js`` spells its client-side drop reasons, so a
-  browser log and a server refusal read alike. One reason is **this module's
-  own** and is not in the store's vocabulary: ``bad-rev``, for a body carrying
+  browser log and a server refusal read alike. One reason is
+  **this module's own** and is not in the store's vocabulary: ``bad-rev``, for
+  a body carrying
   no usable ``rev``. It is kept distinct from ``malformed`` deliberately — a
   missing protocol field is a client bug worth logging loudly, a malformed
   document is a normalizer disagreement worth showing the operator, and a
@@ -39,7 +40,7 @@ machine-readable token; there are five rungs:
 * **200** — the document as persisted, at its assigned revision.
 
 **Two spellings, and the rule behind them.** The 422 family is kebab-case,
-because those seven reasons are the words ``bar-layout.js`` already uses for its
+because those six reasons are the words ``bar-layout.js`` already uses for its
 own drops. Every other rung is snake_case, because those are the tokens this
 app spells the same failures with everywhere else — ``routes/websocket.py``
 answers ``store_unavailable`` and ``store_write_failed`` for the posture store,
@@ -301,7 +302,7 @@ async def read_bar_items(request: Request) -> dict:
     which hands back a copy of its own.
 
     Returns:
-        ``{version, rev, header, status, status_visible}``. ``rev`` is ``0``
+        ``{version, rev, header, status, header_visible, status_visible}``. ``rev`` is ``0``
         when the operator has saved nothing, which is what a first conditional
         save should send back.
     """
