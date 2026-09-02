@@ -76,6 +76,10 @@ osprey sim apply nominal              # back to clean baseline
   archive's event windows** (below). Pass `--no-seed-archiver` to leave it
   alone, `--no-seed` for neither, or `--yes` to skip the confirmations.
 - The switch is effective on the next channel read — no restart needed.
+  One exception: a scenario with a `physics` block on a deployment that runs
+  the virtual accelerator is written to `.env`, which the VA container reads
+  only when it is created. `apply` prints a notice when this happens; follow
+  it with `osprey up` (not `docker restart`, which reuses the old environment).
 
 **Important:** applying scenarios resets the simulated machine — any setpoint
 changes written during the session are cleared. Warn the user before switching
@@ -180,6 +184,7 @@ Do NOT:
   correctly (it also seeds the matching logbook)
 - Compose scenarios that touch the same channel — `apply` will reject them
 - Restart services after a switch — the engine re-reads the state file
-  automatically
+  automatically. The one exception is above: a `physics` block on a VA
+  deployment needs `osprey up` to recreate the container
 - Position a new scenario's archiver events with `at` — author `at_offset` (or
   `at_time`), so the event has a real instant a stored archive can hold

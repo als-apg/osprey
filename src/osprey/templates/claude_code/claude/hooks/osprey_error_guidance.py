@@ -64,7 +64,7 @@ from osprey_hook_log import get_hook_input, load_hook_config, log_hook
 # the server logs" — which is the wrong protocol for a bridge that is merely
 # unreachable, a lookup that merely missed, or a refusal the agent must not
 # work around. tests/mcp_server/test_error_type_conformance.py scans every
-# emitter under src/osprey/mcp_server and fails on a value missing here;
+# emitter under osprey.mcp_server and fails on a value missing here;
 # tests/hooks/test_error_guidance_hook.py pins this table's exact contents.
 #
 # The class picks the agent's PROTOCOL; WHICH subsystem failed is in the
