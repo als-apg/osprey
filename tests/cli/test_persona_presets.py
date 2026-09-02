@@ -23,8 +23,11 @@ live on the same landing page:
   operator panels, plus the privileges the base floors off: the
   ``setup_patch`` tool, the web Config panel, the scaffold gallery's editors,
   and the ``setup-mode`` skill that drives them.
-* ``control-assistant-ariel`` — not a tier: the standalone logbook-research
+* ``control-assistant-logbook`` — not a tier: the standalone logbook-research
   deployment, filed under its own landing-page heading.
+* ``control-assistant-knowledge`` — not a tier either: the standalone facility
+  knowledge terminal (graph, graph channel finder, knowledge bundle), filed
+  under the same heading.
 
 The tier contract therefore has two halves, and both are asserted wholesale
 below rather than key-by-key. The MACHINE axes separate readonly from
@@ -369,42 +372,54 @@ class TestControlAssistantWebTier:
             "persona": "readonly",
             "display_name": "Read-Only View (Bob)",
         }
-        # The standalone research tier is public by design: `login: false`
-        # keeps its card outside the login wall the preset ships enabled.
+        # The standalone research card is shared: `access: any` opens it to
+        # every roster login, each with their own password, behind the wall
+        # the preset ships enabled. No `login: false` anywhere on the roster.
         assert wt["users"][2] == {
-            "name": "ariel",
+            "name": "logbook",
             "index": 2,
-            "persona": "ariel",
-            "display_name": "ARIEL Logbook Research",
-            "login": False,
+            "persona": "logbook",
+            "display_name": "Logbook Research",
+            "access": "any",
         }
-        # The admin login carries NO `login: false`: the one account that can
-        # rewrite the deployment must sit behind the login wall, unlike the
-        # deliberately-public research card above it.
+        # The second shared card sits beside the first in roster order (the
+        # page follows the roster) but takes index 4, so carol's ports below
+        # do not move.
         assert wt["users"][3] == {
+            "name": "knowledge",
+            "index": 4,
+            "persona": "knowledge",
+            "display_name": "Facility Knowledge",
+            "access": "any",
+        }
+        # The admin login is neither shared nor public: the one account that
+        # can rewrite the deployment sits behind its own login.
+        assert wt["users"][4] == {
             "name": "carol",
             "index": 3,
             "persona": "admin",
             "display_name": "Deployment Admin (Carol)",
         }
-        assert len(wt["users"]) == 4
+        assert len(wt["users"]) == 5
 
         personas = wt["personas"]
-        assert set(personas) == {"readonly", "readwrite", "admin", "ariel"}
+        assert set(personas) == {"readonly", "readwrite", "admin", "logbook", "knowledge"}
         for name, profile in (
             ("readonly", "control-assistant-readonly"),
             ("readwrite", "control-assistant-readwrite"),
             ("admin", "control-assistant-admin"),
-            ("ariel", "control-assistant-ariel"),
+            ("logbook", "control-assistant-logbook"),
+            ("knowledge", "control-assistant-knowledge"),
         ):
             entry = personas[name]
             # Name invariant: project == basename(project_path).
             assert entry["project"] == os.path.basename(entry["project_path"])
             assert entry["build_profile"] == profile
 
-        # Only the standalone tier declares a landing section of its own; the
-        # three operator tiers stay in the roster's default section.
-        assert personas["ariel"]["landing_group"] == "Standalone deployments"
+        # Only the standalone personas declare a landing section of their own;
+        # the three operator tiers stay in the roster's default section.
+        assert personas["logbook"]["landing_group"] == "Standalone deployments"
+        assert personas["knowledge"]["landing_group"] == "Standalone deployments"
         for tier in ("readonly", "readwrite", "admin"):
             assert "landing_group" not in personas[tier]
 
@@ -447,12 +462,14 @@ class TestControlAssistantWebTier:
         The referenced persona projects do not exist yet at build time. For the
         personas nobody is exposed by, the lint demotes those not-yet-rendered
         paths to WARNINGS (they carry a ``build_profile`` naming the delta
-        ``osprey build`` renders them from). For a persona a ``login: false``
-        entry resolves to, the absent render is an ERROR
-        (``persona_privileges_unknown``): its privileges cannot be read, so
-        "holds nothing" would be a guess about the one terminal that is served
-        to anyone — and `osprey up` now gates on this belt, where that guess
-        would be fail-open on the deploy path itself.
+        ``osprey build`` renders them from). For the ``default_persona``, the
+        absent render is an ERROR (``persona_privileges_unknown``): its
+        privileges cannot be read, so "holds nothing" would be a guess about
+        the tier every bare roster entry inherits — and `osprey up` now gates
+        on this belt, where that guess would be fail-open on the deploy path
+        itself. The shared standalone card is NOT singled out: it sits behind
+        the login wall like every other entry, so an unread render there is
+        the ordinary warning.
 
         Both findings name the same remedy and it is the command that comes
         next anyway: ``osprey build``. What this test pins is that nothing ELSE
@@ -470,9 +487,11 @@ class TestControlAssistantWebTier:
         assert {finding.code for finding in errors} <= {"web_terminals.persona_privileges_unknown"}
         for finding in errors:
             assert "osprey build" in finding.message
-        # And the exposed entry is the one it is about: the shipped stack serves
-        # `ariel` without a login, which is why its unread render is refused.
-        assert any("'ariel'" in finding.message for finding in errors)
+        # And the persona it is about is the default one, not the shared card:
+        # no entry on the shipped roster is served without a login.
+        assert any("'readonly'" in finding.message for finding in errors)
+        for card in ("logbook", "knowledge"):
+            assert not any(f"'{card}'" in finding.message for finding in errors)
 
     def test_ships_companion_panels_multi_user(self) -> None:
         """Feature parity: multi-user must not shed single-user companion panels.
@@ -786,7 +805,8 @@ class TestControlAssistantPersonas:
             "control-assistant-readonly",
             "control-assistant-readwrite",
             "control-assistant-admin",
-            "control-assistant-ariel",
+            "control-assistant-logbook",
+            "control-assistant-knowledge",
         ):
             profile = resolve_preset(name)
             pinned = sorted(
@@ -927,7 +947,7 @@ class TestControlAssistantPersonas:
         assert "events" not in readonly["web"]["panels"]
         assert "bluesky" not in readonly["web"]["panels"]
 
-    @pytest.mark.parametrize("persona", ("readonly", "readwrite", "ariel"))
+    @pytest.mark.parametrize("persona", ("readonly", "readwrite", "logbook"))
     def test_attached_personas_resolve_the_qmd_sidecar(
         self, built_persona_stack: Path, persona: str
     ) -> None:
@@ -953,10 +973,10 @@ class TestControlAssistantPersonas:
         assert resolved.port == QMD_DEFAULT_PORT
         assert resolved.base_url == f"http://127.0.0.1:{QMD_DEFAULT_PORT}"
 
-    def test_ariel_persona_renders_no_graph_surface(self, built_persona_stack: Path) -> None:
+    def test_logbook_persona_renders_no_graph_surface(self, built_persona_stack: Path) -> None:
         """The logbook tier is graph-less, and by veto rather than by omission.
 
-        ``control-assistant-ariel`` switches off every control-surface tool
+        ``control-assistant-logbook`` switches off every control-surface tool
         server explicitly (``claude_code.servers.<name>.enabled: false``), the
         graph server among them. The line is load-bearing now: the build tells
         every attached render where the hosting deployment's services are, and
@@ -964,12 +984,12 @@ class TestControlAssistantPersonas:
         so only a server switched off is told nothing about the store
         (``osprey.deployment.reach``, the graphdb contract's gate).
         """
-        project = built_persona_stack / "build" / f"{built_persona_stack.name}-ariel"
-        assert project.is_dir(), "the ariel persona was never rendered"
+        project = built_persona_stack / "build" / f"{built_persona_stack.name}-logbook"
+        assert project.is_dir(), "the logbook persona was never rendered"
 
         config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
         assert (config.get("services") or {}).get("graphdb") is None
-        preset = resolve_preset("control-assistant-ariel").config
+        preset = resolve_preset("control-assistant-logbook").config
         assert preset.get("claude_code.servers.graph.enabled") is False
 
         hits = sorted(
@@ -980,6 +1000,38 @@ class TestControlAssistantPersonas:
         )
         assert hits == [], f"the logbook tier configures no graph store but rendered {hits}"
         assert "graph" not in json.loads((project / ".mcp.json").read_text())["mcpServers"]
+
+    def test_knowledge_persona_renders_the_knowledge_surface_and_nothing_else(
+        self, built_persona_stack: Path
+    ) -> None:
+        """The knowledge persona is the graph, the graph channel finder and the
+        knowledge bundle — and no control system, sandbox or logbook.
+
+        Asserted on the real render: the servers in ``.mcp.json`` are the
+        three knowledge servers plus the workspace, the channel finder runs in
+        graph mode, the three knowledge agents are rendered, the KNOWLEDGE
+        panel is the default, and the one bundle-writing tool is denied.
+        """
+        project = built_persona_stack / "build" / f"{built_persona_stack.name}-knowledge"
+        assert project.is_dir(), "the knowledge persona was never rendered"
+
+        servers = json.loads((project / ".mcp.json").read_text())["mcpServers"]
+        assert set(servers) == {
+            "graph",
+            "channel-finder",
+            "osprey_facility_knowledge",
+            "osprey_workspace",
+        }
+        config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
+        assert config["channel_finder"]["pipeline_mode"] == "graph"
+        assert config["web"]["default_panel"] == "okf"
+        assert "ariel" not in config["web"]["panels"]
+
+        agents = sorted(p.stem for p in (project / ".claude" / "agents").glob("*.md"))
+        assert agents == ["channel-finder", "facility-knowledge", "facility-knowledge-graph"]
+
+        settings = json.loads((project / ".claude" / "settings.json").read_text())
+        assert "mcp__osprey_facility_knowledge__draft_concept" in settings["permissions"]["deny"]
 
 
 # ---------------------------------------------------------------------------
@@ -1025,7 +1077,11 @@ PINNED_TARGET_WRITE_POSTURE: dict[str, dict[str, bool]] = {
     "control-assistant-readwrite": {"live": True, "va": True, "standin": True},
     # The standalone logbook tier pins the flat key off and writes no per-type
     # block, so every target inherits the off.
-    "control-assistant-ariel": {"live": False, "va": False, "standin": False},
+    "control-assistant-logbook": {"live": False, "va": False, "standin": False},
+    # The standalone knowledge persona pins the flat key off AND the epics and
+    # virtual_accelerator blocks, like the read-only tier: it has no control
+    # surface at all, and the boundary is stated the same way everywhere.
+    "control-assistant-knowledge": {"live": False, "va": False, "standin": False},
     # The read-only tier: off on the flat key AND pinned off on the epics and
     # virtual_accelerator blocks, so no per-type ``true`` inherited from
     # anywhere can arm those two over it. The stand-in has no block to pin and

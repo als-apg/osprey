@@ -972,6 +972,12 @@ html[data-browse-orient="column"] .sidebar-body {
   border: 1px solid color-mix(in srgb, var(--color-success) 20%, transparent);
 }
 
+.tree-item-badge.demo {
+  color: var(--text-muted);
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+}
+
 .tree-item-badge.mod {
   color: var(--color-accent-secondary-light);
   background: var(--accent-secondary-tint-08);

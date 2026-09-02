@@ -430,6 +430,10 @@ describe('isNewThisSession', () => {
   test('an artifact with no timestamp is not new', () => {
     expect(isNewThisSession({}, '2026-07-03T12:00:00Z')).toBe(false);
   });
+
+  test('the shipped example is never new, even though it is written at gallery start', () => {
+    expect(isNewThisSession({ timestamp: '2026-07-03T13:00:00Z', origin: 'demo' }, '2026-07-03T12:00:00Z')).toBe(false);
+  });
 });
 
 describe('requestColorPass', () => {

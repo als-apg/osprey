@@ -232,7 +232,8 @@ def collect_material(
     material.context_status = CONTEXT_OK
     material.events = reader.read_session_by_id(session_id)
     material.chat = reader.read_chat_history_by_id(session_id)
-    material.artifact_entries = store.list_entries()
+    # Session material only; the shipped example is not evidence of anything.
+    material.artifact_entries = store.list_entries(exclude_examples=True)
     return material
 
 

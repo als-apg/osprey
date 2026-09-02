@@ -135,6 +135,8 @@ async def session_summary(request: Request):
         session_id = request.query_params.get("session_id")
         entries = store.list_entries(
             session_filter=session_id if session_id else None,
+            # Session material, not a shipped example.
+            exclude_examples=True,
         )
 
         total_bytes = 0

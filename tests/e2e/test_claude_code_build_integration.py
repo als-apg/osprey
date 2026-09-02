@@ -115,7 +115,9 @@ def init_project(
     ``virtual_accelerator.live_standin`` for the third time the same reason
     holds: the preset ships a live stand-in on, and the build points the
     ``epics`` gateways at that never-started container and turns limits
-    checking strict to meet it.
+    checking strict to meet it. The channel finder is pinned to the
+    hierarchical database for the fourth: the preset's graph mode answers
+    from a ``graphdb`` container this harness never starts.
     """
     runner = CliRunner()
     repo = tmp_path / name
@@ -130,6 +132,8 @@ def init_project(
         f"model={model}",
         "--set",
         "connector=mock",
+        "--set",
+        "channel_finder_mode=hierarchical",
     ]
     preset_pins = tmp_path / "_archiver-pin.yml"
     preset_pins.write_text(

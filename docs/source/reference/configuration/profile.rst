@@ -592,7 +592,7 @@ that spells one of these keys with a *different* value is refused — the two
 copies would dial different places, and the build names both. (A persona
 inherits the hosting profile's ``config:`` keys, so a port moved there is
 spelled in every persona as the host's own value, and agrees.) A persona
-built *alone* (``osprey init --preset control-assistant-ariel`` in a
+built *alone* (``osprey init --preset control-assistant-logbook`` in a
 repo with no hosting deployment) is told what its app template deploys at the
 shipped defaults instead, and there its ``config:`` is where a host that
 differs is named:

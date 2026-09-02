@@ -225,7 +225,10 @@ def _override_yaml() -> str:
     hybrid search (``ariel:`` nulled, the section being both consumers'
     switch), the OTLP exporter and the bluesky MCP server are switched off
     here by the keys that refusal names. Nothing in this lane dials any of
-    them.
+    them. The channel finder is the one consumer with no off switch: the
+    preset runs it in graph mode against a ``graphdb`` this trim drops, so
+    ``channel_finder_mode: hierarchical`` points it at the channel database
+    the bundle also ships — nothing here looks a channel up either way.
 
     That trim is not only about speed. The preset's full stack publishes
     postgres, openobserve, the bluesky bridge, Tiled and the panels on fixed
@@ -243,6 +246,7 @@ def _override_yaml() -> str:
         "  ariel:\n"
         "  claude_code.telemetry.enabled: false\n"
         "  claude_code.servers.bluesky.enabled: false\n"
+        "channel_finder_mode: hierarchical\n"
         "va_archiver:\n"
         f"  port_host: {MONGO_PORT_HOST}\n"
         f"  freshness_channel: {FRESHNESS_CANARY}\n"

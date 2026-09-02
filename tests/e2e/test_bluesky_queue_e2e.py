@@ -830,8 +830,20 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
         # worker registered, and a change in that derivation show up here as a
         # real failure rather than a silently-diverging second copy of the logic.
         correctors, bpms = _orm_stack.staged_devices(repo)
-        assert correctors, "the build staged no settable device -- nothing to drive"
-        assert bpms, "the build staged no readable device -- nothing to read"
+        # Narrowed to the pyat-coupled partition, in the file's own order. The
+        # stages drive the FIRST settable and read the FIRST readable, and the
+        # staged file's order is the derivation's, not a contract: derived from
+        # the knowledge graph it leads with booster and transfer-line devices,
+        # which the accelerator model does not couple -- a setpoint echo and a
+        # static monitor -- so a sweep of one drains in seconds and the ~1 s
+        # liveness sampling test_3 rests on never sees a row count advance. The
+        # grid sizes above are calibrated against modelled devices.
+        correctors = {
+            name: pair for name, pair in correctors.items() if _orm_stack.pyat_coupled(pair[0])
+        }
+        bpms = {name: pv for name, pv in bpms.items() if _orm_stack.pyat_coupled(pv)}
+        assert correctors, "the build staged no modelled settable device -- nothing to drive"
+        assert bpms, "the build staged no modelled readable device -- nothing to read"
 
         # The repo's own copy, which the build copies into build/data verbatim:
         # same bytes, same channels the deployed containers see.

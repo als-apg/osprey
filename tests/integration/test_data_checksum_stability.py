@@ -130,12 +130,15 @@ class TestRuntimeWriters:
         from osprey.services.channel_finder.feedback.pending_store import PendingReviewStore
         from osprey.services.channel_finder.feedback.store import FeedbackStore
 
+        # `pipelines:` renders EMPTY in graph mode (the preset's default), so
+        # every hop is `or {}` rather than a `.get` default: the section is
+        # present and None, not absent.
         feedback = (
-            project_config.get("channel_finder", {})
-            .get("pipelines", {})
-            .get("hierarchical", {})
-            .get("feedback", {})
-        )
+            ((project_config.get("channel_finder") or {}).get("pipelines") or {}).get(
+                "hierarchical"
+            )
+            or {}
+        ).get("feedback") or {}
         store_path = feedback.get("store_path", f"{FEEDBACK_DIR}/hierarchical_feedback.json")
         # Under the agent-data root, wherever the config puts it. Asserted
         # against the configured root rather than a literal, because the point

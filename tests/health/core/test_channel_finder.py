@@ -142,8 +142,8 @@ async def test_every_valid_mode_reports_a_row(mode: str, tmp_path) -> None:
 
 
 async def test_fresh_hierarchical_build_has_no_duckdb_warning(tmp_path) -> None:
-    # A fresh control-assistant defaults to the hierarchical pipeline, which
-    # ships a JSON database and no DuckDB — the tile must not warn about DuckDB.
+    # A hierarchical deployment ships a JSON database and no DuckDB — the tile
+    # must not warn about DuckDB.
     db = tmp_path / "data" / "channel_databases" / "hierarchical.json"
     _write_json_db(db, '{"SR": {}}')
     by_name = await _run(_cf(mode="hierarchical", path=str(db)))

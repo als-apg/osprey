@@ -479,7 +479,9 @@ class TestThePanelsMove:
 
         This is the assertion the per-user layout exists for: removing a user
         must not shift anyone else, which is only true while each family's
-        ports are its own band read by index.
+        ports are its own band read by index. *i* is the roster entry's own
+        ``index``, not its position: the exemplar's roster deliberately lists
+        an index-4 entry before an index-3 one, so position would be wrong.
         """
         document = yaml.safe_load(dotted_render.web["docker-compose.web.yml"])
         terminals = [
@@ -488,9 +490,12 @@ class TestThePanelsMove:
             if name.startswith("web-")
         ]
         assert terminals, "the exemplar must render at least one web terminal"
+        roster = dotted_render.config["modules"]["web_terminals"]["users"]
+        index_of = {entry["name"]: int(entry["index"]) for entry in roster}
 
         offences: list[str] = []
-        for index, (name, body) in enumerate(terminals):
+        for name, body in terminals:
+            index = index_of[name.removeprefix("web-")]
             for entry in body.get("environment") or []:
                 variable, _, value = str(entry).partition("=")
                 slot = PANEL_ENV_SLOTS.get(variable)

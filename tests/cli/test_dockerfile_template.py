@@ -1116,7 +1116,7 @@ class TestTieredPresetConfigChown:
         project = f"{tiered_render.parent.name}-admin"
         assert self._chown_line(project) in self._dockerfile(tiered_render, project)
 
-    @pytest.mark.parametrize("persona", ["readonly", "readwrite", "ariel"])
+    @pytest.mark.parametrize("persona", ["readonly", "readwrite", "logbook", "knowledge"])
     def test_no_other_persona_hands_over_config_yml(self, tiered_render, persona):
         """Every tier the base preset's floor still applies to renders the image
         WITHOUT the chown: it cannot rewrite the file that says what it may do,

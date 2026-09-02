@@ -185,6 +185,33 @@ describe('steps', () => {
     expect(document.querySelector('.tour-card')).toBe(null);
   });
 
+  test('the workspace step mentions the shipped example only when the gallery lists one', () => {
+    /** Advance to "Your workspace" (step 5) and return the card body text. */
+    const workspaceBody = () => {
+      applyTourConfig({ tour: { policy: 'never', capabilities: [] } });
+      startTour();
+      for (let i = 0; i < 4; i++) {
+        click(nextBtn());
+        vi.advanceTimersByTime(200);
+      }
+      expect(cardTitle()).toBe('Your workspace');
+      return document.querySelector('.tour-body')?.textContent ?? '';
+    };
+
+    mountFullShell();
+    expect(workspaceBody()).not.toContain('shipped sample');
+
+    mountFullShell();
+    const frame = document.createElement('iframe');
+    frame.setAttribute('data-panel-id', 'artifacts');
+    document.body.appendChild(frame);
+    const doc = /** @type {Document} */ (frame.contentDocument);
+    doc.body.innerHTML = '<div class="tree-section" data-type="examples"></div>';
+    expect(workspaceBody()).toContain(
+      'The entry under Examples is a shipped sample; your own work lands above it.'
+    );
+  });
+
   test('steps with absent anchors drop out and the count adjusts', () => {
     document.body.innerHTML = '<div class="terminal-card"></div>';
     startTour();

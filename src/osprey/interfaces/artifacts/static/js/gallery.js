@@ -231,7 +231,9 @@ function simpleResultArtifact(recent) {
   if (sel && recent.some((a) => a.id === sel.id)) return sel;
   const foc = getFocusedArtifact();
   if (foc && recent.some((a) => a.id === foc.id)) return foc;
-  return recent[0] || null;
+  // Newest real result first; the shipped example only when nothing else
+  // exists yet (that is what it is there for).
+  return recent.find((a) => a.origin !== "demo") || recent[0] || null;
 }
 
 /** @returns {void} */
