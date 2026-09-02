@@ -2954,7 +2954,15 @@ def _build_repo(
             # just written (see _SharedRenderInputs.host_config). A profile
             # that is itself attached hosts nothing and projects nothing.
             if build_profile.deploy_services:
-                shared = shared._replace(host_config=_rendered_config(host_render))
+                host_config = _rendered_config(host_render)
+                shared = shared._replace(host_config=host_config)
+                # The one render that has `deployed_services` in hand, so the
+                # one place a remote logbook with nothing mirroring it can be
+                # named. Advisory: the build is sound, the mirror is missing.
+                from .build_profile_reach import ariel_ingestion_advisories
+
+                for advisory in ariel_ingestion_advisories(host_config):
+                    output.note(f"⚠ {advisory}")
             phase.step("project files, agent artifacts and services")
             if injected:
                 phase.step(f"services injected: {', '.join(injected)}")

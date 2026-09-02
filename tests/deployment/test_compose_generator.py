@@ -6359,6 +6359,115 @@ def test_inject_project_metadata_passes_limits_mount_through(tmp_path: Path) -> 
 
 
 # ---------------------------------------------------------------------------
+# The ARIEL qmd mirror, as the injected render context spells it
+# (``osprey_ariel_mirror_source`` / ``osprey_container_ariel_mirror_dir``)
+#
+# One configured value -- ``ariel.enhancement_modules.qmd_export.mirror_path``
+# -- names one directory, and a compose template that mounts it needs both
+# halves: the HOST bind source compose resolves against the pinned project
+# directory, and the CONTAINER target the exporter inside actually writes to.
+# Deriving both here, from the one reader every other consumer uses, is what
+# keeps the directory the exporter fills and the directory the mount covers
+# provably the same string.
+#
+# ``None`` on both when no export writes a mirror: a template gates its whole
+# mount on that, and an empty-string sentinel would render a bind with a
+# missing source instead.
+# ---------------------------------------------------------------------------
+
+
+def _mirror_config(tmp_path: Path, mirror_path: str) -> dict:
+    """A minimal config whose qmd export writes *mirror_path*."""
+    return {
+        "project_name": "mirror-fixture",
+        "project_root": str(tmp_path),
+        "ariel": {
+            "enhancement_modules": {
+                "qmd_export": {"enabled": True, "mirror_path": mirror_path},
+            }
+        },
+    }
+
+
+def test_inject_project_metadata_mirror_keys_none_without_qmd_export(tmp_path: Path) -> None:
+    """No enabled export means no mirror keys with a value.
+
+    A deployment that writes no mirror has no directory to mount, and the
+    template's mount is gated on exactly this. Both halves must read falsy --
+    absent or ``None`` -- rather than a path that points at nothing.
+    """
+    from osprey.deployment.compose_generator import _inject_project_metadata
+
+    base = {"project_name": "mirror-fixture", "project_root": str(tmp_path)}
+
+    for config in (
+        base,
+        # Present but disabled: the exporter never runs, so nothing writes.
+        {**base, "ariel": {"enhancement_modules": {"qmd_export": {"enabled": False}}}},
+        # Enabled with no path: a config error the exporter itself refuses at
+        # runtime, and nothing this render can mount.
+        {**base, "ariel": {"enhancement_modules": {"qmd_export": {"enabled": True}}}},
+    ):
+        injected = _inject_project_metadata(dict(config))
+        assert injected.get("osprey_ariel_mirror_source") is None
+        assert injected.get("osprey_container_ariel_mirror_dir") is None
+
+
+def test_inject_project_metadata_carries_mirror_keys_with_qmd_export(tmp_path: Path) -> None:
+    """A relative ``mirror_path`` becomes a repo-relative source and a project target.
+
+    The source carries the explicit ``./`` every bind source in a rendered
+    compose file needs; the target is anchored under this project's
+    in-container root, which is where the exporter resolves the same relative
+    path.
+    """
+    from osprey.deployment.compose_generator import _inject_project_metadata
+
+    injected = _inject_project_metadata(_mirror_config(tmp_path, "var/ariel_mirror"))
+
+    assert injected["osprey_ariel_mirror_source"] == "./var/ariel_mirror"
+    assert injected["osprey_container_ariel_mirror_dir"] == "/app/mirror-fixture/var/ariel_mirror"
+
+
+def test_inject_project_metadata_mirror_reads_settings_over_module_block(tmp_path: Path) -> None:
+    """``settings.mirror_path`` wins, exactly as ARIEL's own loader merges them.
+
+    Read through ``configured_ariel_mirror_path`` rather than re-spelled here,
+    so the mount cannot follow a key the exporter does not write to.
+    """
+    from osprey.deployment.compose_generator import _inject_project_metadata
+
+    config = _mirror_config(tmp_path, "var/module_block")
+    config["ariel"]["enhancement_modules"]["qmd_export"]["settings"] = {
+        "mirror_path": "var/settings_wins"
+    }
+
+    injected = _inject_project_metadata(config)
+
+    assert injected["osprey_ariel_mirror_source"] == "./var/settings_wins"
+    assert injected["osprey_container_ariel_mirror_dir"] == "/app/mirror-fixture/var/settings_wins"
+
+
+def test_inject_project_metadata_mirror_absolute_path_is_not_reanchored(tmp_path: Path) -> None:
+    """An operator-owned absolute path names the same directory on both sides.
+
+    Inside the repo it is still spelled repo-relative so the rendered file
+    survives the repo being moved; outside it, it stays absolute -- and the
+    container target is never re-anchored under the project directory, because
+    the exporter inside resolves an absolute path to itself.
+    """
+    from osprey.deployment.compose_generator import _inject_project_metadata
+
+    inside = _inject_project_metadata(_mirror_config(tmp_path, str(tmp_path / "var" / "mirror")))
+    assert inside["osprey_ariel_mirror_source"] == "./var/mirror"
+    assert inside["osprey_container_ariel_mirror_dir"] == str(tmp_path / "var" / "mirror")
+
+    outside = _inject_project_metadata(_mirror_config(tmp_path, "/srv/ariel_mirror"))
+    assert outside["osprey_ariel_mirror_source"] == "/srv/ariel_mirror"
+    assert outside["osprey_container_ariel_mirror_dir"] == "/srv/ariel_mirror"
+
+
+# ---------------------------------------------------------------------------
 # Bluesky plan-device staging (``_stage_bluesky_devices``)
 #
 # The build decides ONCE per render which devices the queueserver worker can

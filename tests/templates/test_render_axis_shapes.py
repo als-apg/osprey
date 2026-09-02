@@ -100,6 +100,13 @@ _AXIS_TAG = "v1.2.3"
 #: one on another so the single-name shape is pinned too.
 _ENV_PASSTHROUGH = ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY")
 
+#: The mirror path the ``ariel-sync-qmd-mirror`` scenario configures. Written
+#: repo-relative on purpose: an absolute value would be spelled into the golden
+#: as the absolute path the fixture repo happened to get, which is a different
+#: string on every machine. Relative is also the shape a deployment authors —
+#: the exporter anchors it on the project root, and so does every mount of it.
+_MIRROR_PATH = "var/ariel_mirror"
+
 
 @contextmanager
 def _axes_unset() -> Iterator[None]:
@@ -318,6 +325,54 @@ SCENARIOS: tuple[Scenario, ...] = (
             "nextcloud_bridge",
         ),
         overrides={"images": {"registry": _AXIS_REGISTRY, "tag": _AXIS_TAG}},
+    ),
+    # The ARIEL mirror daemon beside the store it writes into, both on the
+    # compose bridge. The store's presence is the whole delta: `ariel_sync`
+    # spells its address as a LITERAL that only this file knows, and it emits
+    # that literal — plus the health-gated `depends_on` that keeps the startup
+    # sync off a Postgres still running initdb — only when `deployed_services`
+    # says the store is ours. Nothing else is declared, so these bytes minus
+    # the default ones are exactly what co-deploying the store does.
+    Scenario(
+        name="ariel-sync-with-store",
+        services={},
+        deployed=("ariel_sync", "postgresql"),
+        templates=("ariel_sync",),
+    ),
+    # The same pair with the daemon moved to the host namespace. The store stays
+    # network-joined for the reason the other stores do — it publishes on the
+    # host, which is precisely why the host-mode daemon is told to reach it at
+    # `localhost` on the PUBLISHED port rather than at `ariel-postgres` on 5432,
+    # a name that resolves to nothing from there. That address swap is the shape
+    # worth a whole-file baseline: it is not one edited line but a deleted
+    # `networks:` attachment, a deleted file-level stanza and a rewritten
+    # address, and a leftover of any of the three is a daemon that comes up
+    # looking healthy and never reaches the store.
+    Scenario(
+        name="ariel-sync-on-host",
+        services={"ariel_sync": {"network": "host"}},
+        deployed=("ariel_sync", "postgresql"),
+        templates=("ariel_sync",),
+    ),
+    # A deployment whose qmd export is on, which is the only thing that gives
+    # the daemon a mirror to bind. The export runs INSIDE this container, so the
+    # directory it writes has to be the host directory the qmd sidecar indexes
+    # or the entries live in a writable layer the next recreate discards. The
+    # store is left out and the axes unset: the only delta from the default
+    # render is the mirror, so the golden shows the mount and its companion
+    # `OSPREY_ARIEL_MIRROR_DIR` arriving together and nothing else moving.
+    Scenario(
+        name="ariel-sync-qmd-mirror",
+        services={},
+        deployed=("ariel_sync",),
+        templates=("ariel_sync",),
+        overrides={
+            "ariel": {
+                "enhancement_modules": {
+                    "qmd_export": {"enabled": True, "mirror_path": _MIRROR_PATH}
+                }
+            }
+        },
     ),
 )
 
@@ -617,6 +672,95 @@ def test_every_shape_lists_the_chain_its_repo_carried(case: tuple[Scenario, str]
         assert service["env_file"] == list(scenario.expected_chain), (
             f"{scenario.name}/{name} lists a chain its repo did not carry"
         )
+
+
+def test_ariel_sync_reaches_a_co_deployed_store_by_its_network_alias() -> None:
+    """On the bridge the daemon dials ``ariel-postgres`` on the container port.
+
+    The alias is pinned in the postgresql template exactly so this name outlives
+    the per-project ``container_name``, and 5432 is the port inside that
+    container — never the host publish, which from a bridge-networked container
+    names its own loopback and answers nothing.
+    """
+    environment = _service_env("ariel-sync-with-store", "ariel_sync", "ariel-sync")
+
+    assert environment["ARIEL_DATABASE_HOST"] == "ariel-postgres"
+    assert environment["ARIEL_DATABASE_PORT"] == "5432"
+
+
+def test_ariel_sync_waits_for_the_store_only_when_it_is_co_deployed() -> None:
+    """The startup sync is health-gated on a store this deployment runs, and
+    names no service it does not.
+
+    Both halves are the same decision. The sync connects immediately and
+    migrates schema, so against a Postgres still running initdb it fails rather
+    than waits — hence ``service_healthy`` rather than merely ``started``. And a
+    ``depends_on`` naming a service the deployment does not run errors compose
+    outright, taking down every other service in the file, so the mirror-only
+    shape must carry none.
+    """
+    with_store = yaml.safe_load(_golden_text(_scenario("ariel-sync-with-store"), "ariel_sync"))
+    without = yaml.safe_load(_golden_text(_scenario("ariel-sync-qmd-mirror"), "ariel_sync"))
+
+    assert with_store["services"]["ariel-sync"]["depends_on"] == {
+        "postgresql": {"condition": "service_healthy"}
+    }
+    assert "depends_on" not in without["services"]["ariel-sync"], (
+        "the daemon waits on a store this deployment does not run"
+    )
+
+
+def test_ariel_sync_on_host_reaches_the_store_where_it_publishes() -> None:
+    """On the host the address is ``localhost`` and the PUBLISHED port.
+
+    Derived through the shipped port layout rather than pinned as a literal, so
+    moving ``deployment.port_base`` fails here — where the fix is a
+    regeneration — instead of at the first sync, whose symptom is a daemon that
+    retries a refused connection until it gives up.
+    """
+    from osprey.port_layout import layout_ports, resolve_port_base
+
+    expected = layout_ports(resolve_port_base({"deployment": {}}))["postgres"]
+    environment = _service_env("ariel-sync-on-host", "ariel_sync", "ariel-sync")
+
+    assert environment["ARIEL_DATABASE_HOST"] == "localhost"
+    assert environment["ARIEL_DATABASE_PORT"] == str(expected)
+
+
+def test_ariel_sync_binds_the_mirror_where_its_own_exporter_writes() -> None:
+    """The mount, its container target and the entrypoint's variable are one path.
+
+    Three consumers of one configured string: the host directory the qmd
+    sidecar indexes, the container directory the exporter running inside this
+    daemon resolves against the project root, and the variable the image
+    entrypoint reads to join that directory's group before dropping privileges.
+    Any two of them disagreeing is a mirror that fills somewhere nothing reads.
+    Read-write by intent — this container is a WRITER of the mirror, unlike the
+    sidecar's read-only corpus bind.
+    """
+    document = yaml.safe_load(_golden_text(_scenario("ariel-sync-qmd-mirror"), "ariel_sync"))
+    service = document["services"]["ariel-sync"]
+    container_dir = f"/app/{_PROJECT_NAME}/{_MIRROR_PATH}"
+
+    assert f"./{_MIRROR_PATH}:{container_dir}" in service["volumes"], (
+        "the mirror is not bound read-write at the path the exporter writes"
+    )
+    assert service["environment"]["OSPREY_ARIEL_MIRROR_DIR"] == container_dir
+
+
+def test_a_deployment_with_no_qmd_export_binds_no_mirror() -> None:
+    """Without an export there is no writer, so both halves stay absent.
+
+    The injector answers "no mirror" with ``None`` and the template gates the
+    mount and the variable on that same source, so they appear and disappear
+    together. A ``| default('')`` anywhere in that chain would render a bind
+    with an empty host half: accepted at render time, rejected at ``compose
+    up``, and only on the deployments that never asked for a mirror.
+    """
+    text = _golden_text(_scenario("ariel-sync-with-store"), "ariel_sync")
+
+    assert "OSPREY_ARIEL_MIRROR_DIR" not in text
+    assert _MIRROR_PATH not in text
 
 
 #: Every (scenario, service key, declared names) this suite pins a passthrough

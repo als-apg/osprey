@@ -21,8 +21,8 @@
       `registry.url` from the deployed project's config. NOT read directly by this
       template's per-user image line (that comes pre-resolved as `svc.image`,
       below) — kept in the render context for the nginx/landing sibling
-      templates and any future use, per the same convention as the
-      `ariel-sync` service in templates/core/docker-compose.yml.
+      templates and any future use, per the same convention as the bundled
+      `ariel-sync` service in templates/services/ariel_sync/docker-compose.yml.j2.
 
     services: list[dict], required (may be empty — the 0-user case)
       ONE entry per configured user, PRE-BUILT by render.py from

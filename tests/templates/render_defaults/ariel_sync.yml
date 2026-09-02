@@ -1,0 +1,118 @@
+# The ariel-sync service keeps this deployment's ARIEL logbook mirror FRESH.
+# It runs `osprey ariel sync --watch`: a startup sync (schema migration,
+# incremental ingest, enhance cleanup) and then the ingestion loop, polling the
+# facility logbook at `ariel.ingestion.poll_interval_seconds` and writing what
+# it finds into the deployment's own ARIEL store.
+#
+# A DAEMON, not a one-shot, and that is the whole point of the service. A
+# container that syncs once and exits leaves the mirror frozen at the last
+# `osprey up`, so the panel goes stale between deploys while every health row
+# still reads green. Hence `restart: unless-stopped` below — the mirror is
+# meant to be moving whenever the deployment is up.
+#
+# THE RESTART POLICY OUTLIVES THE DAEMON'S OWN FAILURE CAP, deliberately, and
+# an operator needs to know it. The ingestion loop backs off between failures
+# and gives up after a run of consecutive ones, exiting non-zero; this policy
+# then restarts the container and the whole sequence begins again. So "gave up"
+# is never a durable state, and `docker ps` goes on reading `running` while the
+# mirror advances by nothing. The two signals that tell the difference are the
+# container's RESTART COUNT and the `ariel_last_ingestion` health row, which
+# reads the store's newest ingestion row rather than the container's.
+#
+# It runs the PROJECT image (<project>:local) that `osprey up` builds from the
+# project root — the same image the web terminals and the dispatch workers run,
+# so the whole slice shares one image and one failure domain. It overrides only
+# `command:`. OSPREY_WORKER_IMAGE overrides with a prebuilt/published image.
+#
+# There is deliberately NO `build:` block: the project image is built once by
+# `osprey up` (deployment/container_lifecycle.py) before `docker compose up`
+# runs, and a second `build:` for the same tag would race the sole builder.
+
+services:
+  ariel-sync:
+    image: ${OSPREY_WORKER_IMAGE:-golden-project:local}
+    # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
+    # so two OSPREY projects can deploy a mirror on one host without colliding on
+    # one name. Nothing reaches this service in-network (it only makes outbound
+    # calls, to the logbook and to the store), so the rename needs no alias.
+    container_name: golden-project-ariel-sync
+    # `--watch` is what makes this a mirror rather than a snapshot: the initial
+    # sync runs first (so an empty store is filled and an external store is
+    # migrated), then the process stays in the ingestion loop.
+    command: ["osprey", "ariel", "sync", "--watch"]
+    labels:
+      osprey.project.name: "golden-project"
+      com.osprey.repo-id: "0123456789ab"
+      osprey.project.root: "/deploy/golden-project"
+      # Content fingerprint of the rendered config this deploy built
+      # (runtime_helper's as_built_config_digest, carried in by
+      # OSPREY_CONFIG_DIGEST). Compose recreates a container when the compose
+      # DOCUMENT changes, and it never diffs a running container against the
+      # files that container reads its settings from — so without this label an
+      # `osprey set` that moves the poll interval would leave this daemon
+      # running on the settings it parsed at startup, indefinitely. Empty when
+      # the invocation did not set the variable (a hand-run `docker compose up`).
+      osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
+      # The same recreate trigger for the other file this container reads its
+      # settings from: the env chain (runtime_helper's env_chain_digest, carried
+      # in by OSPREY_ENV_DIGEST). Rotating the store password or a proxy
+      # variable in the chain is a document change with this label and an
+      # invisible one without it.
+      osprey.env.digest: "${OSPREY_ENV_DIGEST:-}"
+    restart: unless-stopped
+    # No `ports:` and no `healthcheck:` — deliberately, and for the same reason
+    # the archiver recorder has neither. This service opens no listening socket:
+    # it dials the logbook and the store and is dialled by nothing, so it has
+    # nothing to publish and nothing an HTTP or TCP probe could ask. Its
+    # liveness question ("is the mirror still moving?") is answered where it
+    # belongs, by the `ariel_last_ingestion` health probe reading the store's
+    # newest ingestion row — a container that is up but no longer ingesting is
+    # exactly the failure a container-level probe would report as healthy.
+
+    # The deployment's env is a CHAIN of files at the repo root, listed here in
+    # ASCENDING precedence — committed defaults (.env.shared) first, the local
+    # secret file (.env) last — because compose lets a later entry win on any
+    # key an earlier one also sets. That is the same order the invocation's own
+    # `--env-file` flags carry, so what interpolates into this document and what
+    # lands in the container agree.
+    #
+    # `env_file:` is read by the compose CLI on the HOST (as the file's owner),
+    # so it works even though the repo's .env is deliberately 0600 and this
+    # container runs as the unprivileged `osprey` user. The store password, the
+    # provider key the enhance step calls with, and any site proxy variables all
+    # arrive this way.
+    #
+    # Only files that EXIST at render time are listed: an entry naming a missing
+    # path errors `compose up` outright. Every path is relative to the pinned
+    # compose project directory, which is the deployment REPO ROOT.
+    env_file:
+      - ./.env
+
+    environment:
+      # The sync reads the `ariel:` block — source URL, credentials, poll
+      # interval, enhancement modules — through the global config loader. CWD is
+      # the image WORKDIR, not the project dir, so without CONFIG_FILE every
+      # lookup falls back to a path that holds no project config. It points at
+      # the STAGED config.yml bind-mounted below (the deploy-time config), not
+      # the copy baked into the image.
+      #
+      # Under the project directory, in build/ — the same four-zone shape the
+      # repo has, because this container runs the PROJECT image and anything it
+      # renders against a project root expects that layout (the dispatch worker
+      # carries the same note).
+      CONFIG_FILE: /app/golden-project/build/config.yml
+      OSPREY_PROJECT_DIR: /app/golden-project
+      TZ: UTC
+    # Bind-mount sources are relative to the pinned compose project directory,
+    # which is the deployment REPO ROOT — hence the build/services/ prefix on
+    # the render output below.
+    volumes:
+      # The staged runtime config overlays the config.yml baked into the image,
+      # so the sync runs on the deploy-time settings rather than the image's
+      # build-time snapshot.
+      - ./build/services/ariel_sync/config.yml:/app/golden-project/build/config.yml:ro
+    networks:
+      - osprey-network
+
+networks:
+  osprey-network:

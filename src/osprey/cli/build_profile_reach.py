@@ -64,6 +64,37 @@ def attached_render_overrides(
     return project_attached_overrides(host_config, rendered_config, selected_panels=selected_panels)
 
 
+def ariel_ingestion_advisories(rendered_config: Mapping[str, Any]) -> list[str]:
+    """Say when a deployment names a remote logbook that nothing in it mirrors.
+
+    ``ariel.ingestion.source_url`` is where ARIEL reads entries from, and an
+    ``http(s)`` one is a logbook on another host: something has to poll it, and
+    the bundled ``osprey.ariel_sync`` service is what does. A local path needs
+    no service — the shipped ARIEL app ingests a seed file straight off disk —
+    and an attached render (empty ``deployed_services``) deploys nothing at
+    all, so both are silent. Advisory only: the deployment runs, ARIEL just
+    answers from whatever was last ingested.
+
+    Args:
+        rendered_config: A deploying project's rendered config, after the
+            service injectors have written ``deployed_services``.
+
+    Returns:
+        One message when the remote source has no ingesting service; empty
+        otherwise.
+    """
+    deployed = rendered_config.get("deployed_services") or []
+    if not deployed or "ariel_sync" in {str(entry) for entry in deployed}:
+        return []
+    source_url = dotted_get(rendered_config, "ariel.ingestion.source_url")
+    if not isinstance(source_url, str) or not source_url.startswith(("http://", "https://")):
+        return []
+    return [
+        f"ariel.ingestion.source_url is {source_url}, but no service in this deployment "
+        f"ingests it — add a services: entry with `template: osprey.ariel_sync`."
+    ]
+
+
 def _spelled_values(config: Any, dotted_key: str) -> list[tuple[str, Any]]:
     """Every way *config* writes *dotted_key*, with the value each gives.
 
