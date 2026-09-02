@@ -417,7 +417,8 @@ def write_channel(channel_address: str, value: Any, **kwargs) -> None:
         ChannelWriteFailedError: If the write was attempted but did not come
             back confirmed — the control system did not take it (FAILED), a
             confirming re-read holds a different value (MISMATCH), or the
-            confirming re-read itself failed (UNCONFIRMED)
+            write was not acknowledged in time or the confirming re-read itself
+            failed (UNCONFIRMED)
         ControlTargetChangedError: If the session switched control target after
             this execution started; nothing was written
         TimeoutError: If operation times out

@@ -90,8 +90,8 @@ Every write ends in exactly one of six outcomes:
      - The re-read holds a different value. A setpoint the machine clamped or
        rounded is reported here, not smoothed over.
    * - ``unconfirmed``
-     - The value was sent, but the re-read itself failed, so what the channel
-       holds is unknown.
+     - The value was sent, but not acknowledged in time or the re-read itself
+       failed, so what the channel holds is unknown.
    * - ``unrequested``
      - Confirmation is switched off for this channel; nothing was checked.
 

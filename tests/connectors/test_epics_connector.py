@@ -351,6 +351,24 @@ class TestWriteConfirmation:
         assert result.error_message is None
 
     @pytest.mark.asyncio
+    async def test_a_put_whose_callback_times_out_is_unconfirmed_and_not_re_read(self):
+        """pyepics answers a put-callback timeout with -1, which is truthy.
+
+        The value was sent and nothing has said the IOC took it: the outcome is
+        unknown, not a success to go and confirm. No confirming read is made,
+        because a read that raced the record's own processing would report
+        whatever the channel held a moment ago as the outcome of this write.
+        """
+        connector = _write_connector(caput=-1)
+
+        result = await connector.write_channel("SR:CH", 5.0, confirm=True)
+
+        assert result.outcome is WriteOutcome.UNCONFIRMED
+        assert result.observed_value is None
+        assert "did not acknowledge" in result.error_message
+        connector._epics.PV.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_a_confirming_read_that_raises_is_unconfirmed(self):
         """The value was sent; what the channel holds is unknown, not wrong."""
         connector = _write_connector(read_error=TimeoutError("ca timeout"))

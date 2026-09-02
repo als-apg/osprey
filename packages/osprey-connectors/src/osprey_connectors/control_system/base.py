@@ -102,8 +102,8 @@ class WriteOutcome(StrEnum):
       alarm state. Alarm state is reported, never raised on.
     * ``MISMATCH`` — the re-read holds a different value (a clamped or rounded
       setpoint is reported here, not tolerated).
-    * ``UNCONFIRMED`` — the value was sent, but the re-read itself raised, so
-      what the channel holds is unknown.
+    * ``UNCONFIRMED`` — the value was sent, but not acknowledged in time or
+      the re-read itself failed, so what the channel holds is unknown.
     * ``UNREQUESTED`` — ``confirm=False``: nothing was checked.
     """
 
@@ -889,8 +889,9 @@ class ControlSystemConnector(ABC):
               state. Alarm state is reported with the write, never raised on.
             - ``mismatch`` — the re-read holds a different value. A clamped or
               rounded setpoint is reported here, not tolerated.
-            - ``unconfirmed`` — the value was sent but the re-read itself
-              raised, so what the channel holds is unknown.
+            - ``unconfirmed`` — the value was sent, but not acknowledged in
+              time or the re-read itself failed, so what the channel holds is
+              unknown.
             - ``unrequested`` — ``confirm=False``: nothing was checked.
 
             The comparison is :func:`values_match`, one rule shared by every

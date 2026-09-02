@@ -445,8 +445,8 @@ async def channel_write(
       MAJOR alarm is worth telling the operator about.
     - `mismatch` — the re-read holds a different value. `observed_value` is what
       the channel actually holds; a clamped or rounded setpoint appears here.
-    - `unconfirmed` — sent, but the re-read itself failed, so what the channel
-      holds now is unknown.
+    - `unconfirmed` — sent, but not acknowledged in time or the re-read itself
+      failed, so what the channel holds now is unknown.
     - `unrequested` — confirmation is switched off for this channel; the value
       was sent and nothing was checked.
 
