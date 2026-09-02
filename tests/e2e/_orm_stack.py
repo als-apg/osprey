@@ -918,6 +918,28 @@ def _in_partition(address: str, *, ring: str, system: str, families: tuple[str, 
     return classify_partition(path) == PARTITION_PYAT_COUPLED
 
 
+def pyat_coupled(address: str) -> bool:
+    """Whether ``address`` is a channel the AT lattice model actually drives.
+
+    The demo machine's storage-ring devices are pyat-coupled: a setpoint write
+    steers the beam through the lattice and a readback moves when it does. Its
+    booster and transfer-line channels are not -- a setpoint there is a
+    software echo and a monitor is static noise, so a plan sweeping one
+    finishes as fast as the network round-trips allow and proves nothing about
+    rows arriving while physics runs. Lanes that read the BUILD's staged device
+    file (rather than selecting from the roster) narrow it with this so the
+    device they drive is a modelled one whichever order the build wrote the
+    file in. Same classifier as :func:`_in_partition`, without the family cut.
+    """
+    from osprey.services.virtual_accelerator.manifest import (
+        PARTITION_PYAT_COUPLED,
+        classify_partition,
+    )
+
+    path = _address_path(address)
+    return path is not None and classify_partition(path) == PARTITION_PYAT_COUPLED
+
+
 def _keyed_by_address(
     items: list[_T], address_of: Callable[[_T], str], count: int | None, unit_label: str
 ) -> dict[str, _T]:
