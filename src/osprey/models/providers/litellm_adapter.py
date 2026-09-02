@@ -610,7 +610,7 @@ def check_litellm_health(
         completion_kwargs: dict[str, Any] = {
             "model": litellm_model,
             "messages": [{"role": "user", "content": "Hi"}],
-            "max_tokens": 1,
+            "max_tokens": 16,  # one token is not enough: reasoning models (GPT-5.x) spend it on reasoning and 400
             "timeout": timeout,
         }
 

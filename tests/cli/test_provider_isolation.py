@@ -417,10 +417,10 @@ class TestResolveEnvBlockRegression:
     def test_env_block_regression_anthropic(self):
         spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
         assert spec.env_block == {
-            "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-4-5-20251001",
-            "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-4-5-20250929",
-            "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-6",
-            "ANTHROPIC_MODEL": "claude-sonnet-4-5-20250929",
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-4-5",
+            "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-5",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5",
+            "ANTHROPIC_MODEL": "claude-sonnet-5",
         }
 
     def test_env_block_regression_cborg(self):

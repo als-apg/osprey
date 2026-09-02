@@ -621,8 +621,9 @@ class TemplateManager:
                 raise BuildProfileError(
                     "channel_finder_mode is required when the channel-finder agent "
                     "is selected. Pin it in your profile "
-                    "(e.g. `channel_finder_mode: hierarchical`) or pass "
-                    "`--set channel_finder_mode=<paradigm>` to `osprey build`."
+                    "(e.g. `channel_finder_mode: hierarchical`), set it with "
+                    "`osprey set channel_finder_mode=<paradigm>`, or pass "
+                    "`--set channel_finder_mode=<paradigm>` to `osprey init`."
                 )
             if channel_finder_mode not in VALID_CHANNEL_FINDER_MODES:
                 raise BuildProfileError(

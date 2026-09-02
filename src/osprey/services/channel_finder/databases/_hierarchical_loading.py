@@ -27,9 +27,9 @@ class _HierarchicalLoadingMixin(_HierarchicalNamingMixin):
 
         if "hierarchy" not in data:
             raise ValueError(
-                "Invalid database format: must contain 'hierarchy' section with "
-                "'levels' list and 'naming_pattern'. See data/channel_databases/"
-                "hierarchical.json for the expected format."
+                f"Invalid database format: {self.db_path} must contain a 'hierarchy' "
+                "section with a 'levels' list and 'naming_pattern'. See the worked "
+                "examples under data/channel_databases/examples/ for the expected format."
             )
 
         # Unified schema: single "hierarchy" section
@@ -43,7 +43,8 @@ class _HierarchicalLoadingMixin(_HierarchicalNamingMixin):
             raise ValueError(
                 "Invalid database format: the 'hierarchy' section must contain "
                 f"'levels' and 'naming_pattern'; this one has no {' or '.join(repr(k) for k in missing)}. "
-                "See data/channel_databases/hierarchical.json for the expected format."
+                "See the worked examples under data/channel_databases/examples/ "
+                "for the expected format."
             )
 
         # Extract levels list and build derived structures

@@ -395,7 +395,7 @@ def _ci_extra_text(name: str, seeded: tuple[str, ...] = ()) -> str:
 #
 #   ioc-smoke-test:
 #     stage: validate
-#     image: python:3.11-slim
+#     image: python:3.12-slim
 #     script:
 #       - ./ci/ioc_smoke_test.sh
 

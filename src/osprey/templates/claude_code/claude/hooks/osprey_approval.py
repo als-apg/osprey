@@ -2173,7 +2173,7 @@ def main():
     # `can_use_tool` fires and the unarmed invariant is violated.
     #
     # How much this defer carries depends on the render, and posture is per
-    # target, so `src/osprey/cli/templates/claude_code.py` renders three ways:
+    # target, so `osprey.cli.templates.claude_code` renders three ways:
     #
     # * NO target may write — every write tool is hard-denied in
     #   `permissions.deny`, which blocks before any PreToolUse hook fires. There
