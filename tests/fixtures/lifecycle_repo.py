@@ -1648,7 +1648,7 @@ CI_EXTRA_YML = """\
 #
 #   ioc-smoke-test:
 #     stage: validate
-#     image: python:3.11-slim
+#     image: python:3.12-slim
 #     script:
 #       - ./ci/ioc_smoke_test.sh
 
@@ -1712,7 +1712,7 @@ variables:
 # -----------------------------------------------------------------------------
 render-build:
   stage: validate
-  image: python:3.11-slim
+  image: python:3.12-slim
   before_script:
     # The floor the profile itself declares (requires_osprey_version), so the
     # pipeline can never run an OSPREY that does not understand it.
@@ -1755,7 +1755,7 @@ render-build:
 # -----------------------------------------------------------------------------
 deploy:
   stage: deploy
-  image: alpine:3.20
+  image: alpine:3.23
   needs:
     - render-build
   before_script:
