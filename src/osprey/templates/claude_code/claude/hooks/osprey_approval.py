@@ -1204,9 +1204,8 @@ def _queue_activity_lines(snapshot) -> list[str]:
         )
     elif status.get("queue_autostart_enabled"):
         headline = (
-            f"⚠️  AUTOSTART IS ENABLED on the manager (state: {state}) — OSPREY never "
-            f"enables it, so something armed this queue out of band. An item added "
-            f"now can execute with no further approval."
+            f"⚠️  THE QUEUE IS STARTED (autostart on, manager state: {state}) — an item "
+            f"added now runs as soon as the queue reaches it, with no further approval."
         )
     elif raw_state != _IDLE_MANAGER_STATE:
         headline = (

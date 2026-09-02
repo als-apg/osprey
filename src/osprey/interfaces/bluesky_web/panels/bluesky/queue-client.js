@@ -44,7 +44,11 @@ export const QUEUE_ACTIVE_MANAGER_STATES = Object.freeze([
 /** Run statuses a run record can no longer leave (`runs.py`). */
 export const TERMINAL_RUN_STATUSES = Object.freeze(['completed', 'stopped', 'error']);
 
-export const STOP_LABEL = 'Stop after current item';
+// The three controls of the queue control strip read as one row of verbs:
+// Start · Stop · Abort. What each one does to the running plan is said in its
+// tooltip and, for the two that confirm, in the note that renders on arm.
+export const START_LABEL = 'Start';
+export const STOP_LABEL = 'Stop';
 // Not "Cancel pending stop": in a queue UI "Cancel" scans as MORE halting, so
 // that label pointed an operator's glance in the opposite direction from what
 // the button does. The resting label has to be right on its own — the two-step
@@ -55,17 +59,33 @@ export const CONFIRM_WITHDRAW_STOP_LABEL = 'Confirm — the queue keeps draining
 // The emergency halt. "Abort" rather than "Stop now" because the queue already
 // has a Stop and the two must not read as degrees of the same thing: this one
 // throws away the rest of the running plan.
-export const ABORT_LABEL = 'Abort running plan';
-// SHORTER than the resting label, deliberately, and panel.css pins the button
-// at its resting width. This button is the LAST item in the status strip's
-// right-anchored cluster, so its own width is what positions the plain Stop
-// beside it: a label that grew on arming dragged Stop ~150px left at the exact
-// moment an operator is choosing between the two halts — and the armed Abort
-// then covered most of the pixels Stop had just vacated, so a click aimed at
-// Stop committed the abort. The confirm gate defeated itself geometrically.
-// What the second click does is said in #abort-note (see abortControl), which
-// already renders on arm and says it better than a button label can.
-export const CONFIRM_ABORT_LABEL = 'Confirm abort';
+export const ABORT_LABEL = 'Abort';
+// The armed second step of BOTH confirming buttons (Abort, Clear) is the one
+// word "Confirm": the button turns to the caution colour and the note under
+// the strip says what the second click does. panel.css floors every strip
+// button at this label's width, the longest any of them shows, so no swap
+// resizes a box: Abort's width positions Stop beside it, and a label that
+// grew on arming used to drag Stop sideways at the exact moment an operator
+// is choosing between the two halts — the armed Abort then covered the
+// pixels Stop had just vacated, so a click aimed at Stop committed the abort.
+export const CONFIRM_LABEL = 'Confirm';
+export const CONFIRM_ABORT_LABEL = CONFIRM_LABEL;
+// Removes every WAITING plan; the running one is untouched (that is Abort).
+export const CLEAR_LABEL = 'Clear';
+export const CONFIRM_CLEAR_LABEL = CONFIRM_LABEL;
+
+/**
+ * Plain-language tooltips for the four controls — one sentence each, what the
+ * click does, nothing else.
+ */
+export const CONTROL_HINTS = Object.freeze({
+  start: 'Runs the queued plans, and any plan added later.',
+  stop: 'Lets the current plan finish, then stops the queue.',
+  abort: 'Stops the running plan right now.',
+  clear: 'Removes every waiting plan. The running plan is not touched.',
+  clearHistory: 'Removes every completed run from the list. Run data is kept.',
+  removeRun: 'Removes this run from the list. Its data is kept.',
+});
 
 /** @typedef {Record<string, unknown>} QueueStatus */
 /** @typedef {Record<string, any>} QueueItem */
@@ -135,16 +155,48 @@ export function historyChanged(prev, next) {
   return (
     prev.plan_history_uid !== next.plan_history_uid ||
     prev.items_in_history !== next.items_in_history ||
-    prev.running_item_uid !== next.running_item_uid
+    prev.running_item_uid !== next.running_item_uid ||
+    // The bridge's own key: a run removed from the OSPREY view moves none of
+    // the manager's uids, so this is the only sign another panel did it.
+    prev.runs_removed !== next.runs_removed
   );
 }
 
 /**
- * The manager's state as a badge: short label, tone, and a sentence for the
- * cases where the label alone says nothing useful.
+ * Whether the manager is ARMED: it drains whatever it holds, and whatever
+ * arrives, without a further start. This is queueserver's autostart mode,
+ * which the bridge switches on for a deployment whose queue is meant to be
+ * running by default and which `POST /queue/start` re-enables after a stop.
+ *
+ * Read from the manager, never assumed from config: the flag the manager
+ * reports is the only truth about what an enqueue does next.
  *
  * @param {QueueStatus|null} status
- * @returns {{label: string, tone: 'ok'|'info'|'warn'|'err', note: string|null}}
+ * @returns {boolean}
+ */
+export function queueArmed(status) {
+  return Boolean(status) && status?.available === true && status?.queue_autostart_enabled === true;
+}
+
+/** @typedef {'ok'|'info'|'warn'|'err'|'neutral'} BadgeTone */
+
+/**
+ * The manager's state as a badge, in the operator's vocabulary.
+ *
+ * The queue server's own word for a manager with nothing to do is `idle`. To
+ * an operator that reads as "waiting for input", which is the wrong picture
+ * for both things it can mean: a queue that was never started (`stopped`),
+ * and an armed queue that will run the next plan it is given (`ready`). The
+ * badge names which; the raw manager word rides along as `raw` for the
+ * tooltip, so the manager's own state is always one hover away. A state
+ * string this bundle does not know is shown raw, in the caution tone — an
+ * unknown state is doubt, and doubt is not painted calm.
+ *
+ * `hint` is the badge's tooltip: one plain sentence saying what the state
+ * means for the operator, followed by the manager's own word.
+ *
+ * @param {QueueStatus|null} status
+ * @returns {{label: string, tone: BadgeTone, note: string|null, raw: string|null, hint: string}}
  */
 export function describeQueueStatus(status) {
   if (!status || status.available !== true) {
@@ -155,22 +207,70 @@ export function describeQueueStatus(status) {
       note: reason
         ? `The queue manager could not be read (${reason}).`
         : 'The queue manager could not be read.',
+      raw: null,
+      hint: 'The queue server cannot be reached.',
     };
   }
-  const managerState = typeof status.manager_state === 'string' ? status.manager_state : null;
-  if (managerState === null) {
-    return { label: 'unknown', tone: 'warn', note: 'The manager reported no state.' };
+  const raw = typeof status.manager_state === 'string' ? status.manager_state : null;
+  if (raw === null) {
+    return {
+      label: 'unknown',
+      tone: 'warn',
+      note: 'The manager reported no state.',
+      raw,
+      hint: 'The queue server reported no state.',
+    };
   }
-  const active = QUEUE_ACTIVE_MANAGER_STATES.includes(managerState);
-  const autostart = status.queue_autostart_enabled === true;
-  return {
-    label: managerState,
-    tone: active ? 'info' : 'ok',
-    // Autostart is observed, never assumed: the bridge keeps it off, so a true
-    // here means something armed this manager out of band and the operator
-    // should see it rather than discover it when the queue drains itself.
-    note: autostart ? 'Autostart is enabled on this manager — the queue drains itself.' : null,
-  };
+  /** @param {string} sentence */
+  const hint = (sentence) => `${sentence} (manager: ${raw})`;
+  if (status.queue_stop_pending === true) {
+    return {
+      label: 'stopping after current',
+      tone: 'warn',
+      note: null,
+      raw,
+      hint: hint('The current plan finishes, then the queue stops.'),
+    };
+  }
+  switch (raw) {
+    case 'starting_queue':
+      return { label: 'starting', tone: 'info', note: null, raw, hint: hint('A plan is about to run.') };
+    case 'executing_queue':
+    case 'executing_task':
+      return { label: 'running', tone: 'info', note: null, raw, hint: hint('A plan is running now.') };
+    case 'paused':
+      return { label: 'paused', tone: 'warn', note: null, raw, hint: hint('The running plan is paused.') };
+    case 'idle':
+      if (!queueArmed(status)) {
+        return {
+          label: 'stopped',
+          tone: 'neutral',
+          note: null,
+          raw,
+          hint: hint('The queue is stopped. Plans you add wait until Start.'),
+        };
+      }
+      // Autostart drains only once the worker environment is open: an armed
+      // manager with no environment is not ready, whatever its flag says.
+      if (status.worker_environment_exists === false) {
+        return {
+          label: 'environment closed',
+          tone: 'warn',
+          note: 'The queue is started, but the worker environment is not open yet.',
+          raw,
+          hint: hint('The queue is started, but the worker is not ready yet.'),
+        };
+      }
+      return {
+        label: 'ready',
+        tone: 'ok',
+        note: null,
+        raw,
+        hint: hint('The queue is running. A plan you add runs right away.'),
+      };
+    default:
+      return { label: raw, tone: 'warn', note: null, raw, hint: hint('Unfamiliar state.') };
+  }
 }
 
 /** @typedef {{disabled: boolean, reason: string|null}} ControlState */
@@ -215,14 +315,18 @@ export function queueControls(state) {
   const managerState = typeof status?.manager_state === 'string' ? status.manager_state : null;
   const active = managerState !== null && QUEUE_ACTIVE_MANAGER_STATES.includes(managerState);
 
+  // Start ARMS the queue: it drains what is queued now and whatever arrives
+  // later, so an empty stopped queue is a legitimate thing to start. It is
+  // dead only when there is nothing to arm — already armed, already draining,
+  // or a manager that cannot be read.
   /** @type {ControlState} */
   let start;
   if (!available) {
     start = { disabled: true, reason: 'The queue manager could not be read.' };
   } else if (active) {
     start = { disabled: true, reason: 'The queue is already running.' };
-  } else if (state.items.length === 0) {
-    start = { disabled: true, reason: 'Nothing is queued.' };
+  } else if (queueArmed(status)) {
+    start = { disabled: true, reason: 'The queue is already started.' };
   } else {
     start = { disabled: false, reason: null };
   }
@@ -311,52 +415,110 @@ export function abortControl(state) {
   }
   return {
     note: running
-      ? 'Discards the rest of the running plan. Hardware is left wherever the plan stopped.'
+      ? 'Click again to abort: the rest of the running plan is dropped, and hardware stays where it is.'
       : 'No plan is running in the last frame seen; the abort is still sent and the bridge answers.',
     running,
   };
 }
 
 /**
- * Whether the status strip may fold the two halts behind its disclosure.
+ * The Clear control: drop every waiting plan. A usability gate only, like
+ * Start — it is dead when there is provably nothing to clear, and it never
+ * touches the running item (that is Abort). Two-step in the view, because
+ * the plans it removes are somebody's staged work.
+ *
+ * @param {QueueState} state
+ * @returns {ControlState}
+ */
+export function clearControl(state) {
+  const status = state.status;
+  const available = Boolean(status) && status?.available === true;
+  if (!available) return { disabled: true, reason: 'The queue manager could not be read.' };
+  if (state.items.length === 0) return { disabled: true, reason: 'Nothing is waiting.' };
+  return { disabled: false, reason: null };
+}
+
+/**
+ * Whether the two halts must be on screen on EVERY tab right now.
  *
  * This gates VISIBILITY, never function — the halts stay undisabled and
  * always-sendable whenever they are on screen (see `queueControls` /
  * `abortControl` for why they have no disabled state). What this predicate
- * decides is whether the strip is allowed to rest in its collapsed shape at
- * all, and it answers yes only when the panel affirmatively knows the halts
+ * decides is whether a tab other than Queue may show the queue as a badge
+ * alone, and it answers no only when the panel affirmatively knows the halts
  * are dormant. The default for every other state — no frame yet, a dropped
  * stream, an unreadable manager, a state string this bundle has never heard
- * of — is EXPANDED. Reasons to stay visible are enumerated; hiding is what
- * has to be earned.
+ * of — is PINNED. Reasons to stay visible are enumerated; hiding is what has
+ * to be earned.
  *
- * Two members of the list are easy to miss:
+ * Dormant means nothing is moving: manager idle, no running item, no pending
+ * stop. An ARMED idle queue is dormant by this test — the machine is still —
+ * and the moment an item lands the manager leaves idle, so the next frame
+ * (≤ 1 s) pins the halts on whichever tab the operator is looking at.
  *
- * - A pending stop keeps the strip open even though nothing is "running" in
- *   the dangerous sense: the stop button is in its withdrawal mode, and a
- *   control an operator armed must not fold away under them.
- * - Autostart keeps it open even at idle: an autostarting manager drains
- *   itself the moment an item lands, so "idle" there is not dormant.
- *
- * The states that permit collapse are, deliberately, a subset of the states
- * that already clear both confirm-armed flags in queue-view.js (no running
- * item clears the abort arm; no pending stop means the stop is not in its
- * arming branch) — so a half-armed confirm can never be folded off screen.
+ * A pending stop pins them even though nothing is "running" in the dangerous
+ * sense: the stop button is in its withdrawal mode, and a control an operator
+ * armed must not vanish under them. The pinning states are, deliberately, a
+ * superset of the states that keep either confirm-armed flag set in
+ * queue-view.js — so a half-armed confirm can never be hidden.
  *
  * @param {QueueState} state
  * @returns {boolean}
  */
-export function haltsCollapsible(state) {
-  if (!state.connected) return false;
+export function haltsPinned(state) {
+  if (!state.connected) return true;
   const status = state.status;
-  if (!status || status.available !== true) return false;
+  if (!status || status.available !== true) return true;
   const managerState = typeof status.manager_state === 'string' ? status.manager_state : null;
-  if (managerState === null) return false;
-  if (QUEUE_ACTIVE_MANAGER_STATES.includes(managerState)) return false;
-  if (status.queue_stop_pending === true) return false;
-  if (status.queue_autostart_enabled === true) return false;
-  if (state.runningItem !== null) return false;
-  return true;
+  if (managerState === null) return true;
+  if (managerState !== 'idle') return true;
+  if (status.queue_stop_pending === true) return true;
+  if (state.runningItem !== null) return true;
+  return false;
+}
+
+/**
+ * Which of the strip's controls are shown, given the tab on screen.
+ *
+ * ONE set of controls serves every tab (they render outside the view
+ * containers, so a halt is never a tab switch away). The Queue tab is the
+ * control panel and shows all of them in every state. The other two tabs show
+ * the queue as a badge while it is dormant, and grow the two halts the moment
+ * anything is moving or in doubt (`haltsPinned`). Start never leaves the
+ * Queue tab: arming a queue is a deliberate act, not an always-at-hand one.
+ *
+ * `dormant` is the halts' visual weight: true when the panel affirmatively
+ * knows nothing is moving, so Stop and Abort may render quiet. They stay
+ * live and clickable either way — a greyed halt is still a halt.
+ *
+ * @param {QueueState} state
+ * @param {string} view The active view id (`plans` | `queue` | `results`).
+ * @returns {{start: boolean, halts: boolean, clear: boolean, dormant: boolean}}
+ */
+export function stripControls(state, view) {
+  const pinned = haltsPinned(state);
+  if (view === 'queue') return { start: true, halts: true, clear: true, dormant: !pinned };
+  return { start: false, halts: pinned, clear: false, dormant: !pinned };
+}
+
+/**
+ * The Plans view's enqueue button, in words that match what the click does.
+ *
+ * Adding to an ARMED idle queue runs the plan — so the button says `Run`. In
+ * every other state the item waits its turn, and the note says for what: the
+ * running plan, or a start the operator has to give from the Queue tab. An
+ * unreadable manager promises nothing (the capability banner speaks there).
+ *
+ * @param {QueueStatus|null} status
+ * @returns {{label: string, note: string}}
+ */
+export function enqueuePresentation(status) {
+  if (!status || status.available !== true) return { label: 'Add to queue', note: '' };
+  const managerState = typeof status.manager_state === 'string' ? status.manager_state : null;
+  const active = managerState !== null && QUEUE_ACTIVE_MANAGER_STATES.includes(managerState);
+  if (active) return { label: 'Add to queue', note: 'Runs after the current plan.' };
+  if (queueArmed(status)) return { label: 'Run', note: 'Runs now.' };
+  return { label: 'Add to queue', note: 'The queue is stopped. Start it from the Queue tab.' };
 }
 
 /**
@@ -479,6 +641,21 @@ export function historyEmptyState(records, loaded) {
   return loaded
     ? { hidden: false, message: 'No completed runs yet.' }
     : { hidden: false, message: 'Completed runs could not be loaded.' };
+}
+
+/**
+ * The history Clear control: drop every completed run from the list. A
+ * usability gate only, like the queue's Clear — dead when the list is
+ * provably empty or was never read. Two-step in the view.
+ *
+ * @param {ReturnType<typeof historyRecords>} records
+ * @param {boolean} loaded
+ * @returns {ControlState}
+ */
+export function historyClearControl(records, loaded) {
+  if (!loaded) return { disabled: true, reason: 'Completed runs could not be loaded.' };
+  if (records.length === 0) return { disabled: true, reason: 'No completed runs.' };
+  return { disabled: false, reason: null };
 }
 
 /**

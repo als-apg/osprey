@@ -467,17 +467,19 @@ def test_tiled_roundtrip(deployed_stack: DeployedStack) -> None:
     )
     assert status == 200, f"PATCH /draft failed: {status} {patched}"
 
-    # --- 3. enqueue at the pinned revision, then arm the queue -------------
-    # The two halves of a launch: `POST /queue/items`
-    # takes plan_name/plan_args from the server-side draft snapshot AT this
-    # revision (never from the request body) and mints the OSPREY run id;
-    # `POST /queue/start` is the token-gated arming action that drains it.
-    status, enqueued = _request("/queue/items", "POST", {"draft_revision": patched["revision"]})
+    # --- 3. enqueue at the pinned revision, then make sure it drains --------
+    # `POST /queue/items` takes plan_name/plan_args from the server-side draft
+    # snapshot AT this revision (never from the request body) and mints the
+    # OSPREY run id. The token goes with it: the preset arms the queue, so the
+    # add is what runs the plan; `start_draining` sends a Start only where the
+    # manager reports the queue stopped.
+    status, enqueued = _request(
+        "/queue/items", "POST", {"draft_revision": patched["revision"]}, token=deployed_stack.token
+    )
     assert status == 200, f"POST /queue/items failed: {status} {enqueued}"
     run_id = enqueued["run_id"]
 
-    status, started = _request("/queue/start", "POST", token=deployed_stack.token)
-    assert status == 200, f"POST /queue/start failed: {status} {started}"
+    _queue_drive.start_draining(BRIDGE_URL, deployed_stack.token, run_id)
 
     # --- 4. poll to completion --------------------------------------------
     # Not politeness: TiledWriter caches events and flushes only at the stop

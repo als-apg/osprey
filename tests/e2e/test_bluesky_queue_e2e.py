@@ -28,7 +28,11 @@ Stages, in order, each an independently-reportable test:
 
 1. ``test_1_capability_*``       -- bridge ``/health`` and the sidecar's
    ``/bridge/health`` relay both report ``can_execute: true`` / ``executable``.
-2. ``test_2_enqueue_*``          -- two grid scans from two draft revisions; a
+2. ``test_2_shipped_preset_*``   -- the preset arms the queue at boot
+   (``bluesky.queue_autostart``): an unarmed add is refused
+   ``launch_token_required``; ``test_2_stop_*`` -- the ungated Stop disarms it,
+   which is the stopped queue stages 2-3 are written against.
+   ``test_2_enqueue_*``          -- two grid scans from two draft revisions; a
    second enqueue of the SAME revision is refused ``draft_revision_already_launched``.
    ``test_2_preflight_*``        -- ``POST /plans/{name}/preview`` walks the plan
    in the real worker and moves nothing: the declared channels with their roles,
@@ -41,13 +45,15 @@ Stages, in order, each an independently-reportable test:
    buffer (``run_uid: null``, the live path), each carrying the six-key
    analysis block keyed on the plan's declared movable channel.
 5. ``test_5_session_plan_*``     -- author -> validate (PASS + uploaded) ->
-   stage in the draft -> enqueue -> drain, with the author's own channel roles
+   stage in the draft -> armed enqueue, which on the queue stage 3 left armed
+   IS the drain (no Start), with the author's own channel roles
    and three-field metadata served back by the catalog; a session plan whose
    validated bytes no longer match disk is refused ``session_plan_unvalidated``;
    and a write carrying a retired metadata key is refused outright.
 6. ``test_6_abort_*``            -- the emergency halt: a long run is aborted
-   with NO token, its record reaches ``stopped``, the manager returns to a
-   startable state, and an abort with nothing running is ``nothing_running``.
+   with NO token, its record reaches ``stopped``, the abort DISARMS the queue,
+   the manager returns to a startable state, and an abort with nothing running
+   is ``nothing_running``.
 7. ``test_7_restart_*``          -- restarting ONLY the bridge preserves queue
    and history (they live in Redis, not in the bridge), the completed runs'
    data now serves off the DURABLE Tiled path (``run_uid`` populated), and that
@@ -599,6 +605,34 @@ def _wait_for_manager_state(wanted: tuple[str, ...], timeout: float) -> str:
     raise AssertionError(f"manager never reached {wanted} within {timeout:.0f}s (last: {last!r})")
 
 
+def _wait_for_autostart(wanted: bool, timeout: float) -> None:
+    """Block until the manager reports autostart ``wanted`` -- armed or stopped.
+
+    The bridge applies ``bluesky.queue_autostart`` right after the worker
+    environment opens, a moment `_wait_for_worker_environment` cannot see, so
+    the fixture waits for the flag itself before any stage reads the posture.
+    """
+    deadline = time.monotonic() + timeout
+    last: Any = None
+    while time.monotonic() < deadline:
+        last = _queue_snapshot()["status"].get("queue_autostart_enabled")
+        if bool(last) is wanted:
+            return
+        time.sleep(1.0)
+    raise AssertionError(
+        f"queue_autostart_enabled never read {wanted} within {timeout:.0f}s (last: {last!r})"
+    )
+
+
+def _disarm() -> dict[str, Any]:
+    """The ungated Stop on an idle armed queue: nothing to stop after, so the
+    halt IS the disarm. Returns the response so a caller can assert its shape."""
+    status, body = _post("/queue/stop", timeout=60.0)
+    assert status == 200, f"POST /queue/stop failed: {status} {body}"
+    _wait_for_autostart(False, 30.0)
+    return body
+
+
 def _wait_for_worker_environment(timeout: float) -> dict[str, Any]:
     """Block until the manager reports an OPEN worker environment.
 
@@ -814,6 +848,10 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
         _wait_for_container_health(QUEUESERVER_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
         _wait_for_container_health(TILED_CONTAINER, CONTAINER_HEALTH_TIMEOUT_SEC)
         _wait_for_worker_environment(WORKER_ENV_TIMEOUT_SEC)
+        # The preset arms the queue, and the bridge does so only once the
+        # environment above is open -- wait for the posture too, so stage 2
+        # reads the shipped default and not the moment before it lands.
+        _wait_for_autostart(True, 120.0)
 
         _drain_leftover_queue_items()
 
@@ -937,6 +975,57 @@ def test_1_capability_never_leaks_the_control_socket_credential(stack: QueueStac
 # ===========================================================================
 
 
+def test_2_shipped_preset_arms_the_queue(stack: QueueStack) -> None:
+    """The shipped preset comes up ARMED: an add runs by itself, so an unarmed add is refused.
+
+    ``control-assistant`` pins ``bluesky.queue_autostart: true``, and the
+    bridge applies it to the manager once the worker environment is open. On
+    an armed queue the add is the write that puts a plan on hardware, so it is
+    gated exactly like a Start: ``launch_token_required`` (403 with a token
+    configured, 503 with none), refused BEFORE anything is added -- the
+    negative control below is that the queue is exactly as long as it was.
+    """
+    queue = _queue_snapshot()
+    assert queue["status"].get("queue_autostart_enabled") is True, (
+        f"the shipped preset must arm the queue at boot: {queue['status']}"
+    )
+    before = queue["status"]["items_in_queue"]
+
+    revision = _patch_draft("grid_scan", _grid_args(stack, SHORT_POINTS))
+    status, body = _enqueue(revision)
+    assert status in (403, 503), (
+        f"an unarmed add to an armed queue must be refused: {status} {body}"
+    )
+    assert _code_of(body) == "launch_token_required", (
+        f"wrong refusal code on an unarmed add to an armed queue: {body}"
+    )
+    assert _detail_of(body).get("manager_state") == "idle", (
+        f"the refusal must name the manager state that made the add armed: {body}"
+    )
+    after = _queue_snapshot()["status"]["items_in_queue"]
+    assert after == before, f"the refused add left an item in the queue ({before} -> {after})"
+
+
+def test_2_stop_disarms_the_idle_queue(stack: QueueStack) -> None:
+    """The ungated Stop on an idle armed queue is the disarm, said plainly.
+
+    Nothing is running, so there is nothing to stop after: the response says
+    ``stop_pending: false`` rather than dressing the disarm up as a pending
+    halt, ``armed`` reads false, and the manager's flag follows. This is the
+    stopped queue stages 2 and 3 are written against -- an add sits there until
+    an armed Start.
+    """
+    body = _disarm()
+    assert body.get("stop_pending") is False, (
+        f"a Stop with nothing running must not report a pending stop: {body}"
+    )
+    assert body.get("armed") is False, f"a Stop must report the queue disarmed: {body}"
+    assert isinstance(body.get("msg"), str) and body["msg"], (
+        f"the Stop response carries no sentence for the operator: {body}"
+    )
+    assert _queue_snapshot()["status"].get("queue_autostart_enabled") is False
+
+
 def test_2_enqueue_two_revisions_and_refuse_a_replay(stack: QueueStack) -> None:
     """Two plans from two draft revisions; the SAME revision cannot enqueue twice.
 
@@ -947,10 +1036,14 @@ def test_2_enqueue_two_revisions_and_refuse_a_replay(stack: QueueStack) -> None:
     human confirmation, so the second attempt is refused
     ``draft_revision_already_launched``.
 
-    Both enqueues here are UNARMED (no token) on purpose: the queue is idle, so
-    an added item just sits there until an armed start -- that is the designed
-    compose-now/arm-later flow, and stage 3 owns the arming half.
+    Both enqueues here are UNARMED (no token) on purpose: the test above
+    stopped the queue, so an added item just sits there until an armed start
+    -- the compose-now/arm-later half of the model, and stage 3 owns the
+    arming half. (The armed half, where the add itself runs the plan, is
+    stage 5's.)
     """
+    if _queue_snapshot()["status"].get("queue_autostart_enabled"):
+        pytest.skip("the queue is still armed -- the disarm test above did not take")
     revision_a = _patch_draft("grid_scan", _grid_args(stack, LIVE_SAMPLE_POINTS))
     _S.run_live = _enqueue_ok(revision_a)
 
@@ -1107,11 +1200,11 @@ def test_2_preflight_reports_an_unknown_plan_as_a_reason_not_a_404(stack: QueueS
 def test_3_start_requires_the_launch_token(stack: QueueStack) -> None:
     """``POST /queue/start`` without the token is refused ``launch_token_required``.
 
-    Starting the queue is THE arming action -- qserver autostart stays disabled
-    so the bridge originates every start. 403 (a token is configured, this
-    request did not carry it) and 503 (no token configured at all) are both
-    correct refusals; the code is what a client branches on, so it is the code
-    this asserts.
+    Starting a stopped queue is an arming action -- it switches autostart on
+    and drains everything waiting -- so the token check runs before any state
+    is touched. 403 (a token is configured, this request did not carry it) and
+    503 (no token configured at all) are both correct refusals; the code is
+    what a client branches on, so it is the code this asserts.
     """
     if _S.run_live is None:
         pytest.skip("stage 2 never enqueued anything to start")
@@ -1488,13 +1581,17 @@ def _author_session_plan(name: str, body: str) -> str:
 
 
 def test_5_session_plan_authored_validated_uploaded_and_executed(stack: QueueStack) -> None:
-    """author -> validate (PASS + uploaded) -> stage in the draft -> enqueue -> drain.
+    """author -> validate (PASS + uploaded) -> stage in the draft -> armed enqueue -> drain.
 
     A session plan is the only plan tier that must be uploaded into the RE
     worker's namespace before it can run, and the upload happens as a
     consequence of a PASSING validation -- ``upload.uploaded`` on the validate
     response is the proof it reached a real manager, not merely that the bytes
     hashed clean.
+
+    Stage 3's Start left the queue ARMED, and it stays armed until a halt. So
+    this stage is also the live proof of the other half of the model: the add
+    carries the token, no Start follows, and the plan runs off the add alone.
     """
     _author_session_plan(_SESSION_PLAN_NAME, _SESSION_PLAN_BODY)
 
@@ -1543,11 +1640,12 @@ def test_5_session_plan_authored_validated_uploaded_and_executed(stack: QueueSta
         f"the draft did not take the session plan: {snapshot}"
     )
 
-    _S.run_session = _enqueue_ok(revision)
+    assert _queue_snapshot()["status"].get("queue_autostart_enabled") is True, (
+        "stage 3's Start must have left the queue armed -- the premise of this drain"
+    )
+    _S.run_session = _enqueue_ok(revision, token=stack.token)
 
-    start_status, start_body = _post("/queue/start", token=stack.token)
-    assert start_status == 200, f"start failed for the session plan: {start_status} {start_body}"
-
+    # No Start: on an armed queue the add above is what runs the plan.
     record = _wait_for_run_status(
         str(_S.run_session), ("completed", "error", "stopped"), RUN_TIMEOUT_SEC
     )
@@ -1677,11 +1775,13 @@ def test_6_abort_halts_a_running_plan_without_a_token(stack: QueueStack) -> None
     normally. The first live run of this file found that gap -- the record read
     ``pending`` and the start went through.
     """
+    # The queue is still armed from stage 3 (stage 5 added to it without a
+    # Start), so the armed add is what puts this long run in motion.
+    assert _queue_snapshot()["status"].get("queue_autostart_enabled") is True, (
+        "the queue must still be armed here -- the premise of the add-runs-it flow"
+    )
     revision = _patch_draft("grid_scan", _grid_args(stack, LONG_POINTS))
-    _S.run_aborted = _enqueue_ok(revision)
-
-    start_status, start_body = _post("/queue/start", token=stack.token)
-    assert start_status == 200, f"could not start the long run: {start_status} {start_body}"
+    _S.run_aborted = _enqueue_ok(revision, token=stack.token)
 
     _wait_for_run_status(str(_S.run_aborted), ("running",), 180.0, poll=0.5)
 
@@ -1702,6 +1802,11 @@ def test_6_abort_halts_a_running_plan_without_a_token(stack: QueueStack) -> None
 
     state = _wait_for_manager_state(("idle",), 240.0)
     assert state == "idle", f"the manager did not return to a startable state: {state!r}"
+
+    # A halt DISARMS: the queue that was running plans off every add now waits
+    # for a Start again. Otherwise the requeued item below would go straight
+    # back on the hardware the moment the manager returned to idle.
+    _wait_for_autostart(False, 30.0)
 
     # The manager really did requeue it -- everything below is about that item.
     queue = _queue_snapshot()

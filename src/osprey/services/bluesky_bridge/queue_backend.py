@@ -782,6 +782,16 @@ class QueueBackend:
         """Recent completed items, newest last, as the manager holds them."""
         return await self._call("history_get")
 
+    async def clear_history(self) -> dict[str, Any]:
+        """Drop every history entry. The running item and the queue are untouched.
+
+        Whole-list only: the manager can also trim from an entry back to the
+        oldest, but it cannot drop one entry from the middle — that is why a
+        single-run removal is recorded on the OSPREY side instead
+        (``history_removals.py``).
+        """
+        return await self._call("history_clear")
+
     # ---------------------------------------------------------- queue mutation
 
     async def add_item(
@@ -865,13 +875,30 @@ class QueueBackend:
         return await self._call("item_remove", uid=uid)
 
     async def start(self) -> dict[str, Any]:
-        """Start draining the queue.
+        """Start draining the queue as it stands.
 
         The environment must already be open; callers on the armed path go
-        through :meth:`ensure_environment` first. Autostart stays disabled on
-        the manager, so this is the only way execution ever begins.
+        through :meth:`ensure_environment` first. The manager refuses an empty
+        queue ("Queue is empty."), so the armed route sends this only when
+        there is something to drain and relies on :meth:`autostart` for what
+        arrives later.
         """
         return await self._call("queue_start")
+
+    async def autostart(self, enable: bool) -> dict[str, Any]:
+        """Arm or disarm the queue: in autostart mode the manager drains whatever
+        it holds, and whatever arrives, without a further start.
+
+        The manager persists the flag in Redis and clears it by itself when a
+        plan is stopped, aborted, halted or fails, and when a pending stop
+        drains the queue — so a halt always leaves the queue disarmed whether
+        or not the bridge got to say so.
+        """
+        return await self._call("queue_autostart", enable=enable)
+
+    async def clear(self) -> dict[str, Any]:
+        """Drop every PENDING item. The running item, if any, is untouched."""
+        return await self._call("queue_clear")
 
     async def stop(self, *, cancel: bool = False) -> dict[str, Any]:
         """Stop the queue after the running item finishes, or cancel a pending stop.

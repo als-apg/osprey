@@ -228,6 +228,11 @@ config:
   # write and launch plans, and run read-only health checks.
   claude_code.servers.bluesky.enabled: true
   claude_code.servers.health.enabled: true
+  # The plan queue runs by default: a plan added to it runs as soon as the
+  # queue reaches it, with no separate Start. Stop and Abort disarm the queue
+  # until the next Start. Delete the line (or set it false) for a queue that
+  # comes up stopped and drains only after a Start.
+  bluesky.queue_autostart: true
   # ── Tier floor ─────────────────────────────────────────────────────────────
   # The privileges every tier built from this preset starts WITHOUT. Each key
   # here is off at the bottom and lifted back on by exactly the tier that is

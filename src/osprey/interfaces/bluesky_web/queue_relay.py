@@ -12,6 +12,7 @@ The relayed surface mirrors the bridge's queue contract one-for-one:
 - ``POST /queue/items`` -> enqueue the shared draft at a pinned revision
 - ``POST /queue/items/{uid}/move`` -> reorder one queued item
 - ``DELETE /queue/items/{uid}`` -> drop one queued item
+- ``DELETE /queue/items`` -> drop every pending item
 - ``POST /queue/start`` -> start draining the queue
 - ``POST /queue/stop`` -> stop after the running item (``cancel: true`` withdraws)
 - ``POST /queue/abort`` -> abort the plan already in motion
@@ -277,10 +278,32 @@ async def move_queue_item(request: Request, uid: str) -> JSONResponse:
     return await _forward_write(request, "POST", f"/queue/items/{quote(uid, safe='')}/move")
 
 
+@router.delete("/queue/items")
+async def clear_queue_items(request: Request) -> JSONResponse:
+    """Drop every pending item. Ungated on the bridge: it arms nothing."""
+    return await _forward_write(request, "DELETE", "/queue/items")
+
+
 @router.delete("/queue/items/{uid}")
 async def remove_queue_item(request: Request, uid: str) -> JSONResponse:
     """Relay a removal of one queued item."""
     return await _forward_write(request, "DELETE", f"/queue/items/{quote(uid, safe='')}")
+
+
+@router.delete("/history")
+async def clear_history(request: Request) -> JSONResponse:
+    """Drop every completed run from the manager's history. Ungated on the bridge."""
+    return await _forward_write(request, "DELETE", "/history")
+
+
+@router.delete("/runs/{run_id}")
+async def remove_run(request: Request, run_id: str) -> JSONResponse:
+    """Relay a removal of one finished run from OSPREY's history view.
+
+    The bridge's 404 (unknown run) and 409 (``run_not_finished``: still
+    pending or running) bodies are relayed intact.
+    """
+    return await _forward_write(request, "DELETE", f"/runs/{quote(run_id, safe='')}")
 
 
 @router.post("/queue/start")

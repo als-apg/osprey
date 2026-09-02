@@ -128,11 +128,17 @@ class TestOperatingBlueskyPlansSkillStructure:
         assert "queue_add" in skill_text
         assert "draft_revision" in skill_text
 
-    def test_documents_two_step_add_then_start(self, skill_text):
-        """Execution is two steps by design; the arming gate sits on start."""
+    def test_documents_add_then_start_only_when_stopped(self, skill_text):
+        """Add comes first; start is a separate step taken only on a stopped queue.
+
+        The queue is armed or stopped, and the skill must teach both halves:
+        an add runs at once on an armed queue, and `queue_start` is for the
+        stopped one -- never a reflex after every add.
+        """
         assert skill_text.index("queue_add") < skill_text.index("queue_start")
         lowered = skill_text.lower()
-        assert "two steps" in lowered
+        assert "armed" in lowered and "stopped" in lowered
+        assert "only while the queue is stopped" in lowered
 
     def test_documents_watch_tools(self, skill_text):
         for tool in ("get_run", "get_run_data", "get_run_figure", "list_runs", "list_plans"):

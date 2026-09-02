@@ -894,13 +894,15 @@ def test_router_exposes_exactly_the_bridge_queue_surface() -> None:
 
     assert paths == {
         "/queue": {"get"},
-        "/queue/items": {"post"},
+        "/queue/items": {"post", "delete"},
         "/queue/items/{uid}/move": {"post"},
         "/queue/items/{uid}": {"delete"},
         "/queue/start": {"post"},
         "/queue/stop": {"post"},
         "/queue/abort": {"post"},
         "/queue/events": {"get"},
+        "/history": {"delete"},
+        "/runs/{run_id}": {"delete"},
     }
 
 
@@ -1111,3 +1113,65 @@ def test_queue_events_refuses_an_unknown_lane() -> None:
     assert response.status_code == 404
     assert response.json() == UNKNOWN_LANE_BODY
     assert seen == []
+
+
+def test_clear_items_relays_success_with_no_body() -> None:
+    """``DELETE /queue/items`` is the Clear button: every pending item, one
+    hop, no body — the bridge route takes none, and a stray content-type on an
+    empty body would be a 422 there."""
+    app, seen, contents = _recording_app(200, {"cleared": True, "msg": ""})
+
+    with TestClient(app) as client:
+        response = client.delete("/queue/items")
+
+    assert response.status_code == 200
+    assert response.json() == {"cleared": True, "msg": ""}
+    assert seen[0].method == "DELETE"
+    assert seen[0].url.path == "/queue/items"
+    assert contents[0] == b""
+    assert "content-type" not in seen[0].headers
+
+
+def test_clear_history_relays_success_with_no_body() -> None:
+    """``DELETE /history`` is the History card's Clear: one hop, no body."""
+    app, seen, contents = _recording_app(200, {"cleared": True, "msg": ""})
+
+    with TestClient(app) as client:
+        response = client.delete("/history")
+
+    assert response.status_code == 200
+    assert response.json() == {"cleared": True, "msg": ""}
+    assert seen[0].method == "DELETE"
+    assert seen[0].url.path == "/history"
+    assert contents[0] == b""
+    assert "content-type" not in seen[0].headers
+
+
+def test_remove_run_relays_success_and_the_bridges_refusal_intact() -> None:
+    """``DELETE /runs/{id}`` drops one finished run from the history view; the
+    bridge's ``run_not_finished`` 409 for a run still pending or running is
+    relayed body and all, since the panel names the route it points at."""
+    app, seen, contents = _recording_app(200, {"removed": True, "id": "run-1"})
+
+    with TestClient(app) as client:
+        response = client.delete("/runs/run-1")
+
+    assert response.status_code == 200
+    assert response.json() == {"removed": True, "id": "run-1"}
+    assert seen[0].method == "DELETE"
+    assert seen[0].url.path == "/runs/run-1"
+    assert contents[0] == b""
+
+    refusal = {
+        "detail": {
+            "code": "run_not_finished",
+            "detail": "Run 'run-2' is running; only a finished run can be removed from history.",
+            "status": "running",
+        }
+    }
+    app, _, _ = _recording_app(409, refusal)
+    with TestClient(app) as client:
+        response = client.delete("/runs/run-2")
+
+    assert response.status_code == 409
+    assert response.json() == refusal

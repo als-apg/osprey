@@ -17,13 +17,14 @@ Two halves:
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
 from osprey.services.bluesky_bridge import app as app_module
-from osprey.services.bluesky_bridge import document_plane, live_rows
+from osprey.services.bluesky_bridge import document_plane, history_removals, live_rows
 from osprey.services.bluesky_bridge.app import app
 from osprey.services.bluesky_bridge.queue_backend import QueueBackend
 
@@ -77,10 +78,15 @@ def _item(run_id: str, *, name: str = "grid_scan", result: dict | None = None) -
 
 
 @pytest.fixture(autouse=True)
-def _isolated_state():
+def _isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    # The removed-runs store persists into the bridge's writable directory;
+    # point it at a fresh one so no test sees another's removals.
+    monkeypatch.setenv("BLUESKY_SESSION_PLAN_DIR", str(tmp_path / "plans_session"))
+    history_removals._clear()
     live_rows._clear()
     document_plane._clear()
     yield
+    history_removals._clear()
     live_rows._clear()
     document_plane._clear()
     app_module.set_queue_backend(None)

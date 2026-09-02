@@ -31,9 +31,11 @@
  * Queueing is deterministic: no agent/LLM in this path. The view POSTs the
  * sidecar's `/queue/items` relay with a pinned draft revision; the sidecar
  * attaches the launch token, so the browser never sees or sends one. Adding
- * requires a two-step in-panel confirm and is enabled only when the selected
- * plan's `validated` flag (from the source response) is `true` AND the
- * bridge's capability record says this deployment can execute plans at all.
+ * is one click, enabled only when the selected plan's `validated` flag (from
+ * the source response) is `true` AND the bridge's capability record says this
+ * deployment can execute plans at all. The button's label says what the
+ * click does in the queue's current state (`enqueuePresentation`): `Run` on
+ * an armed idle queue, `Add to queue` when the item waits its turn.
  *
  * Three actions, three different blast radii — kept visibly distinct because
  * confusing them is the expensive mistake:
@@ -44,8 +46,10 @@
  *   - Discard (draft row) is SHARED: deletes the draft on the bridge, for
  *     every panel and for the agent. Two-step confirm, with the consequence
  *     spelled out.
- *   - Add to queue is SHARED and consequential: the queued item runs as soon
- *     as someone starts the queue.
+ *   - Add to queue / Run is SHARED and consequential: on an armed queue the
+ *     item runs as soon as the queue reaches it. The bridge is the gate — it
+ *     token-checks every add to an armed queue — so the panel's job is to say
+ *     so, not to add a click.
  *
  * The whole UI is built with createElement/textContent (via the shared `h`
  * helper in hyperscript.js) — no innerHTML sink anywhere — so plan-authored
@@ -56,6 +60,7 @@
  */
 
 import { h } from './hyperscript.js';
+import { enqueuePresentation } from './queue-client.js';
 import {
   dotClass,
   groupByProvenance,
@@ -104,6 +109,9 @@ import {
  *   ONE function behind both the in-body search box and the tile bar's
  *   contributed `search` item, so the two can never diverge.
  * @property {(mode: 'expert'|'simple') => void} onModeChange
+ * @property {(status: import('./queue-client.js').QueueStatus|null) => void} setQueueStatus
+ *   The queue's latest manager summary (`null` = unknown), for the enqueue
+ *   button's wording.
  */
 
 /**
@@ -202,9 +210,17 @@ export function createPlansView({
   /** @type {import('./schema-form.js').PlanArgsCollector|null} */
   let collectPlanArgs = null;
   let filterText = '';
-  let confirmArmed = false;
   let discardArmed = false;
   let queueing = false;
+
+  /**
+   * The manager summary as the queue view last saw it (`null` = unknown: no
+   * frame yet, or the stream dropped). Drives only the enqueue button's
+   * label and footnote — the bridge decides what an add does, this says it.
+   *
+   * @type {import('./queue-client.js').QueueStatus|null}
+   */
+  let queueStatus = null;
 
   /**
    * Whether the form may differ from the shared draft in a way no incremental
@@ -275,6 +291,7 @@ export function createPlansView({
   );
   const unvalidatedNoteEl = /** @type {HTMLElement} */ (byId('unvalidated-note'));
   const queueAddBtnEl = /** @type {HTMLButtonElement} */ (byId('queue-add-btn'));
+  const queueFootnoteEl = /** @type {HTMLElement} */ (byId('queue-footnote'));
   const resetBtnEl = /** @type {HTMLButtonElement} */ (byId('reset-btn'));
   const tabParamsEl = /** @type {HTMLButtonElement} */ (byId('tab-params'));
   const tabSourceEl = /** @type {HTMLButtonElement} */ (byId('tab-source'));
@@ -434,7 +451,6 @@ export function createPlansView({
     // primary task — and resets both transient confirm gates + the banner.
     setActiveTab('params');
     clearQueueOutcome();
-    confirmArmed = false;
     discardArmed = false;
     // A brand-new form for a newly-selected plan is not a reset divergence.
     formResetSincePatch = false;
@@ -464,22 +480,16 @@ export function createPlansView({
     const validated = Boolean(selectedSource && selectedSource.validated);
     queueAddBtnEl.disabled = !validated || !capability.canExecute || queueing;
     resetBtnEl.disabled = collectPlanArgs === null;
-    if (queueing) {
-      queueAddBtnEl.textContent = 'Adding…';
-      queueAddBtnEl.classList.remove('confirm');
-    } else if (confirmArmed) {
-      // The label is derived from the SAME predicate that drives the behavior
-      // (`queueAddReplacesDraft`), never from a separate reading of the state —
-      // so the confirm can never promise one thing while the enqueue does
-      // another, in any binding/reset combination.
-      queueAddBtnEl.textContent = queueAddReplacesDraft()
-        ? 'Confirm — replaces shared draft'
-        : 'Confirm add';
-      queueAddBtnEl.classList.add('confirm');
-    } else {
-      queueAddBtnEl.textContent = 'Add to queue';
-      queueAddBtnEl.classList.remove('confirm');
-    }
+    const shown = enqueuePresentation(queueStatus);
+    queueAddBtnEl.textContent = queueing ? 'Adding…' : shown.label;
+    // The footnote carries the two facts the click has: what happens next in
+    // the queue's current state, and — from the SAME predicate that drives
+    // the enqueue (`queueAddReplacesDraft`) — whether the shared draft is
+    // replaced by this form on the way, so the note can never promise one
+    // thing while the enqueue does another.
+    const facts = [shown.note];
+    if (selectedSource && queueAddReplacesDraft()) facts.push('Replaces the shared draft.');
+    queueFootnoteEl.textContent = facts.filter(Boolean).join(' ');
   }
 
   function updateDiscardButton() {
@@ -605,7 +615,6 @@ export function createPlansView({
     // write gate; this is a client-side consistency fix).
     selectedSource = null;
     collectPlanArgs = null;
-    confirmArmed = false;
     updateQueueButton();
     renderPlanTree();
     try {
@@ -618,7 +627,6 @@ export function createPlansView({
       );
       if (!response.ok) {
         selectedSource = null;
-        confirmArmed = false;
         detailEmptyEl.hidden = true;
         detailBodyEl.hidden = false;
         detailTitleEl.textContent = name;
@@ -654,7 +662,6 @@ export function createPlansView({
       await draftClient.onPlanSelected(name);
     } catch {
       selectedSource = null;
-      confirmArmed = false;
       detailEmptyEl.hidden = true;
       detailBodyEl.hidden = false;
       showQueueOutcome('err', 'could not reach the bluesky-web sidecar');
@@ -813,7 +820,6 @@ export function createPlansView({
       showQueueOutcome('err', 'bridge unreachable');
     } finally {
       queueing = false;
-      confirmArmed = false;
       updateQueueButton();
     }
   }
@@ -983,13 +989,12 @@ export function createPlansView({
   paramFormEl.addEventListener('change', updateSummary);
   paramFormEl.addEventListener('form-change', updateSummary);
 
+  // One click. The footnote beside the button already says what happens next
+  // and whether the shared draft is replaced; the bridge token-checks every
+  // add to an armed queue. A confirm here was a second click in front of a
+  // fact the operator could already read.
   queueAddBtnEl.addEventListener('click', () => {
     if (queueAddBtnEl.disabled) return;
-    if (!confirmArmed) {
-      confirmArmed = true;
-      updateQueueButton();
-      return;
-    }
     void doQueueAdd();
   });
 
@@ -1063,6 +1068,16 @@ export function createPlansView({
      */
     onModeChange(mode) {
       if (mode === 'simple') setActiveTab('params');
+    },
+    /**
+     * The queue view's latest manager summary, forwarded by the shell. Only
+     * the enqueue button's wording depends on it.
+     *
+     * @param {import('./queue-client.js').QueueStatus|null} status
+     */
+    setQueueStatus(status) {
+      queueStatus = status;
+      updateQueueButton();
     },
   };
 }

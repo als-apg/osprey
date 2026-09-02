@@ -2126,10 +2126,14 @@ describe('queueOutcomeBanner', () => {
     }
   });
 
-  test('the queued banner names the run and says a start is still required', () => {
+  test('the queued banner names the run and promises nothing about a start', () => {
+    // What happens next depends on the queue's state, which the strip badge
+    // and the footnote beside the button already say; the banner must not
+    // claim a start is still required when an armed queue is already running
+    // the item.
     const banner = queueOutcomeBanner({ type: 'queued', runId: 'run-5', revision: 2 });
     expect(banner.message).toContain('run-5');
-    expect(banner.message).toContain('started');
+    expect(banner.message).not.toMatch(/start/i);
   });
 
   test('stale and already-queued give DIFFERENT remedies', () => {
