@@ -3,7 +3,7 @@ Run Your First Plan
 ===================
 
 Ask the agent for a plan in plain words, watch the form fill itself in, press
-two buttons, and watch the points land — all against the Virtual Accelerator,
+one button, and watch the points land — all against the Virtual Accelerator,
 a simulated machine, so nothing real can move.
 
 .. dropdown:: What You'll Learn
@@ -12,7 +12,7 @@ a simulated machine, so nothing real can move.
 
    - Asking for a grid scan the way an operator would say it
    - Reviewing and adjusting the plan in the **PLAN** panel
-   - Why running takes two clicks — **Add to queue**, then **Start queue**
+   - What **Run** does, and when it reads **Add to queue** instead
    - Where the results appear, and how to stop a plan at any moment
 
    **Prerequisites:** the Control Assistant tutorial project
@@ -50,29 +50,36 @@ because there is only one draft. That also means the **Discard shared draft**
 button deletes it for everyone — the agent included — so save it for a real
 fresh start.
 
-Step 3: Add it to the queue
-===========================
+Step 3: Run it
+==============
 
-Click **Add to queue**, then confirm. This puts *exactly the plan on your
-screen* into the plan queue — if anyone changed the draft in the meantime,
-the panel refuses and shows you the current version to review instead.
+Click **Run**, then confirm. This puts *exactly the plan on your screen* into
+the plan queue — if anyone changed the draft in the meantime, the panel
+refuses and shows you the current version to review instead — and, because
+the tutorial project's queue comes up armed, the plan starts right away. A
+line under the button says so: *Runs now.* The panel offers an **Open
+BLUESKY** button that takes you straight to it.
 
-Nothing is running yet. The plan just got in line — and the panel offers an
-**Open BLUESKY** button that takes you straight to it.
-
-Step 4: Start the queue
-=======================
-
-Click that button, or switch to the **BLUESKY** tab. Your plan is listed under **Queue**. Click
-**Start queue** — *this* is the moment things move, and it runs everything in
-the queue, in order, not only your item. Glance at the list before you click.
+If the button reads **Add to queue** instead, the queue is stopped — someone
+pressed Stop or Abort earlier — and your plan waits in line. Switch to the
+**BLUESKY** tab and press **Start** there: it runs everything in the queue,
+in order, not only your item, so glance at the list first.
 
 .. note::
 
-   Starting is the guarded step. On a deployment that has not been armed for
-   execution, the start is refused with a plain-language explanation in the
-   panel — composing and queueing stay free precisely because starting is
-   not. :doc:`queue` explains what "armed" means here.
+   Sending a plan toward the machine is the guarded step, whichever button
+   does it. On a deployment that has not been armed for execution, the run is
+   refused with a plain-language explanation in the panel — composing stays
+   free precisely because running is not. :doc:`queue` explains what "armed"
+   means here.
+
+Step 4: Follow it
+=================
+
+On the **BLUESKY** tab the badge in the status strip reads *running*, and
+the plan sits at the top of the **Queue** view with its progress. When it
+finishes it moves to **History** below, and the badge reads *ready* again:
+the queue is still armed, and the next plan you run goes straight through.
 
 Step 5: Watch the results
 =========================
@@ -118,15 +125,14 @@ If you need to stop
 ===================
 
 Two buttons on the BLUESKY tab, and they always work — no permission, no
-token, no switch can disable them. Whenever anything runs (or the panel
-cannot tell), both sit in the strip at the top; only a provably idle queue
-folds them behind the **Queue controls** disclosure there:
+token, no switch can disable them. They sit in the strip at the top: on the
+Queue tab always, and on every tab whenever anything runs or the panel cannot
+tell. Both leave the queue stopped, so the next plan waits until **Start**.
 
-- **Stop after current item** — gentle. The running plan finishes, then the
-  queue stops.
-- **Abort running plan** — immediate. It takes a second, confirming click,
-  because its cost is real: the rest of the plan is discarded, and the data
-  already taken is kept. Whether the hardware comes back is the plan's own
+- **Stop** — gentle. The running plan finishes, then the queue stops.
+- **Abort** — immediate. It takes a second, confirming click, because its
+  cost is real: the rest of the plan is discarded, and the data already
+  taken is kept. Whether the hardware comes back is the plan's own
   business — ``orm`` and ``orbit_bump_sweep`` put their correctors back on
   every exit path, an abort included, while a plan that makes no such promise
   leaves the machine **wherever the plan left it** — nothing is driven back
@@ -139,17 +145,19 @@ folds them behind the **Queue controls** disclosure there:
    - The draft you watched lives on the **Bluesky bridge**, a small service in
      your project. The agent edits it with its drafting tools; the Plans view
      is a live view of the same object.
-   - **Add to queue** pinned the exact draft revision you saw. A revision can
-     be queued only once, so a double-click cannot queue a duplicate.
+   - **Run** pinned the exact draft revision you saw. A revision can be
+     queued only once, so a double-click cannot queue a duplicate.
    - The queue itself is held by a dedicated **queue server** — a separate
      process with its own copy of the devices. That is why the queue survives
-     restarts of everything around it.
-   - **Start queue** is checked against a **launch token** the deployment
-     holds. Whether the agent holds one too is the deployment's choice: where
-     it grants the token, asking the agent to start a plan starts the plan —
-     your approval of that one tool call is the decision. Where it does not,
-     the agent's start is refused and it tells you so; you start it from the
-     queue panel yourself. For the agent, starting is additionally switched
+     restarts of everything around it. The tutorial project brings it up
+     armed (``bluesky.queue_autostart``), which is why one click ran the plan.
+   - Sending a plan toward the machine — **Run** on an armed queue, or
+     **Start** on a stopped one — is checked against a **launch token** the
+     deployment holds. Whether the agent holds one too is the deployment's
+     choice: where it grants the token, asking the agent to run a plan runs
+     the plan — your approval of that one tool call is the decision. Where it
+     does not, the agent's request is refused and it tells you so; you run it
+     from the panel yourself. For the agent, running is additionally switched
      off entirely whenever the project's control-system writes are disabled.
 
 .. dropdown:: First-run hiccups
@@ -163,7 +171,7 @@ folds them behind the **Queue controls** disclosure there:
       to the Virtual Accelerator; see
       :doc:`/how-to/control-systems/use-virtual-accelerator`.
 
-   **Start queue is refused.**
+   **Run or Start is refused.**
       The refusal in the panel says why, in a sentence. The common causes: the
       deployment is not armed (no launch token), the queue still holds a plan
       someone stopped earlier (remove it first — see :doc:`queue`), or the
