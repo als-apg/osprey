@@ -45,9 +45,9 @@ CLAUDE_CODE_PROVIDERS: dict[str, dict] = {
         "default_model_tier": "sonnet",
         # Fallback model IDs (used when api.providers.anthropic.models is absent)
         "models": {
-            "haiku": "claude-haiku-4-5-20251001",
-            "sonnet": "claude-sonnet-4-5-20250929",
-            "opus": "claude-opus-4-6",
+            "haiku": "claude-haiku-4-5",
+            "sonnet": "claude-sonnet-5",
+            "opus": "claude-opus-5",
         },
     },
     "cborg": {

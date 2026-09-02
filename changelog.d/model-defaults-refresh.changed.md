@@ -1,0 +1,1 @@
+The first-party Anthropic, OpenAI and Google provider defaults moved to current model ids (`claude-haiku-4-5` / `claude-sonnet-5` / `claude-opus-5`, `gpt-5.6-sol` / `-terra` / `-luna`, `gemini-3.8-flash` / `gemini-3.5-flash-lite` / `gemini-2.5-pro`); the OpenAI `gpt-5` snapshots these replace shut down on 2026-12-11.
