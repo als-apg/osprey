@@ -752,6 +752,14 @@ archiver:
 # bluesky:
 #   plan_dirs:
 #     - /app/project/extra_plans
+#
+# `bluesky.queue_autostart` — whether the plan queue runs by default. On, the
+# bridge arms the queue at startup: a plan added to it runs as soon as the
+# queue reaches it, with no separate Start, and Stop/Abort disarm it until the
+# next Start. Off (the default), the queue comes up stopped and drains only
+# after a Start. The control-assistant preset turns it on.
+# bluesky:
+#   queue_autostart: true
 
 # Migration from tutorial to production. Every key named below is a field INSIDE
 # its section — edit `type:` under `control_system:`, not a new top-level

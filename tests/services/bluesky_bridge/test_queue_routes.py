@@ -30,7 +30,7 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
 from osprey.services.bluesky_bridge import app as app_module
-from osprey.services.bluesky_bridge import draft, plan_loader, queue
+from osprey.services.bluesky_bridge import draft, history_removals, plan_loader, queue
 from osprey.services.bluesky_bridge import queue_backend as qb
 from osprey.services.bluesky_bridge.app import app
 from osprey.services.bluesky_bridge.plan_fields import (
@@ -132,11 +132,13 @@ def _isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     plan_loader.reset_facility_plans()
     draft._clear()
     queue._clear()
+    history_removals._clear()
     app_module.set_queue_backend(None)
     yield
     plan_loader.reset_facility_plans()
     draft._clear()
     queue._clear()
+    history_removals._clear()
     app_module.set_queue_backend(None)
 
 
@@ -1298,9 +1300,13 @@ def test_start_ensures_the_environment_then_starts(
     resp = client.post("/queue/start", headers={"X-Launch-Token": _TOKEN})
 
     assert resp.status_code == 200
-    assert resp.json()["started"] is True
+    assert resp.json() == {"started": True, "armed": True, "msg": ""}
     names = manager.method_names()
-    assert "queue_start" in names
+    # Start ARMS the queue: autostart on, so whatever arrives drains. An empty
+    # queue gets no `queue_start` — the manager refuses one ("Queue is empty.")
+    # and an empty stopped queue is a legitimate thing to arm.
+    assert manager.kwargs_for("queue_autostart") == [{"enable": True}]
+    assert "queue_start" not in names
     # Environment already open: verified, never re-opened.
     assert "environment_open" not in names
 
@@ -1528,7 +1534,11 @@ def test_start_still_starts_when_nothing_is_running(
 
     assert resp.status_code == 200
     assert resp.json()["started"] is True
-    assert "queue_start" in manager.method_names()
+    names = manager.method_names()
+    # Armed first, then the pending item is kicked off: the arm is what keeps
+    # the queue running past this item, the start is what runs it now.
+    assert names.index("queue_autostart") < names.index("queue_start")
+    assert manager.kwargs_for("queue_autostart") == [{"enable": True}]
 
 
 def test_stop_is_ungated_but_cancelling_a_stop_requires_the_token(
@@ -1543,17 +1553,118 @@ def test_stop_is_ungated_but_cancelling_a_stop_requires_the_token(
     resp = client.post("/queue/stop")
     assert resp.status_code == 200
     assert resp.json()["stop_pending"] is True
+    assert resp.json()["armed"] is False
 
     unarmed = client.post("/queue/stop", json={"cancel": True})
     assert unarmed.status_code == 403
     assert unarmed.json()["detail"]["code"] == "launch_token_required"
-    # The withdrawal never reached the manager.
-    assert manager.method_names() == ["queue_stop"]
+    # The withdrawal never reached the manager. The plain stop DISARMED first
+    # (autostart off), so nothing added meanwhile could start a fresh drain.
+    assert manager.method_names() == ["queue_autostart", "queue_stop"]
+    assert manager.kwargs_for("queue_autostart") == [{"enable": False}]
 
     armed = client.post("/queue/stop", json={"cancel": True}, headers={"X-Launch-Token": _TOKEN})
     assert armed.status_code == 200
     assert armed.json()["stop_pending"] is False
-    assert manager.method_names() == ["queue_stop", "queue_stop_cancel"]
+    assert armed.json()["armed"] is True
+    # Withdrawal, then re-arm — the reverse of the plain stop's order.
+    assert manager.method_names() == [
+        "queue_autostart",
+        "queue_stop",
+        "queue_stop_cancel",
+        "queue_autostart",
+    ]
+    assert manager.kwargs_for("queue_autostart") == [{"enable": False}, {"enable": True}]
+
+
+def test_stop_on_a_queue_that_is_not_running_is_the_disarm(client: TestClient) -> None:
+    """The manager refuses `queue_stop` on an idle queue; that is not a failed
+    halt. The disarm already happened, and the response says nothing is
+    pending rather than dressing the refusal up as a stop."""
+
+    manager = FakeManager(
+        queue_stop=RequestFailedError({}, {"msg": "Queue is not running."}),
+    )
+    _install(manager)
+
+    resp = client.post("/queue/stop")
+
+    assert resp.status_code == 200
+    assert resp.json()["stop_pending"] is False
+    assert resp.json()["armed"] is False
+    assert manager.kwargs_for("queue_autostart") == [{"enable": False}]
+
+
+def test_clear_drops_every_pending_item_ungated(client: TestClient) -> None:
+    manager = FakeManager(queue_clear={"success": True, "msg": "cleared"})
+    _install(manager)
+
+    resp = client.delete("/queue/items")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"cleared": True, "msg": "cleared"}
+    assert manager.method_names() == ["queue_clear"]
+
+
+def test_clear_relays_a_manager_refusal_as_409(client: TestClient) -> None:
+
+    manager = FakeManager(queue_clear=RequestFailedError({}, {"msg": "nope"}))
+    _install(manager)
+
+    resp = client.delete("/queue/items")
+
+    assert resp.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# DELETE /history — the History card's Clear, ungated
+# ---------------------------------------------------------------------------
+
+
+def test_clear_history_drops_the_managers_history_ungated(client: TestClient) -> None:
+    manager = FakeManager(history_clear={"success": True, "msg": "history cleared"})
+    _install(manager)
+
+    resp = client.delete("/history")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"cleared": True, "msg": "history cleared"}
+    assert manager.method_names() == ["history_clear"]
+
+
+def test_clear_history_forgets_the_osprey_side_removals_too(client: TestClient) -> None:
+    """The entries the removals masked are gone with the history, so the
+    removed set must not linger and mask the NEXT run to reuse an id."""
+    manager = FakeManager(history_clear={"success": True, "msg": ""})
+    _install(manager)
+    history_removals.removed_runs().add("run-old")
+    assert len(history_removals.removed_runs()) == 1
+
+    assert client.delete("/history").status_code == 200
+
+    assert len(history_removals.removed_runs()) == 0
+
+
+def test_clear_history_relays_a_manager_refusal_as_409(client: TestClient) -> None:
+    manager = FakeManager(history_clear=RequestFailedError({}, {"msg": "nope"}))
+    _install(manager)
+
+    resp = client.delete("/history")
+
+    assert resp.status_code == 409
+
+
+def test_status_summary_carries_the_removed_count(client: TestClient) -> None:
+    """The one bridge-owned summary key: a removal moves it, so SSE subscribers
+    re-read history even though none of the manager's uids moved."""
+    manager = FakeManager(
+        status=status_doc(), queue_get={"success": True, "items": [], "running_item": {}}
+    )
+    _install(manager)
+
+    assert client.get("/queue").json()["status"]["runs_removed"] == 0
+    history_removals.removed_runs().add("run-1")
+    assert client.get("/queue").json()["status"]["runs_removed"] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -1784,16 +1895,18 @@ def test_lifespan_closes_the_backend_it_built_itself(monkeypatch: pytest.MonkeyP
 class GatedManager:
     """A manager whose armed-path calls block on test-controlled events.
 
-    ``queue_start`` signals ``start_entered`` and then waits for
-    ``release_start`` while the caller holds the arming lock — the window the
-    race tests interleave an unarmed add into. ``item_add`` optionally waits
-    for ``release_add`` the same way. ``manager_state`` flips to
-    ``starting_queue`` when a start completes, exactly like a real manager.
+    ``queue_autostart`` — the arming call a start makes first, and the only
+    one it makes on an empty queue — signals ``start_entered`` and then waits
+    for ``release_start`` while the caller holds the arming lock — the window
+    the race tests interleave an unarmed add into. ``item_add`` optionally
+    waits for ``release_add`` the same way. The status document reports the
+    autostart flag once the arm completes, exactly like a real manager.
     """
 
     def __init__(self, *, gate_add: bool = False) -> None:
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.manager_state = "idle"
+        self.autostart_enabled = False
         self.start_entered = asyncio.Event()
         self.release_start = asyncio.Event()
         self.add_entered = asyncio.Event()
@@ -1802,12 +1915,19 @@ class GatedManager:
 
     async def status(self, *, reload: bool = False) -> dict[str, Any]:
         self.calls.append(("status", {"reload": reload}))
-        return status_doc(manager_state=self.manager_state)
+        return status_doc(
+            manager_state=self.manager_state, queue_autostart_enabled=self.autostart_enabled
+        )
+
+    async def queue_autostart(self, *, enable: bool) -> dict[str, Any]:
+        self.calls.append(("queue_autostart", {"enable": enable}))
+        self.start_entered.set()
+        await self.release_start.wait()
+        self.autostart_enabled = enable
+        return {"success": True, "msg": ""}
 
     async def queue_start(self) -> dict[str, Any]:
         self.calls.append(("queue_start", {}))
-        self.start_entered.set()
-        await self.release_start.wait()
         self.manager_state = "starting_queue"
         return {"success": True, "msg": ""}
 
@@ -1869,7 +1989,9 @@ async def test_race_unarmed_add_loses_to_an_in_flight_armed_start(
         await add_task
     assert excinfo.value.status_code == 403
     assert excinfo.value.detail["code"] == "launch_token_required"
-    assert excinfo.value.detail["manager_state"] == "starting_queue"
+    # Idle but ARMED: the arm alone makes the unarmed add an execution.
+    assert excinfo.value.detail["manager_state"] == "idle"
+    assert manager.autostart_enabled is True
 
     assert "item_add" not in manager.method_names()
     assert draft._launching == set()
@@ -1923,10 +2045,12 @@ async def test_race_pending_start_waits_for_the_unarmed_add_critical_section(
 
     # Serialization on the wire, exactly: everything after the release point
     # is the add's post-add re-check (a reloaded status read), then the
-    # start's in-lock section — nothing interleaves. Deleting the re-check
-    # makes this fail (the tail would begin with queue_get).
+    # start's in-lock section, ending in the arm (this manager's queue_get
+    # reports nothing pending, so no queue_start follows it) — nothing
+    # interleaves. Deleting the re-check makes this fail (the tail would begin
+    # with queue_get).
     tail = manager.calls[calls_before_release:]
-    assert [name for name, _ in tail] == ["status", "queue_get", "plans_allowed", "queue_start"]
+    assert [name for name, _ in tail] == ["status", "queue_get", "plans_allowed", "queue_autostart"]
     assert tail[0] == ("status", {"reload": True})
 
     # The revision was consumed exactly once.

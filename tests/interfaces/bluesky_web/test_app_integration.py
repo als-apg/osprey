@@ -279,6 +279,11 @@ def test_write_surface_is_exactly_draft_and_queue() -> None:
     # it is listed here for the same reason as the rest -- so a new write route
     # cannot appear without someone justifying it in this list.
     #
+    # The three DELETEs below the queue's own are housekeeping, not work:
+    # /queue/items drops every WAITING plan, /history forgets the manager's
+    # completed runs, and /runs/{run_id} forgets one of them on the OSPREY
+    # side. None of them can move hardware; the bridge gates none of them.
+    #
     # Enumerated deliberately: a new write route must fail this test until
     # someone justifies it in this list.
     write_paths = {
@@ -291,11 +296,14 @@ def test_write_surface_is_exactly_draft_and_queue() -> None:
         ("/draft", "patch"),
         ("/draft", "delete"),
         ("/queue/items", "post"),
+        ("/queue/items", "delete"),
         ("/queue/items/{uid}/move", "post"),
         ("/queue/items/{uid}", "delete"),
         ("/queue/start", "post"),
         ("/queue/stop", "post"),
         ("/queue/abort", "post"),
+        ("/history", "delete"),
+        ("/runs/{run_id}", "delete"),
     }, f"unexpected write surface: {write_paths}"
 
 

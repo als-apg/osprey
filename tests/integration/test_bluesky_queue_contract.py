@@ -287,6 +287,17 @@ class MockQueueServer:
         self.stop_pending = False
         return {"success": True, "msg": "stop withdrawn"}
 
+    async def queue_autostart(self, *, enable: bool) -> dict[str, Any]:
+        await self._enter("queue_autostart", enable=enable)
+        self.autostart_enabled = enable
+        return {"success": True, "msg": ""}
+
+    async def queue_clear(self) -> dict[str, Any]:
+        await self._enter("queue_clear")
+        self.items.clear()
+        self._queue_uid += 1
+        return {"success": True, "msg": "queue cleared"}
+
     async def re_pause(self, **kwargs: Any) -> dict[str, Any]:
         """Pause the Run Engine, refusing when no plan is under way.
 
@@ -655,7 +666,7 @@ def test_the_queue_read_publishes_a_bounded_status_summary(
     assert set(body) == {"status", "items", "running_item"}
     assert [item["item_uid"] for item in body["items"]] == ["item-1"]
     assert body["running_item"] is None
-    assert set(body["status"]) == {"available", *queue._SUMMARY_KEYS}
+    assert set(body["status"]) == {"available", "runs_removed", *queue._SUMMARY_KEYS}
     assert body["status"]["available"] is True
     assert body["status"]["items_in_queue"] == 1
     assert "zmq_secret_key" not in json.dumps(body)
@@ -685,8 +696,13 @@ def test_starting_the_queue_requires_the_launch_token(
     assert armed.status_code == 200
     body = armed.json()
     assert body["started"] is True
+    assert body["armed"] is True
     assert "code" not in body
-    assert manager.manager_state == "starting_queue"
+    # Nothing was queued, so the start is the arm alone: the manager stays
+    # idle and reports autostart on, which is what runs the next item added.
+    assert manager.autostart_enabled is True
+    assert manager.manager_state == "idle"
+    assert "queue_start" not in manager.method_names()
 
 
 def test_enqueueing_onto_a_running_queue_requires_the_launch_token(
@@ -987,12 +1003,15 @@ async def test_an_unarmed_add_racing_an_armed_start_is_refused_and_leaves_no_ite
     connector("virtual_accelerator")
     mock = MockQueueServer()
     app_module.set_queue_backend(QueueBackend(mock))
-    entered_start, release_start = mock.gate("queue_start")
+    # The arming call — with nothing queued, the start ARMS (autostart on) and
+    # sends no `queue_start`; the mock flips to `starting_queue` on the arm so
+    # the add's in-lock read sees the state the start produced.
+    entered_start, release_start = mock.gate("queue_autostart")
     revision = await _draft_revision_direct()
 
     start_task = asyncio.create_task(queue.start_queue(x_launch_token=_TOKEN))
     await asyncio.wait_for(entered_start.wait(), timeout=5)
-    # The start now holds the arming lock, blocked inside queue_start.
+    # The start now holds the arming lock, blocked inside queue_autostart.
 
     add_task = asyncio.create_task(
         queue.add_queue_item(queue.QueueAddRequest(draft_revision=revision), x_launch_token="")
@@ -1009,7 +1028,10 @@ async def test_an_unarmed_add_racing_an_armed_start_is_refused_and_leaves_no_ite
         await asyncio.wait_for(add_task, timeout=5)
     assert excinfo.value.status_code == 403
     assert excinfo.value.detail["code"] == "launch_token_required"
-    assert excinfo.value.detail["manager_state"] == "starting_queue"
+    # Idle but ARMED: the manager reports autostart on, and that alone is what
+    # makes the unarmed add an execution and refuses it.
+    assert excinfo.value.detail["manager_state"] == "idle"
+    assert mock.autostart_enabled is True
 
     # The safety property, read off the manager rather than inferred: an
     # unarmed add during a start leaves NOTHING behind, and the revision is
@@ -1027,7 +1049,7 @@ async def test_an_unarmed_add_racing_an_armed_start_is_refused_and_leaves_no_ite
     # the add itself while the start held the lock, and its arming read saw the
     # state the start produced rather than the one it replaced.
     names = mock.method_names()
-    tail = mock.calls[names.index("queue_start") + 1 :]
+    tail = mock.calls[names.index("queue_autostart") + 1 :]
     assert [name for name, _ in tail] == ["status", "status"]
     assert tail[-1] == ("status", {"reload": True})
 
@@ -1113,7 +1135,7 @@ def _assert_snapshot_frame(frame: dict[str, Any]) -> None:
     """Every frame on this stream is a full snapshot in one fixed shape."""
     assert set(frame) == {"type", "status", "items", "running_item"}
     assert frame["type"] in ("hello", "queue")
-    assert set(frame["status"]) == {"available", *queue._SUMMARY_KEYS}
+    assert set(frame["status"]) == {"available", "runs_removed", *queue._SUMMARY_KEYS}
     assert frame["status"]["available"] is True
     # Negative control: a snapshot is never a refusal, and never leaks the raw
     # status document's 0MQ material.

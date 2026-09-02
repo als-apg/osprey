@@ -54,6 +54,7 @@ from .figure import (
     default_figure,
     rows_from_columnar,
 )
+from .history_removals import removed_runs
 from .models import (
     PlanSessionWriteRequest,
     PlanValidateRequest,
@@ -68,6 +69,7 @@ from .queue_backend import (
     FunctionTimeoutError,
     QueueBackendError,
     QueueUnavailableError,
+    run_id_of,
 )
 from .session_dir import resolve_session_plan_dir
 from .session_upload import get_session_uploader, upload_after_validation
@@ -171,12 +173,56 @@ async def _open_environment_at_startup() -> None:
     from .queue_backend import QueueBackendError
 
     try:
-        await get_queue_backend().ensure_environment()
+        opened = await get_queue_backend().ensure_environment()
         await get_session_uploader().sync_namespace()
+        await _apply_queue_autostart_posture(environment_open=opened)
     except QueueBackendError as exc:
         logger.warning("worker environment did not open at startup: %s", exc)
     except Exception:
         logger.exception("startup environment open failed unexpectedly")
+
+
+def queue_autostart_configured() -> bool:
+    """Whether config.yml says this deployment's queue runs by default.
+
+    ``bluesky.queue_autostart`` (default off). On, the bridge arms the manager
+    at startup so a plan added to the queue runs without a separate Start;
+    a halt (Stop, Abort) disarms it until the next Start. Off, the queue comes
+    up stopped and every drain begins with a Start. Only a literal ``True``
+    counts — an unreadable config is "off", the direction that starts nothing.
+    """
+    # The same resolution as every other config read in this process
+    # (`qserver_startup.worker_writes_enabled`): the deployed ``CONFIG_FILE``
+    # first, then ``config.yml`` in the working directory.
+    from osprey.utils.config import get_config_value
+
+    try:
+        section = get_config_value("bluesky", {})
+    except Exception:  # noqa: BLE001 - config trouble must not become an armed queue
+        return False
+    return isinstance(section, dict) and section.get("queue_autostart") is True
+
+
+async def _apply_queue_autostart_posture(*, environment_open: bool) -> None:
+    """Make the manager's autostart flag agree with the configured posture.
+
+    Applied in both directions, because the manager persists the flag in
+    Redis across its own restarts: a deployment reconfigured from "runs by
+    default" to "starts on request" must come up disarmed, not carry the old
+    posture forward. Arming is skipped when the environment did not open —
+    autostart drains only with an open environment anyway, and an armed flag
+    over a closed environment would read as "ready" on the panel while
+    nothing could run.
+    """
+    wanted = queue_autostart_configured()
+    backend = get_queue_backend()
+    if wanted and not environment_open:
+        logger.info(
+            "bluesky.queue_autostart is on, but the worker environment is closed; not arming"
+        )
+        return
+    await backend.autostart(wanted)
+    logger.info("queue autostart %s (bluesky.queue_autostart)", "enabled" if wanted else "disabled")
 
 
 @asynccontextmanager
@@ -350,15 +396,26 @@ async def _manager_view() -> tuple[Any, list[Any], list[Any]]:
 
     Fetched together so one route answer is one consistent picture: the running
     item, the pending queue, and the history. `runs.py` does the projection —
-    this function is only the I/O.
+    this function is only the I/O, plus the one OSPREY-side edit to the
+    history: entries an operator removed (`DELETE /runs/{id}`) are dropped
+    here, so every reader of the runs surface sees the same list.
     """
     backend = get_queue_backend()
     queue_state = await backend.items()
     history = await backend.history()
+    history_items = list(history.get("items") or [])
+    removed = removed_runs()
+    removed.prune(run_id_of(item) for item in history_items if isinstance(item, dict))
+    if len(removed):
+        history_items = [
+            item
+            for item in history_items
+            if not (isinstance(item, dict) and run_id_of(item) in removed)
+        ]
     return (
         queue_state.get("running_item"),
         list(queue_state.get("items") or []),
-        list(history.get("items") or []),
+        history_items,
     )
 
 
@@ -422,6 +479,50 @@ async def get_run(run_id: str) -> dict:
     if record is None:
         raise HTTPException(status_code=404, detail=f"unknown run {run_id!r}")
     return record
+
+
+@app.delete("/runs/{run_id}")
+async def remove_run(run_id: str) -> dict:
+    """Remove one completed run from OSPREY's history view. Ungated: arms nothing.
+
+    Only a run that has finished (completed, stopped, error) can be removed
+    here: a pending one is withdrawn with `DELETE /queue/items/{uid}` and a
+    running one is halted with `POST /queue/abort`, so those answer 409 and
+    name the route. The manager keeps its own history entry and Tiled keeps
+    the data; what changes is that the runs surface — `GET /runs`, this id's
+    `GET /runs/{id}`, and everything reading them — no longer reports it. See
+    `history_removals.py` for why this is recorded on the OSPREY side.
+    """
+    try:
+        running_item, queue_items, history_items = await _manager_view()
+    except QueueBackendError as exc:
+        raise queue._http_error(exc) from exc
+    record = runs.find_record(
+        run_id,
+        running_item=running_item,
+        queue_items=queue_items,
+        history_items=history_items,
+    )
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"unknown run {run_id!r}")
+    if record["status"] in (runs.STATUS_PENDING, runs.STATUS_RUNNING):
+        instead = (
+            "DELETE /queue/items/{uid}"
+            if record["status"] == runs.STATUS_PENDING
+            else "POST /queue/abort"
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "run_not_finished",
+                "detail": f"Run {run_id!r} is {record['status']}; only a finished run "
+                f"can be removed from history. Use {instead}.",
+                "status": record["status"],
+            },
+        )
+    removed_runs().add(run_id)
+    queue._notify_change()
+    return {"removed": True, "id": run_id}
 
 
 @app.post("/runs/{run_id}/launch")

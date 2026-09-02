@@ -14,13 +14,16 @@ the routes report is fetched through the stateless
 operations arm hardware motion and are gated on the launch token
 (`security.verify_launch_token`):
 
-- ``POST /queue/start`` — always token-gated; the only way execution ever
-  begins (qserver autostart/loop stays disabled on the manager, so the bridge
-  originates every start).
-- ``POST /queue/items`` while the manager is running, starting, or reporting
-  autostart enabled (`_requires_arming` — the flag is observed, never assumed
-  off) — an item added to a draining queue will execute without any further
-  human action, so it needs the same token. Enqueuing onto an *idle* queue is
+- ``POST /queue/start`` — always token-gated; the arming action. It switches
+  the manager's autostart mode ON (the queue drains what it holds and whatever
+  arrives, until a halt disarms it) and kicks a ``queue_start`` for anything
+  already waiting. The bridge applies the deployment's configured posture
+  (``bluesky.queue_autostart``) at startup, so a deployment whose queue is
+  meant to be running by default comes up armed.
+- ``POST /queue/items`` while the manager is running, starting, or armed
+  (`_requires_arming` — autostart is read off the manager, never assumed) —
+  an item added to an armed queue will execute without any further human
+  action, so it needs the same token. Enqueuing onto a *stopped* queue is
   ungated: the item just sits there until an armed start.
 - ``POST /queue/stop`` with ``cancel: true`` — withdrawing a pending stop
   reverses a human's halt and lets the queue keep draining, so it carries the
@@ -82,6 +85,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from . import document_plane, draft, runs
+from .history_removals import removed_runs
 from .plan_fields import MOVABLE_ROLE, READABLE_ROLE, collect_channels
 from .plan_types import PlanSpec
 from .queue_backend import (
@@ -261,12 +265,12 @@ def _requires_arming(status: dict[str, Any]) -> bool:
     """Whether adding an item right now is an armed operation.
 
     True while a plan is under way (or about to be), and ALSO whenever the
-    manager reports autostart enabled: the bridge never enables autostart —
-    every start originates here — so seeing it on means something armed the
-    manager out-of-band, and an item added to even an idle queue would drain
-    without any further human action. Observing the flag instead of assuming
-    it closes that silent-collapse mode (defense in depth, not a supported
-    configuration).
+    manager reports autostart enabled — the queue is STARTED, and an item
+    added to even an idle armed queue drains without any further human
+    action. The flag is read off the manager rather than inferred from config
+    or from this bridge's own last start: whatever armed the manager (this
+    bridge at startup, an operator's Start, a facility tool out of band), the
+    manager's word is what decides what the add does next.
     """
     return is_queue_active(status) or bool(status.get("queue_autostart_enabled"))
 
@@ -724,10 +728,17 @@ async def _check_devices_exist(
 
 
 def _status_summary(status: dict[str, Any]) -> dict[str, Any]:
-    """The bounded, diffable projection of a manager status document."""
+    """The bounded, diffable projection of a manager status document.
+
+    ``runs_removed`` is the one key that is the bridge's, not the manager's:
+    how many history runs `DELETE /runs/{id}` has hidden from the OSPREY view.
+    It is in the summary so a removal moves the diff and every subscriber
+    re-reads history — the manager's own uids do not move for it.
+    """
     summary: dict[str, Any] = {"available": True}
     for key in _SUMMARY_KEYS:
         summary[key] = status.get(key)
+    summary["runs_removed"] = len(removed_runs())
     return summary
 
 
@@ -736,6 +747,7 @@ def _unavailable_summary(reason: str) -> dict[str, Any]:
     summary: dict[str, Any] = {"available": False, "reason": reason}
     for key in _SUMMARY_KEYS:
         summary[key] = None
+    summary["runs_removed"] = None
     return summary
 
 
@@ -1188,8 +1200,12 @@ async def start_queue(x_launch_token: str = Header(default="")) -> dict[str, Any
     - and re-checked for admissibility (`check_session_plans_ready`; one stale
       session plan refuses the whole start, all-or-nothing).
 
-    Only then does the queue start. If the environment closes again in the gap,
-    the manager refuses the start (409/503) — fail-closed either way.
+    Only then is the queue ARMED: autostart is switched on, so the manager
+    drains what it holds and whatever arrives until a halt disarms it, and a
+    ``queue_start`` is sent for anything already waiting (the manager refuses
+    a start on an empty queue, and an empty stopped queue is a legitimate
+    thing to arm). If the environment closes again in the gap, the manager
+    refuses the start (409/503) — fail-closed either way.
     """
     _require_arming_token(x_launch_token, "starting the queue")
     backend = _get_backend()
@@ -1230,11 +1246,12 @@ async def start_queue(x_launch_token: str = Header(default="")) -> dict[str, Any
             except SessionPlanNotReadyError as exc:
                 raise _session_refusal(exc) from exc
 
-            result = await backend.start()
+            await backend.autostart(True)
+            result = await backend.start() if drained else {}
     except QueueBackendError as exc:
         raise _http_error(exc) from exc
     _notify_change()
-    return {"started": True, "msg": str(result.get("msg") or "")}
+    return {"started": True, "armed": True, "msg": str(result.get("msg") or "")}
 
 
 @router.post("/queue/stop")
@@ -1250,6 +1267,15 @@ async def stop_queue(
     model) is an arming action, so it requires the launch token exactly like
     a start (503 unarmed / 403 mismatch, before anything is touched).
 
+    A plain stop DISARMS first: autostart is switched off before the manager
+    is asked to stop after the running item, so nothing added meanwhile can
+    start a fresh drain — and an idle armed queue, which has nothing to stop
+    after, is simply disarmed. The manager's own refusal of a ``queue_stop``
+    on a queue that is not running is therefore not a failed halt: the halt
+    is the disarm, and the response says ``stop_pending: false``. Withdrawing
+    a stop re-arms in the same order reversed (withdraw, then autostart on),
+    so the queue an operator un-halted keeps draining past the current item.
+
     This route does NOT touch the item already in motion — that is
     `POST /queue/abort`.
     """
@@ -1258,11 +1284,25 @@ async def stop_queue(
         _require_arming_token(x_launch_token, "withdrawing a pending stop")
     backend = _get_backend()
     try:
-        result = await backend.stop(cancel=cancel)
+        if cancel:
+            result = await backend.stop(cancel=True)
+            await backend.autostart(True)
+            stop_pending = False
+        else:
+            await backend.autostart(False)
+            try:
+                result = await backend.stop()
+                stop_pending = True
+            except QueueRequestRejectedError as exc:
+                # Nothing was running to stop after; the disarm above is the
+                # whole halt. Said in the response, never dressed up as pending.
+                logger.debug("queue_stop refused on a queue that is not running: %s", exc)
+                result = {"msg": "The queue is not running; it is now disarmed."}
+                stop_pending = False
     except QueueBackendError as exc:
         raise _http_error(exc) from exc
     _notify_change()
-    return {"stop_pending": not cancel, "msg": str(result.get("msg") or "")}
+    return {"stop_pending": stop_pending, "armed": cancel, "msg": str(result.get("msg") or "")}
 
 
 @router.post("/queue/abort")
@@ -1321,8 +1361,50 @@ async def abort_running_plan() -> dict[str, Any]:
         # pause can land before the plan ends); let the poller re-read.
         _notify_change()
         raise _http_error(exc) from exc
+    # The manager disarms itself when a plan is aborted; this is the same
+    # disarm said explicitly, so the requeued copy of the aborted plan cannot
+    # be picked up by an autostart the manager had not yet cleared. Best
+    # effort: the abort above is the halt, and it has already happened.
+    try:
+        await backend.autostart(False)
+    except QueueBackendError as exc:
+        logger.warning("could not disarm the queue after the abort: %s", exc)
     _notify_change()
     return result
+
+
+@router.delete("/queue/items")
+async def clear_queue_items() -> dict[str, Any]:
+    """Drop every PENDING item. Ungated: removing pending work arms nothing.
+
+    The running item, if any, is untouched — halting it is `POST /queue/abort`.
+    """
+    backend = _get_backend()
+    try:
+        result = await backend.clear()
+    except QueueBackendError as exc:
+        raise _http_error(exc) from exc
+    _notify_change()
+    return {"cleared": True, "msg": str(result.get("msg") or "")}
+
+
+@router.delete("/history")
+async def clear_history() -> dict[str, Any]:
+    """Drop every completed run from the manager's history. Ungated: arms nothing.
+
+    The running item and the pending queue are untouched. The runs' data stays
+    in Tiled — this forgets the manager's record of them, nothing more. The
+    OSPREY-side removals (`DELETE /runs/{id}`) are emptied with it, since the
+    entries they masked are gone.
+    """
+    backend = _get_backend()
+    try:
+        result = await backend.clear_history()
+    except QueueBackendError as exc:
+        raise _http_error(exc) from exc
+    removed_runs().clear()
+    _notify_change()
+    return {"cleared": True, "msg": str(result.get("msg") or "")}
 
 
 @router.get("/queue/events")
