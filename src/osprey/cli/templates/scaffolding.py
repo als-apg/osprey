@@ -25,7 +25,7 @@ logger = logging.getLogger("osprey.cli.templates")
 # than silently tracking whatever `npm install -g @anthropic-ai/claude-code`
 # resolves to at build time. Bump deliberately, alongside the dispatch-worker
 # pin.
-_DEFAULT_CLAUDE_CLI_VERSION = "2.1.146"
+_DEFAULT_CLAUDE_CLI_VERSION = "2.1.258"
 
 CONFIG_TEMPLATE = "config.yml.j2"
 """The project-file template that renders ``config.yml``."""

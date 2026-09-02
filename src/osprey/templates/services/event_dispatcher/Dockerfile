@@ -52,7 +52,7 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
     # Pin the Claude Code CLI so an upstream release cannot silently change the
     # headless agent's behavior between image builds (matches the cli_version
     # OSPREY documents in config.yml). Bump deliberately.
-    && npm install -g @anthropic-ai/claude-code@2.1.146 \
+    && npm install -g @anthropic-ai/claude-code@2.1.258 \
     && rm -rf /var/lib/apt/lists/*
 # The pin is the point, so the CLI's background self-updater is off: a
 # successful update would silently replace the pinned version. Same rationale
