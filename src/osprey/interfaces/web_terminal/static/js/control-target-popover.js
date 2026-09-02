@@ -480,8 +480,9 @@ function renderRow(row, state, rows) {
  * machine vocabulary the name's `title` used to carry (the server's own
  * label, the endpoint, the measured reachability). A real element shown on
  * hover and keyboard focus rather than the browser's `title` bubble, which
- * is delayed, unstyled and mouse-only. Returns `null` for a row with
- * nothing to say.
+ * is delayed, unstyled and mouse-only — the design system's shared info tip
+ * (`.osprey-info` / `.osprey-tip`), with this popover's own classes kept for
+ * the two line tones. Returns `null` for a row with nothing to say.
  * @param {any} row
  * @param {string} kind
  * @returns {HTMLElement|null}
@@ -490,9 +491,9 @@ function infoAffordance(row, kind) {
   const what = descriptor(row, kind);
   const ident = identTitle(row);
   if (!what && !ident) return null;
-  const info = button('ctc-info', 'i');
+  const info = button('osprey-info ctc-info', 'i');
   info.setAttribute('aria-label', `About ${displayName(row, kind)}`);
-  const tip = el('span', 'ctc-tip');
+  const tip = el('span', 'osprey-tip ctc-tip');
   tip.setAttribute('role', 'tooltip');
   if (what) {
     const line = el('span', 'ctc-tip-what', what);

@@ -111,19 +111,30 @@ _DOCUMENTED_RENAMES: dict[str, str] = {
 #: Keep this list equal to the file's actual ``var(--…)`` references:
 #:     grep -o 'var(--[a-zA-Z0-9-]*' base.css | sed 's/var(--//' | sort -u
 _BASE_CSS_HARD_DEPENDENCIES: tuple[str, ...] = (
+    "bg-elevated",
     "bg-primary",
+    "border-default",
     "color-accent",
     "duration-base",
     "duration-instant",
     "font-display",
+    "font-mono",
+    "leading-none",
     "leading-normal",
     "neutral-tint-20",
     "neutral-tint-35",
     "radius-full",
     "radius-sm",
+    "shadow-dropdown",
     "text-muted",
     "text-primary",
+    "text-secondary",
+    "text-sm",
     "text-xl",
+    "text-xs",
+    "weight-medium",
+    "weight-regular",
+    "z-dropdown",
 )
 
 _VAR_DECLARATION_PATTERN = re.compile(r"--([a-zA-Z0-9-]+)\s*:")
