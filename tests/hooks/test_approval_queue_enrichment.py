@@ -553,13 +553,13 @@ def test_queue_add_onto_an_idle_queue_does_not_cry_wolf(
         reason = _reason(_run_queue_add(hook_runner, config, tmp_path, draft_revision=2))
 
     assert "ALREADY RUNNING" not in reason
-    assert "AUTOSTART IS ENABLED" not in reason
+    assert "THE QUEUE IS STARTED" not in reason
     assert "No plan is currently running" in reason
 
 
 @pytest.mark.unit
 def test_queue_add_reports_out_of_band_autostart(tmp_path, hook_runner, make_config, monkeypatch):
-    """Autostart on an idle queue is still armed — OSPREY never enables it."""
+    """Autostart on an idle queue is still armed — the queue is started."""
     config = _queue_config(make_config)
     routes = {
         "/draft": {"draft": {"plan_name": "orm", "plan_args": {}}, "revision": 2},
@@ -574,8 +574,8 @@ def test_queue_add_reports_out_of_band_autostart(tmp_path, hook_runner, make_con
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         reason = _reason(_run_queue_add(hook_runner, config, tmp_path, draft_revision=2))
 
-    assert "AUTOSTART IS ENABLED" in reason
-    assert "out of band" in reason
+    assert "THE QUEUE IS STARTED" in reason
+    assert "no further approval" in reason
 
 
 @pytest.mark.unit

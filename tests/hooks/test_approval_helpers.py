@@ -705,7 +705,7 @@ def test_queue_activity_lines_classify_from_what_was_observed(approval):
     autostart = approval._queue_activity_lines(
         {"status": {"manager_state": "idle", "queue_autostart_enabled": True}, "running_item": None}
     )
-    assert "AUTOSTART IS ENABLED" in autostart[0]
+    assert "THE QUEUE IS STARTED" in autostart[0]
 
     idle = approval._queue_activity_lines(
         {"status": {"manager_state": "idle"}, "running_item": None}
@@ -884,7 +884,7 @@ def test_queue_activity_precise_headlines_win_over_the_middle_tier(approval):
             "running_item": None,
         }
     )
-    assert "AUTOSTART IS ENABLED" in autostart[0]
+    assert "THE QUEUE IS STARTED" in autostart[0]
 
 
 @pytest.mark.unit

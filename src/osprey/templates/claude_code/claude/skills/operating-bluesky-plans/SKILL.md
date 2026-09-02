@@ -4,7 +4,8 @@ description: >
   Operate an already-registered Bluesky plan through the shared plan draft and
   the plan/queue panels: stage the complete configuration in one set_draft,
   let the human review it live in the plan panel, add that pinned revision to
-  the queue, start the queue, and watch the run. Use when asked to run, queue,
+  the queue (which runs it where the queue is armed), start the queue where
+  it is stopped, and watch the run. Use when asked to run, queue,
   or start a plan that already exists, AND whenever a measurement is asked for
   in prose that never says "plan": step or sweep a setpoint across a range and
   record a readback, take readings at several settings, vary a corrector and
@@ -19,7 +20,8 @@ summary: Stage, queue, start, and watch a registered plan through the shared dra
 
 Run an already-registered plan the way the panels do: stage the whole
 configuration into the one shared draft, let a human see it, add that exact
-draft to the queue, then start the queue. Every plan the agent runs is
+draft to the queue — which runs it where the queue is armed — and start the
+queue only where it is stopped. Every plan the agent runs is
 narrated through the panels by default — the draft you stage is the same
 surface the human reviews and the same surface `queue_add` queues, so there is
 never a hidden, agent-only path to hardware.
@@ -176,32 +178,36 @@ touched hardware.
 
 ---
 
-## Running is two steps: add, then start
+## Running: add, and start only if the queue is stopped
 
-Execution is deliberately split in two. Adding puts the pinned draft in the
-queue and stops there; starting is what begins real motion. The split is what
-lets a human review a composed queue before anything moves, and it is why the
-arming gate sits on *start* rather than on composition.
+The queue is either **armed** or **stopped**, and `queue_status` /
+`queue_list` say which (`queue_autostart_enabled`). Armed — the default for a
+deployment whose queue runs by default (`bluesky.queue_autostart`) — means a
+plan added to it runs at once, and so does every plan added after it, until a
+stop or an abort disarms it. Stopped means added plans wait for a start.
+Whichever call sends a plan toward the machine is the armed one, and the
+arming gate sits there rather than on composition.
 
 **Step 1 — `queue_add(draft_revision=<the revision set_draft returned>)`.**
 This queues exactly the draft the human can see in their plan panel at that
-revision — never anything you pass here — and then stops. It is the agent
-analog of the plan panel's *Add to queue* button. On success it returns
-`{run_id, revision, item}`: `run_id` is OSPREY's id for the eventual run (use
-it with `get_run` / `get_run_data` / `get_run_figure`), and `item.item_uid` is
-the queue handle.
+revision — never anything you pass here. On an armed queue it runs now; on a
+stopped queue it waits. It is the agent analog of the plan panel's *Run* /
+*Add to queue* button. On success it returns `{run_id, revision, item}`:
+`run_id` is OSPREY's id for the eventual run (use it with `get_run` /
+`get_run_data` / `get_run_figure`), and `item.item_uid` is the queue handle.
+Tell the human which of the two happened.
 
 **A revision is consumable exactly once.** Queuing the same plan again — a
 repeat plan, a retry — needs a `set_draft` edit to mint a new revision first;
 re-adding a spent one is refused with `draft_revision_already_launched`, by
 design, so a duplicated call cannot silently double-queue a plan.
 
-**Step 2 — `queue_start()`.** This is the arming action, and the only way
-execution ever begins: the manager's own autostart stays disabled, so every
-start comes from a deliberate call here or from the human's *Start queue*
-control. It runs **the queue as it stands — every pending item, in order**,
-not just the one you added. Read `queue_list()` first and be sure the whole
-queue is what should run.
+**Step 2 — `queue_start()`, only while the queue is stopped.** This ARMS the
+queue: it runs **the queue as it stands — every pending item, in order**, not
+just the one you added, and keeps running whatever is added afterwards until
+a stop or abort. Read `queue_list()` first and be sure the whole queue is
+what should run. On an already-armed queue there is nothing to start — do not
+call it.
 
 `queue_start` has **one success shape**: `{"started": true, "msg": ...}`, once
 the bridge has accepted the start behind your approval prompt. The queue is
@@ -213,7 +219,7 @@ the queue runs; there is no second confirmation anywhere. If the start is
 refused with `launch_token_required`, that is not a step you can complete —
 never hunt for a token, edit configuration, or enter a setup mode. Hand the
 action to the operator, who can start the queue from the BLUESKY panel's own
-*Start queue* control.
+*Start* control.
 
 **`queue_list()`** is the read surface for all of this, and is the same view
 the human's queue panel shows. It returns `{status, items, running_item}`:
@@ -470,7 +476,9 @@ approval-gated so a human sees every stop.
 Know its limit before you offer it. **It stops the queue *after* the currently
 running item finishes.** It does not abort a plan that is already moving
 hardware. If something has to stop *now*, that is `stop_run`, below — say which
-one you are doing rather than letting the word "stop" cover both.
+one you are doing rather than letting the word "stop" cover both. Either halt
+also **disarms** the queue: plans added afterwards wait until someone starts
+it again, and on an idle armed queue a plain stop is exactly that disarm.
 
 **`stop_run()`** aborts the plan that is running **right now**. It takes no
 arguments: the queue server runs one plan at a time, and this stops that plan.
