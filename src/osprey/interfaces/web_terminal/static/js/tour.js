@@ -160,23 +160,6 @@ const visible = (node) => {
   return r.width > 0 && r.height > 0;
 };
 
-/**
- * Whether the gallery currently lists a shipped example (its tree renders an
- * "Examples" section). The gallery is a same-origin iframe, so its document
- * is readable; any failure (not loaded yet, cross-origin embed) reads as "no".
- * @returns {boolean}
- */
-function workspaceHasExample() {
-  try {
-    const frame = /** @type {HTMLIFrameElement | null} */ (
-      document.querySelector('iframe[data-panel-id="artifacts"]')
-    );
-    return !!frame?.contentDocument?.querySelector('.tree-section[data-type="examples"]');
-  } catch {
-    return false;
-  }
-}
-
 /* ---- Copy ---- */
 
 /**
@@ -211,7 +194,9 @@ const listPhrase = (items) =>
  * A step's anchor, but only when it is somewhere the operator can see.
  *
  * Four anchors are now bar ITEMS — the control-target chip, the display menu,
- * the command-palette button and (through the rail) the feedback control — and
+ * the command-palette button and (through the rail) the feedback control — a
+ * fifth rides INSIDE one of them (the display menu's Customize row, which is
+ * why removing that item drops two steps, not one) — and
  * a bar item the layout does not name is MOVED into the hidden
  * `#bar-item-pool`, never removed. So `querySelector` keeps answering for
  * chrome that is off screen, and a presence check alone would spotlight a
@@ -240,11 +225,7 @@ const STEPS = [
     anchor: () => document.querySelector('.terminal-card'),
     title: 'Ask in plain language',
     body: () => {
-      const parts = [
-        'This terminal talks to the ',
-        strong('OSPREY agent'),
-        '. Type what you want — no commands to learn.',
-      ];
+      const parts = ['This terminal lets you talk to the ', strong('OSPREY agent'), '.'];
       if (facts.capabilities.length > 0) {
         parts.push(` Here it can ${listPhrase(facts.capabilities)}.`);
       }
@@ -285,7 +266,20 @@ const STEPS = [
     body: () => [
       'Light or dark theme, and a ',
       strong('simple or expert view'),
-      ' of the terminal — switch both here, any time.',
+      ' of the terminal. Expert ',
+      strong('Settings'),
+      ' open from here too.',
+    ],
+  },
+  {
+    anchor: () => document.querySelector('.bar-customize-entry'),
+    activate: () => toggleOpen('.display-menu-trigger'),
+    place: 'left',
+    title: 'Arrange the bars',
+    body: () => [
+      'The header and status bar are yours to arrange. Open ',
+      strong('Customize bars'),
+      ' here, or right-click either bar, to add, move and remove items.',
     ],
   },
   {
@@ -294,7 +288,7 @@ const STEPS = [
     body: () => [
       'Press ',
       strong('⌘K'),
-      ' to search settings, panels, and actions — the fastest way to find anything in this terminal.',
+      ' to search settings, panels, and actions. The fastest way to find anything in this terminal.',
     ],
   },
   {
@@ -305,10 +299,7 @@ const STEPS = [
     body: () => [
       'Everything the agent produces — plots, data files, reports — lands in ',
       strong('WORKSPACE'),
-      ', ready to open or download. Its rail entry glows when something new arrives.',
-      ...(workspaceHasExample()
-        ? [' The entry under Examples is a shipped sample; your own work lands above it.']
-        : []),
+      ', ready to open or download.',
     ],
     foot: '＋ on the rail adds more panels.',
   },
@@ -319,7 +310,7 @@ const STEPS = [
     title: 'Facility knowledge',
     body: () => [
       strong('KNOWLEDGE'),
-      ' holds this facility’s curated documentation — the same material the agent consults when you ask about the machine. Browse it directly here.',
+      ' holds this facility’s curated documentation, the same material the agent consults when you ask about the machine. Browse it directly here.',
     ],
   },
   {
@@ -336,13 +327,14 @@ const STEPS = [
   {
     anchor: () => document.querySelector('#panel-feedback-btn'),
     title: 'Something wrong? Tell us',
-    body: () => ['If the agent — or this terminal — gets something wrong, report it here.'],
+    body: () => ['If something is not working as you expect, please let us know.'],
+    foot: 'Tip: save it as Local, then paste the record id into your coding-agent session to have it looked at.',
   },
   {
     anchor: () => document.querySelector('.terminal-card'),
     title: 'Try it',
     body: () => [
-      'Pick a question to start — it’s typed into the terminal for you; press Enter to send.',
+      'Pick a question to start.',
     ],
     chips: ['What can you see on this machine?', 'What are you allowed to do in this session?'],
     foot: 'Retake this tour any time from the rail.',
