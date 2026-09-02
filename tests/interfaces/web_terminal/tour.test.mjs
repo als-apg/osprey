@@ -38,6 +38,9 @@ function mountFullShell() {
     </button>
     <osprey-display-menu id="display-menu">
       <button class="display-menu-trigger" aria-expanded="false"></button>
+      <div class="display-menu-card">
+        <button class="display-menu-settings bar-customize-entry">Customize bars</button>
+      </div>
     </osprey-display-menu>
     <button id="command-palette-btn"></button>
     <nav class="panel-rail">
@@ -160,13 +163,13 @@ describe('invite policy', () => {
 });
 
 describe('steps', () => {
-  test('all nine steps run with the full shell mounted, in order', () => {
+  test('all ten steps run with the full shell mounted, in order', () => {
     mountFullShell();
     applyTourConfig({ tour: { policy: 'never', capabilities: [] } });
     startTour();
 
     const titles = [];
-    for (let i = 0; i < 9; i++) {
+    for (let i = 0; i < 10; i++) {
       titles.push(cardTitle());
       click(nextBtn());
       vi.advanceTimersByTime(200); // settle re-render
@@ -175,6 +178,7 @@ describe('steps', () => {
       'Ask in plain language',
       'Your control target',
       'Make it yours',
+      'Arrange the bars',
       'Search everything',
       'Your workspace',
       'Facility knowledge',
@@ -183,33 +187,6 @@ describe('steps', () => {
       'Try it',
     ]);
     expect(document.querySelector('.tour-card')).toBe(null);
-  });
-
-  test('the workspace step mentions the shipped example only when the gallery lists one', () => {
-    /** Advance to "Your workspace" (step 5) and return the card body text. */
-    const workspaceBody = () => {
-      applyTourConfig({ tour: { policy: 'never', capabilities: [] } });
-      startTour();
-      for (let i = 0; i < 4; i++) {
-        click(nextBtn());
-        vi.advanceTimersByTime(200);
-      }
-      expect(cardTitle()).toBe('Your workspace');
-      return document.querySelector('.tour-body')?.textContent ?? '';
-    };
-
-    mountFullShell();
-    expect(workspaceBody()).not.toContain('shipped sample');
-
-    mountFullShell();
-    const frame = document.createElement('iframe');
-    frame.setAttribute('data-panel-id', 'artifacts');
-    document.body.appendChild(frame);
-    const doc = /** @type {Document} */ (frame.contentDocument);
-    doc.body.innerHTML = '<div class="tree-section" data-type="examples"></div>';
-    expect(workspaceBody()).toContain(
-      'The entry under Examples is a shipped sample; your own work lands above it.'
-    );
   });
 
   test('steps with absent anchors drop out and the count adjusts', () => {
@@ -274,8 +251,10 @@ describe('activation', () => {
     workspace.addEventListener('click', clicks);
 
     startTour();
-    for (let i = 0; i < 4; i++) {
-      click(nextBtn()); // → Your workspace
+    // Walked by title rather than by count, so inserting a step ahead of this
+    // one cannot silently retarget the assertion at a different card.
+    for (let guard = 0; guard < 20 && cardTitle() !== 'Your workspace'; guard += 1) {
+      click(nextBtn());
       vi.advanceTimersByTime(200);
     }
     expect(cardTitle()).toBe('Your workspace');

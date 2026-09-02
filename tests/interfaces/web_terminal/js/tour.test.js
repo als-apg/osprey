@@ -31,6 +31,7 @@ const ALL_TITLES = [
   'Ask in plain language',
   'Your control target',
   'Make it yours',
+  'Arrange the bars',
   'Search everything',
   'Your workspace',
   'Facility knowledge',
@@ -53,6 +54,9 @@ const BAR_ITEMS = {
   display:
     '<osprey-display-menu id="display-menu">' +
     '<button class="display-menu-trigger" aria-expanded="false"></button>' +
+    '<div class="display-menu-card">' +
+    '<button class="display-menu-settings bar-customize-entry">Customize bars</button>' +
+    '</div>' +
     '</osprey-display-menu>',
 };
 
@@ -185,11 +189,12 @@ describe('anchors the operator removed', () => {
     expect(kicker()).toBe(`Step 1 of ${ALL_TITLES.length - 1}`);
   });
 
-  test('every pooled bar item drops its own step and no other', () => {
+  test('every pooled bar item drops its own steps and no others', () => {
     poolItem('search');
     poolItem('display');
     poolItem('control-target');
 
+    // The display item owns two: its own step and the Customize row inside it.
     expect(walkTour()).toEqual([
       'Ask in plain language',
       'Your workspace',
@@ -198,6 +203,17 @@ describe('anchors the operator removed', () => {
       'Something wrong? Tell us',
       'Try it',
     ]);
+  });
+
+  test('pooling the display item drops BOTH steps it carries', () => {
+    poolItem('display');
+
+    const seen = walkTour();
+    expect(seen).not.toContain('Make it yours');
+    expect(seen).not.toContain('Arrange the bars');
+    expect(seen).toEqual(
+      ALL_TITLES.filter((t) => t !== 'Make it yours' && t !== 'Arrange the bars')
+    );
   });
 
   test('putting the item back brings its step back', () => {
@@ -215,6 +231,16 @@ describe('anchors that are not bar items', () => {
 
     const seen = walkTour();
     expect(seen).toEqual(ALL_TITLES.filter((t) => t !== 'Something wrong? Tell us'));
+  });
+
+  test('a missing Customize row drops only its own step', () => {
+    // The row is projected into the display menu at runtime; when it is not
+    // there the anchor is gone while the display menu around it stays put.
+    find('.bar-customize-entry').remove();
+
+    const seen = walkTour();
+    expect(seen).toContain('Make it yours');
+    expect(seen).toEqual(ALL_TITLES.filter((t) => t !== 'Arrange the bars'));
   });
 
   test('the terminal card and the rail are unaffected by the pool', () => {
@@ -237,7 +263,8 @@ describe('an anchor parked mid-tour', () => {
     expect(cardTitle()).toBe('Your control target');
 
     // The ladder folds the display item away while the operator is reading —
-    // narrowing the window is enough. The next step must not land on it.
+    // narrowing the window is enough. Neither the display step nor the
+    // Customize row riding inside it may be landed on.
     poolItem('display');
     find('.tour-nav .tour-btn.primary').click();
 
