@@ -145,8 +145,8 @@ export function railOptions() {
     onContextMenu: (/** @type {string} */ id, /** @type {MouseEvent} */ e) =>
       openRailContextMenu(id, e.clientX, e.clientY),
     // Rail drag source: the terminal entry never drags (its tile moves by its
-    // own header bar); everything else defers to rail-drag's policy (simple
-    // mode and fallback mode cancel there).
+    // own header bar); everything else defers to rail-drag's policy (fallback
+    // mode cancels there).
     onDragStart: (/** @type {string} */ id, /** @type {DataTransfer | null} */ dt) =>
       id === TERMINAL_RAIL_ID ? false : railDragStart(id, dt),
     onDragEnd: () => railDragEnd(),

@@ -143,17 +143,15 @@ function buildPaletteDeps() {
   /** @type {import('./palette-registry.js').PaletteDeps} */
   const deps = {
     // Panel show/focus is exactly what a rail click does, and the rail is
-    // present in both modes — in simple the show path takes over the single
-    // locked service tile, which is the rail's own behaviour there.
+    // present in both modes.
     getHiddenPanels,
     getVisiblePanels,
     showPanel,
     // "Focus" reports as a user-initiated activation so the server sees it.
     focusPanel: (id) => activateTab(id, { userInitiated: true }),
-    // Popping out is a browser-tab action, so it survives simple mode's locked
-    // layout untouched. getPopoutPanels is already narrowed to rail members
-    // whose standalone URL resolved, and INCLUDES the active panel — the
-    // context menu's "Open in a new window" reads the same way.
+    // getPopoutPanels is already narrowed to rail members whose standalone URL
+    // resolved, and INCLUDES the active panel — the context menu's "Open in a
+    // new window" reads the same way.
     getPopoutPanels,
     popoutPanel,
     actions,
